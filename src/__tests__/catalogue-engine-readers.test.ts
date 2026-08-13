@@ -377,23 +377,22 @@ describe('the available-games SQL agrees with passesplatformRules', () => {
     });
 });
 
-describe('a known, pre-existing divergence: `excluded` on the availability endpoint', () => {
+describe('`excluded` on the availability endpoint — unified with ADR 0009 (v2.102.2)', () => {
     beforeEach(async () => {
         await setupTestDb();
         seq = 0;
     });
 
     /**
-     * `GET /game-availability` filters out games carrying an EXCLUDED platform;
-     * `passesplatformRules` does not (ADR 0009 rules `excluded` a
-     * submission-level filter, so a game with one excluded platform among many
-     * is still eligible — its other platforms are still scorable).
-     *
-     * Predates this phase and survives it unchanged. Recorded here so the next
-     * person finds a decision rather than a bug, and so a future unification
-     * has a test to change deliberately.
+     * The "future unification" the old pin anticipated happened 2026-08-12
+     * (owner field report: WG-VPXS couldn't pick "Tales from the Crypt" — a
+     * real 1993 machine with a VPXS port, hidden because the tournament
+     * excludes `real`). The endpoint no longer applies `excluded` in SQL;
+     * `excluded` never gates eligibility (ADR 0009). The one deliberate
+     * remnant: a game whose EVERY platform is excluded — nothing left to
+     * submit from — stays hidden (`resolveSubmittablePlatforms` empty).
      */
-    it('hides an excluded-platform game the eligibility gate would admit', async () => {
+    it('shows a game that merely CARRIES an excluded platform (the Tales-from-the-Crypt case)', async () => {
         const app = await createApp();
         const roomId = await createTestRoom(`r4-${Date.now()}`);
         await seedCatalogue('Who Dunnit', ['vpx', 'vpxs', 'real', 'atgames']);
@@ -402,11 +401,25 @@ describe('a known, pre-existing divergence: `excluded` on the availability endpo
 
         const res = await request(app).get(`/api/rooms/${roomId}/game-availability/${tournamentId}`);
         const names = (res.body.games ?? res.body.availableGames ?? res.body).map((g: any) => g.name);
-        expect(names).not.toContain('Who Dunnit');
+        expect(names).toContain('Who Dunnit');
 
         expect(passesplatformRules(
             ['vpx', 'vpxs', 'real', 'atgames'], normalizeTournamentRulesInput(legacy), [],
         )).toBe(true);
+    });
+
+    it('still hides a game whose EVERY platform is excluded (nothing submittable)', async () => {
+        const app = await createApp();
+        const roomId = await createTestRoom(`r4b-${Date.now()}`);
+        await seedCatalogue('Real Only Classic', ['real']);
+        // No `required` — the game is eligible on paper, but `real` is the
+        // sole platform and it's excluded: pickable-but-never-scorable.
+        const legacy = { required: [], excluded: ['real'] };
+        const tournamentId = await seedTournament(roomId, legacy);
+
+        const res = await request(app).get(`/api/rooms/${roomId}/game-availability/${tournamentId}`);
+        const names = (res.body.games ?? res.body.availableGames ?? res.body).map((g: any) => g.name);
+        expect(names).not.toContain('Real Only Classic');
     });
 });
 

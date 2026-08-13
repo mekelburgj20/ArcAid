@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.102.2] — unreleased
+
+**Fix: pick lists hid eligible games that merely CARRY an excluded platform (owner field report: WG-VPXS couldn't pick "Tales from the Crypt").**
+
+### Fixed
+- **The pick-list "excluded" quirk is retired, unifying eligibility with ADR 0009 everywhere.** The web Picks list applied tournament `excluded` rules in its SQL, hiding any game that *carries* an excluded platform — but a VPXS tournament excludes `real` precisely because you can't submit real-machine scores, and every real 19xx classic with a VPXS port carries `real`. Result: most classic tables were invisible to pickers while activate and the pick endpoint correctly accepted them (the divergence was previously documented and test-pinned as a "known quirk awaiting deliberate unification" — this is that unification, triggered by the field report). `excluded` now never gates list eligibility; the one sane remnant survives explicitly: a game whose *every* platform is excluded (nothing left to score from) stays hidden, and platform-less placeholder rows are unaffected. The Discord `/pick-game` autocomplete gets the identical rule so both surfaces match by construction. Both pinning tests rewritten deliberately; new counter-case pins the nothing-submittable hide.
+
 ## [2.102.1] — unreleased
 
 **Hotfix: numpad round 3 — iOS scroll-to-top on every keypress (tester field report).**
