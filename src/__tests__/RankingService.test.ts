@@ -95,6 +95,46 @@ describe('RankingService', () => {
     });
 
     describe('computeRankings', () => {
+        // v2.104.2 regression — the UAT ticker-empty incident. Web submissions
+        // write score_history with game_id NULL (CommunityScoreService passes
+        // no gameId; rotations NULL it later anyway) but full name+tournament
+        // attribution. The old `sh.game_id = g.id` join silently dropped every
+        // such row — masked for months because iScored-synced rows DO carry
+        // game_id. The join is now name+attribution (LeaderboardService
+        // doctrine); this seeds the exact web shape and must produce standings.
+        it('counts web-submitted scores (NULL game_id, name+tournament attributed)', async () => {
+            const roomId = await createTestRoom();
+            const tId = await createTestTournament(roomId);
+            await createTestGame(tId, { name: 'Web Game', status: 'ACTIVE' });
+
+            const db = await (await import('../database/database.js')).getDatabase();
+            await db.run(
+                `INSERT INTO score_history (
+                    game_name, game_room_id, game_id, iscored_username, discord_user_id,
+                    score, source, submitted_from_room_id, submitted_during_tournament_id,
+                    submitted_by_user_id, engine, device
+                 ) VALUES (?, ?, NULL, ?, ?, ?, 'community', ?, ?, ?, 'vpx', 'pc')`,
+                'Web Game', roomId, 'WebPlayer', '111222333444555666',
+                7777, roomId, tId, '111222333444555666',
+            );
+
+            const groupId = crypto.randomUUID();
+            await RankingService.create({
+                id: groupId,
+                name: 'Web Shape Test',
+                rank_method: 'max_10',
+                best_n: 10,
+                min_games: 1,
+                tournament_ids: [tId],
+                game_room_id: roomId,
+            });
+
+            const rankings = await RankingService.computeRankings(groupId);
+            expect(rankings).toHaveLength(1);
+            expect(rankings[0]!.iscored_username).toBe('WebPlayer');
+            expect(rankings[0]!.games_played).toBe(1);
+        });
+
         it('returns empty for group with no tournaments', async () => {
             const roomId = await createTestRoom();
             const groupId = crypto.randomUUID();

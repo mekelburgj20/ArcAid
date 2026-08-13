@@ -299,10 +299,20 @@ export class RankingService {
                         ORDER BY sh.score DESC, sh.created_at ASC
                     ) AS rn
                 FROM games g
-                JOIN score_history sh ON sh.game_id = g.id
+                /* v2.104.2 -- name+attribution join, NOT sh.game_id (owner
+                   field report: ticker empty despite 18 UAT scores).
+                   score_history.game_id is a transient pointer: web
+                   submissions write it NULL (CommunityScoreService passes no
+                   gameId) and rotations/unpins NULL it later -- the old join
+                   silently dropped every web-submitted score, masked for
+                   months because iScored-synced rows DO carry game_id. Same
+                   doctrine as LeaderboardService/RoomScoresService (v2.75.1):
+                   match on tournament attribution + game name. */
+                JOIN score_history sh
+                  ON sh.submitted_during_tournament_id = g.tournament_id
+                 AND LOWER(sh.game_name) = LOWER(g.name)
                 WHERE g.tournament_id IN (${placeholders})
                   AND g.status IN ('ACTIVE','COMPLETED')
-                  AND sh.submitted_during_tournament_id = g.tournament_id
                   AND sh.orphaned_at IS NULL
             ) best
             WHERE best.rn = 1
@@ -623,7 +633,13 @@ export class RankingService {
         `, ...group.tournament_ids, ...group.tournament_ids, ...group.tournament_ids,
            ...group.tournament_ids, ...group.tournament_ids);
 
-        return [
+        // 'nk1' formula-version prefix (v2.104.2): the name-keyed join fix
+        // shipped AFTER broken-empty results were cached WITH watermarks that
+        // match current data — a value-only watermark would short-circuit to
+        // the cached emptiness forever. Version-tagging the formula mismatches
+        // every pre-fix watermark exactly once, forcing one recompute per
+        // group (the v2.13.12 precedent, see the doc comment above).
+        return ['nk1',
             row?.eligible_games ?? 0,
             row?.score_count ?? 0,
             row?.score_sum ?? 0,
