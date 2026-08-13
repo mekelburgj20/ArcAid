@@ -152,10 +152,12 @@ describe('game-availability unions the room game tags', () => {
         expect(names).not.toContain('Wrong Tag');
     });
 
-    it('keeps hiding an excluded-platform game even when the room tagged it', async () => {
-        // `excluded` stays a SQL-side filter on this endpoint (the pre-existing
-        // ADR 0009 divergence pinned in catalogue-engine-readers.test.ts). The
-        // tag widening must not become a hole in it.
+    it('shows an excluded-platform-CARRYING game (v2.102.2 — the old SQL excluded-quirk is retired)', async () => {
+        // Flipped 2026-08-12 with the ADR-0009 unification (owner field
+        // report: the quirk hid every real machine with a VPXS port from
+        // VPXS-tournament pick lists). Carrying an excluded platform never
+        // gates eligibility; only a game with NOTHING submittable left is
+        // hidden — pinned in catalogue-engine-readers.test.ts.
         const roomId = await createTestRoom(`ga-tag-exc-${++seq}`);
         const id = await seedCatalogue('Who Dunnit', { platforms: ['vpx', 'vpxs', 'real', 'atgames'] });
         await tagGame(roomId, id, 'atgames');
@@ -163,7 +165,7 @@ describe('game-availability unions the room game tags', () => {
         const tournamentId = await seedTournament(roomId, { required: ['vpxs'], excluded: ['real'] });
         const names = (await availability(roomId, tournamentId)).games.map((g: any) => g.name);
 
-        expect(names).not.toContain('Who Dunnit');
+        expect(names).toContain('Who Dunnit');
     });
 });
 

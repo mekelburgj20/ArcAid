@@ -9,7 +9,7 @@ import { checkCooldown } from '../../utils/cooldown.js';
 import { getTournamentColor } from '../../utils/discord.js';
 import {
     passesplatformRules, parsePlatformsList, parseTournamentRules,
-    emptyTournamentRules, type TournamentRules,
+    emptyTournamentRules, resolveSubmittablePlatforms, type TournamentRules,
 } from '../../utils/platformRules.js';
 import { PickAwardGate, PICK_AWARD_DISABLED_REPLY } from '../../services/PickAwardGate.js';
 import { catalogueTypeMatchesTournamentMode } from '../../utils/tournamentMode.js';
@@ -98,12 +98,20 @@ export const pickgame: Command = {
                 choices = choices.filter(r => catalogueTypeMatchesTournamentMode(r.mode, tournamentMode));
             }
 
-            // Filter by platform rules
+            // Filter by platform rules + the v2.102.2 no-submittable-platform
+            // hide (mirrors game-availability's JS gate exactly: a game whose
+            // EVERY platform the rules exclude can be picked but never scored,
+            // so it stays out of the list; a game merely CARRYING an excluded
+            // platform — e.g. a real machine with a VPXS port in a VPXS
+            // tournament — stays IN, per ADR 0009's excluded-is-not-eligibility).
             choices = choices.filter(r => {
                 const cataloguePlatforms = parsePlatformsList(r.platforms || '[]');
                 const tags = tagMap.get(r.name.toLowerCase()) || [];
                 const gamePlatforms = [...cataloguePlatforms, ...tags];
-                return passesplatformRules(gamePlatforms, platformRules, parsePlatformsList(r.features || '[]'));
+                if (!passesplatformRules(gamePlatforms, platformRules, parsePlatformsList(r.features || '[]'))) return false;
+                // Platform-less placeholder rows: nothing for exclusions to
+                // remove — same guard as game-availability's JS gate.
+                return gamePlatforms.length === 0 || resolveSubmittablePlatforms(gamePlatforms, platformRules).length > 0;
             });
 
             // Filter by what the user is currently typing

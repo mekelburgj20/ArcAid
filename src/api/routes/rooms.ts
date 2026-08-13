@@ -47,7 +47,7 @@ import type { StatsWindowFilters } from '../../services/StatsService.js';
 import {
     passesplatformRules, parsePlatformsList, parseTournamentRules,
     hasAnyPlatformRules, legacyPlatformsForEngine, deviceMatchTokens,
-    emptyTournamentRules, type TournamentRules,
+    emptyTournamentRules, resolveSubmittablePlatforms, type TournamentRules,
 } from '../../utils/platformRules.js';
 import { deleteScorePhotoFiles } from '../../utils/scorePhotoCleanup.js';
 import { catalogueTypeMatchesTournamentMode } from '../../utils/tournamentMode.js';
@@ -531,16 +531,21 @@ router.get('/:roomId/game-availability/:tournamentId', async (req, res) => {
         //
         // The `required` clauses therefore go into `requiredFilter` (widened by
         // the room's tagged game names below, so SQL can only ever return a
-        // SUPERSET of the JS answer), while `excludedFilter` stays applied
-        // unconditionally — `excluded` is a submission-level filter that
-        // `passesplatformRules` deliberately ignores (ADR 0009), and this
-        // endpoint's long-standing quirk of hiding excluded-platform games is
-        // preserved exactly.
+        // SUPERSET of the JS answer).
+        //
+        // v2.102.2 (owner field report: WG-VPXS couldn't pick "Tales from the
+        // Crypt") — the "long-standing quirk" of ALSO applying `excluded` in
+        // SQL is GONE. It hid any game merely CARRYING an excluded platform:
+        // a VPXS tournament excludes `real` (you can't submit real-machine
+        // scores), so every real 19xx machine with a VPXS port — most of the
+        // classics — vanished from the pick list while activate/POST accepted
+        // them. ADR 0009 is now applied uniformly: `excluded` never gates
+        // eligibility. The one sane half of the quirk survives in the JS gate
+        // below — a game whose EVERY platform is excluded (nothing left to
+        // submit from) stays hidden, via `resolveSubmittablePlatforms`.
         let rules: TournamentRules = emptyTournamentRules();
         let requiredFilter = '';
-        let excludedFilter = '';
         const requiredParams: string[] = [];
-        const excludedParams: string[] = [];
         try {
             rules = parseTournamentRules(tournament);
             // v2.58.0 (ADR 0016) — exact JSON membership instead of `LIKE '%p%'`.
@@ -602,16 +607,8 @@ router.get('/:roomId/game-availability/:tournamentId', async (req, res) => {
                 }
                 if (clauses.length > 0) requiredFilter += ` AND (${clauses.join(' OR ')})`;
             };
-            const addExcluded = (values: string[], sets: (v: string) => Array<[string, string[]]>) => {
-                for (const v of values) {
-                    const clause = clauseFor(sets(v), excludedParams);
-                    if (clause) excludedFilter += ` AND NOT ${clause}`;
-                }
-            };
             addRequired(rules.engines.required, engineSets);
             addRequired(rules.devices.required, deviceSets);
-            addExcluded(rules.engines.excluded, engineSets);
-            addExcluded(rules.devices.excluded, deviceSets);
         } catch { /* no platform filtering */ }
 
         // This room's per-game tag map (name-keyed, ONE query — the same batched
@@ -653,21 +650,27 @@ router.get('/:roomId/game-availability/:tournamentId', async (req, res) => {
                    MIN(gg.features) AS features,
                    MIN(COALESCE(gg.local_image_path, gg.wheel_image_path, gg.image_url)) AS image_url
             FROM global_games gg
-            WHERE gg.status = 'approved'${candidateFilter}${excludedFilter}
+            WHERE gg.status = 'approved'${candidateFilter}
             GROUP BY LOWER(gg.name)
             ORDER BY name
-        `, ...candidateParams, ...excludedParams);
+        `, ...candidateParams);
 
         // The authoritative gate — identical to pickgame.ts's autocomplete
         // filter: tournament mode, then platform rules over catalogue ∪ room
-        // tags with `features` carrying the device axis (ADR 0016 §4).
+        // tags with `features` carrying the device axis (ADR 0016 §4), then
+        // the v2.102.2 no-submittable-platform hide (a game every one of
+        // whose platforms is excluded can be picked but never scored — the
+        // sane survivor of the retired SQL excluded-quirk above).
         const libraryGames = catalogueRows.filter((r: any) => {
             if (!catalogueTypeMatchesTournamentMode(r.mode, tournament.mode)) return false;
             const cataloguePlatforms = parsePlatformsList(r.platforms || '[]');
             const tags = tagMap.get(String(r.name).toLowerCase()) ?? [];
-            return passesplatformRules(
-                [...cataloguePlatforms, ...tags], rules, parsePlatformsList(r.features || '[]'),
-            );
+            const gamePlatforms = [...cataloguePlatforms, ...tags];
+            if (!passesplatformRules(gamePlatforms, rules, parsePlatformsList(r.features || '[]'))) return false;
+            // Platform-less placeholder rows have nothing for exclusions to
+            // remove — only hide when the game HAD platforms and the rules
+            // excluded every one of them.
+            return gamePlatforms.length === 0 || resolveSubmittablePlatforms(gamePlatforms, rules).length > 0;
         });
 
         // Get recently played games in this tournament within the lookback window
