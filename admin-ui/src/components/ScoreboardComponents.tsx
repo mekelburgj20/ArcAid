@@ -4,6 +4,7 @@ import { Lock, Plus, Minus, Camera, Upload, BadgeCheck } from 'lucide-react';
 import QRCode from 'qrcode';
 import ScorePhotoModal from './ScorePhotoModal';
 import GameInfoPopup from './scoreboard/GameInfoPopup';
+import FitRowName from './scoreboard/FitRowName';
 import { fetchScoreCounts } from './scoreboard/scoreCountsBatcher';
 import { AnonymousAvatarIcon } from '../assets/icons/ThemedIcons';
 // ShowcaseThemeConfig imported via SHOWCASE_THEMES lookup in RankingGroupCard
@@ -678,7 +679,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
                             {entry.rank}
                           </span>
                           <PlayerAvatar username={playerName(entry)} discordUserId={entry.discord_user_id} avatarHash={entry.avatar_hash} avatarUrl={entry.avatar_url} size={20} />
-                          <span className={`truncate max-w-[10rem] ${isViewerRow ? 'text-neon-cyan font-medium' : isFill ? 'text-white' : ''}`} style={{ fontSize: '0.8125rem', ...scoreTextCSS }}>{playerName(entry)}</span>
+                          <FitRowName className={`max-w-[10rem] sb-row-name ${isViewerRow ? 'text-neon-cyan font-medium' : isFill ? 'text-white' : ''}`} style={{ fontSize: '0.8125rem', ...scoreTextCSS }}>{playerName(entry)}</FitRowName>
                           {entry.verified && (
                             <span className="inline-flex items-center text-neon-green flex-shrink-0" title="Verified by an admin" aria-label="Verified score">
                               <BadgeCheck size={12} />
@@ -686,7 +687,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
                           )}
                         </div>
                         <span
-                          className={`font-display font-bold mt-0.5 ${scoreColor}`}
+                          className={`font-display font-bold mt-0.5 sb-row-score ${scoreColor}`}
                           style={{ fontSize: '0.875rem', ...scoreTextCSS, ...(globalStyles?.enabled && globalStyles.cssScores ? { color: globalStyles.cssScores } : {}) }}
                           title={scoreFullValueTitle}
                         >
@@ -720,7 +721,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
                             {entry.rank}
                           </span>
                           <PlayerAvatar username={playerName(entry)} discordUserId={entry.discord_user_id} avatarHash={entry.avatar_hash} avatarUrl={entry.avatar_url} size={20} />
-                          <span className={`truncate max-w-[55%] ${isViewerRow ? 'text-neon-cyan font-medium' : isFill ? 'text-white' : ''}`} style={{ fontSize: '0.8125rem', ...scoreTextCSS }}>{playerName(entry)}</span>
+                          <FitRowName origin="left" className={`max-w-[55%] sb-row-name ${isViewerRow ? 'text-neon-cyan font-medium' : isFill ? 'text-white' : ''}`} style={{ fontSize: '0.8125rem', ...scoreTextCSS }}>{playerName(entry)}</FitRowName>
                           {entry.verified && (
                             <span className="inline-flex items-center text-neon-green flex-shrink-0" title="Verified by an admin" aria-label="Verified score">
                               <BadgeCheck size={12} />
@@ -729,7 +730,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
                         </div>
                         <div className="flex items-center gap-1.5">
                           <span
-                            className={`font-display font-bold flex-shrink-0 ${scoreColor}`}
+                            className={`font-display font-bold flex-shrink-0 sb-row-score ${scoreColor}`}
                             style={{ fontSize: '0.8125rem', ...scoreTextCSS, ...(globalStyles?.enabled && globalStyles.cssScores ? { color: globalStyles.cssScores } : {}) }}
                             title={scoreFullValueTitle}
                           >

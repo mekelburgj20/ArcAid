@@ -4,6 +4,7 @@ import { Lock, Plus, Minus, BadgeCheck } from 'lucide-react';
 import type { GameLeaderboard, RankedEntry } from '../ScoreboardComponents';
 import { PlayerAvatar, formatCountdown, GameQRCode, getTitleStyleClass, playerName } from '../ScoreboardComponents';
 import PlayerNameLink from '../PlayerNameLink';
+import FitRowName from './FitRowName';
 import GameInfoPopup from './GameInfoPopup';
 import { useScoreExpand } from './useScoreExpand';
 import { qrBottomMetrics } from '../../lib/scoreboardConfig';
@@ -213,19 +214,21 @@ export default function MinimalCard({
                     />
                     {/* v2.13.16: PlayerNameLink opens quick-view modal on
                         click; modifier-click falls through to full page. */}
-                    <PlayerNameLink
-                      slug={slug}
-                      entry={entry}
-                      onClick={e => e.stopPropagation()}
-                      className="flex-1 text-sm truncate text-secondary no-underline hover:text-neon-cyan transition-colors min-w-0"
-                    />
+                    <FitRowName origin="left" className="flex-1 text-sm sb-row-name min-w-0">
+                      <PlayerNameLink
+                        slug={slug}
+                        entry={entry}
+                        onClick={e => e.stopPropagation()}
+                        className="text-secondary no-underline hover:text-neon-cyan transition-colors"
+                      />
+                    </FitRowName>
                     {entry.verified && (
                       <span className="inline-flex items-center text-neon-green flex-shrink-0" title="Verified by an admin" aria-label="Verified score">
                         <BadgeCheck size={13} />
                       </span>
                     )}
                     <span
-                      className={`text-sm font-bold tabular-nums whitespace-nowrap ${isViewerRow ? 'text-neon-cyan' : 'text-primary'}`}
+                      className={`text-sm sb-row-score font-bold tabular-nums whitespace-nowrap ${isViewerRow ? 'text-neon-cyan' : 'text-primary'}`}
                       title={formatScore(entry.score).endsWith('T') ? entry.score.toLocaleString() : undefined}
                     >
                       {formatScore(entry.score)}

@@ -4,6 +4,7 @@ import { Lock, Plus, Minus, BadgeCheck } from 'lucide-react';
 import type { GameLeaderboard, RankedEntry } from '../ScoreboardComponents';
 import { PlayerAvatar, formatCountdown, GameQRCode, getTitleStyleClass, playerName } from '../ScoreboardComponents';
 import PlayerNameLink from '../PlayerNameLink';
+import FitRowName from './FitRowName';
 import GameInfoPopup from './GameInfoPopup';
 import { useScoreExpand } from './useScoreExpand';
 import { qrBottomMetrics } from '../../lib/scoreboardConfig';
@@ -256,29 +257,36 @@ export default function BannerCard({
                     </span>
                     {/* min-w-0: without it the pill's min-content (driven by the
                         widest score) would widen the whole row rather than the
-                        pill absorbing the available space. */}
-                    <div className={`flex-1 min-w-0 rounded-full px-3 py-1 relative ${
+                        pill absorbing the available space. Mobile-polish batch
+                        (2026-08-12): avatar used to sit absolutely-positioned at
+                        the pill's left edge while the name centered across the
+                        FULL pill width — the two drifted apart as separate
+                        elements instead of reading as one unit. Now the avatar
+                        lives inside the same centered flex row as the name, so
+                        they move (and center) together; only the score stays on
+                        its own line below. */}
+                    <div className={`flex-1 min-w-0 rounded-full px-3 py-1 ${
                       isViewerRow ? 'bg-neon-cyan/25' : 'bg-white/18'
                     }`}>
-                      <div className="absolute left-2 top-1/2 -translate-y-1/2">
-                        <PlayerAvatar
-                          username={playerName(entry)}
-                          discordUserId={entry.discord_user_id}
-                          avatarHash={entry.avatar_hash}
-                          avatarUrl={entry.avatar_url}
-                          size={16}
-                        />
-                      </div>
                       <div className="text-center">
                         {/* v2.13.16: PlayerNameLink opens quick-view modal on
                             click; modifier-click falls through to full page. */}
-                        <div className="flex items-center justify-center gap-1 min-w-0">
-                          <PlayerNameLink
-                            slug={slug}
-                            entry={entry}
-                            onClick={e => e.stopPropagation()}
-                            className="text-[11px] sb-fs-11 truncate text-secondary no-underline hover:text-neon-cyan transition-colors min-w-0"
+                        <div className="flex items-center justify-center gap-1.5 min-w-0">
+                          <PlayerAvatar
+                            username={playerName(entry)}
+                            discordUserId={entry.discord_user_id}
+                            avatarHash={entry.avatar_hash}
+                            avatarUrl={entry.avatar_url}
+                            size={16}
                           />
+                          <FitRowName className="text-[11px] sb-row-name min-w-0">
+                            <PlayerNameLink
+                              slug={slug}
+                              entry={entry}
+                              onClick={e => e.stopPropagation()}
+                              className="text-secondary no-underline hover:text-neon-cyan transition-colors"
+                            />
+                          </FitRowName>
                           {entry.verified && (
                             <span className="inline-flex items-center text-neon-green flex-shrink-0" title="Verified by an admin" aria-label="Verified score">
                               <BadgeCheck size={11} />
@@ -286,7 +294,7 @@ export default function BannerCard({
                           )}
                         </div>
                         <span
-                          className={`text-xs font-bold tabular-nums whitespace-nowrap block ${scoreColor}`}
+                          className={`text-xs sb-row-score font-bold tabular-nums whitespace-nowrap block ${scoreColor}`}
                           title={formatScore(entry.score).endsWith('T') ? entry.score.toLocaleString() : undefined}
                         >
                           {formatScore(entry.score)}

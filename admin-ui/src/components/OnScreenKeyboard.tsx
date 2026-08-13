@@ -58,15 +58,22 @@ function OnScreenKeyboard({ mode, onKeyPress, onBackspace, onDone }: OnScreenKey
   const [shift, setShift] = useState(false);
 
   if (mode === 'numeric') {
+    // Numeric keys are deliberately BIGGER than the alpha keyboard's
+    // (v2.104.0, owner Android field report: "my fingers type the wrong
+    // button" on the 240px grid): the wider grid + py-3.5 + text-lg puts
+    // each key comfortably past the ~44-48px minimum touch-target both
+    // platforms recommend. The alpha keyboard can't take the same bump —
+    // its 10-key rows wouldn't fit a 320px viewport.
+    const numKeyClass = `${keyClass} py-3.5 text-lg`;
     return (
-      <div className="flex flex-col gap-1.5 p-2 bg-surface border-t border-border" style={safeAreaPad}>
-        <div className="grid grid-cols-3 gap-1.5 max-w-[240px] mx-auto">
+      <div className="flex flex-col gap-2 p-2 bg-surface border-t border-border" style={safeAreaPad}>
+        <div className="grid grid-cols-3 gap-2 w-full max-w-[320px] mx-auto">
           {NUMBER_ROW.slice(0, 9).map(k => (
-            <button key={k} type="button" className={keyClass} {...key(() => onKeyPress(k))}>{k}</button>
+            <button key={k} type="button" className={numKeyClass} {...key(() => onKeyPress(k))}>{k}</button>
           ))}
-          <button type="button" aria-label="Backspace" className={`${keyClass} text-neon-amber inline-flex items-center justify-center`} {...key(onBackspace)}><Delete size={16} /></button>
-          <button type="button" className={keyClass} {...key(() => onKeyPress('0'))}>0</button>
-          <button type="button" className={`${keyClass} text-neon-cyan`} {...key(onDone)}>Done</button>
+          <button type="button" aria-label="Backspace" className={`${numKeyClass} text-neon-amber inline-flex items-center justify-center`} {...key(onBackspace)}><Delete size={20} /></button>
+          <button type="button" className={numKeyClass} {...key(() => onKeyPress('0'))}>0</button>
+          <button type="button" className={`${numKeyClass} text-neon-cyan`} {...key(onDone)}>Done</button>
         </div>
       </div>
     );
