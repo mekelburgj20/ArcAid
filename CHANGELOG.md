@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.104.2] — unreleased
+
+**Fix: rankings were blind to every web-submitted score (owner field report: ticker empty despite 18 UAT scores).**
+
+### Fixed
+- **`RankingService.computeRankings` joined scores to games via `score_history.game_id`** — a transient pointer that web submissions write as NULL (and rotations NULL later regardless). Every web-submitted tournament score was silently invisible to rankings; the bug hid for months because iScored-synced rows *do* carry the pointer, and sync used to be the only score source. Post-wipe, with web submission as the primary path, the ranking ticker computed empty against a room full of scores. The join now matches on tournament attribution + game name — the same doctrine every other score read adopted in v2.75.1. The cache watermark gains a formula-version prefix (`nk1:`) so every pre-fix cached-empty result self-invalidates exactly once on deploy (v2.13.12 precedent). Regression test seeds the exact web-submission row shape (NULL game_id, full attribution) and requires standings.
+
 ## [2.104.1] — unreleased
 
 **Hotfix: the mobile score-font bump only applied on the Tournaments tab (owner field report).**
