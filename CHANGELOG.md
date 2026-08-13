@@ -6,6 +6,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.103.0] — unreleased
+
+**`/pick-game` consolidation (owner-designed) + duplicate-activation guard (UAT incident).**
+
+### Added
+- **`/pick-game` is now the one pick command** — optional, mutually-exclusive params: `game` (unchanged pick), `forfeit`, `pass-pick: @user`, `clear`. Forfeit/pass are context-sensitive: **holding the pick right now** → act immediately (forfeit resolves to the game's runner-up on the spot; pass hands the live pick over, with the nominee-onboarding channel post for non-members); **not holding** → saved as your next-win disposition (the old `/my-pick` semantics), with reply copy stating which mode fired. Bare `/pick-game` shows your status. **`/my-pick` is retired** (command count 22 → 21 on deploy — tell the mods) ; `/nominate-picker` (admin on-behalf) unchanged. All copy referencing `/my-pick` (rotation nudges, tournament-form tooltips, Help) updated.
+- **Duplicate-activation guard at every surface** (UAT field incident: two rotation-granted pickers chose "Tales from the Crypt" 5 minutes apart → twin ACTIVE rows + twin iScored boards; cooldown only inspects *finished* games, so a live twin passed clean). `TournamentEngine.activateGame` now throws a typed error on a same-name ACTIVE twin (the chokepoint for web pick, admin activate, Discord `/pick-game` + `/activate-game` — each surfaces a friendly "already running" message, and the two pick surfaces reject *before* any iScored side effect so the player keeps their pick rights); the maintenance queued-promotion loop skips-and-stays-queued instead. Single-slot rotation replays are unaffected (the incumbent completes first).
+
+### Fixed
+- **Runner-up derivation excludes ban-hidden scores** (`orphaned_at IS NULL`) in both the engine's disposition-forfeit branch and the new live-forfeit path — the same leak class the Discord drift audit closed in the read commands; pre-existing in the engine, fixed in lockstep.
+
 ## [2.102.2] — unreleased
 
 **Fix: pick lists hid eligible games that merely CARRY an excluded platform (owner field report: WG-VPXS couldn't pick "Tales from the Crypt").**

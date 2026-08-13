@@ -151,7 +151,7 @@ export class RotationNudgeService {
         await NotificationService.notify({
             userId: playerId,
             type: 'rotationReady',
-            message: `\u{23F0} Rotation soon for **${tournamentName}** — you're in the running! Queue your next pick or set your disposition (\`/my-pick\`) before the slot rotates.${link ? `\n${link}` : ''}`,
+            message: `\u{23F0} Rotation soon for **${tournamentName}** — you're in the running! Queue your next pick or set your disposition (\`/pick-game\`) before the slot rotates.${link ? `\n${link}` : ''}`,
             pushBody: `Rotation soon in ${tournamentName} — get your pick ready.`,
             roomId: gameRoomId,
             tournamentId,

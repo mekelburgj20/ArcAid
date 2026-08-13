@@ -28,11 +28,15 @@ function makeInteraction(opts: { tournamentName: string; gameName: string; userI
         options: {
             getString: (name: string) => {
                 if (name === 'tournament') return opts.tournamentName;
-                if (name === 'game_name') return opts.gameName;
+                // `game_name` was renamed to `game` in the /pick-game
+                // consolidation (ROADMAP, owner-designed 2026-08-12).
+                if (name === 'game') return opts.gameName;
                 return null;
             },
+            getBoolean: () => null,
+            getUser: () => null,
         },
-        deferReply: async () => {},
+        deferReply: async (_opts?: unknown) => {},
         editReply: async (payload: unknown) => { replies.push(payload); return payload; },
         reply: async (payload: unknown) => { replies.push(payload); return payload; },
         // eslint-disable-next-line @typescript-eslint/no-explicit-any

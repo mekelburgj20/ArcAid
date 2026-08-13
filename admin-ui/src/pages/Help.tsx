@@ -986,7 +986,7 @@ export default function Help() {
                 <tr><Td><Code>/my-stats</Code></Td><Td>Personal stats card: wins, win rate, average score, best score, recent games</Td><Td className="text-muted">Check your own performance</Td></tr>
                 <tr><Td><Code>/list-winners</Code></Td><Td>Hall of fame showing recent tournament winners</Td><Td className="text-muted">See who has been winning lately</Td></tr>
                 <tr><Td><Code>/view-selection</Code></Td><Td>Shows queued games and what is coming up next</Td><Td className="text-muted">See the upcoming lineup</Td></tr>
-                <tr><Td><Code>/pick-game</Code></Td><Td>When nominated as picker, choose the next game from eligible options</Td><Td className="text-muted">It is your turn to pick</Td></tr>
+                <tr><Td><Code>/pick-game</Code></Td><Td>Choose the next game when it is your turn to pick. Also handles your pick itself &mdash; <Code>forfeit:True</Code> passes it to the runner-up, <Code>pass-pick:@user</Code> hands it to someone else, <Code>clear:True</Code> resets your saved choice. Run with no options for a status check</Td><Td className="text-muted">It is your turn to pick, or you want to set/check what happens to your NEXT win</Td></tr>
                 <tr><Td><Code>/map-user</Code></Td><Td>Link your Discord account to your iScored username</Td><Td className="text-muted">First-time setup or username change</Td></tr>
                 <tr><Td><Code>/create-backup</Code></Td><Td>Triggers a database backup</Td><Td className="text-muted">Before major changes</Td></tr>
                 <tr><Td><Code>/sync-state</Code></Td><Td>Reconciles Arcaid's database with live iScored data</Td><Td className="text-muted">If scores seem out of sync</Td></tr>

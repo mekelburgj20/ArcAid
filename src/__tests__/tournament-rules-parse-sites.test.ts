@@ -121,7 +121,9 @@ const adminToken = (roomId: string) =>
     signToken({ role: 'room_admin', gameRoomIds: [roomId] });
 
 /** Minimal stand-in for a Discord autocomplete interaction. */
-function fakeAutocomplete(tournamentName: string, focused = 'game_name') {
+// `game_name` was renamed to `game` in the /pick-game consolidation
+// (ROADMAP, owner-designed 2026-08-12).
+function fakeAutocomplete(tournamentName: string, focused = 'game') {
     const responded: Array<Array<{ name: string; value: string }>> = [];
     return {
         responded,
