@@ -217,7 +217,7 @@ export default function MinimalCard({
                       slug={slug}
                       entry={entry}
                       onClick={e => e.stopPropagation()}
-                      className="flex-1 text-sm truncate text-secondary no-underline hover:text-neon-cyan transition-colors min-w-0"
+                      className="flex-1 text-sm sb-row-name truncate text-secondary no-underline hover:text-neon-cyan transition-colors min-w-0"
                     />
                     {entry.verified && (
                       <span className="inline-flex items-center text-neon-green flex-shrink-0" title="Verified by an admin" aria-label="Verified score">
@@ -225,7 +225,7 @@ export default function MinimalCard({
                       </span>
                     )}
                     <span
-                      className={`text-sm font-bold tabular-nums whitespace-nowrap ${isViewerRow ? 'text-neon-cyan' : 'text-primary'}`}
+                      className={`text-sm sb-row-score font-bold tabular-nums whitespace-nowrap ${isViewerRow ? 'text-neon-cyan' : 'text-primary'}`}
                       title={formatScore(entry.score).endsWith('T') ? entry.score.toLocaleString() : undefined}
                     >
                       {formatScore(entry.score)}

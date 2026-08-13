@@ -108,7 +108,7 @@ export default function ScoreList({
                   slug={slug}
                   entry={entry}
                   onClick={e => e.stopPropagation()}
-                  className="sb-fs-13"
+                  className="sb-row-name"
                   style={{
                     flex: 1,
                     fontSize: '13px',
@@ -122,7 +122,7 @@ export default function ScoreList({
                   }}
                 />
               ) : (
-                <span className="sb-fs-13" style={{
+                <span className="sb-row-name" style={{
                   flex: 1,
                   fontSize: '13px',
                   color: nameColor,
@@ -148,7 +148,7 @@ export default function ScoreList({
 
               {/* Score */}
               <span
-                className="sb-fs-12"
+                className="sb-row-score"
                 style={{
                   fontSize: '12px',
                   color: scoreColor,

@@ -19,6 +19,45 @@ export interface LeaderboardWithViewer extends GameLeaderboard {
 }
 
 /**
+ * v2.10x — mobile viewport gate for QR codes (owner design call, 2026-08-12
+ * mobile-polish batch): a QR exists to be scanned BY a phone FROM a
+ * desktop/TV — on the phone itself it's pointless, so QR never renders at
+ * the mobile breakpoint (<=640px) regardless of the room's QR toggle. This
+ * is the single chokepoint: every QR-driving value below (`qrEnabled`, the
+ * legacy `qrMode==='all'` pass-through, and the layout metrics derived from
+ * them — `cardMarginBottom`, `hasQrTop`/`rankQrTopPad`) already funnels
+ * through here, and each card's own `showQr`-derived spacing (footer
+ * padding, overhang reservation) collapses to zero automatically once the
+ * card receives `qrMode='disabled'` — no BannerCard/ShowcaseCard/
+ * MinimalCard/GameCard edit needed. Kiosk (TV-width) and desktop are
+ * unaffected — the media query only matches narrow viewports.
+ *
+ * Defaults to `false` (not mobile) when `matchMedia` is unavailable (jsdom
+ * ships none) — mirrors the guard pattern already used by ThemeProvider /
+ * PinnedCarousel / GameInfoPopup, so existing tests that render this surface
+ * without a matchMedia stub keep seeing pre-change QR behavior.
+ */
+function useIsMobileViewport(): boolean {
+  const [isMobile, setIsMobile] = useState(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
+    return window.matchMedia('(max-width: 640px)').matches;
+  });
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const mq = window.matchMedia('(max-width: 640px)');
+    const handler = () => setIsMobile(mq.matches);
+    handler();
+    if (mq.addEventListener) mq.addEventListener('change', handler);
+    else mq.addListener(handler);
+    return () => {
+      if (mq.removeEventListener) mq.removeEventListener('change', handler);
+      else mq.removeListener(handler);
+    };
+  }, []);
+  return isMobile;
+}
+
+/**
  * v2.86.0 — THE scoreboard surface.
  *
  * Extracted verbatim from `pages/Scoreboard.tsx` so the room-admin
@@ -198,8 +237,12 @@ export default function ScoreboardSurface({
 
   // When sticky is off (default), rankings render inline with game cards
   const inlineRankings = useNewCards && !newConfig.rankingsSticky && rankingGroups.length > 0 && !tickerMode;
+  // Mobile QR gate (see useIsMobileViewport doc comment above) — ANDed into
+  // every QR-enabled check below so a mobile phone never renders one, no
+  // matter the room's QR toggle.
+  const isMobileViewport = useIsMobileViewport();
   // QR codes above game cards add extra height — rankings card needs matching top margin
-  const qrEnabled = newConfig.qrMode === 'all' || (qrKioskOnlyEnabled && newConfig.qrMode === 'kiosk-only');
+  const qrEnabled = !isMobileViewport && (newConfig.qrMode === 'all' || (qrKioskOnlyEnabled && newConfig.qrMode === 'kiosk-only'));
   const hasQrTop = useNewCards && qrEnabled && newConfig.qrPosition === 'top-right';
   const rankQrTopPad = hasQrTop ? newConfig.qrSize + 4 : 0;
   // v2.13.3: bottom-center QR overhangs below the card. The reservation must
@@ -209,7 +252,7 @@ export default function ScoreboardSurface({
   // unreachable even at max scroll. Moving the margin up one level makes flex
   // line cross-size and grid track sizing include the QR space.
   const cardMarginBottom = useNewCards
-    ? qrBottomMetrics(newConfig.qrSize, newConfig.qrMode !== 'disabled', newConfig.qrPosition, newConfig.qrOverlapPx).overhang
+    ? qrBottomMetrics(newConfig.qrSize, !isMobileViewport && newConfig.qrMode !== 'disabled', newConfig.qrPosition, newConfig.qrOverlapPx).overhang
     : 0;
 
   // Measure header height so bg image can start below it
@@ -256,7 +299,7 @@ export default function ScoreboardSurface({
         titleLinkTo={titleLinkTo?.(lb)} titleLinkOnClick={titleLinkOnClick?.(lb)}
       />
     ) : (
-      <GameCard lb={lb} slug={slug} maxScores={maxScores} roomId={roomId} onSubmitScore={onSubmitScore} cardOpacity={cardOpacity} scoreColumns={scoreColumns} viewerUsername={viewerUsername} viewerEntry={lb.viewerEntry} qrMode={qrMode === 'all' ? 'all' : 'disabled'} headerStyle={headerStyle} globalStyles={globalStyles} wheelScale={wheelScale} bgFill={bgFill} bgSize={bgSize} cardWidth={cardWidth} glassOpacity={glassOpacity} gameTitleStyle={gameTitleStyle} gameTitleEnhance={gameTitleEnhance} scoreStyle={scoreStyle} />
+      <GameCard lb={lb} slug={slug} maxScores={maxScores} roomId={roomId} onSubmitScore={onSubmitScore} cardOpacity={cardOpacity} scoreColumns={scoreColumns} viewerUsername={viewerUsername} viewerEntry={lb.viewerEntry} qrMode={!isMobileViewport && qrMode === 'all' ? 'all' : 'disabled'} headerStyle={headerStyle} globalStyles={globalStyles} wheelScale={wheelScale} bgFill={bgFill} bgSize={bgSize} cardWidth={cardWidth} glassOpacity={glassOpacity} gameTitleStyle={gameTitleStyle} gameTitleEnhance={gameTitleEnhance} scoreStyle={scoreStyle} />
     )
   );
 
@@ -419,6 +462,28 @@ export default function ScoreboardSurface({
           .sb-fs-11 { font-size: 12px !important; }
           .sb-fs-12 { font-size: 13px !important; }
           .sb-fs-13 { font-size: 14px !important; }
+          /* Mobile polish batch (2026-08-12) — score-row username + score,
+             specifically (not the generic sb-fs-* floors above, which also
+             cover badges/timers/footer meta the owner did not ask to
+             change). One pair of mobile-only sizes shared by all four card
+             families (BannerCard's pill row, ShowcaseCard's ScoreList rows,
+             MinimalCard's row, legacy GameCard's compact+default rows) —
+             deliberately NOT scaled from each card's own (differing)
+             desktop base the way sb-fs-* is; the ask was "bigger than
+             today, on every family," not "preserve each family's relative
+             ratio." Desktop sizing is untouched (no rule outside this
+             media query). No-ellipsis doctrine: every sb-row-name call site
+             is a 'truncate' (nowrap+ellipsis) span on desktop — at the
+             bigger mobile size that clips MORE characters than today, so
+             this forces wrapping instead (matching the doctrine's "prefer
+             wrapping" instruction) rather than shipping a worse ellipsis. */
+          .sb-row-name  {
+            font-size: 15px !important;
+            white-space: normal !important;
+            overflow-wrap: break-word !important;
+            word-break: break-word !important;
+          }
+          .sb-row-score { font-size: 16px !important; }
         }
       `}</style>
 
