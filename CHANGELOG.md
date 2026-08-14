@@ -6,6 +6,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.107.0] — unreleased
+
+**Search results everywhere now rank nearest-exact-match first (owner field report: "Strike" search buried the exact match below 20 partial matches).**
+
+### Changed
+- **One shared 5-tier relevance scheme** applied to every search surface: exact match → starts-with-the-word ("Strike Zone") → contains-as-whole-word ("Lucky Strike") → substring-inside-a-word ("Striker", "Strikes and Spares") → matched-on-other-fields-only (manufacturer/alias/author) last; alphabetical within tiers. Helpers: `src/utils/searchRank.ts` (JS ranker + SQLite `CASE` fragment emitter) mirrored at `admin-ui/src/lib/searchRank.ts`.
+- **SQL-side ranking (before `LIMIT` — these were truncating results before any ordering could see them):** catalogue Browse Games/merge pickers (`GlobalGameService.search` — previously ordered by insertion id), Game Library add-game autocomplete, Global Scoreboard grid + Ctrl+K palette (relevance leads when a search is typed; the chosen sort breaks ties within tiers), style catalogue search, RA master-list search (existing 3-tier CASE extended to 5).
+- **Discord autocompletes** (`/pick-game`, `/activate-game`, `/force-maintenance`, `/view-stats`): ranked sort before the 25-choice truncation. `/submit-score` and `/deactivate-game` keep their intentional tournament-grouped order.
+- **Client-side search boxes** (room Scoreboard search, Picks, Game Library list, Public Stats games+players, Personal Bests, game picker modal, Compare Players, member picker): shared comparator applied after filtering; Game Library keeps the user's column sort as the within-tier order.
+
+Tests: backend 1704 (+13), admin-ui 742 (+7) — the owner's "Strike" example set is pinned as the acceptance ordering in both helpers and at the SQL layer. Implementation note: SQLite GLOB negated classes are `[^…]`, not `[!…]` — caught by the SQL tests.
+
 ## [2.106.1] — unreleased
 
 **Style P1 field batch (owner reports, same-day): Arcade header layout, Holo Steps scanline artifact, ticker tournament colors.**
