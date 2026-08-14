@@ -3,6 +3,7 @@ import { getDatabase } from '../database/database.js';
 import { normalizeGameName } from '../utils/catalogueUtils.js';
 import { catalogueMatchTokens } from '../utils/platformRules.js';
 import { foldCataloguePlatforms } from '../utils/scoreProvenance.js';
+import { nameRankSqlCase, nameRankSqlParams } from '../utils/searchRank.js';
 
 /**
  * Fold an inbound catalogue payload so `platforms` is an ENGINE list and
@@ -928,10 +929,20 @@ export class GlobalGameService {
             params.push(options.cursor);
         }
 
-        params.push(limit + 1);
+        // Search-relevance work package (2026-08-13): nearest-exact-match
+        // first when the caller supplied search text; untouched `ORDER BY id`
+        // otherwise (empty query → existing default order, per contract).
+        let orderClause = 'id';
+        const orderParams: any[] = [];
+        if (query) {
+            orderClause = `${nameRankSqlCase('name')}, name COLLATE NOCASE`;
+            orderParams.push(...nameRankSqlParams(query));
+        }
+
+        params.push(...orderParams, limit + 1);
 
         const rows: GlobalGame[] = await db.all(
-            `SELECT * FROM global_games WHERE ${conditions.join(' AND ')} ORDER BY id LIMIT ?`,
+            `SELECT * FROM global_games WHERE ${conditions.join(' AND ')} ORDER BY ${orderClause} LIMIT ?`,
             ...params
         );
 

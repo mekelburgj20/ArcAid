@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
 import { PlayerAvatar } from './ScoreboardComponents';
 import { api } from '../lib/api';
+import { compareByRank } from '../lib/searchRank';
 
 /**
  * Member-picker admin add (ROADMAP "membership & privacy arc" rider).
@@ -84,7 +85,10 @@ export default function MemberAdminPicker({
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return pickable;
-    return pickable.filter(m => (m.displayName || m.userId).toLowerCase().includes(q));
+    const found = pickable.filter(m => (m.displayName || m.userId).toLowerCase().includes(q));
+    // Search-relevance work package (2026-08-13): nearest-exact-match first.
+    found.sort(compareByRank(query.trim(), m => m.displayName || m.userId));
+    return found;
   }, [pickable, query]);
 
   const handlePick = async (member: PickableMember) => {

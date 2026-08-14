@@ -1,5 +1,6 @@
 import { getDatabase } from '../database/database.js';
 import { logInfo, logError } from '../utils/logger.js';
+import { nameRankSqlCase, nameRankSqlParams } from '../utils/searchRank.js';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
@@ -39,9 +40,18 @@ export class StyleCatalogueService {
     static async search(query: string, limit: number = 50, offset: number = 0): Promise<{ styles: StyleCatalogueEntry[]; total: number }> {
         const db = await getDatabase();
         const like = `%${query}%`;
+        // Search-relevance work package (2026-08-13): rank by name-match
+        // tier first (an author-only match ranks last, tier 4), alphabetical
+        // within a tier — same as the pre-existing order. Empty query keeps
+        // the original alphabetical-only order untouched.
+        const trimmed = (query || '').trim();
+        const orderBy = trimmed
+            ? `${nameRankSqlCase('name')}, name ASC, author ASC`
+            : 'name ASC, author ASC';
+        const orderParams = trimmed ? nameRankSqlParams(trimmed) : [];
         const styles = await db.all<StyleCatalogueEntry[]>(
-            `SELECT * FROM style_catalogue WHERE name LIKE ? OR author LIKE ? ORDER BY name ASC, author ASC LIMIT ? OFFSET ?`,
-            like, like, limit, offset
+            `SELECT * FROM style_catalogue WHERE name LIKE ? OR author LIKE ? ORDER BY ${orderBy} LIMIT ? OFFSET ?`,
+            like, like, ...orderParams, limit, offset
         );
         const row = await db.get<{ count: number }>(
             `SELECT COUNT(*) as count FROM style_catalogue WHERE name LIKE ? OR author LIKE ?`,

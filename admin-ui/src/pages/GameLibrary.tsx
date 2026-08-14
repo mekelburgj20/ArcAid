@@ -19,6 +19,7 @@ import { getPlatformDisplay, normalizePlatformList } from '../lib/platforms';
 // TAGS stay on `getPlatformDisplay`: they are free-form strings on the old
 // axis, not engines, and folding them would claim a meaning they don't have.
 import { getLegacyPlatformLabel } from '../lib/scoreProvenance';
+import { rankName } from '../lib/searchRank';
 
 interface GameRow {
   id?: string;
@@ -956,7 +957,17 @@ export default function GameLibrary() {
   const sortedGames = useMemo(() => {
     const sorted = [...filteredGames];
     const cmpStr = (a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: 'base' });
+    // Search-relevance work package (2026-08-13): when there's search text,
+    // relevance tier leads (always ascending — nearest-exact-match first
+    // regardless of column sort direction), and the user's chosen column
+    // sort breaks ties WITHIN a tier. No search text → byte-identical to
+    // the pre-existing column-only sort below.
+    const searchText = parsedSearch.text.trim();
     sorted.sort((a, b) => {
+      if (searchText) {
+        const rankDiff = rankName(a.name, searchText) - rankName(b.name, searchText);
+        if (rankDiff !== 0) return rankDiff;
+      }
       let cmp = 0;
       switch (sortKey) {
         case 'name':
@@ -990,7 +1001,7 @@ export default function GameLibrary() {
       return sortDir === 'asc' ? cmp : -cmp;
     });
     return sorted;
-  }, [filteredGames, sortKey, sortDir, communityRatings]);
+  }, [filteredGames, sortKey, sortDir, communityRatings, parsedSearch.text]);
 
   // Reset to page 1 whenever the filtered/sorted set changes shape.
   useEffect(() => {

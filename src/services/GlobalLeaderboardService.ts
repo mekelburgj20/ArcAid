@@ -10,6 +10,7 @@ import {
 import { CARD_CATEGORY_ORDER } from '../utils/scoreProvenance.js';
 import { resolveProfiles } from './PlayerProfileResolver.js';
 import type { IdentityCandidates } from './IdentityCandidateService.js';
+import { nameRankSqlCase, nameRankSqlParams } from '../utils/searchRank.js';
 
 /**
  * The card category expression, for queries that alias `global_scores` as `gs`.
@@ -1041,7 +1042,7 @@ export class GlobalLeaderboardService {
          * could repeat or skip a card that page 1 already showed.
          */
         const stableTail = byCard ? 'gg.id ASC, category ASC' : 'gg.id ASC';
-        const orderBy = (
+        let orderBy = (
             // Pinned first, most-recently-pinned leading, then the standard
             // `popular` ordering for everything else. `pinned_at IS NULL` sorts
             // 0 (pinned) before 1 (not), so it is the primary key of the sort.
@@ -1053,6 +1054,16 @@ export class GlobalLeaderboardService {
             options.sort === 'name_asc' ? 'gg.name COLLATE NOCASE ASC' :
             'popularity DESC, gg.name COLLATE NOCASE ASC' // default: popular
         ) + `, ${stableTail}`;
+
+        // Search-relevance work package (2026-08-13): when a search term is
+        // present, relevance leads and the caller's chosen sort breaks ties
+        // within a tier. This also fixes the ⌘K palette. No search text →
+        // `orderBy` is untouched.
+        const orderByParams: any[] = [];
+        if (options.search && options.search.trim()) {
+            orderBy = `${nameRankSqlCase('COALESCE(gg.display_name, gg.name)')}, ${orderBy}`;
+            orderByParams.push(...nameRankSqlParams(options.search));
+        }
 
         // When scoped to a room, only show games that have scores from that room.
         // B3: hasScores=true applies the same bound to the global scope (the
@@ -1112,7 +1123,7 @@ export class GlobalLeaderboardService {
             ${havingClause}
             ORDER BY ${orderBy}
             LIMIT ? OFFSET ?`,
-            ...selectParams, ...joinParams, ...whereParams, limit, offset
+            ...selectParams, ...joinParams, ...whereParams, ...orderByParams, limit, offset
         );
 
         return {

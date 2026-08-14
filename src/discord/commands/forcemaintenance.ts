@@ -3,6 +3,7 @@ import { Command } from './index.js';
 import { getDatabase } from '../../database/database.js';
 import { TournamentEngine } from '../../engine/TournamentEngine.js';
 import { logError } from '../../utils/logger.js';
+import { rankName } from '../../utils/searchRank.js';
 
 export const forcemaintenance: Command = {
     data: new SlashCommandBuilder()
@@ -22,6 +23,10 @@ export const forcemaintenance: Command = {
         const rows = await db.all("SELECT id, name FROM tournaments WHERE is_active = 1");
         const filtered = rows
             .filter((r: any) => r.name.toLowerCase().includes(focused.toLowerCase()))
+            .sort((a: any, b: any) => {
+                const diff = rankName(a.name, focused) - rankName(b.name, focused);
+                return diff !== 0 ? diff : a.name.localeCompare(b.name);
+            })
             .slice(0, 25);
         await interaction.respond(filtered.map((r: any) => ({ name: r.name, value: r.id })));
     },

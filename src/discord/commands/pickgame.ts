@@ -17,6 +17,7 @@ import { BanService } from '../../services/BanService.js';
 import { PickDispositionService, SelfNominationError } from '../../services/PickDispositionService.js';
 import { resolveSubmissionPlayerId } from '../../utils/submissionAttribution.js';
 import { trackBackground } from '../../utils/backgroundTasks.js';
+import { rankName } from '../../utils/searchRank.js';
 import { v4 as uuidv4 } from 'uuid';
 // TODO(§8): gate /mystery-award when that command is authored (Q6 — out of scope for Sprint 5).
 
@@ -164,9 +165,15 @@ export const pickgame: Command = {
                 return gamePlatforms.length === 0 || resolveSubmittablePlatforms(gamePlatforms, platformRules).length > 0;
             });
 
-            // Filter by what the user is currently typing
+            // Filter by what the user is currently typing, ranked
+            // nearest-exact-match first (search-relevance work package,
+            // 2026-08-13) before slicing to Discord's 25-choice cap.
             const filtered = choices
                 .filter(r => r.name.toLowerCase().includes(focusedOption.value.toLowerCase()))
+                .sort((a, b) => {
+                    const diff = rankName(a.name, focusedOption.value) - rankName(b.name, focusedOption.value);
+                    return diff !== 0 ? diff : a.name.localeCompare(b.name);
+                })
                 .slice(0, 25);
 
             // Check eligibility for display labels

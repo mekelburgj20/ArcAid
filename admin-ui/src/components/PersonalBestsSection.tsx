@@ -2,6 +2,7 @@ import { Fragment, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Search } from 'lucide-react';
 import { formatScore, scoreTitle } from '../lib/format';
+import { compareByRank } from '../lib/searchRank';
 
 /**
  * A Personal Best row. Two call sites share this shape (v2.82.0 — moved from
@@ -100,11 +101,16 @@ const PERSONAL_BESTS_DEFAULT_VISIBLE = 20;
 const PERSONAL_BESTS_SEARCH_THRESHOLD = 5;
 
 /**
- * Searchable Personal Bests (ROADMAP line 11). The list arrives already
- * ordered by rank ASC (`room_rank`/`rank`) from the backend — never re-sort
- * it here. Filtering is deliberately client-side (the endpoints take no
- * search param); the BE limit is raised to ~1000 so the list the FE filters
- * over is effectively complete.
+ * Searchable Personal Bests (ROADMAP line 11). The UNFILTERED list arrives
+ * already ordered by rank ASC (`room_rank`/`rank`) from the backend — never
+ * re-sort that view. Filtering is deliberately client-side (the endpoints
+ * take no search param); the BE limit is raised to ~1000 so the list the FE
+ * filters over is effectively complete.
+ *
+ * Search-relevance work package (2026-08-13): while a query IS active, the
+ * FILTERED view is re-ranked nearest-exact-match first on `game_name` —
+ * this only reorders matches already found by the filter below, it never
+ * changes which rows are shown.
  *
  * Collapse/expand applies to the UNFILTERED view only — while a query is
  * active every match is shown, because a hidden match is exactly the failure
@@ -147,7 +153,9 @@ export function PersonalBestsSection({
   const matches = useMemo(() => {
     if (!filtering) return all;
     const needle = trimmed.toLowerCase();
-    return all.filter(pb => pb.game_name.toLowerCase().includes(needle));
+    const found = all.filter(pb => pb.game_name.toLowerCase().includes(needle));
+    found.sort(compareByRank(trimmed, pb => pb.game_name));
+    return found;
   }, [all, filtering, trimmed]);
 
   if (all.length === 0) return null;
