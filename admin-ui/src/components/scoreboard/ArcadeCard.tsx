@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Lock, Plus, Minus, BadgeCheck } from 'lucide-react';
+import { Lock, Plus, Minus, BadgeCheck, ChevronRight } from 'lucide-react';
 import type { GameLeaderboard, RankedEntry } from '../ScoreboardComponents';
 import { PlayerAvatar, formatCountdown, GameQRCode, getTitleStyleClass, playerName } from '../ScoreboardComponents';
 import PlayerNameLink from '../PlayerNameLink';
@@ -11,6 +11,8 @@ import { arcadeNeonKey } from './arcadeNeon';
 import { useScoreExpand } from './useScoreExpand';
 import { qrBottomMetrics } from '../../lib/scoreboardConfig';
 import { formatScore } from '../../lib/format';
+import type { OwnRowOpen } from '../../lib/scoreDelete';
+import { ownRowOpener, OWN_ROW_HINT } from '../../lib/scoreDelete';
 
 /**
  * ArcadeCard — the Global Scoreboard's card language, on room-card behaviour.
@@ -79,6 +81,8 @@ interface ArcadeCardProps {
   onSubmitScore?: (lb: GameLeaderboard) => void;
   titleLinkTo?: string;
   titleLinkOnClick?: (e: React.MouseEvent) => void;
+  /** v2.108.0 (F3) — own-row click opens the game quick popup. */
+  ownRow?: OwnRowOpen;
 }
 
 /**
@@ -111,23 +115,27 @@ function tournamentLabel(lb: GameLeaderboard): string | null {
 }
 
 /** A rank-4-and-below row. Podium rows live in `ArcadePodium` (the swap seam). */
-function ArcadeRow({ entry, slug, isViewer, canExpand, isExpanded, onToggle }: {
+function ArcadeRow({ entry, slug, isViewer, canExpand, isExpanded, onToggle, openOwn }: {
   entry: RankedEntry;
   slug: string;
   isViewer: boolean;
   canExpand: boolean;
   isExpanded: boolean;
   onToggle?: () => void;
+  /** v2.108.0 (F3) — set only on the viewer's OWN row; opens the quick popup. */
+  openOwn?: () => void;
 }) {
   const abbreviated = formatScore(entry.score);
+  const onRowClick = openOwn ?? (canExpand ? onToggle : undefined);
   return (
     <div
-      className={`flex items-center gap-2 rounded-[6px] border px-2 py-[6px] ${canExpand ? 'cursor-pointer' : ''}`}
+      className={`flex items-center gap-2 rounded-[6px] border px-2 py-[6px] ${onRowClick ? 'cursor-pointer' : ''}`}
       style={{
         background: isViewer ? 'var(--sb-row-you-bg)' : 'transparent',
         borderColor: isViewer ? 'var(--sb-row-you-border)' : 'transparent',
       }}
-      onClick={canExpand ? onToggle : undefined}
+      onClick={onRowClick}
+      title={openOwn ? OWN_ROW_HINT : undefined}
     >
       <span className="flex w-[22px] shrink-0 items-center justify-center">
         <span className="font-mono text-[13px] font-bold tabular-nums text-muted">#{entry.rank}</span>
@@ -158,7 +166,9 @@ function ArcadeRow({ entry, slug, isViewer, canExpand, isExpanded, onToggle }: {
       >
         {abbreviated}
       </span>
-      {canExpand && (
+      {openOwn ? (
+        <ChevronRight size={12} className="shrink-0 text-faint" aria-hidden />
+      ) : canExpand && (
         isExpanded
           ? <Minus size={12} className="shrink-0 text-neon-cyan" />
           : <Plus size={12} className="shrink-0 text-faint" />
@@ -186,6 +196,7 @@ export default function ArcadeCard({
   onSubmitScore,
   titleLinkTo,
   titleLinkOnClick,
+  ownRow,
 }: ArcadeCardProps) {
   const { bgImage, styleHeaderUrl } = resolveImages(lb);
   const displayName = lb.displayName || lb.gameName;
@@ -400,10 +411,12 @@ export default function ArcadeCard({
             playerHistory={playerHistory}
             historyLoading={historyLoading}
             onTogglePlayer={togglePlayer}
+            ownRow={ownRow}
           />
           <div className="mt-1.5 space-y-1.5" style={{ minHeight: tailMinHeight }}>
             {belowPodium.map(entry => {
-              const canExpand = hasMultiple(entry.iscored_username);
+              const openOwn = ownRowOpener(entry, ownRow);
+              const canExpand = !openOwn && hasMultiple(entry.iscored_username);
               const isExpanded = expandedPlayer === entry.iscored_username;
               return (
                 <div key={`${entry.rank}-${entry.iscored_username}`}>
@@ -414,6 +427,7 @@ export default function ArcadeCard({
                     canExpand={canExpand}
                     isExpanded={isExpanded}
                     onToggle={() => togglePlayer(entry.iscored_username)}
+                    openOwn={openOwn}
                   />
                   {isExpanded && (
                     <div className="mx-2 mt-0.5 mb-1 rounded bg-deep/50 px-2 py-1">

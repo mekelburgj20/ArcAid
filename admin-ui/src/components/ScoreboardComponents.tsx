@@ -1,11 +1,13 @@
 import { useEffect, useState, useRef, useMemo, type ReactNode, type CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
-import { Lock, Plus, Minus, Camera, Upload, BadgeCheck } from 'lucide-react';
+import { Lock, Plus, Minus, Camera, Upload, BadgeCheck, ChevronRight } from 'lucide-react';
 import QRCode from 'qrcode';
 import ScorePhotoModal from './ScorePhotoModal';
 import GameInfoPopup from './scoreboard/GameInfoPopup';
 import FitRowName from './scoreboard/FitRowName';
 import { fetchScoreCounts } from './scoreboard/scoreCountsBatcher';
+import type { OwnRowOpen } from '../lib/scoreDelete';
+import { ownRowOpener, OWN_ROW_HINT } from '../lib/scoreDelete';
 import { AnonymousAvatarIcon } from '../assets/icons/ThemedIcons';
 // ShowcaseThemeConfig imported via SHOWCASE_THEMES lookup in RankingGroupCard
 import { SHOWCASE_THEMES, DEFAULT_SHOWCASE_THEME } from '../lib/scoreboardThemes';
@@ -43,6 +45,22 @@ export interface RankedEntry {
    * `RankedEntry` resolves it — absent/undefined renders the same as false.
    */
   verified?: boolean;
+  /**
+   * v2.108.0 (B3) — the `score_history.id` this collapsed entry was built
+   * from. What the per-row delete acts on. Absent from producers that don't
+   * resolve it, in which case the row simply isn't deletable from here.
+   */
+  history_id?: number | null;
+  /** v2.108.0 — `score_history.source` of that same row. */
+  source?: string | null;
+  /**
+   * v2.108.0 — RAW `score_history.submitted_by_user_id`: the ONLY ownership
+   * claim. `discord_user_id` above is a RESOLVED DISPLAY identity (an
+   * `iscored:*` synthetic resolves through `user_mappings`), so gating
+   * self-delete or own-row interaction on it would hand an alias holder rights
+   * over rows they never submitted.
+   */
+  submitted_by_user_id?: string | null;
 }
 
 /**
@@ -338,7 +356,7 @@ export interface GlobalCardStyles {
   bgColor?: string;
 }
 
-export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitScore, cardOpacity, scoreColumns = 1, viewerUsername, viewerEntry, qrMode = 'disabled', headerStyle = 'banner', globalStyles, wheelScale = 150, bgFill = 'off', bgSize = 'cover', cardWidth = 288, glassOpacity = 60, gameTitleStyle = 'default', gameTitleEnhance = false, scoreStyle = 'glass' }: {
+export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitScore, cardOpacity, scoreColumns = 1, viewerUsername, viewerEntry, qrMode = 'disabled', headerStyle = 'banner', globalStyles, wheelScale = 150, bgFill = 'off', bgSize = 'cover', cardWidth = 288, glassOpacity = 60, gameTitleStyle = 'default', gameTitleEnhance = false, scoreStyle = 'glass', ownRow }: {
   lb: GameLeaderboard; slug: string; maxScores: number; roomId?: string;
   onSubmitScore?: (lb: GameLeaderboard) => void;
   cardOpacity?: number;
@@ -356,6 +374,8 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
   gameTitleStyle?: string;
   gameTitleEnhance?: boolean;
   scoreStyle?: string;
+  /** v2.108.0 (F3) - own-row click opens the game quick popup. */
+  ownRow?: OwnRowOpen;
 }) {
   // When 2-column scores are enabled, double the visible scores so both columns fill
   const maxScores = scoreColumns === 2 ? Math.max(maxScoresProp, maxScoresProp * 2) : maxScoresProp;
@@ -660,8 +680,16 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
               const isCompactLayout = headerStyle === 'compact';
 
               const renderEntry = (entry: RankedEntry, isViewerRow: boolean, showSeparator: boolean) => {
-                const hasMultiple = scoreCounts[entry.iscored_username.toLowerCase()] > 1;
+                const openOwn = useTwoColumns ? undefined : ownRowOpener(entry, ownRow);
+                const hasMultiple = !openOwn && scoreCounts[entry.iscored_username.toLowerCase()] > 1;
                 const isExpanded = expandedPlayer === entry.iscored_username;
+                // Own-row click opens the quick popup; every other row keeps
+                // the inline expand exactly as before. Two-column mode has
+                // never been clickable, and stays that way.
+                const rowInteractive = !!openOwn || (hasMultiple && !useTwoColumns);
+                const onRowClick = openOwn ?? (hasMultiple && !useTwoColumns
+                  ? () => togglePlayer(entry.iscored_username)
+                  : undefined);
                 const rankColor = entry.rank === 1 ? 'text-neon-amber' :
                   entry.rank === 2 ? 'text-neon-cyan' :
                   entry.rank === 3 ? 'text-neon-green' :
@@ -709,19 +737,20 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
                         className={`flex items-center justify-between px-3 py-2 border-b ${isFill ? 'border-white/10' : 'border-border/20'} last:border-0 ${
                           entry.rank === 1 ? 'bg-neon-amber/8' : ''
                         } ${isViewerRow ? 'bg-neon-cyan/10 border-l-2 border-l-neon-cyan' : ''
-                        } ${hasMultiple && !useTwoColumns ? 'cursor-pointer hover:bg-raised/50 transition-colors' : ''}`}
-                        onClick={hasMultiple && !useTwoColumns ? () => togglePlayer(entry.iscored_username) : undefined}
-                        role={hasMultiple && !useTwoColumns ? 'button' : undefined}
-                        tabIndex={hasMultiple && !useTwoColumns ? 0 : undefined}
+                        } ${rowInteractive ? 'cursor-pointer hover:bg-raised/50 transition-colors' : ''}`}
+                        onClick={onRowClick}
+                        title={openOwn ? OWN_ROW_HINT : undefined}
+                        role={rowInteractive ? 'button' : undefined}
+                        tabIndex={rowInteractive ? 0 : undefined}
                         aria-expanded={hasMultiple && !useTwoColumns ? isExpanded : undefined}
-                        onKeyDown={hasMultiple && !useTwoColumns ? (e) => {
+                        onKeyDown={rowInteractive ? (e) => {
                           // m3: ignore keydowns bubbled from a focused child
                           // (e.g. the player-name Link) — only toggle when the
                           // row itself is focused.
                           if (e.target !== e.currentTarget) return;
                           if (e.key === 'Enter' || e.key === ' ') {
                             e.preventDefault();
-                            togglePlayer(entry.iscored_username);
+                            onRowClick?.();
                           }
                         } : undefined}
                       >
@@ -745,7 +774,9 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
                           >
                             {formattedScore}
                           </span>
-                          {hasMultiple && !useTwoColumns && (
+                          {openOwn ? (
+                            <ChevronRight size={12} className="text-faint flex-shrink-0" aria-hidden />
+                          ) : hasMultiple && !useTwoColumns && (
                             isExpanded
                               ? <Minus size={12} className="text-neon-cyan flex-shrink-0" />
                               : <Plus size={12} className="text-faint flex-shrink-0" />

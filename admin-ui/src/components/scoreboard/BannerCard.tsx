@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Lock, Plus, Minus, BadgeCheck } from 'lucide-react';
+import { Lock, Plus, Minus, BadgeCheck, ChevronRight } from 'lucide-react';
 import type { GameLeaderboard, RankedEntry } from '../ScoreboardComponents';
 import { PlayerAvatar, formatCountdown, GameQRCode, getTitleStyleClass, playerName } from '../ScoreboardComponents';
 import PlayerNameLink from '../PlayerNameLink';
@@ -9,6 +9,8 @@ import GameInfoPopup from './GameInfoPopup';
 import { useScoreExpand } from './useScoreExpand';
 import { qrBottomMetrics } from '../../lib/scoreboardConfig';
 import { formatScore } from '../../lib/format';
+import type { OwnRowOpen } from '../../lib/scoreDelete';
+import { ownRowOpener, OWN_ROW_HINT } from '../../lib/scoreDelete';
 
 interface BannerCardProps {
   lb: GameLeaderboard;
@@ -30,6 +32,8 @@ interface BannerCardProps {
   /** v2.2.8 — title-click nav target (replaces the GameCard Link overlay). */
   titleLinkTo?: string;
   titleLinkOnClick?: (e: React.MouseEvent) => void;
+  /** v2.108.0 (F3) — own-row click opens the game quick popup. */
+  ownRow?: OwnRowOpen;
 }
 
 function resolveImages(lb: GameLeaderboard) {
@@ -69,6 +73,7 @@ export default function BannerCard({
   onSubmitScore: _onSubmitScore,  // v2.2.8: no longer used here (title is a Link); kept in props for CardRouter spread compat
   titleLinkTo,
   titleLinkOnClick,
+  ownRow,
 }: BannerCardProps) {
   const { bgImage, styleHeaderUrl } = resolveImages(lb);
   const displayName = lb.displayName || lb.gameName;
@@ -243,14 +248,17 @@ export default function BannerCard({
                 entry.rank === 2 ? 'text-neon-cyan' :
                 entry.rank === 3 ? 'text-neon-green' : 'text-faint';
               const scoreColor = entry.rank === 1 ? 'text-neon-amber' : isViewerRow ? 'text-neon-cyan' : 'text-primary';
-              const canExpand = hasMultiple(entry.iscored_username);
+              const openOwn = ownRowOpener(entry, ownRow);
+              const canExpand = !openOwn && hasMultiple(entry.iscored_username);
               const isExpanded = expandedPlayer === entry.iscored_username;
+              const onRowClick = openOwn ?? (canExpand ? () => togglePlayer(entry.iscored_username) : undefined);
 
               return (
                 <div key={`${entry.rank}-${entry.iscored_username}`}>
                   <div
-                    className={`flex items-center gap-1.5 ${canExpand ? 'cursor-pointer pointer-events-auto' : ''}`}
-                    onClick={canExpand ? () => togglePlayer(entry.iscored_username) : undefined}
+                    className={`flex items-center gap-1.5 ${onRowClick ? 'cursor-pointer pointer-events-auto' : ''}`}
+                    onClick={onRowClick}
+                    title={openOwn ? OWN_ROW_HINT : undefined}
                   >
                     <span className={`w-6 text-right text-xs font-bold tabular-nums flex-shrink-0 ${rankColor}`}>
                       {entry.rank}
@@ -301,7 +309,9 @@ export default function BannerCard({
                         </span>
                       </div>
                     </div>
-                    {canExpand && (
+                    {openOwn ? (
+                      <ChevronRight size={10} className="text-faint flex-shrink-0" aria-hidden />
+                    ) : canExpand && (
                       isExpanded
                         ? <Minus size={10} className="text-neon-cyan flex-shrink-0" />
                         : <Plus size={10} className="text-faint flex-shrink-0" />

@@ -6,6 +6,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.108.0] — unreleased
+
+**Quick self-delete of your own scores (owner ask): click your own score on any card → game popup with always-visible delete; nested history deletes; GameDetail leaderboard deletes. Players delete only their own scores; admins any row.**
+
+### Added
+- **Card row → quick popup**: clicking YOUR OWN score row on any card style (Arcade, Banner, Showcase incl. all podiums, Minimal, legacy) opens the game quick popup; other rows keep the inline expand exactly as before. Wired on the Tournaments and Room Scores tabs.
+- **GameQuickView deletes**: your row (admins: every row) carries an always-visible delete icon with confirm; expanding a multi-score player shows each historical score with its own delete. Popups without room context (Global tab, Picks) render exactly as before.
+- **GameDetail Leaderboard tab**: own-row/admin delete icon, always visible (the nested-history icons were hover-only — invisible on phones).
+- Ranked-row payloads now ship `history_id`, `source`, and the raw `submitted_by_user_id` (cache envelope v2→v3; old blobs read as a miss and rebuild).
+- Shared helpers: `viewerClaims.ts` (replaces three hand-rolled JWT decoders), `scoreDelete.ts` (ownership gate + delete call).
+
+### Fixed
+- **Community/freeplay scores are now deletable** — the v2.9.0 per-row delete refused them because the `community_scores` cascade was never built. Since the login-mandate era EVERY web submission carries the community label (prod-verified on the owner's own Strike scores), so the old gate had made the delete icon invisible for effectively all modern scores. The cascade deletes the community twin (conservative exact-match; ambiguous → nothing deleted).
+- **Deleting a room score now also soft-deletes its Global Scoreboard fan-out copy** (conservative match; one-way — global self-delete still doesn't cascade back, noted in-route).
+- **Review corrections against prod data**: the iScored re-import tombstone now writes for every source (web scores are pushed to iScored, so a deleted community score would have resurrected on mirrored boards) and resolves the game row by name ACTIVE-first when the row's `game_id` is NULL — which is every modern web row, so the old gate skipped tombstone, submissions recompute, cache invalidation, and broadcast entirely. The submissions recompute now considers all sources (community rows feed submissions via the route upsert; a tournament/sync-only filter would have wiped a player's remaining entry from winner resolution).
+
+Tests: backend 1723 (+19), admin-ui 774 (+32). Screenshots: tmp/self-delete-shots/.
+
 ## [2.107.1] — unreleased
 
 **Fix: late-setState CI flake root-caused and closed (LeaderboardAdminControls "window is not defined", 2 sightings).**

@@ -1686,11 +1686,16 @@ router.get('/:roomId/score-history/game/:gameId', async (req, res) => {
 //   - super_admin → any row in any room
 //   - room_admin  → any row in a room they admin
 //   - player      → only rows they own (submitted_by_user_id matches their discordId)
-// Restricted to source IN ('tournament','sync') — community deletes need a
-// separate cascade into community_scores that isn't built yet. After deletion
-// we recompute the corresponding submissions row from the remaining
-// score_history (delete if none left, else update score+timestamp). The
-// leaderboard cache for this game is invalidated either way.
+// Accepts source IN ('tournament','sync','community'). v2.108.0 closed the
+// v2.9.0 gap: `ScoreHistoryService.deleteEvent` now cascades a community row
+// into its `community_scores` twin (conservative match — see that method) and,
+// for every source, soft-deletes the fanned-out `global_scores` row. That last
+// cascade is deliberately ONE-WAY: deleting a score from the Global Scoreboard
+// via `DELETE /api/me/global-scores/:scoreId` does NOT reach back into the room
+// tables. After deletion we recompute the corresponding submissions row from
+// the remaining score_history (delete if none left, else update
+// score+timestamp). The leaderboard cache for this game is invalidated either
+// way.
 router.delete('/:roomId/score-history/:historyId', requireDiscordUser, async (req, res) => {
     try {
         const roomId = req.params.roomId as string;
@@ -1701,8 +1706,8 @@ router.delete('/:roomId/score-history/:historyId', requireDiscordUser, async (re
         const row = await ScoreHistoryService.getDeletableRow(historyId);
         if (!row) return res.status(404).json({ error: 'Score not found' });
         if (row.game_room_id !== roomId) return res.status(404).json({ error: 'Score not found in this room' });
-        if (row.source !== 'tournament' && row.source !== 'sync') {
-            return res.status(400).json({ error: 'Only tournament/sync scores can be deleted via this endpoint' });
+        if (row.source !== 'tournament' && row.source !== 'sync' && row.source !== 'community') {
+            return res.status(400).json({ error: 'This score cannot be deleted via this endpoint' });
         }
 
         const isSuper = req.user!.role === 'super_admin';

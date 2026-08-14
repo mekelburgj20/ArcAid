@@ -7,6 +7,20 @@ export interface ScoreHistoryEntry {
   source: string;
   photo_url: string | null;
   created_at: string;
+  /**
+   * v2.108.0 — fields `GET /:roomId/score-history/:gameName/player/:username`
+   * has ALWAYS returned; this local type just dropped them on the floor.
+   * `submitted_by_user_id` is the raw ownership column the per-row delete gate
+   * reads (never `discord_user_id`, which is a resolved display identity).
+   */
+  submitted_by_user_id?: string | null;
+  iscored_username?: string;
+  display_name?: string | null;
+  tournament_id?: string | null;
+  tournament_name?: string | null;
+  tournament_active?: number;
+  verified_by?: string | null;
+  verified_at?: string | null;
 }
 
 /**
@@ -54,5 +68,14 @@ export function useScoreExpand(roomId: string | undefined, gameId: string, gameN
 
   const hasMultiple = (username: string) => (scoreCounts[username.toLowerCase()] || 0) > 1;
 
-  return { scoreCounts, expandedPlayer, playerHistory, historyLoading, togglePlayer, hasMultiple };
+  /**
+   * v2.108.0 — optimistic removal after a per-row delete, so the nested list
+   * inside GameQuickView drops the row immediately instead of waiting for a
+   * refetch. Purely local; the owning page still refetches authoritatively.
+   */
+  const removeHistoryEntry = useCallback((historyId: number) => {
+    setPlayerHistory(prev => prev.filter(h => h.id !== historyId));
+  }, []);
+
+  return { scoreCounts, expandedPlayer, playerHistory, historyLoading, togglePlayer, hasMultiple, removeHistoryEntry };
 }

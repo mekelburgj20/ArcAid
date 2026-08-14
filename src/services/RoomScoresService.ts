@@ -12,6 +12,12 @@ import { resolveProfiles } from './PlayerProfileResolver.js';
  * so `score_history` alone is the correct, non-resurrecting source for this
  * view. No UNION with `community_scores` here (see migration 107 for the
  * one-time backfill of legacy pre-dual-write rows).
+ *
+ * v2.108.0: the PER-ROW self/admin delete
+ * (`ScoreHistoryService.deleteEvent`) does now cascade a community row into
+ * its `community_scores` twin. That does not change the reasoning above — the
+ * admin wipe path is still `community_scores`-preserving, so a UNION here
+ * would still resurrect wiped scores.
  */
 
 export interface RoomScoreCard {
@@ -218,6 +224,8 @@ export class RoomScoresService {
                 ranked.platform,
                 ranked.engine,
                 ranked.device,
+                ranked.history_id,
+                ranked.source,
                 ranked.game_rank
             FROM (
                 SELECT
@@ -229,6 +237,8 @@ export class RoomScoresService {
                     best.platform,
                     best.engine,
                     best.device,
+                    best.history_id,
+                    best.source,
                     ROW_NUMBER() OVER (
                         PARTITION BY best.game_key ORDER BY best.score DESC
                     ) as game_rank
@@ -242,6 +252,11 @@ export class RoomScoresService {
                         platform,
                         engine,
                         device,
+                        -- v2.108.0 (B3): the score_history id + source of the
+                        -- row the inner ROW_NUMBER elects as this player's
+                        -- best. The per-row delete acts on exactly this id.
+                        id as history_id,
+                        source,
                         ROW_NUMBER() OVER (
                             PARTITION BY LOWER(game_name),
                                          COALESCE(submitted_by_user_id, 'iscored:' || LOWER(iscored_username))
@@ -278,6 +293,12 @@ export class RoomScoresService {
                 platform: e.platform || null,
                 engine: e.engine || UNKNOWN,
                 device: e.device || UNKNOWN,
+                // v2.108.0 (B3) — delete plumbing. `submitted_by_user_id` is
+                // the RAW column, NOT `profile.discord_user_id`: the latter is
+                // resolved for display and is not an ownership claim.
+                history_id: e.history_id ?? null,
+                source: e.source ?? null,
+                submitted_by_user_id: e.submitted_by_user_id ?? null,
             });
         });
 

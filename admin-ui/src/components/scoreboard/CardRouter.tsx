@@ -5,6 +5,7 @@ import ShowcaseCard from './ShowcaseCard';
 import BannerCard from './BannerCard';
 import MinimalCard from './MinimalCard';
 import ArcadeCard from './ArcadeCard';
+import type { OwnRowOpen } from '../../lib/scoreDelete';
 
 export interface CardRouterProps {
   lb: GameLeaderboard;
@@ -35,6 +36,12 @@ export interface CardRouterProps {
   /** v2.2.8 — title-click navigation target (replaces the old GameCard Link overlay). */
   titleLinkTo?: string;
   titleLinkOnClick?: (e: React.MouseEvent) => void;
+  /**
+   * v2.108.0 (F3) - clicking the VIEWER'S OWN score row opens the game quick
+   * popup instead of the inline expand. Every other row keeps today's
+   * behaviour exactly; omitting this prop changes nothing anywhere.
+   */
+  ownRow?: OwnRowOpen;
 }
 
 export default function CardRouter({
@@ -59,6 +66,7 @@ export default function CardRouter({
   onSubmitScore,
   titleLinkTo,
   titleLinkOnClick,
+  ownRow,
 }: CardRouterProps) {
   const commonProps = {
     lb,
@@ -79,6 +87,7 @@ export default function CardRouter({
     onSubmitScore,
     titleLinkTo,
     titleLinkOnClick,
+    ownRow,
   };
 
   switch (style) {

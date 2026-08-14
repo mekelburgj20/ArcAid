@@ -1,9 +1,14 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { X, ExternalLink, Star } from 'lucide-react';
+import { X, ExternalLink, Star, Trash2, Plus, Minus } from 'lucide-react';
 import type { RankedEntry } from './ScoreboardComponents';
 import { PlayerAvatar, playerName } from './ScoreboardComponents';
 import { getLegacyPlatformLabel } from '../lib/scoreProvenance';
+import { useViewerAuth } from '../contexts/ViewerAuthContext';
+import { decodeViewerClaims } from '../lib/viewerClaims';
+import { canDeleteRow, deleteScoreHistory, rowHistoryId } from '../lib/scoreDelete';
+import { useScoreExpand } from './scoreboard/useScoreExpand';
+import ConfirmModal from './ConfirmModal';
 
 /**
  * v2.13.12 — lightweight popup preview of a game's top scores + metadata,
@@ -38,6 +43,12 @@ export interface QuickViewTarget {
   tournamentName?: string | null;
   globalGameId?: string | null;
   rankings?: RankedEntry[];
+  /**
+   * v2.108.0 — the tournament game id, when the caller has one. Only used to
+   * fetch per-player score counts for the nested-history expand; absent (or a
+   * Room Scores synthetic `room_<name>` id) simply means no expand chevrons.
+   */
+  gameId?: string;
 }
 
 /** A single headline figure shown in place of the top-10 list. */
@@ -64,15 +75,50 @@ interface Props {
    * a claim this caller never made and cannot support.
    */
   highlightStat?: QuickViewStat;
+  /**
+   * v2.108.0 (F4) — the room these scores belong to. Passing it turns on the
+   * per-row delete affordances (own rows for players, any row for admins of
+   * this room) and the nested per-player history expand. OMITTING it renders
+   * the popup exactly as it did before: the Global tab and the Picks
+   * `highlightStat` mode pass nothing and are byte-identical to v2.107.
+   */
+  roomId?: string;
+  /** Fired after a successful delete so the owning page can refetch. */
+  onScoreDeleted?: () => void;
   onClose: () => void;
 }
 
-export default function GameQuickView({ lb, slug, fromTab, highlightStat, onClose }: Props) {
+export default function GameQuickView({ lb, slug, fromTab, highlightStat, roomId, onScoreDeleted, onClose }: Props) {
   const [meta, setMeta] = useState<GlobalGameMeta | null>(null);
   const backdropMouseDown = useRef(false);
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeBtnRef = useRef<HTMLButtonElement>(null);
   const previouslyFocused = useRef<HTMLElement | null>(null);
+
+  // v2.108.0 (F4) — delete plumbing. All of it is inert without `roomId`:
+  // `canDeleteRow` returns false for an undefined room, and `useScoreExpand`
+  // no-ops without a room id, so the popup renders exactly as before.
+  const { playerToken } = useViewerAuth();
+  const claims = useMemo(() => decodeViewerClaims(playerToken), [playerToken]);
+  const [deletedIds, setDeletedIds] = useState<Set<number>>(() => new Set());
+  const [pendingDelete, setPendingDelete] = useState<{ historyId: number; score: number } | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const {
+    expandedPlayer, playerHistory, historyLoading, togglePlayer, hasMultiple, removeHistoryEntry,
+  } = useScoreExpand(roomId, lb.gameId ?? '', lb.gameName, (lb.rankings ?? []).length);
+
+  const runDelete = async (historyId: number) => {
+    if (!roomId) return;
+    setDeleteError(null);
+    const result = await deleteScoreHistory(roomId, historyId, playerToken);
+    if (!result.ok) {
+      setDeleteError(result.error);
+      return;
+    }
+    setDeletedIds(prev => new Set(prev).add(historyId));
+    removeHistoryEntry(historyId);
+    onScoreDeleted?.();
+  };
 
   // s20: initial focus into the dialog + focus-return to the trigger on close.
   useEffect(() => {
@@ -141,7 +187,12 @@ export default function GameQuickView({ lb, slug, fromTab, highlightStat, onClos
     ? `/games/${lb.globalGameId}?from=${encodeURIComponent(slug)}${fromTab ? `&tab=${fromTab}` : ''}`
     : null;
 
-  const topScores = (lb.rankings ?? []).slice(0, 10);
+  const topScores = (lb.rankings ?? [])
+    .filter(e => {
+      const hid = rowHistoryId(e);
+      return hid == null || !deletedIds.has(hid);
+    })
+    .slice(0, 10);
 
   const subtitleParts: string[] = [];
   if (meta?.manufacturer) subtitleParts.push(meta.manufacturer);
@@ -223,40 +274,109 @@ export default function GameQuickView({ lb, slug, fromTab, highlightStat, onClos
           {topScores.length === 0 ? (
             <p className="text-sm text-faint text-center py-6">No scores yet</p>
           ) : (
-            topScores.map((entry) => (
-              <div
-                key={`${entry.iscored_username}-${entry.rank}`}
-                className="flex items-center gap-3 py-2 border-b border-border/30 last:border-0"
-              >
-                <span
-                  className={`font-display font-bold text-sm w-5 text-right tabular-nums flex-shrink-0 ${
-                    entry.rank === 1 ? 'text-neon-amber'
-                      : entry.rank === 2 ? 'text-neon-cyan'
-                      : entry.rank === 3 ? 'text-neon-green'
-                      : 'text-faint'
-                  }`}
-                >
-                  {entry.rank}
-                </span>
-                <PlayerAvatar
-                  username={playerName(entry)}
-                  discordUserId={entry.discord_user_id}
-                  avatarHash={entry.avatar_hash}
-                  avatarUrl={entry.avatar_url}
-                  size={22}
-                />
-                <span className="flex-1 text-sm text-secondary truncate">
-                  {playerName(entry)}
-                </span>
-                <span
-                  className={`text-sm font-bold tabular-nums flex-shrink-0 ${
-                    entry.rank === 1 ? 'text-neon-amber' : 'text-primary'
-                  }`}
-                >
-                  {entry.score.toLocaleString()}
-                </span>
+            topScores.map((entry) => {
+              // v2.108.0 (F4) — per-row delete + nested history. Both are
+              // gated on `roomId`; without one, `canDelete` is false and
+              // `canExpand` is false, and this renders as it always did.
+              const historyId = rowHistoryId(entry);
+              const canDelete = canDeleteRow(entry, claims, roomId);
+              const canExpand = !!roomId && hasMultiple(entry.iscored_username);
+              const isExpanded = expandedPlayer === entry.iscored_username;
+              return (
+              <div key={`${entry.iscored_username}-${entry.rank}`}>
+                <div className="flex items-center gap-3 py-2 border-b border-border/30 last:border-0">
+                  <span
+                    className={`font-display font-bold text-sm w-5 text-right tabular-nums flex-shrink-0 ${
+                      entry.rank === 1 ? 'text-neon-amber'
+                        : entry.rank === 2 ? 'text-neon-cyan'
+                        : entry.rank === 3 ? 'text-neon-green'
+                        : 'text-faint'
+                    }`}
+                  >
+                    {entry.rank}
+                  </span>
+                  <PlayerAvatar
+                    username={playerName(entry)}
+                    discordUserId={entry.discord_user_id}
+                    avatarHash={entry.avatar_hash}
+                    avatarUrl={entry.avatar_url}
+                    size={22}
+                  />
+                  <span className="flex-1 text-sm text-secondary truncate">
+                    {playerName(entry)}
+                  </span>
+                  <span
+                    className={`text-sm font-bold tabular-nums flex-shrink-0 ${
+                      entry.rank === 1 ? 'text-neon-amber' : 'text-primary'
+                    }`}
+                  >
+                    {entry.score.toLocaleString()}
+                  </span>
+                  {canExpand && (
+                    <button
+                      type="button"
+                      onClick={() => togglePlayer(entry.iscored_username)}
+                      className="p-1 -m-0.5 text-faint hover:text-neon-cyan transition-colors cursor-pointer flex-shrink-0"
+                      aria-expanded={isExpanded}
+                      aria-label={isExpanded ? 'Hide score history' : 'Show score history'}
+                      title={isExpanded ? 'Hide score history' : 'Show score history'}
+                    >
+                      {isExpanded ? <Minus size={13} /> : <Plus size={13} />}
+                    </button>
+                  )}
+                  {/* Always visible, never hover-gated — the owner ask is that
+                      removing a score you just posted takes no hunting. */}
+                  {canDelete && historyId != null && (
+                    <button
+                      type="button"
+                      onClick={() => setPendingDelete({ historyId, score: entry.score })}
+                      className="p-1 -m-0.5 text-red-400/70 hover:text-red-400 transition-colors cursor-pointer flex-shrink-0"
+                      aria-label={`Delete this score (${entry.score.toLocaleString()})`}
+                      title="Delete this score"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  )}
+                </div>
+
+                {isExpanded && (
+                  <div className="ml-8 mr-1 mb-2 rounded bg-deep/50 px-2 py-1.5">
+                    {historyLoading ? (
+                      <p className="text-[11px] text-faint py-1">Loading…</p>
+                    ) : playerHistory.length > 0 ? (
+                      <div className="space-y-1">
+                        {playerHistory.map(h => {
+                          const canDeleteNested = canDeleteRow(h, claims, roomId);
+                          return (
+                            <div key={h.id} className="flex items-center gap-2 text-[11px]">
+                              <span className="text-muted tabular-nums">{h.score.toLocaleString()}</span>
+                              <span className="text-faint flex-1">{new Date(h.created_at).toLocaleDateString()}</span>
+                              {canDeleteNested && (
+                                <button
+                                  type="button"
+                                  onClick={() => setPendingDelete({ historyId: h.id, score: h.score })}
+                                  className="p-1 -m-0.5 text-red-400/70 hover:text-red-400 transition-colors cursor-pointer"
+                                  aria-label={`Delete this score (${h.score.toLocaleString()})`}
+                                  title="Delete this score"
+                                >
+                                  <Trash2 size={12} />
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-faint py-1">No additional scores.</p>
+                    )}
+                  </div>
+                )}
               </div>
-            ))
+              );
+            })
+          )}
+          {deleteError && (
+            <p role="alert" className="text-[11px] text-red-400 pt-2">{deleteError}</p>
           )}
         </div>
         )}
@@ -283,6 +403,21 @@ export default function GameQuickView({ lb, slug, fromTab, highlightStat, onClos
           )}
         </div>
       </div>
+
+      {/* v2.108.0 (F4) — same confirm component the GameDetail delete uses. */}
+      {pendingDelete && (
+        <ConfirmModal
+          title="Delete score"
+          message={`Delete this score (${pendingDelete.score.toLocaleString()})?`}
+          confirmLabel="Delete"
+          onConfirm={() => {
+            const target = pendingDelete;
+            setPendingDelete(null);
+            runDelete(target.historyId);
+          }}
+          onCancel={() => setPendingDelete(null)}
+        />
+      )}
     </div>
   );
 }

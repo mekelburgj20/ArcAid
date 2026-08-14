@@ -28,6 +28,14 @@ export interface ScoreCardGridProps {
   linkFor: (lb: GameLeaderboard) => string;
   onSubmit: (lb: GameLeaderboard) => void;
   onTitleClick?: (lb: GameLeaderboard, e: React.MouseEvent) => void;
+  /**
+   * v2.108.0 (F3) — clicking the VIEWER'S OWN score row opens the page's quick
+   * popup instead of the inline expand. Both halves are required: the raw
+   * Discord id from the viewer's token claims, and the opener. Omit either and
+   * every row behaves exactly as it did before.
+   */
+  viewerDiscordId?: string | null;
+  onOwnRowClick?: (lb: GameLeaderboard) => void;
 }
 
 export default function ScoreCardGrid({
@@ -45,6 +53,8 @@ export default function ScoreCardGrid({
   linkFor,
   onSubmit,
   onTitleClick,
+  viewerDiscordId,
+  onOwnRowClick,
 }: ScoreCardGridProps) {
   const useNewCards = !!config.SCOREBOARD_STYLE;
   const newConfig = deriveScoreboardConfig(config, roomName);
@@ -62,6 +72,13 @@ export default function ScoreCardGrid({
       onTitleClick?.(lb, e);
     }
   };
+
+  // v2.108.0 (F3) — the own-row descriptor for ONE card, or undefined when
+  // the caller didn't wire the behaviour.
+  const ownRowFor = (lb: GameLeaderboard) =>
+    (viewerDiscordId && onOwnRowClick)
+      ? { viewerDiscordId, open: () => onOwnRowClick(lb) }
+      : undefined;
 
   if (loading) {
     return (
@@ -114,6 +131,7 @@ export default function ScoreCardGrid({
                   gameTitleStyle={newConfig.gameTitleStyle}
                   titleLinkTo={linkTo}
                   titleLinkOnClick={onTitleClick ? handleTitleClick(lb) : undefined}
+                  ownRow={ownRowFor(lb)}
                 />
               ) : (
                 <GameCard
@@ -135,6 +153,7 @@ export default function ScoreCardGrid({
                   gameTitleStyle={legacyProps.gameTitleStyle}
                   gameTitleEnhance={legacyProps.gameTitleEnhance}
                   scoreStyle={legacyProps.scoreStyle}
+                  ownRow={ownRowFor(lb)}
                 />
               )}
 

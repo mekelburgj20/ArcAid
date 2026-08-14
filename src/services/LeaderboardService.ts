@@ -67,6 +67,28 @@ export interface RankedEntry {
      * that route through `LeaderboardService.hydrate` set it.
      */
     verified?: boolean;
+    /**
+     * v2.108.0 — the `score_history.id` of the single best row this collapsed
+     * entry was built from. What the per-row delete endpoint
+     * (`DELETE /:roomId/score-history/:historyId`) needs to act on a card row
+     * without a second round-trip. Optional because not every `RankedEntry`
+     * producer resolves it.
+     */
+    history_id?: number | null;
+    /**
+     * v2.108.0 — `score_history.source` of that same best row
+     * (`tournament` | `sync` | `community`). Shipped so the FE can label the
+     * row; NOT a permission input — the server re-checks on delete.
+     */
+    source?: string | null;
+    /**
+     * v2.108.0 — the RAW `score_history.submitted_by_user_id`. This, and never
+     * `discord_user_id`, is the ownership claim: `discord_user_id` is a
+     * RESOLVED DISPLAY identity (an `iscored:*` synthetic can resolve through
+     * someone's alias mapping), so gating self-delete on it would let an alias
+     * holder delete rows they never submitted. Null for unattributed rows.
+     */
+    submitted_by_user_id?: string | null;
 }
 
 /**
@@ -90,6 +112,15 @@ interface CachedRankedRow {
     platform: string | null;
     engine: string;
     device: string;
+    /**
+     * v2.108.0 — `score_history.id` of the best row in this partition, and its
+     * `source`. Both are IDENTITY-STABLE facts about which row produced this
+     * entry, so they belong in the cache under the S24.1 doctrine (unlike a
+     * name or an avatar, they cannot change under the row without the row
+     * itself changing, which already invalidates).
+     */
+    history_id: number | null;
+    source: string | null;
 }
 
 /**
@@ -98,8 +129,12 @@ interface CachedRankedRow {
  * missing names — pre-S24 rows are bare ARRAYS, so `Array.isArray` alone is a
  * sufficient legacy test today, but the explicit version keeps the next shape
  * change from needing a new heuristic.
+ *
+ * v2 → v3 (v2.108.0): `history_id` + `source` added to `CachedRankedRow`. A v2
+ * blob has neither, and a card row without a `history_id` cannot be deleted, so
+ * a v2 blob must read as a MISS rather than render un-deletable rows.
  */
-const CACHE_ENVELOPE_VERSION = 2;
+const CACHE_ENVELOPE_VERSION = 3;
 
 interface CacheEnvelope {
     v: number;
@@ -177,6 +212,13 @@ export class LeaderboardService {
                 engine: row.engine,
                 device: row.device,
                 verified: verifiedFlags[i]!,
+                // v2.108.0 — pass through untouched. `submitted_by_user_id` is
+                // the RAW column, deliberately not `profile.discord_user_id`
+                // (that one is resolved for DISPLAY and is not an ownership
+                // claim — see the `RankedEntry` field doc).
+                history_id: row.history_id ?? null,
+                source: row.source ?? null,
+                submitted_by_user_id: row.submitted_by_user_id ?? null,
             };
         });
     }
@@ -377,7 +419,9 @@ export class LeaderboardService {
                 best.score,
                 best.platform,
                 best.engine,
-                best.device
+                best.device,
+                best.history_id,
+                best.source
             FROM (
                 SELECT
                     iscored_username,
@@ -387,6 +431,11 @@ export class LeaderboardService {
                     platform,
                     engine,
                     device,
+                    -- v2.108.0: the id + source of THIS row, which the
+                    -- ROW_NUMBER below elects as the partition's best. The
+                    -- per-row delete acts on exactly this score_history row.
+                    id as history_id,
+                    source,
                     ROW_NUMBER() OVER (
                         PARTITION BY COALESCE(submitted_by_user_id, 'iscored:' || LOWER(iscored_username))
                         ORDER BY score DESC, created_at ASC
@@ -411,6 +460,8 @@ export class LeaderboardService {
             platform: e.platform || null,
             engine: e.engine || UNKNOWN,
             device: e.device || UNKNOWN,
+            history_id: e.history_id ?? null,
+            source: e.source ?? null,
         }));
     }
 

@@ -252,7 +252,8 @@ describe('S24.1 — read-time profile join', () => {
         expect(rankings[0]!.display_name).toBe('Ace');
 
         const cached = await db.get('SELECT rankings FROM leaderboard_cache WHERE game_id = ?', gameId);
-        expect(JSON.parse(cached.rankings).v).toBe(2);
+        // v2.108.0 bumped the envelope to v3 (history_id + source).
+        expect(JSON.parse(cached.rankings).v).toBe(3);
     });
 });
 

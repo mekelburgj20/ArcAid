@@ -1,9 +1,11 @@
-import { Plus, Minus, BadgeCheck } from 'lucide-react';
+import { Plus, Minus, BadgeCheck, ChevronRight } from 'lucide-react';
 import type { RankedEntry } from '../ScoreboardComponents';
 import { PlayerAvatar, playerName } from '../ScoreboardComponents';
 import FitRowName from './FitRowName';
 import PlayerNameLink from '../PlayerNameLink';
 import type { ScoreHistoryEntry } from './useScoreExpand';
+import type { OwnRowOpen } from '../../lib/scoreDelete';
+import { ownRowOpener, OWN_ROW_HINT } from '../../lib/scoreDelete';
 import { formatScore } from '../../lib/format';
 
 interface ScoreListProps {
@@ -30,6 +32,12 @@ interface ScoreListProps {
   playerHistory?: ScoreHistoryEntry[];
   historyLoading?: boolean;
   onTogglePlayer?: (username: string) => void;
+  /**
+   * v2.108.0 (F3) — clicking the VIEWER'S OWN row opens the game quick popup
+   * (where the score can be deleted) instead of the inline expand. Every other
+   * row is untouched: same handler, same icon, same classes.
+   */
+  ownRow?: OwnRowOpen;
 }
 
 export default function ScoreList({
@@ -48,14 +56,18 @@ export default function ScoreList({
   playerHistory,
   historyLoading,
   onTogglePlayer,
+  ownRow,
 }: ScoreListProps) {
   if (entries.length === 0) return null;
 
   return (
     <div style={{ padding: '0 14px 10px' }}>
       {entries.map((entry, i) => {
-        const canExpand = hasMultiple?.(entry.iscored_username) ?? false;
+        const openOwn = ownRowOpener(entry, ownRow);
+        const canExpand = !openOwn && (hasMultiple?.(entry.iscored_username) ?? false);
         const isExpanded = expandedPlayer === entry.iscored_username;
+        const clickable = !!openOwn || canExpand;
+        const onRowClick = openOwn ?? (canExpand ? () => onTogglePlayer?.(entry.iscored_username) : undefined);
 
         return (
           <div key={`${entry.rank}-${entry.iscored_username}`}>
@@ -78,21 +90,22 @@ export default function ScoreList({
                       background: i % 2 === 0 ? zebraStripe : 'transparent',
                     }),
                 ...(hoverBorder ? { transition: 'border-color 0.15s' } : {}),
-                ...(canExpand ? { cursor: 'pointer', pointerEvents: 'auto' } : {}),
+                ...(clickable ? { cursor: 'pointer', pointerEvents: 'auto' } : {}),
               }}
-              onClick={canExpand ? () => onTogglePlayer?.(entry.iscored_username) : undefined}
+              onClick={onRowClick}
               onMouseEnter={hoverBorder ? (e) => { (e.currentTarget as HTMLElement).style.borderLeftColor = hoverBorder; } : undefined}
               onMouseLeave={hoverBorder ? (e) => { (e.currentTarget as HTMLElement).style.borderLeftColor = 'transparent'; } : undefined}
-              role={canExpand ? 'button' : undefined}
-              tabIndex={canExpand ? 0 : undefined}
+              role={clickable ? 'button' : undefined}
+              tabIndex={clickable ? 0 : undefined}
               aria-expanded={canExpand ? isExpanded : undefined}
-              onKeyDown={canExpand ? (e) => {
+              title={openOwn ? OWN_ROW_HINT : undefined}
+              onKeyDown={clickable ? (e) => {
                 // m3: ignore keydowns bubbled from a focused child (e.g. the
                 // player-name Link) — only toggle when the row itself is focused.
                 if (e.target !== e.currentTarget) return;
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault();
-                  onTogglePlayer?.(entry.iscored_username);
+                  onRowClick?.();
                 }
               } : undefined}
             >
@@ -174,8 +187,11 @@ export default function ScoreList({
                 {formatScore(entry.score)}
               </span>
 
-              {/* Expand icon */}
-              {canExpand && (
+              {/* Expand icon — or, on the viewer's own row, the quiet
+                  chevron that says "this one opens". */}
+              {openOwn ? (
+                <ChevronRight size={11} style={{ color: rankColor, flexShrink: 0 }} aria-hidden />
+              ) : canExpand && (
                 isExpanded
                   ? <Minus size={11} style={{ color: 'var(--color-neon-cyan, #00e5ff)', flexShrink: 0 }} />
                   : <Plus size={11} style={{ color: rankColor, flexShrink: 0 }} />
