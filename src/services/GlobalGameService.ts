@@ -495,6 +495,27 @@ export class GlobalGameService {
         if (!existing) {
             const nonConflicting = nameMatches.filter(g => !this.hasExternalIdConflict(input, g));
 
+            // v2.108.1 — exact-literal-name precedence. `normalizeGameName`
+            // strips leading articles, so "The Aliens" and "Aliens" collide on
+            // the same normalized key, and the populatedness tie-breaks below
+            // then funnel a name-only import onto the WRONG row whenever the
+            // article-less cousin carries more metadata. Prod incident
+            // 2026-08-14: every "Sync AtGames" click re-tagged the VPX
+            // "Aliens (Original, 2020)" with the Zaccaria "The Aliens" row's
+            // AtGames platforms — the community sheet was accurate the whole
+            // time. When the incoming name matches one or more candidates'
+            // LITERAL names exactly (case-insensitive, trimmed), the walk is
+            // restricted to those candidates: an article-stripped cousin can
+            // no longer outrank an exact hit. With no literal match (e.g.
+            // input "Addams Family" against "The Addams Family"), the walk is
+            // unchanged — article-stripping keeps doing its job.
+            const inputLiteral = (input.name || '').trim().toLowerCase();
+            const literal = nameMatches.filter(g => (g.name || '').trim().toLowerCase() === inputLiteral);
+            const concreteBase = literal.length > 0 ? literal : nameMatches;
+            const looseBase = literal.length > 0
+                ? nonConflicting.filter(g => literal.includes(g))
+                : nonConflicting;
+
             const inputMfg = (input.manufacturer || '').trim().toLowerCase();
             const inputYear = input.year ?? null;
             // v2.4.11: exact year match (not ±1 tolerance). The loose
@@ -512,7 +533,7 @@ export class GlobalGameService {
             // database (VPS does this occasionally). Accept the merge; the
             // COALESCE-based UPDATE replaces the stale external ID with the
             // new authoritative one.
-            const concrete = nameMatches.filter(g => {
+            const concrete = concreteBase.filter(g => {
                 const cMfg = (g.manufacturer || '').trim().toLowerCase();
                 const cYear = g.year ?? null;
                 if (!inputMfg || !cMfg || !inputYear || !cYear) return false;
@@ -542,7 +563,7 @@ export class GlobalGameService {
             } else {
                 // No concrete (mfg, year) match — fall back to NULL-tolerant
                 // agreement so a single thin-but-solo candidate can still merge.
-                const loose = nonConflicting.filter(g => this.manufacturerYearAgree(input, g));
+                const loose = looseBase.filter(g => this.manufacturerYearAgree(input, g));
                 if (loose.length === 1) {
                     existing = loose[0]!;
                 } else if (loose.length > 1) {

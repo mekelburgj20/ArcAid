@@ -79,8 +79,9 @@ export default function SuperAdminLayout() {
     <div className="flex min-h-screen scanlines">
       {/* Stale-PWA "new version available" nudge — fixed position. */}
       <UpdateNudgeBanner />
-      {/* Mobile top bar */}
-      <div className="fixed top-0 left-0 right-0 z-30 bg-surface border-b border-border flex items-center gap-3 px-4 py-3 md:hidden">
+      {/* Mobile top bar — pt grows by the top safe-area inset so the
+          hamburger clears the iPhone camera cutout (see RoomAdminLayout). */}
+      <div className="fixed top-0 left-0 right-0 z-30 bg-surface border-b border-border flex items-center gap-3 px-4 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top,0px))] md:hidden">
         <button onClick={() => setSidebarOpen(!sidebarOpen)} className="text-muted hover:text-primary bg-transparent border-0 cursor-pointer p-0">
           {sidebarOpen ? <X size={22} /> : <Menu size={22} />}
         </button>
@@ -95,12 +96,15 @@ export default function SuperAdminLayout() {
       )}
 
       {/* Sidebar */}
-      <aside className={`
+      <aside
+        className={`
         w-60 bg-surface border-r border-border flex flex-col fixed h-screen z-40
         transition-transform duration-200 ease-in-out
         ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
         md:translate-x-0
-      `}>
+      `}
+        style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}
+      >
         <div className="p-5 border-b border-border flex items-center gap-3">
           {/* Wordmark links back to the landing page — the only escape from
               the super-admin shell besides editing the URL by hand. */}
@@ -160,7 +164,7 @@ export default function SuperAdminLayout() {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 min-w-0 md:ml-60 p-4 md:p-6 pt-16 md:pt-6">
+      <main className="flex-1 min-w-0 md:ml-60 p-4 md:p-6 pt-[calc(4rem+env(safe-area-inset-top,0px))] md:pt-6">
         <Outlet />
       </main>
     </div>

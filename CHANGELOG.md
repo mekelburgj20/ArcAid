@@ -6,6 +6,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.108.1] — unreleased
+
+**Two owner field fixes: iPhone camera cutout blocked the admin hamburger (priority), and the AtGames sync mis-tagging "The Aliens" onto the wrong game.**
+
+### Fixed
+- **Admin mobile top bar now clears the iPhone notch/Dynamic Island.** The fixed bar (and the hamburger in it) sat at `top: 0` under the camera cutout and was untappable. Both admin layouts pad the bar, drawer, and content by `env(safe-area-inset-top)` — zero on devices without a cutout, so nothing moves elsewhere. (`viewport-fit=cover` was already set; the bar just never consumed the inset.)
+- **Exact-literal-name precedence in catalogue dedup.** `normalizeGameName` strips leading articles, so "The Aliens" and "Aliens" collide on one normalized key — and the populatedness tie-break then funneled every name-only AtGames sheet import onto the richer VPX "Aliens (Original, 2020)" row, re-polluting it on every sync (the community sheet was accurate the whole time). An exact literal name match now restricts the dedup walk to the exactly-named candidates; article-stripping still matches when no literal row exists ("Addams Family" → "The Addams Family"). Deliberate trade documented in tests: an input exactly matching one of two same-machine name variants now lands on its literal twin rather than the richest variant. "Sync AtGames" is safe to click again.
+
+Tests: backend 1724 (+4 new precedence file, one variant test split in two), admin-ui 774.
+
 ## [2.108.0] — unreleased
 
 **Quick self-delete of your own scores (owner ask): click your own score on any card → game popup with always-visible delete; nested history deletes; GameDetail leaderboard deletes. Players delete only their own scores; admins any row.**
