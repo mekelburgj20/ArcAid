@@ -47,15 +47,13 @@ describe('ShowcasePodium — holo-steps variant', () => {
     expect(screen.getByTestId('holo-riser-3').className).not.toContain('hs-riser');
   });
 
-  it('puts the scanline shimmer on the gold riser only', () => {
+  it('renders NO scanline overlay on any riser (removed 2026-08-13 — aliased into CRT bands at fractional display scaling)', () => {
     const { container } = renderPodium([
       entry(1, 'mekelburgj', 46255563),
       entry(2, 'RetroTechX', 17277285),
       entry(3, 'PinWizard', 9841002),
     ]);
-    const scans = container.querySelectorAll('.hs-scan');
-    expect(scans).toHaveLength(1);
-    expect(screen.getByTestId('holo-riser-1').contains(scans[0]!)).toBe(true);
+    expect(container.querySelectorAll('.hs-scan')).toHaveLength(0);
   });
 
   it('shows names, scores and the verified badge above the risers', () => {

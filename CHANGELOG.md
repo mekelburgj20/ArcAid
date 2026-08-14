@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.106.1] — unreleased
+
+**Style P1 field batch (owner reports, same-day): Arcade header layout, Holo Steps scanline artifact, ticker tournament colors.**
+
+### Changed
+- **Arcade card header restructured**: tournament chip (+lock) now sits top-center of the art block with the game title centered beneath it. The v2.106.0 side-by-side row squeezed the title into a scrunched left column next to the chip on real-world titles.
+- **Ranking ticker group names now wear their tournament-tag colors** (Daily pink, Weekly blue, VR purple, Monthly orange — same map as the card chips). A group mixing tournament types keeps the neutral cyan.
+
+### Fixed
+- **Removed the Holo Steps gold-riser scanline shimmer.** Its 1px-pitch repeating gradient aliased into coarse CRT-like bands at fractional display scaling (Windows display scale / browser zoom — which is why it appeared after a display-settings change), and `prefers-reduced-motion` froze it as a permanent static pattern. The breathing glow remains the riser's one effect; comment at the old site warns against reintroducing hairline patterns without DPR testing.
+
+Tests: admin-ui 735 (scanline test flipped to assert absence). Backend untouched.
+
 ## [2.106.0] — unreleased
 
 **Style-system revamp Phase 1: the Arcade card family (Global Scoreboard look on room cards, now the platform default) + the owner's "Holo Steps" podium redesign for Showcase cards.**

@@ -445,18 +445,13 @@ function HoloStep({
           }),
         }}
       >
-        {!empty && first && (
-          /* scanline shimmer — gold ONLY (owner rejected it on silver/bronze) */
-          <div
-            className="hs-scan"
-            style={{
-              position: 'absolute', inset: 0,
-              background: 'repeating-linear-gradient(0deg, transparent 0 3px, rgba(255,255,255,0.045) 3px 4px)',
-              backgroundSize: '100% 300%',
-              animation: 'pr-scan 7s linear infinite',
-            }}
-          />
-        )}
+        {/* The handoff spec'd a gold-only scanline shimmer here; it was
+            REMOVED after the owner's 2026-08-13 field report — the 1px-pitch
+            repeating gradient aliases into coarse CRT-like bands at
+            fractional display scaling (Windows scale / browser zoom), and
+            reduced-motion froze it as a permanent static pattern. The
+            breathing glow is the riser's one effect. Don't reintroduce a
+            hairline pattern without DPR-testing at 125%/150% scale. */}
         <span
           className="font-display"
           style={{

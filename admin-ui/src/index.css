@@ -1432,19 +1432,16 @@ select option {
  *   colors arrive as --pr-glow / --pr-glow-hi custom properties, also inline,
  *   derived from the metal tokens.
  *
- *   pr-scan — scanline shimmer, GOLD RISER ONLY (owner explicitly rejected it
- *   on silver and bronze).
+ *   (The handoff's gold-only pr-scan shimmer was removed 2026-08-13 — its
+ *   1px-pitch gradient aliased into coarse CRT bands at fractional display
+ *   scaling. See the comment at the old overlay site in ShowcasePodium.tsx.)
  */
 @keyframes pr-breathe {
   0%, 100% { filter: brightness(1); box-shadow: 0 -1px 14px var(--pr-glow); }
   50% { filter: brightness(1.45); box-shadow: 0 -2px 30px var(--pr-glow-hi); }
 }
-@keyframes pr-scan {
-  0% { background-position: 0 -120%; }
-  100% { background-position: 0 220%; }
-}
-/* The reduced-motion off-switch for .hs-riser/.hs-scan lives in the sheet's
-   single shared `@media (prefers-reduced-motion: reduce)` block further down
+/* The reduced-motion off-switch for .hs-riser lives in the sheet's single
+   shared `@media (prefers-reduced-motion: reduce)` block further down
    (GlobalScoreboardA5.test.tsx anchors on the first such block — do not open
    a second one). */
 
@@ -1626,11 +1623,10 @@ select option {
     animation: none;
     background: color-mix(in oklab, var(--sb-hero-sweep) 34%, transparent);
   }
-  /* Holo Steps podium: breathing risers + gold scanline stop. The animation is
-     applied INLINE (per-rank duration/delay), so the off-switch needs
-     !important to beat the style attribute. */
-  .hs-riser,
-  .hs-scan {
+  /* Holo Steps podium: the breathing risers stop. The animation is applied
+     INLINE (per-rank duration/delay), so the off-switch needs !important to
+     beat the style attribute. */
+  .hs-riser {
     animation: none !important;
   }
 }

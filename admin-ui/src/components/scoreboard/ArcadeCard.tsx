@@ -330,30 +330,16 @@ export default function ArcadeCard({
             aria-hidden="true"
           />
 
-          {/* Title row, over the art. `pointer-events-none` with each
-              interactive child opting back in, so the gaps between title and
-              chip don't become dead strips. */}
-          <div className="pointer-events-none absolute inset-x-0 top-0 z-[2] flex items-start gap-2 p-2">
-            {titleLinkTo ? (
-              <Link
-                to={titleLinkTo}
-                onClick={titleLinkOnClick}
-                data-tour="game-card-title"
-                className="pointer-events-auto flex min-w-0 flex-1 items-start gap-1 no-underline"
-              >
-                {title}
-              </Link>
-            ) : (
-              <h3 className="pointer-events-auto m-0 flex min-w-0 flex-1 items-start gap-1">
-                {title}
-              </h3>
-            )}
-
+          {/* Header, over the art — a centered STACK: tournament chip (+lock)
+              on top, game title beneath it (owner field revision 2026-08-13:
+              the side-by-side row squeezed the title into a scrunched left
+              column next to the chip). Centering also clears the page-level
+              submit "+" overlay in the top-right corner. `pointer-events-none`
+              with each interactive child opting back in, so the gaps don't
+              become dead strips. */}
+          <div className="pointer-events-none absolute inset-x-0 top-0 z-[2] flex flex-col items-center gap-1.5 p-2">
             {(label || lb.gameStatus === 'COMPLETED') && (
-              /* mr-9 clears the page-level submit "+" overlay (absolute
-                 top-right over every card, 44px hit box) — without it the
-                 chip renders half-under the button. */
-              <div className="pointer-events-auto mr-9 flex max-w-[42%] shrink-0 flex-wrap items-center justify-end gap-1">
+              <div className="pointer-events-auto flex items-center justify-center gap-1.5">
                 {label && (
                   <span
                     data-testid="arcade-chip"
@@ -371,6 +357,21 @@ export default function ArcadeCard({
                   <Lock size={15} strokeWidth={2.5} className="shrink-0 text-neon-amber" aria-label="Locked" />
                 )}
               </div>
+            )}
+
+            {titleLinkTo ? (
+              <Link
+                to={titleLinkTo}
+                onClick={titleLinkOnClick}
+                data-tour="game-card-title"
+                className="pointer-events-auto flex w-full min-w-0 items-start justify-center gap-1 text-center no-underline"
+              >
+                {title}
+              </Link>
+            ) : (
+              <h3 className="pointer-events-auto m-0 flex w-full min-w-0 items-start justify-center gap-1 text-center">
+                {title}
+              </h3>
             )}
           </div>
 
