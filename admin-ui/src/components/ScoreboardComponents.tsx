@@ -1580,7 +1580,13 @@ export function RankingsTicker({ rankingGroups, slug, topN = 5 }: {
         const score = group.rank_method === 'average_rank' ? entry.total_points.toFixed(2) : entry.total_points.toLocaleString();
         return `${entry.rank}. ${playerName(entry)} ${score}${unit}`;
       });
-      return { id: group.id, name: group.name, text: entries.join('   ·   ') };
+      // Owner (2026-08-13): the group name wears its tournament-tag color.
+      // A group's color is well-defined only when every underlying tournament
+      // shares one type (the common per-type-group setup); mixed-type or
+      // typeless groups keep the neutral cyan.
+      const types = [...new Set((group.tournaments ?? []).map(t => t.type))];
+      const color = types.length === 1 ? TOURNAMENT_BADGE_COLORS[types[0]!]?.text : undefined;
+      return { id: group.id, name: group.name, text: entries.join('   ·   '), color };
     }), [rankingGroups, topN]);
 
   // Distance-based duration (same idiom as ScoreboardTicker.tsx s21): the
@@ -1596,10 +1602,15 @@ export function RankingsTicker({ rankingGroups, slug, topN = 5 }: {
 
   if (segments.length === 0) return null;
 
-  const renderSegment = (seg: { id: string; name: string; text: string }, key: string) => {
+  const renderSegment = (seg: { id: string; name: string; text: string; color?: string }, key: string) => {
     const inner = (
       <span className="inline-flex items-center gap-2.5 text-xs sm:text-sm whitespace-nowrap">
-        <span className="font-display font-bold uppercase tracking-wider text-neon-cyan">{seg.name}</span>
+        <span
+          className="font-display font-bold uppercase tracking-wider text-neon-cyan"
+          style={seg.color ? { color: seg.color } : undefined}
+        >
+          {seg.name}
+        </span>
         <span className="text-primary/85">{seg.text}</span>
       </span>
     );
