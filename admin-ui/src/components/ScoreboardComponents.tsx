@@ -379,10 +379,19 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
     return () => clearInterval(interval);
   }, [lb.nextMaintenanceAt]);
 
+  // Unmount guard for the two async chains below — the score-counts batcher's
+  // module-level 50ms timer outlives any one card, so its promise can resolve
+  // after unmount (the "window is not defined" CI flake; see useScoreExpand.ts
+  // for the fuller note — this is the legacy GameCard twin of that fix).
+  const unmountedRef = useRef(false);
+  useEffect(() => () => { unmountedRef.current = true; }, []);
+
   // Fetch score counts for this game to know which players have multiple scores
   useEffect(() => {
     if (!roomId || !lb.gameId || lb.rankings.length === 0) return;
-    fetchScoreCounts(roomId, lb.gameId).then(setScoreCounts);
+    fetchScoreCounts(roomId, lb.gameId).then(counts => {
+      if (!unmountedRef.current) setScoreCounts(counts);
+    });
   }, [roomId, lb.gameId, lb.rankings.length]);
 
   const togglePlayer = (username: string) => {
@@ -396,9 +405,9 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
     setHistoryLoading(true);
     fetch(`/api/rooms/${roomId}/score-history/${encodeURIComponent(lb.gameName)}/player/${encodeURIComponent(username)}`)
       .then(r => r.ok ? r.json() : [])
-      .then(setPlayerHistory)
-      .catch(() => setPlayerHistory([]))
-      .finally(() => setHistoryLoading(false));
+      .then(h => { if (!unmountedRef.current) setPlayerHistory(h); })
+      .catch(() => { if (!unmountedRef.current) setPlayerHistory([]); })
+      .finally(() => { if (!unmountedRef.current) setHistoryLoading(false); });
   };
 
   // Independent logo/bg override the legacy catalogue style — fall through if style lacks the image type

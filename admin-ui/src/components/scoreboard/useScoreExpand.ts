@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { fetchScoreCounts } from './scoreCountsBatcher';
 
 export interface ScoreHistoryEntry {
@@ -19,9 +19,21 @@ export function useScoreExpand(roomId: string | undefined, gameId: string, gameN
   const [playerHistory, setPlayerHistory] = useState<ScoreHistoryEntry[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
 
+  // Unmount guard for BOTH async paths below. The score-counts batcher runs a
+  // module-level 50ms timer no component owns, so its promise can resolve
+  // after this component (or the whole jsdom test env) is gone — an unguarded
+  // setState there is the "window is not defined" CI flake
+  // (LeaderboardAdminControls, 2× 2026-08). Same idiom as Leaderboard.tsx's
+  // roomTheme effect; a ref rather than a per-effect flag because
+  // togglePlayer's fetch chain needs the guard too and it's an event handler.
+  const unmountedRef = useRef(false);
+  useEffect(() => () => { unmountedRef.current = true; }, []);
+
   useEffect(() => {
     if (!roomId || !gameId || rankingsLength === 0) return;
-    fetchScoreCounts(roomId, gameId).then(setScoreCounts);
+    fetchScoreCounts(roomId, gameId).then(counts => {
+      if (!unmountedRef.current) setScoreCounts(counts);
+    });
   }, [roomId, gameId, rankingsLength]);
 
   const togglePlayer = useCallback((username: string) => {
@@ -35,9 +47,9 @@ export function useScoreExpand(roomId: string | undefined, gameId: string, gameN
     setHistoryLoading(true);
     fetch(`/api/rooms/${roomId}/score-history/${encodeURIComponent(gameName)}/player/${encodeURIComponent(username)}`)
       .then(r => r.ok ? r.json() : [])
-      .then(setPlayerHistory)
-      .catch(() => setPlayerHistory([]))
-      .finally(() => setHistoryLoading(false));
+      .then(h => { if (!unmountedRef.current) setPlayerHistory(h); })
+      .catch(() => { if (!unmountedRef.current) setPlayerHistory([]); })
+      .finally(() => { if (!unmountedRef.current) setHistoryLoading(false); });
   }, [roomId, gameName, expandedPlayer]);
 
   const hasMultiple = (username: string) => (scoreCounts[username.toLowerCase()] || 0) > 1;
