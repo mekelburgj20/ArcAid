@@ -151,12 +151,40 @@ describe('global_games identity index + upsert disambiguation', () => {
             'wizard-row',
         );
 
+        // v2.108.1 — an input that matches NEITHER literal name (inner double
+        // space survives trim(), while normalization collapses it onto the
+        // same key as both rows) still exercises the richest-wins tie-break.
+        const result = await GlobalGameService.upsert({
+            name: 'Transformers  Pro', type: 'pinball', manufacturer: 'Stern', year: 2011,
+            platforms: ['vpxs'], status: 'approved',
+        });
+        expect(result.action).toBe('updated');
+        expect(result.id).toBe('vps-row'); // richest wins
+    });
+
+    it('step 4: an EXACT literal name match outranks a richer article/variant cousin (v2.108.1)', async () => {
+        const db = await getDatabase();
+        await db.run(
+            `INSERT INTO global_games (id, name, type, manufacturer, year, vps_id, created_at, status)
+             VALUES (?, 'Transformers (Pro)', 'pinball', 'Stern', 2011, 'vps-xyz', '2025-01-01', 'approved')`,
+            'vps-row',
+        );
+        await db.run(
+            `INSERT INTO global_games (id, name, type, manufacturer, year, created_at, status)
+             VALUES (?, 'Transformers Pro', 'pinball', 'Stern', 2011, '2025-06-01', 'approved')`,
+            'wizard-row',
+        );
+
+        // Exact literal input now lands on its literal twin, not the richer
+        // variant — the price of the Aliens fix (exact identity must beat
+        // populatedness when normalized keys collide), and harmless here:
+        // same machine either way, and the variant pair remains mergeable.
         const result = await GlobalGameService.upsert({
             name: 'Transformers Pro', type: 'pinball', manufacturer: 'Stern', year: 2011,
             platforms: ['vpxs'], status: 'approved',
         });
         expect(result.action).toBe('updated');
-        expect(result.id).toBe('vps-row'); // richest wins
+        expect(result.id).toBe('wizard-row');
     });
 
     it('step 4: finds catalogue rows whose raw names contain apostrophes / punctuation', async () => {

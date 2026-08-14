@@ -134,8 +134,11 @@ export default function RoomAdminLayout() {
       <div className="flex min-h-screen scanlines">
         {/* Stale-PWA "new version available" nudge — fixed position. */}
         <UpdateNudgeBanner />
-        {/* Mobile top bar */}
-        <div className="fixed top-0 left-0 right-0 z-30 bg-surface border-b border-border flex items-center gap-3 px-4 py-3 md:hidden">
+        {/* Mobile top bar. pt grows by the device's top safe-area inset
+            (iPhone notch/Dynamic Island — the hamburger sat under the camera
+            cutout and was untappable; owner priority report 2026-08-14).
+            env() is 0 on devices without a cutout, so nothing else moves. */}
+        <div className="fixed top-0 left-0 right-0 z-30 bg-surface border-b border-border flex items-center gap-3 px-4 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top,0px))] md:hidden">
           <button onClick={() => setSidebarOpen(!sidebarOpen)} className="text-muted hover:text-primary bg-transparent border-0 cursor-pointer p-0">
             {sidebarOpen ? <X size={22} /> : <Menu size={22} />}
           </button>
@@ -149,12 +152,16 @@ export default function RoomAdminLayout() {
         )}
 
         {/* Sidebar */}
-        <aside className={`
+        <aside
+          className={`
           w-60 bg-surface border-r border-border flex flex-col fixed h-screen z-40
           transition-transform duration-200 ease-in-out
           ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
           md:translate-x-0
-        `}>
+        `}
+          /* keep the drawer header below the notch too (0 on desktop) */
+          style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}
+        >
           <div className="p-5 border-b border-border flex items-center gap-3">
             <img src="/arcaid-logo-v2.png" alt="Arcaid" className="w-10 h-10" />
             <div className="min-w-0">
@@ -216,7 +223,7 @@ export default function RoomAdminLayout() {
         </aside>
 
         {/* Main Content */}
-        <main className="flex-1 min-w-0 md:ml-60 p-4 md:p-6 pt-16 md:pt-6">
+        <main className="flex-1 min-w-0 md:ml-60 p-4 md:p-6 pt-[calc(4rem+env(safe-area-inset-top,0px))] md:pt-6">
           <Outlet />
         </main>
       </div>
