@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { Search } from 'lucide-react';
 import { getSocket } from '../lib/websocket';
@@ -16,6 +16,7 @@ import GameQuickView from '../components/GameQuickView';
 import SubmissionSheet from '../components/SubmissionSheet';
 import ScoreboardPreferencesModal from '../components/ScoreboardPreferencesModal';
 import { TAB_LABELS } from '../lib/scoresCopy';
+import { decodeViewerClaims } from '../lib/viewerClaims';
 
 type ScoresTab = 'tournaments' | 'room' | 'global';
 
@@ -106,6 +107,8 @@ export default function Scoreboard() {
   // PLAYER token (Discord session), not the admin token (null for public viewers).
   const playerHeaders = usePlayerHeaders();
   const { discordUser, playerToken } = useViewerAuth();
+  // v2.108.0 (F3) — raw Discord id for the own-row click gate on card rows.
+  const viewerClaims = useMemo(() => decodeViewerClaims(playerToken), [playerToken]);
   const { setPublicTheme } = useTheme();
 
   const deviceType = window.innerWidth <= 640 ? 'mobile' : 'desktop';
@@ -227,6 +230,10 @@ export default function Scoreboard() {
         onSubmitScore={(lb) => setSelectedGame(lb)}
         titleLinkTo={tournamentCardTitleLink(slug || '')}
         titleLinkOnClick={tournamentCardTitleClick(setQuickViewLb)}
+        // v2.108.0 (F3) — a click on the viewer's OWN row opens the same quick
+        // popup the title opens, where the score carries a delete control.
+        viewerDiscordId={viewerClaims?.discordId}
+        onOwnRowClick={setQuickViewLb}
         searchFilter={tournamentSearch}
         // S14: reserve room for the fixed-bottom lobby ticker so it doesn't
         // cover the last row of cards.
@@ -301,6 +308,11 @@ export default function Scoreboard() {
           lb={quickViewLb}
           slug={slug || ''}
           fromTab="tournaments"
+          // v2.108.0 (F4) — passing roomId turns on the per-row delete
+          // affordances inside the popup (own rows for players, any row for
+          // admins of this room).
+          roomId={roomId}
+          onScoreDeleted={() => { loadData(); loadRankings(); }}
           onClose={() => setQuickViewLb(null)}
         />
       )}

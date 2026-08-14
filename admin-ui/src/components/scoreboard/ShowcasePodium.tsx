@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Plus, Minus, BadgeCheck } from 'lucide-react';
+import { Plus, Minus, BadgeCheck, ChevronRight } from 'lucide-react';
 import type { RankedEntry } from '../ScoreboardComponents';
 import { PlayerAvatar, playerName } from '../ScoreboardComponents';
 import PlayerNameLink from '../PlayerNameLink';
@@ -7,6 +7,8 @@ import type { ShowcaseThemeConfig } from '../../lib/scoreboardThemes';
 import type { ScoreHistoryEntry } from './useScoreExpand';
 import { TrophyIcon } from '../../assets/icons/ThemedIcons';
 import { formatScore } from '../../lib/format';
+import type { OwnRowOpen } from '../../lib/scoreDelete';
+import { ownRowOpener, OWN_ROW_HINT } from '../../lib/scoreDelete';
 
 interface ShowcasePodiumProps {
   entries: RankedEntry[];  // top 3 (or fewer)
@@ -18,6 +20,8 @@ interface ShowcasePodiumProps {
   playerHistory?: ScoreHistoryEntry[];
   historyLoading?: boolean;
   onTogglePlayer?: (username: string) => void;
+  /** v2.108.0 (F3) - own-row click opens the game quick popup. */
+  ownRow?: OwnRowOpen;
 }
 
 /** Expanded history panel for a podium entry */
@@ -70,7 +74,7 @@ function podiumScoreFontSize(base: number, rendered: string): number {
 
 /** A single podium card — always rendered (empty state if no entry) */
 function PodiumSlot({
-  config, theme, slug, hasMultiple, expandedPlayer, playerHistory, historyLoading, onTogglePlayer,
+  config, theme, slug, hasMultiple, expandedPlayer, playerHistory, historyLoading, onTogglePlayer, ownRow,
 }: {
   config: PodiumSlotConfig;
   theme: ShowcaseThemeConfig;
@@ -80,10 +84,13 @@ function PodiumSlot({
   playerHistory?: ScoreHistoryEntry[];
   historyLoading?: boolean;
   onTogglePlayer?: (username: string) => void;
+  ownRow?: OwnRowOpen;
 }) {
   const { entry, label, icon, pod, avatarSize, nameSize, scoreSize } = config;
-  const canExpand = entry ? (hasMultiple?.(entry.iscored_username) ?? false) : false;
+  const openOwn = entry ? ownRowOpener(entry, ownRow) : undefined;
+  const canExpand = entry ? (!openOwn && (hasMultiple?.(entry.iscored_username) ?? false)) : false;
   const isExpanded = entry ? expandedPlayer === entry.iscored_username : false;
+  const onRowClick = openOwn ?? (canExpand ? () => onTogglePlayer?.(entry!.iscored_username) : undefined);
 
   return (
     /* v2.2.7: also set pointerEvents: 'auto' on the outer wrapper when
@@ -92,7 +99,7 @@ function PodiumSlot({
        had pointer-events auto — padding / surrounding flex area fell back
        to the wrapper's pointer-events-none and clicks there navigated
        instead of expanding. */
-    <div style={{ flex: 1, minWidth: 0, ...(canExpand ? { pointerEvents: 'auto' } : {}) }}>
+    <div style={{ flex: 1, minWidth: 0, ...(onRowClick ? { pointerEvents: 'auto' } : {}) }}>
       <div
         style={{
           borderRadius: isExpanded ? '12px 12px 0 0' : '12px',
@@ -105,9 +112,10 @@ function PodiumSlot({
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          ...(canExpand ? { cursor: 'pointer', pointerEvents: 'auto' } : {}),
+          ...(onRowClick ? { cursor: 'pointer', pointerEvents: 'auto' } : {}),
         }}
-        onClick={canExpand ? () => onTogglePlayer?.(entry!.iscored_username) : undefined}
+        onClick={onRowClick}
+        title={openOwn ? OWN_ROW_HINT : undefined}
       >
         {/* Rank label */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, marginBottom: 6 }}>
@@ -184,7 +192,9 @@ function PodiumSlot({
               >
                 {formatScore(entry.score)}
               </span>
-              {canExpand && (
+              {openOwn ? (
+                <ChevronRight size={11} style={{ color: pod.rankColor, flexShrink: 0 }} aria-hidden />
+              ) : canExpand && (
                 isExpanded
                   ? <Minus size={11} style={{ color: 'var(--color-neon-cyan, #00e5ff)', flexShrink: 0 }} />
                   : <Plus size={11} style={{ color: pod.rankColor, flexShrink: 0 }} />
@@ -204,7 +214,7 @@ function PodiumSlot({
   );
 }
 
-function PyramidPodium({ entries, theme, slug, hasMultiple, expandedPlayer, playerHistory, historyLoading, onTogglePlayer }: ShowcasePodiumProps) {
+function PyramidPodium({ entries, theme, slug, hasMultiple, expandedPlayer, playerHistory, historyLoading, onTogglePlayer, ownRow }: ShowcasePodiumProps) {
   const [first, second, third] = entries;
 
   const configs: PodiumSlotConfig[] = [
@@ -227,6 +237,7 @@ function PyramidPodium({ entries, theme, slug, hasMultiple, expandedPlayer, play
             playerHistory={playerHistory}
             historyLoading={historyLoading}
             onTogglePlayer={onTogglePlayer}
+            ownRow={ownRow}
           />
         </div>
       </div>
@@ -242,6 +253,7 @@ function PyramidPodium({ entries, theme, slug, hasMultiple, expandedPlayer, play
           playerHistory={playerHistory}
           historyLoading={historyLoading}
           onTogglePlayer={onTogglePlayer}
+          ownRow={ownRow}
         />
         <PodiumSlot
           config={configs[2]}
@@ -252,13 +264,14 @@ function PyramidPodium({ entries, theme, slug, hasMultiple, expandedPlayer, play
           playerHistory={playerHistory}
           historyLoading={historyLoading}
           onTogglePlayer={onTogglePlayer}
+          ownRow={ownRow}
         />
       </div>
     </div>
   );
 }
 
-function ChipPodium({ entries, theme, slug, hasMultiple, expandedPlayer, playerHistory, historyLoading, onTogglePlayer }: ShowcasePodiumProps) {
+function ChipPodium({ entries, theme, slug, hasMultiple, expandedPlayer, playerHistory, historyLoading, onTogglePlayer, ownRow }: ShowcasePodiumProps) {
   const [first, second, third] = entries;
 
   const configs: PodiumSlotConfig[] = [
@@ -281,6 +294,7 @@ function ChipPodium({ entries, theme, slug, hasMultiple, expandedPlayer, playerH
             playerHistory={playerHistory}
             historyLoading={historyLoading}
             onTogglePlayer={onTogglePlayer}
+            ownRow={ownRow}
           />
         </div>
       </div>
@@ -296,6 +310,7 @@ function ChipPodium({ entries, theme, slug, hasMultiple, expandedPlayer, playerH
           playerHistory={playerHistory}
           historyLoading={historyLoading}
           onTogglePlayer={onTogglePlayer}
+          ownRow={ownRow}
         />
         <PodiumSlot
           config={configs[2]}
@@ -306,6 +321,7 @@ function ChipPodium({ entries, theme, slug, hasMultiple, expandedPlayer, playerH
           playerHistory={playerHistory}
           historyLoading={historyLoading}
           onTogglePlayer={onTogglePlayer}
+          ownRow={ownRow}
         />
       </div>
     </div>
@@ -337,7 +353,7 @@ const mixMetal = (metal: string, pct: number) => `color-mix(in srgb, ${metal} ${
  * silhouette is always complete, exactly like the other variants' blank slots.
  */
 function HoloStep({
-  entry, rank, theme, slug, hasMultiple, expandedPlayer, onTogglePlayer,
+  entry, rank, theme, slug, hasMultiple, expandedPlayer, onTogglePlayer, ownRow,
 }: {
   entry: RankedEntry | undefined;
   rank: 1 | 2 | 3;
@@ -346,23 +362,27 @@ function HoloStep({
   hasMultiple?: (username: string) => boolean;
   expandedPlayer?: string | null;
   onTogglePlayer?: (username: string) => void;
+  ownRow?: OwnRowOpen;
 }) {
   const m = HOLO_METALS[rank];
   const empty = !entry;
-  const canExpand = entry ? (hasMultiple?.(entry.iscored_username) ?? false) : false;
+  const openOwn = entry ? ownRowOpener(entry, ownRow) : undefined;
+  const canExpand = entry ? (!openOwn && (hasMultiple?.(entry.iscored_username) ?? false)) : false;
   const isExpanded = entry ? expandedPlayer === entry.iscored_username : false;
+  const onRowClick = openOwn ?? (canExpand ? () => onTogglePlayer?.(entry!.iscored_username) : undefined);
   const first = rank === 1;
   const rendered = entry ? formatScore(entry.score) : '';
 
   return (
-    <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', ...(canExpand ? { pointerEvents: 'auto' as const } : {}) }}>
+    <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', ...(onRowClick ? { pointerEvents: 'auto' as const } : {}) }}>
       {entry && (
         <div
           style={{
             display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, marginBottom: 8,
-            ...(canExpand ? { cursor: 'pointer' } : {}),
+            ...(onRowClick ? { cursor: 'pointer' } : {}),
           }}
-          onClick={canExpand ? () => onTogglePlayer?.(entry.iscored_username) : undefined}
+          onClick={onRowClick}
+          title={openOwn ? OWN_ROW_HINT : undefined}
         >
           <PlayerAvatar
             username={playerName(entry)}
@@ -416,7 +436,9 @@ function HoloStep({
             >
               {rendered}
             </span>
-            {canExpand && (
+            {openOwn ? (
+              <ChevronRight size={10} style={{ color: m, flexShrink: 0 }} aria-hidden />
+            ) : canExpand && (
               isExpanded
                 ? <Minus size={10} style={{ color: 'var(--color-neon-cyan, #00e5ff)', flexShrink: 0 }} />
                 : <Plus size={10} style={{ color: m, flexShrink: 0 }} />
@@ -473,16 +495,16 @@ function HoloStep({
  * panel under the steps: the columns are too narrow to host it per-slot
  * without breaking the silhouette.
  */
-function HoloStepsPodium({ entries, theme, slug, hasMultiple, expandedPlayer, playerHistory, historyLoading, onTogglePlayer }: ShowcasePodiumProps) {
+function HoloStepsPodium({ entries, theme, slug, hasMultiple, expandedPlayer, playerHistory, historyLoading, onTogglePlayer, ownRow }: ShowcasePodiumProps) {
   const [first, second, third] = entries;
   const expandedIsPodium = !!expandedPlayer && entries.slice(0, 3).some(e => e && e.iscored_username === expandedPlayer);
 
   return (
     <div style={{ padding: '4px 16px 12px' }}>
       <div style={{ display: 'flex', gap: 6, alignItems: 'flex-end' }}>
-        <HoloStep entry={second} rank={2} theme={theme} slug={slug} hasMultiple={hasMultiple} expandedPlayer={expandedPlayer} onTogglePlayer={onTogglePlayer} />
-        <HoloStep entry={first} rank={1} theme={theme} slug={slug} hasMultiple={hasMultiple} expandedPlayer={expandedPlayer} onTogglePlayer={onTogglePlayer} />
-        <HoloStep entry={third} rank={3} theme={theme} slug={slug} hasMultiple={hasMultiple} expandedPlayer={expandedPlayer} onTogglePlayer={onTogglePlayer} />
+        <HoloStep entry={second} rank={2} theme={theme} slug={slug} hasMultiple={hasMultiple} expandedPlayer={expandedPlayer} onTogglePlayer={onTogglePlayer} ownRow={ownRow} />
+        <HoloStep entry={first} rank={1} theme={theme} slug={slug} hasMultiple={hasMultiple} expandedPlayer={expandedPlayer} onTogglePlayer={onTogglePlayer} ownRow={ownRow} />
+        <HoloStep entry={third} rank={3} theme={theme} slug={slug} hasMultiple={hasMultiple} expandedPlayer={expandedPlayer} onTogglePlayer={onTogglePlayer} ownRow={ownRow} />
       </div>
       {expandedIsPodium && (
         <ExpandedHistory playerHistory={playerHistory} historyLoading={historyLoading} theme={theme} />

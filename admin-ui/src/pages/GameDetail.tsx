@@ -9,35 +9,14 @@ import ProvenanceTags from '../components/ProvenanceTags';
 import { getEngineCategoryLabel, getEngineDisplay } from '../lib/scoreProvenance';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { useRoom } from '../contexts/RoomContext';
+import { decodeViewerClaims, isRoomAdminFor } from '../lib/viewerClaims';
+import { canDeleteRow, deleteScoreHistory } from '../lib/scoreDelete';
 import { formatScore, scoreTitle } from '../lib/format';
 import { Search, Trophy, TrendingUp, Target, Medal, Plus, Minus, Clock, Lightbulb, MessageCircle, Trash2, ChevronDown, ChevronUp, History, Download, Play, BookOpen, ExternalLink, Flag, BadgeCheck } from 'lucide-react';
 import ReportProblemModal from '../components/ReportProblemModal';
 import ReportContentModal from '../components/ReportContentModal';
 import ConfirmModal from '../components/ConfirmModal';
 import { useToast } from '../components/Toast';
-
-/** Decode a player JWT and pull the role + gameRoomIds claims. The viewer
- *  could be a player, room_admin, or super_admin — public-page tokens carry
- *  whichever role the user actually has. Returns null on missing/invalid. */
-function decodeViewerClaims(token: string | null): {
-  role: 'player' | 'room_admin' | 'super_admin';
-  gameRoomIds: string[];
-  discordId: string | null;
-} | null {
-  if (!token) return null;
-  try {
-    const parts = token.split('.');
-    if (parts.length !== 3) return null;
-    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
-    return {
-      role: (payload.role as 'player' | 'room_admin' | 'super_admin') || 'player',
-      gameRoomIds: Array.isArray(payload.gameRoomIds) ? payload.gameRoomIds : [],
-      discordId: (payload.discordId as string) || null,
-    };
-  } catch {
-    return null;
-  }
-}
 
 interface RankedEntry {
   rank: number;
@@ -62,6 +41,16 @@ interface RankedEntry {
   engine?: string | null;
   /** v2.58.0 (ADR 0016): what it ran on. */
   device?: string | null;
+  /**
+   * v2.108.0 (B3) — the `score_history.id` backing this collapsed entry, its
+   * source, and the RAW `submitted_by_user_id`. Together they let the
+   * leaderboard table offer a per-row delete without first expanding the
+   * player's history. `submitted_by_user_id` is the ownership claim;
+   * `discord_user_id` above is a resolved DISPLAY identity and is never one.
+   */
+  history_id?: number | null;
+  source?: string | null;
+  submitted_by_user_id?: string | null;
 }
 
 interface GameLeaderboard {
@@ -222,13 +211,13 @@ export default function GameDetail() {
   // v2.86.0 — same admin detection `canDeleteScoreHistory`/`canVerifyScoreHistory`
   // use, applied to comment/tip moderation: super_admin or a room_admin of
   // THIS room can delete any comment, not just their own.
-  const canModerateComments = !!viewerClaims && !!roomId && (
-    viewerClaims.role === 'super_admin' ||
-    (viewerClaims.role === 'room_admin' && viewerClaims.gameRoomIds.includes(roomId))
-  );
+  const canModerateComments = !!roomId && isRoomAdminFor(viewerClaims, roomId);
   const [reportOpen, setReportOpen] = useState(false);
   // s20: confirm-before-delete for score-history rows, replacing native confirm().
   const [pendingDeleteEntry, setPendingDeleteEntry] = useState<ScoreHistoryEntry | null>(null);
+  // v2.108.0 (F5) — same confirm flow for a CURRENT LEADERBOARD row, which
+  // deletes its backing `history_id` rather than an expanded history row.
+  const [pendingDeleteRanked, setPendingDeleteRanked] = useState<RankedEntry | null>(null);
   const [stats, setStats] = useState<GameStats | null>(null);
   const [leaderboard, setLeaderboard] = useState<GameLeaderboard | null>(null);
   const [loading, setLoading] = useState(true);
@@ -557,18 +546,42 @@ export default function GameDetail() {
    *  optimistically drop the row from the expanded view, then refresh the
    *  leaderboard since the deleted score may have been this player's best. */
   const performDeleteScoreHistory = async (entry: ScoreHistoryEntry) => {
-    if (!roomId || !playerToken) return;
+    if (!roomId) return;
+    const result = await deleteScoreHistory(roomId, entry.id, playerToken);
+    if (!result.ok) {
+      toast(result.error, 'error');
+      return;
+    }
+    setPlayerHistory(prev => prev.filter(h => h.id !== entry.id));
+    refreshAfterScoreDelete();
+  };
+
+  /**
+   * v2.108.0 (F5) — delete straight off a CURRENT LEADERBOARD row, without
+   * expanding the player's history first. Acts on `history_id` (B3), which is
+   * the score_history row the collapsed entry was built from.
+   */
+  const performDeleteRankedEntry = async (entry: RankedEntry) => {
+    if (!roomId || entry.history_id == null) return;
+    const result = await deleteScoreHistory(roomId, entry.history_id, playerToken);
+    if (!result.ok) {
+      toast(result.error, 'error');
+      return;
+    }
+    // Optimistic: drop the row from whichever list is on screen. The refetch
+    // below is authoritative — if the player had a lower score left, it
+    // reappears at its new rank.
+    setLeaderboard(prev => prev
+      ? { ...prev, rankings: prev.rankings.filter(r => r.history_id !== entry.history_id) }
+      : prev);
+    setFilteredRankings(prev => prev ? prev.filter(r => r.history_id !== entry.history_id) : prev);
+    setPlayerHistory(prev => prev.filter(h => h.id !== entry.history_id));
+    refreshAfterScoreDelete();
+  };
+
+  /** Shared post-delete refresh for both delete paths above. */
+  const refreshAfterScoreDelete = () => {
     try {
-      const res = await fetch(`/api/rooms/${roomId}/score-history/${entry.id}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${playerToken}` },
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        toast(err.error || 'Failed to delete score', 'error');
-        return;
-      }
-      setPlayerHistory(prev => prev.filter(h => h.id !== entry.id));
       // The leaderboard / per-player rankings may have shifted (this could
       // have been the player's best). Refetch the small ones inline so the
       // page reflects the change immediately even before the websocket
@@ -604,29 +617,23 @@ export default function GameDetail() {
         .then(r => r.ok ? r.json() : [])
         .then(setGamePlayerRankings)
         .catch(() => {});
-    } catch (err) {
-      toast(err instanceof Error ? err.message : 'Failed to delete score', 'error');
+    } catch {
+      /* Refresh is best-effort — the delete already succeeded, and the
+         websocket `leaderboard:updated` broadcast is the backstop. */
     }
   };
 
-  /** Whether the viewer can delete `entry`. Admin can delete any
-   *  tournament/sync row; player can delete only their own rows. Community
-   *  rows are server-rejected for now (no community_scores cascade). */
-  const canDeleteScoreHistory = (entry: ScoreHistoryEntry): boolean => {
-    if (entry.source !== 'tournament' && entry.source !== 'sync') return false;
-    if (!viewerClaims || !roomId) return false;
-    if (viewerClaims.role === 'super_admin') return true;
-    if (viewerClaims.role === 'room_admin' && viewerClaims.gameRoomIds.includes(roomId)) return true;
-    return !!entry.submitted_by_user_id && entry.submitted_by_user_id === viewerClaims.discordId;
-  };
+  /** Whether the viewer can delete `entry`. v2.108.0 delegates to the shared
+   *  `canDeleteRow` gate (admin → any row in their rooms; player → own rows
+   *  only, on the RAW `submitted_by_user_id`). Community rows are deletable as
+   *  of v2.108.0 — the server-side cascade into `community_scores` shipped
+   *  with it. */
+  const canDeleteScoreHistory = (entry: ScoreHistoryEntry): boolean =>
+    canDeleteRow(entry, viewerClaims, roomId);
 
   /** S23.7 — verify/unverify is admin-only (verifying your own score would
    *  defeat the point), using the same admin detection the delete gate uses. */
-  const canVerifyScoreHistory = (): boolean => {
-    if (!viewerClaims || !roomId) return false;
-    if (viewerClaims.role === 'super_admin') return true;
-    return viewerClaims.role === 'room_admin' && viewerClaims.gameRoomIds.includes(roomId);
-  };
+  const canVerifyScoreHistory = (): boolean => !!roomId && isRoomAdminFor(viewerClaims, roomId);
 
   /** S23.7 — toggles `verified_by`/`verified_at` on one score_history row. */
   const handleToggleVerified = async (entry: ScoreHistoryEntry) => {
@@ -865,6 +872,11 @@ export default function GameDetail() {
               const renderRow = (entry: RankedEntry, displayRank: number) => {
                 const hasMultiple = scoreCounts[entry.iscored_username.toLowerCase()] > 1;
                 const isHighlighted = !!highlightName && entry.iscored_username.toLowerCase() === highlightName;
+                // v2.108.0 (F5) — own-row (or admin) delete straight off the
+                // leaderboard. ALWAYS visible, not hover-gated: the whole point
+                // of the owner ask is that removing a mis-entered score you
+                // just posted takes no hunting.
+                const canDeleteThisRow = canDeleteRow(entry, viewerClaims, roomId);
                 return (
                     /* v2.2.0 fix: discord_user_id is "SYSTEM" / "ANON" / "COMMUNITY"
                        for guest submissions, so two anon players collide on the
@@ -927,6 +939,17 @@ export default function GameDetail() {
                             expandedPlayer === entry.iscored_username
                               ? <Minus size={14} className="text-neon-cyan" />
                               : <Plus size={14} className="text-faint" />
+                          )}
+                          {canDeleteThisRow && (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); setPendingDeleteRanked(entry); }}
+                              className="p-2 -m-1 text-red-400/70 hover:text-red-400 transition-colors cursor-pointer"
+                              title="Delete this score"
+                              aria-label={`Delete this score (${entry.score.toLocaleString()})`}
+                            >
+                              <Trash2 size={13} />
+                            </button>
                           )}
                         </div>
                       </div>
@@ -1790,6 +1813,21 @@ export default function GameDetail() {
             performDeleteScoreHistory(entry);
           }}
           onCancel={() => setPendingDeleteEntry(null)}
+        />
+      )}
+
+      {/* v2.108.0 (F5) — confirm for the CURRENT LEADERBOARD row delete. */}
+      {pendingDeleteRanked && (
+        <ConfirmModal
+          title="Delete score"
+          message={`Delete this score (${pendingDeleteRanked.score.toLocaleString()})?`}
+          confirmLabel="Delete"
+          onConfirm={() => {
+            const entry = pendingDeleteRanked;
+            setPendingDeleteRanked(null);
+            performDeleteRankedEntry(entry);
+          }}
+          onCancel={() => setPendingDeleteRanked(null)}
         />
       )}
 

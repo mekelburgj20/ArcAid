@@ -8,6 +8,7 @@ import ShowcasePodium from './ShowcasePodium';
 import ScoreList from './ScoreList';
 import GameInfoPopup from './GameInfoPopup';
 import { useScoreExpand } from './useScoreExpand';
+import type { OwnRowOpen } from '../../lib/scoreDelete';
 import { CircuitBoardBackground, GlowNodes, ScanlineOverlay, PodiumBackground } from './neonCircuitAssets';
 import { qrBottomMetrics } from '../../lib/scoreboardConfig';
 
@@ -32,6 +33,8 @@ interface ShowcaseCardProps {
   /** v2.2.8 — title-click nav target. */
   titleLinkTo?: string;
   titleLinkOnClick?: (e: React.MouseEvent) => void;
+  /** v2.108.0 (F3) - own-row click opens the game quick popup. */
+  ownRow?: OwnRowOpen;
 }
 
 function resolveImages(lb: GameLeaderboard) {
@@ -66,6 +69,7 @@ export default function ShowcaseCard({
   onSubmitScore: _onSubmitScore,  // v2.2.8: unused (title is a Link); kept for CardRouter spread compat
   titleLinkTo,
   titleLinkOnClick,
+  ownRow,
 }: ShowcaseCardProps) {
   const { bgImage, styleHeaderUrl } = resolveImages(lb);
   const displayName = lb.displayName || lb.gameName;
@@ -332,15 +336,15 @@ export default function ShowcaseCard({
           {isChipPodium ? (
             <div style={{ position: 'relative' }}>
               <PodiumBackground />
-              <ShowcasePodium entries={podiumEntries} theme={theme} slug={slug} hasMultiple={hasMultiple} expandedPlayer={expandedPlayer} playerHistory={playerHistory} historyLoading={historyLoading} onTogglePlayer={togglePlayer} />
+              <ShowcasePodium entries={podiumEntries} theme={theme} slug={slug} hasMultiple={hasMultiple} expandedPlayer={expandedPlayer} playerHistory={playerHistory} historyLoading={historyLoading} onTogglePlayer={togglePlayer} ownRow={ownRow} />
             </div>
           ) : isHoloPodium ? (
             /* holo-steps gets slug (linked usernames); the pyramid branch below
                deliberately stays slug-less — its no-link rendering predates
                this variant and is not this change's to alter. */
-            <ShowcasePodium entries={podiumEntries} theme={theme} slug={slug} hasMultiple={hasMultiple} expandedPlayer={expandedPlayer} playerHistory={playerHistory} historyLoading={historyLoading} onTogglePlayer={togglePlayer} />
+            <ShowcasePodium entries={podiumEntries} theme={theme} slug={slug} hasMultiple={hasMultiple} expandedPlayer={expandedPlayer} playerHistory={playerHistory} historyLoading={historyLoading} onTogglePlayer={togglePlayer} ownRow={ownRow} />
           ) : (
-            <ShowcasePodium entries={podiumEntries} theme={theme} hasMultiple={hasMultiple} expandedPlayer={expandedPlayer} playerHistory={playerHistory} historyLoading={historyLoading} onTogglePlayer={togglePlayer} />
+            <ShowcasePodium entries={podiumEntries} theme={theme} hasMultiple={hasMultiple} expandedPlayer={expandedPlayer} playerHistory={playerHistory} historyLoading={historyLoading} onTogglePlayer={togglePlayer} ownRow={ownRow} />
           )}
 
           {/* Divider before list */}
@@ -369,6 +373,7 @@ export default function ShowcaseCard({
             playerHistory={playerHistory}
             historyLoading={historyLoading}
             onTogglePlayer={togglePlayer}
+            ownRow={ownRow}
           />
 
           {/* Spacer pushes footer to card bottom */}

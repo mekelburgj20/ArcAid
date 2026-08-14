@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Lock, Plus, Minus, BadgeCheck } from 'lucide-react';
+import { Lock, Plus, Minus, BadgeCheck, ChevronRight } from 'lucide-react';
 import type { GameLeaderboard, RankedEntry } from '../ScoreboardComponents';
 import { PlayerAvatar, formatCountdown, GameQRCode, getTitleStyleClass, playerName } from '../ScoreboardComponents';
 import PlayerNameLink from '../PlayerNameLink';
@@ -9,6 +9,8 @@ import GameInfoPopup from './GameInfoPopup';
 import { useScoreExpand } from './useScoreExpand';
 import { qrBottomMetrics } from '../../lib/scoreboardConfig';
 import { formatScore } from '../../lib/format';
+import type { OwnRowOpen } from '../../lib/scoreDelete';
+import { ownRowOpener, OWN_ROW_HINT } from '../../lib/scoreDelete';
 
 interface MinimalCardProps {
   lb: GameLeaderboard;
@@ -30,6 +32,8 @@ interface MinimalCardProps {
   /** v2.2.8 — title-click nav target. */
   titleLinkTo?: string;
   titleLinkOnClick?: (e: React.MouseEvent) => void;
+  /** v2.108.0 (F3) — own-row click opens the game quick popup. */
+  ownRow?: OwnRowOpen;
 }
 
 export default function MinimalCard({
@@ -51,6 +55,7 @@ export default function MinimalCard({
   onSubmitScore: _onSubmitScore,  // v2.2.8: unused (title is a Link); kept for CardRouter spread compat
   titleLinkTo,
   titleLinkOnClick,
+  ownRow,
 }: MinimalCardProps) {
   const displayName = lb.displayName || lb.gameName;
   const { expandedPlayer, playerHistory, historyLoading, togglePlayer, hasMultiple } = useScoreExpand(roomId, lb.gameId, lb.gameName, lb.rankings.length);
@@ -191,16 +196,19 @@ export default function MinimalCard({
               const rankColor = entry.rank === 1 ? 'text-neon-amber' :
                 entry.rank === 2 ? 'text-neon-cyan' :
                 entry.rank === 3 ? 'text-neon-green' : 'text-faint';
-              const canExpand = hasMultiple(entry.iscored_username);
+              const openOwn = ownRowOpener(entry, ownRow);
+              const canExpand = !openOwn && hasMultiple(entry.iscored_username);
               const isExpanded = expandedPlayer === entry.iscored_username;
+              const onRowClick = openOwn ?? (canExpand ? () => togglePlayer(entry.iscored_username) : undefined);
 
               return (
                 <div key={`${entry.rank}-${entry.iscored_username}`}>
                   <div
                     className={`flex items-center gap-2.5 px-3 py-1.5 rounded ${
                       isViewerRow ? 'bg-neon-cyan/10' : ''
-                    } ${canExpand ? 'cursor-pointer hover:bg-raised/30 transition-colors pointer-events-auto' : ''}`}
-                    onClick={canExpand ? () => togglePlayer(entry.iscored_username) : undefined}
+                    } ${onRowClick ? 'cursor-pointer hover:bg-raised/30 transition-colors pointer-events-auto' : ''}`}
+                    onClick={onRowClick}
+                    title={openOwn ? OWN_ROW_HINT : undefined}
                   >
                     <span className={`w-5 text-right text-[11px] font-semibold tabular-nums ${rankColor}`}>
                       {entry.rank}
@@ -233,7 +241,9 @@ export default function MinimalCard({
                     >
                       {formatScore(entry.score)}
                     </span>
-                    {canExpand && (
+                    {openOwn ? (
+                      <ChevronRight size={12} className="text-faint flex-shrink-0" aria-hidden />
+                    ) : canExpand && (
                       isExpanded
                         ? <Minus size={12} className="text-neon-cyan flex-shrink-0" />
                         : <Plus size={12} className="text-faint flex-shrink-0" />

@@ -6,32 +6,8 @@ import ReportContentModal from '../components/ReportContentModal';
 import { PersonalBestsSection, type PersonalBestRow } from '../components/PersonalBestsSection';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { useRoom } from '../contexts/RoomContext';
+import { decodeViewerClaims } from '../lib/viewerClaims';
 import { formatScore, scoreTitle } from '../lib/format';
-
-/** Decode a player JWT and pull the role + gameRoomIds claims. Mirrors
- *  GameDetail.tsx's decodeViewerClaims (not shared — that helper isn't
- *  exported; same duplication precedent as RoomScoresView.tsx). Used here
- *  only for the unlinked-player admin hint (part c). Returns null on
- *  missing/invalid token. */
-function decodeViewerClaims(token: string | null): {
-  role: 'player' | 'room_admin' | 'super_admin';
-  gameRoomIds: string[];
-  discordId: string | null;
-} | null {
-  if (!token) return null;
-  try {
-    const parts = token.split('.');
-    if (parts.length !== 3) return null;
-    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
-    return {
-      role: (payload.role as 'player' | 'room_admin' | 'super_admin') || 'player',
-      gameRoomIds: Array.isArray(payload.gameRoomIds) ? payload.gameRoomIds : [],
-      discordId: (payload.discordId as string) || null,
-    };
-  } catch {
-    return null;
-  }
-}
 
 interface Achievements {
   tournamentWins: number;

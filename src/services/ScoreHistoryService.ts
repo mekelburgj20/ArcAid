@@ -3,7 +3,7 @@ import { normalizeSubmitterUserId } from './SubmissionContextService.js';
 import { RoomMembershipService } from './RoomMembershipService.js';
 import { UNKNOWN } from '../utils/scoreProvenance.js';
 import { deleteScorePhotoFiles } from '../utils/scorePhotoCleanup.js';
-import { logInfo } from '../utils/logger.js';
+import { logInfo, logDebug } from '../utils/logger.js';
 
 /** A `score_history` row as the per-row delete machinery needs to see it. */
 export interface DeletableScoreRow {
@@ -140,8 +140,14 @@ export class ScoreHistoryService {
      * `submissions` row from what's left → invalidate + broadcast.
      *
      * Authorization is the CALLER's job — this method assumes it's already been
-     * decided. Same for the `source IN ('tournament','sync')` restriction the
-     * route enforces.
+     * decided.
+     *
+     * v2.108.0 widens the accepted sources from `('tournament','sync')` to
+     * include `'community'`, and adds the two cascades that gap implied:
+     * `deleteCommunityScoreRow` (the community_scores twin of the deleted
+     * score_history row) and `softDeleteFannedOutGlobalScore` (the
+     * global_scores fan-out). Both are best-effort and CONSERVATIVE — an
+     * ambiguous match deletes nothing.
      */
     static async deleteEvent(row: DeletableScoreRow, actorId: string): Promise<void> {
         const db = await getDatabase();
@@ -150,6 +156,22 @@ export class ScoreHistoryService {
         // S12: remove the score's evidence photo from disk now that its row is
         // gone (best-effort, never throws; a no-op when the row carried no photo).
         deleteScorePhotoFiles([row.photo_url]);
+
+        // v2.108.0 (B1) — community cascade. `community_scores` is the ONLY
+        // score table `score_history` does not already stand in for: the admin
+        // "wipe player from game" path deliberately leaves it alone so
+        // `RoomScoresService` can read `score_history` alone without a UNION
+        // resurrecting wiped rows. Per-row self-delete is the opposite case —
+        // the player asked for THIS score to be gone — so here (and ONLY here)
+        // the twin row goes too. The wipe path's semantics are untouched.
+        if (row.source === 'community') {
+            await this.deleteCommunityScoreTwin(row);
+        }
+
+        // v2.108.0 (B2) — global fan-out cleanup, every source. One-way by
+        // design: the reverse direction (global self-delete → room tables) is
+        // still not wired.
+        await this.softDeleteFannedOutGlobalScore(row, actorId);
 
         // Tombstone for the sync poller (see deleted_score_suppressions doc).
         // We suppress at MAX(existing, deleted_score) so a player who deletes
@@ -201,6 +223,139 @@ export class ScoreHistoryService {
         }
 
         logInfo(`score_history#${row.id} deleted by ${actorId} (player ${row.iscored_username}, score ${row.score}, game ${row.game_id || row.game_name})`);
+    }
+
+    /**
+     * v2.108.0 (B1) — delete the `community_scores` row that
+     * `CommunityScoreService.submitScore` wrote alongside this `score_history`
+     * row.
+     *
+     * ## The match key, and why it is this one
+     *
+     * `submitScore` dual-writes both tables from the SAME locals in one call,
+     * so the columns that are guaranteed byte-identical across the pair are:
+     * `game_room_id`, `game_name`, `iscored_username` (both get
+     * `effectiveUsername`, the first-claim-resolved name), `score`, and
+     * `submitted_by_user_id` (both get `normalizeSubmitterUserId(discordUserId)`).
+     * The key below is exactly that set.
+     *
+     * Deliberately EXCLUDED: `discord_user_id` — the two writers use different
+     * guest sentinels for the same submission (`'SYSTEM'` in score_history,
+     * `'ANON'` in community_scores), so matching on it would miss every guest
+     * row. Also excluded: `created_at` proximity — the shared columns already
+     * identify the pair, and a timestamp window would only add a way to miss.
+     *
+     * `submitted_by_user_id` is compared with `IS` (NULL-safe in SQLite) so an
+     * anonymous row matches its anonymous twin and never a logged-in row that
+     * happens to share the name and score.
+     *
+     * CONSERVATIVE: deletes only on an EXACTLY-ONE match. Zero matches is
+     * normal and fine (pre-dual-write legacy rows, freeplay paths that log
+     * `source='community'` without a community_scores twin) — logged at DEBUG.
+     * Two or more matches means a genuine duplicate exists in community_scores
+     * that score_history's insert-time dedup collapsed to one row; there is no
+     * way to tell which twin is this one, so NOTHING is deleted.
+     */
+    private static async deleteCommunityScoreTwin(row: DeletableScoreRow): Promise<void> {
+        try {
+            const db = await getDatabase();
+            const candidates = await db.all<Array<{ id: number }>>(
+                `SELECT id FROM community_scores
+                 WHERE game_room_id = ?
+                   AND LOWER(game_name) = LOWER(?)
+                   AND LOWER(iscored_username) = LOWER(?)
+                   AND score = ?
+                   AND submitted_by_user_id IS ?
+                   AND orphaned_at IS NULL`,
+                row.game_room_id, row.game_name, row.iscored_username, row.score,
+                row.submitted_by_user_id,
+            );
+            if (candidates.length !== 1) {
+                logDebug(
+                    `Community cascade skipped for score_history#${row.id}: ${candidates.length} community_scores candidates ` +
+                    `(room ${row.game_room_id}, game "${row.game_name}", player "${row.iscored_username}", score ${row.score})`,
+                );
+                return;
+            }
+            await db.run('DELETE FROM community_scores WHERE id = ?', candidates[0]!.id);
+            logInfo(`Community cascade: community_scores#${candidates[0]!.id} deleted with score_history#${row.id}`);
+        } catch (err) {
+            // Best-effort: the score_history row is already gone and that is
+            // the delete the caller asked for.
+            logDebug(`Community cascade failed for score_history#${row.id}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+    }
+
+    /**
+     * v2.108.0 (B2) — soft-delete the `global_scores` row that
+     * `GlobalScoreService.fanOutFromRoomSubmission` created from this room
+     * submission, closing the "delete it in the room, it lives forever on the
+     * Global Scoreboard" asymmetry.
+     *
+     * ## The match key
+     *
+     * The fan-out's OWN uniqueness key is
+     * `(global_game_id, origin_game_room_id, LOWER(iscored_username), score)`
+     * (see the dedup guard in `fanOutFromRoomSubmission`), so the reverse
+     * lookup uses the same columns plus `player_id`, which the fan-out set from
+     * the submitter's Discord id. `global_game_id` is only added to the
+     * predicate when it is resolvable from the `games` row — the other four
+     * columns already scope the search to one room and one player.
+     *
+     * Gated on `row.submitted_by_user_id` being non-null: fan-out early-returns
+     * for guest submissions, so a row without an attributed submitter has no
+     * global twin by construction, and searching on name alone could reach a
+     * different person's row.
+     *
+     * CONSERVATIVE: acts only on an EXACTLY-ONE match, and only on rows that
+     * are not already soft-deleted. Soft delete (not hard) so the actor is
+     * recorded and an admin can restore. `GlobalScoreService.softDelete`
+     * invalidates `global_leaderboard_cache` itself.
+     */
+    private static async softDeleteFannedOutGlobalScore(row: DeletableScoreRow, actorId: string): Promise<void> {
+        if (!row.submitted_by_user_id) return;
+        try {
+            const db = await getDatabase();
+
+            let globalGameId: string | null = null;
+            if (row.game_id) {
+                const g = await db.get('SELECT global_game_id FROM games WHERE id = ?', row.game_id);
+                globalGameId = g?.global_game_id ?? null;
+            }
+
+            const clauses = [
+                'origin_game_room_id = ?',
+                'player_id = ?',
+                'LOWER(iscored_username) = LOWER(?)',
+                'score = ?',
+                'deleted_at IS NULL',
+            ];
+            const params: any[] = [
+                row.game_room_id, row.submitted_by_user_id, row.iscored_username, row.score,
+            ];
+            if (globalGameId) {
+                clauses.push('global_game_id = ?');
+                params.push(globalGameId);
+            }
+
+            const candidates = await db.all<Array<{ id: string }>>(
+                `SELECT id FROM global_scores WHERE ${clauses.join(' AND ')}`,
+                ...params,
+            );
+            if (candidates.length !== 1) {
+                logDebug(
+                    `Global fan-out cleanup skipped for score_history#${row.id}: ${candidates.length} global_scores candidates ` +
+                    `(room ${row.game_room_id}, player "${row.iscored_username}", score ${row.score})`,
+                );
+                return;
+            }
+
+            const { GlobalScoreService } = await import('./GlobalScoreService.js');
+            const ok = await GlobalScoreService.softDelete(candidates[0]!.id, actorId);
+            if (ok) logInfo(`Global fan-out cleanup: global_scores#${candidates[0]!.id} soft-deleted with score_history#${row.id}`);
+        } catch (err) {
+            logDebug(`Global fan-out cleanup failed for score_history#${row.id}: ${err instanceof Error ? err.message : String(err)}`);
+        }
     }
 
     /**

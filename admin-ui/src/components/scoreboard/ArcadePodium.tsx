@@ -1,10 +1,12 @@
-import { Medal, Plus, Minus, BadgeCheck } from 'lucide-react';
+import { Medal, Plus, Minus, BadgeCheck, ChevronRight } from 'lucide-react';
 import type { RankedEntry } from '../ScoreboardComponents';
 import { PlayerAvatar, playerName } from '../ScoreboardComponents';
 import PlayerNameLink from '../PlayerNameLink';
 import FitRowName from './FitRowName';
 import { ARCADE_RANK_TINTS } from './arcadeNeon';
 import type { ScoreHistoryEntry } from './useScoreExpand';
+import type { OwnRowOpen } from '../../lib/scoreDelete';
+import { ownRowOpener, OWN_ROW_HINT } from '../../lib/scoreDelete';
 import { formatScore } from '../../lib/format';
 
 /**
@@ -63,6 +65,8 @@ export interface ArcadePodiumProps {
   playerHistory?: ScoreHistoryEntry[];
   historyLoading?: boolean;
   onTogglePlayer?: (username: string) => void;
+  /** v2.108.0 (F3) — own-row click opens the game quick popup. */
+  ownRow?: OwnRowOpen;
 }
 
 /** The expanded per-player score history, dropped under its row. */
@@ -92,7 +96,7 @@ function ExpandedHistory({ playerHistory, historyLoading }: {
 
 /** A filled podium place. */
 function PodiumRow({
-  entry, rank, slug, isViewer, canExpand, isExpanded, onToggle,
+  entry, rank, slug, isViewer, canExpand, isExpanded, onToggle, openOwn,
 }: {
   entry: RankedEntry;
   rank: number;
@@ -101,6 +105,8 @@ function PodiumRow({
   canExpand: boolean;
   isExpanded: boolean;
   onToggle?: () => void;
+  /** v2.108.0 (F3) — set only on the viewer's OWN row. */
+  openOwn?: () => void;
 }) {
   const tint = ARCADE_RANK_TINTS[rank];
   const abbreviated = formatScore(entry.score);
@@ -108,13 +114,15 @@ function PodiumRow({
   // more useful signal on a board someone opened to find themselves on.
   const bg = isViewer ? 'var(--sb-row-you-bg)' : (tint?.bg ?? 'transparent');
   const border = isViewer ? 'var(--sb-row-you-border)' : (tint?.border ?? 'transparent');
+  const onRowClick = openOwn ?? (canExpand ? onToggle : undefined);
 
   return (
     <div
       data-testid={`arcade-place-${rank}`}
-      className={`flex items-center gap-2 rounded-[6px] border px-2 py-[6px] ${canExpand ? 'cursor-pointer' : ''}`}
+      className={`flex items-center gap-2 rounded-[6px] border px-2 py-[6px] ${onRowClick ? 'cursor-pointer' : ''}`}
       style={{ background: bg, borderColor: border }}
-      onClick={canExpand ? onToggle : undefined}
+      onClick={onRowClick}
+      title={openOwn ? OWN_ROW_HINT : undefined}
     >
       <span className="flex w-[22px] shrink-0 items-center justify-center">
         <Medal className={`h-[18px] w-[18px] ${tint.medal}`} aria-label={tint.label} />
@@ -145,7 +153,9 @@ function PodiumRow({
       >
         {abbreviated}
       </span>
-      {canExpand && (
+      {openOwn ? (
+        <ChevronRight size={12} className="shrink-0 text-faint" aria-hidden />
+      ) : canExpand && (
         isExpanded
           ? <Minus size={12} className="shrink-0 text-neon-cyan" />
           : <Plus size={12} className="shrink-0 text-faint" />
@@ -207,6 +217,7 @@ export default function ArcadePodium({
   playerHistory,
   historyLoading,
   onTogglePlayer,
+  ownRow,
 }: ArcadePodiumProps) {
   const lowerViewer = viewerUsername?.toLowerCase();
 
@@ -217,7 +228,8 @@ export default function ArcadePodium({
         if (!entry) {
           return <ArcadeClaimRow key={`place-${rank}`} rank={rank} onClaim={() => onClaim?.(rank)} />;
         }
-        const canExpand = hasMultiple?.(entry.iscored_username) ?? false;
+        const openOwn = ownRowOpener(entry, ownRow);
+        const canExpand = !openOwn && (hasMultiple?.(entry.iscored_username) ?? false);
         const isExpanded = expandedPlayer === entry.iscored_username;
         return (
           <div key={`place-${rank}`}>
@@ -229,6 +241,7 @@ export default function ArcadePodium({
               canExpand={canExpand}
               isExpanded={isExpanded}
               onToggle={() => onTogglePlayer?.(entry.iscored_username)}
+              openOwn={openOwn}
             />
             {isExpanded && (
               <ExpandedHistory playerHistory={playerHistory} historyLoading={historyLoading} />

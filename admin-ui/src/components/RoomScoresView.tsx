@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { Search } from 'lucide-react';
 import ScoreCardGrid from './ScoreCardGrid';
@@ -6,6 +6,7 @@ import GameQuickView from './GameQuickView';
 import SubmissionSheet from './SubmissionSheet';
 import type { GameLeaderboard, RankedEntry } from './ScoreboardComponents';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
+import { decodeViewerClaims, isRoomAdminFor } from '../lib/viewerClaims';
 import {
   ROOM_SCORES_SEARCH_PLACEHOLDER,
   ROOM_SORT_LABELS,
@@ -43,25 +44,6 @@ interface RoomScoresViewProps {
 }
 
 const PAGE_SIZE = 48;
-
-/** Decode a player JWT and pull the role + gameRoomIds claims — used only to
- *  pick the role-aware browse link (room admin → library, else → catalogue).
- *  Mirrors GameDetail.tsx's decodeViewerClaims (not shared — that helper isn't
- *  exported). Returns null on missing/invalid token. */
-function decodeViewerClaims(token: string | null): { role: string; gameRoomIds: string[] } | null {
-  if (!token) return null;
-  try {
-    const parts = token.split('.');
-    if (parts.length !== 3) return null;
-    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
-    return {
-      role: (payload.role as string) || 'player',
-      gameRoomIds: Array.isArray(payload.gameRoomIds) ? payload.gameRoomIds : [],
-    };
-  } catch {
-    return null;
-  }
-}
 
 export default function RoomScoresView({ roomId, slug, config, roomName, viewerUsername, tabSwitcher }: RoomScoresViewProps) {
   const [rows, setRows] = useState<RoomScoreCard[]>([]);
@@ -140,8 +122,8 @@ export default function RoomScoresView({ roomId, slug, config, roomName, viewerU
     fetchPage(0).then(({ data, total: t, hasMore: hm }) => { setRows(data); setTotal(t); setHasMore(hm); });
   };
 
-  const claims = decodeViewerClaims(playerToken);
-  const isRoomAdmin = !!claims && (claims.role === 'super_admin' || (claims.role === 'room_admin' && claims.gameRoomIds.includes(roomId)));
+  const claims = useMemo(() => decodeViewerClaims(playerToken), [playerToken]);
+  const isRoomAdmin = isRoomAdminFor(claims, roomId);
   const { href: browseHref, label: browseLabel } = browseLink({ isRoomAdmin, slug });
 
   const empty = roomScoresEmpty({ roomName });
@@ -237,10 +219,24 @@ export default function RoomScoresView({ roomId, slug, config, roomName, viewerU
         linkFor={lb => `/${slug}/games/${encodeURIComponent(lb.gameName)}?tab=room`}
         onSubmit={lb => setSubmissionTarget({ gameName: lb.gameName })}
         onTitleClick={lb => setQuickViewLb(lb)}
+        // v2.108.0 (F3) — a click on the viewer's OWN row opens the same
+        // popup the title opens, where the score can be deleted.
+        viewerDiscordId={claims?.discordId}
+        onOwnRowClick={lb => setQuickViewLb(lb)}
       />
 
       {quickViewLb && (
-        <GameQuickView lb={quickViewLb} slug={slug} fromTab="room" onClose={() => setQuickViewLb(null)} />
+        <GameQuickView
+          lb={quickViewLb}
+          slug={slug}
+          fromTab="room"
+          // v2.108.0 (F4) — per-row delete inside the popup. The Global tab
+          // deliberately does NOT pass roomId (global rows delete through
+          // /api/me/global-scores instead).
+          roomId={roomId}
+          onScoreDeleted={refetchFirstPage}
+          onClose={() => setQuickViewLb(null)}
+        />
       )}
 
       {/* Preserves existing Played-Here submit semantics (kind:'tournament' by
