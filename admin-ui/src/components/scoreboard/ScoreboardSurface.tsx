@@ -108,14 +108,12 @@ export interface ScoreboardSurfaceProps {
    *  pages pass `tournamentCardTitleClick` from `./tournamentCardTitle`. */
   titleLinkOnClick?: (lb: GameLeaderboard) => (e: React.MouseEvent) => void;
   /**
-   * v2.108.0 (F3) - what a click on the VIEWER'S OWN score row does. Both
-   * halves are required for the behaviour to switch on: `viewerDiscordId` is
-   * the raw id from the viewer's token claims (matched against each row's raw
-   * `submitted_by_user_id`), `onOwnRowClick` opens the page's quick popup for
-   * that card. Omit either and every row behaves exactly as before.
+   * v2.109.0 (score-gesture-photos) — opens the page's quick popup for a
+   * card. Fires on ANY card row's click once it's expanded (or immediately
+   * for a single-score row) — see `lib/scoreGesture.ts`. Omitting this
+   * changes nothing (rows stay on plain inline expand, as before).
    */
-  viewerDiscordId?: string | null;
-  onOwnRowClick?: (lb: GameLeaderboard) => void;
+  onOpenQuickView?: (lb: GameLeaderboard) => void;
   /** Admin controls strip. Rendered inside each card slot, directly under the
    *  card, in EVERY layout branch. */
   renderUnderCard?: (lb: GameLeaderboard) => ReactNode;
@@ -191,8 +189,7 @@ export default function ScoreboardSurface({
   onSubmitScore,
   titleLinkTo,
   titleLinkOnClick,
-  viewerDiscordId,
-  onOwnRowClick,
+  onOpenQuickView,
   renderUnderCard,
   renderUnderRankingCard,
   searchFilter,
@@ -298,12 +295,10 @@ export default function ScoreboardSurface({
   const bgBehindTitle = useNewCards ? newConfig.bgBehindTitle : false;
   const effectiveBgSize = bgMode === 'fill-entire' ? 'cover' : bgMode === 'repeat' ? 'auto' : bgMode;
 
-  /** v2.108.0 (F3) - the own-row descriptor for ONE card, or undefined when
-   *  the page didn't wire the behaviour. */
-  const ownRowFor = (lb: GameLeaderboard) =>
-    (viewerDiscordId && onOwnRowClick)
-      ? { viewerDiscordId, open: () => onOwnRowClick(lb) }
-      : undefined;
+  /** v2.109.0 (score-gesture-photos) — the quick-popup opener for ONE card,
+   *  or undefined when the page didn't wire the behaviour. */
+  const openQuickViewFor = (lb: GameLeaderboard) =>
+    onOpenQuickView ? () => onOpenQuickView(lb) : undefined;
 
   /** One card, rendered exactly as the public page renders it. */
   const renderCard = (lb: LeaderboardWithViewer) => (
@@ -322,10 +317,10 @@ export default function ScoreboardSurface({
         gameTitleStyle={newConfig.gameTitleStyle}
         onSubmitScore={onSubmitScore}
         titleLinkTo={titleLinkTo?.(lb)} titleLinkOnClick={titleLinkOnClick?.(lb)}
-        ownRow={ownRowFor(lb)}
+        onOpenQuickView={openQuickViewFor(lb)}
       />
     ) : (
-      <GameCard lb={lb} slug={slug} maxScores={maxScores} roomId={roomId} onSubmitScore={onSubmitScore} cardOpacity={cardOpacity} scoreColumns={scoreColumns} viewerUsername={viewerUsername} viewerEntry={lb.viewerEntry} qrMode={!isMobileViewport && qrMode === 'all' ? 'all' : 'disabled'} headerStyle={headerStyle} globalStyles={globalStyles} wheelScale={wheelScale} bgFill={bgFill} bgSize={bgSize} cardWidth={cardWidth} glassOpacity={glassOpacity} gameTitleStyle={gameTitleStyle} gameTitleEnhance={gameTitleEnhance} scoreStyle={scoreStyle} ownRow={ownRowFor(lb)} />
+      <GameCard lb={lb} slug={slug} maxScores={maxScores} roomId={roomId} onSubmitScore={onSubmitScore} cardOpacity={cardOpacity} scoreColumns={scoreColumns} viewerUsername={viewerUsername} viewerEntry={lb.viewerEntry} qrMode={!isMobileViewport && qrMode === 'all' ? 'all' : 'disabled'} headerStyle={headerStyle} globalStyles={globalStyles} wheelScale={wheelScale} bgFill={bgFill} bgSize={bgSize} cardWidth={cardWidth} glassOpacity={glassOpacity} gameTitleStyle={gameTitleStyle} gameTitleEnhance={gameTitleEnhance} scoreStyle={scoreStyle} onOpenQuickView={openQuickViewFor(lb)} />
     )
   );
 

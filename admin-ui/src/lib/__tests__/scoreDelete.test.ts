@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
-  canDeleteRow, isOwnScoreRow, ownRowOpener, rowHistoryId, deleteScoreHistory,
+  canDeleteRow, isOwnScoreRow, rowHistoryId, deleteScoreHistory,
 } from '../scoreDelete';
 import type { ViewerClaims } from '../viewerClaims';
 
@@ -77,21 +77,6 @@ describe('canDeleteRow tiers', () => {
   it('refuses without claims or without a room', () => {
     expect(canDeleteRow(row(), null, ROOM)).toBe(false);
     expect(canDeleteRow(row(), claims(), undefined)).toBe(false);
-  });
-});
-
-describe('ownRowOpener', () => {
-  const open = vi.fn();
-
-  it('returns the opener only for the viewer\'s own row', () => {
-    expect(ownRowOpener(row(), { viewerDiscordId: 'disc-ada', open })).toBe(open);
-    expect(ownRowOpener(row({ submitted_by_user_id: 'disc-ben' }), { viewerDiscordId: 'disc-ada', open }))
-      .toBeUndefined();
-  });
-
-  it('returns undefined when the behaviour is not wired at all', () => {
-    expect(ownRowOpener(row(), undefined)).toBeUndefined();
-    expect(ownRowOpener(row(), { viewerDiscordId: '', open })).toBeUndefined();
   });
 });
 

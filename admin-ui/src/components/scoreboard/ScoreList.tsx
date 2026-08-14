@@ -4,8 +4,7 @@ import { PlayerAvatar, playerName } from '../ScoreboardComponents';
 import FitRowName from './FitRowName';
 import PlayerNameLink from '../PlayerNameLink';
 import type { ScoreHistoryEntry } from './useScoreExpand';
-import type { OwnRowOpen } from '../../lib/scoreDelete';
-import { ownRowOpener, OWN_ROW_HINT } from '../../lib/scoreDelete';
+import { resolveRowClick, opensQuickView, QUICK_VIEW_HINT } from '../../lib/scoreGesture';
 import { formatScore } from '../../lib/format';
 
 interface ScoreListProps {
@@ -33,11 +32,12 @@ interface ScoreListProps {
   historyLoading?: boolean;
   onTogglePlayer?: (username: string) => void;
   /**
-   * v2.108.0 (F3) — clicking the VIEWER'S OWN row opens the game quick popup
-   * (where the score can be deleted) instead of the inline expand. Every other
-   * row is untouched: same handler, same icon, same classes.
+   * v2.109.0 (score-gesture-photos) — opens the game's quick popup. Fires on
+   * ANY row's click once it's expanded (or immediately for a single-score
+   * row); an unexpanded multi-score row's click expands instead. See
+   * `lib/scoreGesture.ts`.
    */
-  ownRow?: OwnRowOpen;
+  onOpenQuickView?: () => void;
 }
 
 export default function ScoreList({
@@ -56,18 +56,18 @@ export default function ScoreList({
   playerHistory,
   historyLoading,
   onTogglePlayer,
-  ownRow,
+  onOpenQuickView,
 }: ScoreListProps) {
   if (entries.length === 0) return null;
 
   return (
     <div style={{ padding: '0 14px 10px' }}>
       {entries.map((entry, i) => {
-        const openOwn = ownRowOpener(entry, ownRow);
-        const canExpand = !openOwn && (hasMultiple?.(entry.iscored_username) ?? false);
+        const canExpand = hasMultiple?.(entry.iscored_username) ?? false;
         const isExpanded = expandedPlayer === entry.iscored_username;
-        const clickable = !!openOwn || canExpand;
-        const onRowClick = openOwn ?? (canExpand ? () => onTogglePlayer?.(entry.iscored_username) : undefined);
+        const onRowClick = resolveRowClick(canExpand, isExpanded, () => onTogglePlayer?.(entry.iscored_username), onOpenQuickView);
+        const clickable = !!onRowClick;
+        const showHint = opensQuickView(canExpand, isExpanded, !!onOpenQuickView);
 
         return (
           <div key={`${entry.rank}-${entry.iscored_username}`}>
@@ -98,7 +98,7 @@ export default function ScoreList({
               role={clickable ? 'button' : undefined}
               tabIndex={clickable ? 0 : undefined}
               aria-expanded={canExpand ? isExpanded : undefined}
-              title={openOwn ? OWN_ROW_HINT : undefined}
+              title={showHint ? QUICK_VIEW_HINT : undefined}
               onKeyDown={clickable ? (e) => {
                 // m3: ignore keydowns bubbled from a focused child (e.g. the
                 // player-name Link) — only toggle when the row itself is focused.
@@ -187,18 +187,30 @@ export default function ScoreList({
                 {formatScore(entry.score)}
               </span>
 
-              {/* Expand icon — or, on the viewer's own row, the quiet
-                  chevron that says "this one opens". */}
-              {openOwn ? (
+              {/* Expand icon — Minus is now a REAL, standalone control (its
+                  own click target, larger hit area) since the row body's
+                  second click means "open popup", not "collapse". Chevron
+                  marks any row (single-score, or expanded) whose click opens
+                  the popup instead. */}
+              {canExpand && isExpanded ? (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); onTogglePlayer?.(entry.iscored_username); }}
+                  style={{ padding: 4, margin: -4, border: 'none', background: 'transparent', display: 'inline-flex', flexShrink: 0, cursor: 'pointer' }}
+                  aria-label="Hide score history"
+                  title="Hide score history"
+                >
+                  <Minus size={11} style={{ color: 'var(--color-neon-cyan, #00e5ff)' }} />
+                </button>
+              ) : canExpand ? (
+                <Plus size={11} style={{ color: rankColor, flexShrink: 0 }} />
+              ) : showHint ? (
                 <ChevronRight size={11} style={{ color: rankColor, flexShrink: 0 }} aria-hidden />
-              ) : canExpand && (
-                isExpanded
-                  ? <Minus size={11} style={{ color: 'var(--color-neon-cyan, #00e5ff)', flexShrink: 0 }} />
-                  : <Plus size={11} style={{ color: rankColor, flexShrink: 0 }} />
-              )}
+              ) : null}
             </div>
 
-            {/* Expanded history */}
+            {/* Expanded history — row body ALSO opens the popup now (same
+                target as the main row once expanded). */}
             {isExpanded && (
               <div style={{ marginLeft: 40, marginRight: 10, padding: '4px 8px', background: 'rgba(0,0,0,0.3)', borderRadius: 4, marginBottom: 2 }}>
                 {historyLoading ? (
@@ -206,7 +218,11 @@ export default function ScoreList({
                 ) : (playerHistory && playerHistory.length > 0) ? (
                   <div>
                     {playerHistory.map(h => (
-                      <div key={h.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, padding: '1px 0' }}>
+                      <div
+                        key={h.id}
+                        style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, padding: '1px 0', ...(onOpenQuickView ? { cursor: 'pointer' } : {}) }}
+                        onClick={onOpenQuickView}
+                      >
                         <span style={{ color: 'rgba(255,255,255,0.5)' }}>{h.score.toLocaleString()}</span>
                         <span style={{ color: 'rgba(255,255,255,0.25)' }}>{new Date(h.created_at).toLocaleDateString()}</span>
                       </div>

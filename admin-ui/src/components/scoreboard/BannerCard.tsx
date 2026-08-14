@@ -9,8 +9,7 @@ import GameInfoPopup from './GameInfoPopup';
 import { useScoreExpand } from './useScoreExpand';
 import { qrBottomMetrics } from '../../lib/scoreboardConfig';
 import { formatScore } from '../../lib/format';
-import type { OwnRowOpen } from '../../lib/scoreDelete';
-import { ownRowOpener, OWN_ROW_HINT } from '../../lib/scoreDelete';
+import { resolveRowClick, opensQuickView, QUICK_VIEW_HINT } from '../../lib/scoreGesture';
 
 interface BannerCardProps {
   lb: GameLeaderboard;
@@ -32,8 +31,8 @@ interface BannerCardProps {
   /** v2.2.8 — title-click nav target (replaces the GameCard Link overlay). */
   titleLinkTo?: string;
   titleLinkOnClick?: (e: React.MouseEvent) => void;
-  /** v2.108.0 (F3) — own-row click opens the game quick popup. */
-  ownRow?: OwnRowOpen;
+  /** v2.109.0 (score-gesture-photos) — opens the game quick popup. */
+  onOpenQuickView?: () => void;
 }
 
 function resolveImages(lb: GameLeaderboard) {
@@ -73,7 +72,7 @@ export default function BannerCard({
   onSubmitScore: _onSubmitScore,  // v2.2.8: no longer used here (title is a Link); kept in props for CardRouter spread compat
   titleLinkTo,
   titleLinkOnClick,
-  ownRow,
+  onOpenQuickView,
 }: BannerCardProps) {
   const { bgImage, styleHeaderUrl } = resolveImages(lb);
   const displayName = lb.displayName || lb.gameName;
@@ -248,17 +247,17 @@ export default function BannerCard({
                 entry.rank === 2 ? 'text-neon-cyan' :
                 entry.rank === 3 ? 'text-neon-green' : 'text-faint';
               const scoreColor = entry.rank === 1 ? 'text-neon-amber' : isViewerRow ? 'text-neon-cyan' : 'text-primary';
-              const openOwn = ownRowOpener(entry, ownRow);
-              const canExpand = !openOwn && hasMultiple(entry.iscored_username);
+              const canExpand = hasMultiple(entry.iscored_username);
               const isExpanded = expandedPlayer === entry.iscored_username;
-              const onRowClick = openOwn ?? (canExpand ? () => togglePlayer(entry.iscored_username) : undefined);
+              const onRowClick = resolveRowClick(canExpand, isExpanded, () => togglePlayer(entry.iscored_username), onOpenQuickView);
+              const showHint = opensQuickView(canExpand, isExpanded, !!onOpenQuickView);
 
               return (
                 <div key={`${entry.rank}-${entry.iscored_username}`}>
                   <div
                     className={`flex items-center gap-1.5 ${onRowClick ? 'cursor-pointer pointer-events-auto' : ''}`}
                     onClick={onRowClick}
-                    title={openOwn ? OWN_ROW_HINT : undefined}
+                    title={showHint ? QUICK_VIEW_HINT : undefined}
                   >
                     <span className={`w-6 text-right text-xs font-bold tabular-nums flex-shrink-0 ${rankColor}`}>
                       {entry.rank}
@@ -309,13 +308,21 @@ export default function BannerCard({
                         </span>
                       </div>
                     </div>
-                    {openOwn ? (
+                    {canExpand && isExpanded ? (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); togglePlayer(entry.iscored_username); }}
+                        className="p-1 -m-1 text-neon-cyan flex-shrink-0 cursor-pointer"
+                        aria-label="Hide score history"
+                        title="Hide score history"
+                      >
+                        <Minus size={10} />
+                      </button>
+                    ) : canExpand ? (
+                      <Plus size={10} className="text-faint flex-shrink-0" />
+                    ) : showHint ? (
                       <ChevronRight size={10} className="text-faint flex-shrink-0" aria-hidden />
-                    ) : canExpand && (
-                      isExpanded
-                        ? <Minus size={10} className="text-neon-cyan flex-shrink-0" />
-                        : <Plus size={10} className="text-faint flex-shrink-0" />
-                    )}
+                    ) : null}
                   </div>
                   {isExpanded && (
                     <div className="ml-8 mr-2 mt-0.5 mb-1 bg-deep/50 rounded px-2 py-1">
@@ -324,7 +331,11 @@ export default function BannerCard({
                       ) : playerHistory.length > 0 ? (
                         <div className="space-y-0.5">
                           {playerHistory.map(h => (
-                            <div key={h.id} className="flex items-center justify-between text-[10px]">
+                            <div
+                              key={h.id}
+                              className={`flex items-center justify-between text-[10px] ${onOpenQuickView ? 'cursor-pointer' : ''}`}
+                              onClick={onOpenQuickView}
+                            >
                               <span className="text-muted">{h.score.toLocaleString()}</span>
                               <span className="text-faint">{new Date(h.created_at).toLocaleDateString()}</span>
                             </div>

@@ -9,8 +9,7 @@ import GameInfoPopup from './GameInfoPopup';
 import { useScoreExpand } from './useScoreExpand';
 import { qrBottomMetrics } from '../../lib/scoreboardConfig';
 import { formatScore } from '../../lib/format';
-import type { OwnRowOpen } from '../../lib/scoreDelete';
-import { ownRowOpener, OWN_ROW_HINT } from '../../lib/scoreDelete';
+import { resolveRowClick, opensQuickView, QUICK_VIEW_HINT } from '../../lib/scoreGesture';
 
 interface MinimalCardProps {
   lb: GameLeaderboard;
@@ -32,8 +31,8 @@ interface MinimalCardProps {
   /** v2.2.8 — title-click nav target. */
   titleLinkTo?: string;
   titleLinkOnClick?: (e: React.MouseEvent) => void;
-  /** v2.108.0 (F3) — own-row click opens the game quick popup. */
-  ownRow?: OwnRowOpen;
+  /** v2.109.0 (score-gesture-photos) — opens the game quick popup. */
+  onOpenQuickView?: () => void;
 }
 
 export default function MinimalCard({
@@ -55,7 +54,7 @@ export default function MinimalCard({
   onSubmitScore: _onSubmitScore,  // v2.2.8: unused (title is a Link); kept for CardRouter spread compat
   titleLinkTo,
   titleLinkOnClick,
-  ownRow,
+  onOpenQuickView,
 }: MinimalCardProps) {
   const displayName = lb.displayName || lb.gameName;
   const { expandedPlayer, playerHistory, historyLoading, togglePlayer, hasMultiple } = useScoreExpand(roomId, lb.gameId, lb.gameName, lb.rankings.length);
@@ -196,10 +195,10 @@ export default function MinimalCard({
               const rankColor = entry.rank === 1 ? 'text-neon-amber' :
                 entry.rank === 2 ? 'text-neon-cyan' :
                 entry.rank === 3 ? 'text-neon-green' : 'text-faint';
-              const openOwn = ownRowOpener(entry, ownRow);
-              const canExpand = !openOwn && hasMultiple(entry.iscored_username);
+              const canExpand = hasMultiple(entry.iscored_username);
               const isExpanded = expandedPlayer === entry.iscored_username;
-              const onRowClick = openOwn ?? (canExpand ? () => togglePlayer(entry.iscored_username) : undefined);
+              const onRowClick = resolveRowClick(canExpand, isExpanded, () => togglePlayer(entry.iscored_username), onOpenQuickView);
+              const showHint = opensQuickView(canExpand, isExpanded, !!onOpenQuickView);
 
               return (
                 <div key={`${entry.rank}-${entry.iscored_username}`}>
@@ -208,7 +207,7 @@ export default function MinimalCard({
                       isViewerRow ? 'bg-neon-cyan/10' : ''
                     } ${onRowClick ? 'cursor-pointer hover:bg-raised/30 transition-colors pointer-events-auto' : ''}`}
                     onClick={onRowClick}
-                    title={openOwn ? OWN_ROW_HINT : undefined}
+                    title={showHint ? QUICK_VIEW_HINT : undefined}
                   >
                     <span className={`w-5 text-right text-[11px] font-semibold tabular-nums ${rankColor}`}>
                       {entry.rank}
@@ -241,13 +240,21 @@ export default function MinimalCard({
                     >
                       {formatScore(entry.score)}
                     </span>
-                    {openOwn ? (
+                    {canExpand && isExpanded ? (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); togglePlayer(entry.iscored_username); }}
+                        className="p-1 -m-1 text-neon-cyan flex-shrink-0 cursor-pointer"
+                        aria-label="Hide score history"
+                        title="Hide score history"
+                      >
+                        <Minus size={12} />
+                      </button>
+                    ) : canExpand ? (
+                      <Plus size={12} className="text-faint flex-shrink-0" />
+                    ) : showHint ? (
                       <ChevronRight size={12} className="text-faint flex-shrink-0" aria-hidden />
-                    ) : canExpand && (
-                      isExpanded
-                        ? <Minus size={12} className="text-neon-cyan flex-shrink-0" />
-                        : <Plus size={12} className="text-faint flex-shrink-0" />
-                    )}
+                    ) : null}
                   </div>
                   {isExpanded && (
                     <div className="ml-10 mr-3 mt-0.5 mb-1 bg-deep/50 rounded px-3 py-1.5">
@@ -256,7 +263,11 @@ export default function MinimalCard({
                       ) : playerHistory.length > 0 ? (
                         <div className="space-y-0.5">
                           {playerHistory.map(h => (
-                            <div key={h.id} className="flex items-center justify-between text-[11px]">
+                            <div
+                              key={h.id}
+                              className={`flex items-center justify-between text-[11px] ${onOpenQuickView ? 'cursor-pointer' : ''}`}
+                              onClick={onOpenQuickView}
+                            >
                               <span className="text-muted">{h.score.toLocaleString()}</span>
                               <span className="text-faint">{new Date(h.created_at).toLocaleDateString()}</span>
                             </div>

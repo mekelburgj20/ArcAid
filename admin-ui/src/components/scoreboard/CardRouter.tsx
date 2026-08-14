@@ -5,7 +5,6 @@ import ShowcaseCard from './ShowcaseCard';
 import BannerCard from './BannerCard';
 import MinimalCard from './MinimalCard';
 import ArcadeCard from './ArcadeCard';
-import type { OwnRowOpen } from '../../lib/scoreDelete';
 
 export interface CardRouterProps {
   lb: GameLeaderboard;
@@ -37,11 +36,12 @@ export interface CardRouterProps {
   titleLinkTo?: string;
   titleLinkOnClick?: (e: React.MouseEvent) => void;
   /**
-   * v2.108.0 (F3) - clicking the VIEWER'S OWN score row opens the game quick
-   * popup instead of the inline expand. Every other row keeps today's
-   * behaviour exactly; omitting this prop changes nothing anywhere.
+   * v2.109.0 (score-gesture-photos) — opens the game's quick popup; every
+   * card row's click routes here once it's expanded (or immediately for a
+   * single-score row). Omitting this prop changes nothing (rows stay on
+   * plain inline expand, same as before).
    */
-  ownRow?: OwnRowOpen;
+  onOpenQuickView?: () => void;
 }
 
 export default function CardRouter({
@@ -66,7 +66,7 @@ export default function CardRouter({
   onSubmitScore,
   titleLinkTo,
   titleLinkOnClick,
-  ownRow,
+  onOpenQuickView,
 }: CardRouterProps) {
   const commonProps = {
     lb,
@@ -87,7 +87,7 @@ export default function CardRouter({
     onSubmitScore,
     titleLinkTo,
     titleLinkOnClick,
-    ownRow,
+    onOpenQuickView,
   };
 
   switch (style) {

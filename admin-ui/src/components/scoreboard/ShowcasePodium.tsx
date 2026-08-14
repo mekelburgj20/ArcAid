@@ -7,8 +7,7 @@ import type { ShowcaseThemeConfig } from '../../lib/scoreboardThemes';
 import type { ScoreHistoryEntry } from './useScoreExpand';
 import { TrophyIcon } from '../../assets/icons/ThemedIcons';
 import { formatScore } from '../../lib/format';
-import type { OwnRowOpen } from '../../lib/scoreDelete';
-import { ownRowOpener, OWN_ROW_HINT } from '../../lib/scoreDelete';
+import { resolveRowClick, opensQuickView, QUICK_VIEW_HINT } from '../../lib/scoreGesture';
 
 interface ShowcasePodiumProps {
   entries: RankedEntry[];  // top 3 (or fewer)
@@ -20,12 +19,18 @@ interface ShowcasePodiumProps {
   playerHistory?: ScoreHistoryEntry[];
   historyLoading?: boolean;
   onTogglePlayer?: (username: string) => void;
-  /** v2.108.0 (F3) - own-row click opens the game quick popup. */
-  ownRow?: OwnRowOpen;
+  /** v2.109.0 (score-gesture-photos) — opens the game quick popup. */
+  onOpenQuickView?: () => void;
 }
 
 /** Expanded history panel for a podium entry */
-function ExpandedHistory({ playerHistory, historyLoading, theme }: { playerHistory?: ScoreHistoryEntry[]; historyLoading?: boolean; theme: ShowcaseThemeConfig }) {
+function ExpandedHistory({ playerHistory, historyLoading, theme, onOpenQuickView }: {
+  playerHistory?: ScoreHistoryEntry[];
+  historyLoading?: boolean;
+  theme: ShowcaseThemeConfig;
+  /** v2.109.0 (score-gesture-photos) — a nested row's click also opens the popup. */
+  onOpenQuickView?: () => void;
+}) {
   return (
     /* v2.2.10: bumped text contrast substantially — previously scores were
        at rgba(255,255,255,0.5) which blended into the card's busy background
@@ -37,7 +42,11 @@ function ExpandedHistory({ playerHistory, historyLoading, theme }: { playerHisto
       ) : (playerHistory && playerHistory.length > 0) ? (
         <div>
           {playerHistory.map(h => (
-            <div key={h.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '2px 0' }}>
+            <div
+              key={h.id}
+              style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '2px 0', ...(onOpenQuickView ? { cursor: 'pointer' } : {}) }}
+              onClick={onOpenQuickView}
+            >
               <span style={{ color: 'rgba(255,255,255,0.95)', fontFamily: theme.monoFontFamily, fontWeight: 600 }}>{h.score.toLocaleString()}</span>
               <span style={{ color: 'rgba(255,255,255,0.65)' }}>{new Date(h.created_at).toLocaleDateString()}</span>
             </div>
@@ -74,7 +83,7 @@ function podiumScoreFontSize(base: number, rendered: string): number {
 
 /** A single podium card — always rendered (empty state if no entry) */
 function PodiumSlot({
-  config, theme, slug, hasMultiple, expandedPlayer, playerHistory, historyLoading, onTogglePlayer, ownRow,
+  config, theme, slug, hasMultiple, expandedPlayer, playerHistory, historyLoading, onTogglePlayer, onOpenQuickView,
 }: {
   config: PodiumSlotConfig;
   theme: ShowcaseThemeConfig;
@@ -84,13 +93,13 @@ function PodiumSlot({
   playerHistory?: ScoreHistoryEntry[];
   historyLoading?: boolean;
   onTogglePlayer?: (username: string) => void;
-  ownRow?: OwnRowOpen;
+  onOpenQuickView?: () => void;
 }) {
   const { entry, label, icon, pod, avatarSize, nameSize, scoreSize } = config;
-  const openOwn = entry ? ownRowOpener(entry, ownRow) : undefined;
-  const canExpand = entry ? (!openOwn && (hasMultiple?.(entry.iscored_username) ?? false)) : false;
+  const canExpand = entry ? (hasMultiple?.(entry.iscored_username) ?? false) : false;
   const isExpanded = entry ? expandedPlayer === entry.iscored_username : false;
-  const onRowClick = openOwn ?? (canExpand ? () => onTogglePlayer?.(entry!.iscored_username) : undefined);
+  const onRowClick = resolveRowClick(canExpand, isExpanded, () => onTogglePlayer?.(entry!.iscored_username), onOpenQuickView);
+  const showHint = opensQuickView(canExpand, isExpanded, !!onOpenQuickView);
 
   return (
     /* v2.2.7: also set pointerEvents: 'auto' on the outer wrapper when
@@ -115,7 +124,7 @@ function PodiumSlot({
           ...(onRowClick ? { cursor: 'pointer', pointerEvents: 'auto' } : {}),
         }}
         onClick={onRowClick}
-        title={openOwn ? OWN_ROW_HINT : undefined}
+        title={showHint ? QUICK_VIEW_HINT : undefined}
       >
         {/* Rank label */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, marginBottom: 6 }}>
@@ -192,13 +201,21 @@ function PodiumSlot({
               >
                 {formatScore(entry.score)}
               </span>
-              {openOwn ? (
+              {canExpand && isExpanded ? (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); onTogglePlayer?.(entry!.iscored_username); }}
+                  style={{ padding: 4, margin: -4, border: 'none', background: 'transparent', display: 'inline-flex', flexShrink: 0, cursor: 'pointer' }}
+                  aria-label="Hide score history"
+                  title="Hide score history"
+                >
+                  <Minus size={11} style={{ color: 'var(--color-neon-cyan, #00e5ff)' }} />
+                </button>
+              ) : canExpand ? (
+                <Plus size={11} style={{ color: pod.rankColor, flexShrink: 0 }} />
+              ) : showHint ? (
                 <ChevronRight size={11} style={{ color: pod.rankColor, flexShrink: 0 }} aria-hidden />
-              ) : canExpand && (
-                isExpanded
-                  ? <Minus size={11} style={{ color: 'var(--color-neon-cyan, #00e5ff)', flexShrink: 0 }} />
-                  : <Plus size={11} style={{ color: pod.rankColor, flexShrink: 0 }} />
-              )}
+              ) : null}
             </div>
           </>
         ) : (
@@ -208,13 +225,13 @@ function PodiumSlot({
 
       {/* Expanded history directly below this slot */}
       {isExpanded && (
-        <ExpandedHistory playerHistory={playerHistory} historyLoading={historyLoading} theme={theme} />
+        <ExpandedHistory playerHistory={playerHistory} historyLoading={historyLoading} theme={theme} onOpenQuickView={onOpenQuickView} />
       )}
     </div>
   );
 }
 
-function PyramidPodium({ entries, theme, slug, hasMultiple, expandedPlayer, playerHistory, historyLoading, onTogglePlayer, ownRow }: ShowcasePodiumProps) {
+function PyramidPodium({ entries, theme, slug, hasMultiple, expandedPlayer, playerHistory, historyLoading, onTogglePlayer, onOpenQuickView }: ShowcasePodiumProps) {
   const [first, second, third] = entries;
 
   const configs: PodiumSlotConfig[] = [
@@ -237,7 +254,7 @@ function PyramidPodium({ entries, theme, slug, hasMultiple, expandedPlayer, play
             playerHistory={playerHistory}
             historyLoading={historyLoading}
             onTogglePlayer={onTogglePlayer}
-            ownRow={ownRow}
+            onOpenQuickView={onOpenQuickView}
           />
         </div>
       </div>
@@ -253,7 +270,7 @@ function PyramidPodium({ entries, theme, slug, hasMultiple, expandedPlayer, play
           playerHistory={playerHistory}
           historyLoading={historyLoading}
           onTogglePlayer={onTogglePlayer}
-          ownRow={ownRow}
+          onOpenQuickView={onOpenQuickView}
         />
         <PodiumSlot
           config={configs[2]}
@@ -264,14 +281,14 @@ function PyramidPodium({ entries, theme, slug, hasMultiple, expandedPlayer, play
           playerHistory={playerHistory}
           historyLoading={historyLoading}
           onTogglePlayer={onTogglePlayer}
-          ownRow={ownRow}
+          onOpenQuickView={onOpenQuickView}
         />
       </div>
     </div>
   );
 }
 
-function ChipPodium({ entries, theme, slug, hasMultiple, expandedPlayer, playerHistory, historyLoading, onTogglePlayer, ownRow }: ShowcasePodiumProps) {
+function ChipPodium({ entries, theme, slug, hasMultiple, expandedPlayer, playerHistory, historyLoading, onTogglePlayer, onOpenQuickView }: ShowcasePodiumProps) {
   const [first, second, third] = entries;
 
   const configs: PodiumSlotConfig[] = [
@@ -294,7 +311,7 @@ function ChipPodium({ entries, theme, slug, hasMultiple, expandedPlayer, playerH
             playerHistory={playerHistory}
             historyLoading={historyLoading}
             onTogglePlayer={onTogglePlayer}
-            ownRow={ownRow}
+            onOpenQuickView={onOpenQuickView}
           />
         </div>
       </div>
@@ -310,7 +327,7 @@ function ChipPodium({ entries, theme, slug, hasMultiple, expandedPlayer, playerH
           playerHistory={playerHistory}
           historyLoading={historyLoading}
           onTogglePlayer={onTogglePlayer}
-          ownRow={ownRow}
+          onOpenQuickView={onOpenQuickView}
         />
         <PodiumSlot
           config={configs[2]}
@@ -321,7 +338,7 @@ function ChipPodium({ entries, theme, slug, hasMultiple, expandedPlayer, playerH
           playerHistory={playerHistory}
           historyLoading={historyLoading}
           onTogglePlayer={onTogglePlayer}
-          ownRow={ownRow}
+          onOpenQuickView={onOpenQuickView}
         />
       </div>
     </div>
@@ -353,7 +370,7 @@ const mixMetal = (metal: string, pct: number) => `color-mix(in srgb, ${metal} ${
  * silhouette is always complete, exactly like the other variants' blank slots.
  */
 function HoloStep({
-  entry, rank, theme, slug, hasMultiple, expandedPlayer, onTogglePlayer, ownRow,
+  entry, rank, theme, slug, hasMultiple, expandedPlayer, onTogglePlayer, onOpenQuickView,
 }: {
   entry: RankedEntry | undefined;
   rank: 1 | 2 | 3;
@@ -362,14 +379,15 @@ function HoloStep({
   hasMultiple?: (username: string) => boolean;
   expandedPlayer?: string | null;
   onTogglePlayer?: (username: string) => void;
-  ownRow?: OwnRowOpen;
+  /** v2.109.0 (score-gesture-photos) — opens the game quick popup. */
+  onOpenQuickView?: () => void;
 }) {
   const m = HOLO_METALS[rank];
   const empty = !entry;
-  const openOwn = entry ? ownRowOpener(entry, ownRow) : undefined;
-  const canExpand = entry ? (!openOwn && (hasMultiple?.(entry.iscored_username) ?? false)) : false;
+  const canExpand = entry ? (hasMultiple?.(entry.iscored_username) ?? false) : false;
   const isExpanded = entry ? expandedPlayer === entry.iscored_username : false;
-  const onRowClick = openOwn ?? (canExpand ? () => onTogglePlayer?.(entry!.iscored_username) : undefined);
+  const onRowClick = resolveRowClick(canExpand, isExpanded, () => onTogglePlayer?.(entry!.iscored_username), onOpenQuickView);
+  const showHint = opensQuickView(canExpand, isExpanded, !!onOpenQuickView);
   const first = rank === 1;
   const rendered = entry ? formatScore(entry.score) : '';
 
@@ -382,7 +400,7 @@ function HoloStep({
             ...(onRowClick ? { cursor: 'pointer' } : {}),
           }}
           onClick={onRowClick}
-          title={openOwn ? OWN_ROW_HINT : undefined}
+          title={showHint ? QUICK_VIEW_HINT : undefined}
         >
           <PlayerAvatar
             username={playerName(entry)}
@@ -436,13 +454,21 @@ function HoloStep({
             >
               {rendered}
             </span>
-            {openOwn ? (
+            {canExpand && isExpanded ? (
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onTogglePlayer?.(entry!.iscored_username); }}
+                style={{ padding: 4, margin: -4, border: 'none', background: 'transparent', display: 'inline-flex', flexShrink: 0, cursor: 'pointer' }}
+                aria-label="Hide score history"
+                title="Hide score history"
+              >
+                <Minus size={10} style={{ color: 'var(--color-neon-cyan, #00e5ff)' }} />
+              </button>
+            ) : canExpand ? (
+              <Plus size={10} style={{ color: m, flexShrink: 0 }} />
+            ) : showHint ? (
               <ChevronRight size={10} style={{ color: m, flexShrink: 0 }} aria-hidden />
-            ) : canExpand && (
-              isExpanded
-                ? <Minus size={10} style={{ color: 'var(--color-neon-cyan, #00e5ff)', flexShrink: 0 }} />
-                : <Plus size={10} style={{ color: m, flexShrink: 0 }} />
-            )}
+            ) : null}
           </span>
         </div>
       )}
@@ -495,16 +521,16 @@ function HoloStep({
  * panel under the steps: the columns are too narrow to host it per-slot
  * without breaking the silhouette.
  */
-function HoloStepsPodium({ entries, theme, slug, hasMultiple, expandedPlayer, playerHistory, historyLoading, onTogglePlayer, ownRow }: ShowcasePodiumProps) {
+function HoloStepsPodium({ entries, theme, slug, hasMultiple, expandedPlayer, playerHistory, historyLoading, onTogglePlayer, onOpenQuickView }: ShowcasePodiumProps) {
   const [first, second, third] = entries;
   const expandedIsPodium = !!expandedPlayer && entries.slice(0, 3).some(e => e && e.iscored_username === expandedPlayer);
 
   return (
     <div style={{ padding: '4px 16px 12px' }}>
       <div style={{ display: 'flex', gap: 6, alignItems: 'flex-end' }}>
-        <HoloStep entry={second} rank={2} theme={theme} slug={slug} hasMultiple={hasMultiple} expandedPlayer={expandedPlayer} onTogglePlayer={onTogglePlayer} ownRow={ownRow} />
-        <HoloStep entry={first} rank={1} theme={theme} slug={slug} hasMultiple={hasMultiple} expandedPlayer={expandedPlayer} onTogglePlayer={onTogglePlayer} ownRow={ownRow} />
-        <HoloStep entry={third} rank={3} theme={theme} slug={slug} hasMultiple={hasMultiple} expandedPlayer={expandedPlayer} onTogglePlayer={onTogglePlayer} ownRow={ownRow} />
+        <HoloStep entry={second} rank={2} theme={theme} slug={slug} hasMultiple={hasMultiple} expandedPlayer={expandedPlayer} onTogglePlayer={onTogglePlayer} onOpenQuickView={onOpenQuickView} />
+        <HoloStep entry={first} rank={1} theme={theme} slug={slug} hasMultiple={hasMultiple} expandedPlayer={expandedPlayer} onTogglePlayer={onTogglePlayer} onOpenQuickView={onOpenQuickView} />
+        <HoloStep entry={third} rank={3} theme={theme} slug={slug} hasMultiple={hasMultiple} expandedPlayer={expandedPlayer} onTogglePlayer={onTogglePlayer} onOpenQuickView={onOpenQuickView} />
       </div>
       {expandedIsPodium && (
         <ExpandedHistory playerHistory={playerHistory} historyLoading={historyLoading} theme={theme} />

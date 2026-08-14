@@ -343,7 +343,7 @@ describe('B3 — ranked-row identity fields', () => {
         expect(cachedRankings[0]!.source).toBe('tournament');
     });
 
-    it('bumps the cache envelope to v3 so a v2 blob reads as a miss', async () => {
+    it('bumps the cache envelope to v4 so a v2 blob reads as a miss', async () => {
         const roomId = await createTestRoom('b3-envelope');
         const tId = await createTestTournament(roomId);
         const gameId = await createTestGame(tId);
@@ -367,7 +367,7 @@ describe('B3 — ranked-row identity fields', () => {
         expect(rankings[0]!.history_id).toBeTypeOf('number');
 
         const rewritten = await db.get('SELECT rankings FROM leaderboard_cache WHERE game_id = ?', gameId);
-        expect(JSON.parse(rewritten.rankings).v).toBe(3);
+        expect(JSON.parse(rewritten.rankings).v).toBe(4);
     });
 
     it('RoomScoresService card rankings carry the same three fields', async () => {
@@ -384,6 +384,88 @@ describe('B3 — ranked-row identity fields', () => {
         expect(row.history_id).toBeTypeOf('number');
         expect(row.source).toBe('tournament');
         expect(row.submitted_by_user_id).toBe('disc-ada');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// score-gesture-photos (v2.109.0) — photo_url on the MAIN ranked row
+// ---------------------------------------------------------------------------
+
+describe('photo_url on ranked rows', () => {
+    beforeEach(async () => { await setupTestDb(); });
+
+    it('ships photo_url of the best row on the live LeaderboardService path', async () => {
+        const roomId = await createTestRoom('photo-live');
+        const tId = await createTestTournament(roomId);
+        const gameId = await createTestGame(tId);
+        await createTestSubmission(gameId, { username: 'Ada', score: 4200 });
+
+        const db = await getDatabase();
+        await db.run(`UPDATE score_history SET photo_url = '/api/score-photos/ada.jpg' WHERE game_id = ?`, gameId);
+
+        const rankings = await LeaderboardService.recalculate(gameId);
+        expect(rankings[0]!.photo_url).toBe('/api/score-photos/ada.jpg');
+    });
+
+    it('carries photo_url through the CACHED read path (envelope v4)', async () => {
+        const roomId = await createTestRoom('photo-cached');
+        const tId = await createTestTournament(roomId);
+        const gameId = await createTestGame(tId);
+        await createTestSubmission(gameId, { username: 'Ada', score: 4200 });
+
+        const db = await getDatabase();
+        await db.run(`UPDATE score_history SET photo_url = '/api/score-photos/ada.jpg' WHERE game_id = ?`, gameId);
+        await LeaderboardService.recalculate(gameId);
+
+        const cachedRankings = await LeaderboardService.getForGame(gameId);
+        expect(cachedRankings[0]!.photo_url).toBe('/api/score-photos/ada.jpg');
+    });
+
+    it('is null for a row with no photo, never undefined', async () => {
+        const roomId = await createTestRoom('photo-null');
+        const tId = await createTestTournament(roomId);
+        const gameId = await createTestGame(tId);
+        await createTestSubmission(gameId, { username: 'Ada', score: 4200 });
+
+        const rankings = await LeaderboardService.recalculate(gameId);
+        expect(rankings[0]!.photo_url).toBeNull();
+    });
+
+    it('RoomScoresService card rankings carry photo_url too', async () => {
+        const roomId = await createTestRoom('photo-roomscores');
+        const tId = await createTestTournament(roomId);
+        const gameId = await createTestGame(tId, { name: 'Whirlwind' });
+        await createTestSubmission(gameId, { username: 'Ada', score: 4200 });
+
+        const db = await getDatabase();
+        await db.run(`UPDATE score_history SET photo_url = '/api/score-photos/ada.jpg' WHERE game_id = ?`, gameId);
+
+        const { data } = await RoomScoresService.getRoomScores(roomId, {});
+        expect(data[0]!.rankings[0]!.photo_url).toBe('/api/score-photos/ada.jpg');
+    });
+
+    it('a v3 blob (pre-photo_url) reads as a miss and is recalculated', async () => {
+        const roomId = await createTestRoom('photo-v3-miss');
+        const tId = await createTestTournament(roomId);
+        const gameId = await createTestGame(tId);
+        await createTestSubmission(gameId, { username: 'Ada', score: 4200 });
+
+        const db = await getDatabase();
+        await db.run(`UPDATE score_history SET photo_url = '/api/score-photos/ada.jpg' WHERE game_id = ?`, gameId);
+        await db.run(
+            `INSERT OR REPLACE INTO leaderboard_cache (game_id, rankings, generated_at) VALUES (?, ?, ?)`,
+            gameId,
+            JSON.stringify({ v: 3, rows: [{
+                rank: 1, discord_user_id: 'stale', submitted_by_user_id: null,
+                iscored_username: 'Stale', score: 1, platform: null, engine: 'unknown', device: 'unknown',
+                history_id: null, source: null,
+            }] }),
+            new Date().toISOString(),
+        );
+
+        const rankings = await LeaderboardService.getForGame(gameId);
+        expect(rankings[0]!.iscored_username).toBe('Ada');
+        expect(rankings[0]!.photo_url).toBe('/api/score-photos/ada.jpg');
     });
 });
 

@@ -219,10 +219,10 @@ export default function RoomScoresView({ roomId, slug, config, roomName, viewerU
         linkFor={lb => `/${slug}/games/${encodeURIComponent(lb.gameName)}?tab=room`}
         onSubmit={lb => setSubmissionTarget({ gameName: lb.gameName })}
         onTitleClick={lb => setQuickViewLb(lb)}
-        // v2.108.0 (F3) — a click on the viewer's OWN row opens the same
-        // popup the title opens, where the score can be deleted.
-        viewerDiscordId={claims?.discordId}
-        onOwnRowClick={lb => setQuickViewLb(lb)}
+        // v2.109.0 (score-gesture-photos) — a click that opens the popup
+        // (once a row is expanded, or immediately for a single-score row)
+        // opens the same popup the title opens.
+        onOpenQuickView={lb => setQuickViewLb(lb)}
       />
 
       {quickViewLb && (
