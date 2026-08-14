@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Lock, Trash2, Pencil, StickyNote, ExternalLink } from 'lucide-react';
 import { api } from '../lib/api';
 import { getPortal } from '../lib/portal';
@@ -73,22 +73,30 @@ export default function Leaderboard() {
    */
   const [roomTheme, setRoomTheme] = useState<string | null>(null);
 
+  // Unmount guard for the three loaders — they're fired from the mount effect
+  // AND from socket handlers, so an in-flight response can land after unmount
+  // (late-setState flake class; the roomTheme effect below already guards the
+  // same way with a local flag). A ref because the loaders are shared across
+  // both call contexts.
+  const unmountedRef = useRef(false);
+  useEffect(() => () => { unmountedRef.current = true; }, []);
+
   const loadData = () => {
     api.get<GameLeaderboard[]>(`/rooms/${room.roomId}/leaderboard`)
-      .then(setLeaderboards)
-      .catch(() => setLeaderboards([]));
+      .then(d => { if (!unmountedRef.current) setLeaderboards(d); })
+      .catch(() => { if (!unmountedRef.current) setLeaderboards([]); });
   };
 
   const loadRankings = () => {
     api.get<RankingGroupData[]>(`/rooms/${room.roomId}/rankings`)
-      .then(setRankingGroups)
-      .catch(() => setRankingGroups([]))
-      .finally(() => setLoading(false));
+      .then(d => { if (!unmountedRef.current) setRankingGroups(d); })
+      .catch(() => { if (!unmountedRef.current) setRankingGroups([]); })
+      .finally(() => { if (!unmountedRef.current) setLoading(false); });
   };
 
   const loadConfig = () => {
     api.get<Record<string, string>>(`/rooms/${room.roomId}/scoreboard-config`)
-      .then(setConfig)
+      .then(c => { if (!unmountedRef.current) setConfig(c); })
       .catch(() => {});
   };
 

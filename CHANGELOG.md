@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.107.1] — unreleased
+
+**Fix: late-setState CI flake root-caused and closed (LeaderboardAdminControls "window is not defined", 2 sightings).**
+
+### Fixed
+- **The score-counts batcher's 50ms module-level timer outlives any card that called it** — its promise (and the per-row history fetch chains, and the admin Leaderboard page's three loaders) resolved into `setState` after unmount with no guard. On slow CI runners the resolution landed after the whole test environment was torn down → unhandled "window is not defined" rejections failing otherwise-green runs. All seven chains now carry the codebase's standard unmount guard (the same idiom `Leaderboard.tsx`'s own `roomTheme` effect already used 30 lines away). Hunt notes: the previously-recorded "precedent fixes" were misremembered — PublicHistory's was test-only and PinnedCarousel never had one; `FitRowName`'s `fonts.ready` path was investigated and exonerated (postdates first sighting; `document.fonts` doesn't exist under jsdom).
+
 ## [2.107.0] — unreleased
 
 **Search results everywhere now rank nearest-exact-match first (owner field report: "Strike" search buried the exact match below 20 partial matches).**
