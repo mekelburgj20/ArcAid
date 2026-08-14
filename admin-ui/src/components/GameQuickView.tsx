@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { X, ExternalLink, Star, Trash2, Plus, Minus } from 'lucide-react';
+import { X, ExternalLink, Star, Trash2, Plus, Minus, Camera } from 'lucide-react';
 import type { RankedEntry } from './ScoreboardComponents';
 import { PlayerAvatar, playerName } from './ScoreboardComponents';
 import { getLegacyPlatformLabel } from '../lib/scoreProvenance';
@@ -9,6 +9,7 @@ import { decodeViewerClaims } from '../lib/viewerClaims';
 import { canDeleteRow, deleteScoreHistory, rowHistoryId } from '../lib/scoreDelete';
 import { useScoreExpand } from './scoreboard/useScoreExpand';
 import ConfirmModal from './ConfirmModal';
+import ScorePhotoModal from './ScorePhotoModal';
 
 /**
  * v2.13.12 — lightweight popup preview of a game's top scores + metadata,
@@ -103,6 +104,12 @@ export default function GameQuickView({ lb, slug, fromTab, highlightStat, roomId
   const [deletedIds, setDeletedIds] = useState<Set<number>>(() => new Set());
   const [pendingDelete, setPendingDelete] = useState<{ historyId: number; score: number } | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  // v2.109.0 (score-gesture-photos) — clicking a row's body (main ranked row
+  // or any expanded nested history row) opens that score's photo evidence,
+  // but ONLY when the row actually has a photo (no dead click). Reuses the
+  // SAME lightbox `ScoreboardComponents.tsx`'s legacy GameCard already uses
+  // for its own inline history expand — see ScorePhotoModal.tsx.
+  const [photoModal, setPhotoModal] = useState<{ playerName: string; score: number; photoUrl: string } | null>(null);
   const {
     expandedPlayer, playerHistory, historyLoading, togglePlayer, hasMultiple, removeHistoryEntry,
   } = useScoreExpand(roomId, lb.gameId ?? '', lb.gameName, (lb.rankings ?? []).length);
@@ -282,9 +289,15 @@ export default function GameQuickView({ lb, slug, fromTab, highlightStat, roomId
               const canDelete = canDeleteRow(entry, claims, roomId);
               const canExpand = !!roomId && hasMultiple(entry.iscored_username);
               const isExpanded = expandedPlayer === entry.iscored_username;
+              // v2.109.0 (score-gesture-photos) — the row body opens the
+              // photo evidence viewer, but only when this row HAS a photo.
+              const rowPhotoUrl = entry.photo_url ?? null;
               return (
               <div key={`${entry.iscored_username}-${entry.rank}`}>
-                <div className="flex items-center gap-3 py-2 border-b border-border/30 last:border-0">
+                <div
+                  className={`flex items-center gap-3 py-2 border-b border-border/30 last:border-0 ${rowPhotoUrl ? 'cursor-pointer' : ''}`}
+                  onClick={rowPhotoUrl ? () => setPhotoModal({ playerName: playerName(entry), score: entry.score, photoUrl: rowPhotoUrl }) : undefined}
+                >
                   <span
                     className={`font-display font-bold text-sm w-5 text-right tabular-nums flex-shrink-0 ${
                       entry.rank === 1 ? 'text-neon-amber'
@@ -312,10 +325,16 @@ export default function GameQuickView({ lb, slug, fromTab, highlightStat, roomId
                   >
                     {entry.score.toLocaleString()}
                   </span>
+                  {/* v2.109.0 (score-gesture-photos) — the affordance cue: a
+                      photo-carrying row gets the glyph, a photo-less row gets
+                      neither the glyph nor a clickable body. */}
+                  {rowPhotoUrl && (
+                    <Camera size={12} className="text-faint flex-shrink-0" aria-hidden />
+                  )}
                   {canExpand && (
                     <button
                       type="button"
-                      onClick={() => togglePlayer(entry.iscored_username)}
+                      onClick={(e) => { e.stopPropagation(); togglePlayer(entry.iscored_username); }}
                       className="p-1 -m-0.5 text-faint hover:text-neon-cyan transition-colors cursor-pointer flex-shrink-0"
                       aria-expanded={isExpanded}
                       aria-label={isExpanded ? 'Hide score history' : 'Show score history'}
@@ -329,7 +348,7 @@ export default function GameQuickView({ lb, slug, fromTab, highlightStat, roomId
                   {canDelete && historyId != null && (
                     <button
                       type="button"
-                      onClick={() => setPendingDelete({ historyId, score: entry.score })}
+                      onClick={(e) => { e.stopPropagation(); setPendingDelete({ historyId, score: entry.score }); }}
                       className="p-1 -m-0.5 text-red-400/70 hover:text-red-400 transition-colors cursor-pointer flex-shrink-0"
                       aria-label={`Delete this score (${entry.score.toLocaleString()})`}
                       title="Delete this score"
@@ -347,14 +366,22 @@ export default function GameQuickView({ lb, slug, fromTab, highlightStat, roomId
                       <div className="space-y-1">
                         {playerHistory.map(h => {
                           const canDeleteNested = canDeleteRow(h, claims, roomId);
+                          const hPhotoUrl = h.photo_url ?? null;
                           return (
-                            <div key={h.id} className="flex items-center gap-2 text-[11px]">
+                            <div
+                              key={h.id}
+                              className={`flex items-center gap-2 text-[11px] ${hPhotoUrl ? 'cursor-pointer' : ''}`}
+                              onClick={hPhotoUrl ? () => setPhotoModal({ playerName: playerName(entry), score: h.score, photoUrl: hPhotoUrl }) : undefined}
+                            >
                               <span className="text-muted tabular-nums">{h.score.toLocaleString()}</span>
+                              {hPhotoUrl && (
+                                <Camera size={11} className="text-faint flex-shrink-0" aria-hidden />
+                              )}
                               <span className="text-faint flex-1">{new Date(h.created_at).toLocaleDateString()}</span>
                               {canDeleteNested && (
                                 <button
                                   type="button"
-                                  onClick={() => setPendingDelete({ historyId: h.id, score: h.score })}
+                                  onClick={(e) => { e.stopPropagation(); setPendingDelete({ historyId: h.id, score: h.score }); }}
                                   className="p-1 -m-0.5 text-red-400/70 hover:text-red-400 transition-colors cursor-pointer"
                                   aria-label={`Delete this score (${h.score.toLocaleString()})`}
                                   title="Delete this score"
@@ -416,6 +443,17 @@ export default function GameQuickView({ lb, slug, fromTab, highlightStat, roomId
             runDelete(target.historyId);
           }}
           onCancel={() => setPendingDelete(null)}
+        />
+      )}
+
+      {/* v2.109.0 (score-gesture-photos) — reuses the SAME lightbox the
+          legacy GameCard's inline history expand already opens. */}
+      {photoModal && (
+        <ScorePhotoModal
+          playerName={photoModal.playerName}
+          score={photoModal.score}
+          photoUrl={photoModal.photoUrl}
+          onClose={() => setPhotoModal(null)}
         />
       )}
     </div>

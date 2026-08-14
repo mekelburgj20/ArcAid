@@ -226,6 +226,7 @@ export class RoomScoresService {
                 ranked.device,
                 ranked.history_id,
                 ranked.source,
+                ranked.photo_url,
                 ranked.game_rank
             FROM (
                 SELECT
@@ -239,6 +240,7 @@ export class RoomScoresService {
                     best.device,
                     best.history_id,
                     best.source,
+                    best.photo_url,
                     ROW_NUMBER() OVER (
                         PARTITION BY best.game_key ORDER BY best.score DESC
                     ) as game_rank
@@ -257,6 +259,8 @@ export class RoomScoresService {
                         -- best. The per-row delete acts on exactly this id.
                         id as history_id,
                         source,
+                        -- v2.109.0 (score-gesture-photos): same row, its photo.
+                        photo_url,
                         ROW_NUMBER() OVER (
                             PARTITION BY LOWER(game_name),
                                          COALESCE(submitted_by_user_id, 'iscored:' || LOWER(iscored_username))
@@ -299,6 +303,9 @@ export class RoomScoresService {
                 history_id: e.history_id ?? null,
                 source: e.source ?? null,
                 submitted_by_user_id: e.submitted_by_user_id ?? null,
+                // v2.109.0 (score-gesture-photos) — same identity-stable
+                // pass-through as history_id/source.
+                photo_url: e.photo_url ?? null,
             });
         });
 

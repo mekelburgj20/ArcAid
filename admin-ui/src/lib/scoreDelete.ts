@@ -64,38 +64,6 @@ export function canDeleteRow(
 }
 
 /**
- * v2.108.0 (F3) — what a click on the viewer's OWN score row does on a
- * scoreboard card: open the game's quick popup, where the score can be
- * inspected and deleted.
- *
- * Threaded as ONE optional prop through every card family so that a card
- * without it behaves exactly as it did before. `viewerDiscordId` is the raw id
- * from the viewer's token claims; `open` is bound to the card's own game by
- * whichever page owns the `GameQuickView` instance.
- */
-export interface OwnRowOpen {
-  viewerDiscordId: string;
-  open: () => void;
-}
-
-/**
- * Tooltip on an own row. The affordance is deliberately quiet — a chevron and
- * a pointer cursor — so this is what explains it on hover.
- */
-export const OWN_ROW_HINT = 'Your score — open to manage';
-
-/**
- * The click handler for `row`, or `undefined` when the row is not the
- * viewer's own (or the feature isn't wired). Ownership is the RAW
- * `submitted_by_user_id` — the same column the server's self-delete gate uses.
- */
-export function ownRowOpener(row: DeletableRowLike, own?: OwnRowOpen | null): (() => void) | undefined {
-  if (!own?.viewerDiscordId) return undefined;
-  if (!row.submitted_by_user_id || row.submitted_by_user_id !== own.viewerDiscordId) return undefined;
-  return own.open;
-}
-
-/**
  * DELETE one score_history row. Resolves to `{ ok: true }` or an error message
  * the caller can toast — never throws for an HTTP failure.
  */

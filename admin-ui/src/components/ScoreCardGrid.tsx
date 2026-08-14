@@ -29,13 +29,12 @@ export interface ScoreCardGridProps {
   onSubmit: (lb: GameLeaderboard) => void;
   onTitleClick?: (lb: GameLeaderboard, e: React.MouseEvent) => void;
   /**
-   * v2.108.0 (F3) — clicking the VIEWER'S OWN score row opens the page's quick
-   * popup instead of the inline expand. Both halves are required: the raw
-   * Discord id from the viewer's token claims, and the opener. Omit either and
-   * every row behaves exactly as it did before.
+   * v2.109.0 (score-gesture-photos) — opens the page's quick popup for a
+   * card. Fires on ANY card row's click once it's expanded (or immediately
+   * for a single-score row) — see `lib/scoreGesture.ts`. Omitting this
+   * changes nothing (rows stay on plain inline expand, as before).
    */
-  viewerDiscordId?: string | null;
-  onOwnRowClick?: (lb: GameLeaderboard) => void;
+  onOpenQuickView?: (lb: GameLeaderboard) => void;
 }
 
 export default function ScoreCardGrid({
@@ -53,8 +52,7 @@ export default function ScoreCardGrid({
   linkFor,
   onSubmit,
   onTitleClick,
-  viewerDiscordId,
-  onOwnRowClick,
+  onOpenQuickView,
 }: ScoreCardGridProps) {
   const useNewCards = !!config.SCOREBOARD_STYLE;
   const newConfig = deriveScoreboardConfig(config, roomName);
@@ -73,12 +71,10 @@ export default function ScoreCardGrid({
     }
   };
 
-  // v2.108.0 (F3) — the own-row descriptor for ONE card, or undefined when
-  // the caller didn't wire the behaviour.
-  const ownRowFor = (lb: GameLeaderboard) =>
-    (viewerDiscordId && onOwnRowClick)
-      ? { viewerDiscordId, open: () => onOwnRowClick(lb) }
-      : undefined;
+  // v2.109.0 (score-gesture-photos) — the quick-popup opener for ONE card,
+  // or undefined when the caller didn't wire the behaviour.
+  const openQuickViewFor = (lb: GameLeaderboard) =>
+    onOpenQuickView ? () => onOpenQuickView(lb) : undefined;
 
   if (loading) {
     return (
@@ -131,7 +127,7 @@ export default function ScoreCardGrid({
                   gameTitleStyle={newConfig.gameTitleStyle}
                   titleLinkTo={linkTo}
                   titleLinkOnClick={onTitleClick ? handleTitleClick(lb) : undefined}
-                  ownRow={ownRowFor(lb)}
+                  onOpenQuickView={openQuickViewFor(lb)}
                 />
               ) : (
                 <GameCard
@@ -153,7 +149,7 @@ export default function ScoreCardGrid({
                   gameTitleStyle={legacyProps.gameTitleStyle}
                   gameTitleEnhance={legacyProps.gameTitleEnhance}
                   scoreStyle={legacyProps.scoreStyle}
-                  ownRow={ownRowFor(lb)}
+                  onOpenQuickView={openQuickViewFor(lb)}
                 />
               )}
 

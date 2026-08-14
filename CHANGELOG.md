@@ -6,6 +6,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.109.0] — unreleased
+
+**Score gesture model v2 + one-tap photo evidence (owner design, same-day follow-up on v2.108.0's self-delete).**
+
+### Changed
+- **Card rows now follow one two-step gesture for everyone**: first tap expands a multi-score row's history (restoring the one-tap expand v2.108.0's own-row exception had taken away); a second tap — on the main score or any expanded sub-score — opens the game quick popup. Single-score rows open the popup on first tap. Collapse is the −/chevron icon's own button now (bigger hit target).
+- **Photo evidence, one tap away**: in the quick popup, tapping a score (main row or a specific expanded sub-score) opens that score's photo full-screen (Esc / tap-anywhere closes). A small camera glyph marks scores that carry a photo; photo-less rows (e.g. iScored-synced) show no glyph and take no dead taps. Reuses the existing `ScorePhotoModal` (gained Esc-close).
+- Ranked-row payloads carry `photo_url` (cache envelope v3→v4; old blobs rebuild).
+
+Tests: backend 1733 (+9), admin-ui 782 (+8 net). Screenshots: tmp/gesture-photo-shots/.
+
 ## [2.108.1] — unreleased
 
 **Two owner field fixes: iPhone camera cutout blocked the admin hamburger (priority), and the AtGames sync mis-tagging "The Aliens" onto the wrong game.**

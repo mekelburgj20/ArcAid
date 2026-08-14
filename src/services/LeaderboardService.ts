@@ -89,6 +89,14 @@ export interface RankedEntry {
      * holder delete rows they never submitted. Null for unattributed rows.
      */
     submitted_by_user_id?: string | null;
+    /**
+     * v2.109.0 (score-gesture-photos) — `score_history.photo_url` of the SAME
+     * best row `history_id` points at. An identity-stable fact of that row
+     * (never profile data), so it is safe in the cache under the S24.1
+     * doctrine — see `CachedRankedRow`. Drives the quick-popup's camera glyph
+     * + click-to-view-photo affordance on the MAIN ranked row.
+     */
+    photo_url?: string | null;
 }
 
 /**
@@ -121,6 +129,8 @@ interface CachedRankedRow {
      */
     history_id: number | null;
     source: string | null;
+    /** v2.109.0 (score-gesture-photos) — see the `RankedEntry` field doc. */
+    photo_url: string | null;
 }
 
 /**
@@ -133,8 +143,12 @@ interface CachedRankedRow {
  * v2 → v3 (v2.108.0): `history_id` + `source` added to `CachedRankedRow`. A v2
  * blob has neither, and a card row without a `history_id` cannot be deleted, so
  * a v2 blob must read as a MISS rather than render un-deletable rows.
+ *
+ * v3 → v4 (v2.109.0): `photo_url` added. A v3 blob has none, and the quick
+ * popup's camera glyph / click-to-view affordance needs it on the main ranked
+ * row, so a v3 blob must also read as a MISS.
  */
-const CACHE_ENVELOPE_VERSION = 3;
+const CACHE_ENVELOPE_VERSION = 4;
 
 interface CacheEnvelope {
     v: number;
@@ -219,6 +233,8 @@ export class LeaderboardService {
                 history_id: row.history_id ?? null,
                 source: row.source ?? null,
                 submitted_by_user_id: row.submitted_by_user_id ?? null,
+                // v2.109.0 — pass through untouched, same as history_id/source.
+                photo_url: row.photo_url ?? null,
             };
         });
     }
@@ -421,7 +437,8 @@ export class LeaderboardService {
                 best.engine,
                 best.device,
                 best.history_id,
-                best.source
+                best.source,
+                best.photo_url
             FROM (
                 SELECT
                     iscored_username,
@@ -436,6 +453,8 @@ export class LeaderboardService {
                     -- per-row delete acts on exactly this score_history row.
                     id as history_id,
                     source,
+                    -- v2.109.0 (score-gesture-photos): same row, its photo.
+                    photo_url,
                     ROW_NUMBER() OVER (
                         PARTITION BY COALESCE(submitted_by_user_id, 'iscored:' || LOWER(iscored_username))
                         ORDER BY score DESC, created_at ASC
@@ -462,6 +481,7 @@ export class LeaderboardService {
             device: e.device || UNKNOWN,
             history_id: e.history_id ?? null,
             source: e.source ?? null,
+            photo_url: e.photo_url ?? null,
         }));
     }
 

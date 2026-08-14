@@ -5,8 +5,7 @@ import PlayerNameLink from '../PlayerNameLink';
 import FitRowName from './FitRowName';
 import { ARCADE_RANK_TINTS } from './arcadeNeon';
 import type { ScoreHistoryEntry } from './useScoreExpand';
-import type { OwnRowOpen } from '../../lib/scoreDelete';
-import { ownRowOpener, OWN_ROW_HINT } from '../../lib/scoreDelete';
+import { resolveRowClick, opensQuickView, QUICK_VIEW_HINT } from '../../lib/scoreGesture';
 import { formatScore } from '../../lib/format';
 
 /**
@@ -65,14 +64,16 @@ export interface ArcadePodiumProps {
   playerHistory?: ScoreHistoryEntry[];
   historyLoading?: boolean;
   onTogglePlayer?: (username: string) => void;
-  /** v2.108.0 (F3) — own-row click opens the game quick popup. */
-  ownRow?: OwnRowOpen;
+  /** v2.109.0 (score-gesture-photos) — opens the game quick popup. */
+  onOpenQuickView?: () => void;
 }
 
 /** The expanded per-player score history, dropped under its row. */
-function ExpandedHistory({ playerHistory, historyLoading }: {
+function ExpandedHistory({ playerHistory, historyLoading, onOpenQuickView }: {
   playerHistory?: ScoreHistoryEntry[];
   historyLoading?: boolean;
+  /** v2.109.0 (score-gesture-photos) — a nested row's click also opens the popup. */
+  onOpenQuickView?: () => void;
 }) {
   return (
     <div className="mx-2 mt-0.5 mb-1 rounded bg-deep/50 px-2 py-1" data-testid="arcade-history">
@@ -81,7 +82,11 @@ function ExpandedHistory({ playerHistory, historyLoading }: {
       ) : (playerHistory && playerHistory.length > 0) ? (
         <div className="space-y-0.5">
           {playerHistory.map(h => (
-            <div key={h.id} className="flex items-center justify-between text-[11px]">
+            <div
+              key={h.id}
+              className={`flex items-center justify-between text-[11px] ${onOpenQuickView ? 'cursor-pointer' : ''}`}
+              onClick={onOpenQuickView}
+            >
               <span className="text-muted">{h.score.toLocaleString()}</span>
               <span className="text-faint">{new Date(h.created_at).toLocaleDateString()}</span>
             </div>
@@ -96,7 +101,7 @@ function ExpandedHistory({ playerHistory, historyLoading }: {
 
 /** A filled podium place. */
 function PodiumRow({
-  entry, rank, slug, isViewer, canExpand, isExpanded, onToggle, openOwn,
+  entry, rank, slug, isViewer, canExpand, isExpanded, onToggle, onOpenQuickView,
 }: {
   entry: RankedEntry;
   rank: number;
@@ -105,8 +110,8 @@ function PodiumRow({
   canExpand: boolean;
   isExpanded: boolean;
   onToggle?: () => void;
-  /** v2.108.0 (F3) — set only on the viewer's OWN row. */
-  openOwn?: () => void;
+  /** v2.109.0 (score-gesture-photos) — opens the quick popup. */
+  onOpenQuickView?: () => void;
 }) {
   const tint = ARCADE_RANK_TINTS[rank];
   const abbreviated = formatScore(entry.score);
@@ -114,7 +119,8 @@ function PodiumRow({
   // more useful signal on a board someone opened to find themselves on.
   const bg = isViewer ? 'var(--sb-row-you-bg)' : (tint?.bg ?? 'transparent');
   const border = isViewer ? 'var(--sb-row-you-border)' : (tint?.border ?? 'transparent');
-  const onRowClick = openOwn ?? (canExpand ? onToggle : undefined);
+  const onRowClick = resolveRowClick(canExpand, isExpanded, () => onToggle?.(), onOpenQuickView);
+  const showHint = opensQuickView(canExpand, isExpanded, !!onOpenQuickView);
 
   return (
     <div
@@ -122,7 +128,7 @@ function PodiumRow({
       className={`flex items-center gap-2 rounded-[6px] border px-2 py-[6px] ${onRowClick ? 'cursor-pointer' : ''}`}
       style={{ background: bg, borderColor: border }}
       onClick={onRowClick}
-      title={openOwn ? OWN_ROW_HINT : undefined}
+      title={showHint ? QUICK_VIEW_HINT : undefined}
     >
       <span className="flex w-[22px] shrink-0 items-center justify-center">
         <Medal className={`h-[18px] w-[18px] ${tint.medal}`} aria-label={tint.label} />
@@ -153,13 +159,21 @@ function PodiumRow({
       >
         {abbreviated}
       </span>
-      {openOwn ? (
+      {canExpand && isExpanded ? (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onToggle?.(); }}
+          className="shrink-0 p-1 -m-1 text-neon-cyan cursor-pointer"
+          aria-label="Hide score history"
+          title="Hide score history"
+        >
+          <Minus size={12} />
+        </button>
+      ) : canExpand ? (
+        <Plus size={12} className="shrink-0 text-faint" />
+      ) : showHint ? (
         <ChevronRight size={12} className="shrink-0 text-faint" aria-hidden />
-      ) : canExpand && (
-        isExpanded
-          ? <Minus size={12} className="shrink-0 text-neon-cyan" />
-          : <Plus size={12} className="shrink-0 text-faint" />
-      )}
+      ) : null}
     </div>
   );
 }
@@ -217,7 +231,7 @@ export default function ArcadePodium({
   playerHistory,
   historyLoading,
   onTogglePlayer,
-  ownRow,
+  onOpenQuickView,
 }: ArcadePodiumProps) {
   const lowerViewer = viewerUsername?.toLowerCase();
 
@@ -228,8 +242,7 @@ export default function ArcadePodium({
         if (!entry) {
           return <ArcadeClaimRow key={`place-${rank}`} rank={rank} onClaim={() => onClaim?.(rank)} />;
         }
-        const openOwn = ownRowOpener(entry, ownRow);
-        const canExpand = !openOwn && (hasMultiple?.(entry.iscored_username) ?? false);
+        const canExpand = hasMultiple?.(entry.iscored_username) ?? false;
         const isExpanded = expandedPlayer === entry.iscored_username;
         return (
           <div key={`place-${rank}`}>
@@ -241,10 +254,10 @@ export default function ArcadePodium({
               canExpand={canExpand}
               isExpanded={isExpanded}
               onToggle={() => onTogglePlayer?.(entry.iscored_username)}
-              openOwn={openOwn}
+              onOpenQuickView={onOpenQuickView}
             />
             {isExpanded && (
-              <ExpandedHistory playerHistory={playerHistory} historyLoading={historyLoading} />
+              <ExpandedHistory playerHistory={playerHistory} historyLoading={historyLoading} onOpenQuickView={onOpenQuickView} />
             )}
           </div>
         );

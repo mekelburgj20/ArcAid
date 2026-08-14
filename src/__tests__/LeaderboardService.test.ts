@@ -70,9 +70,10 @@ describe('LeaderboardService', () => {
             // array. The rows are identity-stable — names and avatars are
             // joined on at read time — so the cache survives a profile edit.
             // See src/__tests__/s24-efficiency.test.ts for that contract.
-            // v2.108.0 bumped the envelope to v3 (history_id + source).
+            // v2.108.0 bumped the envelope to v3 (history_id + source);
+            // v2.109.0 bumped it again to v4 (photo_url).
             const parsed = JSON.parse(cached.rankings);
-            expect(parsed.v).toBe(3);
+            expect(parsed.v).toBe(4);
             expect(parsed.rows).toHaveLength(1);
         });
     });

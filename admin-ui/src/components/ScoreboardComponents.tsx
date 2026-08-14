@@ -6,8 +6,7 @@ import ScorePhotoModal from './ScorePhotoModal';
 import GameInfoPopup from './scoreboard/GameInfoPopup';
 import FitRowName from './scoreboard/FitRowName';
 import { fetchScoreCounts } from './scoreboard/scoreCountsBatcher';
-import type { OwnRowOpen } from '../lib/scoreDelete';
-import { ownRowOpener, OWN_ROW_HINT } from '../lib/scoreDelete';
+import { resolveRowClick, opensQuickView, QUICK_VIEW_HINT } from '../lib/scoreGesture';
 import { AnonymousAvatarIcon } from '../assets/icons/ThemedIcons';
 // ShowcaseThemeConfig imported via SHOWCASE_THEMES lookup in RankingGroupCard
 import { SHOWCASE_THEMES, DEFAULT_SHOWCASE_THEME } from '../lib/scoreboardThemes';
@@ -61,6 +60,13 @@ export interface RankedEntry {
    * over rows they never submitted.
    */
   submitted_by_user_id?: string | null;
+  /**
+   * v2.109.0 (score-gesture-photos) — `score_history.photo_url` of the SAME
+   * row `history_id` points at. Drives the quick popup's camera glyph +
+   * click-to-view-photo affordance on the MAIN ranked row. Optional because
+   * not every `RankedEntry` producer resolves it.
+   */
+  photo_url?: string | null;
 }
 
 /**
@@ -356,7 +362,7 @@ export interface GlobalCardStyles {
   bgColor?: string;
 }
 
-export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitScore, cardOpacity, scoreColumns = 1, viewerUsername, viewerEntry, qrMode = 'disabled', headerStyle = 'banner', globalStyles, wheelScale = 150, bgFill = 'off', bgSize = 'cover', cardWidth = 288, glassOpacity = 60, gameTitleStyle = 'default', gameTitleEnhance = false, scoreStyle = 'glass', ownRow }: {
+export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitScore, cardOpacity, scoreColumns = 1, viewerUsername, viewerEntry, qrMode = 'disabled', headerStyle = 'banner', globalStyles, wheelScale = 150, bgFill = 'off', bgSize = 'cover', cardWidth = 288, glassOpacity = 60, gameTitleStyle = 'default', gameTitleEnhance = false, scoreStyle = 'glass', onOpenQuickView }: {
   lb: GameLeaderboard; slug: string; maxScores: number; roomId?: string;
   onSubmitScore?: (lb: GameLeaderboard) => void;
   cardOpacity?: number;
@@ -374,8 +380,8 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
   gameTitleStyle?: string;
   gameTitleEnhance?: boolean;
   scoreStyle?: string;
-  /** v2.108.0 (F3) - own-row click opens the game quick popup. */
-  ownRow?: OwnRowOpen;
+  /** v2.109.0 (score-gesture-photos) — opens the game quick popup. */
+  onOpenQuickView?: () => void;
 }) {
   // When 2-column scores are enabled, double the visible scores so both columns fill
   const maxScores = scoreColumns === 2 ? Math.max(maxScoresProp, maxScoresProp * 2) : maxScoresProp;
@@ -655,6 +661,15 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
           </div>
         ) : (
           <div>
+            {/* eslint-disable-next-line react-hooks/refs -- false positive:
+                `togglePlayer` (below) only reads `unmountedRef.current`
+                inside its async fetch `.then`/`.catch`/`.finally` callbacks,
+                never synchronously during render. The compiler's static
+                heuristic can't see that and misattributes a ref-access
+                diagnostic to this whole IIFE once `renderEntry`'s
+                `onRowClick` combines that closure with `onOpenQuickView` (a
+                plain prop) in one conditional — verified via bisection,
+                score-gesture-photos work package (v2.109.0). */}
             {(() => {
               // Build the visible entries list, injecting viewer entry if outside top N
               const lowerViewer = viewerUsername?.toLowerCase();
@@ -680,16 +695,14 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
               const isCompactLayout = headerStyle === 'compact';
 
               const renderEntry = (entry: RankedEntry, isViewerRow: boolean, showSeparator: boolean) => {
-                const openOwn = useTwoColumns ? undefined : ownRowOpener(entry, ownRow);
-                const hasMultiple = !openOwn && scoreCounts[entry.iscored_username.toLowerCase()] > 1;
+                // Two-column mode has never been clickable, and stays that way.
+                const hasMultiple = !useTwoColumns && scoreCounts[entry.iscored_username.toLowerCase()] > 1;
                 const isExpanded = expandedPlayer === entry.iscored_username;
-                // Own-row click opens the quick popup; every other row keeps
-                // the inline expand exactly as before. Two-column mode has
-                // never been clickable, and stays that way.
-                const rowInteractive = !!openOwn || (hasMultiple && !useTwoColumns);
-                const onRowClick = openOwn ?? (hasMultiple && !useTwoColumns
-                  ? () => togglePlayer(entry.iscored_username)
-                  : undefined);
+                const onRowClick = useTwoColumns ? undefined : resolveRowClick(
+                  hasMultiple, isExpanded, () => togglePlayer(entry.iscored_username), onOpenQuickView,
+                );
+                const rowInteractive = !!onRowClick;
+                const showHint = !useTwoColumns && opensQuickView(hasMultiple, isExpanded, !!onOpenQuickView);
                 const rankColor = entry.rank === 1 ? 'text-neon-amber' :
                   entry.rank === 2 ? 'text-neon-cyan' :
                   entry.rank === 3 ? 'text-neon-green' :
@@ -739,7 +752,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
                         } ${isViewerRow ? 'bg-neon-cyan/10 border-l-2 border-l-neon-cyan' : ''
                         } ${rowInteractive ? 'cursor-pointer hover:bg-raised/50 transition-colors' : ''}`}
                         onClick={onRowClick}
-                        title={openOwn ? OWN_ROW_HINT : undefined}
+                        title={showHint ? QUICK_VIEW_HINT : undefined}
                         role={rowInteractive ? 'button' : undefined}
                         tabIndex={rowInteractive ? 0 : undefined}
                         aria-expanded={hasMultiple && !useTwoColumns ? isExpanded : undefined}
@@ -774,13 +787,21 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
                           >
                             {formattedScore}
                           </span>
-                          {openOwn ? (
+                          {hasMultiple && isExpanded ? (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); togglePlayer(entry.iscored_username); }}
+                              className="p-1 -m-1 text-neon-cyan flex-shrink-0 cursor-pointer"
+                              aria-label="Hide score history"
+                              title="Hide score history"
+                            >
+                              <Minus size={12} />
+                            </button>
+                          ) : hasMultiple ? (
+                            <Plus size={12} className="text-faint flex-shrink-0" />
+                          ) : showHint ? (
                             <ChevronRight size={12} className="text-faint flex-shrink-0" aria-hidden />
-                          ) : hasMultiple && !useTwoColumns && (
-                            isExpanded
-                              ? <Minus size={12} className="text-neon-cyan flex-shrink-0" />
-                              : <Plus size={12} className="text-faint flex-shrink-0" />
-                          )}
+                          ) : null}
                         </div>
                       </div>
                     )}
@@ -791,7 +812,11 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
                         ) : playerHistory.length > 0 ? (
                           <div className="space-y-1">
                             {playerHistory.map(h => (
-                              <div key={h.id} className="flex items-center justify-between text-xs">
+                              <div
+                                key={h.id}
+                                className={`flex items-center justify-between text-xs ${onOpenQuickView ? 'cursor-pointer' : ''}`}
+                                onClick={onOpenQuickView}
+                              >
                                 <div className="flex items-center gap-1.5">
                                   <span className="text-muted">{h.score.toLocaleString()}</span>
                                   {h.photo_url && (

@@ -11,8 +11,7 @@ import { arcadeNeonKey } from './arcadeNeon';
 import { useScoreExpand } from './useScoreExpand';
 import { qrBottomMetrics } from '../../lib/scoreboardConfig';
 import { formatScore } from '../../lib/format';
-import type { OwnRowOpen } from '../../lib/scoreDelete';
-import { ownRowOpener, OWN_ROW_HINT } from '../../lib/scoreDelete';
+import { resolveRowClick, opensQuickView, QUICK_VIEW_HINT } from '../../lib/scoreGesture';
 
 /**
  * ArcadeCard — the Global Scoreboard's card language, on room-card behaviour.
@@ -81,8 +80,8 @@ interface ArcadeCardProps {
   onSubmitScore?: (lb: GameLeaderboard) => void;
   titleLinkTo?: string;
   titleLinkOnClick?: (e: React.MouseEvent) => void;
-  /** v2.108.0 (F3) — own-row click opens the game quick popup. */
-  ownRow?: OwnRowOpen;
+  /** v2.109.0 (score-gesture-photos) — opens the game quick popup. */
+  onOpenQuickView?: () => void;
 }
 
 /**
@@ -115,18 +114,19 @@ function tournamentLabel(lb: GameLeaderboard): string | null {
 }
 
 /** A rank-4-and-below row. Podium rows live in `ArcadePodium` (the swap seam). */
-function ArcadeRow({ entry, slug, isViewer, canExpand, isExpanded, onToggle, openOwn }: {
+function ArcadeRow({ entry, slug, isViewer, canExpand, isExpanded, onToggle, onOpenQuickView }: {
   entry: RankedEntry;
   slug: string;
   isViewer: boolean;
   canExpand: boolean;
   isExpanded: boolean;
   onToggle?: () => void;
-  /** v2.108.0 (F3) — set only on the viewer's OWN row; opens the quick popup. */
-  openOwn?: () => void;
+  /** v2.109.0 (score-gesture-photos) — opens the quick popup. */
+  onOpenQuickView?: () => void;
 }) {
   const abbreviated = formatScore(entry.score);
-  const onRowClick = openOwn ?? (canExpand ? onToggle : undefined);
+  const onRowClick = resolveRowClick(canExpand, isExpanded, () => onToggle?.(), onOpenQuickView);
+  const showHint = opensQuickView(canExpand, isExpanded, !!onOpenQuickView);
   return (
     <div
       className={`flex items-center gap-2 rounded-[6px] border px-2 py-[6px] ${onRowClick ? 'cursor-pointer' : ''}`}
@@ -135,7 +135,7 @@ function ArcadeRow({ entry, slug, isViewer, canExpand, isExpanded, onToggle, ope
         borderColor: isViewer ? 'var(--sb-row-you-border)' : 'transparent',
       }}
       onClick={onRowClick}
-      title={openOwn ? OWN_ROW_HINT : undefined}
+      title={showHint ? QUICK_VIEW_HINT : undefined}
     >
       <span className="flex w-[22px] shrink-0 items-center justify-center">
         <span className="font-mono text-[13px] font-bold tabular-nums text-muted">#{entry.rank}</span>
@@ -166,13 +166,21 @@ function ArcadeRow({ entry, slug, isViewer, canExpand, isExpanded, onToggle, ope
       >
         {abbreviated}
       </span>
-      {openOwn ? (
+      {canExpand && isExpanded ? (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onToggle?.(); }}
+          className="shrink-0 p-1 -m-1 text-neon-cyan cursor-pointer"
+          aria-label="Hide score history"
+          title="Hide score history"
+        >
+          <Minus size={12} />
+        </button>
+      ) : canExpand ? (
+        <Plus size={12} className="shrink-0 text-faint" />
+      ) : showHint ? (
         <ChevronRight size={12} className="shrink-0 text-faint" aria-hidden />
-      ) : canExpand && (
-        isExpanded
-          ? <Minus size={12} className="shrink-0 text-neon-cyan" />
-          : <Plus size={12} className="shrink-0 text-faint" />
-      )}
+      ) : null}
     </div>
   );
 }
@@ -196,7 +204,7 @@ export default function ArcadeCard({
   onSubmitScore,
   titleLinkTo,
   titleLinkOnClick,
-  ownRow,
+  onOpenQuickView,
 }: ArcadeCardProps) {
   const { bgImage, styleHeaderUrl } = resolveImages(lb);
   const displayName = lb.displayName || lb.gameName;
@@ -411,12 +419,11 @@ export default function ArcadeCard({
             playerHistory={playerHistory}
             historyLoading={historyLoading}
             onTogglePlayer={togglePlayer}
-            ownRow={ownRow}
+            onOpenQuickView={onOpenQuickView}
           />
           <div className="mt-1.5 space-y-1.5" style={{ minHeight: tailMinHeight }}>
             {belowPodium.map(entry => {
-              const openOwn = ownRowOpener(entry, ownRow);
-              const canExpand = !openOwn && hasMultiple(entry.iscored_username);
+              const canExpand = hasMultiple(entry.iscored_username);
               const isExpanded = expandedPlayer === entry.iscored_username;
               return (
                 <div key={`${entry.rank}-${entry.iscored_username}`}>
@@ -427,7 +434,7 @@ export default function ArcadeCard({
                     canExpand={canExpand}
                     isExpanded={isExpanded}
                     onToggle={() => togglePlayer(entry.iscored_username)}
-                    openOwn={openOwn}
+                    onOpenQuickView={onOpenQuickView}
                   />
                   {isExpanded && (
                     <div className="mx-2 mt-0.5 mb-1 rounded bg-deep/50 px-2 py-1">
@@ -436,7 +443,11 @@ export default function ArcadeCard({
                       ) : playerHistory.length > 0 ? (
                         <div className="space-y-0.5">
                           {playerHistory.map(h => (
-                            <div key={h.id} className="flex items-center justify-between text-[11px]">
+                            <div
+                              key={h.id}
+                              className={`flex items-center justify-between text-[11px] ${onOpenQuickView ? 'cursor-pointer' : ''}`}
+                              onClick={onOpenQuickView}
+                            >
                               <span className="text-muted">{h.score.toLocaleString()}</span>
                               <span className="text-faint">{new Date(h.created_at).toLocaleDateString()}</span>
                             </div>
