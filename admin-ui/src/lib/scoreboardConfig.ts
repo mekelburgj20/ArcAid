@@ -1,6 +1,6 @@
 import type { GlobalCardStyles } from '../components/ScoreboardComponents';
 import { cardWidthMap } from '../components/ScoreboardComponents';
-import type { ScoreboardStyle } from './scoreboardThemes';
+import type { PodiumVariant, ScoreboardStyle } from './scoreboardThemes';
 import { STYLE_WIDTHS, DEFAULT_SHOWCASE_THEME } from './scoreboardThemes';
 
 // ═══════════════════════════════════════════
@@ -11,6 +11,13 @@ export interface ScoreboardConfig {
   // Card style + theme
   style: ScoreboardStyle;
   theme: string;                // only used when style === 'showcase'
+  /**
+   * Showcase podium look. `holo-steps` (the owner's 2026-08-13 redesign) is
+   * the default — it REPLACES what showcase rooms see unless the room has
+   * explicitly pinned the old `pyramid`/`chip` via SCOREBOARD_PODIUM_VARIANT.
+   * Only used when style === 'showcase'.
+   */
+  podiumVariant: PodiumVariant;
   maxScores: number;
   minScores: number;
   showTimer: boolean;
@@ -93,14 +100,22 @@ export function deriveScoreboardConfig(config: Record<string, string>, roomName?
     }
   }
 
-  // Validate style
-  if (!['banner', 'showcase', 'minimal'].includes(style)) {
+  // Validate style. `arcade` (style-system revamp Phase 1) joins the
+  // whitelist; the fallback stays 'banner' deliberately — a room that somehow
+  // stored an unknown value is a data fault, and silently promoting it to the
+  // new flagship would hide that behind a redesign. The AUTO-CONVERT of legacy
+  // rooms is a migration (144), not a read-time coercion, so the conversion is
+  // recorded once rather than re-derived on every page load.
+  if (!['arcade', 'banner', 'showcase', 'minimal'].includes(style)) {
     style = 'banner';
   }
 
   return {
     style,
     theme,
+    podiumVariant: (['pyramid', 'chip', 'holo-steps'].includes(config.SCOREBOARD_PODIUM_VARIANT || '')
+      ? config.SCOREBOARD_PODIUM_VARIANT
+      : 'holo-steps') as PodiumVariant,
     maxScores: parseInt(config.SCOREBOARD_MAX_SCORES || '5', 10) || 5,
     minScores: parseInt(config.SCOREBOARD_MIN_SCORES || '20', 10) || 20,
     showTimer: config.SCOREBOARD_SHOW_TIMER !== 'false',

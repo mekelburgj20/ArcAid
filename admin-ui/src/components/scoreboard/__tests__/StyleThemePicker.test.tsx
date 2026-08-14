@@ -25,6 +25,7 @@ describe('StyleThemePicker', () => {
 
     expect(screen.getByText(/legacy card system/i)).toBeInTheDocument();
 
+    const arcadeTile = screen.getByText('Arcade').closest('button')!;
     const bannerTile = screen.getByText('Banner').closest('button')!;
     const showcaseTile = screen.getByText('Showcase').closest('button')!;
     const minimalTile = screen.getByText('Minimal').closest('button')!;
@@ -32,6 +33,7 @@ describe('StyleThemePicker', () => {
     // the selected tile) — the base class list also carries a hover-only
     // 'hover:border-neon-cyan/30' on every tile, so match the fill, not the
     // border color alone.
+    expect(arcadeTile.className).not.toMatch(/bg-neon-cyan\/10/);
     expect(bannerTile.className).not.toMatch(/bg-neon-cyan\/10/);
     expect(showcaseTile.className).not.toMatch(/bg-neon-cyan\/10/);
     expect(minimalTile.className).not.toMatch(/bg-neon-cyan\/10/);
@@ -49,6 +51,35 @@ describe('StyleThemePicker', () => {
     const onChange = renderPicker({});
     fireEvent.click(screen.getByText('Showcase').closest('button')!);
     expect(onChange).toHaveBeenCalledWith('SCOREBOARD_STYLE', 'showcase');
+  });
+
+  // ── Style-system revamp Phase 1: the Arcade family ──
+
+  it('offers Arcade FIRST — it is the flagship and the seeded default', () => {
+    renderPicker({});
+    // The Advanced toggle button also carries a .font-display span — exclude
+    // it; this test pins style-tile order only.
+    const labels = Array.from(document.querySelectorAll('button .font-display'))
+      .map(el => el.textContent)
+      .filter(t => t !== 'Advanced');
+    expect(labels).toEqual(['Arcade', 'Banner', 'Showcase', 'Minimal']);
+  });
+
+  it('marks the Arcade tile active for an arcade room', () => {
+    renderPicker({ SCOREBOARD_STYLE: 'arcade' });
+
+    expect(screen.queryByText(/legacy card system/i)).not.toBeInTheDocument();
+    expect(screen.getByText('Arcade').closest('button')!.className).toMatch(/bg-neon-cyan\/10/);
+    expect(screen.getByText('Banner').closest('button')!.className).not.toMatch(/bg-neon-cyan\/10/);
+  });
+
+  it('picking Arcade fires onChange with the arcade style and no showcase theme', () => {
+    const onChange = renderPicker({});
+    fireEvent.click(screen.getByText('Arcade').closest('button')!);
+    expect(onChange).toHaveBeenCalledWith('SCOREBOARD_STYLE', 'arcade');
+    // Arcade has no theme variants of its own — the showcase-theme default
+    // must not tag along and quietly restyle a later switch to Showcase.
+    expect(onChange).not.toHaveBeenCalledWith('SCOREBOARD_THEME', expect.anything());
   });
 
   it('hides the rankings-position control and shows a note when rankings style is ticker', () => {

@@ -1,6 +1,14 @@
 import type { ComponentType } from 'react';
 
-export type PodiumVariant = 'pyramid' | 'chip';
+/**
+ * `holo-steps` (v2.106.0, owner design handoff 2026-08-13) is the flagship
+ * Showcase podium: translucent metal-tinted glass risers in a literal 2·1·3
+ * stepped arrangement. It is the DEFAULT for every showcase room — the
+ * per-room `SCOREBOARD_PODIUM_VARIANT` setting can pin `pyramid` or `chip`
+ * back (see `deriveScoreboardConfig`), so the old looks stay selectable
+ * rather than deleted.
+ */
+export type PodiumVariant = 'pyramid' | 'chip' | 'holo-steps';
 
 export interface ShowcaseThemeConfig {
   id: string;
@@ -203,15 +211,26 @@ export const SHOWCASE_THEMES: Record<string, ShowcaseThemeConfig> = {
 
 export const DEFAULT_SHOWCASE_THEME = 'glass-deck';
 
-export type ScoreboardStyle = 'banner' | 'showcase' | 'minimal';
+/**
+ * `arcade` is the flagship (style-system revamp Phase 1) — the Global
+ * Scoreboard's card language on room-card behaviour, and the seeded default
+ * for every new room. It leads the union and every ordered list derived from
+ * it; the other three are the pre-existing looks.
+ */
+export type ScoreboardStyle = 'arcade' | 'banner' | 'showcase' | 'minimal';
 
 export const STYLE_WIDTHS: Record<ScoreboardStyle, number> = {
+  // Arcade shares Showcase/Minimal's 380px: it is an art-forward card whose
+  // 176px art block and 16px score rows need the width Banner's 280 doesn't
+  // have.
+  arcade: 380,
   banner: 280,
   showcase: 380,
   minimal: 380,
 };
 
 export const STYLE_LABELS: Record<ScoreboardStyle, { label: string; description: string }> = {
+  arcade: { label: 'Arcade', description: 'Neon-framed art cards with an always-on podium' },
   banner: { label: 'Banner', description: 'iScored-compatible cards with background images' },
   showcase: { label: 'Showcase', description: 'Premium art-forward cards with podium' },
   minimal: { label: 'Minimal', description: 'Clean typography, no images' },

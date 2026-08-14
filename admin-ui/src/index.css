@@ -132,6 +132,24 @@
   --sb-neon-video: #00ff88;
   --sb-neon-unspecified: #97a2b5;
   --sb-neon-none: #97a2b5;
+  /* ── Arcade card neon, per TOURNAMENT (style revamp Phase 1) ──
+     The Global card wears its fidelity band's neon; a ROOM card has no
+     fidelity band, and its equivalent "which board is this" question is
+     already a colour system — the daily/weekly/monthly identity carried by
+     TOURNAMENT_BADGE_COLORS (and mirrored by the Discord embed colours). So
+     Arcade keys its frame off tournament kind and reuses those exact hues
+     rather than inventing a fifth palette for the same fact. Selection is
+     `[data-neon]` in the `.arc-card` block near the bottom of this file.
+
+     `none` is the slate the Global card uses for the same situation — a
+     catalogue/community card with no tournament has no board identity to
+     borrow, and a lit frame would claim one. */
+  --sb-arcade-neon-dg: #ec4899;
+  --sb-arcade-neon-wg: #3b82f6;
+  --sb-arcade-neon-wg-vr: #a855f7;
+  --sb-arcade-neon-mg: #fb923c;
+  --sb-arcade-neon-pinned: #22d3ee;
+  --sb-arcade-neon-none: #97a2b5;
   /* How much of the neon the resting frame carries, and the bloom around it.
      Both are dialled back in light polarity below — a 72%-saturated frame
      plus a 26% bloom on a pale page reads as a rendering artefact rather
@@ -332,6 +350,12 @@
   --sb-art-scrim-top: linear-gradient(180deg, rgba(4, 6, 12, 0.92) 0%, rgba(4, 6, 12, 0.80) 30%, rgba(4, 6, 12, 0.52) 58%, rgba(4, 6, 12, 0.20) 82%, transparent 100%);
   --sb-art-title: oklch(100% 0 0);
   --sb-art-title-shadow: 0 1px 2px rgba(0, 0, 0, 0.95), 0 2px 12px rgba(0, 0, 0, 0.8);
+  --sb-arcade-neon-dg: #ec4899;
+  --sb-arcade-neon-mg: #fb923c;
+  --sb-arcade-neon-none: #97a2b5;
+  --sb-arcade-neon-pinned: #22d3ee;
+  --sb-arcade-neon-wg: #3b82f6;
+  --sb-arcade-neon-wg-vr: #a855f7;
   --sb-card-footer-bg: rgba(0, 0, 0, 0.26);
   --sb-card-footer-border: rgba(255, 255, 255, 0.10);
   --sb-card-shadow: 0 1px 3px rgba(0, 0, 0, 0.28);
@@ -617,6 +641,19 @@
   --sb-neon-video: #08794a;
   --sb-neon-unspecified: #5b6675;
   --sb-neon-none: #5b6675;
+  /* Arcade's per-tournament neon, re-lit for a pale surface by the same rule
+     as the fidelity neons above: same hue taken deeper, each clearing 4.5:1
+     on white so the chip LABEL (which reads the frame's colour, so that frame
+     and chip stay one system) is legible rather than a pastel smear.
+       daily   #be185d  6.03:1     weekly  #1d4ed8  6.98:1
+       vr      #7e22ce  7.32:1     monthly #9a3412  6.42:1
+       pinned  #0e7490  4.83:1 */
+  --sb-arcade-neon-dg: #be185d;
+  --sb-arcade-neon-wg: #1d4ed8;
+  --sb-arcade-neon-wg-vr: #7e22ce;
+  --sb-arcade-neon-mg: #9a3412;
+  --sb-arcade-neon-pinned: #0e7490;
+  --sb-arcade-neon-none: #5b6675;
   /* Near-full strength, unlike dark's 72%: these hues are ALREADY the deep
      variants, so mixing them toward a white page only turns them pastel — and
      a pastel frame was the one thing the light screenshots showed failing the
@@ -1320,6 +1357,98 @@ select option {
 }
 
 /*
+ * ═══ The Arcade room card's frame — style-system revamp Phase 1 ═══
+ *
+ * The room-side sibling of `.gg-card` above. Same idea, room semantics: the
+ * frame is a lit tube in the colour of the TOURNAMENT this card belongs to
+ * (`--sb-arcade-neon-*`), not of a fidelity band, because that is the question
+ * a room card answers.
+ *
+ * ─── Why it aliases --gg-neon ───
+ *
+ * `--sb-neon-glow`, `--sb-neon-glow-hover` and `--sb-neon-ghost` are written in
+ * terms of `--gg-neon`, and every one of them already has a light-polarity
+ * override tuned against a pale surface. Setting `--gg-neon: var(--arc-neon)`
+ * on this card makes all three resolve to the Arcade hue at the point of use —
+ * so the bloom, the hover lift and the fringe split are shared with the Global
+ * card rather than reimplemented (and re-tuned, and drifted) here. `--arc-neon`
+ * stays the name the TSX reads, so the card's own colour has one spelling.
+ *
+ * ─── The hybrid theme model ───
+ *
+ * Only the frame, its bloom and the podium tints are fixed signature. The
+ * card's surface, text and borders are ordinary `--color-*` theme tokens, so a
+ * cyberpunk or ocean room still reads as that room. Arcade is the DEFAULT for
+ * every room, and a default that ignored the admin's theme choice would read as
+ * broken rather than as cohesive.
+ *
+ * ─── Why no glitch rings ───
+ *
+ * `.gg-card` flickers. This one does not. A room scoreboard is frequently a
+ * kiosk TV left running for hours on a wall of a dozen-plus cards, and the
+ * glitch is Global's signature for a page a player actively browses. The lit
+ * frame carries the family resemblance; the animation does not travel with it.
+ */
+.arc-card {
+  --arc-neon: var(--sb-arcade-neon-none);
+  --gg-neon: var(--arc-neon);
+  border: 2px solid color-mix(in oklab, var(--arc-neon) var(--sb-neon-border-mix), transparent);
+  box-shadow: var(--sb-neon-glow), var(--sb-card-shadow-strong);
+  transition: box-shadow 150ms ease, border-color 150ms ease;
+}
+
+@media (min-width: 640px) {
+  /* Sub-`sm` keeps the stronger elevation: at one column there is no
+     neighbouring card to imply an edge (`.gg-card`'s reasoning, unchanged). */
+  .arc-card { box-shadow: var(--sb-neon-glow), var(--sb-card-shadow); }
+}
+
+.arc-card[data-neon="dg"]     { --arc-neon: var(--sb-arcade-neon-dg); }
+.arc-card[data-neon="wg"]     { --arc-neon: var(--sb-arcade-neon-wg); }
+.arc-card[data-neon="wg-vr"]  { --arc-neon: var(--sb-arcade-neon-wg-vr); }
+.arc-card[data-neon="mg"]     { --arc-neon: var(--sb-arcade-neon-mg); }
+.arc-card[data-neon="pinned"] { --arc-neon: var(--sb-arcade-neon-pinned); }
+
+.arc-card:hover {
+  border-color: var(--arc-neon);
+  box-shadow: var(--sb-neon-glow-hover), var(--sb-card-shadow);
+}
+
+/* Empty podium place. The hover wash reads `--arc-neon` off the card, which is
+   why it lives here rather than as an arbitrary Tailwind value. */
+.arc-claim-row:hover {
+  background: color-mix(in oklab, var(--arc-neon) 12%, transparent);
+}
+
+/*
+ * ═══ Holo Steps podium (Showcase card, owner design handoff 2026-08-13) ═══
+ *
+ * Translucent metal-tinted glass risers. Two animations, both spec'd in the
+ * handoff README (tmp/design_handoff_podium_restyle):
+ *
+ *   pr-breathe — each occupied riser slowly glows bright then dim in its own
+ *   metal color. Duration/delay are set INLINE per rank (3.6s + rank·0.6s,
+ *   delay rank·0.4s) so the three risers never pulse in unison; the glow
+ *   colors arrive as --pr-glow / --pr-glow-hi custom properties, also inline,
+ *   derived from the metal tokens.
+ *
+ *   pr-scan — scanline shimmer, GOLD RISER ONLY (owner explicitly rejected it
+ *   on silver and bronze).
+ */
+@keyframes pr-breathe {
+  0%, 100% { filter: brightness(1); box-shadow: 0 -1px 14px var(--pr-glow); }
+  50% { filter: brightness(1.45); box-shadow: 0 -2px 30px var(--pr-glow-hi); }
+}
+@keyframes pr-scan {
+  0% { background-position: 0 -120%; }
+  100% { background-position: 0 220%; }
+}
+/* The reduced-motion off-switch for .hs-riser/.hs-scan lives in the sheet's
+   single shared `@media (prefers-reduced-motion: reduce)` block further down
+   (GlobalScoreboardA5.test.tsx anchors on the first such block — do not open
+   a second one). */
+
+/*
  * ═══ The champion marquee — GlobalHeroCard's gold frame + attract sweep ═══
  * (v2.71.0 shipped this as chase bulbs; v2.72.0 replaced them)
  *
@@ -1496,6 +1625,13 @@ select option {
   .gg-hero__sweep {
     animation: none;
     background: color-mix(in oklab, var(--sb-hero-sweep) 34%, transparent);
+  }
+  /* Holo Steps podium: breathing risers + gold scanline stop. The animation is
+     applied INLINE (per-rank duration/delay), so the off-switch needs
+     !important to beat the style attribute. */
+  .hs-riser,
+  .hs-scan {
+    animation: none !important;
   }
 }
 

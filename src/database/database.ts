@@ -2330,6 +2330,18 @@ async function doInitDatabase(): Promise<Database> {
             );
             CREATE INDEX IF NOT EXISTS idx_rotation_nudges_tournament ON rotation_nudges(tournament_id);
         ` },
+        // --- style-system revamp P1: legacy rooms adopt the Arcade card ---
+        // A room with no SCOREBOARD_STYLE row has been rendering the LEGACY
+        // GameCard path (`useNewCards = !!config.SCOREBOARD_STYLE`) — a look
+        // nobody picked. P0 seeded a style for new rooms; this converts the
+        // ones that predate it. Rooms with any stored style keep it. Handler
+        // rather than `sql:` because the loop swallows sql failures and a
+        // half-applied conversion would strand an arbitrary subset of rooms on
+        // the legacy path silently.
+        { name: '144_seed_arcade_style_for_legacy_rooms', handler: async (db) => {
+            const { seedArcadeStyleForLegacyRooms } = await import('./migrations/seedArcadeStyle.js');
+            await seedArcadeStyleForLegacyRooms(db);
+        } },
     ];
 
     for (const migration of migrations) {

@@ -31,6 +31,11 @@ interface PrefDef {
 }
 
 const STYLE_OPTIONS: { value: ScoreboardStyle; label: string; description: string }[] = [
+  // Style-system revamp Phase 1: Arcade leads here for the same reason it leads
+  // the admin picker — it is the flagship and the seeded default. This list is
+  // a SECOND hardcoded copy of the style set (the admin-side one lives in
+  // StyleThemePicker); a style missing here is silently unavailable to viewers.
+  { value: 'arcade', label: 'Arcade', description: 'Neon art cards with a podium' },
   { value: 'banner', label: 'Banner', description: 'Background images' },
   { value: 'showcase', label: 'Showcase', description: 'Art-forward with podium' },
   { value: 'minimal', label: 'Minimal', description: 'Typography only' },
@@ -377,7 +382,7 @@ export default function ScoreboardPreferencesModal({
                 <span className="text-sm font-medium text-primary">Card Style</span>
                 <ResetBtn k="SCOREBOARD_STYLE" />
               </div>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 {STYLE_OPTIONS.map(s => {
                   const isActive = currentStyle === s.value;
                   return (

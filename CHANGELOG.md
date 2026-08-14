@@ -6,6 +6,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.106.0] — unreleased
+
+**Style-system revamp Phase 1: the Arcade card family (Global Scoreboard look on room cards, now the platform default) + the owner's "Holo Steps" podium redesign for Showcase cards.**
+
+### Added
+- **Arcade card style** (`ArcadeCard.tsx` + `ArcadePodium.tsx`): the Global Scoreboard's card language — per-tournament neon frame (DG pink / WG blue / VR / MG / pinned), art block with title + tournament chip + countdown, always-three-places podium with gold/silver/bronze tinted rows, contained footer ("Full Leaderboard →" + player count) — carrying full room-card behavior: verified badges, inline score-history expand, viewer-row injection, QR block, admin style-image resolution, linked usernames. Empty podium places render "Claim this spot →" wired to the submit flow. `ArcadePodium` is a deliberate swap seam: all rank-1-3 rendering in one file behind a clean props contract.
+- **Hybrid theme model**: Arcade's base surfaces/text follow the room's chosen theme (all 17), while the signature neon accents and podium metals stay fixed — cohesive with the Global Scoreboard without ignoring the room's theme choice.
+- **Holo Steps podium** (`holo-steps`, owner design handoff 2026-08-13): translucent metal-tinted glass risers in a literal 2·1·3 stepped arrangement with staggered breathing glow per metal, scanline shimmer on gold only, dark-shadowed names/scores for busy-backglass legibility, and quiet glass runners-up rows. **Now the default podium for every Showcase room** — Pyramid/Chip stay selectable via the new "Podium" control (`SCOREBOARD_PODIUM_VARIANT`). Full reduced-motion support.
+- Migration 144: rooms with no stored card style (silently rendering the legacy GameCard path) auto-convert to Arcade. Rooms that explicitly picked Banner/Showcase/Minimal keep their choice. New rooms now seed `arcade`.
+
+### Fixed
+- **`FitRowName` scale-to-fit actually fits now.** The v2.104.0 version applied the scale transform to the same element that owned `overflow: hidden` — an element's own overflow clips in pre-transform coordinates, so long names rendered *clipped and shrunk* instead of scaled-to-fit. The transform now lives on an inner child (ancestor clip applies to the transformed rendering), and a `document.fonts.ready` re-measure closes the font-swap race that could leave a stale scale. Benefits every call site (Banner, Minimal, ScoreList, Arcade).
+- Arcade tournament chip clears the page-level submit "+" overlay instead of rendering half-under it.
+
+Tests: backend 1691 (+5: migration coverage), admin-ui 735 (+50: Arcade card/podium, holo-steps, config derivation, picker order). WYSIWYG parity table extended to arcade.
+
 ## [2.105.0] — unreleased
 
 **Style-system revamp Phase 0: honesty fixes — the admin style editor and viewer prefs now tell the truth about what each control does.**

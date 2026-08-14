@@ -287,6 +287,7 @@ export default function ScoreboardSurface({
       <CardRouter
         lb={lb} slug={slug} roomId={roomId}
         style={newConfig.style} theme={newConfig.theme}
+        podiumVariant={newConfig.podiumVariant}
         maxScores={newConfig.maxScores} minScores={newConfig.minScores}
         showTimer={newConfig.showTimer}
         cardBgFill={newConfig.cardBgFill}

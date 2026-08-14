@@ -165,6 +165,9 @@ async function readCard(page: 'public' | 'admin', config: Record<string, string>
 
 const STYLES: Array<[label: string, config: Record<string, string>]> = [
   ['no style (legacy GameCard)', {}],
+  // Style-system revamp Phase 1 — Arcade is the seeded default, so it is the
+  // config the overwhelming majority of rooms actually render under.
+  ['arcade', { SCOREBOARD_STYLE: 'arcade' }],
   ['banner', { SCOREBOARD_STYLE: 'banner' }],
   ['showcase', { SCOREBOARD_STYLE: 'showcase', SCOREBOARD_THEME: 'neon-circuit' }],
   ['minimal', { SCOREBOARD_STYLE: 'minimal' }],

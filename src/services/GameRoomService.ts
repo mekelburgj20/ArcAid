@@ -88,12 +88,16 @@ export class GameRoomService {
             // default card style so the room renders the modern card path
             // immediately instead of silently falling back to the legacy
             // GameCard path while StyleThemePicker falsely shows Banner as
-            // active. 'banner' is an INTERIM value — P1 flips the seeded
-            // default to the new Arcade style once it ships. Existing rooms
-            // are untouched here; auto-converting them is P1's migration.
+            // active.
+            //
+            // P1 (2026-08-13) flips that seed from the interim 'banner' to
+            // 'arcade' — the flagship look, and now the default every new room
+            // opens on. Rooms created before P1 keep whatever they stored;
+            // rooms that never stored anything are converted once by migration
+            // 144, not re-derived at read time.
             await db.run(
                 `INSERT INTO game_room_settings (game_room_id, key, value) VALUES (?, ?, ?)`,
-                id, 'SCOREBOARD_STYLE', 'banner',
+                id, 'SCOREBOARD_STYLE', 'arcade',
             );
 
             // Standalone-room Phase 1 (v2.32.0): a pure-web room has no Discord

@@ -62,9 +62,9 @@ describe('POST /api/rooms (public self-serve room creation)', () => {
         expect(map.ISCORED_ENABLED).toBe('false');
         // Style-system revamp P0 (honesty fix): every new room seeds a real
         // SCOREBOARD_STYLE so it renders the modern card path instead of
-        // silently falling back to the legacy GameCard path. 'banner' is the
-        // interim default until Phase 1 flips it to the new Arcade style.
-        expect(map.SCOREBOARD_STYLE).toBe('banner');
+        // silently falling back to the legacy GameCard path. P1 flipped that
+        // seed from the interim 'banner' to the flagship 'arcade'.
+        expect(map.SCOREBOARD_STYLE).toBe('arcade');
     });
 
     it('seeds ISCORED_ENABLED=false for the non-standalone (super-admin) create path too (v2.81.0)', async () => {
@@ -86,7 +86,7 @@ describe('POST /api/rooms (public self-serve room creation)', () => {
         const map = Object.fromEntries(settings.map((s: any) => [s.key, s.value]));
         expect(map.ISCORED_ENABLED).toBe('false');
         expect(map.DISCORD_ENABLED).toBeUndefined();
-        expect(map.SCOREBOARD_STYLE).toBe('banner');
+        expect(map.SCOREBOARD_STYLE).toBe('arcade');
     });
 
     it('rejects a reserved slug', async () => {

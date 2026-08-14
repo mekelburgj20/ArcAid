@@ -102,6 +102,7 @@ export default function ScoreCardGrid({
                   roomId={roomId}
                   style={newConfig.style}
                   theme={newConfig.theme}
+                  podiumVariant={newConfig.podiumVariant}
                   maxScores={newConfig.maxScores}
                   minScores={newConfig.minScores}
                   showTimer={false}
