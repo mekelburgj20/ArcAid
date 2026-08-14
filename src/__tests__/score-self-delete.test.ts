@@ -73,14 +73,16 @@ describe('B1 — community-source cascade', () => {
         expect(await db.all('SELECT id FROM community_scores WHERE game_room_id = ?', roomId)).toHaveLength(0);
     });
 
-    it('writes NO iScored suppression tombstone for a community row', async () => {
+    it('writes the iScored suppression tombstone for a community row too (web scores are pushed to iScored)', async () => {
+        // Review correction (2026-08-14): the contract originally said no
+        // tombstone for community rows — wrong, because IScoredSubmitSync
+        // pushes every web submission to iScored, so on a mirrored board the
+        // poller would re-import a deleted community score just the same.
         const roomId = await createTestRoom('b1-tombstone');
         await CommunityScoreService.submitScore(roomId, 'Taxi', 'Ben', 900, 'disc-ben');
 
         const db = await getDatabase();
         const row = await communityHistoryRow(roomId, 'Taxi', 'Ben');
-        // Give the row a game_id so the tombstone branch is even reachable —
-        // the gate that must hold is `source IN ('sync','tournament')`.
         const tId = await createTestTournament(roomId);
         const gameId = await createTestGame(tId, { name: 'Taxi' });
         await db.run('UPDATE score_history SET game_id = ? WHERE id = ?', gameId, row.id);
@@ -89,7 +91,76 @@ describe('B1 — community-source cascade', () => {
             await ScoreHistoryService.getDeletableRow(row.id) as any, 'disc-ben',
         );
 
-        expect(await db.all('SELECT * FROM deleted_score_suppressions')).toHaveLength(0);
+        const stones = await db.all<Array<{ game_id: string; suppressed_score: number }>>(
+            'SELECT game_id, suppressed_score FROM deleted_score_suppressions',
+        );
+        expect(stones).toHaveLength(1);
+        expect(stones[0]).toMatchObject({ game_id: gameId, suppressed_score: 900 });
+    });
+
+    it('web-shape row (game_id NULL): resolves the ACTIVE game by name for tombstone + recompute', async () => {
+        // Prod evidence 2026-08-14: EVERY modern web submission stores
+        // game_id NULL (transient-pointer doctrine) — cleanup gated on the
+        // row's own game_id silently skips the common case. The delete must
+        // resolve the game row by (room, name) ACTIVE-first instead.
+        const roomId = await createTestRoom('b1-webshape');
+        const tId = await createTestTournament(roomId);
+        const gameId = await createTestGame(tId, { name: 'Strike' });
+
+        await CommunityScoreService.submitScore(roomId, 'Strike', 'Eve', 10_328_500, 'disc-eve');
+        const db = await getDatabase();
+        const row = await communityHistoryRow(roomId, 'Strike', 'Eve');
+        expect(row.game_id).toBeNull();
+
+        await ScoreHistoryService.deleteEvent(
+            await ScoreHistoryService.getDeletableRow(row.id) as any, 'disc-eve',
+        );
+
+        const stones = await db.all<Array<{ game_id: string }>>(
+            'SELECT game_id FROM deleted_score_suppressions',
+        );
+        expect(stones).toHaveLength(1);
+        expect(stones[0]!.game_id).toBe(gameId);
+    });
+
+    it('recompute keeps the best REMAINING community score in submissions', async () => {
+        // Review correction: submissions is written by every submit path
+        // (community included — that is the poller's re-import guard), so the
+        // recompute must consider all sources. A tournament/sync-only filter
+        // would wipe the player's submissions row while their remaining
+        // community score still shows on the board — and winner resolution
+        // reads submissions.
+        const roomId = await createTestRoom('b1-remaining');
+        const tId = await createTestTournament(roomId);
+        const gameId = await createTestGame(tId, { name: 'Congo' });
+
+        await CommunityScoreService.submitScore(roomId, 'Congo', 'Flo', 8_000, 'disc-flo');
+        await CommunityScoreService.submitScore(roomId, 'Congo', 'Flo', 10_000, 'disc-flo');
+
+        const db = await getDatabase();
+        // The submissions upsert is ROUTE-level (rooms.ts submit handlers),
+        // not part of CommunityScoreService — mirror it here the way prod
+        // rows actually look (verified 2026-08-14: Strike's submissions rows
+        // coexist with community-source history rows).
+        await db.run(
+            `INSERT OR REPLACE INTO submissions (id, game_id, discord_user_id, iscored_username, score, timestamp)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            `${gameId}-flo`, gameId, 'disc-flo', 'Flo', 10_000, new Date().toISOString(),
+        );
+
+        const best = await db.get(
+            `SELECT * FROM score_history
+             WHERE game_room_id = ? AND LOWER(iscored_username) = 'flo' AND score = 10000`,
+            roomId,
+        );
+        await ScoreHistoryService.deleteEvent(
+            await ScoreHistoryService.getDeletableRow(best.id) as any, 'disc-flo',
+        );
+
+        const submission = await db.get(
+            'SELECT score FROM submissions WHERE id = ?', `${gameId}-flo`,
+        );
+        expect(submission?.score).toBe(8_000);
     });
 
     it('leaves BOTH community_scores rows alone when the match is ambiguous', async () => {
@@ -120,7 +191,7 @@ describe('B1 — community-source cascade', () => {
         expect(await db.all('SELECT id FROM community_scores WHERE game_room_id = ?', roomId)).toHaveLength(2);
     });
 
-    it('leaves the submissions recompute alone — a community delete never drops a tournament best', async () => {
+    it('keeps a tournament best in submissions when a lower community score is deleted', async () => {
         const roomId = await createTestRoom('b1-recompute');
         const tId = await createTestTournament(roomId);
         const gameId = await createTestGame(tId, { name: 'Congo' });

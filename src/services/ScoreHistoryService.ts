@@ -173,11 +173,45 @@ export class ScoreHistoryService {
         // still not wired.
         await this.softDeleteFannedOutGlobalScore(row, actorId);
 
-        // Tombstone for the sync poller (see deleted_score_suppressions doc).
-        // We suppress at MAX(existing, deleted_score) so a player who deletes
+        // ── Resolve the game ROW this score belongs to ──
+        //
+        // `row.game_id` is a TRANSIENT pointer (v2.75.1 doctrine): web
+        // submissions write it as NULL from the start, and rotation NULLs it
+        // on synced rows later. Prod evidence (2026-08-14, the Strike scores
+        // that prompted this feature): every modern web row has game_id NULL —
+        // so any cleanup gated on `row.game_id` alone silently skips the
+        // common case. Resolve by (room, name) ACTIVE-first instead — the
+        // same ORDER BY contract the submit handlers adopted in v2.100.3 —
+        // because the poller's dedup and winner resolution both operate
+        // against the ACTIVE run's game row.
+        // `games.game_room_id` is an ALTER-added denormalized column — NULL on
+        // rows that predate it — so room scoping goes through
+        // COALESCE(g.game_room_id, t.game_room_id), the same LEFT JOIN idiom
+        // the admin wipe path uses for its ownedByRoom check.
+        const gameRow = row.game_id
+            ? { id: row.game_id }
+            : await db.get<{ id: string }>(
+                `SELECT g.id FROM games g
+                 LEFT JOIN tournaments t ON t.id = g.tournament_id
+                 WHERE COALESCE(g.game_room_id, t.game_room_id) = ?
+                   AND LOWER(g.name) = LOWER(?)
+                 ORDER BY CASE g.status WHEN 'ACTIVE' THEN 0 ELSE 1 END, g.created_at DESC
+                 LIMIT 1`,
+                row.game_room_id, row.game_name,
+            );
+        const resolvedGameId = gameRow?.id ?? null;
+
+        // Tombstone for the sync poller (see deleted_score_suppressions doc),
+        // suppressing at MAX(existing, deleted_score) so a player who deletes
         // their 5000, then their 4000, doesn't accidentally lower the
         // threshold and let iScored re-import the 5000 on the next poll.
-        if (row.game_id && (row.source === 'sync' || row.source === 'tournament')) {
+        //
+        // Written for EVERY source, not just sync/tournament: web submissions
+        // (source='community' since the login-mandate era) are pushed to
+        // iScored too (IScoredSubmitSync), so on a mirrored board the poller
+        // would re-import a deleted community score just the same. On rooms
+        // with iScored off the tombstone is inert — cheap insurance either way.
+        if (resolvedGameId) {
             await db.run(
                 `INSERT INTO deleted_score_suppressions
                     (game_id, iscored_username_lower, suppressed_score, deleted_at, deleted_by_user_id)
@@ -186,27 +220,33 @@ export class ScoreHistoryService {
                     suppressed_score = MAX(suppressed_score, excluded.suppressed_score),
                     deleted_at = datetime('now'),
                     deleted_by_user_id = excluded.deleted_by_user_id`,
-                row.game_id, row.iscored_username, row.score, actorId,
+                resolvedGameId, row.iscored_username, row.score, actorId,
             );
         }
 
-        // Recompute the submissions row for this (game, player). Submissions is
-        // best-per-player-per-game; sync+tournament sources both feed it. We
-        // grab score+created_at from the same row (highest score, earliest
-        // timestamp on tie) so the submissions timestamp continues to reflect
-        // when the *displayed* score was set, not just the latest activity.
-        if (row.game_id) {
-            const submissionId = `${row.game_id}-${row.iscored_username.toLowerCase()}`;
+        // Recompute the submissions row for this (game, player). Submissions
+        // is best-per-player-per-game and EVERY submit path writes it —
+        // including the community-source web paths (that's how the poller
+        // knows not to re-import a score the site pushed to iScored). So the
+        // recompute must consider ALL sources: filtering to tournament/sync
+        // here would wipe a player's submissions row while their remaining
+        // community scores still show on the board — and winner resolution
+        // reads submissions. Remaining rows are matched by (room, name), the
+        // v2.75.1 name+attribution doctrine, NOT by game_id (NULL on web
+        // rows; and both the room board and the mirrored iScored board are
+        // name-scoped across reruns).
+        if (resolvedGameId) {
+            const submissionId = `${resolvedGameId}-${row.iscored_username.toLowerCase()}`;
             const remaining = await db.get(
                 `SELECT score, created_at
                  FROM score_history
-                 WHERE game_id = ?
+                 WHERE game_room_id = ?
+                   AND LOWER(game_name) = LOWER(?)
                    AND LOWER(iscored_username) = LOWER(?)
                    AND orphaned_at IS NULL
-                   AND source IN ('tournament','sync')
                  ORDER BY score DESC, created_at ASC
                  LIMIT 1`,
-                row.game_id, row.iscored_username,
+                row.game_room_id, row.game_name, row.iscored_username,
             );
             if (remaining) {
                 await db.run(
@@ -217,9 +257,15 @@ export class ScoreHistoryService {
                 await db.run('DELETE FROM submissions WHERE id = ?', submissionId);
             }
             const { LeaderboardService } = await import('./LeaderboardService.js');
-            await LeaderboardService.invalidate(row.game_id);
+            await LeaderboardService.invalidate(resolvedGameId);
+        }
+
+        // Broadcast when a game row resolved (the payload type requires a
+        // gameId). A name with NO games row left renders on fetch-on-load
+        // surfaces only, so there is no live board to nudge anyway.
+        if (resolvedGameId) {
             const { emitLeaderboardUpdated } = await import('../api/websocket.js');
-            emitLeaderboardUpdated(row.game_room_id, { gameId: row.game_id });
+            emitLeaderboardUpdated(row.game_room_id, { gameId: resolvedGameId });
         }
 
         logInfo(`score_history#${row.id} deleted by ${actorId} (player ${row.iscored_username}, score ${row.score}, game ${row.game_id || row.game_name})`);
