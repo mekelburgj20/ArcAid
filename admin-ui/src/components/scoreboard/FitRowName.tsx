@@ -53,7 +53,17 @@ export default function FitRowName({
         measure();
         const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
         ro?.observe(el);
-        return () => ro?.disconnect();
+        // Font-swap race (P1 screenshot loop finding): a measure taken while
+        // the fallback font is still active can under-read the natural width;
+        // the swap to the real font widens the text WITHOUT resizing the
+        // clamped container, so ResizeObserver never re-fires and the name
+        // renders clipped at scale 1. Re-measure once all fonts settle.
+        // (document.fonts is undefined in jsdom — same inertness as above.)
+        let cancelled = false;
+        if (typeof document !== 'undefined' && document.fonts?.ready) {
+            document.fonts.ready.then(() => { if (!cancelled) measure(); });
+        }
+        return () => { cancelled = true; ro?.disconnect(); };
     }, [children]);
 
     return (
@@ -66,12 +76,33 @@ export default function FitRowName({
                 overflow: 'hidden',
                 minWidth: 0,
                 ...style,
-                ...(scale < 1
-                    ? { transform: `scale(${scale})`, transformOrigin: origin === 'left' ? 'left center' : 'center' }
-                    : {}),
             }}
         >
-            {children}
+            {/* The transform lives on this INNER box, never on the clamping
+                wrapper: an element's own overflow clips its content in LOCAL
+                (pre-transform) coordinates, so scaling the wrapper scales
+                text that is ALREADY clipped (P1 screenshot-loop finding — the
+                v2.104.0 self-scale version rendered clipped names shrunk, not
+                fitted). An ancestor's clip applies to the descendant's
+                TRANSFORMED rendering, so scaling this child reveals the full
+                name inside the wrapper's box. `width: max-content` keeps the
+                box at the name's natural width instead of shrinking to the
+                wrapper's; at scale < 1 the painted width equals the wrapper's
+                width exactly, so `left center` origin fills it edge-to-edge
+                for centered and left-aligned rows alike. `margin: 0 auto`
+                keeps short names centered where the row is centered. */}
+            <span
+                style={{
+                    display: 'block',
+                    width: 'max-content',
+                    margin: origin === 'center' ? '0 auto' : undefined,
+                    ...(scale < 1
+                        ? { transform: `scale(${scale})`, transformOrigin: 'left center' }
+                        : {}),
+                }}
+            >
+                {children}
+            </span>
         </span>
     );
 }

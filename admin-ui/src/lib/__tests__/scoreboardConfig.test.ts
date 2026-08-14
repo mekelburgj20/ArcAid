@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { deriveScoreboardConfig } from '../scoreboardConfig';
+import { deriveScoreboardConfig, getCardWidth } from '../scoreboardConfig';
 
 // S21 — first coverage for scoreboardConfig.ts. Covers the mobileScale
 // opt-in-densifier default flip (0.85 -> 1.0), the new kioskZoom fallback
@@ -108,6 +108,58 @@ describe('deriveScoreboardConfig', () => {
 
     it('falls back to "match" for an unrecognized value', () => {
       expect(deriveScoreboardConfig({ SCOREBOARD_RANKINGS_STYLE: 'junk' }).rankingsStyle).toBe('match');
+    });
+  });
+
+  // Style-system revamp Phase 1 — the Arcade card family. The style whitelist
+  // is the gate a new style has to pass to reach CardRouter at all: an id
+  // missing from it is silently coerced to banner, which looks like the card
+  // component never shipped.
+  describe('style whitelist', () => {
+    it('accepts each shipped style, arcade included', () => {
+      expect(deriveScoreboardConfig({ SCOREBOARD_STYLE: 'arcade' }).style).toBe('arcade');
+      expect(deriveScoreboardConfig({ SCOREBOARD_STYLE: 'banner' }).style).toBe('banner');
+      expect(deriveScoreboardConfig({ SCOREBOARD_STYLE: 'showcase' }).style).toBe('showcase');
+      expect(deriveScoreboardConfig({ SCOREBOARD_STYLE: 'minimal' }).style).toBe('minimal');
+    });
+
+    it('falls back to banner for an unrecognized style', () => {
+      // Deliberately NOT arcade: an unknown stored value is a data fault, and
+      // promoting it to the new flagship would hide that behind the redesign.
+      expect(deriveScoreboardConfig({ SCOREBOARD_STYLE: 'junk' }).style).toBe('banner');
+    });
+
+    it('still infers a legacy style when SCOREBOARD_STYLE is absent', () => {
+      // The read-time legacy heuristic is untouched by Phase 1 — converting
+      // styleless rooms is migration 144's job, done once and recorded, not
+      // re-derived on every page load.
+      expect(deriveScoreboardConfig({}).style).toBe('banner');
+      expect(deriveScoreboardConfig({ SCOREBOARD_CARD_LAYOUT: 'fullart' }).style).toBe('showcase');
+    });
+
+    it('gives arcade the art-forward 380px card width', () => {
+      expect(getCardWidth('arcade')).toBe(380);
+      expect(getCardWidth('arcade')).toBe(getCardWidth('showcase'));
+      expect(getCardWidth('banner')).toBe(280);
+    });
+  });
+
+  // Owner podium redesign (2026-08-13): holo-steps REPLACES the old podium as
+  // what showcase rooms see by default; pyramid/chip stay selectable via the
+  // per-room setting rather than deleted.
+  describe('podiumVariant', () => {
+    it('defaults to holo-steps when SCOREBOARD_PODIUM_VARIANT is unset', () => {
+      expect(deriveScoreboardConfig({ SCOREBOARD_STYLE: 'showcase' }).podiumVariant).toBe('holo-steps');
+    });
+
+    it('honors an explicit classic pin', () => {
+      expect(deriveScoreboardConfig({ SCOREBOARD_PODIUM_VARIANT: 'pyramid' }).podiumVariant).toBe('pyramid');
+      expect(deriveScoreboardConfig({ SCOREBOARD_PODIUM_VARIANT: 'chip' }).podiumVariant).toBe('chip');
+      expect(deriveScoreboardConfig({ SCOREBOARD_PODIUM_VARIANT: 'holo-steps' }).podiumVariant).toBe('holo-steps');
+    });
+
+    it('coerces an unknown stored value back to holo-steps', () => {
+      expect(deriveScoreboardConfig({ SCOREBOARD_PODIUM_VARIANT: 'junk' }).podiumVariant).toBe('holo-steps');
     });
   });
 });

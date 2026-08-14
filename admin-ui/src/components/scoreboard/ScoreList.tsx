@@ -17,6 +17,13 @@ interface ScoreListProps {
   rankColor?: string;
   nameColor?: string;
   scoreColor?: string;
+  /**
+   * Holo-steps runners-up treatment (owner podium handoff 2026-08-13): every
+   * row is a quiet glass chip — uniform translucent background + hairline
+   * border + blur — instead of the zebra stripe. Opt-in; all other consumers
+   * render exactly as before.
+   */
+  glassRows?: boolean;
   // Score expand
   hasMultiple?: (username: string) => boolean;
   expandedPlayer?: string | null;
@@ -31,6 +38,7 @@ export default function ScoreList({
   fontFamily,
   monoFontFamily,
   zebraStripe = 'rgba(255,255,255,0.015)',
+  glassRows = false,
   hoverBorder,
   rankColor = 'rgba(255,255,255,0.18)',
   nameColor = 'rgba(255,255,255,0.45)',
@@ -57,10 +65,18 @@ export default function ScoreList({
                 alignItems: 'center',
                 gap: '8px',
                 padding: '5px 10px',
-                borderRadius: '4px',
-                marginBottom: '1px',
-                borderLeft: '2px solid transparent',
-                background: i % 2 === 0 ? zebraStripe : 'transparent',
+                borderRadius: glassRows ? '6px' : '4px',
+                marginBottom: glassRows ? '3px' : '1px',
+                ...(glassRows
+                  ? {
+                      background: 'color-mix(in srgb, var(--color-deep, #080a10) 55%, transparent)',
+                      backdropFilter: 'blur(6px)',
+                      border: '1px solid rgba(255,255,255,0.06)',
+                    }
+                  : {
+                      borderLeft: '2px solid transparent',
+                      background: i % 2 === 0 ? zebraStripe : 'transparent',
+                    }),
                 ...(hoverBorder ? { transition: 'border-color 0.15s' } : {}),
                 ...(canExpand ? { cursor: 'pointer', pointerEvents: 'auto' } : {}),
               }}

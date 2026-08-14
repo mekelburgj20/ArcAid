@@ -1,9 +1,10 @@
 import type { GameLeaderboard, RankedEntry } from '../ScoreboardComponents';
-import type { ScoreboardStyle } from '../../lib/scoreboardThemes';
+import type { PodiumVariant, ScoreboardStyle } from '../../lib/scoreboardThemes';
 import { SHOWCASE_THEMES, DEFAULT_SHOWCASE_THEME } from '../../lib/scoreboardThemes';
 import ShowcaseCard from './ShowcaseCard';
 import BannerCard from './BannerCard';
 import MinimalCard from './MinimalCard';
+import ArcadeCard from './ArcadeCard';
 
 export interface CardRouterProps {
   lb: GameLeaderboard;
@@ -11,6 +12,10 @@ export interface CardRouterProps {
   roomId?: string;
   style: ScoreboardStyle;
   theme?: string;
+  /** Showcase podium override (per-room setting). When set it wins over the
+   *  theme's own `podiumVariant`; omitted (older callers/tests) keeps the
+   *  theme default. */
+  podiumVariant?: PodiumVariant;
   maxScores: number;
   minScores?: number;
   showTimer?: boolean;
@@ -38,6 +43,7 @@ export default function CardRouter({
   roomId,
   style,
   theme,
+  podiumVariant,
   maxScores,
   minScores = 20,
   showTimer = true,
@@ -76,9 +82,12 @@ export default function CardRouter({
   };
 
   switch (style) {
+    case 'arcade':
+      return <ArcadeCard {...commonProps} />;
     case 'showcase': {
       const themeConfig = SHOWCASE_THEMES[theme || DEFAULT_SHOWCASE_THEME] ?? SHOWCASE_THEMES[DEFAULT_SHOWCASE_THEME]!;
-      return <ShowcaseCard {...commonProps} theme={themeConfig} />;
+      const effectiveTheme = podiumVariant ? { ...themeConfig, podiumVariant } : themeConfig;
+      return <ShowcaseCard {...commonProps} theme={effectiveTheme} />;
     }
     case 'minimal':
       return <MinimalCard {...commonProps} />;

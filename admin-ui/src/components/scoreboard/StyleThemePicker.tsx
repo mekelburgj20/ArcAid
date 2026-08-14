@@ -1,13 +1,21 @@
-import { Layout, Sparkles, Type, ChevronDown, ChevronRight } from 'lucide-react';
+import { Layout, Sparkles, Type, Joystick, ChevronDown, ChevronRight } from 'lucide-react';
 import { useState } from 'react';
 import type { ScoreboardStyle } from '../../lib/scoreboardThemes';
 import { SHOWCASE_THEMES, STYLE_LABELS, DEFAULT_SHOWCASE_THEME } from '../../lib/scoreboardThemes';
 
 const STYLE_ICONS: Record<ScoreboardStyle, typeof Layout> = {
+  arcade: Joystick,
   banner: Layout,
   showcase: Sparkles,
   minimal: Type,
 };
+
+/**
+ * Tile order. Arcade leads: it is the flagship and the seeded default, so it
+ * is the first thing an admin considers rather than a fourth option after the
+ * three it replaces (style-system revamp Phase 1).
+ */
+const STYLE_ORDER: ScoreboardStyle[] = ['arcade', 'banner', 'showcase', 'minimal'];
 
 interface StyleThemePickerProps {
   settings: Record<string, string>;
@@ -54,8 +62,8 @@ export default function StyleThemePicker({ settings, onChange }: StyleThemePicke
       {/* Style selector */}
       <div>
         <label className="text-xs text-muted block mb-2">Card Style</label>
-        <div className="grid grid-cols-3 gap-2">
-          {(['banner', 'showcase', 'minimal'] as ScoreboardStyle[]).map(style => {
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {STYLE_ORDER.map(style => {
             const isActive = !styleIsUnset && currentStyle === style;
             const Icon = STYLE_ICONS[style];
             const meta = STYLE_LABELS[style];
@@ -112,6 +120,21 @@ export default function StyleThemePicker({ settings, onChange }: StyleThemePicke
                 </button>
               );
             })}
+          </div>
+
+          {/* Podium look — Holo Steps (owner redesign, 2026-08-13) is the
+              default; Pyramid/Chip stay selectable rather than deleted. */}
+          <div className="flex items-center gap-3 mt-3">
+            <label className="w-48 shrink-0 text-sm text-muted">Podium</label>
+            <select
+              value={settings.SCOREBOARD_PODIUM_VARIANT || 'holo-steps'}
+              onChange={e => onChange('SCOREBOARD_PODIUM_VARIANT', e.target.value)}
+              className="flex-1 px-3 py-1.5 bg-raised text-primary border border-border rounded text-sm"
+            >
+              <option value="holo-steps">Holo Steps (default)</option>
+              <option value="pyramid">Pyramid (classic)</option>
+              <option value="chip">Chip (classic)</option>
+            </select>
           </div>
         </div>
       )}

@@ -149,6 +149,7 @@ export default function ScoreboardPreview({ settings }: ScoreboardPreviewProps) 
                       slug="preview"
                       style={newConfig.style}
                       theme={newConfig.theme}
+                      podiumVariant={newConfig.podiumVariant}
                       maxScores={newConfig.maxScores}
                       minScores={newConfig.minScores}
                       showTimer={newConfig.showTimer}
@@ -196,6 +197,7 @@ export default function ScoreboardPreview({ settings }: ScoreboardPreviewProps) 
                         slug="preview"
                         style={newConfig.style}
                         theme={newConfig.theme}
+                        podiumVariant={newConfig.podiumVariant}
                         maxScores={newConfig.maxScores}
                         minScores={newConfig.minScores}
                         showTimer={newConfig.showTimer}

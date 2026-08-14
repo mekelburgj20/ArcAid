@@ -87,6 +87,7 @@ export default function ShowcaseCard({
   const podiumEntries = lb.rankings.slice(0, 3);
   const listEntries = lb.rankings.slice(3, maxScores);
   const isChipPodium = theme.podiumVariant === 'chip';
+  const isHoloPodium = theme.podiumVariant === 'holo-steps';
 
   // D1 (v2.34.0) — reserve a fixed two-line title box so a wrapping title
   // doesn't push the meta row / podium down vs sibling cards in the same
@@ -333,6 +334,11 @@ export default function ShowcaseCard({
               <PodiumBackground />
               <ShowcasePodium entries={podiumEntries} theme={theme} slug={slug} hasMultiple={hasMultiple} expandedPlayer={expandedPlayer} playerHistory={playerHistory} historyLoading={historyLoading} onTogglePlayer={togglePlayer} />
             </div>
+          ) : isHoloPodium ? (
+            /* holo-steps gets slug (linked usernames); the pyramid branch below
+               deliberately stays slug-less — its no-link rendering predates
+               this variant and is not this change's to alter. */
+            <ShowcasePodium entries={podiumEntries} theme={theme} slug={slug} hasMultiple={hasMultiple} expandedPlayer={expandedPlayer} playerHistory={playerHistory} historyLoading={historyLoading} onTogglePlayer={togglePlayer} />
           ) : (
             <ShowcasePodium entries={podiumEntries} theme={theme} hasMultiple={hasMultiple} expandedPlayer={expandedPlayer} playerHistory={playerHistory} historyLoading={historyLoading} onTogglePlayer={togglePlayer} />
           )}
@@ -354,9 +360,10 @@ export default function ShowcaseCard({
             monoFontFamily={theme.monoFontFamily}
             zebraStripe={theme.rowZebraStripe}
             hoverBorder={theme.rowHoverBorder}
-            rankColor={theme.rankColor}
-            nameColor={theme.nameColor}
-            scoreColor={theme.scoreColor}
+            rankColor={isHoloPodium ? 'rgba(255,255,255,0.45)' : theme.rankColor}
+            nameColor={isHoloPodium ? 'rgba(255,255,255,0.95)' : theme.nameColor}
+            scoreColor={isHoloPodium ? 'rgba(255,255,255,0.85)' : theme.scoreColor}
+            glassRows={isHoloPodium}
             hasMultiple={hasMultiple}
             expandedPlayer={expandedPlayer}
             playerHistory={playerHistory}

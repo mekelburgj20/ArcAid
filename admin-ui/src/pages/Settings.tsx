@@ -940,6 +940,8 @@ export default function Settings() {
     'SCOREBOARD_MOBILE_VERTICAL', 'SCOREBOARD_MOBILE_SCALE',
     // New style system core keys
     'SCOREBOARD_STYLE', 'SCOREBOARD_THEME', 'SCOREBOARD_MAX_SCORES', 'SCOREBOARD_SHOW_TIMER',
+    // v2.106.0 — showcase podium look (holo-steps default; pyramid/chip pinnable)
+    'SCOREBOARD_PODIUM_VARIANT',
     // v2.56.0 — the room-level pick-award gate was removed (winner-picks is a
     // per-tournament setting now). Migration 126 deletes the rows, but a room
     // whose settings were cached/read before that must not surface the dead key
