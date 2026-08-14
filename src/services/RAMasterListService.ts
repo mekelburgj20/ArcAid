@@ -4,6 +4,7 @@ import { SyncLogService } from './SyncLogService.js';
 import { RA_CONSOLE_ENGINE_MAP } from '../utils/scoreProvenance.js';
 import { normalizeGameName } from '../utils/catalogueUtils.js';
 import { logInfo, logWarn, logError } from '../utils/logger.js';
+import { nameRankSqlCase, nameRankSqlParams } from '../utils/searchRank.js';
 
 /**
  * The RetroAchievements master list — a local, searchable shadow of RA's
@@ -335,10 +336,16 @@ export class RAMasterListService {
      * whose punctuation the normalizer strips entirely still matches
      * something.
      *
-     * Ordering puts exact normalized hits first, then prefix hits, then the
-     * rest — and inside each tier, games with more leaderboards first, since a
-     * game RA tracks boards for is the likelier target of a score-keeping
-     * app's search.
+     * Ordering (search-relevance work package, 2026-08-13) is the shared
+     * 5-tier scheme from `searchRank.ts` — exact / starts-with-word /
+     * contains-word / substring / no match — evaluated over the raw title,
+     * taking the BETTER of that and a punctuation-insensitive exact match on
+     * `normalized_title` (so "Donkey Kong Jr" still ranks "Donkey Kong Jr."
+     * as tier 0 despite the stored period) via `MIN(...)` of the two CASE
+     * expressions. Inside each tier, games with more leaderboards sort
+     * first — kept from the pre-existing 3-tier scheme — since a game RA
+     * tracks boards for is the likelier target of a score-keeping app's
+     * search; title alphabetical is the final tie-break.
      *
      * The `inCatalogue` annotation is the point of the LEFT JOIN: the UI shows
      * "already available" instead of an Import button, and a player cannot
@@ -378,16 +385,15 @@ export class RAMasterListService {
              WHERE r.normalized_title LIKE ? ESCAPE '\\'
                 OR LOWER(r.title) LIKE ? ESCAPE '\\'
              ORDER BY
-                CASE
-                    WHEN r.normalized_title = ? THEN 0
-                    WHEN r.normalized_title LIKE ? ESCAPE '\\' THEN 1
-                    ELSE 2
-                END,
+                MIN(
+                    CASE WHEN r.normalized_title = ? THEN 0 ELSE 4 END,
+                    ${nameRankSqlCase('r.title')}
+                ),
                 COALESCE(r.num_leaderboards, 0) DESC,
                 r.title COLLATE NOCASE ASC
              LIMIT ?`,
             `%${needle}%`, `%${rawNeedle}%`,
-            normalized, `${needle}%`,
+            normalized, ...nameRankSqlParams(raw),
             Math.min(Math.max(limit, 1), 100),
         );
 

@@ -4,6 +4,7 @@ import PlayerNameLink from '../components/PlayerNameLink';
 import { Trophy, Flame, Users, Gamepad2, Zap, Clock, History, X } from 'lucide-react';
 import { useRoom } from '../contexts/RoomContext';
 import { STATS_RANGE_PRESETS, presetToRange, weekInputToRange, type StatsRangePreset } from '../lib/statsWindow';
+import { compareByRank } from '../lib/searchRank';
 
 interface PlayerSummary {
   discord_user_id: string;
@@ -169,6 +170,7 @@ export default function PublicStats() {
   };
 
   const q = search.toLowerCase();
+  const trimmedQ = search.trim();
   const filteredPlayers = players.filter(p => {
     const shown = (p.display_name || p.iscored_username || `User ${p.discord_user_id.slice(-4)}`).toLowerCase();
     return shown.includes(q)
@@ -177,6 +179,11 @@ export default function PublicStats() {
       || p.discord_user_id.toLowerCase().includes(q);
   });
   const filteredGames = games.filter(g => g.name.toLowerCase().includes(search.toLowerCase()));
+  // Search-relevance work package (2026-08-13): nearest-exact-match first.
+  if (trimmedQ) {
+    filteredPlayers.sort(compareByRank(trimmedQ, p => p.display_name || p.iscored_username || `User ${p.discord_user_id.slice(-4)}`));
+    filteredGames.sort(compareByRank(trimmedQ, g => g.name));
+  }
 
   return (
     <div>

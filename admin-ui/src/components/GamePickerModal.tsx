@@ -4,6 +4,7 @@ import NeonButton from './NeonButton';
 import { api } from '../lib/api';
 import { RoomContext } from '../contexts/RoomContext';
 import type { ImageApplyType } from './StylePicker';
+import { compareByRank } from '../lib/searchRank';
 
 interface LeaderboardGame {
   gameId: string;
@@ -54,8 +55,14 @@ export default function GamePickerModal({ styleName, styleId, onClose, onApplied
   }, [roomId]);
 
   const filterLower = filter.toLowerCase();
+  const trimmedFilter = filter.trim();
   const filteredLB = leaderboardGames.filter(g => g.gameName.toLowerCase().includes(filterLower));
   const filteredLib = libraryGames.filter(g => g.gameName.toLowerCase().includes(filterLower));
+  // Search-relevance work package (2026-08-13): nearest-exact-match first.
+  if (trimmedFilter) {
+    filteredLB.sort(compareByRank(trimmedFilter, g => g.gameName));
+    filteredLib.sort(compareByRank(trimmedFilter, g => g.gameName));
+  }
 
   const handleApply = async () => {
     if (!selectedGame || !roomId) return;

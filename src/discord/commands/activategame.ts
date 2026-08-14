@@ -8,6 +8,7 @@ import { TournamentEngine } from '../../engine/TournamentEngine.js';
 import { getTournamentColor } from '../../utils/discord.js';
 import { passesplatformRules, parsePlatformsList, parseTournamentRules, hasAnyPlatformRules } from '../../utils/platformRules.js';
 import { catalogueTypeMatchesTournamentMode } from '../../utils/tournamentMode.js';
+import { rankName } from '../../utils/searchRank.js';
 
 export const activategame: Command = {
     data: new SlashCommandBuilder()
@@ -61,6 +62,10 @@ export const activategame: Command = {
             const filtered = choices
                 .map(r => r.name)
                 .filter((name: string) => name.toLowerCase().includes(focusedOption.value.toLowerCase()))
+                .sort((a: string, b: string) => {
+                    const diff = rankName(a, focusedOption.value) - rankName(b, focusedOption.value);
+                    return diff !== 0 ? diff : a.localeCompare(b);
+                })
                 .slice(0, 25);
             await interaction.respond(filtered.map((name: string) => ({ name, value: name })));
         }

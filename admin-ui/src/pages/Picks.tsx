@@ -21,6 +21,7 @@ import {
   getLegacyPlatformLabel,
   isCanonicalEngine,
 } from '../lib/scoreProvenance';
+import { compareByRank } from '../lib/searchRank';
 
 interface GameAvailabilityEntry {
   name: string;
@@ -627,7 +628,7 @@ export default function Picks() {
 
   const filteredGames = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return (data?.games ?? []).filter(g => {
+    const filtered = (data?.games ?? []).filter(g => {
       if (filter === 'available' && !g.available) return false;
       if (filter === 'cooldown' && g.available) return false;
       const entry = gameIndex.get(g.name);
@@ -635,6 +636,10 @@ export default function Picks() {
       if (q && !(entry?.haystack ?? g.name.toLowerCase()).includes(q)) return false;
       return true;
     });
+    // Search-relevance work package (2026-08-13): nearest-exact-match first
+    // on game name, keeping the chip/other filters above as-is.
+    if (q) filtered.sort(compareByRank(q, g => g.name));
+    return filtered;
   }, [data, filter, activeEngine, search, gameIndex]);
 
   const availableCount = data?.games.filter(g => g.available).length ?? 0;

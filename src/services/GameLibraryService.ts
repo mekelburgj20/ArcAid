@@ -1,19 +1,26 @@
 import { getDatabase } from '../database/database.js';
+import { nameRankSqlCase, nameRankSqlParams } from '../utils/searchRank.js';
 
 export class GameLibraryService {
     /**
      * Searches the catalogue by name (partial, case-insensitive). Powers the
-     * Add Game autocomplete on the per-room library page.
+     * Add Game autocomplete on the per-room library page. Ranked
+     * nearest-exact-match first (search-relevance work package, 2026-08-13).
      */
     static async search(query: string, limit: number = 10): Promise<Array<{ name: string; mode: string; platforms: string }>> {
         const db = await getDatabase();
+        // Empty query → existing default order, untouched (search-relevance
+        // work package, 2026-08-13).
+        const trimmed = (query || '').trim();
+        const orderBy = trimmed ? `${nameRankSqlCase('name')}, name COLLATE NOCASE` : 'name';
+        const orderParams = trimmed ? nameRankSqlParams(trimmed) : [];
         return db.all(
             `SELECT name, type AS mode, platforms FROM global_games
              WHERE status = 'approved' AND name LIKE ? COLLATE NOCASE
              GROUP BY LOWER(name)
-             ORDER BY name
+             ORDER BY ${orderBy}
              LIMIT ?`,
-            `%${query}%`, limit,
+            `%${query}%`, ...orderParams, limit,
         );
     }
 

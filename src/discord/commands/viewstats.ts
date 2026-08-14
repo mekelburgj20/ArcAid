@@ -6,6 +6,7 @@ import { logError } from '../../utils/logger.js';
 import { StatsService } from '../../services/StatsService.js';
 import { getTournamentColor } from '../../utils/discord.js';
 import { buildEnabledRoomSqlFilter } from '../../utils/discordRoomFilter.js';
+import { rankName } from '../../utils/searchRank.js';
 
 export const viewstats: Command = {
     data: new SlashCommandBuilder()
@@ -29,6 +30,10 @@ export const viewstats: Command = {
         const filtered = rows
             .map(r => r.name)
             .filter(name => name.toLowerCase().includes(focused.toLowerCase()))
+            .sort((a, b) => {
+                const diff = rankName(a, focused) - rankName(b, focused);
+                return diff !== 0 ? diff : a.localeCompare(b);
+            })
             .slice(0, 25);
 
         await interaction.respond(

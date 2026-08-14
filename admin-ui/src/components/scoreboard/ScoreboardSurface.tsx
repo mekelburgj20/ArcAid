@@ -13,6 +13,7 @@ import {
 import CardRouter from './CardRouter';
 import HorizontalScrollNav from '../HorizontalScrollNav';
 import { deriveCardProps, deriveScoreboardConfig, getCardWidth, qrBottomMetrics } from '../../lib/scoreboardConfig';
+import { compareByRank } from '../../lib/searchRank';
 
 export interface LeaderboardWithViewer extends GameLeaderboard {
   viewerEntry?: RankedEntry | null;
@@ -222,6 +223,11 @@ export default function ScoreboardSurface({
   const visibleLeaderboards = leaderboards
     .filter(lb => !hideEmpty || lb.rankings.length > 0)
     .filter(lb => !trimmedSearch || (lb.displayName || lb.gameName).toLowerCase().includes(trimmedSearch));
+  // Search-relevance work package (2026-08-13): nearest-exact-match first
+  // when the user has typed a search term; untouched order otherwise.
+  if (trimmedSearch) {
+    visibleLeaderboards.sort(compareByRank(trimmedSearch, lb => lb.displayName || lb.gameName));
+  }
 
   // v2.9x — "ticker" is a full-width marquee strip, not a per-group card, so
   // it never participates in the inline-with-game-cards grid/sticky-column

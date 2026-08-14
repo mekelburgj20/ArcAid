@@ -3,6 +3,7 @@ import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { ArrowLeftRight, Search, X, Trophy } from 'lucide-react';
 import { formatScore } from '../lib/format';
 import { useRoom } from '../contexts/RoomContext';
+import { compareByRank } from '../lib/searchRank';
 
 /**
  * WP2 — S14 social loops: head-to-head player comparison.
@@ -106,12 +107,15 @@ export default function ComparePlayers() {
   const filteredA = useMemo(() => {
     const q = searchA.trim().toLowerCase();
     const opts = q ? players.filter(p => playerLabel(p).toLowerCase().includes(q)) : players;
+    // Search-relevance work package (2026-08-13): nearest-exact-match first.
+    if (q) opts.sort(compareByRank(searchA.trim(), playerLabel));
     return opts.slice(0, 20);
   }, [players, searchA]);
 
   const filteredB = useMemo(() => {
     const q = searchB.trim().toLowerCase();
     const opts = q ? players.filter(p => playerLabel(p).toLowerCase().includes(q)) : players;
+    if (q) opts.sort(compareByRank(searchB.trim(), playerLabel));
     return opts.slice(0, 20);
   }, [players, searchB]);
 
