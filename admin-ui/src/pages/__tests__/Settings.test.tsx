@@ -74,6 +74,10 @@ function stubFetch(settingsResponse: Record<string, string>, opts: {
     if (url.includes('/settings') && method === 'GET') return j(settingsResponse);
     if (url.includes('/settings') && method === 'POST') return j({ success: true });
     if (url.includes('/admins/invites')) return j([]);
+    // P2 style profiles — the block renders at the top of the Leaderboard
+    // Display card, so an unrouted response here would break every test in
+    // this file rather than just its own.
+    if (url.includes('/admin/style-profiles')) return j({ profiles: [], current: {} });
     // Order matters: the guild-wide search path contains "/admin/" but not
     // the exact "/admin/members" substring, so it must be checked first.
     if (url.includes('/admin/guild-members/search')) {

@@ -59,11 +59,12 @@ describe('StyleThemePicker', () => {
 
   it('offers Arcade FIRST — it is the flagship and the seeded default', () => {
     renderPicker({});
-    // The Advanced toggle button also carries a .font-display span — exclude
-    // it; this test pins style-tile order only.
+    // The disclosure toggle also carries a .font-display span — exclude it;
+    // this test pins Look-tile order only. (Renamed from "Advanced" to
+    // "Display options" in P2: this card had TWO sections called Advanced.)
     const labels = Array.from(document.querySelectorAll('button .font-display'))
       .map(el => el.textContent)
-      .filter(t => t !== 'Advanced');
+      .filter(t => t !== 'Display options');
     expect(labels).toEqual(['Arcade', 'Banner', 'Showcase', 'Minimal']);
   });
 
@@ -135,7 +136,7 @@ describe('StyleThemePicker', () => {
 
   it('hides the rankings-position control and shows a note when rankings style is ticker', () => {
     renderPicker({ SCOREBOARD_STYLE: 'banner', SCOREBOARD_RANKINGS_STYLE: 'ticker' });
-    fireEvent.click(screen.getByText('Advanced'));
+    fireEvent.click(screen.getByText('Display options'));
 
     expect(screen.queryByText('Rankings position')).not.toBeInTheDocument();
     expect(screen.getByText(/Ticker pins to the top/)).toBeInTheDocument();
@@ -143,7 +144,7 @@ describe('StyleThemePicker', () => {
 
   it('shows the rankings-position control when rankings style is not ticker', () => {
     renderPicker({ SCOREBOARD_STYLE: 'banner' });
-    fireEvent.click(screen.getByText('Advanced'));
+    fireEvent.click(screen.getByText('Display options'));
 
     expect(screen.getByText('Rankings position')).toBeInTheDocument();
     expect(screen.queryByText(/Ticker pins to the top/)).not.toBeInTheDocument();
