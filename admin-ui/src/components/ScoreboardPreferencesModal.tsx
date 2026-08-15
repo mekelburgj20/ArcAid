@@ -3,6 +3,7 @@ import { X, RotateCcw, Monitor, Smartphone, ChevronDown, ChevronRight } from 'lu
 import { THEMES } from './ThemeProvider';
 import type { ScoreboardStyle } from '../lib/scoreboardThemes';
 import { SHOWCASE_THEMES, DEFAULT_SHOWCASE_THEME } from '../lib/scoreboardThemes';
+import { TOGGLE_DEFAULT_ON } from '../lib/scoreboardConfig';
 
 interface ScoreboardPreferencesModalProps {
   open: boolean;
@@ -263,10 +264,13 @@ export default function ScoreboardPreferencesModal({
 
   const renderToggle = (def: PrefDef) => {
     const val = getEffective(def.key);
-    // For show_timer the default is true (setting !== 'false'), for others default is false (setting === 'true')
-    const isOn = def.key === 'SCOREBOARD_SHOW_TIMER'
-      ? val !== 'false'
-      : val === 'true';
+    // Default-ON keys read `!== 'false'`; everything else reads `=== 'true'`.
+    // These MUST match `deriveScoreboardConfig` — when they drift, the modal
+    // shows a switch in the opposite position to the behaviour the viewer is
+    // actually getting. SCOREBOARD_MOBILE_VERTICAL was exactly that bug
+    // (owner report, 2026-08-15): the renderer has always defaulted it on,
+    // while this modal drew it off until a viewer toggled it twice.
+    const isOn = TOGGLE_DEFAULT_ON.has(def.key) ? val !== 'false' : val === 'true';
     return (
       <div key={def.key} className="flex items-center justify-between py-2">
         <div className="flex-1 mr-4">

@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ChevronDown, ChevronRight, Search } from 'lucide-react';
+import { Search } from 'lucide-react';
 import { api, getToken, getTokenDiscordId } from '../lib/api';
 import { useRoom } from '../contexts/RoomContext';
 import { useToast } from '../components/Toast';
@@ -265,8 +265,33 @@ const INTEGRATION_GATE_KEYS: Record<string, string> = {
   iScored: 'ISCORED_ENABLED',
 };
 
+/**
+ * Style-system revamp P1 (prune) — v1 card keys read ONLY by
+ * `deriveCardProps`, which runs only when a room has no `SCOREBOARD_STYLE`.
+ * Migration 144 gave every room a style, so none of these affects any live
+ * room; their editors were removed from the "Show more styles → Customize"
+ * disclosure (owner field report, 2026-08-15: "Game Columns, Card Size, Card
+ * Layout ... don't seem to make any difference to the cards displayed").
+ *
+ * They stay listed here for ONE reason: `managedKeys` below must keep
+ * claiming them, or a room with a stored value would surface it as a raw
+ * text input in the "Other" card — the same leak P0 fixed for ADMIN_THEME
+ * and SCOREBOARD_RANKINGS_STYLE. Delete this list only when the legacy
+ * `deriveCardProps` path itself is retired and the rows are migrated away.
+ */
+const LEGACY_CARD_KEYS = [
+  'SCOREBOARD_GAME_COLUMNS', 'SCOREBOARD_CARD_SIZE', 'SCOREBOARD_CARD_LAYOUT',
+  'SCOREBOARD_WHEEL_SCALE', 'SCOREBOARD_BG_FILL', 'SCOREBOARD_BG_SIZE',
+  'SCOREBOARD_SCORE_STYLE', 'SCOREBOARD_GLASS_OPACITY',
+  'SCOREBOARD_SCORE_COLUMNS', 'SCOREBOARD_CARD_OPACITY',
+];
+
 const CATEGORIES: Record<string, string[]> = {
-  'Leaderboard Display': ['SCOREBOARD_LAYOUT', 'SCOREBOARD_GAME_COLUMNS', 'SCOREBOARD_CARD_SIZE', 'SCOREBOARD_CARD_LAYOUT', 'SCOREBOARD_WHEEL_SCALE', 'SCOREBOARD_BG_FILL', 'SCOREBOARD_BG_SIZE', 'SCOREBOARD_SCORE_STYLE', 'SCOREBOARD_GLASS_OPACITY', 'SCOREBOARD_GAME_TITLE_STYLE', 'SCOREBOARD_SCORE_COLUMNS', 'SCOREBOARD_MAX_SCORES', 'SCOREBOARD_RANKINGS_POSITION', 'SCOREBOARD_ZOOM', 'SCOREBOARD_CARD_OPACITY', 'SCOREBOARD_QR_MODE'],
+  // Only keys with a LIVE control in this card. Every one of these is edited
+  // through StyleThemePicker or the Advanced block — the list now exists to
+  // mark the keys as managed and to keep the card rendering, not to generate
+  // inputs.
+  'Leaderboard Display': ['SCOREBOARD_LAYOUT', 'SCOREBOARD_GAME_TITLE_STYLE', 'SCOREBOARD_MAX_SCORES', 'SCOREBOARD_RANKINGS_POSITION', 'SCOREBOARD_ZOOM', 'SCOREBOARD_QR_MODE'],
   'Kiosk': ['KIOSK_REFRESH_SECONDS', 'KIOSK_ZOOM'],
   'Game Room': ['GAME_ROOM_NAME', 'GAME_ROOM_SLUG'],
   'Discord': ['DISCORD_GUILD_ID', 'DISCORD_ADMIN_ROLE_ID', 'DISCORD_ANNOUNCEMENT_CHANNEL_ID', 'DISCORD_INVITE_URL'],
@@ -290,6 +315,8 @@ const SCOREBOARD_TOGGLES: Record<string, { label: string; description: string; d
   'SCOREBOARD_CARD_BG_FILL': {
     label: 'Card Background Fill',
     description: 'When enabled, game background images fill the entire card behind scores for an immersive look.',
+    // Owner call, 2026-08-15 — default ON, matching deriveScoreboardConfig.
+    defaultOn: true,
   },
   'SCOREBOARD_RANKINGS_STICKY': {
     label: 'Always Visible Rankings',
@@ -582,8 +609,6 @@ export default function Settings() {
   const [baseline, setBaseline] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [customizeOpen, setCustomizeOpen] = useState(false);
-  const [showLegacyStyles, setShowLegacyStyles] = useState(false);
   const [revealed, setRevealed] = useState<Set<string>>(new Set());
   // D2 (standalone rooms, v2.32.0) — categories whose credential card is
   // hidden by default when the matching integration is toggled off
@@ -819,17 +844,6 @@ export default function Settings() {
   };
 
   // Smart constraints: keys to hide based on current settings
-  const hiddenKeys = new Set<string>();
-  if ((settings.SCOREBOARD_CARD_LAYOUT || 'banner') !== 'wheel') {
-    hiddenKeys.add('SCOREBOARD_WHEEL_SCALE');
-  }
-  if ((settings.SCOREBOARD_BG_FILL || 'off') === 'off' && (settings.SCOREBOARD_CARD_LAYOUT || 'banner') !== 'banner') {
-    hiddenKeys.add('SCOREBOARD_BG_SIZE');
-  }
-  if ((settings.SCOREBOARD_BG_FILL || 'off') === 'off') {
-    hiddenKeys.add('SCOREBOARD_GLASS_OPACITY');
-  }
-
   const handleSave = async () => {
     // Confirm before saving a change to any access-affecting toggle.
     const changedDangerous = DANGEROUS_KEYS.filter(k => settingChanged(k, settings, baseline));
@@ -906,6 +920,9 @@ export default function Settings() {
   // Keys managed elsewhere (branding card, toggles, removed sections) — exclude from "Other"
   const managedKeys = new Set([
     ...Object.values(CATEGORIES).flat(),
+    // Dead v1 card keys — no editor any more, but still claimed so a stored
+    // value never leaks into "Other" as a raw text input. See LEGACY_CARD_KEYS.
+    ...LEGACY_CARD_KEYS,
     ...Object.keys(SCOREBOARD_TOGGLES),
     ...Object.keys(KIOSK_TOGGLES),
     ...Object.keys(GAME_ROOM_TOGGLES),
@@ -1407,97 +1424,6 @@ export default function Settings() {
                 </div>
               </div>
 
-              {/* Show more styles — fine-grained legacy card controls.
-                  Style-system revamp P1: the legacy PresetSelector that used
-                  to head this block is GONE. Its five presets wrote only the
-                  six keys `deriveCardProps` reads, and `deriveCardProps` runs
-                  only when a room has no SCOREBOARD_STYLE — which migration
-                  144 made impossible. Clicking a preset did nothing on any
-                  live room. The Looks row above is its working replacement.
-                  The raw key editor below stays for now (pruning it is P1's
-                  remaining item) so no stored value becomes unreachable. */}
-              <div className="pt-3 mt-3 border-t border-border/30">
-                <button
-                  onClick={() => setShowLegacyStyles(!showLegacyStyles)}
-                  className="flex items-center gap-2 text-sm text-muted hover:text-primary cursor-pointer bg-transparent border-none"
-                >
-                  {showLegacyStyles ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                  <span className="font-display text-xs uppercase tracking-wider">Show more styles</span>
-                </button>
-
-                {showLegacyStyles && (
-                  <div className="mt-3 pt-3 border-t border-border/30 space-y-3">
-                    <p className="text-[11px] text-muted">Individual card controls from the v1 leaderboard system. Several no longer affect rooms using a Look above — they are kept visible only so existing stored values stay editable.</p>
-
-                    {/* Customize toggle */}
-                    <button
-                      onClick={() => setCustomizeOpen(!customizeOpen)}
-                      className="flex items-center gap-2 mt-4 mb-2 text-sm text-muted hover:text-primary cursor-pointer bg-transparent border-none"
-                    >
-                      {customizeOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                      <span className="font-display text-xs uppercase tracking-wider">Customize</span>
-                    </button>
-
-                    {customizeOpen && (
-                      <div className="space-y-3 pt-2 border-t border-border/30">
-                        <p className="text-[11px] text-neon-amber/70">Changing individual settings switches to Custom mode.</p>
-                        {entries.map(([key, value]) => {
-                          if (hiddenKeys.has(key)) return null;
-                          const meta = SETTING_LABELS[key];
-                          return (
-                            <div key={key}>
-                              <div className="flex items-center gap-3">
-                                <label className="w-64 shrink-0 text-sm font-mono text-muted flex items-center">
-                                  {meta?.label || key}
-                                  {meta?.description && <InfoTip text={meta.description} />}
-                                </label>
-                                {(key === 'SCOREBOARD_CARD_OPACITY' || key === 'SCOREBOARD_BG_OPACITY' || key === 'SCOREBOARD_GLASS_OPACITY') ? (
-                                  <div className="flex items-center gap-3 flex-1">
-                                    {key === 'SCOREBOARD_GLASS_OPACITY' ? (
-                                      <>
-                                        <input type="range" min="0" max="100" step="5"
-                                          value={parseInt(value || '60', 10)}
-                                          onChange={e => handleChange(key, e.target.value)}
-                                          className="flex-1 accent-neon-cyan cursor-pointer"
-                                        />
-                                        <span className="text-sm text-muted w-12 text-right">{parseInt(value || '60', 10)}%</span>
-                                      </>
-                                    ) : (
-                                      <>
-                                        <input type="range" min="0" max="100" step="5"
-                                          value={Math.round((parseFloat(value || '1') * 100))}
-                                          onChange={e => handleChange(key, String(parseInt(e.target.value, 10) / 100))}
-                                          className="flex-1 accent-neon-cyan cursor-pointer"
-                                        />
-                                        <span className="text-sm text-muted w-12 text-right">{Math.round((parseFloat(value || '1') * 100))}%</span>
-                                      </>
-                                    )}
-                                  </div>
-                                ) : SELECT_OPTIONS[key] ? (
-                                  <select
-                                    value={value || SELECT_OPTIONS[key][0].value}
-                                    onChange={e => handleChange(key, e.target.value)}
-                                    className={`${inputClass} flex-1`}
-                                  >
-                                    {SELECT_OPTIONS[key].map(opt => (
-                                      <option key={opt.value} value={opt.value}>{opt.label}</option>
-                                    ))}
-                                  </select>
-                                ) : (
-                                  <input type="text" value={value}
-                                    onChange={e => handleChange(key, e.target.value)}
-                                    className={`${inputClass} flex-1`}
-                                  />
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
             </NeonCard>
 
             {/* Preview sidebar — sticky on desktop */}

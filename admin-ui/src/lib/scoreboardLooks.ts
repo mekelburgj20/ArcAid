@@ -72,7 +72,7 @@ export const LOOK_DEFINITIONS: LookDefinition[] = [
       SCOREBOARD_MAX_SCORES: '10',
       SCOREBOARD_MIN_SCORES: '10',
       SCOREBOARD_CARD_SPACING: '24',
-      SCOREBOARD_CARD_BG_FILL: 'false',
+      SCOREBOARD_CARD_BG_FILL: 'true',
     },
   },
   {
@@ -87,7 +87,7 @@ export const LOOK_DEFINITIONS: LookDefinition[] = [
       SCOREBOARD_CARD_SPACING: '24',
       // Banner's identity is its header image, not a full-bleed fill; leaving
       // fill off keeps the score rows legible on busy table art.
-      SCOREBOARD_CARD_BG_FILL: 'false',
+      SCOREBOARD_CARD_BG_FILL: 'true',
     },
   },
   {
@@ -101,7 +101,7 @@ export const LOOK_DEFINITIONS: LookDefinition[] = [
       SCOREBOARD_MAX_SCORES: '10',
       SCOREBOARD_MIN_SCORES: '10',
       SCOREBOARD_CARD_SPACING: '24',
-      SCOREBOARD_CARD_BG_FILL: 'false',
+      SCOREBOARD_CARD_BG_FILL: 'true',
     },
   },
   {
@@ -115,6 +115,10 @@ export const LOOK_DEFINITIONS: LookDefinition[] = [
       // Tighter than the art looks — with no images the default gap reads as
       // a hole between text blocks.
       SCOREBOARD_CARD_SPACING: '16',
+      // The ONE Look that opts out of the 2026-08-15 bg-fill default: Minimal
+      // is "clean typography, no images" by definition, and MinimalCard does
+      // render a background when this is on. A Look overriding a product
+      // default is the point of Looks; flag it if the owner disagrees.
       SCOREBOARD_CARD_BG_FILL: 'false',
     },
   },

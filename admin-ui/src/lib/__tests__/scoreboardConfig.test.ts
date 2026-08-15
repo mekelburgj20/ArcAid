@@ -162,4 +162,19 @@ describe('deriveScoreboardConfig', () => {
       expect(deriveScoreboardConfig({ SCOREBOARD_PODIUM_VARIANT: 'junk' }).podiumVariant).toBe('holo-steps');
     });
   });
+  // Owner call (2026-08-15): card background fill is ON unless a room turned
+  // it off. Was default-OFF, which left table art confined to the header strip
+  // on every room whose admin never found the toggle.
+  describe('cardBgFill', () => {
+    it('defaults to true when SCOREBOARD_CARD_BG_FILL is unset', () => {
+      expect(deriveScoreboardConfig({}).cardBgFill).toBe(true);
+      expect(deriveScoreboardConfig({ SCOREBOARD_STYLE: 'arcade' }).cardBgFill).toBe(true);
+    });
+
+    it('honors an explicit opt-out and ignores junk', () => {
+      expect(deriveScoreboardConfig({ SCOREBOARD_CARD_BG_FILL: 'false' }).cardBgFill).toBe(false);
+      expect(deriveScoreboardConfig({ SCOREBOARD_CARD_BG_FILL: 'true' }).cardBgFill).toBe(true);
+      expect(deriveScoreboardConfig({ SCOREBOARD_CARD_BG_FILL: 'anything-else' }).cardBgFill).toBe(true);
+    });
+  });
 });
