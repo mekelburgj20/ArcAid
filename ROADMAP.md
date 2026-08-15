@@ -147,12 +147,12 @@ Load-bearing technical and product decisions are tracked in [`docs/decisions/`](
 
 **Goal (owner's words).** A per-tournament mode where posted scores stay hidden until a set point — e.g. 1 hour before the tournament ends — so a monster score posted on day one doesn't discourage everyone else from bothering. Reveal early enough to leave a last-minute chase window. This is an *engagement* feature, not an anti-cheat feature (though it incidentally stops players from tuning a submission to just edge the current leader).
 
-**Owner decisions still needed (do not invent these at build time).**
-1. **What a sealed player sees.** Options: (a) nothing at all, (b) their own score + "N players have submitted", (c) their own score + their own rank but not others' numbers, (d) rank only. **Recommend (b)** — maximum mystery while still showing the room is alive. (c) tells the leader they're leading, which softens the discouragement effect the feature exists to remove.
-2. **Reveal trigger.** Fixed offset before `end_date` (the owner's "1 hour"), an absolute datetime, or a manual admin "Reveal now" button. **Recommend offset as the setting + manual override always available.**
-3. **Ranking groups.** Does a sealed tournament contribute points to the visible ranking-group standings before reveal? If yes, standings leak the outcome. **Recommend: excluded from `RankingService.computeRankings` until revealed.**
-4. **Global Scoreboard.** Tournament scores currently fan out to `/scoreboard` + `/games/:id` via `GlobalScoreService.fanOutFromRoomSubmission`. **Recommend: defer the fan-out and write it at reveal** — the alternative is a wide-open leak on a public page.
-5. Rolling tournaments with no end date can't compute an offset — either require an end date to enable sealed mode, or force manual reveal. Guard it either way.
+**ALL FIVE DECISIONS SETTLED (owner, 2026-08-15). These are the contract — build to them.**
+1. **What a sealed player sees: their own score + "N players have submitted."** Not their rank. Showing rank tells the leader they're leading, which softens the exact discouragement effect the feature exists to remove. (Rejected: hide everything; show own rank; show rank only.)
+2. **Reveal trigger: a fixed offset before `end_date`** (owner's "1 hour" is the default) **as the stored setting, plus a manual admin "Reveal now" button that is always available** as an override. (Rejected: absolute datetime as the primary control.)
+3. **Ranking groups: sealed tournaments contribute NOTHING to visible standings until revealed** — excluded from `RankingService.computeRankings`, else the standings give away the outcome. On reveal they fold in normally (the ranking-cache watermark, ADR 0013, will see the change and recompute on its own — no manual invalidation call).
+4. **Global Scoreboard: hold the fan-out back and write it at reveal.** `GlobalScoreService.fanOutFromRoomSubmission` must not publish a sealed tournament's scores to `/scoreboard` + `/games/:id` while sealed; reveal replays them. (Rejected: accepting the leak.)
+5. **Sealed mode REQUIRES an end date.** A rolling tournament can't compute "offset before end", so the setting is refused (Zod + `TournamentService.create/update`) unless `end_date` is set, and the admin UI disables the toggle with that reason. (Rejected: falling back to manual-reveal-only for endless tournaments.)
 
 **Invariant regardless of the above: a player always sees their own scores, everywhere.** Never redact someone's own data from them.
 

@@ -10,8 +10,6 @@ import NeonButton from '../components/NeonButton';
 import ConfirmModal from '../components/ConfirmModal';
 import LoadingState from '../components/LoadingState';
 import { InfoTip } from '../components/Tooltip';
-import PresetSelector from '../components/PresetSelector';
-import type { PresetDefinition } from '../components/PresetSelector';
 import StyleThemePicker from '../components/scoreboard/StyleThemePicker';
 import ScoreboardPreview from '../components/ScoreboardPreview';
 import TitleStyleSelect from '../components/TitleStyleSelect';
@@ -783,10 +781,6 @@ export default function Settings() {
     setSettings(prev => ({ ...prev, [key]: value }));
   };
 
-  const handlePresetSelect = (preset: PresetDefinition) => {
-    setSettings(prev => ({ ...prev, ...preset.settings }));
-  };
-
   const uploadBrandingImage = async (target: 'bg' | 'logo', blob: Blob) => {
     const endpoint = target === 'bg' ? 'background' : 'logo';
     const setUploading = target === 'bg' ? setUploadingBg : setUploadingLogo;
@@ -1413,7 +1407,15 @@ export default function Settings() {
                 </div>
               </div>
 
-              {/* Show more styles — legacy preset selector + fine-grained controls */}
+              {/* Show more styles — fine-grained legacy card controls.
+                  Style-system revamp P1: the legacy PresetSelector that used
+                  to head this block is GONE. Its five presets wrote only the
+                  six keys `deriveCardProps` reads, and `deriveCardProps` runs
+                  only when a room has no SCOREBOARD_STYLE — which migration
+                  144 made impossible. Clicking a preset did nothing on any
+                  live room. The Looks row above is its working replacement.
+                  The raw key editor below stays for now (pruning it is P1's
+                  remaining item) so no stored value becomes unreachable. */}
               <div className="pt-3 mt-3 border-t border-border/30">
                 <button
                   onClick={() => setShowLegacyStyles(!showLegacyStyles)}
@@ -1425,9 +1427,7 @@ export default function Settings() {
 
                 {showLegacyStyles && (
                   <div className="mt-3 pt-3 border-t border-border/30 space-y-3">
-                    <p className="text-[11px] text-muted">Legacy presets and individual card controls from the v1 leaderboard system. Changing these runs alongside the new style above.</p>
-
-                    <PresetSelector settings={settings} onPresetSelect={handlePresetSelect} />
+                    <p className="text-[11px] text-muted">Individual card controls from the v1 leaderboard system. Several no longer affect rooms using a Look above — they are kept visible only so existing stored values stay editable.</p>
 
                     {/* Customize toggle */}
                     <button

@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import StyleThemePicker from '../StyleThemePicker';
+import { LOOK_DEFINITIONS } from '../../../lib/scoreboardLooks';
+import { DEFAULT_SHOWCASE_THEME } from '../../../lib/scoreboardThemes';
 
 /**
  * Style-system revamp P0 (honesty fix, item 2). Locks:
@@ -80,6 +82,55 @@ describe('StyleThemePicker', () => {
     // Arcade has no theme variants of its own — the showcase-theme default
     // must not tag along and quietly restyle a later switch to Showcase.
     expect(onChange).not.toHaveBeenCalledWith('SCOREBOARD_THEME', expect.anything());
+  });
+
+  // ── Style-system revamp P1: Looks apply a COMPLETE bundle ──
+
+  it('applies the whole bundle, not just the style key', () => {
+    const onChange = renderPicker({});
+    fireEvent.click(screen.getByText('Arcade').closest('button')!);
+
+    const arcade = LOOK_DEFINITIONS.find(l => l.id === 'arcade')!;
+    for (const [key, value] of Object.entries(arcade.settings)) {
+      expect(onChange).toHaveBeenCalledWith(key, value);
+    }
+    // The specific bug: picking a style used to leave MIN_SCORES on its
+    // default of 20, so every card reserved twenty rows of height.
+    expect(onChange).toHaveBeenCalledWith('SCOREBOARD_MIN_SCORES', '10');
+  });
+
+  it('applies the showcase theme as part of the Showcase bundle', () => {
+    const onChange = renderPicker({});
+    fireEvent.click(screen.getByText('Showcase').closest('button')!);
+    expect(onChange).toHaveBeenCalledWith('SCOREBOARD_STYLE', 'showcase');
+    expect(onChange).toHaveBeenCalledWith('SCOREBOARD_THEME', DEFAULT_SHOWCASE_THEME);
+  });
+
+  it('never writes room identity or policy keys when a Look is picked', () => {
+    const onChange = renderPicker({ SCOREBOARD_STYLE: 'arcade' });
+    fireEvent.click(screen.getByText('Minimal').closest('button')!);
+
+    const written = onChange.mock.calls.map(([key]) => key);
+    for (const forbidden of [
+      'SCOREBOARD_TITLE', 'LOGO_URL', 'SCOREBOARD_BG_URL',
+      'SCOREBOARD_GAME_TITLE_STYLE', 'SCOREBOARD_QR_MODE', 'SCOREBOARD_ZOOM',
+    ]) {
+      expect(written).not.toContain(forbidden);
+    }
+  });
+
+  it('does NOT call a stock pre-Looks room "Customised"', () => {
+    // Every room shipped before Looks stores a style and nothing else.
+    renderPicker({ SCOREBOARD_STYLE: 'arcade' });
+    expect(screen.queryByText(/customised/i)).not.toBeInTheDocument();
+  });
+
+  it('flags a room that stored a bundle key with a different value', () => {
+    renderPicker({ SCOREBOARD_STYLE: 'arcade', SCOREBOARD_CARD_SPACING: '48' });
+    expect(screen.getByText(/customised/i)).toBeInTheDocument();
+    // Still highlights the family it is built on — one changed number does
+    // not move the room off Arcade.
+    expect(screen.getByText('Arcade').closest('button')!.className).toMatch(/bg-neon-cyan\/10/);
   });
 
   it('hides the rankings-position control and shows a note when rankings style is ticker', () => {
