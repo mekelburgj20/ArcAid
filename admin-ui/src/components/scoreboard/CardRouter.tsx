@@ -1,4 +1,5 @@
 import type { GameLeaderboard, RankedEntry } from '../ScoreboardComponents';
+import { DEFAULT_QR_OFFSET_PX } from '../../lib/scoreboardConfig';
 import type { PodiumVariant, ScoreboardStyle } from '../../lib/scoreboardThemes';
 import { SHOWCASE_THEMES, DEFAULT_SHOWCASE_THEME } from '../../lib/scoreboardThemes';
 import ShowcaseCard from './ShowcaseCard';
@@ -23,10 +24,10 @@ export interface CardRouterProps {
   viewerEntry?: RankedEntry | null;
   qrMode?: string;
   qrSize?: number;
-  qrPosition?: string;
+  qrPosition?: 'top-center' | 'bottom-center';
   /** v2.13.12 — pixels of QR that overlap the card's bottom edge (bottom-anchored
    *  positions only). Defaults to 10 when omitted. */
-  qrOverlapPx?: number;
+  qrOffsetPx?: number;
   cardBgFill?: boolean;
   cardSpacing?: number;
   titleFontSize?: number;
@@ -58,8 +59,8 @@ export default function CardRouter({
   viewerEntry,
   qrMode = 'disabled',
   qrSize = 30,
-  qrPosition = 'top-right',
-  qrOverlapPx = 10,
+  qrPosition = 'top-center',
+  qrOffsetPx = DEFAULT_QR_OFFSET_PX,
   cardBgFill = false,
   titleFontSize,
   gameTitleStyle,
@@ -80,7 +81,7 @@ export default function CardRouter({
     qrMode,
     qrSize,
     qrPosition,
-    qrOverlapPx,
+    qrOffsetPx,
     cardBgFill,
     titleFontSize,
     gameTitleStyle,

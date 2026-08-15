@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { deriveScoreboardConfig, getCardWidth } from '../scoreboardConfig';
+import { deriveScoreboardConfig, getCardWidth, normalizeQrPosition, deriveQrOffsetPx, qrEdgeMetrics, DEFAULT_QR_OFFSET_PX } from '../scoreboardConfig';
 
 // S21 — first coverage for scoreboardConfig.ts. Covers the mobileScale
 // opt-in-densifier default flip (0.85 -> 1.0), the new kioskZoom fallback
@@ -175,6 +175,74 @@ describe('deriveScoreboardConfig', () => {
       expect(deriveScoreboardConfig({ SCOREBOARD_CARD_BG_FILL: 'false' }).cardBgFill).toBe(false);
       expect(deriveScoreboardConfig({ SCOREBOARD_CARD_BG_FILL: 'true' }).cardBgFill).toBe(true);
       expect(deriveScoreboardConfig({ SCOREBOARD_CARD_BG_FILL: 'anything-else' }).cardBgFill).toBe(true);
+    });
+  });
+  /**
+   * Owner call, 2026-08-15: the QR anchors to an EDGE and is always centred
+   * horizontally, and its distance from that edge is a SIGNED offset —
+   * negative overlaps the border, positive pushes it away. The old vocabulary
+   * (top-right / bottom-right / bottom-center + an unsigned "overlap" that
+   * clamped at zero) is folded in at read time, not migrated.
+   */
+  describe('QR anchor + offset', () => {
+    it('folds the retired corner positions onto the same edge', () => {
+      expect(normalizeQrPosition('top-right')).toBe('top-center');
+      expect(normalizeQrPosition('bottom-right')).toBe('bottom-center');
+      // A room that chose the bottom must not silently jump to the top.
+      expect(normalizeQrPosition('bottom-center')).toBe('bottom-center');
+      expect(normalizeQrPosition('top-center')).toBe('top-center');
+    });
+
+    it('defaults to the top edge for unset or unrecognised values', () => {
+      expect(normalizeQrPosition(undefined)).toBe('top-center');
+      expect(normalizeQrPosition('')).toBe('top-center');
+      expect(normalizeQrPosition('somewhere-else')).toBe('top-center');
+    });
+
+    it('defaults the offset to a 10px overlap, matching the old fixed behaviour', () => {
+      expect(DEFAULT_QR_OFFSET_PX).toBe(-10);
+      expect(deriveQrOffsetPx({})).toBe(-10);
+      expect(deriveScoreboardConfig({}).qrOffsetPx).toBe(-10);
+    });
+
+    it('negates the legacy unsigned overlap key when only that is stored', () => {
+      expect(deriveQrOffsetPx({ SCOREBOARD_QR_OVERLAP_PX: '6' })).toBe(-6);
+      expect(deriveQrOffsetPx({ SCOREBOARD_QR_OVERLAP_PX: '0' })).toBe(0);
+    });
+
+    it('lets the new signed key win, including positive values the old one could not express', () => {
+      expect(deriveQrOffsetPx({ SCOREBOARD_QR_OFFSET_PX: '14', SCOREBOARD_QR_OVERLAP_PX: '6' })).toBe(14);
+      expect(deriveQrOffsetPx({ SCOREBOARD_QR_OFFSET_PX: '-2' })).toBe(-2);
+      expect(deriveQrOffsetPx({ SCOREBOARD_QR_OFFSET_PX: '0' })).toBe(0);
+    });
+
+    it('splits a negative offset into overlap-inside and hang-outside', () => {
+      const m = qrEdgeMetrics(30, true, 'bottom-center', -10);
+      expect(m.peek).toBe(10);     // sits inside the card
+      expect(m.outside).toBe(20);  // hangs past the edge
+      expect(m.footerExtra).toBe(14);
+    });
+
+    it('treats a positive offset as a gap with nothing inside the card', () => {
+      const m = qrEdgeMetrics(30, true, 'bottom-center', 12);
+      expect(m.peek).toBe(0);
+      expect(m.outside).toBe(42);
+      expect(m.footerExtra).toBe(0);
+    });
+
+    it('adds no footer padding for a TOP-anchored QR — it overlaps the header, not the footer', () => {
+      expect(qrEdgeMetrics(30, true, 'top-center', -10).footerExtra).toBe(0);
+      expect(qrEdgeMetrics(30, true, 'top-center', -10).peek).toBe(10);
+    });
+
+    it('collapses to zero when QR is off or sizeless', () => {
+      expect(qrEdgeMetrics(30, false, 'bottom-center', -10)).toEqual({ outside: 0, peek: 0, footerExtra: 0 });
+      expect(qrEdgeMetrics(0, true, 'bottom-center', -10)).toEqual({ outside: 0, peek: 0, footerExtra: 0 });
+    });
+
+    it('never lets the overlap exceed the QR itself', () => {
+      expect(qrEdgeMetrics(20, true, 'bottom-center', -500).peek).toBe(20);
+      expect(qrEdgeMetrics(20, true, 'bottom-center', -500).outside).toBe(0);
     });
   });
 });

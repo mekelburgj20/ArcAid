@@ -1204,6 +1204,62 @@ select option {
   letter-spacing: 0.08em;
 }
 
+/* ── Global-Scoreboard-matched title styles (owner ask, 2026-08-15) ──
+   The existing title styles predate the Global Scoreboard and use their own
+   palette; these five borrow the `--sb-neon-*` tokens the Global cards
+   already wear, so a room running the Arcade look can pick a game title that
+   belongs to the same design system instead of clashing with it. Deliberately
+   token-based, not literal hex, so a palette change carries through. */
+.title-arcade-red {
+  color: var(--sb-neon-real);
+  text-shadow: 0 0 8px color-mix(in oklab, var(--sb-neon-real) 70%, transparent),
+               0 0 22px color-mix(in oklab, var(--sb-neon-real) 45%, transparent);
+  letter-spacing: 0.04em;
+}
+
+.title-arcade-cyan {
+  color: var(--sb-neon-simulation);
+  text-shadow: 0 0 8px color-mix(in oklab, var(--sb-neon-simulation) 70%, transparent),
+               0 0 22px color-mix(in oklab, var(--sb-neon-simulation) 45%, transparent);
+  letter-spacing: 0.04em;
+}
+
+.title-arcade-amber {
+  color: var(--sb-neon-arcade_style);
+  text-shadow: 0 0 8px color-mix(in oklab, var(--sb-neon-arcade_style) 70%, transparent),
+               0 0 22px color-mix(in oklab, var(--sb-neon-arcade_style) 45%, transparent);
+  letter-spacing: 0.04em;
+}
+
+.title-arcade-green {
+  color: var(--sb-neon-video);
+  text-shadow: 0 0 8px color-mix(in oklab, var(--sb-neon-video) 70%, transparent),
+               0 0 22px color-mix(in oklab, var(--sb-neon-video) 45%, transparent);
+  letter-spacing: 0.04em;
+}
+
+/* Sweeps the full fidelity palette — the type equivalent of the Holo Steps
+   podium the Arcade/Showcase families default to. */
+.title-holo {
+  background: linear-gradient(
+    90deg,
+    var(--sb-neon-simulation),
+    var(--sb-neon-video),
+    var(--sb-neon-arcade_style),
+    var(--sb-neon-real),
+    var(--sb-neon-simulation)
+  );
+  background-size: 250% 100%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: holo-title-sweep 7s linear infinite;
+}
+@keyframes holo-title-sweep {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 250% 50%; }
+}
+
 .title-shadow {
   color: var(--color-primary);
   text-shadow: 3px 3px 6px rgba(0,0,0,0.8), 0 0 2px rgba(0,0,0,0.5);
@@ -1602,6 +1658,7 @@ select option {
   .title-glow,
   .title-fire,
   .title-plasma,
+  .title-holo,
   .pulse {
     animation: none;
   }

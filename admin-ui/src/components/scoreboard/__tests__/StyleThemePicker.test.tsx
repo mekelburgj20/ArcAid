@@ -113,7 +113,7 @@ describe('StyleThemePicker', () => {
     const written = onChange.mock.calls.map(([key]) => key);
     for (const forbidden of [
       'SCOREBOARD_TITLE', 'LOGO_URL', 'SCOREBOARD_BG_URL',
-      'SCOREBOARD_GAME_TITLE_STYLE', 'SCOREBOARD_QR_MODE', 'SCOREBOARD_ZOOM',
+      'SCOREBOARD_GAME_TITLE_STYLE', 'SCOREBOARD_QR_MODE', 'SCOREBOARD_MOBILE_SCALE',
     ]) {
       expect(written).not.toContain(forbidden);
     }

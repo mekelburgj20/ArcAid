@@ -2342,6 +2342,10 @@ async function doInitDatabase(): Promise<Database> {
             const { seedArcadeStyleForLegacyRooms } = await import('./migrations/seedArcadeStyle.js');
             await seedArcadeStyleForLegacyRooms(db);
         } },
+        { name: '145_clear_mobile_vertical_opt_out', handler: async (db) => {
+            const { clearMobileVerticalOptOut } = await import('./migrations/clearMobileVerticalOptOut.js');
+            await clearMobileVerticalOptOut(db);
+        } },
     ];
 
     for (const migration of migrations) {
