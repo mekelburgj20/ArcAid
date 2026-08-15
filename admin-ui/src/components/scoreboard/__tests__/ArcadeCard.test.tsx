@@ -224,11 +224,34 @@ describe('ArcadeCard — QR block', () => {
     expect(container.querySelector('canvas')).toBeNull();
   });
 
-  it('renders one QR for each enabled position', () => {
-    for (const qrPosition of ['top-right', 'bottom-right', 'bottom-center']) {
+  // Owner call, 2026-08-15: the QR anchors to an EDGE, always horizontally
+  // centred. The old corner variants were folded into these two.
+  it('renders one QR for each enabled edge', () => {
+    for (const qrPosition of ['top-center', 'bottom-center'] as const) {
       const view = renderCard(makeLb(), { qrMode: 'all', qrPosition, qrSize: 40 });
       expect(view.container.querySelectorAll('canvas')).toHaveLength(1);
       view.unmount();
     }
+  });
+
+  it('centres the QR horizontally at both edges', () => {
+    for (const qrPosition of ['top-center', 'bottom-center'] as const) {
+      const view = renderCard(makeLb(), { qrMode: 'all', qrPosition, qrSize: 40 });
+      const box = view.container.querySelector('canvas')!.parentElement as HTMLElement;
+      expect(box.style.justifyContent).toBe('center');
+      view.unmount();
+    }
+  });
+
+  it('applies the signed offset to the anchored edge — negative overlaps', () => {
+    const top = renderCard(makeLb(), { qrMode: 'all', qrPosition: 'top-center', qrSize: 40, qrOffsetPx: -10 });
+    const topBox = top.container.querySelector('canvas')!.parentElement as HTMLElement;
+    expect(topBox.style.marginBottom).toBe('-10px');
+    top.unmount();
+
+    const bottom = renderCard(makeLb(), { qrMode: 'all', qrPosition: 'bottom-center', qrSize: 40, qrOffsetPx: 12 });
+    const bottomBox = bottom.container.querySelector('canvas')!.parentElement as HTMLElement;
+    expect(bottomBox.style.marginTop).toBe('12px');
+    bottom.unmount();
   });
 });

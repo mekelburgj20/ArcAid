@@ -7,7 +7,7 @@ import PlayerNameLink from '../PlayerNameLink';
 import FitRowName from './FitRowName';
 import GameInfoPopup from './GameInfoPopup';
 import { useScoreExpand } from './useScoreExpand';
-import { qrBottomMetrics } from '../../lib/scoreboardConfig';
+import { qrEdgeMetrics, DEFAULT_QR_OFFSET_PX } from '../../lib/scoreboardConfig';
 import { formatScore } from '../../lib/format';
 import { resolveRowClick, opensQuickView, QUICK_VIEW_HINT } from '../../lib/scoreGesture';
 
@@ -22,8 +22,9 @@ interface MinimalCardProps {
   viewerEntry?: RankedEntry | null;
   qrMode?: string;
   qrSize?: number;
-  qrPosition?: string;
-  qrOverlapPx?: number;
+  qrPosition?: 'top-center' | 'bottom-center';
+  /** Signed distance from the anchored edge; negative overlaps into the card. */
+  qrOffsetPx?: number;
   cardBgFill?: boolean;
   titleFontSize?: number;
   gameTitleStyle?: string;
@@ -46,8 +47,8 @@ export default function MinimalCard({
   viewerEntry,
   qrMode = 'disabled',
   qrSize = 30,
-  qrPosition = 'top-right',
-  qrOverlapPx = 10,
+  qrPosition = 'top-center',
+  qrOffsetPx = DEFAULT_QR_OFFSET_PX,
   cardBgFill = false,
   titleFontSize,
   gameTitleStyle = 'default',
@@ -110,7 +111,7 @@ export default function MinimalCard({
   })();
 
   const showQr = qrMode !== 'disabled';
-  const qrMetrics = qrBottomMetrics(qrSize, showQr, qrPosition, qrOverlapPx);
+  const qrMetrics = qrEdgeMetrics(qrSize, showQr, qrPosition, qrOffsetPx);
 
   return (
     // S21 — scoreboard-card-slot: forces width:100% at <=640px (see
@@ -119,9 +120,13 @@ export default function MinimalCard({
     // width the mobile CSS override wouldn't have anything to widen —
     // the class supplies the mobile-only width:100% that's otherwise missing.
     <div className="scoreboard-card-slot" style={{ position: 'relative', maxWidth: 380 }}>
-      {/* QR code — top-right, above the card */}
-      {showQr && qrPosition === 'top-right' && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}>
+      {/* QR — top edge, horizontally centred. In flow (not absolute) so the
+          slot reserves the space itself: a box of `qrSize` with a marginBottom
+          of `qrOffsetPx` leaves exactly `qrSize + qrOffsetPx` above the card.
+          A negative offset therefore pulls the QR down over the card's top
+          edge; a positive one opens a gap. */}
+      {showQr && qrPosition === 'top-center' && (
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: qrOffsetPx, position: 'relative', zIndex: 15 }}>
           <GameQRCode slug={slug} gameId={lb.gameId} size={qrSize} />
         </div>
       )}
@@ -296,16 +301,11 @@ export default function MinimalCard({
       </div>
 
     </div>
-      {/* QR code — bottom-right. v2.13.12 — negative marginTop pulls QR up by
-          `peek` px, overlapping the card's bottom edge by `qrOverlapPx`. */}
-      {showQr && qrPosition === 'bottom-right' && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: -qrMetrics.peek, position: 'relative', zIndex: 15 }}>
-          <GameQRCode slug={slug} gameId={lb.gameId} size={qrSize} />
-        </div>
-      )}
-      {/* QR code — bottom-center, peeks `qrOverlapPx` pixels into the card. */}
+      {/* QR — bottom edge, horizontally centred. Mirrors the top placement:
+          marginTop of `qrOffsetPx` means a negative offset overlaps the card's
+          bottom edge and a positive one pushes the QR away from it. */}
       {showQr && qrPosition === 'bottom-center' && (
-        <div style={{ position: 'absolute', bottom: -qrMetrics.overhang, left: '50%', transform: 'translateX(-50%)', zIndex: 15 }}>
+        <div style={{ display: 'flex', justifyContent: 'center', marginTop: qrOffsetPx, position: 'relative', zIndex: 15 }}>
           <GameQRCode slug={slug} gameId={lb.gameId} size={qrSize} />
         </div>
       )}

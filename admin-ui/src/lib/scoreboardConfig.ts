@@ -60,11 +60,20 @@ export interface ScoreboardConfig {
   requirePhoto: boolean;
   qrMode: string;
   qrSize: number;
-  qrPosition: string;            // 'top-right' | 'bottom-right' | 'bottom-center'
-  /** v2.13.12 — pixels of QR that overlap the card's bottom edge (only applies
-   *  to bottom-anchored positions). 0 = QR touches the bottom edge from below;
-   *  higher = more of the QR sits inside the card. Default 10. */
-  qrOverlapPx: number;
+  /**
+   * Owner call, 2026-08-15: the QR anchors to an EDGE, always horizontally
+   * centred. `'top-center' | 'bottom-center'` — the old right-aligned variants
+   * are folded into these at read time (see `normalizeQrPosition`).
+   */
+  qrPosition: 'top-center' | 'bottom-center';
+  /**
+   * Signed distance from the anchored card edge, in px. NEGATIVE means the QR
+   * overlaps INTO the card by that many pixels; positive pushes it further
+   * away. Default -10, which reproduces the previous behaviour exactly (the
+   * old `SCOREBOARD_QR_OVERLAP_PX` counted the same 10px with the opposite
+   * sign, and is still honoured as the fallback).
+   */
+  qrOffsetPx: number;
   gameTitleStyle: string;         // same options as titleStyle (glow, fire, plasma, etc.)
   bgBehindTitle: boolean;         // true when bgMode is 'fill-entire' — bg image extends behind title
   mobileVertical: boolean;        // true = force vertical scroll on mobile (default), false = keep desktop layout
@@ -73,6 +82,55 @@ export interface ScoreboardConfig {
    *  else SCOREBOARD_ZOOM, else 100. Gated off at <=640px (see item 2's zoom
    *  gate) — phones always render at natural scale regardless of this value. */
   kioskZoom: number;
+}
+
+/**
+ * Read-time shim for the QR anchor (owner call, 2026-08-15).
+ *
+ * The QR used to be placeable top-right, bottom-right or bottom-center. It is
+ * now an EDGE choice, always horizontally centred — a QR hanging off one
+ * corner reads as a mistake, and the two right-aligned variants existed only
+ * because the centred one was added later.
+ *
+ * Stored right-aligned values fold onto the same edge rather than resetting to
+ * a default, so no room silently moves its QR from the bottom to the top.
+ * Rows upgrade to the new vocabulary the next time an admin saves; nothing
+ * needs a migration to render correctly in the meantime. Same doctrine as
+ * `parseTournamentRules` on the backend.
+ */
+export function normalizeQrPosition(stored: string | undefined): 'top-center' | 'bottom-center' {
+  switch (stored) {
+    case 'bottom-center':
+    case 'bottom-right':
+      return 'bottom-center';
+    case 'top-center':
+    case 'top-right':
+      return 'top-center';
+    default:
+      return 'top-center';
+  }
+}
+
+/** Default signed offset — negative overlaps into the card. Reproduces the
+ *  previous fixed 10px overlap. */
+export const DEFAULT_QR_OFFSET_PX = -10;
+
+/**
+ * Signed edge offset, superseding the unsigned `SCOREBOARD_QR_OVERLAP_PX`.
+ *
+ * The old key could only express "how far INSIDE the card" and was clamped at
+ * zero, so an admin could never push the QR away from the edge. The new key is
+ * signed: negative overlaps, positive separates. When only the legacy key is
+ * stored we negate it, which is an exact behavioural match.
+ */
+export function deriveQrOffsetPx(config: Record<string, string>): number {
+  const explicit = parseInt(config.SCOREBOARD_QR_OFFSET_PX ?? '', 10);
+  if (Number.isFinite(explicit)) return explicit;
+  const legacy = parseInt(config.SCOREBOARD_QR_OVERLAP_PX ?? '', 10);
+  // `|| 0` normalises the -0 that negating a zero overlap would otherwise
+  // produce — harmless in layout maths, confusing in a stored value.
+  if (Number.isFinite(legacy)) return -Math.max(0, legacy) || 0;
+  return DEFAULT_QR_OFFSET_PX;
 }
 
 /**
@@ -93,6 +151,10 @@ export const TOGGLE_DEFAULT_ON = new Set([
   // Owner call, 2026-08-15 — both default ON product-wide.
   'SCOREBOARD_MOBILE_VERTICAL',
   'SCOREBOARD_CARD_BG_FILL',
+  // Not a scoreboard "feature" toggle but the same default-on rule: the logo
+  // shows unless a room or viewer turns it off. Surfaced to viewers inverted,
+  // as "Hide Game Room Logo".
+  'SCOREBOARD_LOGO_ENABLED',
 ]);
 
 /**
@@ -137,7 +199,22 @@ export function deriveScoreboardConfig(config: Record<string, string>, roomName?
       ? config.SCOREBOARD_PODIUM_VARIANT
       : 'holo-steps') as PodiumVariant,
     maxScores: parseInt(config.SCOREBOARD_MAX_SCORES || '5', 10) || 5,
-    minScores: parseInt(config.SCOREBOARD_MIN_SCORES || '20', 10) || 20,
+    // Owner report, 2026-08-15: "'Scores per card' and 'Min Card Height' are
+    // redundant or may even conflict."
+    //
+    // They are different things — max = how many rows to RENDER, min = how much
+    // height to RESERVE, in row units — but the old fixed default of 20 made
+    // them fight: every card reserved twenty rows of height while showing five,
+    // which is where the dead space under the scores came from. It also meant
+    // raising "Scores per card" appeared to do nothing to card height.
+    //
+    // The minimum now TRACKS the maximum unless an admin pins it. Cards size to
+    // what they show; a room that wants a taller uniform grid can still say so.
+    minScores: (() => {
+      const stored = parseInt(config.SCOREBOARD_MIN_SCORES || '', 10);
+      if (Number.isFinite(stored) && stored > 0) return stored;
+      return parseInt(config.SCOREBOARD_MAX_SCORES || '5', 10) || 5;
+    })(),
     showTimer: config.SCOREBOARD_SHOW_TIMER !== 'false',
     // Owner call, 2026-08-15: default ON. Was `=== 'true'` (default off), which
     // left every room's cards showing table art only in the header strip
@@ -178,11 +255,8 @@ export function deriveScoreboardConfig(config: Record<string, string>, roomName?
     qrMode: config.SCOREBOARD_QR_MODE || 'disabled',
     // v2.13.12 — default size bumped 24 → 30 (~25% larger) for better phone scanning.
     qrSize: parseInt(config.SCOREBOARD_QR_SIZE || '30', 10) || 30,
-    qrPosition: config.SCOREBOARD_QR_POSITION || 'top-right',
-    qrOverlapPx: (() => {
-      const raw = parseInt(config.SCOREBOARD_QR_OVERLAP_PX || '10', 10);
-      return Number.isFinite(raw) ? Math.max(0, raw) : 10;
-    })(),
+    qrPosition: normalizeQrPosition(config.SCOREBOARD_QR_POSITION),
+    qrOffsetPx: deriveQrOffsetPx(config),
     gameTitleStyle: config.SCOREBOARD_GAME_TITLE_STYLE || 'default',
     bgBehindTitle: (config.SCOREBOARD_BG_MODE || 'cover') === 'fill-entire',
     mobileVertical: config.SCOREBOARD_MOBILE_VERTICAL !== 'false',
@@ -205,40 +279,42 @@ export function getCardWidth(style: ScoreboardStyle): number {
 }
 
 /**
- * Geometry for bottom-anchored QR placements (`bottom-center` and `bottom-right`).
- * The QR straddles the card's bottom edge: `overlapPx` of it sits inside the
- * card, the rest hangs below.
+ * QR edge geometry (owner call, 2026-08-15).
+ *
+ * The QR anchors to the card's top or bottom edge, horizontally centred, and
+ * `offsetPx` is its SIGNED distance from that edge:
+ *
+ *   offsetPx = -10  →  10px of the QR sits INSIDE the card, the rest hangs off
+ *   offsetPx =   0  →  the QR touches the edge from outside
+ *   offsetPx = +12  →  a 12px gap between the card edge and the QR
  *
  * Returns:
- *   - `overhang`     px below the card baseline (used for marginBottom on the
- *                    layout wrapper AND for `bottom: -overhang` on the
- *                    absolutely-positioned bottom-center QR, AND for the
- *                    negative marginTop trick on bottom-right). Equals
- *                    `qrSize - peek`.
- *   - `peek`         px of QR visible inside the card. Equals `overlapPx`
- *                    clamped to `[0, qrSize]`.
- *   - `footerExtra`  extra bottom padding for the footer to clear the peek.
+ *   - `outside`     px the QR extends BEYOND the card edge. The layout must
+ *                   reserve this much room on that side, and the absolutely
+ *                   positioned QR uses it as its negative `top`/`bottom`.
+ *   - `peek`        px of QR visible inside the card (0 unless offset < 0).
+ *   - `footerExtra` extra padding so card content clears the peek.
  *
- * v2.13.12 — refactored to take `overlapPx` as a user-controlled parameter
- * (was hardcoded to min(4, qrSize * 0.1)) and to apply to bottom-right as well
- * as bottom-center (was bottom-center only). Default overlap = 10px.
+ * Replaces `qrBottomMetrics`, which only understood bottom edges and could not
+ * express a positive gap (its `overlapPx` was clamped at zero).
  */
-export function qrBottomMetrics(
+export function qrEdgeMetrics(
   qrSize: number,
   qrEnabled: boolean,
-  qrPosition: string,
-  overlapPx: number = 10,
-): { overhang: number; peek: number; footerExtra: number } {
-  // Only bottom-anchored positions need overhang reservation.
-  if (!qrEnabled || qrSize <= 0 || (qrPosition !== 'bottom-center' && qrPosition !== 'bottom-right')) {
-    return { overhang: 0, peek: 0, footerExtra: 0 };
+  qrPosition: 'top-center' | 'bottom-center' = 'top-center',
+  offsetPx: number = DEFAULT_QR_OFFSET_PX,
+): { outside: number; peek: number; footerExtra: number } {
+  if (!qrEnabled || qrSize <= 0) {
+    return { outside: 0, peek: 0, footerExtra: 0 };
   }
-  const peek = Math.max(0, Math.min(qrSize, overlapPx));
-  const overhang = Math.max(0, qrSize - peek);
+  const peek = Math.max(0, Math.min(qrSize, -offsetPx));
+  const outside = Math.max(0, qrSize + offsetPx);
   return {
-    overhang,
+    outside,
     peek,
-    footerExtra: Math.round(peek) + 4,
+    // Only a BOTTOM-anchored QR overlaps the footer; a top-anchored one
+    // overlaps the header art, which needs no padding.
+    footerExtra: qrPosition === 'bottom-center' && peek > 0 ? Math.round(peek) + 4 : 0,
   };
 }
 

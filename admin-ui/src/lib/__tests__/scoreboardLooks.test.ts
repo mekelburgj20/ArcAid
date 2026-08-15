@@ -34,7 +34,7 @@ describe('LOOK_DEFINITIONS', () => {
     for (const forbidden of [
       'SCOREBOARD_TITLE', 'LOGO_URL', 'SCOREBOARD_BG_URL',
       'SCOREBOARD_GAME_TITLE_STYLE', 'SCOREBOARD_TITLE_STYLE',
-      'SCOREBOARD_QR_MODE', 'SCOREBOARD_MOBILE_SCALE', 'SCOREBOARD_ZOOM',
+      'SCOREBOARD_QR_MODE', 'SCOREBOARD_MOBILE_SCALE',
       'SCOREBOARD_RANKINGS_STYLE',
     ]) {
       expect(everyKeyWritten).not.toContain(forbidden);
@@ -47,6 +47,16 @@ describe('LOOK_DEFINITIONS', () => {
       // The bug this fixes: MIN_SCORES defaults to 20, so a card reserves
       // twenty rows of height no matter how few scores it shows.
       expect(look.settings.SCOREBOARD_MIN_SCORES).toBe(look.settings.SCOREBOARD_MAX_SCORES);
+    }
+  });
+
+  // Owner call, 2026-08-15 ("set default Zoom to 100%"). Page zoom scales the
+  // WHOLE scoreboard, so a stray value renders every Look at the wrong size —
+  // picking a Look should hand it to you at 1:1. It is therefore in the bundle
+  // even though other display-tuning keys (mobile density, QR) are not.
+  it('resets page zoom to 100% on every Look', () => {
+    for (const look of LOOK_DEFINITIONS) {
+      expect(look.settings.SCOREBOARD_ZOOM).toBe('100');
     }
   });
 
@@ -86,7 +96,7 @@ describe('computeActiveLook', () => {
       SCOREBOARD_STYLE: 'banner',
       SCOREBOARD_QR_SIZE: '48',
       SCOREBOARD_GAME_TITLE_STYLE: 'fire',
-      SCOREBOARD_ZOOM: '130',
+      SCOREBOARD_MOBILE_SCALE: '0.8',
     })).toBe('banner');
   });
 

@@ -32,7 +32,7 @@ stubResizeObserver();
 
 const CARD_PROPS = [
   'style', 'theme', 'maxScores', 'minScores', 'showTimer', 'cardBgFill',
-  'titleFontSize', 'qrMode', 'qrSize', 'qrPosition', 'qrOverlapPx',
+  'titleFontSize', 'qrMode', 'qrSize', 'qrPosition', 'qrOffsetPx',
   'gameTitleStyle', 'roomId', 'slug',
 ] as const;
 
@@ -208,14 +208,14 @@ describe('admin Leaderboard mirrors the public Scoreboard', () => {
       SCOREBOARD_QR_MODE: 'all',
       SCOREBOARD_QR_SIZE: '44',
       SCOREBOARD_QR_POSITION: 'bottom-center',
-      SCOREBOARD_QR_OVERLAP_PX: '6',
+      SCOREBOARD_QR_OFFSET_PX: '-6',
     };
     const publicCard = await readCard('public', config);
     const adminCard = await readCard('admin', config);
 
     // The old admin copy never passed any of these, so its cards had no QR.
     expect(adminCard.props).toMatchObject({
-      qrMode: 'all', qrSize: 44, qrPosition: 'bottom-center', qrOverlapPx: 6,
+      qrMode: 'all', qrSize: 44, qrPosition: 'bottom-center', qrOffsetPx: -6,
     });
     expect(adminCard.props).toEqual(publicCard.props);
   });

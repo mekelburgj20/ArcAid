@@ -26,6 +26,13 @@ const DESKTOP_WIDTH = 1100;
 /** iPhone 14/15 logical width — the narrowest mainstream phone we care about. */
 const PHONE_WIDTH = 390;
 
+/**
+ * Twelve rows per game, deliberately. The old mocks carried 3-5, which is
+ * FEWER than the "Scores per card" setting can be raised to — so an admin who
+ * increased it saw the preview not move and reasonably concluded the control
+ * was broken (owner field report, 2026-08-15). A preview must have more data
+ * than the maximum any control can ask it to show.
+ */
 const MOCK_LEADERBOARDS: GameLeaderboard[] = [
   {
     gameId: 'preview-1',
@@ -45,7 +52,14 @@ const MOCK_LEADERBOARDS: GameLeaderboard[] = [
       { rank: 2, discord_user_id: '', iscored_username: 'PinWizard42', score: 456_123_789 },
       { rank: 3, discord_user_id: '', iscored_username: 'FlipperKing', score: 123_456_789 },
       { rank: 4, discord_user_id: '', iscored_username: 'SilverBallSam', score: 98_765_432 },
-      { rank: 5, discord_user_id: '', iscored_username: 'NovicePlayer', score: 1_234_567 },
+      { rank: 5, discord_user_id: '', iscored_username: 'NovicePlayer', score: 87_650_000 },
+      { rank: 6, discord_user_id: '', iscored_username: 'RampChamp', score: 74_200_100 },
+      { rank: 7, discord_user_id: '', iscored_username: 'SpinnerSue', score: 61_004_800 },
+      { rank: 8, discord_user_id: '', iscored_username: 'BumperQueen', score: 52_310_990 },
+      { rank: 9, discord_user_id: '', iscored_username: 'TiltMaster', score: 41_887_300 },
+      { rank: 10, discord_user_id: '', iscored_username: 'MultiballMax', score: 33_450_120 },
+      { rank: 11, discord_user_id: '', iscored_username: 'PlungerPete', score: 22_119_540 },
+      { rank: 12, discord_user_id: '', iscored_username: 'NoviceNed', score: 1_234_567 },
     ],
   },
   {
@@ -65,6 +79,15 @@ const MOCK_LEADERBOARDS: GameLeaderboard[] = [
       { rank: 1, discord_user_id: '', iscored_username: 'BumperQueen', score: 876_543_210 },
       { rank: 2, discord_user_id: '', iscored_username: 'TiltMaster', score: 654_321_098 },
       { rank: 3, discord_user_id: '', iscored_username: 'MultiballMax', score: 432_109_876 },
+      { rank: 4, discord_user_id: '', iscored_username: 'DragonSlayer', score: 388_400_000 },
+      { rank: 5, discord_user_id: '', iscored_username: 'FlipperKing', score: 301_255_400 },
+      { rank: 6, discord_user_id: '', iscored_username: 'ZoneRunner', score: 274_980_100 },
+      { rank: 7, discord_user_id: '', iscored_username: 'PinWizard42', score: 210_004_600 },
+      { rank: 8, discord_user_id: '', iscored_username: 'SilverBallSam', score: 155_700_250 },
+      { rank: 9, discord_user_id: '', iscored_username: 'RampChamp', score: 98_320_000 },
+      { rank: 10, discord_user_id: '', iscored_username: 'PlungerPete', score: 44_110_800 },
+      { rank: 11, discord_user_id: '', iscored_username: 'SpinnerSue', score: 21_900_400 },
+      { rank: 12, discord_user_id: '', iscored_username: 'NoviceNed', score: 3_400_120 },
     ],
   },
   {
@@ -85,6 +108,14 @@ const MOCK_LEADERBOARDS: GameLeaderboard[] = [
       { rank: 2, discord_user_id: '', iscored_username: 'PowerBall99', score: 321_098_765 },
       { rank: 3, discord_user_id: '', iscored_username: 'RampChamp', score: 210_987_654 },
       { rank: 4, discord_user_id: '', iscored_username: 'SpinnerSue', score: 109_876_543 },
+      { rank: 5, discord_user_id: '', iscored_username: 'TiltMaster', score: 96_540_300 },
+      { rank: 6, discord_user_id: '', iscored_username: 'BumperQueen', score: 81_220_770 },
+      { rank: 7, discord_user_id: '', iscored_username: 'DragonSlayer', score: 70_009_940 },
+      { rank: 8, discord_user_id: '', iscored_username: 'MultiballMax', score: 58_640_210 },
+      { rank: 9, discord_user_id: '', iscored_username: 'PinWizard42', score: 44_300_880 },
+      { rank: 10, discord_user_id: '', iscored_username: 'FlipperKing', score: 30_115_600 },
+      { rank: 11, discord_user_id: '', iscored_username: 'SilverBallSam', score: 18_770_400 },
+      { rank: 12, discord_user_id: '', iscored_username: 'NoviceNed', score: 2_004_990 },
     ],
   },
 ];

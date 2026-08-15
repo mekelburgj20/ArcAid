@@ -176,6 +176,25 @@ Load-bearing technical and product decisions are tracked in [`docs/decisions/`](
 
 **Rough effort:** ~2–3 focused days. Gate + read-path redaction ~1d · event suppression ~0.5d · admin setting + sealed card + countdown ~0.5–1d · tests ~0.5d, plus the iScored decision.
 
+### Power-user card + leaderboard customization ("go to town" mode) — owner-asked 2026-08-15, needs a design session
+
+**The ask, in the owner's words.** A `Custom` card where power users "can really go to town" — control over *every aspect of the score card*, within the bounds of the card, plus the ability to style **the whole leaderboard area** (background and so on). The owner explicitly flagged uncertainty about the mechanism: *"I'm not sure CSS styles is the right way to go about this level of customization I'm looking for."* That instinct is worth taking seriously — see below.
+
+**Why raw CSS is the tempting answer and probably the wrong one.**
+- **It cannot be un-broken by us.** A room admin who pastes `position: fixed; inset: 0` or a bad `overflow` hides the submit button, the nav, or the whole scoreboard, and every support conversation becomes "paste your CSS". There is no safe rollback short of an admin-side "reset styles" button we would have to build anyway.
+- **It has no contract with the renderer.** Card internals are class names and DOM shape, not a public API. Any future card change silently breaks every custom room, and we would be unable to tell which rooms broke without rendering them.
+- **It is a security surface.** `url()` fetches, `@import`, and `content` can exfiltrate or deface. Sanitising CSS properly is a real project, not a `replace()`.
+- **It does not survive a redesign.** The whole point of this arc is that per-room appearance debt is what made the settings page unmanageable. Freeform CSS is that debt with no ceiling.
+
+**Three shapes worth designing against (pick in the session).**
+1. **Token editor (recommended starting point).** Expose the card's *design tokens* — surface colour, border colour + width + radius, accent, row background, type scale, art treatment, footer visibility — as typed controls, not text. Renders to CSS variables scoped to the room. Every value is validated, every value is revertible, and the renderer keeps its contract because tokens are the contract. Covers "control every aspect" for most of what an admin actually wants to change, and gives the leaderboard-background ask directly.
+2. **Slot/layout editor.** Beyond colour: which blocks appear on a card (art, title, tournament chip, rank column, avatars, provenance tags, footer), in what order, at what size. Bigger build; this is where "Custom" becomes a real fifth Look rather than a recolour.
+3. **Escape-hatch CSS, deliberately fenced.** If 1+2 still leave a gap: an allowlisted property set, applied inside a scoped container with a hard `contain`, plus a one-click revert and a preview that must render successfully before the value can be saved. Treat as a last resort, not the plan.
+
+**Open questions for the session.** Is Custom a fifth Look, or a modifier available to any Look? Do custom looks belong to the room or to the owner's Style Profiles (P2)? Is there an export/import so a good look can be shared between rooms — and does that make it a template gallery? What is the mobile story (a look tuned at 1400px can be unreadable at 390)? Does the kiosk inherit it?
+
+**Sequencing.** After the style-revamp P2 (profiles) — profiles decide *where a look lives*, and that answer shapes whether custom looks are portable. Prototype the token editor against the Arcade card first, since it is the default and the most structured.
+
 ### Identity & membership arc — owner-approved contract (2026-08-05)
 
 Three phases, in order. Settled in-session with the owner; decisions below are FINAL unless the owner reopens them.

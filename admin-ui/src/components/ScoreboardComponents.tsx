@@ -183,6 +183,12 @@ export function getTitleStyleClass(style: string): string {
     case 'marquee': return 'title-marquee';
     case 'shadow': return 'title-shadow';
     case 'outlined': return 'title-outlined';
+    // Global-Scoreboard-matched set (owner ask, 2026-08-15).
+    case 'arcade-red': return 'title-arcade-red';
+    case 'arcade-cyan': return 'title-arcade-cyan';
+    case 'arcade-amber': return 'title-arcade-amber';
+    case 'arcade-green': return 'title-arcade-green';
+    case 'holo': return 'title-holo';
     default: return '';
   }
 }

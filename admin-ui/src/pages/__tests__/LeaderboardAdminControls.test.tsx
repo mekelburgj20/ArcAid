@@ -237,11 +237,15 @@ describe('Leaderboard admin card controls (legacy card path)', () => {
 
     const strip = await screen.findByTestId('admin-card-controls');
 
-    // The QR overlay is the absolutely-positioned box carrying its own
-    // z-index; it is the only such box inside the card.
+    // The QR overlay is the POSITIONED box carrying its own z-index; it is the
+    // only such box inside the card. (It was `absolute` until the 2026-08-15
+    // QR rework moved the non-Showcase families to an in-flow, `relative` box
+    // so the card slot reserves the QR's space itself. Either way it is
+    // positioned and z-indexed, which is what makes the comparison below
+    // meaningful — so this asserts "not static" rather than a specific value.)
     const qr = container.querySelector('canvas')?.parentElement as HTMLElement;
     expect(qr, 'expected a QR overlay to render for this config').toBeTruthy();
-    expect(qr.style.position).toBe('absolute');
+    expect(['absolute', 'relative']).toContain(qr.style.position);
 
     const qrZ = Number(qr.style.zIndex);
     const stripZ = Number(strip.style.zIndex);

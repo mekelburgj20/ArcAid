@@ -18,6 +18,12 @@ import { DEFAULT_SHOWCASE_THEME, STYLE_LABELS } from './scoreboardThemes';
  * height no matter how few scores it shows. A Look now carries the values
  * that make its family read correctly.
  *
+ * `SCOREBOARD_ZOOM` IS in the bundle (owner call, 2026-08-15: "set default
+ * Zoom to 100%"). Page zoom is a whole-scoreboard scale factor, so a room
+ * carrying a stray value renders every Look at the wrong size — picking a Look
+ * should hand you that Look at 1:1. Kiosk keeps its own KIOSK_ZOOM for
+ * across-the-room TV tuning and is untouched.
+ *
  * WHAT A LOOK DELIBERATELY DOES NOT TOUCH:
  * - Room identity: title text, logo, background image. Same exclusion rule
  *   the P2 style profiles will use — a Look is a look, not a rebrand.
@@ -41,6 +47,7 @@ export const LOOK_KEYS = [
   'SCOREBOARD_MIN_SCORES',
   'SCOREBOARD_CARD_SPACING',
   'SCOREBOARD_CARD_BG_FILL',
+  'SCOREBOARD_ZOOM',
 ] as const;
 
 export type LookKey = typeof LOOK_KEYS[number];
@@ -73,6 +80,7 @@ export const LOOK_DEFINITIONS: LookDefinition[] = [
       SCOREBOARD_MIN_SCORES: '10',
       SCOREBOARD_CARD_SPACING: '24',
       SCOREBOARD_CARD_BG_FILL: 'true',
+      SCOREBOARD_ZOOM: '100',
     },
   },
   {
@@ -88,6 +96,7 @@ export const LOOK_DEFINITIONS: LookDefinition[] = [
       // Banner's identity is its header image, not a full-bleed fill; leaving
       // fill off keeps the score rows legible on busy table art.
       SCOREBOARD_CARD_BG_FILL: 'true',
+      SCOREBOARD_ZOOM: '100',
     },
   },
   {
@@ -102,6 +111,7 @@ export const LOOK_DEFINITIONS: LookDefinition[] = [
       SCOREBOARD_MIN_SCORES: '10',
       SCOREBOARD_CARD_SPACING: '24',
       SCOREBOARD_CARD_BG_FILL: 'true',
+      SCOREBOARD_ZOOM: '100',
     },
   },
   {
@@ -120,6 +130,7 @@ export const LOOK_DEFINITIONS: LookDefinition[] = [
       // render a background when this is on. A Look overriding a product
       // default is the point of Looks; flag it if the owner disagrees.
       SCOREBOARD_CARD_BG_FILL: 'false',
+      SCOREBOARD_ZOOM: '100',
     },
   },
 ];

@@ -6,6 +6,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.110.0] — unreleased
+
+**Style-system revamp Phase 1, complete.** The admin appearance panel goes from ~40 controls behind two nested "show more" disclosures to ~25 in one level, the preview finally renders the real scoreboard, and a Look is one click instead of one setting. Covers three merges (PR #226, #227, and this one).
+
+### Added
+- **The Settings preview renders THE scoreboard.** It was a second, weaker implementation — its own layout code, no room title, no background, no rankings card, no mobile behaviour — so admins tuned settings against a picture that was not the page. It now mounts `ScoreboardSurface`, the same renderer the public page and admin Leaderboard share, plus a sample ranking group (the rankings controls previously previewed as no-ops). Colours resolve from the room's PUBLIC theme, not the admin's own.
+- **Desktop / Phone preview toggle, at a real viewport.** The phone view renders inside a 390px iframe, so every `@media (max-width: 640px)` rule and `matchMedia` read resolves the way it does on an actual handset. A narrow `<div>` would have shown desktop pixels in a phone-shaped box.
+- **Looks** — Arcade · Banner · Showcase · Minimal now apply a complete bundle (style, layout, scores per card, card height, spacing, background fill, page zoom, plus theme and podium where the family has them) instead of a single key. `lib/scoreboardLooks.ts` documents what a Look deliberately does NOT touch: room identity, your title styles, and policy/device settings.
+- **Game Title Style renders each option in its own style** — impossible with a native `<select>`, whose `<option>`s browsers refuse to style, so all twelve looked identical and you picked blind.
+- **Five Global-Scoreboard-matched title styles**: Arcade Red / Cyan / Amber / Green and Holo Sweep, built from the `--sb-neon-*` tokens the Global cards already wear.
+- **"Hide Game Room Logo" for players.** Viewers could hide the room TITLE but not the logo beside it.
+- **QR Code Offset** — a signed distance from the card edge. Negative overlaps the border, positive moves it away.
+
+### Changed
+- **QR placement is an EDGE, always horizontally centred.** `{top-right, bottom-right, bottom-center}` collapses to `{top, bottom}`. Stored right-aligned values keep their edge at read time (`normalizeQrPosition`) rather than resetting, and the unsigned `SCOREBOARD_QR_OVERLAP_PX` folds into the new signed key — no migration needed for either to render correctly.
+- **Card height follows "Scores per card."** `SCOREBOARD_MIN_SCORES` defaulted to 20 while most cards show 5, so every card reserved twenty rows of height — the source of the dead space under the scores. It now tracks the maximum unless an admin pins it.
+- **Card Background Fill defaults ON** (rooms that turned it off keep it off), and **page zoom resets to 100% with each Look** (kiosk keeps its own `KIOSK_ZOOM`).
+- **Branding moved inside the Leaderboard Display card.** Background, logo and title now sit beside the preview that renders them instead of in a separate card below.
+- Advanced-editor prune: "Show more styles" and its nested "Customize" raw-key editor are gone. All ten keys in it are read only by `deriveCardProps`, which runs only when a room has no `SCOREBOARD_STYLE` — impossible since migration 144. The six live keys in that list each already had a real control higher up the card. Dead keys stay claimed by `managedKeys` so they never resurface as raw text inputs in "Other".
+- `PresetSelector` deleted — its five presets wrote the same dead keys and did nothing on any live room.
+
+### Fixed
+- **The scroll-arrow overlay escaping the phone preview.** `HorizontalScrollNav` portalled its `position: fixed` arrows to the TOP-LEVEL `document.body`, so inside the preview iframe they painted across the admin page at the wrong size. Everything now resolves against the owning document — portal target, viewport width, and every listener. The arrows also no longer render below 640px at all: they are a mouse-hover affordance, and a full-height gradient on a 390px screen covers the cards it claims to help you reach. Applies to real phones too.
+- **The viewer preferences panel drew Mobile Vertical Scroll in the wrong position.** The renderer has always defaulted it ON; the modal assumed default-off for every toggle but one, so a viewer saw a switch contradicting the page and the first tap did nothing visible. The default-on set now lives beside the derivation it mirrors, with a parity test walking every boolean pref.
+- **"Scores per card" appeared to do nothing in the preview** — the mock leaderboards carried fewer rows than the setting could be raised to. Now twelve per game.
+
+### Database
+- **Migration 145** deletes stored `SCOREBOARD_MOBILE_VERTICAL = 'false'` rows so every room falls back to the ON default (owner call). Deletes rather than writing `'true'` — absence is what tracks the product default. Rooms that want the desktop layout on phones can toggle it straight back.
+
+Tests: backend 1739 (+6), admin-ui 837 (+55 across the arc). Screenshots: `tmp/settings-preview-shots/`.
+
 ## [2.109.0] — unreleased
 
 **Score gesture model v2 + one-tap photo evidence (owner design, same-day follow-up on v2.108.0's self-delete).**

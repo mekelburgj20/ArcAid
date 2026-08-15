@@ -29,6 +29,9 @@ interface PrefDef {
   max?: number;
   step?: number;
   suffix?: string;
+  /** Renders the switch as the NEGATION of the stored key — for keys named
+   *  "…_ENABLED" surfaced to viewers as "Hide …". */
+  invert?: boolean;
 }
 
 const STYLE_OPTIONS: { value: ScoreboardStyle; label: string; description: string }[] = [
@@ -57,6 +60,11 @@ const THEME_OPTIONS = Object.entries(SHOWCASE_THEMES).map(([id, cfg]) => ({
 const TOGGLE_PREFS: PrefDef[] = [
   { key: 'SCOREBOARD_HIDE_EMPTY', label: 'Hide Empty Games', description: 'Hide game cards with no scores from the scoreboard', type: 'toggle' },
   { key: 'SCOREBOARD_TITLE_HIDDEN', label: 'Hide Game Room Title', description: 'Hide the game room name/heading on the scoreboard', type: 'toggle' },
+  // Owner ask, 2026-08-15 — viewers could already hide the room TITLE but not
+  // the logo beside it. Note the inverted sense: the stored key is
+  // SCOREBOARD_LOGO_ENABLED (default on), so this pref is rendered through
+  // `invert` rather than adding a second key that means the opposite.
+  { key: 'SCOREBOARD_LOGO_ENABLED', label: 'Hide Game Room Logo', description: 'Hide the room logo shown beside the leaderboard title', type: 'toggle', invert: true },
   { key: 'SCOREBOARD_CARD_BG_FILL', label: 'Card Background Fill', description: 'Game background images fill the entire card for an immersive look', type: 'toggle' },
   { key: 'SCOREBOARD_RANKINGS_STICKY', label: 'Always Visible Rankings', description: 'Keep the Overall Rankings card pinned on screen', type: 'toggle' },
   { key: 'SCOREBOARD_SHOW_TIMER', label: 'Show Countdown Timer', description: 'Display time remaining until next rotation', type: 'toggle' },
@@ -104,9 +112,8 @@ const SELECT_PREFS: PrefDef[] = [
   {
     key: 'SCOREBOARD_QR_POSITION', label: 'QR Code Position', type: 'select',
     options: [
-      { value: 'top-right', label: 'Top Right' },
-      { value: 'bottom-right', label: 'Bottom Right' },
-      { value: 'bottom-center', label: 'Bottom Center (Overhang)' },
+      { value: 'top-center', label: 'Top' },
+      { value: 'bottom-center', label: 'Bottom' },
     ],
   },
   {
@@ -123,6 +130,11 @@ const SELECT_PREFS: PrefDef[] = [
       { value: 'retro', label: 'Retro' },
       { value: 'pixel', label: 'Pixel' },
       { value: 'shadow', label: 'Shadow' },
+      { value: 'arcade-red', label: 'Arcade Red' },
+      { value: 'arcade-cyan', label: 'Arcade Cyan' },
+      { value: 'arcade-amber', label: 'Arcade Amber' },
+      { value: 'arcade-green', label: 'Arcade Green' },
+      { value: 'holo', label: 'Holo Sweep' },
       { value: 'outlined', label: 'Outlined' },
     ],
   },
@@ -131,7 +143,7 @@ const SELECT_PREFS: PrefDef[] = [
 // Style-system revamp P0 (item 11) — QR controls are inert on phones (<=640px
 // by design, v2.104.0); grouped under one caption instead of scattered.
 const QR_SELECT_KEYS = new Set(['SCOREBOARD_QR_MODE', 'SCOREBOARD_QR_POSITION']);
-const QR_ADVANCED_KEYS = new Set(['SCOREBOARD_QR_SIZE', 'SCOREBOARD_QR_OVERLAP_PX']);
+const QR_ADVANCED_KEYS = new Set(['SCOREBOARD_QR_SIZE', 'SCOREBOARD_QR_OFFSET_PX']);
 
 const ADVANCED_NUMBER_PREFS: PrefDef[] = [
   { key: 'SCOREBOARD_MAX_SCORES', label: 'Scores Per Card', description: 'Maximum visible scores per game card', type: 'number', min: 1, max: 50 },
@@ -139,7 +151,7 @@ const ADVANCED_NUMBER_PREFS: PrefDef[] = [
   { key: 'SCOREBOARD_CARD_SPACING', label: 'Card Spacing (px)', description: 'Gap between game cards in pixels', type: 'number', min: 0, max: 100 },
   { key: 'SCOREBOARD_TITLE_FONT_SIZE', label: 'Title Font Size (px)', description: '0 = style default. Override game title font size.', type: 'number', min: 0, max: 72 },
   { key: 'SCOREBOARD_QR_SIZE', label: 'QR Code Size (px)', description: 'Size of QR codes on game cards. Default: 30 (~25% larger than legacy 24).', type: 'number', min: 16, max: 200 },
-  { key: 'SCOREBOARD_QR_OVERLAP_PX', label: 'QR Code Bottom Edge Overlap (px)', description: 'For bottom-anchored QR positions: pixels the QR overlaps into the card. 0 = QR touches the bottom edge from below; higher = more of the QR sits inside the card. Default: 10.', type: 'number', min: 0, max: 200 },
+  { key: 'SCOREBOARD_QR_OFFSET_PX', label: 'QR Code Offset (px)', description: 'Distance from the card edge. Negative overlaps the border, positive moves it away. Default: -10.', type: 'number', min: -200, max: 200 },
 ];
 
 const MOBILE_PREFS: PrefDef[] = [
@@ -270,7 +282,8 @@ export default function ScoreboardPreferencesModal({
     // actually getting. SCOREBOARD_MOBILE_VERTICAL was exactly that bug
     // (owner report, 2026-08-15): the renderer has always defaulted it on,
     // while this modal drew it off until a viewer toggled it twice.
-    const isOn = TOGGLE_DEFAULT_ON.has(def.key) ? val !== 'false' : val === 'true';
+    const stored = TOGGLE_DEFAULT_ON.has(def.key) ? val !== 'false' : val === 'true';
+    const isOn = def.invert ? !stored : stored;
     return (
       <div key={def.key} className="flex items-center justify-between py-2">
         <div className="flex-1 mr-4">
@@ -281,7 +294,7 @@ export default function ScoreboardPreferencesModal({
           {def.description && <p className="text-xs text-muted mt-0.5">{def.description}</p>}
         </div>
         <button
-          onClick={() => handleChange(def.key, isOn ? 'false' : 'true')}
+          onClick={() => handleChange(def.key, def.invert ? (isOn ? 'true' : 'false') : (isOn ? 'false' : 'true'))}
           className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer shrink-0 ${
             isOn ? 'bg-neon-cyan' : 'bg-raised border border-border'
           }`}

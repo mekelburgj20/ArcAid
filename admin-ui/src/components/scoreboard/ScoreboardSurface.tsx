@@ -12,7 +12,7 @@ import {
 } from '../ScoreboardComponents';
 import CardRouter from './CardRouter';
 import HorizontalScrollNav from '../HorizontalScrollNav';
-import { deriveCardProps, deriveScoreboardConfig, getCardWidth, qrBottomMetrics } from '../../lib/scoreboardConfig';
+import { deriveCardProps, deriveScoreboardConfig, getCardWidth, qrEdgeMetrics } from '../../lib/scoreboardConfig';
 import { compareByRank } from '../../lib/searchRank';
 
 export interface LeaderboardWithViewer extends GameLeaderboard {
@@ -71,7 +71,7 @@ function useIsMobileViewport(): boolean {
  * documented divergences.
  *
  * The contract: EVERY derivation lives in here (`deriveScoreboardConfig`,
- * `deriveCardProps`, `getCardWidth`, `qrBottomMetrics`), so a consumer cannot
+ * `deriveCardProps`, `getCardWidth`, `qrEdgeMetrics`), so a consumer cannot
  * diverge by computing its own. Consumers supply data and slots only.
  *
  * The public page owns everything AROUND the surface (data fetching, sockets,
@@ -272,16 +272,27 @@ export default function ScoreboardSurface({
   const isMobileViewport = forceMobile ?? realMobileViewport;
   // QR codes above game cards add extra height — rankings card needs matching top margin
   const qrEnabled = !isMobileViewport && (newConfig.qrMode === 'all' || (qrKioskOnlyEnabled && newConfig.qrMode === 'kiosk-only'));
-  const hasQrTop = useNewCards && qrEnabled && newConfig.qrPosition === 'top-right';
-  const rankQrTopPad = hasQrTop ? newConfig.qrSize + 4 : 0;
+  // Ranking cards carry no QR, so when GAME cards reserve room above themselves
+  // for a top-anchored one the rankings would ride higher than the row they sit
+  // in. This pads them by the same amount. `outside` is what the game card's
+  // in-flow QR actually reserves (see qrEdgeMetrics).
+  const hasQrTop = useNewCards && qrEnabled && newConfig.qrPosition === 'top-center';
+  const rankQrTopPad = hasQrTop
+    ? qrEdgeMetrics(newConfig.qrSize, true, 'top-center', newConfig.qrOffsetPx).outside
+    : 0;
   // v2.13.3: bottom-center QR overhangs below the card. The reservation must
   // live on the LAYOUT ITEM (flex/grid wrapper), not the card's inner div —
   // marginBottom on a height:100% child escapes its parent's border-box, so
   // the QR's overhang area was rendered outside the scrollable region and
   // unreachable even at max scroll. Moving the margin up one level makes flex
   // line cross-size and grid track sizing include the QR space.
-  const cardMarginBottom = useNewCards
-    ? qrBottomMetrics(newConfig.qrSize, !isMobileViewport && newConfig.qrMode !== 'disabled', newConfig.qrPosition, newConfig.qrOverlapPx).overhang
+  // The QR now lives IN FLOW inside the card slot at both edges (v2.11x QR
+  // rework), so the slot grows to contain it on its own and this external
+  // reservation would double-count. Showcase is the one family that still
+  // positions its QR absolutely — its shell owns the card height — so the
+  // bottom reservation is kept for that style alone.
+  const cardMarginBottom = useNewCards && newConfig.style === 'showcase'
+    ? qrEdgeMetrics(newConfig.qrSize, !isMobileViewport && newConfig.qrMode !== 'disabled', newConfig.qrPosition, newConfig.qrOffsetPx).outside
     : 0;
 
   // Measure header height so bg image can start below it
@@ -328,7 +339,7 @@ export default function ScoreboardSurface({
         titleFontSize={newConfig.titleFontSize || undefined}
         viewerUsername={viewerUsername} viewerEntry={lb.viewerEntry}
         qrMode={qrEnabled ? 'all' : 'disabled'}
-        qrSize={newConfig.qrSize} qrPosition={newConfig.qrPosition} qrOverlapPx={newConfig.qrOverlapPx}
+        qrSize={newConfig.qrSize} qrPosition={newConfig.qrPosition} qrOffsetPx={newConfig.qrOffsetPx}
         gameTitleStyle={newConfig.gameTitleStyle}
         onSubmitScore={onSubmitScore}
         titleLinkTo={titleLinkTo?.(lb)} titleLinkOnClick={titleLinkOnClick?.(lb)}

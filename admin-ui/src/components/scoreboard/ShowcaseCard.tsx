@@ -9,7 +9,7 @@ import ScoreList from './ScoreList';
 import GameInfoPopup from './GameInfoPopup';
 import { useScoreExpand } from './useScoreExpand';
 import { CircuitBoardBackground, GlowNodes, ScanlineOverlay, PodiumBackground } from './neonCircuitAssets';
-import { qrBottomMetrics } from '../../lib/scoreboardConfig';
+import { qrEdgeMetrics, DEFAULT_QR_OFFSET_PX } from '../../lib/scoreboardConfig';
 
 interface ShowcaseCardProps {
   lb: GameLeaderboard;
@@ -23,8 +23,9 @@ interface ShowcaseCardProps {
   viewerEntry?: RankedEntry | null;
   qrMode?: string;
   qrSize?: number;
-  qrPosition?: string;
-  qrOverlapPx?: number;
+  qrPosition?: 'top-center' | 'bottom-center';
+  /** Signed distance from the anchored edge; negative overlaps into the card. */
+  qrOffsetPx?: number;
   cardBgFill?: boolean;
   titleFontSize?: number;
   gameTitleStyle?: string;
@@ -63,8 +64,8 @@ export default function ShowcaseCard({
   gameTitleStyle = 'default',
   qrMode = 'disabled',
   qrSize = 30,
-  qrPosition = 'top-right',
-  qrOverlapPx = 10,
+  qrPosition = 'top-center',
+  qrOffsetPx = DEFAULT_QR_OFFSET_PX,
   onSubmitScore: _onSubmitScore,  // v2.2.8: unused (title is a Link); kept for CardRouter spread compat
   titleLinkTo,
   titleLinkOnClick,
@@ -114,7 +115,7 @@ export default function ShowcaseCard({
   const floatPadTop = 42;
 
   // Bottom-center QR needs extra bottom margin so next card isn't overlapped
-  const qrMetrics = qrBottomMetrics(qrSize, qrMode !== 'disabled', qrPosition, qrOverlapPx);
+  const qrMetrics = qrEdgeMetrics(qrSize, qrMode !== 'disabled', qrPosition, qrOffsetPx);
 
   return (
     <div style={{ position: 'relative', paddingTop: floatPadTop, maxWidth: '100%' }}>
@@ -408,20 +409,18 @@ export default function ShowcaseCard({
 
       </div>
 
-      {/* QR code — outside the card shell, above or below */}
+      {/* QR code — outside the card shell, anchored to the top or bottom edge
+          and horizontally centred. Showcase keeps its absolute positioning
+          (its shell owns the card's height), so the sign convention is applied
+          to the edge offset directly: `outside` is how far past the edge the
+          QR sits, which a negative `qrOffsetPx` shrinks into an overlap. */}
       {qrMode !== 'disabled' && (
         qrPosition === 'bottom-center' ? (
-          <div style={{ position: 'absolute', bottom: -qrMetrics.overhang, left: '50%', transform: 'translateX(-50%)', zIndex: 15 }}>
-            <GameQRCode slug={slug} gameId={lb.gameId} size={qrSize} />
-          </div>
-        ) : qrPosition === 'bottom-right' ? (
-          // v2.13.12 — negative marginTop pulls QR up by `peek` px, overlapping
-          // the card's bottom edge by `qrOverlapPx` (default 10).
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: -qrMetrics.peek, position: 'relative', zIndex: 15 }}>
+          <div style={{ position: 'absolute', bottom: -qrMetrics.outside, left: '50%', transform: 'translateX(-50%)', zIndex: 15 }}>
             <GameQRCode slug={slug} gameId={lb.gameId} size={qrSize} />
           </div>
         ) : (
-          <div style={{ position: 'absolute', top: Math.max(0, floatPadTop - qrSize - 6), right: 0, zIndex: 5 }}>
+          <div style={{ position: 'absolute', top: -qrMetrics.outside, left: '50%', transform: 'translateX(-50%)', zIndex: 15 }}>
             <GameQRCode slug={slug} gameId={lb.gameId} size={qrSize} />
           </div>
         )
