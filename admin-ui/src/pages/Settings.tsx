@@ -10,10 +10,9 @@ import NeonButton from '../components/NeonButton';
 import ConfirmModal from '../components/ConfirmModal';
 import LoadingState from '../components/LoadingState';
 import { InfoTip } from '../components/Tooltip';
-import PresetSelector from '../components/PresetSelector';
-import type { PresetDefinition } from '../components/PresetSelector';
 import StyleThemePicker from '../components/scoreboard/StyleThemePicker';
 import ScoreboardPreview from '../components/ScoreboardPreview';
+import TitleStyleSelect from '../components/TitleStyleSelect';
 import ImageCropper from '../components/ImageCropper';
 import MemberAdminPicker from '../components/MemberAdminPicker';
 import { resizeImageToMaxBox } from '../lib/imageResize';
@@ -782,10 +781,6 @@ export default function Settings() {
     setSettings(prev => ({ ...prev, [key]: value }));
   };
 
-  const handlePresetSelect = (preset: PresetDefinition) => {
-    setSettings(prev => ({ ...prev, ...preset.settings }));
-  };
-
   const uploadBrandingImage = async (target: 'bg' | 'logo', blob: Blob) => {
     const endpoint = target === 'bg' ? 'background' : 'logo';
     const setUploading = target === 'bg' ? setUploadingBg : setUploadingLogo;
@@ -1367,15 +1362,15 @@ export default function Settings() {
                     <p className="text-sm font-medium text-primary">Game Title Style</p>
                     <p className="text-xs text-muted">Visual style for game name text on score cards</p>
                   </div>
-                  <select
+                  {/* Style-system revamp P1 (owner ask): each option renders in
+                      its own title style — impossible with a native <select>,
+                      whose <option>s ignore text-shadow/gradient/font rules. */}
+                  <TitleStyleSelect
+                    className="w-44 shrink-0"
                     value={settings.SCOREBOARD_GAME_TITLE_STYLE || 'default'}
-                    onChange={e => handleChange('SCOREBOARD_GAME_TITLE_STYLE', e.target.value)}
-                    className="text-sm rounded border border-border bg-raised px-2 py-1 text-primary"
-                  >
-                    {SELECT_OPTIONS.SCOREBOARD_GAME_TITLE_STYLE.map(opt => (
-                      <option key={opt.value} value={opt.value}>{opt.label}</option>
-                    ))}
-                  </select>
+                    onChange={v => handleChange('SCOREBOARD_GAME_TITLE_STYLE', v)}
+                    options={SELECT_OPTIONS.SCOREBOARD_GAME_TITLE_STYLE}
+                  />
                 </div>
 
                 {/* Mobile Vertical Scroll toggle */}
@@ -1412,7 +1407,15 @@ export default function Settings() {
                 </div>
               </div>
 
-              {/* Show more styles — legacy preset selector + fine-grained controls */}
+              {/* Show more styles — fine-grained legacy card controls.
+                  Style-system revamp P1: the legacy PresetSelector that used
+                  to head this block is GONE. Its five presets wrote only the
+                  six keys `deriveCardProps` reads, and `deriveCardProps` runs
+                  only when a room has no SCOREBOARD_STYLE — which migration
+                  144 made impossible. Clicking a preset did nothing on any
+                  live room. The Looks row above is its working replacement.
+                  The raw key editor below stays for now (pruning it is P1's
+                  remaining item) so no stored value becomes unreachable. */}
               <div className="pt-3 mt-3 border-t border-border/30">
                 <button
                   onClick={() => setShowLegacyStyles(!showLegacyStyles)}
@@ -1424,9 +1427,7 @@ export default function Settings() {
 
                 {showLegacyStyles && (
                   <div className="mt-3 pt-3 border-t border-border/30 space-y-3">
-                    <p className="text-[11px] text-muted">Legacy presets and individual card controls from the v1 leaderboard system. Changing these runs alongside the new style above.</p>
-
-                    <PresetSelector settings={settings} onPresetSelect={handlePresetSelect} />
+                    <p className="text-[11px] text-muted">Individual card controls from the v1 leaderboard system. Several no longer affect rooms using a Look above — they are kept visible only so existing stored values stay editable.</p>
 
                     {/* Customize toggle */}
                     <button
@@ -1501,7 +1502,7 @@ export default function Settings() {
 
             {/* Preview sidebar — sticky on desktop */}
             <div className="lg:w-1/2 lg:sticky lg:top-16 lg:self-start shrink-0">
-              <ScoreboardPreview settings={settings} />
+              <ScoreboardPreview settings={settings} roomSlug={room.roomSlug} roomName={room.roomName} />
             </div>
           </div>
         ) : isIntegrationCardHidden(category) ? (

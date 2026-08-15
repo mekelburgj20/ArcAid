@@ -1,7 +1,8 @@
-import { Layout, Sparkles, Type, Joystick, ChevronDown, ChevronRight } from 'lucide-react';
+import { Layout, Sparkles, Type, Joystick, ChevronDown, ChevronRight, SlidersHorizontal } from 'lucide-react';
 import { useState } from 'react';
 import type { ScoreboardStyle } from '../../lib/scoreboardThemes';
-import { SHOWCASE_THEMES, STYLE_LABELS, DEFAULT_SHOWCASE_THEME } from '../../lib/scoreboardThemes';
+import { SHOWCASE_THEMES, DEFAULT_SHOWCASE_THEME } from '../../lib/scoreboardThemes';
+import { LOOK_DEFINITIONS, computeActiveLook } from '../../lib/scoreboardLooks';
 
 const STYLE_ICONS: Record<ScoreboardStyle, typeof Layout> = {
   arcade: Joystick,
@@ -9,13 +10,6 @@ const STYLE_ICONS: Record<ScoreboardStyle, typeof Layout> = {
   showcase: Sparkles,
   minimal: Type,
 };
-
-/**
- * Tile order. Arcade leads: it is the flagship and the seeded default, so it
- * is the first thing an admin considers rather than a fourth option after the
- * three it replaces (style-system revamp Phase 1).
- */
-const STYLE_ORDER: ScoreboardStyle[] = ['arcade', 'banner', 'showcase', 'minimal'];
 
 interface StyleThemePickerProps {
   settings: Record<string, string>;
@@ -34,16 +28,22 @@ export default function StyleThemePicker({ settings, onChange }: StyleThemePicke
   const currentTheme = settings.SCOREBOARD_THEME || DEFAULT_SHOWCASE_THEME;
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const rankingsIsTicker = settings.SCOREBOARD_RANKINGS_STYLE === 'ticker';
+  const activeLook = computeActiveLook(settings);
 
-  const handleStyleSelect = (style: ScoreboardStyle) => {
-    onChange('SCOREBOARD_STYLE', style);
-    // Set default theme when switching to showcase
-    if (style === 'showcase' && !settings.SCOREBOARD_THEME) {
-      onChange('SCOREBOARD_THEME', DEFAULT_SHOWCASE_THEME);
-    }
-    // Set style-appropriate default layout when switching if not explicitly set
-    if (!settings.SCOREBOARD_LAYOUT) {
-      onChange('SCOREBOARD_LAYOUT', style === 'showcase' || style === 'minimal' ? 'vertical' : 'scroll');
+  /**
+   * Style-system revamp P1 — picking a Look applies its WHOLE bundle, not just
+   * `SCOREBOARD_STYLE`. Previously a style switch left card height, spacing
+   * and layout on whatever the last look wanted, so the new family rendered
+   * half-dressed — most visibly `SCOREBOARD_MIN_SCORES`, whose default of 20
+   * makes every card reserve twenty rows of height regardless of how few
+   * scores it shows. See lib/scoreboardLooks.ts for what a bundle covers and,
+   * more importantly, what it deliberately leaves alone.
+   */
+  const handleLookSelect = (id: ScoreboardStyle) => {
+    const look = LOOK_DEFINITIONS.find(l => l.id === id);
+    if (!look) return;
+    for (const [key, value] of Object.entries(look.settings)) {
+      onChange(key, value);
     }
   };
 
@@ -59,18 +59,30 @@ export default function StyleThemePicker({ settings, onChange }: StyleThemePicke
         </div>
       )}
 
-      {/* Style selector */}
+      {/* Looks — one click applies a complete, coherent scoreboard */}
       <div>
-        <label className="text-xs text-muted block mb-2">Card Style</label>
+        <div className="flex items-baseline justify-between mb-2">
+          <label className="text-xs text-muted">Look</label>
+          {activeLook === 'custom' && (
+            <span className="flex items-center gap-1 text-[10px] font-display uppercase tracking-wider text-neon-amber">
+              <SlidersHorizontal size={11} />
+              Customised
+            </span>
+          )}
+        </div>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {STYLE_ORDER.map(style => {
-            const isActive = !styleIsUnset && currentStyle === style;
-            const Icon = STYLE_ICONS[style];
-            const meta = STYLE_LABELS[style];
+          {LOOK_DEFINITIONS.map(look => {
+            // Highlight tracks the room's card family, exactly as it did
+            // before Looks existed. Hand-tuning is reported by the
+            // "Customised" chip above, NOT by dimming the tile — a room that
+            // changed one number is still on that Look.
+            const isActive = !styleIsUnset && currentStyle === look.id;
+            const Icon = STYLE_ICONS[look.id];
             return (
               <button
-                key={style}
-                onClick={() => handleStyleSelect(style)}
+                key={look.id}
+                onClick={() => handleLookSelect(look.id)}
+                aria-pressed={isActive}
                 className={`flex flex-col items-center gap-1.5 p-3 rounded-lg border-2 transition-all cursor-pointer ${
                   isActive
                     ? 'border-neon-cyan bg-neon-cyan/10 text-neon-cyan'
@@ -78,12 +90,18 @@ export default function StyleThemePicker({ settings, onChange }: StyleThemePicke
                 }`}
               >
                 <Icon size={20} />
-                <span className="text-xs font-bold font-display">{meta.label}</span>
-                <span className="text-[10px] text-center leading-tight opacity-70">{meta.description}</span>
+                <span className="text-xs font-bold font-display">{look.label}</span>
+                <span className="text-[10px] text-center leading-tight opacity-70">{look.description}</span>
               </button>
             );
           })}
         </div>
+        {activeLook === 'custom' && (
+          <p className="mt-1.5 text-[10px] text-faint">
+            You've tuned settings away from the stock {LOOK_DEFINITIONS.find(l => l.id === currentStyle)?.label ?? 'chosen'} look.
+            Clicking a Look resets its card height, spacing and layout — your title styles, QR and mobile settings are left alone.
+          </p>
+        )}
       </div>
 
       {/* Theme selector — only for showcase */}

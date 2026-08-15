@@ -1,8 +1,30 @@
-import { useRef, useState, useEffect } from 'react';
-import { GameCard } from './ScoreboardComponents';
-import type { GameLeaderboard } from './ScoreboardComponents';
-import CardRouter from './scoreboard/CardRouter';
-import { deriveCardProps, deriveScoreboardConfig, getCardWidth } from '../lib/scoreboardConfig';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Monitor, Smartphone } from 'lucide-react';
+import type { GameLeaderboard, RankingGroupData } from './ScoreboardComponents';
+import ScoreboardSurface from './scoreboard/ScoreboardSurface';
+import DevicePreviewFrame from './DevicePreviewFrame';
+import { getPortal } from '../lib/portal';
+
+/**
+ * Style-system revamp P1 — the Settings preview now renders THE surface.
+ *
+ * It used to be a second, weaker implementation: its own layout branches, its
+ * own scale-to-fit maths, no header/title, no background image, no rankings,
+ * no mobile behaviour. An admin tuned settings against a picture that was not
+ * the page. `ScoreboardSurface` (v2.86.0) is the single renderer the public
+ * page and the admin Leaderboard already share; pointing the preview at it
+ * closes the last divergence (the S21 gap).
+ *
+ * The phone toggle renders the same surface inside `DevicePreviewFrame`, an
+ * iframe with a genuine 390px viewport — see that file for why a narrow div
+ * cannot do this honestly.
+ */
+
+/** Desktop preview viewport. Wide enough to show a multi-card row without
+ *  scaling the frame so far down that type becomes unreadable. */
+const DESKTOP_WIDTH = 1100;
+/** iPhone 14/15 logical width — the narrowest mainstream phone we care about. */
+const PHONE_WIDTH = 390;
 
 const MOCK_LEADERBOARDS: GameLeaderboard[] = [
   {
@@ -67,173 +89,127 @@ const MOCK_LEADERBOARDS: GameLeaderboard[] = [
   },
 ];
 
+/** One mock group so the rankings controls (position, sticky, ticker) have
+ *  something to move around — the old preview rendered none, which is why
+ *  those settings previewed as no-ops. */
+const MOCK_RANKING_GROUPS: RankingGroupData[] = [
+  {
+    group: {
+      id: 'preview-group',
+      name: 'Season Standings',
+      description: 'Best 3 of 5 tournaments',
+      rank_method: 'points',
+      best_n: 3,
+      min_games: 1,
+      tournaments: [
+        { id: 'preview-t1', name: 'Daily Grind', type: 'DG' },
+        { id: 'preview-t2', name: 'Weekly Grind', type: 'WG-VPXS' },
+      ],
+    },
+    rankings: [
+      { rank: 1, iscored_username: 'DragonSlayer', total_points: 240, games_played: 5 },
+      { rank: 2, iscored_username: 'BumperQueen', total_points: 195, games_played: 5 },
+      { rank: 3, iscored_username: 'TiltMaster', total_points: 160, games_played: 4 },
+      { rank: 4, iscored_username: 'ZoneRunner', total_points: 120, games_played: 3 },
+    ],
+  },
+];
+
 interface ScoreboardPreviewProps {
   settings: Record<string, string>;
+  /** Room slug — used only to resolve the room's PUBLIC theme, so the preview
+   *  is coloured the way players see it rather than the way this admin's own
+   *  theme preference happens to be set. */
+  roomSlug?: string;
+  roomName?: string;
 }
 
-export default function ScoreboardPreview({ settings }: ScoreboardPreviewProps) {
-  const newConfig = deriveScoreboardConfig(settings);
-  const useNewCards = !!settings.SCOREBOARD_STYLE;
-
-  const legacyProps = deriveCardProps(settings);
-  const {
-    maxScores, cardWidth: legacyCardWidth, cardOpacity, scoreColumns,
-    headerStyle, bgFill, bgSize, wheelScale, globalStyles,
-    layout, gameColumns, glassOpacity, gameTitleStyle, gameTitleEnhance, scoreStyle,
-  } = legacyProps;
-
-  const cardWidth = useNewCards ? getCardWidth(newConfig.style) : legacyCardWidth;
-  const effectiveLayout = useNewCards ? newConfig.layout : layout;
-
+export default function ScoreboardPreview({ settings, roomSlug, roomName }: ScoreboardPreviewProps) {
+  const [device, setDevice] = useState<'desktop' | 'phone'>('desktop');
   const containerRef = useRef<HTMLDivElement>(null);
-  const contentRef = useRef<HTMLDivElement>(null);
-  const [scale, setScale] = useState(1);
-  const [contentHeight, setContentHeight] = useState<number | null>(null);
+  const [available, setAvailable] = useState(0);
 
+  // Same resolution the admin Leaderboard uses (Leaderboard.tsx) — `getPortal`
+  // is a cached lookup, so this does not add a request per keystroke.
+  const [roomTheme, setRoomTheme] = useState<string | null>(null);
   useEffect(() => {
-    const container = containerRef.current;
-    const content = contentRef.current;
-    if (!container || !content) return;
+    if (!roomSlug) return;
+    let cancelled = false;
+    getPortal(roomSlug)
+      .then(p => { if (!cancelled) setRoomTheme(p.public_theme || p.ui_theme || 'dark'); })
+      .catch(() => { if (!cancelled) setRoomTheme('dark'); });
+    return () => { cancelled = true; };
+  }, [roomSlug]);
 
-    const observer = new ResizeObserver(() => {
-      const containerWidth = container.clientWidth;
-      const contentWidth = content.scrollWidth;
-      const newScale = contentWidth > containerWidth
-        ? containerWidth / contentWidth
-        : 1;
-      setScale(newScale);
-      setContentHeight(content.scrollHeight * newScale);
-    });
+  // `sb-theme-scope` restates the default dark tokens so the preview stays
+  // dark even when this admin's own UI theme is light (see index.css).
+  const themeClass = `sb-theme-scope${roomTheme && roomTheme !== 'dark' ? ` theme-${roomTheme}` : ''}`;
 
-    observer.observe(container);
-    observer.observe(content);
+  useLayoutEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const measure = () => setAvailable(el.clientWidth);
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
     return () => observer.disconnect();
-  }, [effectiveLayout, gameColumns, cardWidth, headerStyle, useNewCards, newConfig.style, newConfig.cardSpacing, newConfig.minScores, newConfig.cardBgFill, newConfig.titleFontSize, newConfig.qrMode, newConfig.qrSize, newConfig.qrPosition, newConfig.gameTitleStyle]);
+  }, []);
 
-  const wheelPad = !useNewCards && headerStyle === 'wheel' ? '2.5rem' : undefined;
+  const frameWidth = device === 'phone' ? PHONE_WIDTH : DESKTOP_WIDTH;
+  // Never scale UP — a phone frame in a wide panel should stay life-size.
+  const scale = available > 0 ? Math.min(1, available / frameWidth) : 1;
 
   return (
     <div className="relative">
-      {/* Preview badge */}
-      <div className="absolute -top-2.5 right-2 z-10 px-2 py-0.5 bg-neon-cyan/20 border border-neon-cyan/40 rounded text-[10px] font-display font-bold text-neon-cyan uppercase tracking-wider">
-        Preview
-      </div>
-
-      {/* Scaled preview container */}
-      <div
-        ref={containerRef}
-        className="border-2 border-dashed border-border/50 rounded-lg p-3 overflow-hidden"
-        style={contentHeight != null ? { height: `${contentHeight + 24}px` } : undefined}
-      >
-        <div
-          ref={contentRef}
-          style={{
-            transform: `scale(${scale})`,
-            transformOrigin: 'top left',
-            width: scale < 1 ? `${100 / scale}%` : undefined,
-          }}
-        >
-          {effectiveLayout === 'grid' ? (
-            <div
-              className={`grid ${useNewCards ? '' : 'gap-3'} ${!useNewCards && gameColumns === '2' ? 'grid-cols-1 md:grid-cols-2' : ''}`}
-              style={{
-                ...(useNewCards ? { gap: newConfig.cardSpacing } : {}),
-                ...(useNewCards || gameColumns !== '2' ? { gridTemplateColumns: `repeat(auto-fill, minmax(${Math.round(cardWidth * 0.7)}px, 1fr))` } : {}),
-              }}
+      <div className="flex items-center justify-between mb-2">
+        <span className="px-2 py-0.5 bg-neon-cyan/20 border border-neon-cyan/40 rounded text-[10px] font-display font-bold text-neon-cyan uppercase tracking-wider">
+          Live Preview
+        </span>
+        <div className="flex items-center gap-1 rounded border border-border bg-raised p-0.5">
+          {([
+            { id: 'desktop' as const, icon: Monitor, label: 'Desktop' },
+            { id: 'phone' as const, icon: Smartphone, label: 'Phone' },
+          ]).map(({ id, icon: Icon, label }) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setDevice(id)}
+              aria-pressed={device === id}
+              className={`flex items-center gap-1.5 px-2 py-1 rounded text-[11px] font-display uppercase tracking-wider cursor-pointer border-none transition-colors ${
+                device === id ? 'bg-neon-cyan/15 text-neon-cyan' : 'bg-transparent text-muted hover:text-primary'
+              }`}
             >
-              {MOCK_LEADERBOARDS.map(lb => (
-                <div key={lb.gameId} className="grid" style={wheelPad ? { paddingTop: wheelPad } : undefined}>
-                  {useNewCards ? (
-                    <CardRouter
-                      lb={lb}
-                      slug="preview"
-                      style={newConfig.style}
-                      theme={newConfig.theme}
-                      podiumVariant={newConfig.podiumVariant}
-                      maxScores={newConfig.maxScores}
-                      minScores={newConfig.minScores}
-                      showTimer={newConfig.showTimer}
-                      cardBgFill={newConfig.cardBgFill}
-                      titleFontSize={newConfig.titleFontSize || undefined}
-                      qrMode={newConfig.qrMode !== 'disabled' ? 'all' : 'disabled'}
-                      qrSize={newConfig.qrSize}
-                      qrPosition={newConfig.qrPosition}
-                      gameTitleStyle={newConfig.gameTitleStyle}
-                    />
-                  ) : (
-                    <GameCard
-                      lb={lb}
-                      slug="preview"
-                      maxScores={maxScores}
-                      cardOpacity={cardOpacity}
-                      scoreColumns={scoreColumns}
-                      headerStyle={headerStyle}
-                      globalStyles={globalStyles}
-                      wheelScale={wheelScale}
-                      bgFill={bgFill}
-                      bgSize={bgSize}
-                      cardWidth={cardWidth}
-                      glassOpacity={glassOpacity}
-                      gameTitleStyle={gameTitleStyle}
-                      gameTitleEnhance={gameTitleEnhance}
-                      scoreStyle={scoreStyle}
-                    />
-                  )}
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <div className={`flex ${useNewCards ? '' : 'gap-3'}`} style={useNewCards ? { gap: newConfig.cardSpacing } : undefined}>
-                {MOCK_LEADERBOARDS.map(lb => (
-                  <div
-                    key={lb.gameId}
-                    className="flex-shrink-0"
-                    style={{ width: `${cardWidth}px`, ...(wheelPad ? { paddingTop: wheelPad } : {}) }}
-                  >
-                    {useNewCards ? (
-                      <CardRouter
-                        lb={lb}
-                        slug="preview"
-                        style={newConfig.style}
-                        theme={newConfig.theme}
-                        podiumVariant={newConfig.podiumVariant}
-                        maxScores={newConfig.maxScores}
-                        minScores={newConfig.minScores}
-                        showTimer={newConfig.showTimer}
-                        cardBgFill={newConfig.cardBgFill}
-                        titleFontSize={newConfig.titleFontSize || undefined}
-                        qrMode={newConfig.qrMode !== 'disabled' ? 'all' : 'disabled'}
-                        qrSize={newConfig.qrSize}
-                        qrPosition={newConfig.qrPosition}
-                        gameTitleStyle={newConfig.gameTitleStyle}
-                      />
-                    ) : (
-                      <GameCard
-                        lb={lb}
-                        slug="preview"
-                        maxScores={maxScores}
-                        cardOpacity={cardOpacity}
-                        scoreColumns={scoreColumns}
-                        headerStyle={headerStyle}
-                        globalStyles={globalStyles}
-                        wheelScale={wheelScale}
-                        bgFill={bgFill}
-                        bgSize={bgSize}
-                        cardWidth={cardWidth}
-                        glassOpacity={glassOpacity}
-                        gameTitleStyle={gameTitleStyle}
-                        gameTitleEnhance={gameTitleEnhance}
-                        scoreStyle={scoreStyle}
-                      />
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+              <Icon size={13} />
+              {label}
+            </button>
+          ))}
         </div>
       </div>
+
+      <div
+        ref={containerRef}
+        className="border-2 border-dashed border-border/50 rounded-lg p-2 overflow-hidden"
+      >
+        <div className={device === 'phone' ? 'flex justify-center' : undefined}>
+          <DevicePreviewFrame width={frameWidth} scale={scale}>
+            <ScoreboardSurface
+              embedded
+              forceMobile={device === 'phone'}
+              themeClass={themeClass}
+              config={settings}
+              roomName={roomName}
+              slug="preview"
+              leaderboards={MOCK_LEADERBOARDS}
+              rankingGroups={MOCK_RANKING_GROUPS}
+            />
+          </DevicePreviewFrame>
+        </div>
+      </div>
+
+      <p className="mt-1.5 text-[10px] text-faint">
+        Sample games and players — your real scoreboard uses the same layout.
+      </p>
     </div>
   );
 }

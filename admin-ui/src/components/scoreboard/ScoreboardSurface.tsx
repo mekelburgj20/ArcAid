@@ -176,6 +176,19 @@ export interface ScoreboardSurfaceProps {
    *  public-page default. Preserves kiosk's existing pixel layout, which
    *  predates and diverged slightly from the public page's header zone. */
   kioskHeaderSpacing?: boolean;
+
+  /**
+   * Style-system revamp P1 — overrides the `matchMedia`-driven mobile gate.
+   *
+   * The Settings preview renders this surface inside an iframe whose viewport
+   * really is 390px, so every CSS `@media (max-width: 640px)` rule resolves
+   * correctly on its own. `useIsMobileViewport` cannot follow, because React
+   * runs in the PARENT window and reads the parent's `matchMedia` — without
+   * this override a phone preview on a wide monitor would still show the QR
+   * codes that a real phone never renders. Leave unset everywhere else: the
+   * public page, admin Leaderboard, and kiosk all want the real viewport.
+   */
+  forceMobile?: boolean;
 }
 
 export default function ScoreboardSurface({
@@ -203,6 +216,7 @@ export default function ScoreboardSurface({
   zoomPercent,
   qrKioskOnlyEnabled = false,
   kioskHeaderSpacing = false,
+  forceMobile,
 }: ScoreboardSurfaceProps) {
   // New style/theme config
   const newConfig = deriveScoreboardConfig(config, roomName);
@@ -254,7 +268,8 @@ export default function ScoreboardSurface({
   // Mobile QR gate (see useIsMobileViewport doc comment above) — ANDed into
   // every QR-enabled check below so a mobile phone never renders one, no
   // matter the room's QR toggle.
-  const isMobileViewport = useIsMobileViewport();
+  const realMobileViewport = useIsMobileViewport();
+  const isMobileViewport = forceMobile ?? realMobileViewport;
   // QR codes above game cards add extra height — rankings card needs matching top margin
   const qrEnabled = !isMobileViewport && (newConfig.qrMode === 'all' || (qrKioskOnlyEnabled && newConfig.qrMode === 'kiosk-only'));
   const hasQrTop = useNewCards && qrEnabled && newConfig.qrPosition === 'top-right';
