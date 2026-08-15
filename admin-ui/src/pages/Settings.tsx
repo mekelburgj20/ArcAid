@@ -14,6 +14,7 @@ import PresetSelector from '../components/PresetSelector';
 import type { PresetDefinition } from '../components/PresetSelector';
 import StyleThemePicker from '../components/scoreboard/StyleThemePicker';
 import ScoreboardPreview from '../components/ScoreboardPreview';
+import TitleStyleSelect from '../components/TitleStyleSelect';
 import ImageCropper from '../components/ImageCropper';
 import MemberAdminPicker from '../components/MemberAdminPicker';
 import { resizeImageToMaxBox } from '../lib/imageResize';
@@ -1367,15 +1368,15 @@ export default function Settings() {
                     <p className="text-sm font-medium text-primary">Game Title Style</p>
                     <p className="text-xs text-muted">Visual style for game name text on score cards</p>
                   </div>
-                  <select
+                  {/* Style-system revamp P1 (owner ask): each option renders in
+                      its own title style — impossible with a native <select>,
+                      whose <option>s ignore text-shadow/gradient/font rules. */}
+                  <TitleStyleSelect
+                    className="w-44 shrink-0"
                     value={settings.SCOREBOARD_GAME_TITLE_STYLE || 'default'}
-                    onChange={e => handleChange('SCOREBOARD_GAME_TITLE_STYLE', e.target.value)}
-                    className="text-sm rounded border border-border bg-raised px-2 py-1 text-primary"
-                  >
-                    {SELECT_OPTIONS.SCOREBOARD_GAME_TITLE_STYLE.map(opt => (
-                      <option key={opt.value} value={opt.value}>{opt.label}</option>
-                    ))}
-                  </select>
+                    onChange={v => handleChange('SCOREBOARD_GAME_TITLE_STYLE', v)}
+                    options={SELECT_OPTIONS.SCOREBOARD_GAME_TITLE_STYLE}
+                  />
                 </div>
 
                 {/* Mobile Vertical Scroll toggle */}
@@ -1501,7 +1502,7 @@ export default function Settings() {
 
             {/* Preview sidebar — sticky on desktop */}
             <div className="lg:w-1/2 lg:sticky lg:top-16 lg:self-start shrink-0">
-              <ScoreboardPreview settings={settings} />
+              <ScoreboardPreview settings={settings} roomSlug={room.roomSlug} roomName={room.roomName} />
             </div>
           </div>
         ) : isIntegrationCardHidden(category) ? (
