@@ -70,7 +70,7 @@ export default function HorizontalScrollNav({
   // s20: keyboard path — arrows had no way to appear/scroll without a mouse.
   // Focus-within reveals them same as hover; ArrowLeft/ArrowRight scroll.
   const [focusWithin, setFocusWithin] = useState(false);
-  const [wrapperRect, setWrapperRect] = useState<{ top: number; left: number; right: number; height: number } | null>(null);
+  const [wrapperRect, setWrapperRect] = useState<{ top: number; left: number; right: number; height: number; viewportWidth: number; narrow: boolean; portalTarget: HTMLElement } | null>(null);
 
   // Hold-state refs (mutable; never trigger re-render).
   const holdIntervalRef = useRef<number | null>(null);
@@ -101,7 +101,30 @@ export default function HorizontalScrollNav({
   const updateWrapperRect = () => {
     if (!wrapperRef.current) return;
     const r = wrapperRef.current.getBoundingClientRect();
-    setWrapperRect({ top: r.top, left: r.left, right: r.right, height: r.height });
+    // Measure against the window that OWNS this element, not the top-level
+    // one. In the Settings preview this component lives inside an iframe, so
+    // `window.innerWidth` would describe the admin page instead of the frame
+    // and the right-hand arrow would be sized for the wrong viewport.
+    const win = wrapperRef.current.ownerDocument.defaultView;
+    setWrapperRect({
+      top: r.top,
+      left: r.left,
+      right: r.right,
+      height: r.height,
+      viewportWidth: win?.innerWidth ?? 0,
+      // Mobile gate, same 640px breakpoint as the QR gate in
+      // ScoreboardSurface. These arrows are a mouse-hover affordance for
+      // desktop; a phone scrolls the row by swiping it, and a full-height
+      // dark gradient overlay on a 390px screen covers the cards it is
+      // supposed to help you reach.
+      narrow: win?.matchMedia ? win.matchMedia('(max-width: 640px)').matches : false,
+      // Portal arrows into the OWNING document. They are `position: fixed`,
+      // so portalling them to the top-level body (as this did before) made
+      // them escape the Settings preview iframe entirely and paint over the
+      // admin page, sized to the wrong viewport. Captured here rather than
+      // read from the ref during render — refs are not render-time values.
+      portalTarget: wrapperRef.current.ownerDocument.body,
+    });
   };
 
   // Scroll-bounds tracking + wrapper-rect tracking.
@@ -117,15 +140,19 @@ export default function HorizontalScrollNav({
     });
     ro.observe(el);
     if (wrapperRef.current) ro.observe(wrapperRef.current);
-    window.addEventListener('resize', updateWrapperRect);
+    // Bind to the owning window (see updateWrapperRect) — inside the Settings
+    // preview iframe the top-level window neither resizes nor scrolls with
+    // the frame's content.
+    const win = wrapperRef.current?.ownerDocument.defaultView ?? window;
+    win.addEventListener('resize', updateWrapperRect);
     // Capture phase so any ancestor's scroll (e.g., page scroll) re-computes
     // the wrapper's top/left in viewport coords.
-    window.addEventListener('scroll', updateWrapperRect, true);
+    win.addEventListener('scroll', updateWrapperRect, true);
     return () => {
       el.removeEventListener('scroll', updateCanScroll);
       ro.disconnect();
-      window.removeEventListener('resize', updateWrapperRect);
-      window.removeEventListener('scroll', updateWrapperRect, true);
+      win.removeEventListener('resize', updateWrapperRect);
+      win.removeEventListener('scroll', updateWrapperRect, true);
       stopHold();
     };
   }, []);
@@ -150,21 +177,27 @@ export default function HorizontalScrollNav({
       // Right: from wrapper.right - zone to viewport right.
       setHoverRight(x >= r.right - zone);
     };
-    document.addEventListener('mousemove', onMove);
-    return () => document.removeEventListener('mousemove', onMove);
+    const doc = wrapperRef.current?.ownerDocument ?? document;
+    doc.addEventListener('mousemove', onMove);
+    return () => doc.removeEventListener('mousemove', onMove);
   }, [edgeHoverPx]);
 
   // Drag-to-scroll listeners. Bound globally so the drag continues even if
   // the cursor leaves the card area mid-drag.
   useEffect(() => {
+    // Same owning-document rule as the hover/rect effects above: inside the
+    // Settings preview iframe, listeners and cursor styling belong to the
+    // frame's document, not the admin page's.
+    const doc = wrapperRef.current?.ownerDocument ?? document;
+    const win = doc.defaultView ?? window;
     const onMove = (e: MouseEvent) => {
       const s = dragRef.current;
       if (!s || !scrollRef.current) return;
       const delta = e.clientX - s.startX;
       if (!s.engaged && Math.abs(delta) > dragThresholdPx) {
         s.engaged = true;
-        document.body.style.cursor = 'grabbing';
-        document.body.style.userSelect = 'none';
+        doc.body.style.cursor = 'grabbing';
+        doc.body.style.userSelect = 'none';
       }
       if (s.engaged) {
         scrollRef.current.scrollLeft = s.startScrollLeft - delta;
@@ -174,8 +207,8 @@ export default function HorizontalScrollNav({
     const onUp = () => {
       const s = dragRef.current;
       dragRef.current = null;
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
+      doc.body.style.cursor = '';
+      doc.body.style.userSelect = '';
       if (s?.engaged) {
         // Suppress the upcoming click event that would otherwise fire from
         // the mousedown→mouseup pair on a card title (which would open the
@@ -183,22 +216,22 @@ export default function HorizontalScrollNav({
         const suppress = (ce: MouseEvent) => {
           ce.preventDefault();
           ce.stopPropagation();
-          window.removeEventListener('click', suppress, true);
+          win.removeEventListener('click', suppress, true);
         };
-        window.addEventListener('click', suppress, true);
+        win.addEventListener('click', suppress, true);
         // Fallback: if no click fires within 100ms (e.g., target was a
         // non-clickable area), remove the listener to avoid suppressing a
         // later unrelated click.
-        window.setTimeout(() => {
-          window.removeEventListener('click', suppress, true);
+        win.setTimeout(() => {
+          win.removeEventListener('click', suppress, true);
         }, 100);
       }
     };
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
+    doc.addEventListener('mousemove', onMove);
+    doc.addEventListener('mouseup', onUp);
     return () => {
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
+      doc.removeEventListener('mousemove', onMove);
+      doc.removeEventListener('mouseup', onUp);
     };
   }, [dragThresholdPx]);
 
@@ -239,14 +272,15 @@ export default function HorizontalScrollNav({
     }, holdDelayMs);
   };
 
-  const showLeft = canLeft && (hoverLeft || focusWithin) && wrapperRect != null;
-  const showRight = canRight && (hoverRight || focusWithin) && wrapperRect != null;
+  // `narrow` kills both arrows at phone widths — see updateWrapperRect.
+  const showLeft = canLeft && (hoverLeft || focusWithin) && wrapperRect != null && !wrapperRect.narrow;
+  const showRight = canRight && (hoverRight || focusWithin) && wrapperRect != null && !wrapperRect.narrow;
 
   // Per-button geometry. zone = how far INTO the wrapper the hover/click
   // area extends past the wrapper edge.
   const zone = wrapperRect ? Math.min(edgeHoverPx, wrapperRect ? (wrapperRect.right - wrapperRect.left) * 0.15 : 0) : 0;
   const leftBtnWidth = wrapperRect ? Math.max(56, wrapperRect.left + zone) : 0;
-  const rightBtnWidth = wrapperRect ? Math.max(56, (typeof window !== 'undefined' ? window.innerWidth : 0) - wrapperRect.right + zone) : 0;
+  const rightBtnWidth = wrapperRect ? Math.max(56, wrapperRect.viewportWidth - wrapperRect.right + zone) : 0;
 
   return (
     <div ref={wrapperRef} className="relative">
@@ -294,7 +328,7 @@ export default function HorizontalScrollNav({
         >
           <ChevronLeft size={36} className="text-white drop-shadow-lg" />
         </button>,
-        document.body
+        wrapperRect.portalTarget
       )}
       {showRight && createPortal(
         <button
@@ -314,7 +348,7 @@ export default function HorizontalScrollNav({
         >
           <ChevronRight size={36} className="text-white drop-shadow-lg" />
         </button>,
-        document.body
+        wrapperRect.portalTarget
       )}
     </div>
   );

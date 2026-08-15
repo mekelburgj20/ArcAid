@@ -76,6 +76,26 @@ export interface ScoreboardConfig {
 }
 
 /**
+ * Boolean scoreboard settings whose ABSENCE means ON.
+ *
+ * `deriveScoreboardConfig` below reads these as `value !== 'false'` and every
+ * other boolean as `value === 'true'`. Any UI that draws a switch for one of
+ * these keys must consult this set rather than assuming default-off, or it
+ * shows the switch in the opposite position to the behaviour the user is
+ * looking at — which is exactly what SCOREBOARD_MOBILE_VERTICAL did in the
+ * viewer preferences modal until 2026-08-15.
+ *
+ * Lives here, next to the derivation it mirrors, so the two cannot drift into
+ * separate files and disagree.
+ */
+export const TOGGLE_DEFAULT_ON = new Set([
+  'SCOREBOARD_SHOW_TIMER',
+  // Owner call, 2026-08-15 — both default ON product-wide.
+  'SCOREBOARD_MOBILE_VERTICAL',
+  'SCOREBOARD_CARD_BG_FILL',
+]);
+
+/**
  * Derives the new ScoreboardConfig from a settings record.
  * Includes legacy migration: if SCOREBOARD_STYLE is absent, heuristically
  * maps old granular keys to the appropriate style/theme.
@@ -119,7 +139,11 @@ export function deriveScoreboardConfig(config: Record<string, string>, roomName?
     maxScores: parseInt(config.SCOREBOARD_MAX_SCORES || '5', 10) || 5,
     minScores: parseInt(config.SCOREBOARD_MIN_SCORES || '20', 10) || 20,
     showTimer: config.SCOREBOARD_SHOW_TIMER !== 'false',
-    cardBgFill: config.SCOREBOARD_CARD_BG_FILL === 'true',
+    // Owner call, 2026-08-15: default ON. Was `=== 'true'` (default off), which
+    // left every room's cards showing table art only in the header strip
+    // unless an admin found the toggle. Rooms that deliberately turned it off
+    // keep it off — the stored 'false' still wins.
+    cardBgFill: config.SCOREBOARD_CARD_BG_FILL !== 'false',
     cardSpacing: parseInt(config.SCOREBOARD_CARD_SPACING || '24', 10) || 24,
     titleFontSize: parseInt(config.SCOREBOARD_TITLE_FONT_SIZE || '0', 10) || 0,
 
