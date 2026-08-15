@@ -102,6 +102,80 @@ Load-bearing technical and product decisions are tracked in [`docs/decisions/`](
 
 ## Future
 
+### Share-to-Arcaid: submit a score from a photo the player already took (owner-asked 2026-08-14, pre-GA target)
+
+**Goal.** Take a score photo with the phone camera → hand it to Arcaid in one gesture → land in the score-submission flow with the photo already attached.
+
+**SEQUENCING (owner call, 2026-08-14): build this AFTER the style-system revamp design arc (P1-remainder → P2 profiles → P3 viewer trim) completes. Still pre-GA.**
+
+**Shape (restructured 2026-08-14 after the owner asked whether paste could work from any Arcaid URL).** There is ONE feature here — an *orphan photo* (a photo with no room, game, or score attached) needs a landing flow that asks for that context and then submits. Build that core once; the OS integrations are three thin entry points onto it. Do not cost them as three separate features.
+
+**Platform reality (verify at build time — WebKit moves).**
+- **Android: native.** The Web Share Target API (`share_target` manifest member) is Chromium-only and works for *installed* PWAs on Android Chrome / Edge / Samsung Internet. Arcaid appears in the OS share sheet with no extra install step beyond "Add to Home Screen".
+- **iOS: not supported.** Safari/WebKit has never shipped `share_target`; a Home Screen web app does not appear in the iOS share sheet. There is no manifest-only fix. Options are (a) an **Apple Shortcut** the owner publishes and users add once, (b) a native App Store wrapper with a share extension (~$99/yr + review + Swift maintenance — out of scope pre-GA), or (c) **clipboard paste**, which needs no install at all.
+
+**CORE — the orphan-photo landing flow (build this first; everything else is a doorway onto it).** A photo arriving from outside the app carries **no room, no game, no score**. The submission still needs: which room (a viewer may belong to several) → which game (tournament / freeplay / global target) → the score digits → engine + device. Arcaid has no standalone room+game chooser today — the submission sheet is always opened *from* a game card and inherits its context. Building that chooser is the bulk of the work, in every entry-point variant.
+1. New global route `/share` → `pages/ShareIntake.tsx` (sits with the other non-room-scoped routes in `App.tsx`, next to `/scoreboard` and `/my-stats`). Accepts a photo handed over in-memory (paste) or by id (share target / iOS intake).
+2. Room+game chooser, v1 shape: default to the most recently submitted-to room + a searchable list of that room's ACTIVE tournament games, with "somewhere else" falling through to the full room picker. Freeplay/global targets reachable from the same screen.
+3. `SubmissionSheet` gains an optional `initialPhoto?: File` prop that seeds `photoFile`/`photoPreview` through the existing `normalizePhotoFile` path — **do not bypass it**: it carries both the HEIC→JPEG re-encode (server allowlist is PNG/APNG/JPEG/WebP only) and the v2.100.4 materialization fix for iOS lazy-file truncation.
+
+**ENTRY POINT A — "Paste photo" button (cheapest, works on every platform, no install).** iOS: Share sheet → Copy Photo → open Arcaid → Paste. Also covers desktop screenshots.
+- **Mobile has no Ctrl+V, so a document-level `paste` listener is NOT enough** — on a phone the OS "Paste" menu item only appears when long-pressing an editable field. The reliable path is an explicit **button** calling `navigator.clipboard.read()` under a user gesture; iOS Safari then shows its own one-tap "Paste" confirmation. Keep a document-level `onPaste` handler too — it's free and makes desktop paste-anywhere work.
+- Placement decides the reach: inside the open submission sheet it's ~2h and only helps once a game is already chosen; to satisfy the owner's "paste from any Arcaid URL" it needs a persistent affordance in the public chrome (nav / user menu / FAB) that routes into the CORE landing flow.
+- **Verify at build time:** what mimetype iOS hands over for a copied camera photo. If Safari exposes it as `image/png` the HEIC landmine is sidestepped entirely; if it exposes `public.heic` the normalize path must catch it (it already does — don't bypass it).
+
+**ENTRY POINT B — Android share target (real OS integration; the actual win).**
+1. `admin-ui/public/manifest.json` gains:
+   `"share_target": { "action": "/share-target", "method": "POST", "enctype": "multipart/form-data", "params": { "title": "title", "text": "text", "files": [{ "name": "photo", "accept": ["image/jpeg","image/png","image/webp","image/heic","image/heif"] }] } }`
+   Manifest is already served `no-cache` (v2.45.1), so installed PWAs pick it up; icon-adjacent `?v=N` bump not needed for a non-icon change.
+2. `admin-ui/public/sw.js` — a POST cannot reach the SPA router directly. Add a `fetch` branch **before** the existing navigate/static/image branches: if `request.method === 'POST' && url.pathname === '/share-target'`, `await request.formData()`, stash the blob in Cache Storage under a synthetic key (`/__share/<uuid>`), and return `Response.redirect('/share?p=<uuid>', 303)`. Keep it out of `STATIC_CACHE`/`IMAGE_CACHE` (the activate-sweep deletes every other cache name — use a stable third name and exempt it, or use IndexedDB).
+3. Redirect target is the CORE `/share` route, with the stashed photo's id.
+
+**ENTRY POINT C — iOS via Apple Shortcut (the only route on iPhone; owner-gated).**
+- Owner authors a shortcut with "Show in Share Sheet" + "Receive Images", actions: `Convert Image → JPEG` (mandatory — the server rejects HEIC and there is no canvas in the Shortcuts runtime) → `Get Contents of URL` POST multipart to `/api/share-intake` with `Authorization: Bearer <personal share token>` → `Open URLs` `https://arcaid.app/share?p=<returned id>`.
+- BE: `POST /api/share-intake` (share-token auth, rate-limited) stores the file and returns `{ id }`; `GET /api/share-intake/:id` (player auth, owner-only) hands it back to `/share`. Short TTL + sweep, modelled on `src/utils/scorePhotoCleanup.ts`.
+- New credential: a revocable per-user **share token** (hash at rest, shown once, minted + revoked on Account Settings). Scoped to intake only — never a general API key.
+- **Known iOS warts:** the shortcut opens Safari, not the standalone PWA, and iOS partitions Home-Screen-app storage from Safari — so the user may hit the login gate again in Safari (once; it persists). Distribution needs an iCloud shortcut link the owner generates from their own device, and users must tap through "Add Shortcut". Net: iOS *adds* setup steps for a modest gain.
+
+**Honest scoping note.** Any of these entry points saves exactly one step (picking the photo); none removes game selection, score entry, or engine/device. If the underlying goal is "log a score in two taps", the higher-leverage feature is **reading the score off the photo** (OCR + game inference) — a separate, larger, riskier arc, not this one. Worth revisiting once the CORE landing flow exists, since that's where OCR would slot in.
+
+**Build order:** CORE → A (paste) → B (Android) → C (iOS shortcut, only if the owner still wants it after living with A on the iPhone).
+
+**Rough effort:** CORE ~1–1.5d · A ~2h on top of CORE (plus a small design call on where the persistent button lives) · B ~0.5d · C ~1–1.5d plus owner shortcut authoring. All-in ~3–4 focused days.
+
+### Sealed-bid tournaments: hide live scores until a reveal window (owner-asked 2026-08-15, pre-GA candidate)
+
+**Goal (owner's words).** A per-tournament mode where posted scores stay hidden until a set point — e.g. 1 hour before the tournament ends — so a monster score posted on day one doesn't discourage everyone else from bothering. Reveal early enough to leave a last-minute chase window. This is an *engagement* feature, not an anti-cheat feature (though it incidentally stops players from tuning a submission to just edge the current leader).
+
+**Owner decisions still needed (do not invent these at build time).**
+1. **What a sealed player sees.** Options: (a) nothing at all, (b) their own score + "N players have submitted", (c) their own score + their own rank but not others' numbers, (d) rank only. **Recommend (b)** — maximum mystery while still showing the room is alive. (c) tells the leader they're leading, which softens the discouragement effect the feature exists to remove.
+2. **Reveal trigger.** Fixed offset before `end_date` (the owner's "1 hour"), an absolute datetime, or a manual admin "Reveal now" button. **Recommend offset as the setting + manual override always available.**
+3. **Ranking groups.** Does a sealed tournament contribute points to the visible ranking-group standings before reveal? If yes, standings leak the outcome. **Recommend: excluded from `RankingService.computeRankings` until revealed.**
+4. **Global Scoreboard.** Tournament scores currently fan out to `/scoreboard` + `/games/:id` via `GlobalScoreService.fanOutFromRoomSubmission`. **Recommend: defer the fan-out and write it at reveal** — the alternative is a wide-open leak on a public page.
+5. Rolling tournaments with no end date can't compute an offset — either require an end date to enable sealed mode, or force manual reveal. Guard it either way.
+
+**Invariant regardless of the above: a player always sees their own scores, everywhere.** Never redact someone's own data from them.
+
+**Schema.** `tournaments` gains `sealed_mode INTEGER NOT NULL DEFAULT 0`, `sealed_reveal_offset_min INTEGER DEFAULT 60`, `sealed_revealed_at TEXT` (manual-override stamp). Claim the next free migration number at build time (144 was the last as of 2026-08-15).
+
+**Architecture — one gate, applied at READ time.** Add a `SealedTournamentGate` service: `isSealed(tournamentId)` (cheap + cached), `redactLeaderboardRows(rows, viewerUserId)`, `shouldSuppressScoreEvent(...)`. Two rules that make or break this:
+- **Sealedness is computed per read, never stored as censored data.** `sealed until (end_date − offset)` evaluated on every read; manual reveal short-circuits via `sealed_revealed_at`. No cron, no scheduled job, no state that can get stuck sealed-forever or revealed-early. Same doctrine as the ranking-cache watermark (ADR 0013) — let the data say when it's stale.
+- **Never bake redaction into `leaderboard_cache` / `global_leaderboard_cache`.** Those blobs hold identity-stable rows only, with names and avatars attached at read time by `PlayerProfileResolver.resolveProfiles` (v2.74.0). Redaction belongs in exactly that layer. Writing a censored cache would make the reveal require a cache flush — and a stale blob would leak or over-hide.
+- Resist scattering `if (sealed)` across call sites. There are ~15 of them below and **any single miss is a total leak.**
+
+**The actual work is plugging the leaks, not hiding the card.** Hiding a leaderboard is an hour. A tournament score is currently visible or announced in all of these:
+- *Read paths:* `LeaderboardService.getActiveLeaderboards` (room scoreboard cards) · `getForGame` / `getForGameByPlatform` / `getForGameByProvenance` (Game Detail tabs) · `RoomScoresService` (room-wide all-scores) · `TournamentScoresService` · `StatsService.getAllPlayerStats` / `getRoomOverview` · the per-player `score_history` expand on Game Detail · `ScoreRankService.computeRoomRank` / `computeGlobalRank` · `RankingService.computeRankings` · Kiosk ticker + `KioskScoreboard` · OG link-preview meta for `/:slug/games/:name` (`src/api/ogMeta.ts` — a shared link would render the top score to anyone).
+- *Push/event paths:* `emitScoreNew` (the `score:new` WS toast literally carries `{playerName, score}`) · `emitScoreNewGlobal` · `LobbyFeedGenerator.onScoreSubmitted` (new-leader / dethrone / streak / milestone events all name scores and ranks) · `NotificationService` `rankDethroned` + `friendScore` DMs · `AchievementService` unlocks that imply rank · `AnnouncementService` Discord posts · Discord `/listscores`, `/viewstats`, `/mystats`, and `submitscore.ts`'s own reply.
+- *Photos.* The score-photo evidence in the quick popup (v2.109.0) is a picture of the score screen. Sealed mode must hide those too or the number is simply readable.
+
+**Known unpluggable leak — iScored.** Every web submission syncs out via `IScoredSubmitSync.syncScoreToIScored`, and the iScored room page is public. In an iScored-enabled room, sealed mode is cosmetic: anyone can open iScored and read the board. Options: (a) queue the sync and flush at reveal — messy, the poller can re-import in the meantime, and iScored is a tolerated legacy bridge we don't want to invest in; (b) **recommended** — surface an explicit admin warning and treat sealed mode as honest only on native rooms; (c) accept and document. Worth an owner call before build.
+
+**FE.** Sealed leaderboard card gets a lock treatment: own score, submission count, countdown to reveal. **Make the reveal an event** — fire a lobby-feed entry and an optional Discord announce at the boundary ("Scores are live — 14 players, here's the board"). That moment is where the engagement payoff actually lands.
+
+**ADR-worthy** — this is a cross-cutting read-time visibility policy; it should be ADR 0017.
+
+**Rough effort:** ~2–3 focused days. Gate + read-path redaction ~1d · event suppression ~0.5d · admin setting + sealed card + countdown ~0.5–1d · tests ~0.5d, plus the iScored decision.
+
 ### Identity & membership arc — owner-approved contract (2026-08-05)
 
 Three phases, in order. Settled in-session with the owner; decisions below are FINAL unless the owner reopens them.
