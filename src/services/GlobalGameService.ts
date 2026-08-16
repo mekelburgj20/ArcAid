@@ -90,6 +90,14 @@ function applySourceFilter(
         case 'wizard':
             conditions.push(`(features LIKE '%"wizard_auto"%' OR features LIKE '%"wizard_manual"%' OR imported_from = 'wizard')`);
             break;
+        case 'atgames':
+            // Evidence, not provenance — same rule the FE badge uses. The
+            // default branch below (`imported_from = 'atgames'`) would return
+            // only the rows this importer CREATED: on the first real run that
+            // was 71 of 279, so filtering the catalogue by AtGames hid 208
+            // rows that are demonstrably on the platform.
+            conditions.push(`(atgames_id IS NOT NULL OR imported_from = 'atgames')`);
+            break;
         case 'manual':
             // v2.13.0: tighten so the filter matches the FE display logic
             // (deriveSources). A row with NULL imported_from but a populated
@@ -101,6 +109,7 @@ function applySourceFilter(
                 AND vps_id IS NULL
                 AND opdb_id IS NULL
                 AND igdb_id IS NULL
+                AND atgames_id IS NULL
                 AND features NOT LIKE '%"wizard_auto"%'
                 AND features NOT LIKE '%"wizard_manual"%'
             `);

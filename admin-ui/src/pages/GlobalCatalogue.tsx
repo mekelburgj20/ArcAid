@@ -1391,6 +1391,12 @@ function deriveSources(game: GlobalGame): string[] {
   // (an RA import onto an existing IGDB row ENRICHES it, §3), so the badge has
   // to read the external id, not the provenance string.
   if (game.ra_id) evidence.push('ra');
+  // Same rule, same reason: the AtGames importer ENRICHES existing rows far
+  // more often than it creates them (208 updated vs 71 created on the first
+  // real run), and an enriched row keeps whatever `imported_from` it already
+  // had — `null` for 123 of them, which rendered as the fallback "manual"
+  // even though the row demonstrably is on AtGames. The id is the evidence.
+  if (game.atgames_id) evidence.push('atgames');
   if (features.includes('wizard_auto') || features.includes('wizard_manual')) evidence.push('wizard');
   return Array.from(new Set([
     ...(game.imported_from ? [game.imported_from] : []),
