@@ -1,5 +1,6 @@
 import { AtGamesApiClient, type AtGamesGame } from './AtGamesApiClient.js';
 import { AtGamesEStoreClient, atgamesMatchKey, seriesOf, brandOf } from './AtGamesEStoreClient.js';
+import { buildOverrideIndex } from './atgamesStudioOverrides.js';
 import { GlobalGameService } from './GlobalGameService.js';
 import { SyncLogService } from './SyncLogService.js';
 import { logInfo, logError, logWarn } from '../utils/logger.js';
@@ -74,6 +75,7 @@ export interface AtGamesSyncResult {
     studioFromSeries: number;
     studioFromPrefix: number;
     studioFromBrand: number;
+    studioFromOverride: number;
     studioMissing: number;
     /** Non-game rows the exclusion list dropped (AtGames' own test fixtures). */
     excluded: number;
@@ -90,7 +92,11 @@ export class AtGamesImportService {
         let studioFromSeries = 0;
         let studioFromPrefix = 0;
         let studioFromBrand = 0;
+        let studioFromOverride = 0;
         let studioMissing = 0;
+        /** Names nothing could attribute — logged so a new unenumerated pack is visible. */
+        const unattributed: string[] = [];
+        const overrides = buildOverrideIndex(atgamesMatchKey);
         let excluded = 0;
         let manufacturerFilled = 0;
         const errors: string[] = [];
@@ -153,8 +159,18 @@ export class AtGamesImportService {
                                 attribution = fallback;
                                 studio = fallback.studio;
                                 if (byPrefix) studioFromPrefix++; else studioFromBrand++;
-                            } else studioMissing++;
-                        } else studioMissing++;
+                            }
+                        }
+                    }
+
+                    // Curated overrides come LAST, so the store always wins.
+                    // The moment AtGames adds a contents list to one of the
+                    // packs behind these entries, a derived tier resolves it
+                    // first and the override goes inert on its own.
+                    if (!studio) {
+                        const override = overrides.get(atgamesMatchKey(name));
+                        if (override) { studio = override.studio; studioFromOverride++; }
+                        else { studioMissing++; unattributed.push(name); }
                     }
 
                     const result = await GlobalGameService.upsert({
@@ -194,6 +210,21 @@ export class AtGamesImportService {
                 }
             }
 
+            // The curated override map is a snapshot and cannot know about a
+            // pack AtGames ships next year without a contents list. Naming the
+            // residue is what stops that being a silent permanent blank: this
+            // line is the maintenance trigger for `atgamesStudioOverrides.ts`.
+            // Two entries are expected to appear here forever ("City Golf",
+            // "Wild Games" — absent from the store entirely); anything else is
+            // new and wants a look.
+            if (unattributed.length > 0) {
+                logWarn(
+                    `AtGames sync: ${unattributed.length} table(s) have NO studio — ` +
+                    `if these aren't the known pair, AtGames likely shipped a pack with no contents list; ` +
+                    `add them to atgamesStudioOverrides.ts:\n  ${unattributed.join('\n  ')}`,
+                );
+            }
+
             const status = errors.length === 0 ? 'success' : 'partial';
             await SyncLogService.complete(syncLogId, {
                 status,
@@ -207,7 +238,8 @@ export class AtGamesImportService {
                 `AtGames Import: ${created} created, ${updated} updated, ${skipped} skipped, ` +
                 `${excluded} excluded, ${errors.length} errored · ` +
                 `studio: ${studioFromPack} from packs, ${studioFromSeries} from series, ` +
-                `${studioFromPrefix} from prefix, ${studioFromBrand} from brand, ${studioMissing} unattributed · ` +
+                `${studioFromPrefix} from prefix, ${studioFromBrand} from brand, ${studioFromOverride} from overrides, `
+                + `${studioMissing} unattributed · ` +
                 `manufacturer filled: ${manufacturerFilled}`,
             );
 
@@ -216,7 +248,7 @@ export class AtGamesImportService {
                 total: pinballGames.length,
                 pinball: pinballGames.length,
                 arcadeSkipped,
-                studioFromPack, studioFromSeries, studioFromPrefix, studioFromBrand, studioMissing,
+                studioFromPack, studioFromSeries, studioFromPrefix, studioFromBrand, studioFromOverride, studioMissing,
                 excluded,
                 manufacturerFilled,
             };

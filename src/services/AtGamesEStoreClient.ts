@@ -173,6 +173,27 @@ export function seriesOf(name: string): string | null {
 }
 
 /**
+ * Recovers a table name from a list item written as marketing copy.
+ *
+ * Most packs list bare names. One authoring style writes the name in CAPS
+ * followed by a pitch — "FUNHOUSE: Starring Rudy, pinball's most iconic
+ * ventriloquist dummy antagonist!" — and without this the whole sentence
+ * becomes the "table name" and matches nothing. Williams™ Pinball Volume 6 is
+ * the pack that revealed it; the rule costs nothing on the other 137.
+ *
+ * The ALL-CAPS head is what makes this safe. Ordinary titles containing a
+ * colon — "Star Trek™ Pinball: Deep Space Nine", "The Getaway: High Speed II"
+ * — have lowercase letters before the colon and are left completely alone,
+ * which matters because truncating one of those would silently merge three
+ * distinct tables into their shared prefix.
+ */
+export function stripBlurb(item: string): string {
+    const m = item.match(/^([^a-z:]{3,}?):\s+\S/);
+    if (!m) return item;
+    return m[1]!.trim();
+}
+
+/**
  * Pulls the `<li>` items out of a product's "Tables included:" list.
  * Returns null when the product has no such list (single-table packs and the
  * handful of series packs that omit it).
@@ -188,6 +209,7 @@ function parseTableList(bodyHtml: string): string[] | null {
             .replace(/&#8217;|&rsquo;/g, "'")
             .replace(/[™®]/g, '')
             .trim())
+        .map(stripBlurb)
         .filter(Boolean);
     return items.length > 0 ? items : null;
 }
