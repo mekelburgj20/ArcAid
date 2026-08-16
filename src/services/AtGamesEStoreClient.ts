@@ -34,6 +34,15 @@ const STORE_BASE = 'https://atgames.us';
  * Per-publisher collection handles. There is deliberately no
  * `legends-hd-pinball-packs-zen-studios`: Zen ships 4K-only, which is why the
  * HD storefront's publisher filter shows no Zen entry.
+ *
+ * ZEN IS A CLOSED SET (owner, 2026-08-16): AtGames and Zen Studios have ended
+ * their partnership, so no further Zen tables are coming to Legends. Expect the
+ * Zen collection to go static and possibly to 404 outright if AtGames delists
+ * it. Neither breaks anything — `buildStudioMap` skips a failed collection with
+ * a warning, and `studio` is written with `COALESCE(?, studio)`, so a sync that
+ * can no longer see the Zen collection LEAVES the ~70 already-attributed rows
+ * exactly as they are. Do not "fix" a missing Zen collection by hardcoding its
+ * tables; the catalogue already holds the answer.
  */
 const PUBLISHER_COLLECTIONS: Record<string, string> = {
     'legends-4k-pinball-packs-zen-studios': 'Zen Studios',
@@ -173,6 +182,27 @@ export function seriesOf(name: string): string | null {
 }
 
 /**
+ * Recovers a table name from a list item written as marketing copy.
+ *
+ * Most packs list bare names. One authoring style writes the name in CAPS
+ * followed by a pitch — "FUNHOUSE: Starring Rudy, pinball's most iconic
+ * ventriloquist dummy antagonist!" — and without this the whole sentence
+ * becomes the "table name" and matches nothing. Williams™ Pinball Volume 6 is
+ * the pack that revealed it; the rule costs nothing on the other 137.
+ *
+ * The ALL-CAPS head is what makes this safe. Ordinary titles containing a
+ * colon — "Star Trek™ Pinball: Deep Space Nine", "The Getaway: High Speed II"
+ * — have lowercase letters before the colon and are left completely alone,
+ * which matters because truncating one of those would silently merge three
+ * distinct tables into their shared prefix.
+ */
+export function stripBlurb(item: string): string {
+    const m = item.match(/^([^a-z:]{3,}?):\s+\S/);
+    if (!m) return item;
+    return m[1]!.trim();
+}
+
+/**
  * Pulls the `<li>` items out of a product's "Tables included:" list.
  * Returns null when the product has no such list (single-table packs and the
  * handful of series packs that omit it).
@@ -188,6 +218,7 @@ function parseTableList(bodyHtml: string): string[] | null {
             .replace(/&#8217;|&rsquo;/g, "'")
             .replace(/[™®]/g, '')
             .trim())
+        .map(stripBlurb)
         .filter(Boolean);
     return items.length > 0 ? items : null;
 }

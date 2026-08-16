@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { setupTestDb } from './helpers.js';
 import { getDatabase } from '../database/database.js';
 import { GlobalGameService } from '../services/GlobalGameService.js';
-import { AtGamesEStoreClient, atgamesMatchKey, seriesOf, brandOf } from '../services/AtGamesEStoreClient.js';
+import { AtGamesEStoreClient, atgamesMatchKey, seriesOf, brandOf, stripBlurb } from '../services/AtGamesEStoreClient.js';
+import { ATGAMES_STUDIO_OVERRIDES, buildOverrideIndex } from '../services/atgamesStudioOverrides.js';
 import { AtGamesApiClient } from '../services/AtGamesApiClient.js';
 import { normalizeGameName } from '../utils/catalogueUtils.js';
 
@@ -316,6 +317,66 @@ describe('AtGames catalogue identity', () => {
         it('returns null when nothing claims the name', () => {
             const byPrefix = claims([[atgamesMatchKey('Star Trek Pinball'), 'Zen Studios']]);
             expect(AtGamesEStoreClient.matchByPrefix(byPrefix, 'Locomotion Deluxe')).toBeNull();
+        });
+    });
+
+    describe('marketing-copy list items', () => {
+        it('recovers the name from an ALL-CAPS headed blurb', () => {
+            expect(stripBlurb("FUNHOUSE: Starring Rudy, pinball's most iconic ventriloquist dummy antagonist!"))
+                .toBe('FUNHOUSE');
+            expect(stripBlurb('SPACE STATION: Prepare for liftoff. We have ignition.'))
+                .toBe('SPACE STATION');
+        });
+
+        it('leaves ordinary titles containing a colon completely alone', () => {
+            // The safety property. Truncating at the colon here would collapse
+            // three distinct Star Trek tables into one shared prefix, and lose
+            // the edition on the Getaway.
+            for (const title of [
+                'Star Trek™ Pinball: Deep Space Nine',
+                'Star Trek™ Pinball: Discovery',
+                'The Getaway: High Speed II™',
+                'Firefighter: Wildlands',
+                'Wrath of the Elder Gods: Director’s Cut',
+            ]) {
+                expect(stripBlurb(title)).toBe(title);
+            }
+        });
+    });
+
+    describe('curated studio overrides', () => {
+        const index = buildOverrideIndex(atgamesMatchKey);
+
+        it('maps every entry to a known studio, with a reason recorded', () => {
+            const known = new Set(['Zen Studios', 'Magic Pixel', 'FarSight Studios', 'AtGames Originals']);
+            expect(ATGAMES_STUDIO_OVERRIDES.length).toBeGreaterThan(0);
+            for (const entry of ATGAMES_STUDIO_OVERRIDES) {
+                expect(known.has(entry.studio), `${entry.name} → "${entry.studio}"`).toBe(true);
+                // The provenance note is what makes this map auditable rather
+                // than a pile of assertions. An entry without one is a guess.
+                expect(entry.why.trim().length, `${entry.name} has no "why"`).toBeGreaterThan(20);
+            }
+        });
+
+        it('has no two entries claiming the same table', () => {
+            expect(index.size).toBe(ATGAMES_STUDIO_OVERRIDES.length);
+        });
+
+        it('keys through the same match key the store lookup uses', () => {
+            // If these drifted apart, every override would silently miss.
+            expect(index.get(atgamesMatchKey('Medieval Madness™'))?.studio).toBe('Zen Studios');
+            expect(index.get(atgamesMatchKey('Arkanoid (Pinball)'))?.studio).toBe('AtGames Originals');
+            expect(index.get(atgamesMatchKey('Zombies'))?.studio).toBe('Magic Pixel');
+        });
+
+        it('does not claim tables the derived tiers already own', () => {
+            // The override tier runs LAST so the store always wins, but an
+            // entry duplicating a derived answer is dead weight that hides a
+            // store change. These three are attributed by pack list, series
+            // and brand respectively.
+            for (const name of ['Cue Ball Wizard', 'Africa (Natural History)', 'Williams™ Pinball: FunHouse™']) {
+                expect(index.has(atgamesMatchKey(name)), `${name} should not need an override`).toBe(false);
+            }
         });
     });
 });
