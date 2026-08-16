@@ -34,6 +34,15 @@ const STORE_BASE = 'https://atgames.us';
  * Per-publisher collection handles. There is deliberately no
  * `legends-hd-pinball-packs-zen-studios`: Zen ships 4K-only, which is why the
  * HD storefront's publisher filter shows no Zen entry.
+ *
+ * ZEN IS A CLOSED SET (owner, 2026-08-16): AtGames and Zen Studios have ended
+ * their partnership, so no further Zen tables are coming to Legends. Expect the
+ * Zen collection to go static and possibly to 404 outright if AtGames delists
+ * it. Neither breaks anything — `buildStudioMap` skips a failed collection with
+ * a warning, and `studio` is written with `COALESCE(?, studio)`, so a sync that
+ * can no longer see the Zen collection LEAVES the ~70 already-attributed rows
+ * exactly as they are. Do not "fix" a missing Zen collection by hardcoding its
+ * tables; the catalogue already holds the answer.
  */
 const PUBLISHER_COLLECTIONS: Record<string, string> = {
     'legends-4k-pinball-packs-zen-studios': 'Zen Studios',

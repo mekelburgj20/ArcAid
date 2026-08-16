@@ -211,12 +211,17 @@ export class AtGamesImportService {
             }
 
             // The curated override map is a snapshot and cannot know about a
-            // pack AtGames ships next year without a contents list. Naming the
-            // residue is what stops that being a silent permanent blank: this
-            // line is the maintenance trigger for `atgamesStudioOverrides.ts`.
-            // Two entries are expected to appear here forever ("City Golf",
-            // "Wild Games" — absent from the store entirely); anything else is
-            // new and wants a look.
+            // table AtGames adds next month. Naming the residue is what stops
+            // that being a silent permanent blank: this line is the
+            // maintenance trigger for `atgamesStudioOverrides.ts`.
+            //
+            // Expect this to fire mainly for ANNOUNCED-BUT-UNRELEASED tables.
+            // AtGames provisions a table into the catalogue feed before it
+            // goes on sale, so for a few weeks it has no store listing to be
+            // attributed from. It resolves itself on release — the listing
+            // appears, a derived tier picks it up — so the useful response is
+            // usually to check AtGames' Originals release schedule and add an
+            // interim entry, not to go hunting the storefront.
             if (unattributed.length > 0) {
                 logWarn(
                     `AtGames sync: ${unattributed.length} table(s) have NO studio — ` +

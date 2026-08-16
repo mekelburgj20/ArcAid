@@ -118,16 +118,28 @@ export const ATGAMES_STUDIO_OVERRIDES: StudioOverride[] = [
     { name: 'Rainbow Islands', studio: 'AtGames Originals', why: 'TAITO Pinball Pack 2/3 [AtGames Originals] — no contents list.' },
     { name: 'Zoo Keeper (Pinball)', studio: 'AtGames Originals', why: 'TAITO Pinball Pack 2/3 [AtGames Originals] — no contents list.' },
 
-    // ── Series sibling with no SKU of its own ───────────────────────────
-    { name: 'Firefighter: Urban', studio: 'AtGames Originals', why: 'Sibling of "Firefighter: Wildlands Legends Single Pack" [AtGames Originals]; Urban has no store listing of its own.' },
-
-    // ── DELIBERATELY ABSENT ─────────────────────────────────────────────
-    // "City Golf" and "Wild Games" appear nowhere in the AtGames store —
-    // not in a pack title, not in a contents list, not in pack prose
-    // (searched across every pinball collection, 2026-08-16). They are
-    // presumably preloaded on cabinets with no separate SKU. Their studio is
-    // unknown, so they keep a null studio rather than a guess. If the owner
-    // knows who made them, add them here.
+    // ── Announced but not yet released ──────────────────────────────────
+    // AtGames provisions a table into the catalogue API BEFORE it goes on
+    // sale, so an upcoming release exists as a feed row with no store listing
+    // of any kind — no pack title, no contents list, not even pack prose
+    // (searched across every pinball collection, 2026-08-16).
+    //
+    // All three below come from AtGames' own published Originals release
+    // schedule (owner-supplied, 2026-08-16): Firefighter: Urban — August 20;
+    // City Golf — September 10; Wild Games — September 24. Each is filed
+    // there under "AtGames Originals".
+    //
+    // This is the recurring shape of this file's maintenance, and it is
+    // self-correcting: when the table ships it gets a store listing, a
+    // derived tier resolves it, and the entry here goes inert. The same
+    // schedule names further AtGames Originals releases (Natural History
+    // Pinball Pack 4 — December 2026, American Moments Pinball Bundle — TBA,
+    // First Responders: EMS — February 2027) which are NOT added here yet:
+    // they aren't in the feed, and an entry for a table that doesn't exist
+    // would be an untestable guess.
+    { name: 'Firefighter: Urban', studio: 'AtGames Originals', why: 'AtGames Originals release schedule, 20 Aug 2026; sibling of "Firefighter: Wildlands Legends Single Pack" [AtGames Originals]. No store listing of its own yet.' },
+    { name: 'City Golf', studio: 'AtGames Originals', why: 'AtGames Originals release schedule, 10 Sep 2026 (4KP, HD). In the catalogue feed ahead of release, so no store listing exists yet.' },
+    { name: 'Wild Games', studio: 'AtGames Originals', why: 'AtGames Originals release schedule, 24 Sep 2026 (4KP, HD). In the catalogue feed ahead of release, so no store listing exists yet.' },
 ];
 
 /** Lookup keyed by `atgamesMatchKey(name)`; built once at module load. */
