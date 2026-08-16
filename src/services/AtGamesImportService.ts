@@ -1,185 +1,196 @@
-import axios from 'axios';
+import { AtGamesApiClient, type AtGamesGame } from './AtGamesApiClient.js';
+import { AtGamesEStoreClient, atgamesMatchKey, seriesOf, brandOf } from './AtGamesEStoreClient.js';
 import { GlobalGameService } from './GlobalGameService.js';
 import { SyncLogService } from './SyncLogService.js';
-import { logInfo, logError } from '../utils/logger.js';
+import { logInfo, logError, logWarn } from '../utils/logger.js';
 
 /**
- * AtGames Legends Pinball catalogue tagger.
+ * AtGames Legends Pinball catalogue importer.
  *
- * AtGames doesn't expose a public API of which licensed virtual tables ship
- * on the cabinet — the authoritative list is a community / user-curated
- * Google Sheet. We pull column A of that sheet (publicly readable as CSV
- * via Google's export endpoint, no API key required) and run each name
- * through `GlobalGameService.upsert` with `platforms=['atgames']`. The
- * 4-step dedup hierarchy in upsert merges the tag into existing catalogue
- * rows (Williams/Bally pinballs already imported from VPS) and creates
- * fresh rows for names that aren't in the catalogue yet — same pattern as
- * `FxVrImportService`.
+ * Two sources, each answering the question the other can't:
  *
- * If the sheet URL changes, edit `SHEET_ID` / `GID` here and redeploy.
+ *  - `AtGamesApiClient` (atgames.net) — AtGames' own catalogue. Canonical
+ *    names, cabinet availability, and a STABLE `game_id`. The id is why this
+ *    service was rewritten: it moves AtGames dedup from hierarchy step 4
+ *    (normalized name, which produced the 88 Zaccaria/AtGames duplicates
+ *    repaired on prod 2026-08-16) to step 1 (external id).
+ *
+ *  - `AtGamesEStoreClient` (atgames.us) — the storefront, which files every
+ *    table pack under its publisher. That's the studio.
+ *
+ * This REPLACES the community Google Sheet the service used to read. The API
+ * is strictly more complete (283 pinball tables against the sheet's 260,
+ * including `Locomotion Deluxe` and `Aerobatics Deluxe` which the sheet omits
+ * entirely) and its names match the Zaccaria four-design taxonomy verbatim.
+ *
+ * Idempotent: re-running resolves every row by `atgames_id` and updates in
+ * place.
  */
 
-// Source-of-truth: user-curated AtGames availability sheet.
-// https://docs.google.com/spreadsheets/d/.../edit?gid=...
-const SHEET_ID = '1NZ5kK7xuzdXISAfl7lfoQ3SSeE-AWR_4xvGAy-OZYkU';
-const GID = '1726389143';
-const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${GID}`;
-
 /**
- * Minimal RFC-4180-ish CSV parser. Handles quoted fields with embedded
- * commas/newlines and `""` quote-escapes. Returns an array of rows; each
- * row is an array of string fields. Drops trailing empty trailing row.
- */
-function parseCsv(text: string): string[][] {
-    const rows: string[][] = [];
-    let field = '';
-    let row: string[] = [];
-    let inQuotes = false;
-    let i = 0;
-    while (i < text.length) {
-        const ch = text[i];
-        if (inQuotes) {
-            if (ch === '"') {
-                if (text[i + 1] === '"') { field += '"'; i += 2; continue; }
-                inQuotes = false; i++; continue;
-            }
-            field += ch; i++;
-        } else {
-            if (ch === '"') { inQuotes = true; i++; continue; }
-            if (ch === ',') { row.push(field); field = ''; i++; continue; }
-            if (ch === '\r') { i++; continue; }
-            if (ch === '\n') { row.push(field); rows.push(row); row = []; field = ''; i++; continue; }
-            field += ch; i++;
-        }
-    }
-    if (field !== '' || row.length > 0) { row.push(field); rows.push(row); }
-    // Drop trailing all-empty row if Google Sheets emits a final \n.
-    const last = rows[rows.length - 1];
-    if (last && last.every(c => c === '')) rows.pop();
-    return rows;
-}
-
-/**
- * Normalize unicode quote variants the curated sheet sometimes contains
- * (curly apostrophes / quotes from copy-paste sources). Without this,
- * "A Samurai’s Vengeance" wouldn't match a catalogue row stored as
- * "A Samurai's Vengeance" — upsert dedup would create a duplicate.
+ * Straightens the typographic quotes AtGames' API returns ("A Samurai's
+ * Vengeance" comes back with a curly apostrophe). Without this the name
+ * wouldn't match a catalogue row stored with a straight one and dedup would
+ * fork. Carried over from the sheet-based importer, where it was load-bearing
+ * for the same reason.
  */
 function normalizeName(s: string): string {
     return s
-        .replace(/[‘’]/g, "'")  // curly single → straight
-        .replace(/[“”]/g, '"')  // curly double → straight
+        .replace(/[‘’]/g, "'")
+        .replace(/[“”]/g, '"')
         .replace(/\s+/g, ' ')
         .trim();
 }
 
 /**
- * AtGames cabinet identifier → canonical platform ID. Sheet cells in
- * columns H/I/J/K (one per porter studio) carry these tokens, sometimes
- * with parenthetical suffixes like "(most)" or "(some)" — stripped before
- * lookup. Cells starting with "(" (e.g. "(HDP soon)") indicate "coming
- * soon" — caller filters those out.
+ * Rows AtGames leaves in its own live catalogue that are not games.
+ *
+ * The feed currently carries "ZZZ Test 2", "ZZZ Test 3", "ZZZ Test 4" and
+ * "ZZZ Test 8" — internal fixtures, classified as pinball by the cabinet
+ * check because they are provisioned onto pinball hardware. They would import
+ * as four junk catalogue rows that an admin then has to find and delete.
+ *
+ * Kept to the observed marker only — a broader "anything ending in Test"
+ * rule would be guessing at names no one has seen.
  */
-const CABINET_ID_BY_TOKEN: Record<string, string> = {
-    'HD':    'atgames_hd',
-    '4K':    'atgames_4k',
-    'MICRO': 'atgames_micro',
-    'HDP':   'atgames_hdp',
-    'ALU':   'atgames_alu',
-    'MINI':  'atgames_mini',
-    'GAMER': 'atgames_gamer',
-    'CORE':  'atgames_core',
-};
+const EXCLUDED_NAME_PATTERNS: RegExp[] = [
+    /^zzz\b/i,
+];
 
-/**
- * Extract a single cabinet variant ID from a sheet cell. Returns null when:
- *  - cell is blank
- *  - cell starts with "(" — game's "coming soon" to that cabinet, not yet
- *    shipped (e.g. "(HDP soon)")
- *  - leading token is non-AtGames-cabinet (Steam, Pinball Arcade, etc.)
- */
-function extractCabinetVariant(raw: string): string | null {
-    const trimmed = (raw || '').trim();
-    if (!trimmed) return null;
-    if (trimmed.startsWith('(')) return null;
-    // Strip trailing parenthetical: "Mini (most)" → "Mini".
-    const stripped = trimmed.replace(/\s*\([^)]*\)\s*$/, '').trim();
-    return CABINET_ID_BY_TOKEN[stripped.toUpperCase()] ?? null;
+function isExcludedName(name: string): boolean {
+    return EXCLUDED_NAME_PATTERNS.some(re => re.test(name.trim()));
 }
 
-// Column indices (0-based). Sheet layout per user clarification:
-//   A=name · B/C=2025 play · D/E/F=2026 play · G=padding ·
-//   H=AtGames porter · I=FarSight · J=Magic Pixel · K=Zen Studios
-const COL_NAME = 0;
-const COLS_PORTER_STUDIOS = [7, 8, 9, 10] as const; // H, I, J, K
+export interface AtGamesSyncResult {
+    created: number;
+    updated: number;
+    skipped: number;
+    total: number;
+    /** Pinball rows the cabinet classifier accepted, out of the whole feed. */
+    pinball: number;
+    arcadeSkipped: number;
+    /** How many imported rows got a studio, and from where. */
+    studioFromPack: number;
+    studioFromSeries: number;
+    studioFromPrefix: number;
+    studioFromBrand: number;
+    studioMissing: number;
+    /** Non-game rows the exclusion list dropped (AtGames' own test fixtures). */
+    excluded: number;
+    manufacturerFilled: number;
+}
 
 export class AtGamesImportService {
-    static async applyTags(): Promise<{ created: number; updated: number; skipped: number; total: number }> {
+    static async applyTags(): Promise<AtGamesSyncResult> {
         const syncLogId = await SyncLogService.start('atgames');
         let created = 0;
         let updated = 0;
         let skipped = 0;
+        let studioFromPack = 0;
+        let studioFromSeries = 0;
+        let studioFromPrefix = 0;
+        let studioFromBrand = 0;
+        let studioMissing = 0;
+        let excluded = 0;
+        let manufacturerFilled = 0;
         const errors: string[] = [];
 
         try {
-            logInfo(`AtGames sync: fetching ${CSV_URL}`);
-            const res = await axios.get<string>(CSV_URL, {
-                responseType: 'text',
-                maxRedirects: 5,
-                timeout: 30000,
-                // axios defaults to JSON parsing — force text so we get the raw CSV.
-                transformResponse: [(d) => d],
-            });
-            const rows = parseCsv(res.data);
-            // Skip row 0 (header "All Tables A to Z" / year-cluster labels) and
-            // row 1 (sub-header — studio names AtGames/FarSight/Magic Pixel/Zen).
-            const games = rows.slice(2)
-                .map(r => ({
-                    name: normalizeName(r[COL_NAME] || ''),
-                    cabinetCells: COLS_PORTER_STUDIOS.map(i => r[i] ?? ''),
-                }))
-                .filter(g => g.name.length > 0);
+            // Diagnostic only — logs a warning if AtGames has shipped a cabinet
+            // this codebase doesn't know how to tag.
+            await AtGamesApiClient.fetchHardwareModels();
 
-            logInfo(`AtGames sync: ${games.length} names extracted from sheet`);
+            // Studio attribution is best-effort. If the storefront is
+            // unreachable the catalogue import still runs; those rows keep a
+            // null studio and pick one up on the next successful sync.
+            let studioMap: Awaited<ReturnType<typeof AtGamesEStoreClient.buildStudioMap>> | null = null;
+            try {
+                studioMap = await AtGamesEStoreClient.buildStudioMap();
+            } catch (err) {
+                logWarn(`AtGames sync: eStore studio map unavailable (${err instanceof Error ? err.message : String(err)}) — importing without studio attribution`);
+            }
 
-            for (const game of games) {
+            const allGames = await AtGamesApiClient.fetchAllGames();
+            const pinballGames = allGames.filter(g => AtGamesApiClient.isPinball(g));
+            const arcadeSkipped = allGames.length - pinballGames.length;
+            logInfo(`AtGames sync: ${pinballGames.length} pinball tables (${arcadeSkipped} arcade rows skipped) of ${allGames.length}`);
+
+            for (const game of pinballGames) {
                 try {
-                    // v2.13.6: tag with the umbrella `atgames` platform (the
-                    // tournament-meaningful axis) and stash cabinet variants
-                    // — atgames_hd / atgames_4k / atgames_hdp / etc. — in
-                    // `features`. Cabinet availability is a catalogue-level
-                    // attribute, sibling to wizard_auto/has_puppack/fps_*;
-                    // it isn't a player-eligibility distinction so it doesn't
-                    // belong in the platform rule picker.
-                    const variants = new Set<string>();
-                    for (const cell of game.cabinetCells) {
-                        const id = extractCabinetVariant(cell);
-                        if (id) variants.add(id);
+                    const name = normalizeName(game.name);
+                    if (!name) { skipped++; continue; }
+                    if (isExcludedName(name)) { excluded++; continue; }
+
+                    // Attribution runs strongest-evidence-first and stops at
+                    // the first hit: a pack that NAMES the table beats a
+                    // series rule, which beats a pack-title prefix.
+                    let attribution = studioMap?.byKey.get(atgamesMatchKey(name)) ?? null;
+                    let studio = attribution?.studio ?? null;
+                    if (studio) {
+                        studioFromPack++;
+                    } else {
+                        // Series: packs like Dr. Seuss and Natural History
+                        // don't publish their contents, but the API stamps the
+                        // series onto the table's own name and each series has
+                        // exactly one publisher.
+                        const series = seriesOf(game.name);
+                        const seriesStudio = series ? studioMap?.bySeries.get(series) ?? null : null;
+                        if (seriesStudio) {
+                            studio = seriesStudio;
+                            studioFromSeries++;
+                        } else if (studioMap) {
+                            // Prefix: AtGames names mini-pack tables after
+                            // their pack ("Star Trek™ Pinball: Discovery" under
+                            // "Star Trek™ Pinball Legends Mini Pack").
+                            const byPrefix = AtGamesEStoreClient.matchByPrefix(studioMap.byPrefix, name);
+                            // Brand: the name announces its licensed brand
+                            // ("Williams™ Pinball: FunHouse™") and the store
+                            // says who publishes that brand's packs.
+                            const brand = brandOf(name);
+                            const byBrand = brand ? studioMap.byBrand.get(brand) ?? null : null;
+                            const fallback = byPrefix ?? byBrand;
+                            if (fallback) {
+                                attribution = fallback;
+                                studio = fallback.studio;
+                                if (byPrefix) studioFromPrefix++; else studioFromBrand++;
+                            } else studioMissing++;
+                        } else studioMissing++;
                     }
 
                     const result = await GlobalGameService.upsert({
-                        name: game.name,
+                        name,
                         type: 'pinball',
-                        // ADR 0016 catalogue phase §5, FLAGGED PRODUCT CALL #1:
-                        // engine `atgames_native`. A game on this sheet runs on
-                        // the AtGames machine's own software, and giving it a
-                        // real engine is what stops its submissions auto-locking
-                        // to Unspecified. `atgames` moves to `features` beside
-                        // the cabinet variants, where "available on AtGames"
-                        // belongs. Known imprecision: Zen/FarSight-ported titles
-                        // arguably carry their porter's engine — the sheet knows
-                        // via column-A fill colour, the CSV export cannot read
-                        // colours (ROADMAP "Studio attribution").
+                        // The AtGames machine runs its own software, so the
+                        // engine is `atgames_native`; giving it a real engine
+                        // is what stops its submissions locking to Unspecified.
+                        // "Available on AtGames" and the cabinet variants are
+                        // availability facts and belong in `features`.
                         platforms: ['atgames_native'],
-                        features: ['atgames', ...variants],
+                        features: ['atgames', ...AtGamesApiClient.cabinetFeatures(game)],
+                        atgames_id: game.game_id,
+                        studio,
+                        // `manufacturer` is deliberately ABSENT from this input
+                        // — see the fillMissingManufacturer call below.
                         status: 'approved',
                         imported_from: 'atgames',
                     });
+
                     if (result.action === 'inserted') created++;
                     else if (result.action === 'updated') updated++;
                     else skipped++;
+
+                    // Manufacturer lands out-of-band, and only into a gap. In
+                    // the upsert input it would participate in dedup matching
+                    // and change which row existing tables resolve to; here it
+                    // cannot affect matching at all.
+                    if (attribution?.manufacturer) {
+                        const filled = await GlobalGameService.fillMissingManufacturer(
+                            result.id, attribution.manufacturer, 'atgames',
+                        );
+                        if (filled) manufacturerFilled++;
+                    }
                 } catch (err) {
-                    errors.push(`${game.name}: ${err instanceof Error ? err.message : String(err)}`);
+                    errors.push(`${game.name} (#${game.game_id}): ${err instanceof Error ? err.message : String(err)}`);
                 }
             }
 
@@ -192,8 +203,23 @@ export class AtGamesImportService {
                 errors: errors.length > 0 ? errors : undefined,
             });
 
-            logInfo(`AtGames Import: ${created} created, ${updated} updated, ${skipped} skipped, ${errors.length} errored`);
-            return { created, updated, skipped, total: games.length };
+            logInfo(
+                `AtGames Import: ${created} created, ${updated} updated, ${skipped} skipped, ` +
+                `${excluded} excluded, ${errors.length} errored · ` +
+                `studio: ${studioFromPack} from packs, ${studioFromSeries} from series, ` +
+                `${studioFromPrefix} from prefix, ${studioFromBrand} from brand, ${studioMissing} unattributed · ` +
+                `manufacturer filled: ${manufacturerFilled}`,
+            );
+
+            return {
+                created, updated, skipped,
+                total: pinballGames.length,
+                pinball: pinballGames.length,
+                arcadeSkipped,
+                studioFromPack, studioFromSeries, studioFromPrefix, studioFromBrand, studioMissing,
+                excluded,
+                manufacturerFilled,
+            };
         } catch (err) {
             logError('AtGames Import failed:', err);
             await SyncLogService.complete(syncLogId, {
@@ -204,3 +230,5 @@ export class AtGamesImportService {
         }
     }
 }
+
+export type { AtGamesGame };

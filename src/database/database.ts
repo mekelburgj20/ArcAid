@@ -2394,6 +2394,11 @@ async function doInitDatabase(): Promise<Database> {
         { name: '147_global_games_dedup_aliases', sql: `
             ALTER TABLE global_games ADD COLUMN dedup_aliases TEXT;
         ` },
+        // --- AtGames API importer: catalogue columns (see the handler) ---
+        { name: '148_global_games_atgames_columns', handler: async (db) => {
+            const { addAtGamesCatalogueColumns } = await import('./migrations/atgamesCatalogueColumns.js');
+            await addAtGamesCatalogueColumns(db);
+        } },
     ];
 
     for (const migration of migrations) {
