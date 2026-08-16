@@ -176,6 +176,29 @@ Load-bearing technical and product decisions are tracked in [`docs/decisions/`](
 
 **Rough effort:** ~2–3 focused days. Gate + read-path redaction ~1d · event suppression ~0.5d · admin setting + sealed card + countdown ~0.5–1d · tests ~0.5d, plus the iScored decision.
 
+### Zaccaria/AtGames catalogue duplicates — 84 pairs (owner-found 2026-08-16, investigated, NOT yet merged)
+
+**Found by the owner searching "blackbelt" in the Game Library**: `Blackbelt 2018 - Remake` (AtGames) and `Blackbelt 2018 Table` (Zaccaria) are the same table, as are `Blackbelt Deluxe` and `Blackbelt Deluxe Pinball Table`.
+
+**Root cause — one missing suffix rule.** `normalizeGameName` ALREADY strips `Remake` (it is in `EDITION_SUFFIXES`), so `Blackbelt 2018 - Remake` normalizes to `blackbelt 2018`. What it does not strip is Zaccaria's Steam-DLC suffix, so `Blackbelt 2018 Table` normalizes to `blackbelt 2018 table` and the two never meet. That single gap accounts for every pair below.
+
+**Scale — 84 pairs, in three completely regular patterns** (measured against prod, 2026-08-16; 99 zaccaria rows, 264 atgames_native rows):
+- `X Deluxe Pinball Table` (Zaccaria) ≡ `X Deluxe` (AtGames) — **23**
+- `X Table` (Zaccaria) ≡ `X` (AtGames) — **36**
+- `X <year> Table` (Zaccaria) ≡ `X <year> - Remake` (AtGames) — **25**
+
+Ten `… Deluxe Pinball Table` rows have no AtGames twin (AtGames does not carry them) and are correctly separate.
+
+**Why a blanket `normalizeGameName` change is NOT the fix.** Stripping a trailing `Table` / `Pinball Table` was tested against the whole approved catalogue: it creates 85 new collision groups and **produces no false positives of its own** — every group is a Zaccaria row meeting its real twin. BUT eleven of those groups contain three or more rows, because several genuinely different machines already share a normalized name: `Circus` has SEVEN rows including `Circus (Bally, 1973)` and `Circus (Brunswick, 1980)`; `Clown` includes an Inder 1988; `Space Shuttle` a Taito do Brasil 1985; `Universe` a Gottlieb 1959. Dropping NULL-manufacturer, NULL-year Zaccaria rows into those buckets invites exactly the mis-filing that hit "The Aliens" in v2.108.1, where the populatedness tie-break funneled a name-only import onto the richest row. See ADR 0014 and [[reference_catalogue_dedup_doctrine]].
+
+**Recommended shape — two phases.**
+1. **Merge the known pairs explicitly.** Script over the three patterns, pairing ONLY where the match is exactly one `atgames_native` row and one `zaccaria` row; skip every multi-row group for manual adjudication. Dry-run printing all pairs first. Uses the existing `GlobalGameService.merge`, which unions platforms/features/external IDs onto the target and keeps the target's name — so the surviving row carries the Zaccaria metadata the owner asked to preserve.
+2. **Make it durable, or the next sync undoes it.** After a merge no row is named `… Table` any more, so the next "Sync Steam Pinball" re-creates one: dedup matches on `normalized_name` only. `global_games.aliases` EXISTS and is written, but **dedup never reads it** (verified — `findCandidates`/`upsert` query `normalized_name` exclusively). So the fix is either (a) teach the dedup walk to consult `aliases`, recording the Zaccaria title as an alias at merge time — surgical, and useful well beyond this case; or (b) apply the suffix strip only for the Steam/Zaccaria importer's own inputs rather than globally.
+
+**Separate second bug, same search.** The 1986 Zaccaria machine is `Black Belt` in our catalogue (from VPS, which spells it with a space; IPDB id=316 spells it `Blackbelt`) — we take the source's spelling, which is why it looks "wrong". That space is also why the AtGames `Blackbelt` row never merged into it, making Blackbelt a three-way split where most titles are two-way. Note `Black Belt (Bally, 1986)` is IPDB id=303, a genuinely different machine, correctly separate.
+
+**Owner decisions still needed:** the target name per pattern (keep the AtGames-style short name?); whether the digital rows should also fold into the physical/VPX row for their table — for ~30 titles that merge has ALREADY happened (their AtGames rows carry `vpx,real`), so Blackbelt is the outlier, not the rule; and what `Blackbelt Retro` (AtGames, no Zaccaria twin) actually is.
+
 ### Room Settings page reorganisation (owner-flagged 2026-08-15, needs a design pass)
 
 **The trigger.** Fixing the Branding/Background-Image heading collision exposed the bigger thing: *"The whole room/settings might need a reorg to make things easier to navigate."* The page is one long scroll of ~10 sibling cards (Theme, Leaderboard Display, Kiosk, Game Room, Integrations, Discord, Users, iScored, Platforms, Other) with no grouping above card level and no way to jump.
