@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { setupTestDb } from './helpers.js';
 import { getDatabase } from '../database/database.js';
 import { GlobalGameService } from '../services/GlobalGameService.js';
-import { AtGamesEStoreClient, atgamesMatchKey, seriesOf, brandOf, stripBlurb } from '../services/AtGamesEStoreClient.js';
+import { AtGamesEStoreClient, atgamesMatchKey, atgamesDedupName, seriesOf, brandOf, stripBlurb } from '../services/AtGamesEStoreClient.js';
 import { ATGAMES_STUDIO_OVERRIDES, buildOverrideIndex } from '../services/atgamesStudioOverrides.js';
 import { AtGamesApiClient } from '../services/AtGamesApiClient.js';
 import { normalizeGameName } from '../utils/catalogueUtils.js';
@@ -426,5 +426,109 @@ describe('AtGames source filter', () => {
 
         const res = await GlobalGameService.getAll({ source: 'manual', limit: 50 });
         expect(res.data.map(g => g.id)).toEqual(['src-really-manual']);
+    });
+});
+
+/**
+ * Decoration-aware dedup, and the original-work guard.
+ *
+ * Both come from the same production incident. The first AtGames sync created
+ * 82 duplicate rows because dedup ran on AtGames' name verbatim, and it also
+ * stamped AtGames' own "Teenage Mutant Ninja Turtles" — an AtGames original —
+ * onto Data East's 1991 machine. Decoration causes false negatives; a plain
+ * name shared with a real machine causes false positives. One fix each.
+ */
+describe('AtGames decoration and original-work guard', () => {
+    beforeEach(async () => {
+        await setupTestDb();
+    });
+
+    async function seed(fields: { id: string; name: string; manufacturer?: string | null; year?: number | null }) {
+        const db = await getDatabase();
+        await db.run(
+            `INSERT INTO global_games (id, name, normalized_name, type, manufacturer, year, status, platforms, features)
+             VALUES (?, ?, ?, 'pinball', ?, ?, 'approved', '[]', '[]')`,
+            fields.id, fields.name, normalizeGameName(fields.name),
+            fields.manufacturer ?? null, fields.year ?? null,
+        );
+    }
+
+    it('strips a brand prefix so a Zen port finds its physical machine', () => {
+        expect(atgamesDedupName('Williams™ Pinball: FunHouse™')).toBe('FunHouse™');
+        expect(atgamesDedupName('Williams™ Pinball: Attack from Mars™')).toBe('Attack from Mars™');
+    });
+
+    it('strips a series label so a Dr. Seuss table finds its plain row', () => {
+        expect(atgamesDedupName('Africa (Natural History)')).toBe('Africa');
+        expect(atgamesDedupName('Fox in Socks (Dr. Seuss)')).toBe('Fox in Socks');
+    });
+
+    it('KEEPS "(Pinball)" — it is identity, not decoration', () => {
+        // AtGames ships a pinball table AND an emulated arcade ROM of the same
+        // licence. Stripping this would merge the table into Bally's machine.
+        expect(atgamesDedupName('Space Invaders (Pinball)')).toBe('Space Invaders (Pinball)');
+        expect(atgamesDedupName('Arkanoid (Pinball)')).toBe('Arkanoid (Pinball)');
+    });
+
+    it('merges a decorated name onto the existing plain row', async () => {
+        await seed({ id: 'dd-funhouse', name: 'Funhouse', manufacturer: 'Williams', year: 1990 });
+
+        const res = await GlobalGameService.upsert({
+            name: 'Williams™ Pinball: FunHouse™',
+            dedup_name: atgamesDedupName('Williams™ Pinball: FunHouse™'),
+            type: 'pinball', atgames_id: 50443, studio: 'Zen Studios', imported_from: 'atgames',
+        });
+
+        expect(res.action).toBe('updated');
+        expect(res.id).toBe('dd-funhouse');
+    });
+
+    it('refuses to put an original work onto a real machine of the same name', async () => {
+        await seed({ id: 'dd-tmnt-de', name: 'Teenage Mutant Ninja Turtles', manufacturer: 'Data East', year: 1991 });
+
+        const res = await GlobalGameService.upsert({
+            name: 'Teenage Mutant Ninja Turtles',
+            type: 'pinball', atgames_id: 50466, studio: 'AtGames Originals',
+            original_work: true, imported_from: 'atgames',
+        });
+
+        expect(res.action).toBe('inserted');
+        expect(res.id).not.toBe('dd-tmnt-de');
+
+        const db = await getDatabase();
+        const machine = await db.get<{ atgames_id: number | null }>(
+            'SELECT atgames_id FROM global_games WHERE id = ?', 'dd-tmnt-de');
+        expect(machine?.atgames_id).toBeNull();
+    });
+
+    it('still lets an original work merge onto a thin non-machine row', async () => {
+        // "Zoo Keeper" from the old sheet MEANT the AtGames pinball table, so
+        // the guard must not block that — it only refuses real machines.
+        await seed({ id: 'dd-zookeeper', name: 'Zoo Keeper' });
+
+        const res = await GlobalGameService.upsert({
+            name: 'Zoo Keeper (Pinball)',
+            dedup_name: atgamesDedupName('Zoo Keeper (Pinball)'),
+            type: 'pinball', atgames_id: 50296, studio: 'AtGames Originals',
+            original_work: true, imported_from: 'atgames',
+        });
+
+        expect(res.action).toBe('inserted');
+    });
+
+    it('lets a LICENSED recreation merge onto its real machine', async () => {
+        // The other side of the guard: Zen's Williams port is not an original
+        // work, so it must still fold into the machine row.
+        await seed({ id: 'dd-taxi', name: 'Taxi', manufacturer: 'Williams', year: 1988 });
+
+        const res = await GlobalGameService.upsert({
+            name: 'Williams™ Pinball: TAXI™',
+            dedup_name: atgamesDedupName('Williams™ Pinball: TAXI™'),
+            type: 'pinball', atgames_id: 50454, studio: 'Zen Studios',
+            original_work: false, imported_from: 'atgames',
+        });
+
+        expect(res.action).toBe('updated');
+        expect(res.id).toBe('dd-taxi');
     });
 });

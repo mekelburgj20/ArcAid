@@ -214,6 +214,35 @@ export interface GlobalGameInput {
     ra_id?: number | null;
     atgames_id?: number | null;
     studio?: string | null;
+    /**
+     * Alternate name to run the step-4 normalized-name walk against, when the
+     * source's own name carries decoration the catalogue doesn't use.
+     *
+     * AtGames sells "Williams™ Pinball: FunHouse™" and "Africa (Natural
+     * History)"; the catalogue holds "Funhouse" and "Africa". `normalizeGameName`
+     * strips edition suffixes and manufacturer parentheticals but knows nothing
+     * about a brand prefix or a series label, so those names matched nothing and
+     * inserted duplicates — 82 of them on the first production sync.
+     *
+     * The row is still STORED under `name`. This only widens what step 4 looks
+     * up, so it can never change the row's identity, only which existing row it
+     * recognises.
+     */
+    dedup_name?: string | null;
+    /**
+     * True when this input is an ORIGINAL digital table rather than a
+     * recreation of a physical machine. Such a row must never merge onto a
+     * real-manufacturer row.
+     *
+     * Two production incidents, both caught by the owner: AtGames' own
+     * "Teenage Mutant Ninja Turtles" (an AtGames original) landed on the Data
+     * East 1991 machine, and "Space Invaders (Pinball)" would have landed on
+     * Bally's 1980 machine. AtGames also marks this distinction in its own
+     * naming — "(Pinball)" separates its pinball TABLE from its emulated
+     * arcade ROM of the same licence, which are different games on different
+     * engines.
+     */
+    original_work?: boolean;
     score_eligibility?: string | null;
     ra_leaderboard_count?: number | null;
     ra_imported_by?: string | null;
@@ -632,9 +661,26 @@ export class GlobalGameService {
         // and the caller has no use for the match list — see the opts note on
         // this method. `existing` is unaffected; step 4 was already inert in
         // that case.
+        // `dedup_name` only widens the lookup — see its doc on GlobalGameInput.
+        const lookupName = (input.dedup_name || '').trim() || input.name;
         let nameMatches = (existing && !opts?.includeNameMatches)
             ? []
-            : (await this.findByNormalizedName(input.name)).filter(g => g.type === inputType);
+            : (await this.findByNormalizedName(lookupName)).filter(g => g.type === inputType);
+
+        // An original digital table is not the physical machine it shares a
+        // name with. Drop real-manufacturer candidates before any of the
+        // tie-breaks below can pick one — `isVirtualOnlyManufacturer` is the
+        // same predicate the IPDB step already uses for this distinction.
+        if (input.original_work) {
+            const dropped = nameMatches.filter(g => !isVirtualOnlyManufacturer(g.manufacturer));
+            if (dropped.length > 0) {
+                logInfo(
+                    `dedup: "${input.name}" is an original work — refusing ${dropped.length} ` +
+                    `real-manufacturer candidate(s) (${dropped.map(g => `"${g.name}" (${g.manufacturer})`).join(', ')})`
+                );
+                nameMatches = nameMatches.filter(g => isVirtualOnlyManufacturer(g.manufacturer));
+            }
+        }
 
         // Alias FALLBACK, deliberately subordinate. Consulted only when the
         // normalized name matched nothing at all — never merged into a
@@ -650,7 +696,9 @@ export class GlobalGameService {
         // Recording the other spelling as an alias (see `merge`) stops the
         // next import re-forking them.
         if (!existing && nameMatches.length === 0) {
-            const aliasMatches = (await this.findByAlias(input.name)).filter(g => g.type === inputType);
+            const aliasMatches = (await this.findByAlias(lookupName))
+                .filter(g => g.type === inputType)
+                .filter(g => !input.original_work || isVirtualOnlyManufacturer(g.manufacturer));
             if (aliasMatches.length > 0) {
                 logInfo(
                     `dedup: name "${input.name}" matched ${aliasMatches.length} row(s) by ALIAS ` +

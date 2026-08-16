@@ -1,5 +1,5 @@
 import { AtGamesApiClient, type AtGamesGame } from './AtGamesApiClient.js';
-import { AtGamesEStoreClient, atgamesMatchKey, seriesOf, brandOf } from './AtGamesEStoreClient.js';
+import { AtGamesEStoreClient, atgamesMatchKey, atgamesDedupName, seriesOf, brandOf } from './AtGamesEStoreClient.js';
 import { buildOverrideIndex } from './atgamesStudioOverrides.js';
 import { GlobalGameService } from './GlobalGameService.js';
 import { SyncLogService } from './SyncLogService.js';
@@ -185,6 +185,18 @@ export class AtGamesImportService {
                         features: ['atgames', ...AtGamesApiClient.cabinetFeatures(game)],
                         atgames_id: game.game_id,
                         studio,
+                        // Dedup against the undecorated name; the row is still
+                        // STORED under AtGames' own name.
+                        dedup_name: atgamesDedupName(name),
+                        // A licensed brand in the pack title is what marks a
+                        // recreation of a physical machine (Zen's Williams
+                        // ports, FarSight's Gottlieb, Magic Pixel's Zaccaria).
+                        // Without one this is an ORIGINAL digital table and
+                        // must not merge onto a real machine that happens to
+                        // share its name — AtGames' own "Teenage Mutant Ninja
+                        // Turtles" is not Data East's 1991 machine, and
+                        // "Space Invaders (Pinball)" is not Bally's 1980 one.
+                        original_work: !attribution?.manufacturer,
                         // `manufacturer` is deliberately ABSENT from this input
                         // — see the fillMissingManufacturer call below.
                         status: 'approved',
