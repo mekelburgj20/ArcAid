@@ -70,6 +70,20 @@ interface Pair {
     pattern: 'deluxe' | 'plain' | 'remake';
 }
 
+/**
+ * Curly quotes -> straight, for survivor names only.
+ *
+ * AtGames' sheet-sourced rows carry typographic quotes ("Mexico ‘ 86",
+ * "Star’s Phoenix", "Wood’s Queen"); Zaccaria and AtGames' own website use
+ * straight ones. Dedup is unaffected either way -- `normalizeGameName` strips
+ * all punctuation, so both spellings share a key -- but SEARCH is not: the
+ * catalogue search is a plain substring match, so someone typing "Star's
+ * Phoenix" never finds "Star’s Phoenix". Owner call, 2026-08-16.
+ */
+function straightenQuotes(name: string): string {
+    return name.replace(/[‘’]/g, "'").replace(/[“”]/g, '"');
+}
+
 function platformsOf(r: Row): string[] {
     try {
         const parsed = JSON.parse(r.platforms || '[]');
@@ -169,6 +183,11 @@ async function main(): Promise<void> {
         if (pattern === 'remake') {
             renameTo = twin.name.replace(/\s*-\s*Remake$/i, '').trim();
         }
+        // Straighten typographic quotes on ANY survivor, remake or not — the
+        // plain pattern leaves the AtGames name in place, and three of those
+        // ("Mexico ‘ 86", "Star’s Phoenix", "Wood’s Queen") carry curly ones.
+        const straightened = straightenQuotes(renameTo ?? twin.name);
+        if (straightened !== (renameTo ?? twin.name)) renameTo = straightened;
         pairs.push({ zac: z, atg: twin, renameTo, pattern });
     }
 
