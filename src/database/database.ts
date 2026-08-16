@@ -2377,6 +2377,23 @@ async function doInitDatabase(): Promise<Database> {
             CREATE UNIQUE INDEX IF NOT EXISTS idx_style_profiles_owner_default
             ON style_profiles(owner_user_id) WHERE is_default = 1;
         ` },
+        // Dedup-grade alternate spellings, kept APART from `aliases`.
+        //
+        // `aliases` is a search/synonym field of unknown provenance, and a dry
+        // run against production proved it cannot be trusted for identity: it
+        // holds community acronyms, several of them attached to the WRONG row
+        // — "TZ" on "Tropical EM+" (Twilight Zone exists separately), "WCS" on
+        // "Wood's Queen 2019" (World Cup Soccer exists separately), "WH2O" on
+        // "Whirlwind" (White Water exists separately). Letting dedup read that
+        // column would route imports onto unrelated machines.
+        //
+        // `dedup_aliases` is written ONLY by GlobalGameService.merge, which
+        // records the name of a row an admin deliberately merged away. Every
+        // entry therefore has a provenance: a human decided these two rows are
+        // the same game. Search keeps reading `aliases`; identity reads this.
+        { name: '147_global_games_dedup_aliases', sql: `
+            ALTER TABLE global_games ADD COLUMN dedup_aliases TEXT;
+        ` },
     ];
 
     for (const migration of migrations) {
