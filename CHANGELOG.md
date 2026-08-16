@@ -6,6 +6,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.111.0] — unreleased
+
+**Style-system revamp Phase 2 — Style Profiles.** Save a room's look under a name and apply it to your other rooms. Plus the heading-hierarchy fixes that came out of the owner reviewing v2.110.0.
+
+### Added
+- **Style Profiles.** A named snapshot of a room's APPEARANCE, owned by the admin rather than by any one room, so someone running several rooms can dress a new one in two clicks instead of re-deriving forty settings. Apply, save-this-room, and a Manage list with default-star / re-capture-from-this-room / delete. Renders first in the Leaderboard Display card — everything below it is the manual way to reach the same result.
+  - A profile carries appearance ONLY. Room name, title text, logo and background image stay with the room, so applying your house style to a new room cannot rename it or hang the wrong logo on it. The portable set is a hardcoded allowlist rather than a `SCOREBOARD_*` pattern: pattern-matching is how a credential or policy key eventually rides along, and an allowlist fails closed. Kiosk keys are included (owner decision).
+  - Applying writes only the keys the profile holds; everything else in the target room is untouched. That is what makes a profile safe to apply to a room whose credentials and identity you have not audited.
+  - Saving captures only settings the room actually chose, never their current defaults — so a profile does not freeze the rooms it touches to today's answers.
+  - One default profile per admin, enforced by a partial unique index rather than by remembering to clear the previous one.
+
+### Changed
+- **Settings headings now have two distinct tiers.** A group heading (larger, wider tracking, full-width rule) and a subsection heading (the cyan left-bar). Branding is a group; Background Image and Logo sit under it. Previously they rendered identically, so the hierarchy read flat.
+- **The Leaderboard Display card no longer has two sections called "Advanced"** — a finding from the original P0 audit that had survived every phase since. The collapsible block in the Look picker is now "Display options"; the numeric block is "Fine tuning".
+
+### Fixed
+- **"Min Card Height" advertised a default it no longer used.** The renderer began tracking "Scores per card" in v2.110.0, but the input still displayed a fixed 20. It now shows blank with a `Matches Scores per card` placeholder; set a number only to force taller cards.
+
+### Database
+- **Migration 146** adds `style_profiles` plus two indexes: one profile per (owner, name) case-insensitively, and at most one default per owner.
+
+Tests: backend 1759 (+20), admin-ui 846 (+9). Screenshots: `tmp/settings-preview-shots/`.
+
 ## [2.110.0] — unreleased
 
 **Style-system revamp Phase 1, complete.** The admin appearance panel goes from ~40 controls behind two nested "show more" disclosures to ~25 in one level, the preview finally renders the real scoreboard, and a Look is one click instead of one setting. Covers three merges (PR #226, #227, and this one).
