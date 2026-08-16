@@ -164,6 +164,32 @@ export function atgamesMatchKey(name: string): string {
 }
 
 /**
+ * The name to run catalogue dedup against — AtGames' name with its storefront
+ * decoration removed, and NOTHING else removed.
+ *
+ * Distinct from `atgamesMatchKey`, which flattens a name to a comparison key.
+ * This returns a real name string that `normalizeGameName` can still process,
+ * because the catalogue's step-4 walk is what consumes it.
+ *
+ * Two things come off:
+ *   - the brand prefix Zen puts on its licensed ports ("Williams™ Pinball: X")
+ *   - the series label AtGames appends ("(Natural History)", "(Dr. Seuss)")
+ *
+ * One thing deliberately STAYS ON: "(Pinball)". That parenthetical is IDENTITY,
+ * not decoration — AtGames ships a pinball TABLE and an emulated arcade ROM of
+ * the same licence, and "Space Invaders (Pinball)" is a different game on a
+ * different engine from "Space Invaders". Stripping it would merge an AtGames
+ * original into Bally's 1980 machine, which is the bug this exists to prevent.
+ */
+export function atgamesDedupName(name: string): string {
+    return (name || '')
+        .replace(/^(Williams|Bally|Gottlieb|Zaccaria|Taito|Universal)\s*[™®]?\s*Pinball\s*[:\-]\s*/i, '')
+        .replace(/\s*\((?:Natural History|Dr\.? Seuss)\)\s*/gi, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+/**
  * Extracts the licensed brand an API name announces, lowercased, or null.
  *
  * Only the explicit "<Brand> Pinball:" form counts — "Williams™ Pinball:
