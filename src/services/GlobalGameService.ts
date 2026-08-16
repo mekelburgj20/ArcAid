@@ -139,6 +139,14 @@ export interface GlobalGame {
     /** RetroAchievements game id (RA on-demand import). Joins the step-1
      *  external-id set below. Partial-UNIQUE indexed; migration 133. */
     ra_id: number | null;
+    /** AtGames game id, from their public catalogue feed. Joins the step-1
+     *  external-id set below. Partial-UNIQUE indexed; migration 148. */
+    atgames_id: number | null;
+    /** Publishing studio on the AtGames Legends platform ('Zen Studios',
+     *  'Magic Pixel', 'FarSight Studios', 'AtGames Originals'). Distinct from
+     *  `manufacturer` — FarSight publishes Gottlieb machines, Magic Pixel
+     *  publishes Zaccaria, Zen publishes Williams. Migration 148. */
+    studio: string | null;
     /** Classifier verdict at import time — a HINT for admin surfaces and the
      *  "not score-eligible" review flow, never an enforcement gate. */
     score_eligibility: string | null;
@@ -195,6 +203,8 @@ export interface GlobalGameInput {
     vps_id?: string | null;
     igdb_id?: number | null;
     ra_id?: number | null;
+    atgames_id?: number | null;
+    studio?: string | null;
     score_eligibility?: string | null;
     ra_leaderboard_count?: number | null;
     ra_imported_by?: string | null;
@@ -278,14 +288,15 @@ export class GlobalGameService {
     }
 
     /**
-     * Finds a game by external ID (opdb_id, vps_id, igdb_id, or ra_id).
+     * Finds a game by external ID (opdb_id, vps_id, igdb_id, ra_id, or atgames_id).
      */
-    static async findByExternalId(source: 'opdb' | 'vps' | 'igdb' | 'ra', externalId: string | number): Promise<GlobalGame | undefined> {
+    static async findByExternalId(source: 'opdb' | 'vps' | 'igdb' | 'ra' | 'atgames', externalId: string | number): Promise<GlobalGame | undefined> {
         const db = await getDatabase();
         const col = source === 'opdb' ? 'opdb_id'
             : source === 'vps' ? 'vps_id'
             : source === 'igdb' ? 'igdb_id'
-            : 'ra_id';
+            : source === 'ra' ? 'ra_id'
+            : 'atgames_id';
         return db.get(`SELECT * FROM global_games WHERE ${col} = ?`, externalId);
     }
 
@@ -459,6 +470,7 @@ export class GlobalGameService {
         if (input.vps_id && candidate.vps_id && candidate.vps_id !== input.vps_id) return true;
         if (input.igdb_id && candidate.igdb_id && candidate.igdb_id !== input.igdb_id) return true;
         if (input.ra_id && candidate.ra_id && candidate.ra_id !== input.ra_id) return true;
+        if (input.atgames_id && candidate.atgames_id && candidate.atgames_id !== input.atgames_id) return true;
         return false;
     }
 
@@ -537,6 +549,15 @@ export class GlobalGameService {
         // cross-type guard below applies to it exactly as it does to the
         // others (an `ra_id` match onto a `pinball` row is refused).
         if (!existing && input.ra_id) existing = await this.findByExternalId('ra', input.ra_id);
+        // AtGames joins the same set, and is the reason the AtGames importer
+        // exists in its current form: its predecessor had no id at all, so
+        // every sync re-derived identity from the name via step 4. Four
+        // Zaccaria designs of one machine ("Locomotion" / "Locomotion 2018" /
+        // "Locomotion Deluxe" / "Locomotion Retro") are distinct games with
+        // distinct ids here, and only the id keeps them apart reliably —
+        // `normalizeGameName` strips "Remake" as an edition suffix, so the
+        // legacy "Locomotion Remake" spelling collides with plain "Locomotion".
+        if (!existing && input.atgames_id) existing = await this.findByExternalId('atgames', input.atgames_id);
 
         // 2. Cross-type guard
         if (existing && existing.type !== inputType) {
@@ -884,6 +905,15 @@ export class GlobalGameService {
                     vps_id = COALESCE(?, vps_id),
                     igdb_id = COALESCE(?, igdb_id),
                     ra_id = COALESCE(?, ra_id),
+                    atgames_id = COALESCE(?, atgames_id),
+                    -- Supplied-wins, so a re-sync picks up a re-filing at the
+                    -- source (AtGames moving a pack between publisher
+                    -- collections). Only the AtGames importer ever supplies
+                    -- this, and a null input keeps whatever is there, so no
+                    -- other import path can wipe it. The trade is that an
+                    -- admin correction is reverted by the next sync — fix the
+                    -- attribution upstream, not in the row.
+                    studio = COALESCE(?, studio),
                     -- Supplied-wins, so a re-import refreshes the verdict and
                     -- the board count from RA's current answer.
                     score_eligibility = COALESCE(?, score_eligibility),
@@ -922,6 +952,8 @@ export class GlobalGameService {
                 input.vps_id ?? null,
                 input.igdb_id ?? null,
                 input.ra_id ?? null,
+                input.atgames_id ?? null,
+                input.studio ?? null,
                 input.score_eligibility ?? null,
                 input.ra_leaderboard_count ?? null,
                 input.ra_imported_by ?? null,
@@ -989,7 +1021,7 @@ export class GlobalGameService {
                 id, name, normalized_name, display_name, manufacturer, year, type, subtype,
                 platforms, themes, designers, players,
                 image_url, local_image_path, wheel_image_path,
-                opdb_id, vps_id, igdb_id, ra_id,
+                opdb_id, vps_id, igdb_id, ra_id, atgames_id, studio,
                 score_eligibility, ra_leaderboard_count, ra_imported_by,
                 ipdb_url, based_on_ipdb_url, external_url,
                 table_authors, table_download_urls, tutorial_urls, rules_urls,
@@ -1000,7 +1032,7 @@ export class GlobalGameService {
                 ?, ?, ?, ?, ?, ?, ?, ?,
                 ?, ?, ?, ?,
                 ?, ?, ?,
-                ?, ?, ?, ?,
+                ?, ?, ?, ?, ?, ?,
                 ?, ?, ?,
                 ?, ?, ?,
                 ?, ?, ?, ?,
@@ -1020,7 +1052,7 @@ export class GlobalGameService {
             input.players ?? null,
             input.image_url ?? null, input.local_image_path ?? null, input.wheel_image_path ?? null,
             input.opdb_id ?? null, input.vps_id ?? null, input.igdb_id ?? null,
-            input.ra_id ?? null,
+            input.ra_id ?? null, input.atgames_id ?? null, input.studio ?? null,
             input.score_eligibility ?? null, input.ra_leaderboard_count ?? null,
             input.ra_imported_by ?? null,
             input.ipdb_url ?? null, input.based_on_ipdb_url ?? null, input.external_url ?? null,
@@ -1038,6 +1070,57 @@ export class GlobalGameService {
             stampFieldSources('{}', input, { isInsert: true, sourceLabel: input.imported_from })
         );
         return { id, action: 'inserted' };
+    }
+
+    /**
+     * Fills `manufacturer` on a row that has none, and does nothing otherwise.
+     *
+     * Exists so an importer can contribute a manufacturer WITHOUT putting it in
+     * the upsert input. `manufacturerYearAgree` compares the input's
+     * manufacturer against each candidate's, so supplying one changes which row
+     * an import resolves to: an AtGames table sent as "Zaccaria" would stop
+     * loose-matching the VPX recreation carrying "Original" and INSERT beside
+     * it instead. Routing the value here keeps dedup behaviour byte-identical
+     * to what it was before the field was known, and still lands the fact.
+     *
+     * Returns true when it wrote. Stamps `field_sources` with the caller's
+     * source label rather than 'manual' — an importer did this, not an admin.
+     */
+    static async fillMissingManufacturer(
+        id: string,
+        manufacturer: string,
+        sourceLabel: string,
+    ): Promise<boolean> {
+        if (!manufacturer.trim()) return false;
+        const db = await getDatabase();
+        const row = await db.get<{ manufacturer: string | null; field_sources: string | null }>(
+            'SELECT manufacturer, field_sources FROM global_games WHERE id = ?', id,
+        );
+        if (!row || (row.manufacturer || '').trim()) return false;
+
+        try {
+            const result = await db.run(
+                `UPDATE global_games SET manufacturer = ?, field_sources = ?
+                  WHERE id = ? AND (manufacturer IS NULL OR TRIM(manufacturer) = '')`,
+                manufacturer,
+                stampFieldSources(row.field_sources, { manufacturer }, { sourceLabel }),
+                id,
+            );
+            return (result.changes ?? 0) > 0;
+        } catch (e: unknown) {
+            // `idx_global_games_identity` covers (name, type, manufacturer,
+            // year), so filling a manufacturer moves the row onto a tuple
+            // another row may already own. That means the two rows are the
+            // same machine and want merging — a judgement call for the admin
+            // catalogue UI, not something a backfill should force. Leave the
+            // manufacturer null and say so.
+            if ((e as { code?: string })?.code !== 'SQLITE_CONSTRAINT') throw e;
+            logWarn(
+                `fillMissingManufacturer: "${manufacturer}" on ${id} collides with an existing ` +
+                `(name, type, manufacturer, year) row — left unset, merge the pair manually.`,
+            );
+            return false;
+        }
     }
 
     /**
@@ -1250,7 +1333,7 @@ export class GlobalGameService {
 
         const stringFields = ['name', 'display_name', 'manufacturer', 'type', 'subtype',
             'image_url', 'local_image_path', 'wheel_image_path',
-            'opdb_id', 'vps_id', 'ipdb_url', 'external_url',
+            'opdb_id', 'vps_id', 'ipdb_url', 'external_url', 'studio',
             'description', 'status', 'submitted_by', 'reviewed_by',
             'imported_from', 'source_updated_at'] as const;
 
@@ -1270,6 +1353,7 @@ export class GlobalGameService {
         }
         if ('year' in fields) { sets.push('year = ?'); params.push(fields.year ?? null); }
         if ('igdb_id' in fields) { sets.push('igdb_id = ?'); params.push(fields.igdb_id ?? null); }
+        if ('atgames_id' in fields) { sets.push('atgames_id = ?'); params.push(fields.atgames_id ?? null); }
         if ('players' in fields) { sets.push('players = ?'); params.push(fields.players ?? null); }
         if ('source_rating' in fields) { sets.push('source_rating = ?'); params.push(fields.source_rating ?? null); }
         if ('global_leaderboard' in fields) { sets.push('global_leaderboard = ?'); params.push(fields.global_leaderboard ? 1 : 0); }
@@ -1505,6 +1589,22 @@ export class GlobalGameService {
                     if (!target.igdb_id && source.igdb_id) { updates.push('igdb_id = ?'); updateParams.push(source.igdb_id); }
                     if (!target.ipdb_url && source.ipdb_url) { updates.push('ipdb_url = ?'); updateParams.push(source.ipdb_url); }
                     if (!target.external_url && source.external_url) { updates.push('external_url = ?'); updateParams.push(source.external_url); }
+
+                    // `atgames_id` must survive the merge or the next AtGames
+                    // sync re-INSERTS the row it just absorbed: the id would no
+                    // longer resolve to anything, dropping that import back to
+                    // name matching — the failure this arc removes.
+                    //
+                    // It carries a partial UNIQUE index, and the target UPDATE
+                    // below runs while the source row still exists, so the id
+                    // has to be released from the source FIRST. The other
+                    // external ids need no such step (none of them is UNIQUE).
+                    if (!target.atgames_id && source.atgames_id) {
+                        await db.run('UPDATE global_games SET atgames_id = NULL WHERE id = ?', sourceId);
+                        updates.push('atgames_id = ?');
+                        updateParams.push(source.atgames_id);
+                    }
+                    if (!target.studio && source.studio) { updates.push('studio = ?'); updateParams.push(source.studio); }
 
                     // String arrays — union.
                     const unionStrings = (a: string | null | undefined, b: string | null | undefined): string => {

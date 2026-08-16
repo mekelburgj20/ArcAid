@@ -6,6 +6,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.112.0] — unreleased
+
+**The AtGames importer moves off the community Google Sheet and onto AtGames' own public API — and every table now says which studio made it.** The sheet gave names and nothing else, so every "Sync AtGames" click re-derived a table's identity from its name, which is the mechanism behind the 88 Zaccaria/AtGames duplicates repaired on prod 2026-08-16. AtGames' API carries a stable id.
+
+### Added
+- **`atgames_id` as a first-class external id.** AtGames dedup moves from hierarchy step 4 (fuzzy normalized name) to step 1 (external id), so a re-sync lands on the row it created last time by construction. It joins `opdb_id`/`vps_id`/`igdb_id`/`ra_id` everywhere those are consulted — the step-1 lookup, the external-id conflict guard, and the merge data union (where it is released from the source row first, because unlike the others it carries a UNIQUE index).
+  - This is what finally separates the four Zaccaria designs of one machine. `Locomotion` / `Locomotion 2018` / `Locomotion Deluxe` / `Locomotion Retro` are distinct games with distinct ids; the legacy `Locomotion Remake` spelling collides with plain `Locomotion` under `normalizeGameName`, which strips "Remake" as an edition suffix.
+- **`studio` — who published the table on the Legends platform.** Sourced from AtGames' own per-publisher eStore collections. `atgames.us` is a stock Shopify storefront, so this needs no scraping: seven collection handles, each served as JSON, with the pack → table mapping inside each product's "Tables included" list.
+  - **Studio is NOT manufacturer, and the two are deliberately separate columns.** FarSight publishes Gottlieb machines, Magic Pixel publishes Zaccaria, Zen publishes Williams. Writing a studio into `manufacturer` would make `manufacturerYearAgree` compare "magic pixel" against "zaccaria", drop step-4 dedup onto INSERT, and recreate the exact duplicate class this arc removes; "Zen Studios" would additionally trip `isVirtualOnlyManufacturer` and suppress IPDB merges.
+  - Attribution runs strongest-evidence-first: a pack that names the table (205 tables) → a series rule for packs that don't publish contents but stamp the series on the name, e.g. "(Dr. Seuss)" (12) → a pack-title prefix, since AtGames names mini-pack tables after their pack (12) → the brand the name itself announces, e.g. "Williams™ Pinball: FunHouse™" (11). 240 of 279 tables (86%) attributed; the remaining 39 sit in Zen and TAITO multi-packs the store does not enumerate, and keep a null studio rather than a guess.
+- **`GlobalGameService.fillMissingManufacturer`** — fills a manufacturer only where there is none, and only outside the upsert input. Supplying a manufacturer to `upsert` changes which row an import resolves to, so routing it here keeps dedup behaviour byte-identical to before the field was known. Declines rather than throwing when the fill would collide on the identity index (that pair wants merging, which is an admin decision). Fills 189 rows: Zaccaria 142, Williams 25, Gottlieb 22.
+
+### Changed
+- **Cabinet availability now comes from the API's `hardware_models`**, replacing the sheet's hand-maintained columns H/I/J/K. The mapping logs a warning naming any cabinet model it doesn't recognise, so a new Legends machine surfaces as a log line instead of a silent coverage hole.
+- **The feed mixes pinball and arcade** — its first row is "8 Eyes" — and its `catalog`, `rule`, `table` and `table_rule` parameters are all silently ignored, so the importer classifies rows itself. Four cabinets are pinball-exclusive (`RK9920` Pinball 4K, `HA9919` HDP, `HA8818` Pinball Micro, `HA8819C` Pinball ES); the shared codes are useless as a discriminator because an arcade ROM lists "Legends Pinball" too. Verified across the whole 404-row feed: 283 pinball, 121 arcade, no crossover.
+- **AtGames' own test fixtures are excluded.** The live feed carries "ZZZ Test 2/3/4/8" on pinball hardware; they would have imported as four junk catalogue rows.
+- **The catalogue admin list shows the studio** beside the manufacturer, never instead of it — a Gottlieb machine published by FarSight shows both.
+
+### Database
+- **Migration 148** adds `global_games.atgames_id` (partial UNIQUE index) and `global_games.studio`.
+
+Tests: backend 1796 (+20), admin-ui 846.
+
 ## [2.111.0] — unreleased
 
 **Style-system revamp Phase 2 — Style Profiles.** Save a room's look under a name and apply it to your other rooms. Plus the heading-hierarchy fixes that came out of the owner reviewing v2.110.0.
@@ -24,8 +47,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 ### Fixed
 - **"Min Card Height" advertised a default it no longer used.** The renderer began tracking "Scores per card" in v2.110.0, but the input still displayed a fixed 20. It now shows blank with a `Matches Scores per card` placeholder; set a number only to force taller cards.
 
+### Catalogue
+> Recorded late: this shipped in the 2.111.0 window (PR #232) without a changelog entry.
+- **Aliases-aware dedup.** `GlobalGameService.merge` now records the absorbed row's name on the survivor, so the next import using that spelling finds the survivor instead of re-creating the row it just replaced. Without it the 88-row Zaccaria/AtGames repair would have been undone by the next sync, and "JunkYard"/"Junk Yard" would have re-forked. The lookup is a STRICT FALLBACK — consulted only when the normalized-name walk found nothing at all, never as an addition to a non-empty candidate set, because adding candidates there could only change which row an existing import already resolves to.
+- Rows merged BEFORE this landed carry no aliases and will re-fork once each on their next relevant sync, then self-heal as the re-merge records the alias.
+
 ### Database
 - **Migration 146** adds `style_profiles` plus two indexes: one profile per (owner, name) case-insensitively, and at most one default per owner.
+- **Migration 147** adds `global_games.dedup_aliases`, written only by `GlobalGameService.merge`. Kept apart from the existing `aliases` column, which is a search/synonym field of unknown provenance — a dry run against production found entries attached to the wrong row ("TZ" on "Tropical EM+" while Twilight Zone exists separately), so it cannot be trusted for identity.
 
 Tests: backend 1759 (+20), admin-ui 846 (+9). Screenshots: `tmp/settings-preview-shots/`.
 

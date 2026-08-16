@@ -35,6 +35,12 @@ interface GlobalGame {
   ra_id: number | null;
   score_eligibility: string | null;
   ra_leaderboard_count: number | null;
+  /** AtGames importer (migration 148). Already on the wire — `SELECT *`. */
+  atgames_id: number | null;
+  /** Publishing studio on the AtGames Legends platform. NOT the manufacturer:
+   *  FarSight publishes Gottlieb machines, Magic Pixel publishes Zaccaria,
+   *  Zen publishes Williams — so both can be set and disagree, correctly. */
+  studio: string | null;
 }
 
 interface SyncLog {
@@ -1157,6 +1163,16 @@ function GameRow({
         {game.manufacturer && (
           <span className="text-muted text-xs hidden md:inline whitespace-nowrap">
             {game.manufacturer}{game.year ? `, ${game.year}` : ''}
+          </span>
+        )}
+        {/* Studio sits beside the manufacturer, never instead of it — a
+            Gottlieb machine published by FarSight shows both. */}
+        {game.studio && (
+          <span
+            className="text-[10px] px-1.5 py-0.5 rounded bg-neon-magenta/10 text-neon-magenta hidden md:inline whitespace-nowrap"
+            title={`Published on AtGames Legends by ${game.studio}`}
+          >
+            {game.studio}
           </span>
         )}
         {platforms.length > 0 && (
