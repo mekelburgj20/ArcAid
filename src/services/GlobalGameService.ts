@@ -129,6 +129,13 @@ export interface GlobalGame {
     opdb_id: string | null;
     vps_id: string | null;
     igdb_id: number | null;
+    /** Search-only synonyms of unknown provenance (community acronyms and the
+     *  like). NOT usable for identity — see `dedup_aliases`. */
+    aliases: string | null;
+    /** JSON array of alternate spellings this row answers to for DEDUP.
+     *  Written only by `merge`, so every entry means "an admin decided these
+     *  two rows are the same game". Read by `findByAlias`. */
+    dedup_aliases: string | null;
     /** RetroAchievements game id (RA on-demand import). Joins the step-1
      *  external-id set below. Partial-UNIQUE indexed; migration 133. */
     ra_id: number | null;
@@ -337,6 +344,112 @@ export class GlobalGameService {
     }
 
     /**
+     * Rows whose `aliases` array contains a value that normalizes to `name`.
+     *
+     * Catalogue sources disagree about spelling in ways `normalizeGameName`
+     * cannot bridge: it strips punctuation and leading articles and folds
+     * edition suffixes, but it does NOT collapse internal spaces or hyphens.
+     * So AtGames' "JunkYard" never meets VPS's "Junk Yard", "TX Sector" never
+     * meets "TX-Sector", and "Blackbelt" never meets "Black Belt" — each pair
+     * is one physical machine that arrived as two catalogue rows
+     * (owner-reported, 2026-08-16). An alias is how a row says "I am also
+     * known as this", so the next import under the other spelling lands on it
+     * instead of forking again.
+     *
+     * READS `dedup_aliases`, NOT `aliases`. A dry run against production
+     * proved that distinction is load-bearing: `aliases` is a search/synonym
+     * field of unknown provenance holding community acronyms, and several are
+     * attached to the WRONG row — "TZ" sits on "Tropical EM+" while Twilight
+     * Zone exists separately, "WCS" on "Wood's Queen 2019" while World Cup
+     * Soccer exists separately, "WH2O" on "Whirlwind" while White Water exists
+     * separately. Reading that column here would have routed imports onto
+     * unrelated machines — the exact failure this change exists to prevent.
+     *
+     * `dedup_aliases` is written only by `merge`, so every entry carries a
+     * provenance: an admin decided those two rows were the same game.
+     */
+    static async findByAlias(name: string): Promise<GlobalGame[]> {
+        const db = await getDatabase();
+        const normalized = normalizeGameName(name);
+        if (!normalized) return [];
+
+        // No SQL JSON search: `aliases` is a JSON string column with no index,
+        // and each entry needs `normalizeGameName` applied — which SQLite
+        // cannot do. So the scan happens in JS.
+        //
+        // Two columns, not `SELECT *`. This runs once per import row whose
+        // name matched nothing, which during a bulk VPS/IGDB pull is most of
+        // them — thousands of times per run. Pulling the full 40-column row
+        // (description included) for ~2,500 alias-carrying rows each time is
+        // the difference between a few seconds and a few minutes. Hits are
+        // rare, so fetch the whole row only for those.
+        const candidates = await db.all<Array<{ id: string; dedup_aliases: string | null }>>(
+            `SELECT id, dedup_aliases FROM global_games WHERE dedup_aliases IS NOT NULL AND dedup_aliases NOT IN ('', '[]')`,
+        );
+
+        const hitIds = candidates.filter(c => {
+            let parsed: unknown;
+            try {
+                parsed = JSON.parse(c.dedup_aliases || '[]');
+            } catch {
+                return false;
+            }
+            if (!Array.isArray(parsed)) return false;
+            return parsed.some(a => typeof a === 'string' && normalizeGameName(a) === normalized);
+        }).map(c => c.id);
+
+        if (hitIds.length === 0) return [];
+
+        const placeholders = hitIds.map(() => '?').join(', ');
+        return db.all<GlobalGame[]>(
+            `SELECT * FROM global_games WHERE id IN (${placeholders})`,
+            ...hitIds,
+        );
+    }
+
+    /**
+     * Dedup resolution for TAG-ONLY callers — importers that want to add a
+     * feature to a row that already exists and must never author one.
+     *
+     * The AtGames catalogue API supplies a name and nothing else: no
+     * manufacturer, no year, no console, no external id. That is not enough
+     * to pick between same-named rows, and this catalogue has plenty — 362
+     * normalized names shared by 2+ rows, covering 828 rows (~19%), with
+     * `star wars` at 8 and `circus` at 6. Letting the ordinary dedup walk
+     * adjudicate a bare name means the populatedness tie-break picks the
+     * RICHEST same-named row, which is exactly how the v2.108.1 "Aliens"
+     * incident re-tagged the wrong table on every sync.
+     *
+     * So this refuses to choose. Exactly one candidate is a match; two or
+     * more is `ambiguous` and the caller must report it rather than write.
+     * Callers that legitimately author rows (VPS, OPDB, IGDB, RA — all of
+     * which carry real metadata) keep using `upsert` and are unaffected.
+     */
+    static async resolveForTagging(input: GlobalGameInput): Promise<{
+        match: GlobalGame | null;
+        candidates: GlobalGame[];
+        ambiguous: boolean;
+    }> {
+        const inputType = input.type || 'pinball';
+
+        const byName = (await this.findByNormalizedName(input.name)).filter(g => g.type === inputType);
+
+        // Alias lookup is a FALLBACK, never an addition: if the name already
+        // matched something, adding alias hits could only change which row
+        // wins — and changing existing import outcomes is not what this is
+        // for. Consulted only when the name matched nothing.
+        const candidates = byName.length > 0
+            ? byName
+            : (await this.findByAlias(input.name)).filter(g => g.type === inputType);
+
+        if (candidates.length === 1) {
+            return { match: candidates[0]!, candidates, ambiguous: false };
+        }
+        return { match: null, candidates, ambiguous: candidates.length > 1 };
+    }
+
+
+    /**
      * True if input and candidate have mismatching IDs on the same source.
      * e.g. input.vps_id='abc' and candidate.vps_id='xyz' → conflict (distinct VPS games).
      * Empty fields on either side never create a conflict.
@@ -489,9 +602,33 @@ export class GlobalGameService {
         // and the caller has no use for the match list — see the opts note on
         // this method. `existing` is unaffected; step 4 was already inert in
         // that case.
-        const nameMatches = (existing && !opts?.includeNameMatches)
+        let nameMatches = (existing && !opts?.includeNameMatches)
             ? []
             : (await this.findByNormalizedName(input.name)).filter(g => g.type === inputType);
+
+        // Alias FALLBACK, deliberately subordinate. Consulted only when the
+        // normalized name matched nothing at all — never merged into a
+        // non-empty candidate set, because adding candidates there could only
+        // change which row an existing import already resolves to, and this
+        // change is not allowed to move any of those. With the set empty,
+        // every alias hit is strictly new reach: previously this import
+        // INSERTED a duplicate.
+        //
+        // What it buys: `normalizeGameName` collapses neither internal spaces
+        // nor hyphens, so "JunkYard"/"Junk Yard", "TX Sector"/"TX-Sector" and
+        // "Blackbelt"/"Black Belt" each arrived as two rows for one machine.
+        // Recording the other spelling as an alias (see `merge`) stops the
+        // next import re-forking them.
+        if (!existing && nameMatches.length === 0) {
+            const aliasMatches = (await this.findByAlias(input.name)).filter(g => g.type === inputType);
+            if (aliasMatches.length > 0) {
+                logInfo(
+                    `dedup: name "${input.name}" matched ${aliasMatches.length} row(s) by ALIAS ` +
+                    `(${aliasMatches.map(g => `"${g.name}"`).join(', ')})`
+                );
+                nameMatches = aliasMatches;
+            }
+        }
         if (!existing) {
             const nonConflicting = nameMatches.filter(g => !this.hasExternalIdConflict(input, g));
 
@@ -1380,6 +1517,38 @@ export class GlobalGameService {
                     updates.push('designers = ?');    updateParams.push(unionStrings(target.designers, source.designers));
                     updates.push('table_authors = ?'); updateParams.push(unionStrings(target.table_authors, source.table_authors));
                     updates.push('features = ?');     updateParams.push(unionStrings(target.features, source.features));
+
+                    // The source's NAME becomes an alias on the survivor.
+                    //
+                    // Without this a merge is undone by the next import: the
+                    // source row's spelling no longer exists anywhere, so an
+                    // importer using it matches nothing and INSERTS the
+                    // duplicate straight back. That is precisely what would
+                    // have happened to the Zaccaria/AtGames repair — 84 rows
+                    // recreated on the next Steam sync — and to
+                    // "JunkYard"/"Junk Yard" on the next AtGames sync.
+                    //
+                    // Only recorded when it differs from the survivor's own
+                    // name AND from its existing aliases, both compared on the
+                    // NORMALIZED form: an alias that normalizes to the name is
+                    // dead weight, since `findByAlias` is only consulted after
+                    // the name walk has already come up empty.
+                    const existingAliases: string[] = (() => {
+                        try {
+                            const parsed = JSON.parse(target.dedup_aliases || '[]');
+                            return Array.isArray(parsed) ? parsed.filter(a => typeof a === 'string') : [];
+                        } catch {
+                            return [];
+                        }
+                    })();
+                    const targetKey = normalizeGameName(target.name);
+                    const sourceKey = normalizeGameName(source.name);
+                    const alreadyKnown = sourceKey === targetKey
+                        || existingAliases.some(a => normalizeGameName(a) === sourceKey);
+                    if (source.name && sourceKey && !alreadyKnown) {
+                        updates.push('dedup_aliases = ?');
+                        updateParams.push(JSON.stringify([...existingAliases, source.name]));
+                    }
 
                     // v2.12.0: when source has an external_url that target
                     // doesn't already have (different URL, and not already in
