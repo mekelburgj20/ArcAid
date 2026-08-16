@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Search } from 'lucide-react';
 import { api, getToken, getTokenDiscordId } from '../lib/api';
@@ -13,6 +13,7 @@ import { InfoTip } from '../components/Tooltip';
 import StyleThemePicker from '../components/scoreboard/StyleThemePicker';
 import ScoreboardPreview from '../components/ScoreboardPreview';
 import TitleStyleSelect from '../components/TitleStyleSelect';
+import StyleProfiles from '../components/StyleProfiles';
 import { normalizeQrPosition, deriveQrOffsetPx, DEFAULT_QR_OFFSET_PX } from '../lib/scoreboardConfig';
 import ImageCropper from '../components/ImageCropper';
 import MemberAdminPicker from '../components/MemberAdminPicker';
@@ -286,6 +287,24 @@ const LEGACY_CARD_KEYS = [
   'SCOREBOARD_SCORE_STYLE', 'SCOREBOARD_GLASS_OPACITY',
   'SCOREBOARD_SCORE_COLUMNS', 'SCOREBOARD_CARD_OPACITY',
 ];
+
+/**
+ * Two heading tiers inside a settings card, and they must not look alike.
+ *
+ * Owner report, 2026-08-15: "Branding is the same heading style as Background
+ * Image — even though Background Image is subordinate to Branding." It was:
+ * the group heading and its own children were rendering the identical cyan
+ * left-bar treatment, so the hierarchy read flat.
+ *
+ * GROUP  — a top-level division of the card (Advanced, Branding). Larger,
+ *          wider tracking, full-width rule beneath it.
+ * SUB    — a block inside a group (Background Image, Logo). The cyan left-bar,
+ *          unchanged, and now visibly one level down.
+ */
+const GROUP_HEADING_CLASS =
+  'text-[13px] font-display uppercase tracking-[0.18em] text-primary mb-3 pb-1.5 border-b border-border/40';
+const SUB_HEADING_CLASS =
+  'text-xs font-display uppercase tracking-wider text-neon-cyan/70 mb-2 pl-2 border-l-2 border-neon-cyan/30';
 
 const CATEGORIES: Record<string, string[]> = {
   // Only keys with a LIVE control in this card. Every one of these is edited
@@ -736,6 +755,15 @@ export default function Settings() {
       toast('Failed to copy link', 'error');
     }
   };
+
+  /** Re-pull the room's settings and re-baseline. Used on mount and after a
+   *  style profile is applied — the server has just rewritten some of these,
+   *  so the page must not keep showing (or re-saving) the pre-apply values. */
+  const reloadSettings = useCallback(async () => {
+    const data = await api.get<Record<string, string>>(`/rooms/${room.roomId}/settings`);
+    setSettings(data);
+    setBaseline({ ...data });
+  }, [room.roomId]);
 
   useEffect(() => {
     api.get<Record<string, string>>(`/rooms/${room.roomId}/settings`)
@@ -1313,6 +1341,16 @@ export default function Settings() {
           /* ── Scoreboard Display with Preview Sidebar ── */
           <div className="flex flex-col lg:flex-row gap-4 mb-4">
             <NeonCard title={category} className="lg:w-1/2 min-w-0">
+              {/* P2 — save/apply a whole look across rooms. Sits first: it is
+                  the two-click path for "make this room look like my other
+                  one", and everything below it is the manual way to get there. */}
+              <StyleProfiles
+                roomId={room.roomId}
+                hasUnsavedChanges={isDirty}
+                toast={toast}
+                onApplied={() => { void reloadSettings(); }}
+              />
+
               {/* New Style/Theme picker — always shown */}
               <StyleThemePicker settings={settings} onChange={handleChange} />
 
@@ -1341,19 +1379,28 @@ export default function Settings() {
 
               {/* Advanced numeric settings */}
               <div className="pt-3 mt-3 border-t border-border/30 space-y-3">
-                <p className="text-xs font-display uppercase tracking-wider text-muted">Advanced</p>
+                {/* Was "Advanced" — the SECOND section on this card with
+                    that name (the original P0 audit flagged "two sections both
+                    named Advanced"; the collapsible one above is now "Display
+                    options"). Two identical headings in one card is not a
+                    hierarchy, it is a coin flip. */}
+                <p className={GROUP_HEADING_CLASS}>Fine tuning</p>
                 {[
                   // Style-system revamp P0 (item 5): SCOREBOARD_MAX_SCORES
                   // duplicate removed — the modern-path control lives in
                   // StyleThemePicker's "Scores per card" select above.
-                  { key: 'SCOREBOARD_MIN_SCORES', label: 'Min Card Height (scores)', defaultVal: '20', description: 'Minimum card height expressed as score rows' },
+                  // Owner report: this fought "Scores per card". It now
+                  // TRACKS it when unset (see deriveScoreboardConfig), so the
+                  // input must show blank-with-a-placeholder rather than
+                  // advertise a fixed 20 the renderer no longer uses.
+                  { key: 'SCOREBOARD_MIN_SCORES', label: 'Min Card Height (score rows)', defaultVal: '', placeholder: 'Matches Scores per card', description: 'Leave empty to match Scores per card. Set a number to force taller cards.' },
                   { key: 'SCOREBOARD_CARD_SPACING', label: 'Card Spacing (px)', defaultVal: '24', description: 'Gap between game cards in pixels' },
                   { key: 'SCOREBOARD_TITLE_FONT_SIZE', label: 'Title Font Size (px)', defaultVal: '0', description: '0 = style default. Override game title font size.' },
                   // Style-system revamp P0 (item 7): default aligned to 30 to
                   // match the renderer's actual fallback (scoreboardConfig.ts) —
                   // this input previously showed 24, drifted from reality.
                   { key: 'SCOREBOARD_QR_SIZE', label: 'QR Code Size (px)', defaultVal: '30', description: 'Size of QR codes on game cards. Default: 30.' },
-                ].map(({ key, label, defaultVal, description }) => (
+                ].map(({ key, label, defaultVal, description, placeholder }) => (
                   <div key={key} className="flex items-center justify-between gap-4">
                     <div>
                       <p className="text-sm font-medium text-primary">{label}</p>
@@ -1362,8 +1409,9 @@ export default function Settings() {
                     <input
                       type="number"
                       value={settings[key] ?? defaultVal}
+                      placeholder={placeholder}
                       onChange={e => handleChange(key, e.target.value)}
-                      className="w-20 text-sm text-center rounded border border-border bg-raised px-2 py-1 text-primary"
+                      className={`text-sm text-center rounded border border-border bg-raised px-2 py-1 text-primary ${placeholder ? 'w-44 placeholder:text-[11px]' : 'w-20'}`}
                     />
                   </div>
                 ))}
@@ -1461,11 +1509,11 @@ export default function Settings() {
                   it is already showing. Folded in as a section of that
                   card so the controls and their preview sit together. */}
               <div className="pt-4 mt-4 border-t border-border/30">
-                <p className="text-xs font-display uppercase tracking-wider text-neon-cyan/70 mb-3 pl-2 border-l-2 border-neon-cyan/30">Branding</p>
+                <p className={GROUP_HEADING_CLASS}>Branding</p>
               <div className="space-y-6">
                 {/* Background Image */}
                 <div>
-                  <p className="text-xs font-display uppercase tracking-wider text-neon-cyan/70 mb-2 pl-2 border-l-2 border-neon-cyan/30">Background Image</p>
+                  <p className={SUB_HEADING_CLASS}>Background Image</p>
                   {bgUrl && (
                     <div className="mb-3">
                       <img src={bgUrl} alt="Background preview" className="max-h-32 rounded border border-border object-cover" />
@@ -1562,7 +1610,7 @@ export default function Settings() {
                 </div>
                 {/* Logo Image */}
                 <div>
-                  <p className="text-xs font-display uppercase tracking-wider text-neon-cyan/70 mb-2 pl-2 border-l-2 border-neon-cyan/30">Logo</p>
+                  <p className={SUB_HEADING_CLASS}>Logo</p>
                   {logoUrl && (
                     <div className="flex items-center justify-between gap-4 mb-3">
                       <div>

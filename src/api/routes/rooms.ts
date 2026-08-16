@@ -5,6 +5,7 @@ import fs from 'fs';
 import { getDatabase } from '../../database/database.js';
 import { logInfo, logError, logWarn } from '../../utils/logger.js';
 import { requireAuth, requireRoomAccess, requireDiscordUser, optionalDiscordUser, optionalUser, roomVisibilityGate, requireNotBanned } from '../middleware.js';
+import type { TokenPayload } from '../auth.js';
 import { validate } from '../validate.js';
 import { isProviderUserId, isDiscordUserId } from '../../utils/identityProvider.js';
 import {
@@ -1289,6 +1290,177 @@ router.get('/:roomId/guild-members/search', requireDiscordUser, requireNotBanned
 // forfeit/pass-pick disposition semantics via the Discord /nominate-picker
 // set/clear subcommands. Audit-logged explicitly per repo doctrine
 // (auditMiddleware does not fire on router routes).
+// ═══════════════════════════════════════════════════════════════════
+// Style Profiles (style-system revamp P2)
+//
+// Profiles belong to the ADMIN, not the room, so they follow a person across
+// every room they run. The routes are still room-scoped and behind
+// requireRoomAccess, because every one of them either reads FROM or writes TO
+// a specific room — an admin must not be able to snapshot or restyle a room
+// they have no access to just because the profile is theirs.
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * A stable owner id across both room-admin login shapes. A room admin is
+ * either an identity login (`discordId`, which covers Google via the
+ * namespaced id) or a per-room local admin account (`localAdminId`). The
+ * `local:` prefix keeps the two id spaces from ever colliding.
+ */
+function styleProfileOwnerId(user: TokenPayload): string | null {
+    if (user.discordId) return user.discordId;
+    if (user.localAdminId) return `local:${user.localAdminId}`;
+    return null;
+}
+
+router.get('/:roomId/admin/style-profiles', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const ownerId = styleProfileOwnerId(req.user!);
+        if (!ownerId) return res.status(403).json({ error: 'This login cannot own style profiles' });
+        const { StyleProfileService } = await import('../../services/StyleProfileService.js');
+
+        const [profiles, current] = await Promise.all([
+            StyleProfileService.listForOwner(ownerId),
+            StyleProfileService.snapshotRoom(req.params.roomId as string),
+        ]);
+        // `current` lets the UI show which profile (if any) this room already
+        // matches without a second round trip.
+        res.json({ profiles, current });
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/admin/style-profiles):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.post('/:roomId/admin/style-profiles', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const ownerId = styleProfileOwnerId(req.user!);
+        if (!ownerId) return res.status(403).json({ error: 'This login cannot own style profiles' });
+
+        const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+        if (!name) return res.status(400).json({ error: 'A profile name is required' });
+        if (name.length > 60) return res.status(400).json({ error: 'Profile name is too long (max 60)' });
+
+        const { StyleProfileService, StyleProfileNameConflictError } = await import('../../services/StyleProfileService.js');
+        const settings = await StyleProfileService.snapshotRoom(req.params.roomId as string);
+        try {
+            const profile = await StyleProfileService.create(ownerId, name, settings);
+            res.status(201).json({ profile });
+        } catch (err) {
+            if (err instanceof StyleProfileNameConflictError) {
+                return res.status(409).json({ error: err.message, code: 'NAME_CONFLICT' });
+            }
+            throw err;
+        }
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/admin/style-profiles):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/** Rename, and/or re-capture from this room ("update profile from this room"). */
+router.put('/:roomId/admin/style-profiles/:id', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const ownerId = styleProfileOwnerId(req.user!);
+        if (!ownerId) return res.status(403).json({ error: 'This login cannot own style profiles' });
+
+        const { StyleProfileService, StyleProfileNameConflictError } = await import('../../services/StyleProfileService.js');
+        const patch: { name?: string; settings?: Record<string, string> } = {};
+        if (typeof req.body?.name === 'string') {
+            const name = req.body.name.trim();
+            if (!name) return res.status(400).json({ error: 'A profile name is required' });
+            if (name.length > 60) return res.status(400).json({ error: 'Profile name is too long (max 60)' });
+            patch.name = name;
+        }
+        if (req.body?.recaptureFromRoom === true) {
+            patch.settings = await StyleProfileService.snapshotRoom(req.params.roomId as string);
+        }
+
+        try {
+            const profile = await StyleProfileService.update(ownerId, req.params.id as string, patch);
+            if (!profile) return res.status(404).json({ error: 'Style profile not found' });
+            res.json({ profile });
+        } catch (err) {
+            if (err instanceof StyleProfileNameConflictError) {
+                return res.status(409).json({ error: err.message, code: 'NAME_CONFLICT' });
+            }
+            throw err;
+        }
+    } catch (error) {
+        logError('API Error (PUT rooms/:roomId/admin/style-profiles/:id):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.post('/:roomId/admin/style-profiles/:id/apply', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const ownerId = styleProfileOwnerId(req.user!);
+        if (!ownerId) return res.status(403).json({ error: 'This login cannot own style profiles' });
+        const roomId = req.params.roomId as string;
+
+        const { StyleProfileService } = await import('../../services/StyleProfileService.js');
+        const profile = await StyleProfileService.getForOwner(ownerId, req.params.id as string);
+        if (!profile) return res.status(404).json({ error: 'Style profile not found' });
+
+        const applied = await StyleProfileService.applyToRoom(roomId, profile);
+
+        // Appearance is cached per room, and a profile can change the card
+        // style, score depth and rankings treatment in a single write — so the
+        // leaderboards must be rebuilt rather than served from the pre-apply
+        // blobs.
+        const { LeaderboardService } = await import('../../services/LeaderboardService.js');
+        await LeaderboardService.invalidateAll();
+
+        await AuditService.log({
+            actor: req.user!.discordId || req.user!.username || 'admin',
+            action: 'style_profile.apply',
+            target_type: 'game_room',
+            target_id: roomId,
+            details: JSON.stringify({ profileId: profile.id, profileName: profile.name, keys: applied }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
+        res.json({ applied });
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/admin/style-profiles/:id/apply):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/** "Default for all my rooms". Send `{ isDefault: false }` to clear it. */
+router.put('/:roomId/admin/style-profiles/:id/default', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const ownerId = styleProfileOwnerId(req.user!);
+        if (!ownerId) return res.status(403).json({ error: 'This login cannot own style profiles' });
+
+        const { StyleProfileService } = await import('../../services/StyleProfileService.js');
+        const profile = await StyleProfileService.getForOwner(ownerId, req.params.id as string);
+        if (!profile) return res.status(404).json({ error: 'Style profile not found' });
+
+        const makeDefault = req.body?.isDefault !== false;
+        await StyleProfileService.setDefault(ownerId, makeDefault ? profile.id : null);
+        res.json({ profile: await StyleProfileService.getForOwner(ownerId, profile.id) });
+    } catch (error) {
+        logError('API Error (PUT rooms/:roomId/admin/style-profiles/:id/default):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.delete('/:roomId/admin/style-profiles/:id', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const ownerId = styleProfileOwnerId(req.user!);
+        if (!ownerId) return res.status(403).json({ error: 'This login cannot own style profiles' });
+
+        const { StyleProfileService } = await import('../../services/StyleProfileService.js');
+        const removed = await StyleProfileService.delete(ownerId, req.params.id as string);
+        if (!removed) return res.status(404).json({ error: 'Style profile not found' });
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (DELETE rooms/:roomId/admin/style-profiles/:id):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 router.put('/:roomId/admin/tournaments/:tournamentId/pick-disposition', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
     try {
         const validationResult = validate(AdminSetPickDispositionSchema, req.body);

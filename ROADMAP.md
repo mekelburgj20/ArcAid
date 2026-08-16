@@ -176,6 +176,21 @@ Load-bearing technical and product decisions are tracked in [`docs/decisions/`](
 
 **Rough effort:** ~2–3 focused days. Gate + read-path redaction ~1d · event suppression ~0.5d · admin setting + sealed card + countdown ~0.5–1d · tests ~0.5d, plus the iScored decision.
 
+### Room Settings page reorganisation (owner-flagged 2026-08-15, needs a design pass)
+
+**The trigger.** Fixing the Branding/Background-Image heading collision exposed the bigger thing: *"The whole room/settings might need a reorg to make things easier to navigate."* The page is one long scroll of ~10 sibling cards (Theme, Leaderboard Display, Kiosk, Game Room, Integrations, Discord, Users, iScored, Platforms, Other) with no grouping above card level and no way to jump.
+
+**What P0/P1 already fixed, so this is not a re-run of that.** The appearance card itself is now honest and pruned (~40 controls behind two disclosures → ~25 in one level), dead controls are gone, and headings have two distinct tiers. What remains is PAGE-level: the order of cards, what belongs on this page at all, and how you find one control among a hundred.
+
+**Shapes worth considering (pick in the session).**
+1. **Tabbed or sectioned page** — Appearance · Access & Privacy · Integrations · Advanced. Cheapest big win; each tab is a short page instead of one endless scroll.
+2. **Settings search** — one box, filters every control by label and description. Cheap to build (all labels are already in `SETTING_LABELS`), and it is what people actually do when they know the name of a thing.
+3. **Split into sibling pages** under the room admin nav, like Members and Rankings already are. Biggest change; best if Settings keeps growing.
+
+**Worth deciding at the same time:** which cards do not belong on a "Settings" page at all (Users duplicates Members; Platforms is arguably game-library config), and whether room-identity fields (name, slug) want their own small "About this room" card at the top rather than sitting mid-page.
+
+**Related and already captured:** the per-room appearance debt that made this page hard is the same debt the power-user customization entry above argues against re-creating with freeform CSS.
+
 ### Power-user card + leaderboard customization ("go to town" mode) — owner-asked 2026-08-15, needs a design session
 
 **The ask, in the owner's words.** A `Custom` card where power users "can really go to town" — control over *every aspect of the score card*, within the bounds of the card, plus the ability to style **the whole leaderboard area** (background and so on). The owner explicitly flagged uncertainty about the mechanism: *"I'm not sure CSS styles is the right way to go about this level of customization I'm looking for."* That instinct is worth taking seriously — see below.

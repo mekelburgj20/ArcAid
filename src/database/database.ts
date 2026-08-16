@@ -2346,6 +2346,37 @@ async function doInitDatabase(): Promise<Database> {
             const { clearMobileVerticalOptOut } = await import('./migrations/clearMobileVerticalOptOut.js');
             await clearMobileVerticalOptOut(db);
         } },
+        // Style-system revamp P2 — Style Profiles. Owner-keyed named snapshots
+        // of a room's appearance, so an admin who runs several rooms can dress
+        // a new one in two clicks. No FK on `owner_user_id`: an owner is a
+        // namespaced identity id (discord/google), the same shape used across
+        // the identity layer, and profiles should outlive a room they were
+        // captured from.
+        { name: '146_style_profiles', sql: `
+            CREATE TABLE IF NOT EXISTS style_profiles (
+                id TEXT PRIMARY KEY,
+                owner_user_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                settings TEXT NOT NULL DEFAULT '{}',
+                is_default INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now'))
+            );
+        ` },
+        // One profile per (owner, name), case-insensitively — "Neon" and "neon"
+        // are the same profile to a human picking from a dropdown.
+        { name: '146a_style_profiles_owner_name', sql: `
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_style_profiles_owner_name
+            ON style_profiles(owner_user_id, LOWER(name));
+        ` },
+        // At most ONE default per owner, enforced by the database rather than
+        // by remembering to clear the old one — StyleProfileService.setDefault
+        // clears first inside a transaction, and this index is what makes that
+        // discipline non-optional.
+        { name: '146b_style_profiles_one_default', sql: `
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_style_profiles_owner_default
+            ON style_profiles(owner_user_id) WHERE is_default = 1;
+        ` },
     ];
 
     for (const migration of migrations) {

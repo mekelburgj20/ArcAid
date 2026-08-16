@@ -163,7 +163,7 @@ export default function StyleThemePicker({ settings, onChange }: StyleThemePicke
         className="flex items-center gap-2 mt-2 text-sm text-muted hover:text-primary cursor-pointer bg-transparent border-none"
       >
         {advancedOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-        <span className="font-display text-xs uppercase tracking-wider">Advanced</span>
+        <span className="font-display text-xs uppercase tracking-wider">Display options</span>
       </button>
 
       {advancedOpen && (
