@@ -380,3 +380,51 @@ describe('AtGames catalogue identity', () => {
         });
     });
 });
+
+/**
+ * Source attribution reads the ID, not the provenance string.
+ *
+ * The AtGames importer enriches existing rows far more often than it creates
+ * them — 208 updated against 71 created on the first production run — and an
+ * enriched row keeps whatever `imported_from` it already had. 123 of the 279
+ * had none at all, so both the admin badge and the source filter treated them
+ * as "manual" despite carrying an `atgames_id`.
+ *
+ * `imported_from` is deliberately NOT rewritten to fix that: 85 of those rows
+ * genuinely came from VPS first, and that is the upstream a metadata problem
+ * gets reported to. Evidence and origin are different questions.
+ */
+describe('AtGames source filter', () => {
+    beforeEach(async () => {
+        await setupTestDb();
+    });
+
+    async function seed(fields: { id: string; name: string; atgames_id?: number | null; imported_from?: string | null; vps_id?: string | null }) {
+        const db = await getDatabase();
+        await db.run(
+            `INSERT INTO global_games (id, name, normalized_name, type, atgames_id, imported_from, vps_id, status, features, platforms)
+             VALUES (?, ?, ?, 'pinball', ?, ?, ?, 'approved', '[]', '[]')`,
+            fields.id, fields.name, normalizeGameName(fields.name),
+            fields.atgames_id ?? null, fields.imported_from ?? null, fields.vps_id ?? null,
+        );
+    }
+
+    it('returns rows the importer ENRICHED, not just the ones it created', async () => {
+        await seed({ id: 'src-created', name: 'Locomotion Deluxe', atgames_id: 50687, imported_from: 'atgames' });
+        await seed({ id: 'src-enriched-vps', name: 'Fish Tales', atgames_id: 50414, imported_from: 'vps', vps_id: 'v-1' });
+        await seed({ id: 'src-enriched-null', name: 'Monster Bash', atgames_id: 50470, imported_from: null });
+        await seed({ id: 'src-unrelated', name: 'Some VPX Table', imported_from: 'vps', vps_id: 'v-2' });
+
+        const res = await GlobalGameService.getAll({ source: 'atgames', limit: 50 });
+        const ids = res.data.map(g => g.id).sort();
+        expect(ids).toEqual(['src-created', 'src-enriched-null', 'src-enriched-vps']);
+    });
+
+    it('stops calling an AtGames row "manual" just because it has no imported_from', async () => {
+        await seed({ id: 'src-enriched-null', name: 'Monster Bash', atgames_id: 50470, imported_from: null });
+        await seed({ id: 'src-really-manual', name: 'Hand Added Table', imported_from: null });
+
+        const res = await GlobalGameService.getAll({ source: 'manual', limit: 50 });
+        expect(res.data.map(g => g.id)).toEqual(['src-really-manual']);
+    });
+});

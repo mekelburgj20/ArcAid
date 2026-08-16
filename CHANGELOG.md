@@ -27,6 +27,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 - **The catalogue admin list shows the studio** beside the manufacturer, never instead of it — a Gottlieb machine published by FarSight shows both.
 - **Table lists written as marketing copy are parsed.** One pack (Williams™ Pinball Volume 6) lists its tables as `FUNHOUSE: Starring Rudy, pinball's most iconic…`, so the whole sentence became the table name and matched nothing. The ALL-CAPS head before the colon is what makes the rule safe: ordinary titles with a colon — "Star Trek™ Pinball: Deep Space Nine", "The Getaway: High Speed II" — have lowercase before it and are untouched, which matters because truncating one of those would silently collapse three distinct tables into a shared prefix.
 
+### Fixed
+- **AtGames rows no longer read "manual".** Source attribution now reads the `atgames_id`, not the `imported_from` string — the rule the catalogue already applied to RetroAchievements and to VPS/OPDB/IGDB, which AtGames never got.
+  - The first production sync updated 208 existing rows and created 71. An updated row keeps whatever `imported_from` it had: 85 said `vps` (correct — those show `vps, atgames`), and **123 had none at all**, so both the admin badge and the source filter fell back to "manual" on rows demonstrably carrying an AtGames ID.
+  - `imported_from` is deliberately NOT rewritten. It records where a row ORIGINATED, which is what says who to report an upstream metadata problem to, and many of these rows are physical/VPX tables that merely also run on AtGames — plain `Locomotion` is the 1981 Zaccaria machine carrying `real`, `vpx` and `zaccaria` alongside `atgames_native`. Evidence and origin are different questions.
+  - The admin **source filter** for AtGames was returning only the 71 created rows, hiding 208. It now matches the same evidence. The "manual" bucket excludes AtGames rows for the same reason it already excludes VPS/OPDB/IGDB/Wizard ones.
+
 ### Database
 - **Migration 148** adds `global_games.atgames_id` (partial UNIQUE index) and `global_games.studio`.
 
