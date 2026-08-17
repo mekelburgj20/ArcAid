@@ -668,17 +668,24 @@ export class GlobalGameService {
             : (await this.findByNormalizedName(lookupName)).filter(g => g.type === inputType);
 
         // An original digital table is not the physical machine it shares a
-        // name with. Drop real-manufacturer candidates before any of the
-        // tie-breaks below can pick one — `isVirtualOnlyManufacturer` is the
-        // same predicate the IPDB step already uses for this distinction.
+        // name with, and it is not somebody else's fan-made table of that name
+        // either. It may only land on a row that claims NO maker at all — the
+        // thin, name-only rows a tag-import leaves behind.
+        //
+        // The first version of this guard used `isVirtualOnlyManufacturer`,
+        // which treats 'Original' as virtual-only. That let AtGames' own
+        // Teenage Mutant Ninja Turtles skip past both real machines and land on
+        // "Teenage Mutant Ninja Turtles (Stern / Data East remix)" (Original,
+        // 2024), a VPX community table — the same mis-attachment one row over.
+        // 'Original' is a real answer to "who made this"; blank is not.
         if (input.original_work) {
-            const dropped = nameMatches.filter(g => !isVirtualOnlyManufacturer(g.manufacturer));
+            const dropped = nameMatches.filter(g => (g.manufacturer || '').trim() !== '');
             if (dropped.length > 0) {
                 logInfo(
                     `dedup: "${input.name}" is an original work — refusing ${dropped.length} ` +
-                    `real-manufacturer candidate(s) (${dropped.map(g => `"${g.name}" (${g.manufacturer})`).join(', ')})`
+                    `candidate(s) that claim a maker (${dropped.map(g => `"${g.name}" (${g.manufacturer})`).join(', ')})`
                 );
-                nameMatches = nameMatches.filter(g => isVirtualOnlyManufacturer(g.manufacturer));
+                nameMatches = nameMatches.filter(g => (g.manufacturer || '').trim() === '');
             }
         }
 
@@ -698,7 +705,7 @@ export class GlobalGameService {
         if (!existing && nameMatches.length === 0) {
             const aliasMatches = (await this.findByAlias(lookupName))
                 .filter(g => g.type === inputType)
-                .filter(g => !input.original_work || isVirtualOnlyManufacturer(g.manufacturer));
+                .filter(g => !input.original_work || (g.manufacturer || '').trim() === '');
             if (aliasMatches.length > 0) {
                 logInfo(
                     `dedup: name "${input.name}" matched ${aliasMatches.length} row(s) by ALIAS ` +
