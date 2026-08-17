@@ -56,6 +56,33 @@ function extractIpdbMachineId(url: string | null | undefined): string | null {
  * single source of truth so the dedup guard, upsert's IPDB routing, and any
  * future audit/strip tooling all agree on the same predicate.
  */
+/**
+ * Manufacturer spellings that are the SAME company, for identity comparison.
+ *
+ * Deliberately narrow: misspellings and punctuation variants only, never two
+ * companies that merely relate to each other. A wrong entry here silently
+ * merges two different machines, so each one needs a reason.
+ *
+ *   zacarria — a typo in the VPXS Wizard README, so it arrives on every wizard
+ *              sync and cannot be fixed at the source. Without this, the wizard
+ *              row for Zaccaria's Time Machine re-forks from the correctly
+ *              spelled row every time the importer runs. Harmless if upstream
+ *              ever fixes it: the correct spelling maps to itself.
+ *
+ * Applied to identity comparison only. It never rewrites a stored value — the
+ * row keeps whatever its source said.
+ */
+const MFG_SPELLING_ALIASES: Record<string, string> = {
+    zacarria: 'zaccaria',
+    zacaria: 'zaccaria',
+};
+
+/** Canonical form of a manufacturer for comparison. Never for storage. */
+export function canonicalManufacturer(manufacturer: string | null | undefined): string {
+    const m = (manufacturer || '').trim().toLowerCase();
+    return MFG_SPELLING_ALIASES[m] ?? m;
+}
+
 export function isVirtualOnlyManufacturer(manufacturer: string | null | undefined): boolean {
     const mfg = (manufacturer || '').trim().toLowerCase();
     if (!mfg) return true;
@@ -518,8 +545,8 @@ export class GlobalGameService {
      * because sources sometimes disagree on release date by a year.
      */
     private static manufacturerYearAgree(input: GlobalGameInput, candidate: GlobalGame): boolean {
-        const inputMfg = (input.manufacturer || '').trim().toLowerCase();
-        const candidateMfg = (candidate.manufacturer || '').trim().toLowerCase();
+        const inputMfg = canonicalManufacturer(input.manufacturer);
+        const candidateMfg = canonicalManufacturer(candidate.manufacturer);
         if (inputMfg && candidateMfg && inputMfg !== candidateMfg) return false;
 
         if (input.year != null && candidate.year != null && Math.abs(input.year - candidate.year) > 1) return false;
@@ -738,7 +765,7 @@ export class GlobalGameService {
                 ? nonConflicting.filter(g => literal.includes(g))
                 : nonConflicting;
 
-            const inputMfg = (input.manufacturer || '').trim().toLowerCase();
+            const inputMfg = canonicalManufacturer(input.manufacturer);
             const inputYear = input.year ?? null;
             // v2.4.11: exact year match (not ±1 tolerance). The loose
             // tolerance let "Breaking Bad (Original, 2021)" and "Breaking
@@ -756,7 +783,7 @@ export class GlobalGameService {
             // COALESCE-based UPDATE replaces the stale external ID with the
             // new authoritative one.
             const concrete = concreteBase.filter(g => {
-                const cMfg = (g.manufacturer || '').trim().toLowerCase();
+                const cMfg = canonicalManufacturer(g.manufacturer);
                 const cYear = g.year ?? null;
                 if (!inputMfg || !cMfg || !inputYear || !cYear) return false;
                 if (inputMfg !== cMfg) return false;
