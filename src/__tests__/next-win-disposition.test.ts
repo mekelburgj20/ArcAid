@@ -25,6 +25,8 @@ import { TournamentEngine } from '../engine/TournamentEngine.js';
 import { GameRoomSettingsService } from '../services/GameRoomSettingsService.js';
 import { PickAwardGate } from '../services/PickAwardGate.js';
 import { PickDispositionService, SelfNominationError } from '../services/PickDispositionService.js';
+import { resolvePick, MAX_PLACES } from '../engine/pickResolution.js';
+import { resolveLeaderboardPlaces } from '../utils/submissionAttribution.js';
 
 // ---------------------------------------------------------------------------
 // Next-win disposition — resolution matrix (ROADMAP "Next-win disposition +
@@ -262,12 +264,20 @@ describe('Next-win disposition — onboarding branch (nominee not yet a room mem
         const activeGame = await db.get('SELECT * FROM games WHERE id = ?', gameId);
 
         const engine = TournamentEngine.getInstance() as any;
-        const resolution = await engine.resolveNextPicker(db, tournamentRow, {
-            id: activeGame.id, tournamentId, name: activeGame.name,
-        }, 'W11', 'Winner', 'Winner');
+        const { outcome } = await resolvePick({
+            tournamentId,
+            places: await resolveLeaderboardPlaces(db, activeGame.id, MAX_PLACES),
+            nextQueuedFor: (playerId: string) => engine.nextEligibleQueuedFor(tournamentId, playerId),
+            labelFor: (playerId: string) => engine.labelForPlayer(playerId),
+            isRoomMember: async (playerId: string) => !!(await db.get(
+                'SELECT 1 AS ok FROM room_members WHERE room_id = ? AND user_id = ?',
+                tournamentRow.game_room_id, playerId,
+            )),
+        });
 
-        expect(resolution.pickerId).toBe('N11-not-a-member');
-        expect(resolution.onboardingNominee).toBe('N11-not-a-member');
+        expect(outcome.kind).toBe('window');
+        expect((outcome as any).playerId).toBe('N11-not-a-member');
+        expect((outcome as any).onboardingNominee).toBe('N11-not-a-member');
 
         // Never throws even with no live Discord client/channel configured.
         await expect(engine.announceNomineeOnboarding('N11-not-a-member', tournamentRow, null, { game: 'game' })).resolves.toBeUndefined();
@@ -289,12 +299,20 @@ describe('Next-win disposition — onboarding branch (nominee not yet a room mem
         const activeGame = await db.get('SELECT * FROM games WHERE id = ?', gameId);
 
         const engine = TournamentEngine.getInstance() as any;
-        const resolution = await engine.resolveNextPicker(db, tournamentRow, {
-            id: activeGame.id, tournamentId, name: activeGame.name,
-        }, 'W12', 'Winner', 'Winner');
+        const { outcome } = await resolvePick({
+            tournamentId,
+            places: await resolveLeaderboardPlaces(db, activeGame.id, MAX_PLACES),
+            nextQueuedFor: (playerId: string) => engine.nextEligibleQueuedFor(tournamentId, playerId),
+            labelFor: (playerId: string) => engine.labelForPlayer(playerId),
+            isRoomMember: async (playerId: string) => !!(await db.get(
+                'SELECT 1 AS ok FROM room_members WHERE room_id = ? AND user_id = ?',
+                tournamentRow.game_room_id, playerId,
+            )),
+        });
 
-        expect(resolution.pickerId).toBe('N12-member');
-        expect(resolution.onboardingNominee).toBeNull();
+        expect(outcome.kind).toBe('window');
+        expect((outcome as any).playerId).toBe('N12-member');
+        expect((outcome as any).onboardingNominee).toBeNull();
     });
 });
 

@@ -2399,6 +2399,66 @@ async function doInitDatabase(): Promise<Database> {
             const { addAtGamesCatalogueColumns } = await import('./migrations/atgamesCatalogueColumns.js');
             await addAtGamesCatalogueColumns(db);
         } },
+        // --- Pick delegation & per-player queues (owner spec 2026-08-17;
+        // contract at tmp/pick-delegation-contract.md) ---
+        // 149 admits the new 'auto' ("roll the dice") disposition; the value is
+        // in a CHECK constraint so it needs a table rebuild (see the handler).
+        { name: '149_pick_disposition_auto', handler: async (db) => {
+            const { widenPickDispositionCheck } = await import('./migrations/pickDispositionAuto.js');
+            await widenPickDispositionCheck(db);
+        } },
+        // 150 re-bases `queue_order` from a tournament-global sequence to a
+        // PER-PLAYER one. A queue is that player's standing pick-if-I-win, not
+        // a room-level "what we play next" list, so two players may both hold
+        // position 1. Existing relative order within each player's own queue is
+        // preserved (order by queue_order, then insertion rowid); '[Pending
+        // Pick]' placeholders keep queue_order NULL, which is load-bearing —
+        // pickgame.ts relies on NULL sorting them to the front.
+        //
+        // This also repairs the live damage from the reorder bug: PUT
+        // /:roomId/queue/reorder renumbered a player's own games 1..N inside the
+        // GLOBAL space, so prod accumulated duplicate positions across players
+        // that tie-broke on invisible rowid.
+        { name: '150_queue_order_per_player', sql: `
+            UPDATE games SET queue_order = (
+                SELECT COUNT(*) FROM games g2
+                WHERE g2.tournament_id = games.tournament_id
+                  AND g2.status = 'QUEUED'
+                  AND g2.name != '[Pending Pick]'
+                  AND g2.picker_discord_id IS games.picker_discord_id
+                  AND (
+                        COALESCE(g2.queue_order, 999999) < COALESCE(games.queue_order, 999999)
+                     OR (COALESCE(g2.queue_order, 999999) = COALESCE(games.queue_order, 999999)
+                         AND g2.rowid <= games.rowid)
+                  )
+            )
+            WHERE status = 'QUEUED' AND name != '[Pending Pick]';
+        ` },
+        // --- User-chosen avatar provider (owner call 2026-08-17) ---
+        // Player report: "my Google picture shows but my CL logo doesn't."
+        // `PlayerAvatar` resolves `avatarUrl ?? avatarHash`, so for a user
+        // linked to BOTH providers the Google picture won unconditionally and
+        // their Discord avatar became unreachable with no way to get it back.
+        //
+        // The column semantics change here, deliberately, to keep the fix off
+        // the ~25 read sites that already SELECT avatar_url:
+        //   avatar_hash       - Discord's raw avatar hash        (provider store)
+        //   avatar_url_google - Google's raw picture URL          (provider store, NEW)
+        //   avatar_url        - the EFFECTIVE url to render; NULL means "fall
+        //                       through to avatar_hash". Derived from
+        //                       avatar_preference by
+        //                       UserProfileService.applyAvatarPreference.
+        // Readers are unchanged and cannot get it wrong, because there is
+        // nothing left for them to decide.
+        //
+        // avatar_preference: 'discord' | 'google' | NULL (= auto, today's
+        // behavior: Google when present). Backfill copies the existing
+        // avatar_url into the Google store, which is what it always held.
+        { name: '151_avatar_provider_preference', sql: `
+            ALTER TABLE user_profiles ADD COLUMN avatar_url_google TEXT;
+            ALTER TABLE user_profiles ADD COLUMN avatar_preference TEXT;
+            UPDATE user_profiles SET avatar_url_google = avatar_url WHERE avatar_url IS NOT NULL;
+        ` },
     ];
 
     for (const migration of migrations) {
@@ -2419,14 +2479,21 @@ async function doInitDatabase(): Promise<Database> {
     }
 
     // --- Backfill queue_order for existing QUEUED games (idempotent) ---
+    // Scoped PER PLAYER to match the queue model (migration 150): each player's
+    // queue is their own 1..N sequence, so the count only ranges over rows with
+    // the same picker. '[Pending Pick]' placeholders are excluded on BOTH sides
+    // — they intentionally carry queue_order NULL so they sort to the front
+    // (pickgame.ts), and stamping them here would silently demote them.
     try {
         await db.exec(`
             UPDATE games SET queue_order = (
                 SELECT COUNT(*) FROM games g2
                 WHERE g2.tournament_id = games.tournament_id
                   AND g2.status = 'QUEUED'
+                  AND g2.name != '[Pending Pick]'
+                  AND g2.picker_discord_id IS games.picker_discord_id
                   AND g2.rowid <= games.rowid
-            ) WHERE status = 'QUEUED' AND queue_order IS NULL
+            ) WHERE status = 'QUEUED' AND name != '[Pending Pick]' AND queue_order IS NULL
         `);
     } catch { /* safe to skip if column doesn't exist yet */ }
 

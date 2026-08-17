@@ -350,7 +350,10 @@ export const PickGameSchema = z.object({
  * message).
  */
 export const SetPickDispositionSchema = z.object({
-    disposition: z.enum(['nominate', 'forfeit']),
+    // 'auto' = the owner's "roll the dice" (2026-08-17): hand the pick straight
+    // to the auto-picker. Distinct from having NO disposition, which means
+    // "use my queue, and give me a window if it's empty".
+    disposition: z.enum(['nominate', 'forfeit', 'auto']),
     nomineeDiscordId: z.string().min(1).optional(),
 });
 

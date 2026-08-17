@@ -82,6 +82,9 @@ export default function RoomLogin({ onLogin }: { onLogin: () => void }) {
         response_type: 'code',
         scope: 'identify',
         state: slug || '',
+        // See ViewerAuthContext — Discord re-prompts for authorization on every
+        // sign-in without this. Login flows only; never the account-link flow.
+        prompt: 'none',
       });
       window.location.href = `https://discord.com/api/oauth2/authorize?${params}`;
     } catch (err: any) {

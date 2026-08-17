@@ -327,7 +327,7 @@ export default function Picks() {
   // Next-win disposition (ROADMAP, locked 2026-08-09) — "If I win next…"
   // control for the currently-selected tournament. Scoped to one tournament
   // at a time via the same selector the rest of the page already uses.
-  const [disposition, setDisposition] = useState<{ disposition: 'nominate' | 'forfeit'; nomineeDiscordId: string | null } | null>(null);
+  const [disposition, setDisposition] = useState<{ disposition: 'nominate' | 'forfeit' | 'auto'; nomineeDiscordId: string | null } | null>(null);
   const [dispositionLoading, setDispositionLoading] = useState(false);
   const [nomineeInput, setNomineeInput] = useState('');
   const [showNomineeInput, setShowNomineeInput] = useState(false);
@@ -405,7 +405,7 @@ export default function Picks() {
 
   useEffect(() => { fetchDisposition(); }, [fetchDisposition]);
 
-  const saveDisposition = async (body: { disposition: 'nominate' | 'forfeit'; nomineeDiscordId?: string }) => {
+  const saveDisposition = async (body: { disposition: 'nominate' | 'forfeit' | 'auto'; nomineeDiscordId?: string }) => {
     if (!roomId || !playerToken || !selectedTournamentId) return;
     setDispositionLoading(true);
     try {
@@ -772,15 +772,20 @@ export default function Picks() {
         </div>
       </div>
 
-      {/* Next-win disposition (ROADMAP, locked 2026-08-09) — "If I win
-          next…" control, scoped to the currently-selected tournament. One
-          preference, no precedence puzzles; applies to the NEXT win only
-          (one-shot — consumed at rotation, then reverts to the default). */}
+      {/* Next-win disposition (ROADMAP, locked 2026-08-09; extended
+          2026-08-17) — "If I win…" control, scoped to the currently-selected
+          tournament. One preference, no precedence puzzles.
+
+          Lifetime is SPLIT by type (owner ruling — see
+          tmp/pick-delegation-contract.md §5 Q2): "Give my pick to…" fires once
+          and clears, while "Forfeit" and "Roll the dice" stand until changed.
+          The copy below says so rather than claiming one rule for all three. */}
       {discordUser && selectedTournamentId && (
         <div className="max-w-4xl mx-auto mb-6 rounded-lg border border-border bg-surface p-4 sm:p-5">
-          <h2 className="font-display text-sm font-bold text-primary mb-1">If I win next…</h2>
+          <h2 className="font-display text-sm font-bold text-primary mb-1">If I win…</h2>
           <p className="text-xs text-muted mb-3">
-            Applies once, to your next win in this tournament. Default is picking from your own queue.
+            Default is picking from your own queue. Forfeit and Roll the dice stay set until you
+            change them; giving your pick to someone applies to your next win only.
           </p>
           <div className="flex flex-wrap gap-2">
             <button
@@ -804,6 +809,17 @@ export default function Picks() {
               }`}
             >
               Forfeit to runner-up
+            </button>
+            <button
+              onClick={() => saveDisposition({ disposition: 'auto' })}
+              disabled={dispositionLoading}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors cursor-pointer disabled:cursor-default ${
+                disposition?.disposition === 'auto'
+                  ? 'bg-neon-green/15 border-neon-green/50 text-neon-green'
+                  : 'border-border text-muted hover:text-primary hover:border-border/80'
+              }`}
+            >
+              Roll the dice
             </button>
             <button
               onClick={() => { setShowNomineeInput(v => !v); fetchRoomMembers(); }}

@@ -1,20 +1,29 @@
 import { getDatabase } from '../database/database.js';
 
 /**
- * PickDispositionService — the tri-state "if I win the next rotation, what
- * happens to my pick" preference (ROADMAP "Next-win disposition + dynasty
- * option + rotation-readiness nudge", locked 2026-08-09).
+ * PickDispositionService — the "if I win the next rotation, what happens to my
+ * pick" preference (ROADMAP "Next-win disposition + dynasty option +
+ * rotation-readiness nudge", locked 2026-08-09; extended 2026-08-17).
  *
  * `use-my-queue` (the default) is deliberately NOT a stored value — it's the
- * ABSENCE of a `picker_dispositions` row. `nominate`/`forfeit` rows are
- * consumed (read + deleted) exactly once, at the winner-designation
- * chokepoint in `TournamentEngine.resolveNextPicker` — so the preference is
- * strictly one-shot: it applies to the very next rotation this player wins,
- * then the row is gone and the following win reverts to 'use-my-queue'
- * unless the player sets a new disposition.
+ * ABSENCE of a `picker_dispositions` row.
+ *
+ * LIFETIME IS SPLIT BY TYPE (owner ruling 2026-08-17 — see
+ * tmp/pick-delegation-contract.md §5 Q2):
+ *   - `nominate` is ONE-SHOT. Handing your pick to a named person is a decision
+ *     about one round, so `consume()` deletes it when it fires.
+ *   - `forfeit` and `auto` are STANDING. They are stances about how the player
+ *     wants to play, so they survive firing and persist until the player
+ *     changes or clears them.
+ * Pre-2026-08-17 every type was one-shot; that is why `consume()` still exists
+ * as a distinct call from `get()` rather than collapsing into it.
+ *
+ * `auto` ("roll the dice") hands the pick straight to the auto-picker. It is
+ * NOT the same as the absence of a row — absence means "use my queue, and give
+ * me a pick window if it's empty".
  */
 
-export type PickDispositionType = 'nominate' | 'forfeit';
+export type PickDispositionType = 'nominate' | 'forfeit' | 'auto';
 
 export interface PickDispositionRow {
     id: number;
@@ -92,19 +101,26 @@ export class PickDispositionService {
     }
 
     /**
-     * One-shot consume: read the row (if any) and delete it in the same call,
-     * so a second rotation win reverts to 'use-my-queue' unless the player
-     * sets a fresh disposition. Called ONLY from the winner-designation
-     * chokepoint — never from a read path (use `get()` there).
+     * Fire a player's disposition: read the row (if any) and delete it in the
+     * same call ONLY when it is one-shot (`nominate`). `forfeit` and `auto` are
+     * standing preferences — they are returned and left in place, so the next
+     * win applies them again.
+     *
+     * Called ONLY for the player who actually WON the slot. Walking a chain
+     * (a nominee's disposition, or a runner-up reached by forfeit) must use
+     * `get()` — otherwise one person winning would burn several other people's
+     * settings. See tmp/pick-delegation-contract.md §4.6.
      */
     static async consume(tournamentId: string, discordUserId: string): Promise<PickDispositionRow | null> {
         const row = await this.get(tournamentId, discordUserId);
         if (!row) return null;
-        const db = await getDatabase();
-        await db.run(
-            'DELETE FROM picker_dispositions WHERE tournament_id = ? AND discord_user_id = ?',
-            tournamentId, discordUserId,
-        );
+        if (row.disposition === 'nominate') {
+            const db = await getDatabase();
+            await db.run(
+                'DELETE FROM picker_dispositions WHERE tournament_id = ? AND discord_user_id = ?',
+                tournamentId, discordUserId,
+            );
+        }
         return row;
     }
 

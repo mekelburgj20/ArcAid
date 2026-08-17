@@ -123,6 +123,9 @@ export default function CreateRoom() {
         response_type: 'code',
         scope: 'identify',
         state: roomSlug,
+        // See ViewerAuthContext — Discord re-prompts for authorization on every
+        // sign-in without this. Login flows only; never the account-link flow.
+        prompt: 'none',
       });
       window.location.href = `https://discord.com/api/oauth2/authorize?${params}`;
     } catch {

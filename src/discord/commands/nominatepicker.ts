@@ -34,6 +34,7 @@ export const nominatepicker: Command = {
                         .addChoices(
                             { name: 'Nominate someone else', value: 'nominate' },
                             { name: 'Forfeit to runner-up', value: 'forfeit' },
+                            { name: 'Roll the dice (Arcaid picks)', value: 'auto' },
                         )
                 )
                 .addUserOption(option => option.setName('nominee').setDescription('Required when disposition = nominate').setRequired(false))
@@ -86,7 +87,7 @@ export const nominatepicker: Command = {
 
             if (subcommand === 'set') {
                 const forUser = interaction.options.getUser('for-user', true);
-                const disposition = interaction.options.getString('disposition', true) as 'nominate' | 'forfeit';
+                const disposition = interaction.options.getString('disposition', true) as 'nominate' | 'forfeit' | 'auto';
                 const nominee = interaction.options.getUser('nominee', false);
 
                 if (disposition === 'nominate' && !nominee) {
@@ -114,9 +115,13 @@ export const nominatepicker: Command = {
                     correlation_id: interaction.id,
                 });
 
+                // Lifetime copy follows the split ruling (2026-08-17): nominate is
+                // one-shot, forfeit and auto stand until the player changes them.
                 const desc = disposition === 'nominate'
                     ? `if ${forUser.toString()} wins the current slot, the pick goes to ${nominee!.toString()} instead (one-shot, applies to their next win only).`
-                    : `if ${forUser.toString()} wins the current slot, their pick is forfeited straight to the runner-up (one-shot, applies to their next win only).`;
+                    : disposition === 'auto'
+                        ? `whenever ${forUser.toString()} wins, Arcaid rolls the dice and picks for them. This stands until they change it.`
+                        : `whenever ${forUser.toString()} wins, their pick is forfeited to the next place. This stands until they change it.`;
                 await interaction.editReply(`Set: ${desc}`);
                 return;
             }

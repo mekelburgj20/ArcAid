@@ -11,6 +11,8 @@ import { parsePlatformsList, parseTournamentRules, passesplatformRules, hasGameL
 import { PickAwardGate } from '../services/PickAwardGate.js';
 import { computePickDeadline, isPickWindowExpired, pickWindowFallback, pickPromptPushBody, pickFallbackPhrase, DEFAULT_RUNNERUP_PICK_WINDOW_MIN } from '../utils/pickWindow.js';
 import { catalogueTypeMatchesTournamentMode } from '../utils/tournamentMode.js';
+import { resolveLeaderboardPlaces } from '../utils/submissionAttribution.js';
+import { resolvePick, MAX_PLACES } from './pickResolution.js';
 
 export class TimeoutManager {
     private static instance: TimeoutManager;
@@ -127,8 +129,12 @@ export class TimeoutManager {
             }
         } else if (game.pickerType === 'RUNNER_UP') {
             if (isPickWindowExpired(game.pickerDesignatedAt, runnerUpWindowMin, now)) {
-                logInfo(`Runner-up for game slot ${game.id} timed out after ${runnerUpWindowMin}min. Auto-selecting...`);
-                await this.fallbackToAutoSelection(game);
+                // Contract §3: before auto-picking, third place's QUEUE is
+                // consulted (third never gets a window of their own). Pre-fix
+                // this went straight to auto-select, so a third-place player who
+                // had already done the work of queuing a pick was ignored.
+                logInfo(`Runner-up for game slot ${game.id} timed out after ${runnerUpWindowMin}min. Checking third place's queue...`);
+                await this.pivotToThirdPlaceQueue(game);
             } else {
                 // Send reminders at 10-minute intervals
                 const reminderInterval = 10;
@@ -192,31 +198,54 @@ export class TimeoutManager {
                 return;
             }
 
-            // Query the 2nd highest scorer from the completed game's submissions
-            const runnerUpRow = await db.get(
-                `SELECT s.iscored_username, um.discord_user_id
-                 FROM submissions s
-                 LEFT JOIN user_mappings um ON LOWER(s.iscored_username) = LOWER(um.iscored_username)
-                 WHERE s.game_id = ?
-                 ORDER BY s.score DESC
-                 LIMIT 1 OFFSET 1`,
-                game.wonGameId
-            );
+            // Re-enter the SHARED cascade one place below the winner.
+            //
+            // Pre-2026-08-17 this hand-rolled its own runner-up lookup — a
+            // `LIMIT 1 OFFSET 1` join against user_mappings with no
+            // `orphaned_at` filter and no identity dedup — and always granted a
+            // window even when the runner-up already had a game queued. That
+            // divergence from the rotation path is exactly what the contract
+            // consolidates: `resolvePick` now decides here too, so the
+            // runner-up's own queue is used immediately, their disposition is
+            // honored, and third place's queue is consulted before auto-pick.
+            const engine = TournamentEngine.getInstance();
+            const places = await resolveLeaderboardPlaces(db, game.wonGameId, MAX_PLACES);
 
-            if (!runnerUpRow?.discord_user_id) {
-                // No mapped runner-up found — try scraping if we have public URL
-                if (runnerUpRow?.iscored_username) {
-                    logWarn(`Runner-up '${runnerUpRow.iscored_username}' has no Discord mapping. Falling back to auto-select.`);
-                } else {
-                    logWarn(`No runner-up found in submissions for game ${game.wonGameId}. Falling back to auto-select.`);
-                }
+            // Resume BELOW whoever just timed out, not blindly at place 1.
+            // Without this, a winner who nominated the runner-up would hand that
+            // same person a second window the moment the first expired: the
+            // nominee holds a WINNER-type window, it lapses, and the pivot walks
+            // back to place 1 — them again.
+            const timedOutIndex = places.findIndex(p => p.playerId === game.pickerDiscordId);
+            const startPlaceIndex = timedOutIndex >= 0 ? timedOutIndex + 1 : 1;
 
+            const { outcome, narrative } = await resolvePick({
+                tournamentId: game.tournamentId!,
+                places,
+                nextQueuedFor: (playerId) => engine.nextEligibleQueuedFor(game.tournamentId!, playerId),
+                labelFor: (playerId) => engine.labelForPlayer(playerId),
+                isRoomMember: async (playerId) => {
+                    if (!info.gameRoomId) return true;
+                    const row = await db.get(
+                        'SELECT 1 AS ok FROM room_members WHERE room_id = ? AND user_id = ?',
+                        info.gameRoomId, playerId,
+                    );
+                    return !!row;
+                },
+                startPlaceIndex,
+            });
+            const reason = narrative.length ? narrative.join(' ') : null;
+
+            if (outcome.kind === 'auto') {
+                logWarn(`No eligible picker below the winner for game ${game.wonGameId}. Falling back to auto-select.`);
                 const channelId = await this.getChannelId(game.tournamentId);
                 if (channelId) {
                     const color = getTournamentColor(info.type);
                     const embed = new EmbedBuilder()
                         .setTitle('Winner Timed Out')
-                        .setDescription(`No eligible runner-up was found. Auto-selecting a ${term.game}...`)
+                        .setDescription(reason
+                            ? `${reason} Auto-selecting a ${term.game}...`
+                            : `No eligible runner-up was found. Auto-selecting a ${term.game}...`)
                         .setColor(color)
                         .setTimestamp();
                     await sendChannelEmbed(channelId, embed);
@@ -225,10 +254,16 @@ export class TimeoutManager {
                 return;
             }
 
-            const runnerUpId = runnerUpRow.discord_user_id;
-            logInfo(`   -> Pivoting to runner-up: <@${runnerUpId}> (${runnerUpRow.iscored_username})`);
+            if (outcome.kind === 'activate') {
+                await this.activateQueuedIntoSlot(game, outcome.game, reason, info);
+                return;
+            }
 
-            // Reassign the QUEUED slot to the runner-up
+            const runnerUpId = outcome.playerId;
+            const runnerUpName = outcome.iscoredUsername;
+            logInfo(`   -> Pivoting to next place: <@${runnerUpId}> (pick window).`);
+
+            // Reassign the QUEUED slot to the resolved picker
             const tournamentRow = await db.get('SELECT name, runnerup_pick_window_min FROM tournaments WHERE id = ?', game.tournamentId);
             const runnerUpWindowMin = tournamentRow?.runnerup_pick_window_min ?? DEFAULT_RUNNERUP_PICK_WINDOW_MIN;
 
@@ -250,7 +285,7 @@ export class TimeoutManager {
             if (info.gameRoomId) {
                 const runnerUpLabel = await (await import('../services/UserProfileService.js')).UserProfileService
                     .getDisplayName(runnerUpId)
-                    .catch(() => null) || runnerUpRow.iscored_username || 'Runner-up';
+                    .catch(() => null) || runnerUpName || 'Runner-up';
                 import('../services/LobbyFeedService.js').then(({ LobbyFeedService }) => {
                     LobbyFeedService.emit({
                         gameRoomId: info.gameRoomId!,
@@ -273,7 +308,7 @@ export class TimeoutManager {
             const channelId = await this.getChannelId(game.tournamentId);
             if (channelId) {
                 const color = getTournamentColor(info.type);
-                const runnerUpMention = await formatUserMention(runnerUpId, runnerUpRow.iscored_username || 'Runner-up', info.gameRoomId);
+                const runnerUpMention = await formatUserMention(runnerUpId, runnerUpName || 'Runner-up', info.gameRoomId);
                 const embed = new EmbedBuilder()
                     .setTitle(`⏰ Winner Timed Out`)
                     .setDescription(`${runnerUpMention} — as the runner-up, you now have **${runnerUpWindowMin} minutes** to pick the next ${term.game}. Use \`/pick-game\`!`)
@@ -313,6 +348,118 @@ export class TimeoutManager {
         } catch (error) {
             logError(`Failed to pivot to runner-up for slot ${game.id}:`, error);
             await this.fallbackToAutoSelection(game);
+        }
+    }
+
+    /**
+     * A runner-up's window expired. Contract §3: third place is consulted for a
+     * QUEUED pick only — they never receive a window and their disposition is
+     * not read — and auto-pick is the last resort.
+     *
+     * Routed through the same `resolvePick` as every other step (with
+     * `startPlaceIndex: 2`) so there is one implementation of the place table,
+     * not a second hand-rolled copy of it here.
+     */
+    private async pivotToThirdPlaceQueue(game: Game): Promise<void> {
+        const db = await getDatabase();
+        const info = await this.getTournamentInfo(game.tournamentId);
+
+        try {
+            if (!game.wonGameId || !game.tournamentId) {
+                await this.fallbackToAutoSelection(game);
+                return;
+            }
+
+            const engine = TournamentEngine.getInstance();
+            const places = await resolveLeaderboardPlaces(db, game.wonGameId, MAX_PLACES);
+            const { outcome, narrative } = await resolvePick({
+                tournamentId: game.tournamentId,
+                places,
+                nextQueuedFor: (playerId) => engine.nextEligibleQueuedFor(game.tournamentId!, playerId),
+                labelFor: (playerId) => engine.labelForPlayer(playerId),
+                isRoomMember: async () => true, // no window is granted here, so onboarding never applies
+                startPlaceIndex: 2,
+            });
+
+            if (outcome.kind === 'activate') {
+                await this.activateQueuedIntoSlot(
+                    game, outcome.game, narrative.length ? narrative.join(' ') : null, info,
+                );
+                return;
+            }
+
+            await this.fallbackToAutoSelection(game);
+        } catch (error) {
+            logError(`Third-place queue check failed for slot ${game.id}:`, error);
+            await this.fallbackToAutoSelection(game);
+        }
+    }
+
+    /**
+     * Fill a picker placeholder with a game that was already sitting in a
+     * player's queue, and activate it.
+     *
+     * The placeholder ROW is reused rather than promoting the queued row, so the
+     * slot keeps the identity anything already references (`won_game_id`
+     * lookups, the Picks page); the consumed queued row is then deleted. iScored
+     * handling mirrors `fallbackToAutoSelection`: create the entry when the
+     * queued row was never pushed to iScored, otherwise just unlock the one it
+     * already has.
+     */
+    private async activateQueuedIntoSlot(
+        slot: Game,
+        queuedRow: any,
+        reason: string | null,
+        info: { type: string | null; mode: string | null; gameRoomId: string | null },
+    ): Promise<void> {
+        const db = await getDatabase();
+        const tournament = await db.get('SELECT * FROM tournaments WHERE id = ?', slot.tournamentId);
+
+        const existingIscoredId: string | null = queuedRow.iscored_id ?? null;
+        let iscoredId: string | null = existingIscoredId;
+
+        const { getIScoredCredsForRoom } = await import('../utils/iscoredCreds.js');
+        const creds = await getIScoredCredsForRoom(tournament?.game_room_id ?? null);
+        if (creds) {
+            const { IScoredSessionRegistry } = await import('./IScoredSessionRegistry.js');
+            try {
+                iscoredId = await IScoredSessionRegistry.getInstance().withSession(creds, async (client) => {
+                    if (!existingIscoredId) {
+                        const id = await client.createGame(queuedRow.name, queuedRow.style_id || undefined);
+                        await client.setGameTags(id, tournament?.type);
+                        await client.setGameStatus(id, { locked: false, hidden: false });
+                        return id;
+                    }
+                    await client.setGameStatus(existingIscoredId, { locked: false, hidden: false });
+                    return existingIscoredId;
+                });
+            } catch (err) {
+                logError('   -> Failed to prepare the queued game on iScored (continuing):', err);
+            }
+        }
+
+        await db.run(
+            `UPDATE games
+             SET name = ?, style_id = ?, iscored_id = ?, status = 'ACTIVE', start_date = ?,
+                 picker_discord_id = NULL, picker_type = NULL, picker_designated_at = NULL, reminder_count = 0
+             WHERE id = ?`,
+            queuedRow.name, queuedRow.style_id || null, iscoredId, new Date().toISOString(), slot.id,
+        );
+        await db.run('DELETE FROM games WHERE id = ?', queuedRow.id);
+        logInfo(`   -> Activated queued game "${queuedRow.name}" into slot ${slot.id}.`);
+
+        const channelId = await this.getChannelId(slot.tournamentId);
+        if (channelId) {
+            const color = getTournamentColor(info.type);
+            const embed = new EmbedBuilder()
+                .setTitle(`Now Active: ${queuedRow.name}`)
+                .setDescription(reason
+                    ? `${reason} **${queuedRow.name}** is now active for **${tournament?.name ?? 'the tournament'}**.`
+                    : `**${queuedRow.name}** was already queued and is now active for **${tournament?.name ?? 'the tournament'}**.`)
+                .setColor(color)
+                .setFooter({ text: tournament?.name ?? '' })
+                .setTimestamp();
+            await sendChannelEmbed(channelId, embed);
         }
     }
 

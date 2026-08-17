@@ -16,6 +16,7 @@ router.get('/me/profile', requireAuth, requireDiscordUser, async (req, res) => {
         const discordId = req.user!.discordId!;
         const profile = await UserProfileService.ensureProfile(discordId);
         const aliases = await UserProfileService.getAliases(discordId);
+        const avatar = await UserProfileService.getAvatarOptions(discordId);
         res.json({
             discord_user_id: profile.discord_user_id,
             display_name: profile.display_name,
@@ -23,6 +24,14 @@ router.get('/me/profile', requireAuth, requireDiscordUser, async (req, res) => {
             avatar_url: profile.avatar_url,
             avatar_fetched_at: profile.avatar_fetched_at,
             aliases,
+            // Migration 151 — the raw per-provider avatars plus the user's
+            // choice, so Account Settings can render a real picker instead of
+            // silently showing whichever provider the resolver happens to
+            // prefer. `avatar_url` above stays the EFFECTIVE one.
+            avatar_preference: avatar.preference,
+            avatar_effective: avatar.effective,
+            avatar_discord_hash: avatar.discordAvatarHash,
+            avatar_google_url: avatar.googleAvatarUrl,
         });
     } catch (error) {
         logError('API Error (GET /api/users/me/profile):', error);
@@ -80,6 +89,42 @@ router.get('/me/profile/check-display-name', requireAuth, requireDiscordUser, as
         res.json(result);
     } catch (error) {
         logError('API Error (GET /api/users/me/profile/check-display-name):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
+ * PATCH /api/users/me/avatar-preference
+ * Body: `{ preference: 'discord' | 'google' | null }` — `null` restores the
+ * automatic behavior (Google when present).
+ *
+ * Exists because `PlayerAvatar` resolves `avatarUrl ?? avatarHash`, so a user
+ * linked to both providers had their Discord avatar permanently buried by
+ * their Google picture with no way to get it back (player report 2026-08-17).
+ * The preference is applied by rewriting the EFFECTIVE `avatar_url` column —
+ * see migration 151 — so no read site has to know this endpoint exists.
+ */
+router.patch('/me/avatar-preference', requireAuth, requireDiscordUser, requireNotBanned, async (req, res) => {
+    try {
+        const discordId = req.user!.discordId!;
+        const raw = req.body?.preference;
+        if (raw !== null && raw !== 'discord' && raw !== 'google') {
+            return res.status(400).json({ error: "preference must be 'discord', 'google', or null" });
+        }
+
+        const result = await UserProfileService.setAvatarPreference(discordId, raw);
+        const avatar = await UserProfileService.getAvatarOptions(discordId);
+        res.json({
+            avatar_preference: result.preference,
+            avatar_effective: result.effective,
+            avatar_discord_hash: avatar.discordAvatarHash,
+            avatar_google_url: avatar.googleAvatarUrl,
+        });
+    } catch (error) {
+        if ((error as { code?: string })?.code === 'AVATAR_UNAVAILABLE') {
+            return res.status(409).json({ error: (error as Error).message, reason: 'avatar_unavailable' });
+        }
+        logError('API Error (PATCH /api/users/me/avatar-preference):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

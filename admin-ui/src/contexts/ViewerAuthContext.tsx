@@ -186,6 +186,13 @@ export function ViewerAuthProvider({ children }: { children: ReactNode }) {
         response_type: 'code',
         scope: 'identify',
         state: `player:${returnSlug}`,
+        // Discord re-shows the authorization screen on EVERY sign-in unless
+        // asked not to — a player reported being prompted to authorize each
+        // time they logged in (2026-08-17). `prompt=none` skips it once the
+        // user has already granted these scopes; first-time users still see it.
+        // Deliberately NOT set on the account-LINK flow in AccountSettings,
+        // where that screen is how you choose which Discord account to link.
+        prompt: 'none',
       });
       window.location.href = `https://discord.com/api/oauth2/authorize?${params}`;
     } catch {

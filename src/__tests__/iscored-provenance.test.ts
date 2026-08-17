@@ -210,6 +210,67 @@ describe('§3b — synced scores are always unknown/unknown', () => {
         expect(hist).toMatchObject({ source: 'sync', engine: UNKNOWN, device: UNKNOWN });
     });
 
+    /**
+     * REGRESSION — prod, rtx_pinball / Blackbelt 2018, 2026-08-17.
+     *
+     * A player submitted 3,588,843,950 in Arcaid (a typo — an extra digit),
+     * Arcaid synced it out to iScored, then he deleted it locally and
+     * re-submitted the correct 358,884,390. The tombstone stopped the ~5s
+     * poller from re-importing it for two and a half hours — but deactivation
+     * calls `finalSyncScoresForGame`, which had NO tombstone check, so it
+     * pulled the deleted score back from iScored and handed him the win.
+     *
+     * Both read paths must honour `deleted_score_suppressions`.
+     */
+    it('finalSyncScoresForGame honours a deletion tombstone (does not resurrect a locally-deleted score)', async () => {
+        const { db, roomId, gameId, tournamentId } = await seedSingleEngineTournamentRoom('finalsync-tombstone');
+
+        await db.run(
+            `INSERT INTO deleted_score_suppressions (game_id, iscored_username_lower, suppressed_score)
+             VALUES (?, ?, ?)`,
+            gameId, 'chalatalove', 3588843950,
+        );
+
+        // iScored still holds the deleted score — Arcaid put it there and never
+        // removed it.
+        iscored.gameScores = { scores: [{ name: 'ChalataLove', score: '3588843950' }] };
+
+        const captured = await (TournamentEngine.getInstance() as unknown as {
+            finalSyncScoresForGame: (row: unknown) => Promise<number>;
+        }).finalSyncScoresForGame({
+            id: gameId, name: 'WHO dunnit', iscored_id: '95570',
+            tournament_id: tournamentId, game_room_id: roomId,
+            iscored_default_platform: 'vpx',
+        });
+
+        expect(captured).toBe(0);
+        expect(await db.get(`SELECT id FROM submissions WHERE game_id = ?`, gameId)).toBeUndefined();
+    });
+
+    it('finalSyncScoresForGame still imports a NEW score above the tombstone', async () => {
+        const { db, roomId, gameId, tournamentId } = await seedSingleEngineTournamentRoom('finalsync-tombstone-higher');
+
+        await db.run(
+            `INSERT INTO deleted_score_suppressions (game_id, iscored_username_lower, suppressed_score)
+             VALUES (?, ?, ?)`,
+            gameId, 'chalatalove', 1000,
+        );
+        // A legitimate later run, genuinely higher than the deleted value.
+        iscored.gameScores = { scores: [{ name: 'ChalataLove', score: '5000' }] };
+
+        const captured = await (TournamentEngine.getInstance() as unknown as {
+            finalSyncScoresForGame: (row: unknown) => Promise<number>;
+        }).finalSyncScoresForGame({
+            id: gameId, name: 'WHO dunnit', iscored_id: '95570',
+            tournament_id: tournamentId, game_room_id: roomId,
+            iscored_default_platform: 'vpx',
+        });
+
+        expect(captured).toBe(1);
+        const sub = await db.get(`SELECT score FROM submissions WHERE game_id = ?`, gameId);
+        expect(sub).toMatchObject({ score: 5000 });
+    });
+
     it('a synced score creates submissions + score_history rows and NO global_scores row', async () => {
         const { db, roomId, gameId } = await seedSingleEngineTournamentRoom('sync-no-global');
         iscored.allScores = {

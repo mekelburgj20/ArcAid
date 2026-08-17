@@ -1105,9 +1105,10 @@ router.put('/:roomId/queue/reorder', requireDiscordUser, requireNotBanned, async
         const { gameIds } = validationResult.data;
 
         // Verify all games belong to this user in this room
+        const touchedTournaments = new Set<string>();
         for (const gameId of gameIds) {
             const game = await db.get(
-                `SELECT g.id, g.picker_discord_id, t.game_room_id
+                `SELECT g.id, g.picker_discord_id, g.tournament_id, t.game_room_id
                  FROM games g JOIN tournaments t ON g.tournament_id = t.id
                  WHERE g.id = ? AND g.status = 'QUEUED' AND g.name != '[Pending Pick]'`,
                 gameId
@@ -1115,13 +1116,37 @@ router.put('/:roomId/queue/reorder', requireDiscordUser, requireNotBanned, async
             if (!game || game.game_room_id !== roomId || game.picker_discord_id !== discordId) {
                 return res.status(403).json({ error: 'Invalid game in reorder list' });
             }
+            touchedTournaments.add(game.tournament_id);
         }
 
-        // Update queue_order based on position in array
+        // Renumber 1..N inside THIS PLAYER's queue for each affected tournament.
+        // queue_order is player-scoped (TournamentEngine.queueGame, migration
+        // 150), so writing 1..N here no longer collides with other players —
+        // that mismatch is what corrupted prod ordering before 2026-08-17.
+        //
+        // Any of the player's own queued games in a touched tournament that the
+        // payload did NOT mention are appended after the supplied ones, keeping
+        // their relative order. Without this a partial payload would reuse
+        // positions the omitted rows still hold, re-creating duplicates inside
+        // the player's own queue.
         await db.exec('BEGIN TRANSACTION');
         try {
             for (let i = 0; i < gameIds.length; i++) {
                 await db.run('UPDATE games SET queue_order = ? WHERE id = ?', i + 1, gameIds[i]);
+            }
+            for (const tournamentId of touchedTournaments) {
+                const leftovers = await db.all(
+                    `SELECT id FROM games
+                     WHERE tournament_id = ? AND status = 'QUEUED' AND name != '[Pending Pick]'
+                       AND picker_discord_id = ?
+                       AND id NOT IN (${gameIds.map(() => '?').join(',')})
+                     ORDER BY queue_order ASC, rowid ASC`,
+                    tournamentId, discordId, ...gameIds
+                );
+                let next = gameIds.length + 1;
+                for (const row of leftovers) {
+                    await db.run('UPDATE games SET queue_order = ? WHERE id = ?', next++, row.id);
+                }
             }
             await db.exec('COMMIT');
         } catch (err) {
