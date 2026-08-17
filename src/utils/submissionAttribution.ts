@@ -58,3 +58,46 @@ export async function resolveTopSubmissionPlayers(
     }
     return out;
 }
+
+/**
+ * The finishing order of a completed slot expressed as PLACES — 1st, 2nd, 3rd —
+ * rather than as submission rows. This is what the pick cascade walks
+ * (tmp/pick-delegation-contract.md §3).
+ *
+ * Differs from `resolveTopSubmissionPlayers` in three ways that all matter once
+ * a place can be awarded a pick:
+ *
+ *  1. **`orphaned_at IS NULL`.** A ban-hidden score must not resurface as the
+ *     runner-up — same leak class the Discord drift audit closed in
+ *     /list-winners, and already guarded in the old `resolveRunnerUp`.
+ *  2. **Deduplicated by resolved identity.** One human can hold several rows on
+ *     one board (a web submission plus an iScored-synced row under the same
+ *     name, as ChalataLove did on Blackbelt 2018 — 1st AND 3rd). Without this
+ *     they could be handed the pick as their own runner-up.
+ *  3. **`maxPlaces` counts PLACES, not rows.** The limit is applied after
+ *     dropping unattributed and duplicate rows, so asking for 3 places yields 3
+ *     real players when 3 exist. Unattributed rows (an iScored-only name with no
+ *     linked account) are skipped entirely: they cannot be DM'd, cannot hold a
+ *     pick window, and have no queue — see contract §4.3.
+ */
+export async function resolveLeaderboardPlaces(
+    db: { all: (sql: string, ...params: any[]) => Promise<any[]>; get: (sql: string, ...params: any[]) => Promise<any> },
+    gameId: string,
+    maxPlaces: number,
+): Promise<Array<{ playerId: string; iscoredUsername: string | null; score: number }>> {
+    const rows = await db.all(
+        `SELECT iscored_username, discord_user_id, submitted_by_user_id, score FROM submissions
+         WHERE game_id = ? AND orphaned_at IS NULL ORDER BY score DESC LIMIT 200`,
+        gameId,
+    );
+    const out: Array<{ playerId: string; iscoredUsername: string | null; score: number }> = [];
+    const seen = new Set<string>();
+    for (const row of rows) {
+        if (out.length >= maxPlaces) break;
+        const playerId = await resolveSubmissionPlayerId(db, row);
+        if (!playerId || seen.has(playerId)) continue;
+        seen.add(playerId);
+        out.push({ playerId, iscoredUsername: row.iscored_username ?? null, score: row.score });
+    }
+    return out;
+}

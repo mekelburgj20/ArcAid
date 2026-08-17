@@ -132,8 +132,11 @@ describe('Picks page — next-win disposition control', () => {
     stubFetch('disp_render_room');
     renderPicks('disp_render_room');
 
-    expect(await screen.findByText('If I win next…')).toBeInTheDocument();
+    // Heading dropped "next" on 2026-08-17: forfeit and roll-the-dice are
+    // standing preferences now, so the control is no longer next-win-only.
+    expect(await screen.findByText('If I win…')).toBeInTheDocument();
     expect(screen.getByText('Forfeit to runner-up')).toBeInTheDocument();
+    expect(screen.getByText('Roll the dice')).toBeInTheDocument();
     expect(screen.getByText('Give my pick to…')).toBeInTheDocument();
   });
 

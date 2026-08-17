@@ -23,7 +23,8 @@ import { isProviderUserId } from '../utils/identityProvider.js';
 import { catalogueTypeMatchesTournamentMode } from '../utils/tournamentMode.js';
 import { trackBackground } from '../utils/backgroundTasks.js';
 import { PickDispositionService } from '../services/PickDispositionService.js';
-import { resolveSubmissionPlayerId } from '../utils/submissionAttribution.js';
+import { resolveSubmissionPlayerId, resolveLeaderboardPlaces } from '../utils/submissionAttribution.js';
+import { resolvePick, MAX_PLACES } from './pickResolution.js';
 import { tournamentUrlSlug } from '../utils/tournamentSlug.js';
 
 /**
@@ -187,10 +188,23 @@ export class TournamentEngine {
     public async queueGame(tournamentId: string, gameName: string, styleId?: string, iscoredId?: string, pickerDiscordId?: string): Promise<Game> {
         const db = await getDatabase();
 
-        // Get next queue_order for this tournament
+        // Next queue_order for THIS PLAYER in this tournament.
+        //
+        // Queues are per-player (owner spec 2026-08-17): a queue is "my pick if
+        // I win", not a room-level play-next list, so two players legitimately
+        // both hold position 1. Allocating from a tournament-global MAX was the
+        // root of the reorder collision — PUT /:roomId/queue/reorder renumbers a
+        // player's own games 1..N, which only agrees with the allocator once the
+        // allocator is player-scoped too.
+        //
+        // '[Pending Pick]' placeholders are excluded: they carry queue_order
+        // NULL so they sort ahead of everything, and counting them would leave a
+        // hole in the sequence.
         const maxRow = await db.get(
-            'SELECT COALESCE(MAX(queue_order), 0) + 1 as next_order FROM games WHERE tournament_id = ? AND status = ?',
-            tournamentId, 'QUEUED'
+            `SELECT COALESCE(MAX(queue_order), 0) + 1 as next_order FROM games
+             WHERE tournament_id = ? AND status = ? AND name != '[Pending Pick]'
+               AND picker_discord_id IS ?`,
+            tournamentId, 'QUEUED', pickerDiscordId ?? null
         );
         const queueOrder = maxRow?.next_order ?? 1;
 
@@ -1245,25 +1259,135 @@ export class TournamentEngine {
             await sendChannelEmbed(channelId, embed);
         }
 
-        // --- Activate the next queued game for this slot ---
-        // Find the next non-placeholder, eligible queued game
+        // --- Decide who gets the pick for this slot ---
+        //
+        // Pre-2026-08-17 this took the head of a tournament-GLOBAL FIFO queue,
+        // and only consulted dispositions when that queue happened to be empty.
+        // Two consequences, both seen in prod on 2026-08-17: winning activated
+        // whoever queued first (ChalataLove won Blackbelt 2018 and soggybacon's
+        // `Magic Castle` activated while the winner's own `Xena` was skipped),
+        // and nominate/forfeit were unreachable whenever anything was queued.
+        //
+        // Queues are now PER PLAYER — "my pick if I win", never a room-level
+        // play-next list — and `pickResolution.resolvePick` is the single
+        // decision point. See tmp/pick-delegation-contract.md.
+
+        // Sweep genuinely ORPHANED picker placeholders (their won game is gone).
+        // A placeholder belonging to a different LIVE slot is deliberately left
+        // alone: deleting it would cancel that slot's running pick window.
+        for (const candidate of queuedQueue) {
+            if (candidate.name !== '[Pending Pick]') continue;
+            const wonGame = candidate.won_game_id
+                ? await db.get('SELECT id FROM games WHERE id = ?', candidate.won_game_id)
+                : null;
+            if (!wonGame) {
+                await db.run('DELETE FROM games WHERE id = ?', candidate.id);
+                logInfo('   -> Cleaned up an orphaned picker placeholder.');
+            }
+        }
+
+        // Pick-award gate (v2.56.0): per-tournament only — this resolves to
+        // `tournaments.winner_picks` for THIS tournament.
+        const pickAwardEnabled = await PickAwardGate.isEnabled(tournamentRow.game_room_id, tournamentId);
+        const winnerPicks = pickAwardEnabled && tournamentRow.winner_picks !== 0;
+        const autoPick = tournamentRow.auto_pick !== 0;
+
+        // Guard: if the tournament already has max active games, skip slot fill
+        // entirely. Prevents duplicate picker slots / auto-picks when
+        // maintenance re-runs after a winner has already picked.
+        const maxSlots = tournamentRow.max_active_games ?? 1;
+        const currentActiveGames = await this.getActiveGames(tournamentId);
+        if (currentActiveGames.length >= maxSlots) {
+            logInfo(`   -> Tournament already at max active games (${currentActiveGames.length}/${maxSlots}). Skipping slot fill.`);
+            return;
+        }
+
+        // Guard: this slot already produced a picker placeholder.
+        //
+        // Keyed on won_game_id ALONE (not the picker) because the picker for a
+        // given slot can be someone other than the winner — a nominee, or a
+        // runner-up via forfeit. This MUST stay ahead of the cascade: resolving
+        // fires the winner's one-shot `nominate`, so a re-run past this point
+        // would burn a second one.
+        const existingPickerSlot = await db.get(
+            `SELECT id FROM games WHERE tournament_id = ? AND status = 'QUEUED' AND name = '[Pending Pick]' AND won_game_id = ?`,
+            tournamentId, activeGame.id
+        );
+        if (existingPickerSlot) {
+            logInfo(`   -> Game ${activeGame.name} already has a pending pick slot. Skipping duplicate.`);
+            return;
+        }
+
+        // Resolve the winner's user-chosen display name once for all copy below.
+        const winnerDisplayNameForCopy = winnerId
+            ? await (await import('../services/UserProfileService.js')).UserProfileService.getDisplayName(winnerId).catch(() => null)
+            : null;
+        const winnerLabel = winnerDisplayNameForCopy || winnerIscoredName || 'Unknown';
+
+        // Pick-award gate off — emit plain "Congrats" (no pick flow, no DM).
+        // Next-game selection still honors auto_pick and manual admin paths.
+        if (!pickAwardEnabled && winnerId && channelId) {
+            const color = getTournamentColor(tournamentRow.type);
+            const winnerMention = await formatUserMention(winnerId, winnerLabel, tournamentRow.game_room_id);
+            const embed = new EmbedBuilder()
+                .setTitle('Congrats!')
+                .setDescription(`${winnerMention} — great ${term.game}! Thanks for playing.`)
+                .setColor(color)
+                .setFooter({ text: tournamentRow.name })
+                .setTimestamp();
+            await sendChannelEmbed(channelId, embed);
+        }
+
+        // --- Run the cascade ---
         let queuedRow: any = null;
-        while (queuedQueue.length > 0) {
-            const candidate = queuedQueue.shift();
-            if (candidate.name === '[Pending Pick]') {
-                // Clean up orphaned picker slots
-                await db.run('DELETE FROM games WHERE id = ?', candidate.id);
-                continue;
+        let pickerResolution: {
+            pickerId: string;
+            pickerType: 'WINNER' | 'RUNNER_UP';
+            pickerLabel: string;
+            announceExtra: string | null;
+            onboardingNominee: string | null;
+        } | null = null;
+        let cascadeWantsAutoPick = false;
+        let announceExtraForQueue: string | null = null;
+
+        if (winnerPicks) {
+            const places = await resolveLeaderboardPlaces(db, activeGame.id, MAX_PLACES);
+            const dynastyBlockedWinner = await this.isDynastyBlocked(db, tournamentRow, activeGame, places[0]?.playerId ?? null);
+            const { outcome, narrative } = await resolvePick({
+                tournamentId,
+                places,
+                nextQueuedFor: (playerId) => this.nextEligibleQueuedFor(tournamentId, playerId),
+                labelFor: (playerId) => this.labelForPlayer(playerId),
+                isRoomMember: async (playerId) => {
+                    if (!tournamentRow.game_room_id) return true;
+                    const row = await db.get(
+                        'SELECT 1 AS ok FROM room_members WHERE room_id = ? AND user_id = ?',
+                        tournamentRow.game_room_id, playerId,
+                    );
+                    return !!row;
+                },
+                dynastyBlockedWinner,
+            });
+            const reason = narrative.length ? narrative.join(' ') : null;
+
+            if (outcome.kind === 'activate') {
+                queuedRow = outcome.game;
+                announceExtraForQueue = reason;
+                logInfo(`   -> Cascade: activating ${outcome.playerId}'s queued game "${outcome.game.name}".`);
+            } else if (outcome.kind === 'window') {
+                pickerResolution = {
+                    pickerId: outcome.playerId,
+                    pickerType: outcome.pickerType,
+                    pickerLabel: await this.labelForPlayer(outcome.playerId),
+                    announceExtra: reason,
+                    onboardingNominee: outcome.onboardingNominee,
+                };
+                logInfo(`   -> Cascade: pick window for ${outcome.playerId} (${outcome.pickerType}).`);
+            } else {
+                cascadeWantsAutoPick = true;
+                announceExtraForQueue = reason;
+                logInfo('   -> Cascade: exhausted or rolled the dice — auto-pick.');
             }
-            // Cooldown revalidation — skip games that became ineligible while queued
-            const stillEligible = await this.isGameEligible(tournamentId, candidate.name);
-            if (!stillEligible) {
-                logWarn(`   -> Skipping queued game "${candidate.name}" — no longer eligible (cooldown). Removing from queue.`);
-                await db.run('DELETE FROM games WHERE id = ?', candidate.id);
-                continue;
-            }
-            queuedRow = candidate;
-            break;
         }
 
         if (queuedRow) {
@@ -1330,11 +1454,20 @@ export class TournamentEngine {
                     .setColor(color)
                     .setTimestamp();
 
+                // The winner is congratulated even when the pick went elsewhere
+                // (owner spec: a forfeit still earns the congratulations). The
+                // cascade's narrative explains the hand-off, so the copy never
+                // implies the activated game was the winner's own pick when it
+                // wasn't.
                 if (winnerId) {
-                    const winnerMention = await formatUserMention(winnerId, winnerIscoredName || 'Unknown', tournamentRow.game_room_id);
-                    embed.setDescription(`${winnerMention} — congrats on the win! **${queuedRow.name}** is now active from the queue.`);
+                    const winnerMention = await formatUserMention(winnerId, winnerLabel, tournamentRow.game_room_id);
+                    embed.setDescription(announceExtraForQueue
+                        ? `${winnerMention} — congrats on the win! ${announceExtraForQueue} **${queuedRow.name}** is now active.`
+                        : `${winnerMention} — congrats on the win! **${queuedRow.name}** is now active from the queue.`);
                 } else if (winnerIscoredName) {
-                    embed.setDescription(`**${winnerIscoredName}** wins! **${queuedRow.name}** is now active from the queue.`);
+                    embed.setDescription(announceExtraForQueue
+                        ? `**${winnerIscoredName}** wins! ${announceExtraForQueue} **${queuedRow.name}** is now active.`
+                        : `**${winnerIscoredName}** wins! **${queuedRow.name}** is now active from the queue.`);
                 } else {
                     embed.setDescription(`**${queuedRow.name}** is now active from the queue.`);
                 }
@@ -1348,88 +1481,21 @@ export class TournamentEngine {
                 newGame: queuedRow.name,
             });
         } else {
-            // No queued game — behavior depends on winner_picks and auto_pick settings.
-            // Pick-award gate (v2.56.0): per-tournament only — this resolves to
-            // `tournaments.winner_picks` for THIS tournament. The room-level
-            // ENABLE_GAME_PICK_AWARD leg is gone; the redundant `&& winner_picks`
-            // below is kept because it reads off the already-loaded row and
-            // documents the intent at the branch site.
-            const pickAwardEnabled = await PickAwardGate.isEnabled(tournamentRow.game_room_id, tournamentId);
-            const winnerPicks = pickAwardEnabled && tournamentRow.winner_picks !== 0;
-            const autoPick = tournamentRow.auto_pick !== 0;
-
-            // Guard: if tournament already has max active games, skip slot fill entirely.
-            // This prevents duplicate picker slots / auto-picks when maintenance re-runs
-            // after a winner has already picked and activated a game.
-            const maxSlots = tournamentRow.max_active_games ?? 1;
-            const currentActiveGames = await this.getActiveGames(tournamentId);
-            if (currentActiveGames.length >= maxSlots) {
-                logInfo(`   -> Tournament already at max active games (${currentActiveGames.length}/${maxSlots}). Skipping slot fill.`);
-                return;
-            }
-
-            // Guard: if this winner already has a pending pick for THIS won game,
-            // don't create another. Pre-fix this was scoped to
-            // (tournament, winner) only, which collapsed multi-slot wins
-            // (e.g. Weekly Grind - VPXS max=2: same player winning both slots
-            // got one pick prompt). Scoping by won_game_id lets each slot win
-            // emit its own picker slot + DM, while a re-run of maintenance for
-            // the same (tournament, winner, won_game) still no-ops.
+            // Nothing was activated from a queue. The cascade either resolved to
+            // a pick window, resolved to auto-pick (roll-the-dice, or every
+            // place declined), or the pick-award flow is off entirely.
             //
-            // Next-win disposition (v2.9x): the guard is keyed on won_game_id
-            // ALONE (dropped the picker_discord_id leg) because the actual
-            // picker for a given won slot can now be someone OTHER than the
-            // winner (a nominee or the runner-up via forfeit/dynasty) —
-            // won_game_id already uniquely identifies "the slot this
-            // placeholder rewards", so it's a sufficient re-run guard on its
-            // own, and checking against `winnerId` specifically would miss an
-            // already-created nominee/runner-up slot and double-consume the
-            // winner's one-shot disposition on the re-run.
-            if (winnerId) {
-                const existingPickerSlot = await db.get(
-                    `SELECT id FROM games WHERE tournament_id = ? AND status = 'QUEUED' AND name = '[Pending Pick]' AND won_game_id = ?`,
-                    tournamentId, activeGame.id
-                );
-                if (existingPickerSlot) {
-                    logInfo(`   -> Game ${activeGame.name} already has a pending pick slot. Skipping duplicate.`);
-                    return;
-                }
-            }
-
-            // Resolve user-chosen display name once for all subsequent embed/ticker
-            // copy. Fall back to iScored alias when unset.
-            const winnerDisplayName = winnerId
-                ? await (await import('../services/UserProfileService.js')).UserProfileService.getDisplayName(winnerId).catch(() => null)
-                : null;
-            const winnerLabel = winnerDisplayName || winnerIscoredName || 'Unknown';
-
-            // Pick-award gate off — emit plain "Congrats" embed (no pick flow, no DM).
-            // Next-game selection still honors auto_pick and manual admin paths below.
-            if (!pickAwardEnabled && winnerId && channelId) {
-                const color = getTournamentColor(tournamentRow.type);
-                const winnerMention = await formatUserMention(winnerId, winnerLabel, tournamentRow.game_room_id);
-                const embed = new EmbedBuilder()
-                    .setTitle('Congrats!')
-                    .setDescription(`${winnerMention} — great ${term.game}! Thanks for playing.`)
-                    .setColor(color)
-                    .setFooter({ text: tournamentRow.name })
-                    .setTimestamp();
-                await sendChannelEmbed(channelId, embed);
-            }
-
-            // Next-win disposition resolution (nominate/forfeit/dynasty) —
-            // ROADMAP "Next-win disposition + dynasty option + rotation-
-            // readiness nudge" (locked 2026-08-09). Only meaningful when the
-            // pick-award flow would otherwise hand W the pick; resolves to
-            // null when W's own queue path is blocked (forfeit / dynasty) and
-            // no eligible runner-up could be found, in which case this falls
-            // through to the same auto-pick/manual-wait branch as "no winner
-            // found" below — see resolveNextPicker's docstring.
-            const pickerResolution = (winnerPicks && winnerId)
-                ? await this.resolveNextPicker(db, tournamentRow, activeGame, winnerId, winnerIscoredName, winnerLabel)
-                : null;
-
-            if (!winnerPicks && autoPick) {
+            // The gate flags, the max-slots / duplicate-placeholder guards, the
+            // winner label and the plain "Congrats" embed all now live ABOVE the
+            // cascade — they must run before a one-shot disposition can fire —
+            // so this branch only dispatches on the already-resolved outcome.
+            if (cascadeWantsAutoPick && autoPick) {
+                // Contract §4.4: roll-the-dice is an explicit instruction, but a
+                // tournament with auto_pick=0 cannot honor it; that case falls
+                // through to the admin-wait branch below instead.
+                logInfo(`   -> Cascade resolved to auto-pick. Selecting a ${term.game}.`);
+                await this.autoPickAndActivate(db, tournamentRow, tournamentId, activeGame, client, term, channelId);
+            } else if (!winnerPicks && autoPick) {
                 // Skip pick windows — immediately auto-select and activate
                 logInfo(`   -> No ${term.game} queued. winner_picks=off, auto_pick=on — auto-selecting immediately.`);
                 await this.autoPickAndActivate(db, tournamentRow, tournamentId, activeGame, client, term, channelId);
@@ -1601,145 +1667,81 @@ export class TournamentEngine {
     }
 
     /**
-     * Resolves who actually gets the pick for this slot's next rotation —
-     * the "next-win disposition" chokepoint (ROADMAP, locked 2026-08-09).
+     * `allow_dynasty = 0` AND this winner also took the immediately-previous
+     * COMPLETED slot in this tournament.
      *
-     * Only called when `winnerPicks && winnerId` (the branch that would
-     * otherwise hand the winner a picker slot). Order:
-     *   1. Dynasty check — if `tournaments.allow_dynasty = 0` AND the winner
-     *      also won the immediately-previous COMPLETED slot in this
-     *      tournament, their own 'use-my-queue' path is blocked (nominate/
-     *      forfeit are unaffected by this check).
-     *   2. Consume (read + one-shot delete) the winner's disposition row.
-     *   3. 'nominate' → the nominee becomes picker with the FULL winner
-     *      window/reminders/timeout chain (picker_type stays 'WINNER' — the
-     *      nominee inherits the standard chain, they just aren't the one who
-     *      scored). 'forfeit' → runner-up immediately (picker_type
-     *      'RUNNER_UP', no wait for the winner's window to expire).
-     *   4. No disposition + not blocked → today's behavior (return the
-     *      winner as picker, announceExtra null).
-     *   5. No disposition + blocked → runner-up immediately, dynasty-named
-     *      announce copy.
-     *
-     * Returns null when a runner-up SHOULD be designated (forfeit or
-     * dynasty-block) but none can be resolved (no 2nd-place submission, or no
-     * Discord mapping for it) — mirrors `TimeoutManager.pivotToRunnerUp`'s own
-     * fallback: the caller degrades to auto-pick/manual-wait exactly as it
-     * does today for "no winner found", rather than silently handing the
-     * disqualified winner their pick back.
+     * Blocks only their own use-my-queue path — a disposition the winner set is
+     * honored regardless (contract §4.5). Extracted from the pre-2026-08-17
+     * `resolveNextPicker`; that method's other responsibilities now live in
+     * `pickResolution.resolvePick`, which both the rotation and the timeout
+     * chain share.
      */
-    private async resolveNextPicker(
+    private async isDynastyBlocked(
         db: any,
         tournamentRow: any,
         activeGame: Game,
-        winnerId: string,
-        winnerIscoredName: string | null,
-        winnerLabel: string,
-    ): Promise<{
-        pickerId: string;
-        pickerType: 'WINNER' | 'RUNNER_UP';
-        pickerLabel: string;
-        pickerIscoredName: string | null;
-        announceExtra: string | null;
-        onboardingNominee: string | null;
-    } | null> {
-        // --- 1. Dynasty check ---
-        let dynastyBlocked = false;
-        if (tournamentRow.allow_dynasty === 0) {
-            const prevGame = await db.get(
-                `SELECT id FROM games WHERE tournament_id = ? AND status = 'COMPLETED' AND id != ?
-                 ORDER BY end_date DESC LIMIT 1`,
-                tournamentRow.id, activeGame.id,
-            );
-            if (prevGame) {
-                const prevWinnerRow = await db.get(
-                    `SELECT iscored_username, discord_user_id, submitted_by_user_id FROM submissions
-                     WHERE game_id = ? ORDER BY score DESC LIMIT 1`,
-                    prevGame.id,
-                );
-                const prevWinnerId = await resolveSubmissionPlayerId(db, prevWinnerRow);
-                if (prevWinnerId && prevWinnerId === winnerId) {
-                    dynastyBlocked = true;
-                }
-            }
+        winnerId: string | null,
+    ): Promise<boolean> {
+        if (!winnerId || tournamentRow.allow_dynasty !== 0) return false;
+        const prevGame = await db.get(
+            `SELECT id FROM games WHERE tournament_id = ? AND status = 'COMPLETED' AND id != ?
+             ORDER BY end_date DESC LIMIT 1`,
+            tournamentRow.id, activeGame.id,
+        );
+        if (!prevGame) return false;
+        const prevWinnerRow = await db.get(
+            `SELECT iscored_username, discord_user_id, submitted_by_user_id FROM submissions
+             WHERE game_id = ? AND orphaned_at IS NULL ORDER BY score DESC LIMIT 1`,
+            prevGame.id,
+        );
+        const prevWinnerId = await resolveSubmissionPlayerId(db, prevWinnerRow);
+        return !!prevWinnerId && prevWinnerId === winnerId;
+    }
+
+    /**
+     * The first cooldown-eligible game in THIS player's queue for this
+     * tournament, or null.
+     *
+     * Queues are per-player and ordered by the player's own `queue_order` (see
+     * `queueGame`) — there is no tournament-wide queue to walk any more.
+     *
+     * Games that lost eligibility while they waited are deleted as we walk past
+     * them, preserving the documented "ineligible queued games auto-removed
+     * during maintenance" behavior. The scope is now just the player being
+     * consulted, rather than sweeping every player's queue on every rotation.
+     */
+    public async nextEligibleQueuedFor(tournamentId: string, playerId: string): Promise<any | null> {
+        const db = await getDatabase();
+        const rows = await db.all(
+            `SELECT * FROM games
+             WHERE tournament_id = ? AND status = 'QUEUED' AND name != '[Pending Pick]'
+               AND picker_discord_id = ?
+             ORDER BY queue_order ASC, rowid ASC`,
+            tournamentId, playerId,
+        );
+        for (const row of rows) {
+            if (await this.isGameEligible(tournamentId, row.name)) return row;
+            logWarn(`   -> Dropping queued game "${row.name}" — no longer eligible (cooldown).`);
+            await db.run('DELETE FROM games WHERE id = ?', row.id);
         }
+        return null;
+    }
 
-        // --- 2. Consume the winner's disposition (one-shot) ---
-        const disposition = await PickDispositionService.consume(tournamentRow.id, winnerId);
-
-        const resolveRunnerUp = async (): Promise<{ id: string; label: string; iscoredName: string | null } | null> => {
-            // orphaned_at IS NULL (v2.103.0): ban-hidden scores must not
-            // resurface as the runner-up — same leak class the Discord drift
-            // audit closed in /list-winners et al. Pre-existing gap here,
-            // mirrored (and now fixed in lockstep) in pickgame.ts's live
-            // forfeit path.
-            const row = await db.get(
-                `SELECT iscored_username, discord_user_id, submitted_by_user_id FROM submissions
-                 WHERE game_id = ? AND orphaned_at IS NULL ORDER BY score DESC LIMIT 1 OFFSET 1`,
-                activeGame.id,
-            );
-            const id = await resolveSubmissionPlayerId(db, row);
-            if (!id) return null;
-            const label = (await (await import('../services/UserProfileService.js')).UserProfileService
-                .getDisplayName(id).catch(() => null)) || row?.iscored_username || 'Runner-up';
-            return { id, label, iscoredName: row?.iscored_username ?? null };
-        };
-
-        // --- 3a. Nominate ---
-        if (disposition?.disposition === 'nominate' && disposition.nominee_discord_id) {
-            const nomineeId = disposition.nominee_discord_id;
-            const nomineeLabel = (await (await import('../services/UserProfileService.js')).UserProfileService
-                .getDisplayName(nomineeId).catch(() => null)) || nomineeId;
-            const roomMember = tournamentRow.game_room_id
-                ? await db.get('SELECT 1 AS ok FROM room_members WHERE room_id = ? AND user_id = ?', tournamentRow.game_room_id, nomineeId)
-                : null;
-            return {
-                pickerId: nomineeId,
-                pickerType: 'WINNER',
-                pickerLabel: nomineeLabel,
-                pickerIscoredName: null,
-                announceExtra: `${winnerLabel} handed their pick to ${nomineeLabel}.`,
-                onboardingNominee: roomMember ? null : nomineeId,
-            };
-        }
-
-        // --- 3b. Forfeit ---
-        if (disposition?.disposition === 'forfeit') {
-            const runnerUp = await resolveRunnerUp();
-            if (!runnerUp) return null;
-            return {
-                pickerId: runnerUp.id,
-                pickerType: 'RUNNER_UP',
-                pickerLabel: runnerUp.label,
-                pickerIscoredName: runnerUp.iscoredName,
-                announceExtra: `${winnerLabel} forfeited the pick — it passes to ${runnerUp.label}.`,
-                onboardingNominee: null,
-            };
-        }
-
-        // --- 5. Dynasty-blocked, no disposition ---
-        if (dynastyBlocked) {
-            const runnerUp = await resolveRunnerUp();
-            if (!runnerUp) return null;
-            return {
-                pickerId: runnerUp.id,
-                pickerType: 'RUNNER_UP',
-                pickerLabel: runnerUp.label,
-                pickerIscoredName: runnerUp.iscoredName,
-                announceExtra: `${winnerLabel} won back-to-back — the dynasty rule passes the pick to ${runnerUp.label}.`,
-                onboardingNominee: null,
-            };
-        }
-
-        // --- 4. Default: today's behavior ---
-        return {
-            pickerId: winnerId,
-            pickerType: 'WINNER',
-            pickerLabel: winnerLabel,
-            pickerIscoredName: winnerIscoredName,
-            announceExtra: null,
-            onboardingNominee: null,
-        };
+    /**
+     * Announcement label for a player id: their chosen display name, else any
+     * iScored alias linked to them, else the raw id (which at least stays
+     * @mentionable in Discord copy).
+     */
+    public async labelForPlayer(playerId: string): Promise<string> {
+        const chosen = await (await import('../services/UserProfileService.js')).UserProfileService
+            .getDisplayName(playerId).catch(() => null);
+        if (chosen) return chosen;
+        const db = await getDatabase();
+        const alias = await db.get(
+            'SELECT iscored_username FROM user_mappings WHERE discord_user_id = ? ORDER BY created_at ASC LIMIT 1',
+            playerId,
+        ).catch(() => null);
+        return alias?.iscored_username || playerId;
     }
 
     /**
