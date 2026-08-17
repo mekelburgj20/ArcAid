@@ -501,6 +501,23 @@ describe('AtGames decoration and original-work guard', () => {
         expect(machine?.atgames_id).toBeNull();
     });
 
+    it('refuses a fan-made "Original" table too, not just real machines', async () => {
+        // Second production incident, one row over from the first: with only
+        // the real machines excluded, AtGames' TMNT landed on "Teenage Mutant
+        // Ninja Turtles (Stern / Data East remix)" (Original, 2024) — a VPX
+        // community table. 'Original' is a real answer to "who made this".
+        await seed({ id: 'dd-tmnt-remix', name: 'Teenage Mutant Ninja Turtles', manufacturer: 'Original', year: 2024 });
+
+        const res = await GlobalGameService.upsert({
+            name: 'Teenage Mutant Ninja Turtles',
+            type: 'pinball', atgames_id: 50466, studio: 'AtGames Originals',
+            original_work: true, imported_from: 'atgames',
+        });
+
+        expect(res.action).toBe('inserted');
+        expect(res.id).not.toBe('dd-tmnt-remix');
+    });
+
     it('still lets an original work merge onto a thin non-machine row', async () => {
         // "Zoo Keeper" from the old sheet MEANT the AtGames pinball table, so
         // the guard must not block that — it only refuses real machines.
