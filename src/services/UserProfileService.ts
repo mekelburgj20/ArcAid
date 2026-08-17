@@ -259,4 +259,112 @@ export class UserProfileService {
         ) as Array<{ iscored_username: string }>;
         return rows.map(r => r.iscored_username);
     }
+
+    /**
+     * Which avatar providers this user actually has stored, plus their choice.
+     *
+     * `preference` is the stored intent; `effective` is what will really
+     * render, which can differ when the preferred provider has nothing stored
+     * (e.g. they picked Discord, then unlinked it).
+     */
+    static async getAvatarOptions(discordUserId: string): Promise<{
+        preference: 'discord' | 'google' | null;
+        effective: 'discord' | 'google' | null;
+        discordAvatarHash: string | null;
+        googleAvatarUrl: string | null;
+    }> {
+        const db = await getDatabase();
+        const row = await db.get(
+            `SELECT avatar_hash, avatar_url_google, avatar_preference
+             FROM user_profiles WHERE discord_user_id = ?`,
+            discordUserId,
+        ) as { avatar_hash: string | null; avatar_url_google: string | null; avatar_preference: string | null } | undefined;
+
+        const discordAvatarHash = row?.avatar_hash ?? null;
+        const googleAvatarUrl = row?.avatar_url_google ?? null;
+        const preference = (row?.avatar_preference === 'discord' || row?.avatar_preference === 'google')
+            ? row.avatar_preference
+            : null;
+
+        return {
+            preference,
+            effective: resolveEffectiveAvatarProvider(preference, discordAvatarHash, googleAvatarUrl),
+            discordAvatarHash,
+            googleAvatarUrl,
+        };
+    }
+
+    /**
+     * Recompute `user_profiles.avatar_url` — the EFFECTIVE avatar — from the
+     * user's stored preference and whichever provider avatars they actually
+     * have. Migration 151 explains the column split.
+     *
+     * Call this after ANY write that changes an avatar or the preference:
+     * a Discord login (new hash), a Google login (new picture), or the picker.
+     * Read sites never consult the preference, so this is the only place the
+     * choice is applied — miss it and the user's pick silently doesn't stick.
+     *
+     * No leaderboard-cache invalidation: per CLAUDE.md the caches store
+     * identity-stable rows only and `PlayerProfileResolver` attaches avatars at
+     * READ time, so the next render picks this up on its own.
+     */
+    static async applyAvatarPreference(discordUserId: string): Promise<void> {
+        const { preference, discordAvatarHash, googleAvatarUrl } = await this.getAvatarOptions(discordUserId);
+        const effective = resolveEffectiveAvatarProvider(preference, discordAvatarHash, googleAvatarUrl);
+        // 'discord' renders from avatar_hash, which readers reach by finding
+        // avatar_url NULL — so choosing Discord means clearing the effective URL.
+        const effectiveUrl = effective === 'google' ? googleAvatarUrl : null;
+
+        const db = await getDatabase();
+        await db.run(
+            `UPDATE user_profiles SET avatar_url = ?, updated_at = datetime('now') WHERE discord_user_id = ?`,
+            effectiveUrl, discordUserId,
+        );
+    }
+
+    /**
+     * Store the user's choice, then apply it. `null` restores automatic
+     * behavior (Google when present — what everyone got before 2026-08-17).
+     * Rejects a provider the user has no avatar for, so the picker cannot
+     * leave them with a blank.
+     */
+    static async setAvatarPreference(
+        discordUserId: string,
+        preference: 'discord' | 'google' | null,
+    ): Promise<{ preference: 'discord' | 'google' | null; effective: 'discord' | 'google' | null }> {
+        const { discordAvatarHash, googleAvatarUrl } = await this.getAvatarOptions(discordUserId);
+        if (preference === 'discord' && !discordAvatarHash) {
+            throw Object.assign(new Error('No Discord avatar is linked to this account.'), { code: 'AVATAR_UNAVAILABLE' });
+        }
+        if (preference === 'google' && !googleAvatarUrl) {
+            throw Object.assign(new Error('No Google avatar is linked to this account.'), { code: 'AVATAR_UNAVAILABLE' });
+        }
+
+        const db = await getDatabase();
+        await db.run(
+            `UPDATE user_profiles SET avatar_preference = ?, updated_at = datetime('now') WHERE discord_user_id = ?`,
+            preference, discordUserId,
+        );
+        await this.applyAvatarPreference(discordUserId);
+        return { preference, effective: resolveEffectiveAvatarProvider(preference, discordAvatarHash, googleAvatarUrl) };
+    }
+}
+
+/**
+ * The one place the preference is interpreted. A stored preference for a
+ * provider with nothing behind it degrades to whatever the user does have,
+ * rather than rendering an empty avatar.
+ */
+export function resolveEffectiveAvatarProvider(
+    preference: 'discord' | 'google' | null,
+    discordAvatarHash: string | null,
+    googleAvatarUrl: string | null,
+): 'discord' | 'google' | null {
+    if (preference === 'discord' && discordAvatarHash) return 'discord';
+    if (preference === 'google' && googleAvatarUrl) return 'google';
+    // Auto (and the degraded cases): Google when present — the pre-2026-08-17
+    // behavior, kept so nobody's avatar changes unless they ask for it.
+    if (googleAvatarUrl) return 'google';
+    if (discordAvatarHash) return 'discord';
+    return null;
 }

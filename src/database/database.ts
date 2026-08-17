@@ -2434,6 +2434,31 @@ async function doInitDatabase(): Promise<Database> {
             )
             WHERE status = 'QUEUED' AND name != '[Pending Pick]';
         ` },
+        // --- User-chosen avatar provider (owner call 2026-08-17) ---
+        // Player report: "my Google picture shows but my CL logo doesn't."
+        // `PlayerAvatar` resolves `avatarUrl ?? avatarHash`, so for a user
+        // linked to BOTH providers the Google picture won unconditionally and
+        // their Discord avatar became unreachable with no way to get it back.
+        //
+        // The column semantics change here, deliberately, to keep the fix off
+        // the ~25 read sites that already SELECT avatar_url:
+        //   avatar_hash       - Discord's raw avatar hash        (provider store)
+        //   avatar_url_google - Google's raw picture URL          (provider store, NEW)
+        //   avatar_url        - the EFFECTIVE url to render; NULL means "fall
+        //                       through to avatar_hash". Derived from
+        //                       avatar_preference by
+        //                       UserProfileService.applyAvatarPreference.
+        // Readers are unchanged and cannot get it wrong, because there is
+        // nothing left for them to decide.
+        //
+        // avatar_preference: 'discord' | 'google' | NULL (= auto, today's
+        // behavior: Google when present). Backfill copies the existing
+        // avatar_url into the Google store, which is what it always held.
+        { name: '151_avatar_provider_preference', sql: `
+            ALTER TABLE user_profiles ADD COLUMN avatar_url_google TEXT;
+            ALTER TABLE user_profiles ADD COLUMN avatar_preference TEXT;
+            UPDATE user_profiles SET avatar_url_google = avatar_url WHERE avatar_url IS NOT NULL;
+        ` },
     ];
 
     for (const migration of migrations) {

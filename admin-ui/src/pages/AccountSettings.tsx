@@ -7,13 +7,23 @@ import { resolveAvatarUrl } from '../lib/avatar';
 import { isGoogleUserId } from '../lib/identityProvider';
 import { buildPushErrorMessage } from '../lib/pushError';
 
+type AvatarProvider = 'discord' | 'google';
+
 interface Profile {
   discord_user_id: string;
   display_name: string | null;
   avatar_hash: string | null;
+  /** The EFFECTIVE avatar url — already resolved server-side from the preference. */
   avatar_url: string | null;
   avatar_fetched_at: string | null;
   aliases: string[];
+  /** The user's stored choice; null = automatic (Google when present). */
+  avatar_preference: AvatarProvider | null;
+  /** What actually renders — differs from the preference if that provider has nothing stored. */
+  avatar_effective: AvatarProvider | null;
+  /** Raw per-provider avatars, for rendering the picker's options. */
+  avatar_discord_hash: string | null;
+  avatar_google_url: string | null;
 }
 
 type AvailabilityState =
@@ -84,6 +94,10 @@ export default function AccountSettings() {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [loading, setLoading] = useState(true);
   const debounceRef = useRef<number | null>(null);
+
+  // Avatar source picker (2026-08-17).
+  const [avatarSaving, setAvatarSaving] = useState(false);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
 
   // Delete-account (danger zone): type-to-confirm modal + player-token DELETE.
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -435,6 +449,40 @@ export default function AccountSettings() {
     setSaving(false);
   };
 
+  /**
+   * Persist the avatar source. The server re-derives the effective avatar, so
+   * the response is authoritative — we fold it back in rather than guessing,
+   * which keeps the picker honest if the chosen provider turns out to have
+   * nothing stored.
+   */
+  const saveAvatarPreference = async (preference: AvatarProvider) => {
+    if (!playerToken) return;
+    setAvatarSaving(true);
+    setAvatarError(null);
+    try {
+      const res = await fetch('/api/users/me/avatar-preference', {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${playerToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ preference }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setProfile(p => (p ? {
+          ...p,
+          avatar_preference: data.avatar_preference ?? null,
+          avatar_effective: data.avatar_effective ?? null,
+          // Keep the header avatar in step with the choice without a refetch.
+          avatar_url: data.avatar_effective === 'google' ? (data.avatar_google_url ?? null) : null,
+        } : p));
+      } else {
+        setAvatarError(data.error ?? 'Failed to save.');
+      }
+    } catch {
+      setAvatarError('Network error.');
+    }
+    setAvatarSaving(false);
+  };
+
   const toggle = (key: string) => {
     setDraftPrefs(p => ({ ...(p ?? {}), [key]: !(p?.[key] === true) }));
     setNotifSaveError(null);
@@ -595,6 +643,8 @@ export default function AccountSettings() {
   }
 
   const avatarUrl = resolveAvatarUrl(profile?.discord_user_id, profile?.avatar_url ?? profile?.avatar_hash ?? null);
+  // Only offer the picker when there is a genuine choice to make.
+  const hasAvatarChoice = !!profile?.avatar_discord_hash && !!profile?.avatar_google_url;
 
   const draftTrimmed = draft.trim();
   const isUnchanged = draftTrimmed === (profile?.display_name ?? '');
@@ -642,9 +692,49 @@ export default function AccountSettings() {
               )}
               <div>
                 <p className="text-base font-medium">{profile?.display_name ?? discordUser.username}</p>
-                <p className="text-xs text-faint">Avatar comes from your Discord profile.</p>
+                <p className="text-xs text-faint">
+                  {hasAvatarChoice
+                    ? 'Choose which linked account supplies your picture.'
+                    : 'Your picture comes from the account you signed in with.'}
+                </p>
               </div>
             </section>
+
+            {/* Avatar source picker — only worth showing when the user actually
+                has more than one to choose from. Before this existed, a user
+                linked to both providers always got their Google picture and had
+                no way to get their Discord avatar back. */}
+            {hasAvatarChoice && (
+              <section className="mb-8">
+                <p className="block text-sm font-medium mb-1.5">Profile picture</p>
+                <div className="flex flex-wrap gap-3">
+                  {([
+                    { key: 'discord' as const, label: 'Discord', src: resolveAvatarUrl(profile?.discord_user_id, profile?.avatar_discord_hash ?? null) },
+                    { key: 'google' as const, label: 'Google', src: profile?.avatar_google_url ?? null },
+                  ]).filter(o => !!o.src).map(option => {
+                    const selected = (profile?.avatar_effective ?? null) === option.key;
+                    return (
+                      <button
+                        key={option.key}
+                        type="button"
+                        onClick={() => saveAvatarPreference(option.key)}
+                        disabled={avatarSaving}
+                        aria-pressed={selected}
+                        className={`flex items-center gap-2.5 px-3 py-2 rounded-lg border transition-colors cursor-pointer disabled:cursor-default ${
+                          selected
+                            ? 'bg-neon-cyan/15 border-neon-cyan/50 text-neon-cyan'
+                            : 'border-border text-muted hover:text-primary hover:border-border/80'
+                        }`}
+                      >
+                        <img src={option.src!} alt="" className="w-8 h-8 rounded-full border border-border" />
+                        <span className="text-sm font-medium">{option.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {avatarError && <p className="mt-2 text-xs text-neon-red">{avatarError}</p>}
+              </section>
+            )}
 
             <section className="mb-8">
               <label htmlFor="display-name" className="block text-sm font-medium mb-1.5">

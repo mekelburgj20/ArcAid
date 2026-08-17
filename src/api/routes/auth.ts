@@ -12,6 +12,7 @@ import { sanitizeProviderUsername } from '../../utils/contentBlocklist.js';
 import { BanService } from '../../services/BanService.js';
 import { DiscordReachabilityService } from '../../services/DiscordReachabilityService.js';
 import { DmNudgeService } from '../../services/DmNudgeService.js';
+import { UserProfileService } from '../../services/UserProfileService.js';
 
 const router = Router();
 
@@ -275,6 +276,11 @@ router.post('/discord/callback', async (req, res) => {
                     updated_at = datetime('now')`,
                 canonicalUserId, user.avatar, storedUsername
             );
+            // Migration 151 — a first-ever Discord avatar can change which
+            // provider is effective (e.g. a user who chose Discord before
+            // linking one), so re-derive rather than assuming avatar_url is
+            // still correct.
+            await UserProfileService.applyAvatarPreference(canonicalUserId);
             // v2.74.0 (S24.1): no `LeaderboardService.invalidateAll()` here any
             // more, and the `changed` pre-read it gated is gone with it.
             // Avatars are joined from `user_profiles` at read time, so a new
@@ -612,16 +618,23 @@ router.post('/google/callback', async (req, res) => {
         if (!linked) {
             if (pictureUrl) {
                 const db = await getDatabase();
+                // Writes the GOOGLE provider store, not the effective avatar
+                // (migration 151). Before that split this wrote `avatar_url`
+                // directly, which is why a Google login permanently buried the
+                // Discord avatar of anyone linked to both. The effective column
+                // is derived immediately below, so a user who chose Discord
+                // keeps that choice across every Google sign-in.
                 await db.run(
-                    `INSERT INTO user_profiles (discord_user_id, avatar_url, avatar_fetched_at, username)
+                    `INSERT INTO user_profiles (discord_user_id, avatar_url_google, avatar_fetched_at, username)
                      VALUES (?, ?, datetime('now'), ?)
                      ON CONFLICT(discord_user_id) DO UPDATE SET
-                        avatar_url = excluded.avatar_url,
+                        avatar_url_google = excluded.avatar_url_google,
                         avatar_fetched_at = excluded.avatar_fetched_at,
                         username = excluded.username,
                         updated_at = datetime('now')`,
                     canonicalUserId, pictureUrl, storedUsername
                 );
+                await UserProfileService.applyAvatarPreference(canonicalUserId);
                 // v2.74.0 (S24.1) — see the Discord branch above: avatars
                 // resolve at read time now, so no invalidation is needed.
             } else {
