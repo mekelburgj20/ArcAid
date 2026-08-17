@@ -549,3 +549,65 @@ describe('AtGames decoration and original-work guard', () => {
         expect(res.id).toBe('dd-taxi');
     });
 });
+
+/**
+ * Manufacturer spelling aliases.
+ *
+ * The VPXS Wizard README misspells Zaccaria as "Zacarria" on one table, and the
+ * owner cannot fix it upstream — so it arrives on every wizard sync. Without an
+ * alias, `manufacturerYearAgree` sees "zacarria" vs "zaccaria", refuses the
+ * match, and re-forks the row each run.
+ */
+describe('manufacturer spelling aliases', () => {
+    beforeEach(async () => {
+        await setupTestDb();
+    });
+
+    it('treats a known misspelling as the same maker for identity', async () => {
+        const db = await getDatabase();
+        await db.run(
+            `INSERT INTO global_games (id, name, normalized_name, type, manufacturer, year, status, platforms, features)
+             VALUES ('mfg-tm', 'Time Machine', ?, 'pinball', 'Zaccaria', 1983, 'approved', '[]', '[]')`,
+            normalizeGameName('Time Machine'),
+        );
+
+        const res = await GlobalGameService.upsert({
+            name: 'Time Machine', type: 'pinball',
+            manufacturer: 'Zacarria', year: 1983, imported_from: 'wizard',
+        });
+
+        expect(res.action).toBe('updated');
+        expect(res.id).toBe('mfg-tm');
+    });
+
+    it('lets a correctly-spelled source CORRECT the stored typo once matched', async () => {
+        const db = await getDatabase();
+        await db.run(
+            `INSERT INTO global_games (id, name, normalized_name, type, manufacturer, year, status, platforms, features)
+             VALUES ('mfg-keep', 'Time Machine', ?, 'pinball', 'Zacarria', 1983, 'approved', '[]', '[]')`,
+            normalizeGameName('Time Machine'),
+        );
+        await GlobalGameService.upsert({
+            name: 'Time Machine', type: 'pinball', manufacturer: 'Zaccaria', year: 1983, imported_from: 'vps',
+        });
+        // The alias is what let the two rows MEET; upsert's supplied-wins write
+        // then repairs the spelling. So the typo heals itself the next time a
+        // source that spells it properly touches the row.
+        const row = await db.get<{ manufacturer: string }>(
+            'SELECT manufacturer FROM global_games WHERE id = ?', 'mfg-keep');
+        expect(row?.manufacturer).toBe('Zaccaria');
+    });
+
+    it('still refuses genuinely different manufacturers', async () => {
+        const db = await getDatabase();
+        await db.run(
+            `INSERT INTO global_games (id, name, normalized_name, type, manufacturer, year, status, platforms, features)
+             VALUES ('mfg-other', 'Circus', ?, 'pinball', 'Gottlieb', 1980, 'approved', '[]', '[]')`,
+            normalizeGameName('Circus'),
+        );
+        const res = await GlobalGameService.upsert({
+            name: 'Circus', type: 'pinball', manufacturer: 'Zaccaria', year: 1977, imported_from: 'atgames',
+        });
+        expect(res.action).toBe('inserted');
+    });
+});
