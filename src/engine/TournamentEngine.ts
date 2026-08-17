@@ -507,6 +507,34 @@ export class TournamentEngine {
         const existingMap = new Map<string, number>();
         for (const r of existingRows) existingMap.set(r.id as string, r.score as number);
 
+        // Deletion tombstones — the SAME check `ScoreSyncPoller.pollOneAccount`
+        // applies (see its comment). Omitting it here was a live prod defect,
+        // 2026-08-17 on rtx_pinball's Blackbelt 2018:
+        //
+        //   00:23:38  ChalataLove submits 3,588,843,950 in Arcaid; Arcaid syncs
+        //             it out to iScored.
+        //   00:24:42  He deletes it in Arcaid (typo, extra digit). Tombstone
+        //             written. Nothing deletes it from iScored, so it lingers
+        //             there as the high score.
+        //   00:25:54  He submits the correct 358,884,390.
+        //   ~5s loop  The poller honours the tombstone and correctly refuses to
+        //             re-import the deleted score, for two and a half hours.
+        //   03:00:03  Deactivation calls THIS method, which had no tombstone
+        //             check — it re-imported 3,588,843,950 and handed him a win
+        //             on a score he had already deleted.
+        //
+        // Deleting the score on iScored too is the deeper fix (ADR 0011's
+        // "no per-score delete API" premise is wrong — see ROADMAP); until then
+        // this check has to exist on BOTH read paths, not one.
+        const suppressionRows = await db.all(
+            'SELECT iscored_username_lower, suppressed_score FROM deleted_score_suppressions WHERE game_id = ?',
+            row.id,
+        );
+        const suppressionMap = new Map<string, number>();
+        for (const r of suppressionRows) {
+            suppressionMap.set(r.iscored_username_lower as string, r.suppressed_score as number);
+        }
+
         const platform = row.iscored_default_platform ?? null;
         // ADR 0016 P2 §3b — NO INFERENCE, EVER. Same rule as ScoreSyncPoller:
         // iScored carries no per-score provenance and none may be inferred
@@ -528,6 +556,17 @@ export class TournamentEngine {
 
             const resolvedName = aliasMap.get(entry.name.toLowerCase()) || entry.name;
             const submissionId = `${row.id}-${resolvedName.toLowerCase()}`;
+
+            // Matched on both the raw iScored name and the post-alias resolved
+            // name, so a suppression survives a later /map-user mapping —
+            // same rule as the poller.
+            const suppressed = suppressionMap.get(resolvedName.toLowerCase())
+                ?? suppressionMap.get(entry.name.toLowerCase());
+            if (suppressed !== undefined && scoreValue <= suppressed) {
+                logInfo(`   -> Final sync: skipping ${resolvedName} ${scoreValue.toLocaleString()} — deleted locally (tombstone ${suppressed.toLocaleString()}).`);
+                continue;
+            }
+
             const existingScore = existingMap.get(submissionId);
             if (existingScore !== undefined && scoreValue <= existingScore) continue;
 
