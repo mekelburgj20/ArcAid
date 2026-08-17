@@ -5,6 +5,34 @@
 
 ---
 
+## Identity: claiming iScored names + verifying scores (owner-asked 2026-08-17, DESIGNED not built)
+
+Full design + owner rulings: `tmp/identity-claim-design.md`. Prompted by the ChalataLove double-entry found during the pick-delegation investigation.
+
+- **[SECURITY] `/map-user` self-claim is UNGUARDED.** `mapuser.ts` requires Administrator only when mapping *someone else*; mapping yourself has no gate, no similarity check, and no approval. Any guild member can claim any unclaimed iScored username — and claimed names feed `resolveSubmissionPlayerId`, the leaderboard partition, `IdentityCandidateService`, and (since PR #239) the **pick cascade**. Fix ships as P1 below.
+- **P1 + P4 together — guarded claim + mod review queue.** Auto-approve only on a **case-insensitive EXACT** match (owner: no separator or space normalization) against the claimant's Arcaid username, display name, already-held aliases, linked Discord username, or linked Google local-part. Everything else queues for a mod. Max **3** aliases per account, managed in Account Settings. They ship together because case-only matching sends most genuine claims to the queue.
+- **P2 — duplicate-name prompt at submit time.** Submitting under a name that already has unclaimed iScored scores in the room offers the claim.
+- **P3 — photo-verified promotion to the Global Scoreboard.** Amends **ADR 0016 P2 §3c**, which currently hard-blocks `source='sync'` at `GlobalScoreService.fanOutFromRoomSubmission`. **No mod gate** (owner ruling, premise verified in code: nothing is mod-gated before publication today, photos are public, and report routes already exist). Open: retroactive or forward-only? · what counts as verified — ChalataLove's row already carries a photo **of the wrong number**, so `photo_url IS NOT NULL` cannot be the test · synced scores carry no engine/device, which the global board expects.
+- **Rooms without `REQUIRE_SCORE_PHOTO` may not fan out to Global at all** (owner, 2026-08-17). Inert today: rtx_pinball is the only contributor and already requires photos, and all 35 `global_scores` rows carry one. Open: grandfather existing rows if a room later turns it off (recommended) or remove them.
+- **Importing the photo from iScored: investigated, NOT recommended.** `IScoredApiScore` is `{name,date,rank,score}` — no image field, so the API can never return one. iScored *accepts* photo uploads (`IScoredClient.submitScore` has a `photoPath`), so a DOM scrape is the only route, and it would be new fragile scraping. Note the live counter-example: ChalataLove entered the score in *Arcaid* and Arcaid pushed the number out, so no iScored-side photo ever existed — likely the common shape for Arcaid-fronted rooms.
+
+## Delete-on-iScored when a score is deleted in Arcaid (2026-08-17)
+
+**ADR 0011's premise is wrong.** It assumed iScored has no per-score delete API; iScored exposes `deleteScore`/`editScore` against a `data-topscoreid` handle. `deleted_score_suppressions` tombstones are a workaround for a problem that is now actually solvable.
+
+This is what made the Blackbelt 2018 incident possible: a score deleted in Arcaid stayed on iScored as the high score and kept re-presenting itself, and PR #239 had to teach a *second* read path to ignore it. Deleting at the source removes the whole class.
+
+## Require a linked Discord identity to submit (owner-asked 2026-08-17)
+
+Owner's goal: rooms with heavy Discord integration want submitters to be verified guild members who will actually receive tournament DMs.
+
+**There is no such mechanism today** — `REQUIRE_DISCORD_LOGIN` was retired wholesale in v2.80.0 (migration 138), and **`requireDiscordUser` is a misnomer** that accepts any provider.
+
+**But "require Discord login" is the wrong primitive** and satisfies neither goal: it does not check guild membership at all (any Discord account passes), it *would* block a genuine guild member who signs in with Google, and it does not guarantee DM delivery either (Discord forbids bot DMs without a shared guild). The right check is **"has a Discord identity that is in your guild"**. Machinery already exists: `DiscordClient.isMemberOfGuild`, identity-link-aware canonical ids (a linked Google login's id IS the snowflake), and `DiscordReachabilityService`.
+
+**Try the shipped answer first:** approval rooms + `AUTO_APPROVE_GUILD_MEMBERS` gates at the membership layer — a better place than the submit button, since the person is stopped once at the door rather than after playing a game and photographing their score.
+
+---
 ## RTX demo feedback (2026-08-09, admins' notes + owner clarifications)
 
 Captured verbatim-in-substance from the first outside-admin demo. Triage tags: [BUG] fix now · [QUICK] small slot · [FEATURE] design+build · [SECURITY] fix now.
