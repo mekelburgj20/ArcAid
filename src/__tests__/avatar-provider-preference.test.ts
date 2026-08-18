@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { setupTestDb } from './helpers.js';
 import { getDatabase } from '../database/database.js';
-import { UserProfileService, resolveEffectiveAvatarProvider } from '../services/UserProfileService.js';
+import { UserProfileService, resolveEffectiveAvatarProvider, effectiveAvatarUrlFor } from '../services/UserProfileService.js';
 
 /**
  * Avatar provider preference — owner call 2026-08-17.
@@ -118,5 +118,59 @@ describe('avatar preference — the effective column every reader sees', () => {
         const opts = await UserProfileService.getAvatarOptions('U6');
         expect(opts.discordAvatarHash).toBeNull();
         expect(opts.effective).toBe('google');
+    });
+});
+
+describe('effectiveAvatarUrlFor — what a freshly-minted token carries', () => {
+    beforeEach(async () => { await setupTestDb(); });
+
+    /**
+     * REGRESSION (owner field report, 2026-08-18): "I can choose my Discord
+     * avatar but there is no save option. When I exit Account Settings, my
+     * profile pic is still my google one."
+     *
+     * The save WAS working — prod showed avatar_preference='discord' stored
+     * correctly. The nav renders the JWT's `avatar` claim, cached at login,
+     * and the LOGIN paths stamped the raw provider picture into it while only
+     * the refresh path resolved through user_profiles. So the choice was
+     * invisible everywhere outside Account Settings until the token refreshed.
+     */
+    it('returns the Discord CDN url once Discord is the chosen provider', async () => {
+        await seedProfile('T1', { hash: DISCORD_HASH, google: GOOGLE_URL });
+        expect(await effectiveAvatarUrlFor('T1')).toBe(GOOGLE_URL);
+
+        await UserProfileService.setAvatarPreference('T1', 'discord');
+
+        expect(await effectiveAvatarUrlFor('T1')).toBe(
+            `https://cdn.discordapp.com/avatars/T1/${DISCORD_HASH}.png`,
+        );
+    });
+
+    it('follows a switch back to Google', async () => {
+        await seedProfile('T2', { hash: DISCORD_HASH, google: GOOGLE_URL });
+        await UserProfileService.setAvatarPreference('T2', 'discord');
+        await UserProfileService.setAvatarPreference('T2', 'google');
+        expect(await effectiveAvatarUrlFor('T2')).toBe(GOOGLE_URL);
+    });
+
+    it('is undefined for a user with no avatar at all', async () => {
+        await seedProfile('T3', { hash: null, google: null });
+        expect(await effectiveAvatarUrlFor('T3')).toBeUndefined();
+    });
+
+    it('matches what the refresh path already derived, so login and refresh agree', async () => {
+        await seedProfile('T4', { hash: DISCORD_HASH, google: GOOGLE_URL });
+        await UserProfileService.setAvatarPreference('T4', 'discord');
+
+        const db = await getDatabase();
+        const row = await db.get('SELECT avatar_hash, avatar_url FROM user_profiles WHERE discord_user_id = ?', 'T4');
+        // This is the expression api/auth.ts's refresh path uses verbatim.
+        const refreshValue = row.avatar_url
+            ? row.avatar_url
+            : row.avatar_hash
+                ? `https://cdn.discordapp.com/avatars/T4/${row.avatar_hash}.png`
+                : undefined;
+
+        expect(await effectiveAvatarUrlFor('T4')).toBe(refreshValue);
     });
 });

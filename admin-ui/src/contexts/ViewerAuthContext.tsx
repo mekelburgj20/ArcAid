@@ -29,6 +29,18 @@ interface ViewerAuth {
   loginWithGoogle: (returnSlug: string, returnPath?: string) => void;
   /** Log out the player session */
   logoutPlayer: () => void;
+  /**
+   * Patch the cached viewer avatar in place (2026-08-18).
+   *
+   * The nav renders `discordUser.avatar`, which comes from the JWT claim
+   * captured at login and cached in localStorage — NOT from user_profiles. So
+   * changing the avatar-source preference in Account Settings updated the
+   * database and left every other surface showing the old picture until the
+   * token happened to refresh, up to 24h later. Account Settings calls this so
+   * the change is visible immediately; login now mints the effective avatar
+   * too, so the two agree from the next sign-in onward.
+   */
+  setViewerAvatar: (avatar: string | null) => void;
 }
 
 const PLAYER_TOKEN_KEY = 'arcaid_player_token';
@@ -101,6 +113,7 @@ export const ViewerAuthContext = createContext<ViewerAuth>({
   loginWithDiscord: () => {},
   loginWithGoogle: () => {},
   logoutPlayer: () => {},
+  setViewerAvatar: () => {},
 });
 
 export function useViewerAuth() {
@@ -223,6 +236,17 @@ export function ViewerAuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const setViewerAvatar = useCallback((avatar: string | null) => {
+    setDiscordUser(prev => {
+      if (!prev) return prev;
+      const next = { ...prev, avatar };
+      // Mirror into localStorage so a reload keeps the new picture rather than
+      // reverting to the value captured at login.
+      try { localStorage.setItem(PLAYER_USER_KEY, JSON.stringify(next)); } catch { /* private mode */ }
+      return next;
+    });
+  }, []);
+
   const logoutPlayer = useCallback(() => {
     localStorage.removeItem(PLAYER_TOKEN_KEY);
     localStorage.removeItem(PLAYER_USER_KEY);
@@ -232,7 +256,7 @@ export function ViewerAuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <ViewerAuthContext.Provider value={{ token: null, discordUser, playerToken, loginWithDiscord, loginWithGoogle, logoutPlayer }}>
+    <ViewerAuthContext.Provider value={{ token: null, discordUser, playerToken, loginWithDiscord, loginWithGoogle, logoutPlayer, setViewerAvatar }}>
       {children}
     </ViewerAuthContext.Provider>
   );

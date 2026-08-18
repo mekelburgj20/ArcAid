@@ -84,7 +84,7 @@ function urlBase64ToUint8Array(base64String: string) {
 }
 
 export default function AccountSettings() {
-  const { discordUser, playerToken, loginWithDiscord, loginWithGoogle, logoutPlayer } = useViewerAuth();
+  const { discordUser, playerToken, loginWithDiscord, loginWithGoogle, logoutPlayer, setViewerAvatar } = useViewerAuth();
   const navigate = useNavigate();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [draft, setDraft] = useState('');
@@ -98,6 +98,7 @@ export default function AccountSettings() {
   // Avatar source picker (2026-08-17).
   const [avatarSaving, setAvatarSaving] = useState(false);
   const [avatarError, setAvatarError] = useState<string | null>(null);
+  const [avatarSaved, setAvatarSaved] = useState(false);
 
   // Delete-account (danger zone): type-to-confirm modal + player-token DELETE.
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -467,13 +468,26 @@ export default function AccountSettings() {
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
+        const effectiveUrl = data.avatar_effective === 'google'
+          ? (data.avatar_google_url ?? null)
+          : null;
         setProfile(p => (p ? {
           ...p,
           avatar_preference: data.avatar_preference ?? null,
           avatar_effective: data.avatar_effective ?? null,
           // Keep the header avatar in step with the choice without a refetch.
-          avatar_url: data.avatar_effective === 'google' ? (data.avatar_google_url ?? null) : null,
+          avatar_url: effectiveUrl,
         } : p));
+        // The nav renders the CACHED login avatar, not user_profiles — without
+        // this the change was invisible everywhere outside this page until the
+        // token refreshed (owner field report, 2026-08-18).
+        setViewerAvatar(
+          resolveAvatarUrl(profile?.discord_user_id ?? discordUser?.discordId, effectiveUrl ?? data.avatar_discord_hash ?? null),
+        );
+        // There is no Save button here — the choice applies on click — so say
+        // so, or it reads as nothing having happened.
+        setAvatarSaved(true);
+        window.setTimeout(() => setAvatarSaved(false), 2200);
       } else {
         setAvatarError(data.error ?? 'Failed to save.');
       }
@@ -733,6 +747,10 @@ export default function AccountSettings() {
                   })}
                 </div>
                 {avatarError && <p className="mt-2 text-xs text-neon-red">{avatarError}</p>}
+                {avatarSaved && !avatarError && <p className="mt-2 text-xs text-neon-green">Saved — this is your picture everywhere on Arcaid.</p>}
+                {!avatarSaved && !avatarError && (
+                  <p className="mt-2 text-xs text-faint">Applies as soon as you pick one — there's nothing to save.</p>
+                )}
               </section>
             )}
 
