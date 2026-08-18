@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { setupTestDb, createTestRoom } from './helpers.js';
+import crypto from 'crypto';
 import { getDatabase } from '../database/database.js';
 import { signToken } from '../api/auth.js';
 import { LinkNonceStore } from '../services/LinkNonceStore.js';
@@ -711,5 +712,95 @@ describe('NotificationService — known-unreachable short-circuit', () => {
         })).toBe(true);
         expect(post).toHaveBeenCalled();
         expect(await DmNudgeService.get(USER)).toBeNull();
+    });
+});
+
+// ===========================================================================
+// Room-scoped Discord link nudge (2026-08-17)
+//
+// The owner's first instinct was to pop a modal at every Google-signed-in
+// player in a Discord room, and again on every score submission. Both halves
+// are wrong: the trigger is REACHABILITY not login provider (a linked Google
+// login is fine; an unlinked Discord login sharing no guild is not), and a
+// per-submission modal nags the players who deliberately chose not to link —
+// for a restriction that does not even exist, since submitting never required
+// Discord. These pin the honest-silence rules that replaced it.
+// ===========================================================================
+
+describe('GET /api/me/dm-nudge?roomId= — room Discord link status', () => {
+    async function seedDiscordRoom(opts: { enabled?: string; guild?: string | null; invite?: string | null } = {}) {
+        const { GameRoomSettingsService } = await import('../services/GameRoomSettingsService.js');
+        const db = await getDatabase();
+        const roomId = crypto.randomUUID();
+        await db.run(
+            `INSERT INTO game_rooms (id, slug, name) VALUES (?, ?, ?)`,
+            roomId, 'nudge-room-' + roomId.slice(0, 8), 'RTX_Pinball',
+        );
+        if (opts.enabled !== undefined) await GameRoomSettingsService.set(roomId, 'DISCORD_ENABLED', opts.enabled);
+        if (opts.guild !== null) await GameRoomSettingsService.set(roomId, 'DISCORD_GUILD_ID', opts.guild ?? '999888777');
+        if (opts.invite) await GameRoomSettingsService.set(roomId, 'DISCORD_INVITE_URL', opts.invite);
+        return roomId;
+    }
+
+    it('a Google-only viewer in a Discord room is told to LINK', async () => {
+        const app = await createGlobalApp();
+        const roomId = await seedDiscordRoom({ invite: 'https://discord.gg/rtx' });
+        const res = await request(app)
+            .get(`/api/me/dm-nudge?roomId=${roomId}`)
+            .set('Authorization', `Bearer ${signToken({ role: 'player', gameRoomIds: [], discordId: 'google:12345', provider: 'google' })}`);
+
+        expect(res.status).toBe(200);
+        expect(res.body.discordLink).toMatchObject({ state: 'no_discord', roomName: 'RTX_Pinball' });
+    });
+
+    it('says NOTHING when the room has no Discord integration', async () => {
+        const app = await createGlobalApp();
+        const roomId = await seedDiscordRoom({ enabled: 'false' });
+        const res = await request(app)
+            .get(`/api/me/dm-nudge?roomId=${roomId}`)
+            .set('Authorization', `Bearer ${signToken({ role: 'player', gameRoomIds: [], discordId: 'google:12345', provider: 'google' })}`);
+
+        expect(res.body.discordLink).toBeNull();
+    });
+
+    it('says NOTHING when the room has Discord on but no guild configured', async () => {
+        const app = await createGlobalApp();
+        const roomId = await seedDiscordRoom({ guild: null });
+        const res = await request(app)
+            .get(`/api/me/dm-nudge?roomId=${roomId}`)
+            .set('Authorization', `Bearer ${signToken({ role: 'player', gameRoomIds: [], discordId: 'google:12345', provider: 'google' })}`);
+
+        expect(res.body.discordLink).toBeNull();
+    });
+
+    it('says NOTHING for a Discord viewer when the gateway cannot answer (never nag on uncertainty)', async () => {
+        const app = await createGlobalApp();
+        const roomId = await seedDiscordRoom();
+        // No live Discord client in tests, so reachability is indeterminate.
+        const res = await request(app)
+            .get(`/api/me/dm-nudge?roomId=${roomId}`)
+            .set('Authorization', `Bearer ${playerToken()}`);
+
+        expect(res.body.discordLink).toBeNull();
+    });
+
+    it('omits the status entirely when no roomId is supplied (the global banner case)', async () => {
+        const app = await createGlobalApp();
+        const res = await request(app)
+            .get('/api/me/dm-nudge')
+            .set('Authorization', `Bearer ${playerToken()}`);
+
+        expect(res.status).toBe(200);
+        expect(res.body.discordLink).toBeNull();
+    });
+
+    it('rejects a non-https invite url rather than rendering it', async () => {
+        const app = await createGlobalApp();
+        const roomId = await seedDiscordRoom({ invite: 'javascript:alert(1)' });
+        const res = await request(app)
+            .get(`/api/me/dm-nudge?roomId=${roomId}`)
+            .set('Authorization', `Bearer ${signToken({ role: 'player', gameRoomIds: [], discordId: 'google:12345', provider: 'google' })}`);
+
+        expect(res.body.discordLink.inviteUrl).toBeNull();
     });
 });
