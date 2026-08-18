@@ -559,3 +559,70 @@ describe('Pick delegation — timeout re-entry', () => {
         expect((outcome as any).playerId).toBeUndefined();
     });
 });
+
+describe('Pick delegation — announcement labels', () => {
+    beforeEach(async () => { await setupTestDb(); });
+
+    /**
+     * REGRESSION (owner field report, 2026-08-18). A rotation embed read:
+     *   "@soggybacon — congrats on the win! 1393376372025458799 handed their
+     *    pick to mekelburgj."
+     *
+     * labelForPlayer resolved display_name -> iScored alias -> raw id, skipping
+     * `user_profiles.username`. That middle rung is the only one populated for
+     * everyone (written on every login since v2.40.0); a display_name exists
+     * only if chosen, an alias only after /map-user or a merge. Two of the four
+     * active players on rtx_pinball had neither, so their snowflake shipped to
+     * the channel.
+     */
+    async function seedProfile(id: string, opts: { display?: string | null; username?: string | null } = {}) {
+        const db = await getDatabase();
+        await db.run(
+            'INSERT INTO user_profiles (discord_user_id, display_name, username) VALUES (?, ?, ?)',
+            id, opts.display ?? null, opts.username ?? null,
+        );
+    }
+    const label = (id: string) => (TournamentEngine.getInstance() as any).labelForPlayer(id);
+
+    it('falls back to the provider username when no display name is set', async () => {
+        await seedProfile('1393376372025458799', { display: null, username: 'soggybacon' });
+        expect(await label('1393376372025458799')).toBe('soggybacon');
+    });
+
+    it('prefers a chosen display name over the provider username', async () => {
+        await seedProfile('U-display', { display: 'RetroTechX', username: 'retro_raw' });
+        expect(await label('U-display')).toBe('RetroTechX');
+    });
+
+    it('falls back to an iScored alias when neither name is stored', async () => {
+        const db = await getDatabase();
+        await seedProfile('U-alias', { display: null, username: null });
+        await db.run(
+            'INSERT INTO user_mappings (discord_user_id, iscored_username) VALUES (?, ?)',
+            'U-alias', 'AliasOnly',
+        );
+        expect(await label('U-alias')).toBe('AliasOnly');
+    });
+
+    it('only reaches the raw id when the player is genuinely unknown', async () => {
+        expect(await label('U-nothing-known')).toBe('U-nothing-known');
+    });
+
+    it('a nominate hand-off names both people, never a snowflake', async () => {
+        const { roomId, tournamentId } = await setup();
+        const gameId = await createTestGame(tournamentId, { status: 'ACTIVE' });
+        await seedScore(gameId, { username: 'soggybacon', playerId: 'W-soggy', score: 300 });
+        await seedScore(gameId, { username: 'other', playerId: 'R-other', score: 200 });
+        await seedProfile('W-soggy', { username: 'soggybacon' });
+        await seedProfile('N-mekel', { username: 'mekelburgj' });
+        await PickDispositionService.set(tournamentId, 'W-soggy', 'nominate', 'N-mekel');
+        await queueFor(tournamentId, 'N-mekel', 'Back to the Future Pinball');
+
+        const { outcome, narrative } = await runCascade(tournamentId, roomId, gameId);
+        const copy = narrative.join(' ');
+
+        expect(outcome.kind).toBe('activate');
+        expect(copy).toContain('soggybacon handed their pick to mekelburgj');
+        expect(copy).not.toMatch(/\b\d{17,20}\b/);   // no raw snowflake anywhere
+    });
+});
