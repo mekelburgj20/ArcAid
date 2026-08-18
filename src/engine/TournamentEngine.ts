@@ -1772,10 +1772,27 @@ export class TournamentEngine {
      * @mentionable in Discord copy).
      */
     public async labelForPlayer(playerId: string): Promise<string> {
-        const chosen = await (await import('../services/UserProfileService.js')).UserProfileService
-            .getDisplayName(playerId).catch(() => null);
-        if (chosen) return chosen;
         const db = await getDatabase();
+
+        // display_name -> username -> iScored alias -> raw id.
+        //
+        // The `username` rung was missing until 2026-08-18 and a rotation embed
+        // shipped a raw snowflake to the channel: "1393376372025458799 handed
+        // their pick to mekelburgj". `user_profiles.username` is the provider
+        // name stored on every login (v2.40.0), so it is populated for everyone
+        // — the two rungs around it are not. A player only has a display_name
+        // if they chose one, and only an alias if they ran /map-user or were
+        // merged; two of four active players on rtx_pinball had neither.
+        //
+        // Same chain as `api/auth.ts`'s token mint (display_name || username ||
+        // id), with the alias kept as a last resort before the id.
+        const profile = await db.get(
+            'SELECT display_name, username FROM user_profiles WHERE discord_user_id = ?',
+            playerId,
+        ).catch(() => null);
+        if (profile?.display_name) return profile.display_name;
+        if (profile?.username) return profile.username;
+
         const alias = await db.get(
             'SELECT iscored_username FROM user_mappings WHERE discord_user_id = ? ORDER BY created_at ASC LIMIT 1',
             playerId,

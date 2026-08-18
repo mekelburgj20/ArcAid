@@ -351,6 +351,29 @@ export class UserProfileService {
 }
 
 /**
+ * The avatar URL a token should carry for this user — the EFFECTIVE one, after
+ * their provider preference is applied.
+ *
+ * Both login and refresh must mint the same value. `api/auth.ts`'s refresh path
+ * already derived it this way; the LOGIN paths in `routes/auth.ts` did not —
+ * they stamped the raw provider picture straight into the JWT. Since the web
+ * app caches that claim in localStorage and the nav renders it, a user who
+ * chose Discord kept seeing their Google picture everywhere outside Account
+ * Settings until their token happened to refresh (owner field report,
+ * 2026-08-18). Resolving through here keeps the two paths honest.
+ */
+export async function effectiveAvatarUrlFor(discordUserId: string): Promise<string | undefined> {
+    const db = await getDatabase();
+    const row = await db.get(
+        'SELECT avatar_hash, avatar_url FROM user_profiles WHERE discord_user_id = ?',
+        discordUserId,
+    ) as { avatar_hash: string | null; avatar_url: string | null } | undefined;
+    if (row?.avatar_url) return row.avatar_url;
+    if (row?.avatar_hash) return `https://cdn.discordapp.com/avatars/${discordUserId}/${row.avatar_hash}.png`;
+    return undefined;
+}
+
+/**
  * The one place the preference is interpreted. A stored preference for a
  * provider with nothing behind it degrades to whatever the user does have,
  * rather than rendering an empty avatar.

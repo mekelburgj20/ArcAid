@@ -29,22 +29,29 @@ function signIn(discordId = '111122223333444455') {
 }
 
 /** Mock /api/me/dm-nudge; returns the recorded dismiss calls. */
+let discordLinkPayload: unknown = null;
+const optOuts: string[] = [];
+
 function mockNudge(nudge: unknown) {
   const dismissals: string[] = [];
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+    if (typeof url === 'string' && url.includes('/api/me/dm-nudge/discord-link/opt-out')) {
+      optOuts.push(init?.body ? String(init.body) : '');
+      return { ok: true, json: async () => ({ ok: true }) } as Response;
+    }
     if (typeof url === 'string' && url.includes('/api/me/dm-nudge/dismiss')) {
       dismissals.push(url);
       return { ok: true, json: async () => ({ ok: true }) } as Response;
     }
     if (typeof url === 'string' && url.includes('/api/me/dm-nudge')) {
-      return { ok: true, json: async () => ({ nudge }) } as Response;
+      return { ok: true, json: async () => ({ nudge, discordLink: discordLinkPayload }) } as Response;
     }
     return { ok: true, json: async () => ({}) } as Response;
   }));
   return dismissals;
 }
 
-function renderBanner(props: { roomDiscordEnabled?: boolean } = {}) {
+function renderBanner(props: { roomDiscordEnabled?: boolean; roomId?: string } = {}) {
   return render(
     <MemoryRouter>
       <ViewerAuthProvider>
@@ -59,6 +66,8 @@ const FAILED_NUDGE = { failedAt: '2026-08-01T10:00:00.000Z', reason: 'send_faile
 beforeEach(() => {
   localStorage.clear();
   sessionStorage.clear();
+  discordLinkPayload = null;
+  optOuts.length = 0;
 });
 
 afterEach(() => {
@@ -148,5 +157,136 @@ describe('NotificationNudgeBanner — onboarding offer (Section 5)', () => {
     await waitFor(() => {
       expect(screen.queryByText(/Want score and pick notifications\?/i)).not.toBeInTheDocument();
     });
+  });
+});
+
+
+/**
+ * Discord-link nudge (2026-08-17). The owner's ask was "pop a message at every
+ * Google user in a Discord room, and again on every score submission". Both
+ * halves are wrong: the trigger is reachability rather than login provider, and
+ * a per-submission modal nags the exact players who chose not to link. These
+ * pin the shape that replaced it.
+ */
+describe('NotificationNudgeBanner — Discord link nudge', () => {
+  const ROOM = 'room-abc';
+
+  it('asks about a specific room, and prompts to LINK when no Discord is attached', async () => {
+    signIn();
+    discordLinkPayload = { state: 'no_discord', roomName: 'RTX_Pinball', inviteUrl: null };
+    mockNudge(null);
+    renderBanner({ roomDiscordEnabled: true, roomId: ROOM });
+
+    expect(await screen.findByText(/RTX_Pinball runs its tournaments through Discord/i)).toBeInTheDocument();
+    expect(screen.getByText('Link Discord')).toBeInTheDocument();
+    // Never implies submitting is blocked — it isn't.
+    expect(screen.getByText(/keep playing and submitting scores/i)).toBeInTheDocument();
+    expect((globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls
+      .some(c => String(c[0]).includes('roomId=' + ROOM))).toBe(true);
+  });
+
+  it('prompts to JOIN THE SERVER — not to link — when Discord is linked but not in the guild', async () => {
+    signIn();
+    discordLinkPayload = { state: 'not_in_guild', roomName: 'RTX_Pinball', inviteUrl: 'https://discord.gg/abc' };
+    mockNudge(null);
+    renderBanner({ roomDiscordEnabled: true, roomId: ROOM });
+
+    expect(await screen.findByText(/don't share its server/i)).toBeInTheDocument();
+    const join = screen.getByText('Join the Discord server') as HTMLAnchorElement;
+    expect(join.getAttribute('href')).toBe('https://discord.gg/abc');
+    expect(screen.queryByText('Link Discord')).not.toBeInTheDocument();
+  });
+
+  it('degrades gracefully when the room has no invite url configured', async () => {
+    signIn();
+    discordLinkPayload = { state: 'not_in_guild', roomName: 'RTX_Pinball', inviteUrl: null };
+    mockNudge(null);
+    renderBanner({ roomDiscordEnabled: true, roomId: ROOM });
+
+    expect(await screen.findByText(/Ask a room admin for an invite/i)).toBeInTheDocument();
+  });
+
+  it('stays silent when the server returns no status (already fine, or indeterminate)', async () => {
+    signIn();
+    discordLinkPayload = null;
+    mockNudge(null);
+    renderBanner({ roomDiscordEnabled: true, roomId: ROOM });
+
+    await waitFor(() => expect(screen.queryByText(/runs its tournaments through Discord/i)).not.toBeInTheDocument());
+  });
+
+  it('the DM-failure banner still takes precedence', async () => {
+    signIn();
+    discordLinkPayload = { state: 'no_discord', roomName: 'RTX_Pinball', inviteUrl: null };
+    mockNudge(FAILED_NUDGE);
+    renderBanner({ roomDiscordEnabled: true, roomId: ROOM });
+
+    expect(await screen.findByText(/couldn't/i)).toBeInTheDocument();
+    expect(screen.queryByText(/runs its tournaments through Discord/i)).not.toBeInTheDocument();
+  });
+
+  it('dismissal is per-room and time-boxed, not permanent', async () => {
+    signIn();
+    discordLinkPayload = { state: 'no_discord', roomName: 'RTX_Pinball', inviteUrl: null };
+    mockNudge(null);
+    const { unmount } = renderBanner({ roomDiscordEnabled: true, roomId: ROOM });
+
+    fireEvent.click(await screen.findByLabelText('Dismiss'));
+    await waitFor(() => expect(screen.queryByText(/runs its tournaments/i)).not.toBeInTheDocument());
+    expect(localStorage.getItem('arcaid_discord_link_dismissed_' + ROOM)).toBeTruthy();
+    unmount();
+
+    // A DIFFERENT room is unaffected — the copy names a room, so the dismissal
+    // has to be scoped to one.
+    renderBanner({ roomDiscordEnabled: true, roomId: 'other-room' });
+    expect(await screen.findByText(/runs its tournaments through Discord/i)).toBeInTheDocument();
+  });
+
+  it('a dismissal older than 30 days lets the nudge return', async () => {
+    signIn();
+    const old = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000).toISOString();
+    localStorage.setItem('arcaid_discord_link_dismissed_' + ROOM, old);
+    discordLinkPayload = { state: 'no_discord', roomName: 'RTX_Pinball', inviteUrl: null };
+    mockNudge(null);
+    renderBanner({ roomDiscordEnabled: true, roomId: ROOM });
+
+    expect(await screen.findByText(/runs its tournaments through Discord/i)).toBeInTheDocument();
+  });
+});
+
+describe("NotificationNudgeBanner — the permanent opt-out", () => {
+  const ROOM = 'room-optout';
+
+  it('posts a permanent per-room opt-out and hides the banner immediately', async () => {
+    signIn();
+    discordLinkPayload = { state: 'no_discord', roomName: 'RTX_Pinball', inviteUrl: null };
+    mockNudge(null);
+    renderBanner({ roomDiscordEnabled: true, roomId: ROOM });
+
+    fireEvent.click(await screen.findByLabelText(/Don't remind me again/i));
+
+    await waitFor(() => expect(screen.queryByText(/runs its tournaments/i)).not.toBeInTheDocument());
+    expect(optOuts.some(b => b.includes(ROOM))).toBe(true);
+  });
+
+  it('is offered alongside — not instead of — the snooze X', async () => {
+    signIn();
+    discordLinkPayload = { state: 'no_discord', roomName: 'RTX_Pinball', inviteUrl: null };
+    mockNudge(null);
+    renderBanner({ roomDiscordEnabled: true, roomId: ROOM });
+
+    expect(await screen.findByLabelText(/Don't remind me again/i)).toBeInTheDocument();
+    expect(screen.getByLabelText('Dismiss')).toBeInTheDocument();
+  });
+
+  it('the snooze X does NOT post an opt-out (30-day snooze, not "never")', async () => {
+    signIn();
+    discordLinkPayload = { state: 'no_discord', roomName: 'RTX_Pinball', inviteUrl: null };
+    mockNudge(null);
+    renderBanner({ roomDiscordEnabled: true, roomId: ROOM });
+
+    fireEvent.click(await screen.findByLabelText('Dismiss'));
+    await waitFor(() => expect(screen.queryByText(/runs its tournaments/i)).not.toBeInTheDocument());
+    expect(optOuts).toHaveLength(0);
   });
 });

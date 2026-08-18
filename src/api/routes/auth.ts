@@ -12,7 +12,7 @@ import { sanitizeProviderUsername } from '../../utils/contentBlocklist.js';
 import { BanService } from '../../services/BanService.js';
 import { DiscordReachabilityService } from '../../services/DiscordReachabilityService.js';
 import { DmNudgeService } from '../../services/DmNudgeService.js';
-import { UserProfileService } from '../../services/UserProfileService.js';
+import { UserProfileService, effectiveAvatarUrlFor } from '../../services/UserProfileService.js';
 
 const router = Router();
 
@@ -249,7 +249,7 @@ router.post('/discord/callback', async (req, res) => {
         }
 
         const displayName = user.global_name || user.username;
-        const avatarUrl = user.avatar
+        let avatarUrl = user.avatar
             ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png`
             : null;
 
@@ -299,6 +299,12 @@ router.post('/discord/callback', async (req, res) => {
                 canonicalUserId, storedUsername
             );
         }
+
+        // Mint the EFFECTIVE avatar (provider preference applied) rather than the
+        // raw Discord CDN url. Placed ahead of ALL THREE token branches below —
+        // a super-admin or room-admin login must carry the same avatar a player
+        // login does. See effectiveAvatarUrlFor.
+        avatarUrl = (await effectiveAvatarUrlFor(canonicalUserId)) ?? avatarUrl;
 
         // 1. Check super_admins table
         const isSuperAdmin = await AdminService.isSuperAdmin(canonicalUserId);
@@ -511,7 +517,7 @@ router.post('/google/callback', async (req, res) => {
 
         const userId = `google:${profile.sub}`;
         const displayName = profile.name || profile.email?.split('@')[0] || 'Player';
-        const pictureUrl = profile.picture || null;
+        let pictureUrl = profile.picture || null;
 
         // v2.36.0 login-time canonical resolution — if this google identity
         // has been linked to a Discord snowflake, everything below (profile
@@ -652,6 +658,10 @@ router.post('/google/callback', async (req, res) => {
         // Same role branch as Discord — role derivation is table-based and
         // provider-agnostic (a Google user pasted into super_admins /
         // game_room_admins by ID is a legitimate admin).
+        // Same as the Discord branch above — the effective avatar, ahead of all
+        // three token mints. See effectiveAvatarUrlFor.
+        pictureUrl = (await effectiveAvatarUrlFor(canonicalUserId)) ?? pictureUrl;
+
         const isSuperAdmin = await AdminService.isSuperAdmin(canonicalUserId);
         if (isSuperAdmin) {
             const token = signToken({

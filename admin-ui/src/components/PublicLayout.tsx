@@ -495,7 +495,7 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
             {/* v2.72.0 (Discord HQ) — "we couldn't DM you" / "set up
                 notifications" nudge. Renders nothing for guests, for users
                 with no pending nudge, and in Discord-connected rooms. */}
-            <NotificationNudgeBanner roomDiscordEnabled={portal?.discord_enabled !== false} />
+            <NotificationNudgeBanner roomDiscordEnabled={portal?.discord_enabled !== false} roomId={resolvedRoomId} />
             <PlayerQuickViewProvider>
               <Outlet />
             </PlayerQuickViewProvider>

@@ -706,11 +706,98 @@ router.put('/me/notification-settings', requireDiscordUser, async (req, res) => 
 // settings payload above so the layout can poll it without pulling prefs +
 // three settings reads + a guild fetch on every page.
 
+
+/**
+ * Room-scoped Discord link status for the site-wide nudge banner.
+ *
+ * Answers "is this viewer set up to receive this room's Discord features?" —
+ * NOT "did they sign in with Google", which is wrong in both directions: a
+ * Google login that has been LINKED canonicalizes to the Discord snowflake and
+ * works fine, while a Discord login sharing no guild with the bot receives
+ * nothing at all. Reachability is the real question, so reachability is what
+ * this asks.
+ *
+ * Returns null whenever there is nothing honest to say — the room has no
+ * Discord integration, the viewer is already fine, or we could not determine
+ * the answer. Uncertainty must never produce a nudge: telling someone to fix a
+ * problem they may not have is how a warning earns a reflexive dismissal.
+ */
+async function buildRoomDiscordLinkStatus(userId: string, roomId: string): Promise<{
+    state: 'no_discord' | 'not_in_guild';
+    roomName: string | null;
+    inviteUrl: string | null;
+} | null> {
+    const { GameRoomSettingsService } = await import('../../services/GameRoomSettingsService.js');
+
+    const enabled = await GameRoomSettingsService.get(roomId, 'DISCORD_ENABLED');
+    if (enabled === 'false') return null;
+
+    // Room admin switch (2026-08-17): a room can have Discord linked for
+    // announcements while not caring whether individual players are reachable.
+    // Default ON, disabled with 'false' — same shape as ROOM_LISTED, so the
+    // absence of a row means "on" and no backfill is needed.
+    const remindersOn = await GameRoomSettingsService.get(roomId, 'DISCORD_LINK_REMINDERS');
+    if (remindersOn === 'false') return null;
+    const guildId = await GameRoomSettingsService.get(roomId, 'DISCORD_GUILD_ID');
+    if (!guildId) return null;
+
+    // Player's own permanent opt-out for this room. Checked before any guild
+    // work so a player who said "never" costs nothing to serve.
+    const { DiscordLinkNudgeService } = await import('../../services/DiscordLinkNudgeService.js');
+    if (await DiscordLinkNudgeService.hasOptedOut(userId, roomId)) return null;
+
+    const db = await getDatabase();
+    const room = await db.get('SELECT name FROM game_rooms WHERE id = ?', roomId);
+    const roomName = room?.name ?? null;
+    const rawInvite = (await GameRoomSettingsService.get(roomId, 'DISCORD_INVITE_URL'))?.trim() || null;
+    const inviteUrl = rawInvite && rawInvite.toLowerCase().startsWith('https://') ? rawInvite : null;
+
+    // No Discord identity at all — the fix is to LINK one. A linked Google
+    // login never reaches here: it canonicalizes to the snowflake at login.
+    if (!isDiscordUserId(userId)) {
+        return { state: 'no_discord', roomName, inviteUrl };
+    }
+
+    const reach = await DiscordReachabilityService.canDm(userId);
+    if (!reach.gatewayReady) return null;   // indeterminate — say nothing
+    if (reach.reachable) return null;       // DMs already land — nothing to fix
+
+    // Has Discord but shares no guild with the bot. Linking is NOT the fix
+    // here; joining the server is. Distinct copy, distinct action.
+    return { state: 'not_in_guild', roomName, inviteUrl };
+}
+
 router.get('/me/dm-nudge', requireDiscordUser, async (req, res) => {
     try {
-        res.json({ nudge: await DmNudgeService.get(req.user!.discordId!) });
+        // Optional `roomId` folds this room's Discord link status into the same
+        // response, so the banner still costs the layout exactly one request.
+        const roomId = typeof req.query.roomId === 'string' && req.query.roomId ? req.query.roomId : null;
+        const userId = req.user!.discordId!;
+        res.json({
+            nudge: await DmNudgeService.get(userId),
+            discordLink: roomId ? await buildRoomDiscordLinkStatus(userId, roomId).catch(() => null) : null,
+        });
     } catch (error) {
         logError('API Error (GET /api/me/dm-nudge):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
+ * Permanent, per-room opt-out from the Discord link banner — the "don't remind
+ * me again" checkbox. Distinct from the banner's dismiss button, which is a
+ * 30-day snooze held in the browser. This one is stored server-side so the
+ * choice follows the player across devices.
+ */
+router.post('/me/dm-nudge/discord-link/opt-out', requireDiscordUser, async (req, res) => {
+    try {
+        const roomId = typeof req.body?.roomId === 'string' ? req.body.roomId.trim() : '';
+        if (!roomId) return res.status(400).json({ error: 'roomId is required' });
+        const { DiscordLinkNudgeService } = await import('../../services/DiscordLinkNudgeService.js');
+        await DiscordLinkNudgeService.optOut(req.user!.discordId!, roomId);
+        res.json({ ok: true });
+    } catch (error) {
+        logError('API Error (POST /api/me/dm-nudge/discord-link/opt-out):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
