@@ -304,3 +304,45 @@ describe('identity claims — review-room routing (global surface)', () => {
         expect(await aliasesOf('U-auto')).toEqual(['myownname']);
     });
 });
+
+describe('identity claims — the storage-layer guard (migration 153)', () => {
+    beforeEach(async () => { await setupTestDb(); });
+
+    /**
+     * Migration 152 was meant to carry this CHECK; a bad string replace put it
+     * on `join_requests` instead, and 152 shipped without it. Post-deploy
+     * verification caught that, and 153 rebuilt the table with the guard.
+     *
+     * The service already refuses to create an unroutable pending claim, so
+     * this is defence in depth — but a pending claim with no room would sit in
+     * no queue and be invisible forever, which is exactly the class of bug a
+     * CHECK should make unrepresentable.
+     */
+    it('the CHECK exists on identity_claims', async () => {
+        const db = await getDatabase();
+        const t = await db.get("SELECT sql FROM sqlite_master WHERE name='identity_claims'");
+        expect(t.sql).toContain("status != 'pending'");
+    });
+
+    it('the database refuses a pending claim with no review room', async () => {
+        const db = await getDatabase();
+        await expect(db.run(
+            `INSERT INTO identity_claims (game_room_id, claimant_user_id, iscored_username, status)
+             VALUES (NULL, 'U', 'Orphan', 'pending')`,
+        )).rejects.toThrow();
+    });
+
+    it('an approved claim with no room is still allowed', async () => {
+        const db = await getDatabase();
+        await expect(db.run(
+            `INSERT INTO identity_claims (game_room_id, claimant_user_id, iscored_username, status)
+             VALUES (NULL, 'U', 'AutoName', 'approved')`,
+        )).resolves.toBeDefined();
+    });
+
+    it('join_requests did NOT keep the stray CHECK', async () => {
+        const db = await getDatabase();
+        const t = await db.get("SELECT sql FROM sqlite_master WHERE name='join_requests'");
+        expect(t.sql).not.toContain("status != 'pending'");
+    });
+});
