@@ -22,7 +22,20 @@ Full design + owner rulings: `tmp/identity-claim-design.md`. Prompted by the Cha
 
 This is what made the Blackbelt 2018 incident possible: a score deleted in Arcaid stayed on iScored as the high score and kept re-presenting itself, and PR #239 had to teach a *second* read path to ignore it. Deleting at the source removes the whole class.
 
-## Require a linked Discord identity to submit (owner-asked 2026-08-17)
+## Discord link nudge — SHIPPED v2.112.0 (PR #242, 2026-08-18)
+
+Encourages linking without gating anything. Triggers on **reachability**, not login provider: the server returns a status only when there is something true and actionable to say, and returns null on uncertainty (no room integration / already reachable / Discord gateway indeterminate).
+
+- `GET /api/me/dm-nudge?roomId=` folds the room's link status into the existing nudge response — one request for the layout.
+- Two states, two fixes: `no_discord` → link (Account Settings) · `not_in_guild` → join (the room's `DISCORD_INVITE_URL`, https-only).
+- **Off-switches:** room admin `DISCORD_LINK_REMINDERS` (default on, `'false'` disables — same shape as `ROOM_LISTED`), and a player "don't remind me again" = permanent per-room opt-out stored server-side. The banner's X is a separate 30-day snooze.
+- Rejected on purpose: a modal, and any re-prompt on score submission — submitting has never required Discord, so that message would be false.
+
+**Follow-up (not built):** contextual placements where the loss is actually felt — a note on the Picks page ("you won't get a DM when it's your turn") and Discord toggles rendered as unavailable in notification settings. Separate surfaces; the banner covers the general case.
+
+## Require a linked Discord identity to submit (owner-asked 2026-08-17 — ENCOURAGEMENT SHIPPED, hard gate NOT recommended)
+
+**The encouragement half shipped in PR #242 (2026-08-18)** — see "Discord link nudge" below. What remains open here is only the *hard gate*, which is still not recommended for the reasons below.
 
 Owner's goal: rooms with heavy Discord integration want submitters to be verified guild members who will actually receive tournament DMs.
 
