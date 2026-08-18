@@ -1930,8 +1930,7 @@ async function doInitDatabase(): Promise<Database> {
                 status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','approved','denied')),
                 requested_at TEXT NOT NULL DEFAULT (datetime('now')),
                 resolved_at TEXT,
-                resolved_by TEXT,
-                CHECK (status != 'pending' OR game_room_id IS NOT NULL)
+                resolved_by TEXT
             );
             CREATE UNIQUE INDEX IF NOT EXISTS idx_join_requests_pending ON join_requests(game_room_id, user_id) WHERE status='pending';
             CREATE INDEX IF NOT EXISTS idx_join_requests_room_status ON join_requests(game_room_id, status);
@@ -2506,6 +2505,48 @@ async function doInitDatabase(): Promise<Database> {
 
             ALTER TABLE user_profiles ADD COLUMN email_local_part TEXT;
         ` },
+        // 153 — the guard migration 152 was meant to carry. A PENDING claim with
+        // no room would sit in no queue and be invisible forever;
+        // IdentityClaimService already refuses to create one, and this makes it
+        // impossible at the storage layer too.
+        //
+        // Shipped separately because 152 was already applied in prod and a
+        // migration's SQL cannot be edited into existence retroactively. A
+        // create-copy-drop-rename rather than a DROP, so any claim filed between
+        // the two deploys survives (prod had 0 at the time of writing).
+        { name: '153_identity_claims_pending_room_guard', handler: async (db) => {
+            const t = await db.get(`SELECT sql FROM sqlite_master WHERE type='table' AND name='identity_claims'`);
+            if (!t?.sql) return;                                        // table not created yet
+            if (t.sql.includes("status != 'pending'")) return;          // already guarded
+
+            await db.exec(`
+                CREATE TABLE identity_claims_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    game_room_id TEXT REFERENCES game_rooms(id) ON DELETE CASCADE,
+                    claimant_user_id TEXT NOT NULL,
+                    iscored_username TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','approved','rejected')),
+                    auto_matched_on TEXT,
+                    requested_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    resolved_at TEXT,
+                    resolved_by TEXT,
+                    CHECK (status != 'pending' OR game_room_id IS NOT NULL)
+                );
+
+                INSERT INTO identity_claims_new
+                    (id, game_room_id, claimant_user_id, iscored_username, status, auto_matched_on, requested_at, resolved_at, resolved_by)
+                SELECT id, game_room_id, claimant_user_id, iscored_username, status, auto_matched_on, requested_at, resolved_at, resolved_by
+                FROM identity_claims;
+
+                DROP TABLE identity_claims;
+                ALTER TABLE identity_claims_new RENAME TO identity_claims;
+
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_identity_claims_pending
+                    ON identity_claims(claimant_user_id, LOWER(iscored_username)) WHERE status='pending';
+                CREATE INDEX IF NOT EXISTS idx_identity_claims_room_status
+                    ON identity_claims(game_room_id, status);
+            `);
+        } },
     ];
 
     for (const migration of migrations) {
