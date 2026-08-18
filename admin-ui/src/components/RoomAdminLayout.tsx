@@ -29,6 +29,7 @@ export default function RoomAdminLayout() {
   // v2.39.0 — Join Requests nav badge (approval rooms only). Same 60s-poll
   // pattern as SuperAdminLayout's Catalogue Approvals badge.
   const [pendingJoinRequests, setPendingJoinRequests] = useState<number>(0);
+  const [pendingIdentityClaims, setPendingIdentityClaims] = useState<number>(0);
 
   useEffect(() => {
     if (!slug) return;
@@ -57,6 +58,9 @@ export default function RoomAdminLayout() {
   useEffect(() => {
     if (!room || room.join_policy !== 'approval') return;
     const fetchPending = () => {
+      api.get<{ count: number }>(`/rooms/${room.id}/admin/identity-claims/count`)
+        .then(r => setPendingIdentityClaims(r.count ?? 0))
+        .catch(() => { /* badge is a nicety; never break the layout */ });
       api.get<{ pending: number }>(`/rooms/${room.id}/admin/join-requests/count`)
         .then(r => setPendingJoinRequests(r.pending || 0))
         .catch(() => { /* nav badge is best-effort */ });
@@ -124,6 +128,11 @@ export default function RoomAdminLayout() {
     // v2.39.0 — only shown for approval-policy rooms; badge = pending count.
     ...(room.join_policy === 'approval'
       ? [{ path: `${basePath}/join-requests`, label: 'Join Requests', icon: <UserCheck size={18} />, badge: pendingJoinRequests }]
+      : []),
+    // Identity arc P4 (2026-08-18) — only surfaced when something is actually
+    // waiting, since most claims auto-approve and never reach a human.
+    ...(pendingIdentityClaims > 0
+      ? [{ path: `${basePath}/identity-claims`, label: 'Identity Claims', icon: <Users size={18} />, badge: pendingIdentityClaims }]
       : []),
     { path: `${basePath}/activity`, label: 'Activity', icon: <Activity size={18} /> },
     { path: `${basePath}/help`, label: 'Help', icon: <HelpCircle size={18} /> },

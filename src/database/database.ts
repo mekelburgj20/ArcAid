@@ -1930,7 +1930,8 @@ async function doInitDatabase(): Promise<Database> {
                 status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','approved','denied')),
                 requested_at TEXT NOT NULL DEFAULT (datetime('now')),
                 resolved_at TEXT,
-                resolved_by TEXT
+                resolved_by TEXT,
+                CHECK (status != 'pending' OR game_room_id IS NOT NULL)
             );
             CREATE UNIQUE INDEX IF NOT EXISTS idx_join_requests_pending ON join_requests(game_room_id, user_id) WHERE status='pending';
             CREATE INDEX IF NOT EXISTS idx_join_requests_room_status ON join_requests(game_room_id, status);
@@ -2458,6 +2459,52 @@ async function doInitDatabase(): Promise<Database> {
             ALTER TABLE user_profiles ADD COLUMN avatar_url_google TEXT;
             ALTER TABLE user_profiles ADD COLUMN avatar_preference TEXT;
             UPDATE user_profiles SET avatar_url_google = avatar_url WHERE avatar_url IS NOT NULL;
+        ` },
+        // --- Identity claims: guarded self-claim of an iScored name (2026-08-18) ---
+        //
+        // Closes a live hole: /map-user requires Administrator only when mapping
+        // SOMEONE ELSE, so mapping yourself was unguarded — any guild member
+        // could claim any unclaimed iScored username. Claimed names feed
+        // resolveSubmissionPlayerId, the leaderboard partition key,
+        // IdentityCandidateService, and (since PR #239) the pick cascade.
+        //
+        // A claim auto-approves only on a CASE-INSENSITIVE EXACT match against a
+        // name the claimant already answers to (owner ruling: no separator or
+        // space normalization); anything else lands here for a mod. Shaped after
+        // join_requests, including the partial unique index that makes a second
+        // pending claim for the same (claimant, name) impossible.
+        //
+        // game_room_id records WHERE the claim was made, for review context and
+        // queue scoping. The GRANT is global, because user_mappings is global —
+        // no worse than today, where a room admin can already /map-user anyone.
+        //
+        // email_local_part backs auto-match source 5 (a linked Google account's
+        // username). Google's email is fetched at login but was never stored;
+        // only the part before '@' is kept, never the domain, and it is compared
+        // only — never rendered.
+        { name: '152_identity_claims', sql: `
+            CREATE TABLE IF NOT EXISTS identity_claims (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                -- Nullable: a claim is fundamentally GLOBAL (user_mappings has no room
+                -- scope); the room is review-routing context. An auto-approved
+                -- claim filed from Account Settings may have no room at all. A
+                -- PENDING one must have one, or it would sit in no queue and be
+                -- invisible forever — hence the CHECK below.
+                game_room_id TEXT REFERENCES game_rooms(id) ON DELETE CASCADE,
+                claimant_user_id TEXT NOT NULL,
+                iscored_username TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','approved','rejected')),
+                auto_matched_on TEXT,
+                requested_at TEXT NOT NULL DEFAULT (datetime('now')),
+                resolved_at TEXT,
+                resolved_by TEXT
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_identity_claims_pending
+                ON identity_claims(claimant_user_id, LOWER(iscored_username)) WHERE status='pending';
+            CREATE INDEX IF NOT EXISTS idx_identity_claims_room_status
+                ON identity_claims(game_room_id, status);
+
+            ALTER TABLE user_profiles ADD COLUMN email_local_part TEXT;
         ` },
     ];
 

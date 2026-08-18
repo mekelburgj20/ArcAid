@@ -517,6 +517,10 @@ router.post('/google/callback', async (req, res) => {
 
         const userId = `google:${profile.sub}`;
         const displayName = profile.name || profile.email?.split('@')[0] || 'Player';
+        // Auto-match source 5 for identity claims (owner, 2026-08-17): "match on
+        // username without the @google, @gmail of course". ONLY the local part
+        // is kept — never the domain — and it is compared, never rendered.
+        const emailLocalPart = profile.email?.split('@')[0]?.trim() || null;
         let pictureUrl = profile.picture || null;
 
         // v2.36.0 login-time canonical resolution — if this google identity
@@ -631,14 +635,15 @@ router.post('/google/callback', async (req, res) => {
                 // is derived immediately below, so a user who chose Discord
                 // keeps that choice across every Google sign-in.
                 await db.run(
-                    `INSERT INTO user_profiles (discord_user_id, avatar_url_google, avatar_fetched_at, username)
-                     VALUES (?, ?, datetime('now'), ?)
+                    `INSERT INTO user_profiles (discord_user_id, avatar_url_google, avatar_fetched_at, username, email_local_part)
+                     VALUES (?, ?, datetime('now'), ?, ?)
                      ON CONFLICT(discord_user_id) DO UPDATE SET
                         avatar_url_google = excluded.avatar_url_google,
                         avatar_fetched_at = excluded.avatar_fetched_at,
                         username = excluded.username,
+                        email_local_part = COALESCE(excluded.email_local_part, user_profiles.email_local_part),
                         updated_at = datetime('now')`,
-                    canonicalUserId, pictureUrl, storedUsername
+                    canonicalUserId, pictureUrl, storedUsername, emailLocalPart
                 );
                 await UserProfileService.applyAvatarPreference(canonicalUserId);
                 // v2.74.0 (S24.1) — see the Discord branch above: avatars
@@ -646,11 +651,12 @@ router.post('/google/callback', async (req, res) => {
             } else {
                 const db = await getDatabase();
                 await db.run(
-                    `INSERT INTO user_profiles (discord_user_id, username) VALUES (?, ?)
+                    `INSERT INTO user_profiles (discord_user_id, username, email_local_part) VALUES (?, ?, ?)
                      ON CONFLICT(discord_user_id) DO UPDATE SET
                         username = excluded.username,
+                        email_local_part = COALESCE(excluded.email_local_part, user_profiles.email_local_part),
                         updated_at = datetime('now')`,
-                    canonicalUserId, storedUsername
+                    canonicalUserId, storedUsername, emailLocalPart
                 );
             }
         }
