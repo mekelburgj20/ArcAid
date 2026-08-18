@@ -427,6 +427,16 @@ const JOIN_POLICY_OPTIONS: { value: string; label: string }[] = [
 // v2.80.0 — auto-approve join requests from members of the room's linked
 // Discord guild. Rendered beside JOIN_POLICY (only meaningful when policy is
 // 'approval'); a plain boolean toggle otherwise, default off.
+// 2026-08-17 — the site-wide "link your Discord" banner shown to players in
+// this room who can't receive its Discord features. Framed POSITIVELY (default
+// on, 'false' disables) to match ROOM_LISTED and avoid double-negative logic in
+// the reader; the label reads as the suppression switch the owner asked for.
+const DISCORD_REMINDERS_KEY = 'DISCORD_LINK_REMINDERS';
+const DISCORD_REMINDERS_META = {
+  label: 'Discord link reminders',
+  description: "Show players who can't receive this room's Discord features a banner asking them to link Discord or join the server. Turn off if you use Discord for announcements but don't need players reachable there.",
+};
+
 const AUTO_APPROVE_GUILD_KEY = 'AUTO_APPROVE_GUILD_MEMBERS';
 const AUTO_APPROVE_GUILD_META = {
   label: 'Auto-approve Discord server members',
@@ -970,6 +980,8 @@ export default function Settings() {
     JOIN_POLICY_KEY,
     // v2.80.0 — rendered as a conditional toggle beside JOIN_POLICY.
     AUTO_APPROVE_GUILD_KEY,
+    // 2026-08-17 — rendered as a toggle beside AUTO_APPROVE_GUILD_MEMBERS.
+    DISCORD_REMINDERS_KEY,
     // Scoreboard branding (managed in inline card)
     'SCOREBOARD_BG_URL', 'SCOREBOARD_BG_MODE', 'SCOREBOARD_BG_OPACITY',
     'LOGO_URL', 'LOGO_POSITION', 'LOGO_MAX_HEIGHT', 'SCOREBOARD_LOGO_ENABLED',
@@ -1260,6 +1272,33 @@ export default function Settings() {
                 <span
                   className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-primary transition-transform ${
                     autoApproveOn && approvalSelected ? 'translate-x-6' : ''
+                  }`}
+                />
+              </button>
+            </div>
+          );
+        })()}
+        {/* 2026-08-17 — Discord link reminders. Unlike auto-approve this is
+            unconditional: a room can have Discord configured for announcements
+            without wanting players nagged to link. Default ON, so an unset
+            room behaves as it did before the setting existed. */}
+        {(() => {
+          const remindersOn = settings[DISCORD_REMINDERS_KEY] !== 'false';
+          return (
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium text-primary">{DISCORD_REMINDERS_META.label}</p>
+                <p className="text-xs text-muted">{DISCORD_REMINDERS_META.description}</p>
+              </div>
+              <button
+                onClick={() => handleChange(DISCORD_REMINDERS_KEY, remindersOn ? 'false' : 'true')}
+                className={`relative w-12 h-6 rounded-full transition-colors border-none cursor-pointer ${
+                  remindersOn ? 'bg-neon-cyan' : 'bg-raised border border-border'
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-primary transition-transform ${
+                    remindersOn ? 'translate-x-6' : ''
                   }`}
                 />
               </button>

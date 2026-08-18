@@ -731,8 +731,20 @@ async function buildRoomDiscordLinkStatus(userId: string, roomId: string): Promi
 
     const enabled = await GameRoomSettingsService.get(roomId, 'DISCORD_ENABLED');
     if (enabled === 'false') return null;
+
+    // Room admin switch (2026-08-17): a room can have Discord linked for
+    // announcements while not caring whether individual players are reachable.
+    // Default ON, disabled with 'false' — same shape as ROOM_LISTED, so the
+    // absence of a row means "on" and no backfill is needed.
+    const remindersOn = await GameRoomSettingsService.get(roomId, 'DISCORD_LINK_REMINDERS');
+    if (remindersOn === 'false') return null;
     const guildId = await GameRoomSettingsService.get(roomId, 'DISCORD_GUILD_ID');
     if (!guildId) return null;
+
+    // Player's own permanent opt-out for this room. Checked before any guild
+    // work so a player who said "never" costs nothing to serve.
+    const { DiscordLinkNudgeService } = await import('../../services/DiscordLinkNudgeService.js');
+    if (await DiscordLinkNudgeService.hasOptedOut(userId, roomId)) return null;
 
     const db = await getDatabase();
     const room = await db.get('SELECT name FROM game_rooms WHERE id = ?', roomId);
@@ -767,6 +779,25 @@ router.get('/me/dm-nudge', requireDiscordUser, async (req, res) => {
         });
     } catch (error) {
         logError('API Error (GET /api/me/dm-nudge):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
+ * Permanent, per-room opt-out from the Discord link banner — the "don't remind
+ * me again" checkbox. Distinct from the banner's dismiss button, which is a
+ * 30-day snooze held in the browser. This one is stored server-side so the
+ * choice follows the player across devices.
+ */
+router.post('/me/dm-nudge/discord-link/opt-out', requireDiscordUser, async (req, res) => {
+    try {
+        const roomId = typeof req.body?.roomId === 'string' ? req.body.roomId.trim() : '';
+        if (!roomId) return res.status(400).json({ error: 'roomId is required' });
+        const { DiscordLinkNudgeService } = await import('../../services/DiscordLinkNudgeService.js');
+        await DiscordLinkNudgeService.optOut(req.user!.discordId!, roomId);
+        res.json({ ok: true });
+    } catch (error) {
+        logError('API Error (POST /api/me/dm-nudge/discord-link/opt-out):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

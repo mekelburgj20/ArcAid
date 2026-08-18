@@ -30,10 +30,15 @@ function signIn(discordId = '111122223333444455') {
 
 /** Mock /api/me/dm-nudge; returns the recorded dismiss calls. */
 let discordLinkPayload: unknown = null;
+const optOuts: string[] = [];
 
 function mockNudge(nudge: unknown) {
   const dismissals: string[] = [];
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+    if (typeof url === 'string' && url.includes('/api/me/dm-nudge/discord-link/opt-out')) {
+      optOuts.push(init?.body ? String(init.body) : '');
+      return { ok: true, json: async () => ({ ok: true }) } as Response;
+    }
     if (typeof url === 'string' && url.includes('/api/me/dm-nudge/dismiss')) {
       dismissals.push(url);
       return { ok: true, json: async () => ({ ok: true }) } as Response;
@@ -62,6 +67,7 @@ beforeEach(() => {
   localStorage.clear();
   sessionStorage.clear();
   discordLinkPayload = null;
+  optOuts.length = 0;
 });
 
 afterEach(() => {
@@ -245,5 +251,42 @@ describe('NotificationNudgeBanner — Discord link nudge', () => {
     renderBanner({ roomDiscordEnabled: true, roomId: ROOM });
 
     expect(await screen.findByText(/runs its tournaments through Discord/i)).toBeInTheDocument();
+  });
+});
+
+describe("NotificationNudgeBanner — the permanent opt-out", () => {
+  const ROOM = 'room-optout';
+
+  it('posts a permanent per-room opt-out and hides the banner immediately', async () => {
+    signIn();
+    discordLinkPayload = { state: 'no_discord', roomName: 'RTX_Pinball', inviteUrl: null };
+    mockNudge(null);
+    renderBanner({ roomDiscordEnabled: true, roomId: ROOM });
+
+    fireEvent.click(await screen.findByLabelText(/Don't remind me again/i));
+
+    await waitFor(() => expect(screen.queryByText(/runs its tournaments/i)).not.toBeInTheDocument());
+    expect(optOuts.some(b => b.includes(ROOM))).toBe(true);
+  });
+
+  it('is offered alongside — not instead of — the snooze X', async () => {
+    signIn();
+    discordLinkPayload = { state: 'no_discord', roomName: 'RTX_Pinball', inviteUrl: null };
+    mockNudge(null);
+    renderBanner({ roomDiscordEnabled: true, roomId: ROOM });
+
+    expect(await screen.findByLabelText(/Don't remind me again/i)).toBeInTheDocument();
+    expect(screen.getByLabelText('Dismiss')).toBeInTheDocument();
+  });
+
+  it('the snooze X does NOT post an opt-out (30-day snooze, not "never")', async () => {
+    signIn();
+    discordLinkPayload = { state: 'no_discord', roomName: 'RTX_Pinball', inviteUrl: null };
+    mockNudge(null);
+    renderBanner({ roomDiscordEnabled: true, roomId: ROOM });
+
+    fireEvent.click(await screen.findByLabelText('Dismiss'));
+    await waitFor(() => expect(screen.queryByText(/runs its tournaments/i)).not.toBeInTheDocument());
+    expect(optOuts).toHaveLength(0);
   });
 });

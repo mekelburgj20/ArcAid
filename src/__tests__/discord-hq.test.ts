@@ -804,3 +804,80 @@ describe('GET /api/me/dm-nudge?roomId= — room Discord link status', () => {
         expect(res.body.discordLink.inviteUrl).toBeNull();
     });
 });
+
+describe('Discord link nudge — the two off-switches (2026-08-17)', () => {
+    async function seedRoom() {
+        const { GameRoomSettingsService } = await import('../services/GameRoomSettingsService.js');
+        const db = await getDatabase();
+        const roomId = crypto.randomUUID();
+        await db.run(`INSERT INTO game_rooms (id, slug, name) VALUES (?, ?, ?)`,
+            roomId, 'offsw-' + roomId.slice(0, 8), 'RTX_Pinball');
+        await GameRoomSettingsService.set(roomId, 'DISCORD_GUILD_ID', '999888777');
+        return roomId;
+    }
+    const googleToken = () => signToken({ role: 'player', gameRoomIds: [], discordId: 'google:55555', provider: 'google' });
+
+    it('the room admin switch suppresses the banner entirely', async () => {
+        const { GameRoomSettingsService } = await import('../services/GameRoomSettingsService.js');
+        const app = await createGlobalApp();
+        const roomId = await seedRoom();
+
+        // On by default — absence of the row must mean "on", no backfill.
+        let res = await request(app).get(`/api/me/dm-nudge?roomId=${roomId}`)
+            .set('Authorization', `Bearer ${googleToken()}`);
+        expect(res.body.discordLink).toMatchObject({ state: 'no_discord' });
+
+        await GameRoomSettingsService.set(roomId, 'DISCORD_LINK_REMINDERS', 'false');
+        res = await request(app).get(`/api/me/dm-nudge?roomId=${roomId}`)
+            .set('Authorization', `Bearer ${googleToken()}`);
+        expect(res.body.discordLink).toBeNull();
+    });
+
+    it("a player's 'don't remind me again' is permanent and per-room", async () => {
+        const app = await createGlobalApp();
+        const roomA = await seedRoom();
+        const roomB = await seedRoom();
+
+        expect((await request(app).post('/api/me/dm-nudge/discord-link/opt-out')
+            .set('Authorization', `Bearer ${googleToken()}`)
+            .send({ roomId: roomA })).status).toBe(200);
+
+        const a = await request(app).get(`/api/me/dm-nudge?roomId=${roomA}`)
+            .set('Authorization', `Bearer ${googleToken()}`);
+        expect(a.body.discordLink).toBeNull();
+
+        // The other room still asks — the copy names a room, so the opt-out
+        // has to be scoped to one.
+        const b = await request(app).get(`/api/me/dm-nudge?roomId=${roomB}`)
+            .set('Authorization', `Bearer ${googleToken()}`);
+        expect(b.body.discordLink).toMatchObject({ state: 'no_discord' });
+    });
+
+    it('the opt-out survives being set twice and requires a roomId', async () => {
+        const app = await createGlobalApp();
+        const roomId = await seedRoom();
+        const auth = `Bearer ${googleToken()}`;
+
+        await request(app).post('/api/me/dm-nudge/discord-link/opt-out').set('Authorization', auth).send({ roomId });
+        await request(app).post('/api/me/dm-nudge/discord-link/opt-out').set('Authorization', auth).send({ roomId });
+        expect((await request(app).get(`/api/me/dm-nudge?roomId=${roomId}`).set('Authorization', auth)).body.discordLink).toBeNull();
+
+        expect((await request(app).post('/api/me/dm-nudge/discord-link/opt-out')
+            .set('Authorization', auth).send({})).status).toBe(400);
+    });
+
+    it('the opt-out does not disturb the unrelated DM-failure nudge', async () => {
+        const app = await createGlobalApp();
+        const roomId = await seedRoom();
+        const auth = `Bearer ${googleToken()}`;
+        const { DmNudgeService } = await import('../services/DmNudgeService.js');
+
+        await request(app).post('/api/me/dm-nudge/discord-link/opt-out').set('Authorization', auth).send({ roomId });
+        // A google id can't hold a DM nudge (record() ignores non-Discord ids),
+        // so assert the blob write didn't corrupt the read path either way.
+        expect(await DmNudgeService.get('google:55555')).toBeNull();
+        const res = await request(app).get(`/api/me/dm-nudge?roomId=${roomId}`).set('Authorization', auth);
+        expect(res.status).toBe(200);
+        expect(res.body.nudge).toBeNull();
+    });
+});

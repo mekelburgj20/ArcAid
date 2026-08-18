@@ -113,6 +113,23 @@ export default function NotificationNudgeBanner({ roomDiscordEnabled, roomId }: 
     if (roomId) localStorage.setItem(LINK_DISMISS_PREFIX + roomId, new Date().toISOString());
   };
 
+  /**
+   * "Don't remind me again" — a PERMANENT, per-room opt-out, distinct from the
+   * X button's 30-day snooze. Stored server-side so it follows the player to
+   * their other devices; hidden locally straight away so the checkbox feels
+   * instant even if the request is slow.
+   */
+  const optOutLink = () => {
+    setDismissedLink(true);
+    if (roomId) localStorage.setItem(LINK_DISMISS_PREFIX + roomId, new Date().toISOString());
+    if (!playerToken || !roomId) return;
+    fetch('/api/me/dm-nudge/discord-link/opt-out', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${playerToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ roomId }),
+    }).catch(() => { /* hidden locally regardless; the snooze still applies */ });
+  };
+
   const dismissOnboard = () => {
     setDismissedOnboard(true);
     localStorage.setItem(ONBOARD_DISMISS_KEY, '1');
@@ -186,6 +203,14 @@ export default function NotificationNudgeBanner({ roomDiscordEnabled, roomId }: 
           ) : (
             <span className="mt-1 inline-block text-faint">Ask a room admin for an invite.</span>
           )}
+          <label className="mt-2 flex items-center gap-1.5 text-faint cursor-pointer select-none">
+            <input
+              type="checkbox"
+              onChange={optOutLink}
+              className="cursor-pointer accent-neon-purple"
+            />
+            <span>Don't remind me again</span>
+          </label>
         </div>
         <button
           type="button"
