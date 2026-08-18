@@ -45,6 +45,7 @@ const ActivityLog = lazy(() => import('./pages/ActivityLog'));
 const GameStates = lazy(() => import('./pages/GameStates'));
 const Identity = lazy(() => import('./pages/Identity'));
 const JoinRequests = lazy(() => import('./pages/JoinRequests'));
+const IdentityClaims = lazy(() => import('./pages/IdentityClaims'));
 const RoomAdminMembers = lazy(() => import('./pages/RoomAdminMembers'));
 const LobbyAdmin = lazy(() => import('./pages/LobbyAdmin'));
 
@@ -187,6 +188,7 @@ function App() {
           <Route path="identity" element={<Identity />} />
           <Route path="members" element={<RoomAdminMembers />} />
           <Route path="join-requests" element={<JoinRequests />} />
+          <Route path="identity-claims" element={<IdentityClaims />} />
           <Route path="activity" element={<ActivityLog />} />
           <Route path="settings" element={<Settings />} />
           <Route path="help" element={<Help />} />

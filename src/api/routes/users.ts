@@ -129,4 +129,81 @@ router.patch('/me/avatar-preference', requireAuth, requireDiscordUser, requireNo
     }
 });
 
+/**
+ * GET /api/users/me/identity/claims
+ * What this account holds and what is awaiting review — drives the Account
+ * Settings aliases card.
+ */
+router.get('/me/identity/claims', requireAuth, requireDiscordUser, async (req, res) => {
+    try {
+        const discordId = req.user!.discordId!;
+        const { IdentityClaimService, MAX_ALIASES } = await import('../../services/IdentityClaimService.js');
+        const { getDatabase } = await import('../../database/database.js');
+        const db = await getDatabase();
+        const pending = await db.all(
+            `SELECT c.id, c.iscored_username, c.requested_at, r.name AS room_name
+               FROM identity_claims c
+               LEFT JOIN game_rooms r ON r.id = c.game_room_id
+              WHERE c.claimant_user_id = ? AND c.status = 'pending'
+              ORDER BY c.requested_at DESC`,
+            discordId,
+        );
+        res.json({
+            aliases: await UserProfileService.getAliases(discordId),
+            aliasCount: await IdentityClaimService.aliasCount(discordId),
+            maxAliases: MAX_ALIASES,
+            pending,
+        });
+    } catch (error) {
+        logError('API Error (GET /api/users/me/identity/claims):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
+ * POST /api/users/me/identity/claims
+ * Claim an iScored name from the global Account Settings surface. The review
+ * room is resolved server-side — routed to the room where the name actually has
+ * history, since those admins are the ones who can judge it.
+ */
+router.post('/me/identity/claims', requireAuth, requireDiscordUser, requireNotBanned, async (req, res) => {
+    try {
+        const discordId = req.user!.discordId!;
+        const requested = typeof req.body?.iscoredUsername === 'string' ? req.body.iscoredUsername : '';
+        const { IdentityClaimService, ClaimError } = await import('../../services/IdentityClaimService.js');
+
+        const roomId = await IdentityClaimService.resolveReviewRoom(discordId, requested.trim());
+        try {
+            res.json(await IdentityClaimService.claim(discordId, roomId, requested));
+        } catch (err) {
+            if (err instanceof ClaimError) {
+                const status = err.code === 'INVALID_NAME' ? 400 : 409;
+                return res.status(status).json({ error: err.message, reason: err.code });
+            }
+            throw err;
+        }
+    } catch (error) {
+        logError('API Error (POST /api/users/me/identity/claims):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
+ * DELETE /api/users/me/identity/aliases/:name
+ * Give up a name, so the 3-alias cap stays manageable.
+ */
+router.delete('/me/identity/aliases/:name', requireAuth, requireDiscordUser, requireNotBanned, async (req, res) => {
+    try {
+        const discordId = req.user!.discordId!;
+        const name = decodeURIComponent(req.params.name as string);
+        const { IdentityClaimService } = await import('../../services/IdentityClaimService.js');
+        const removed = await IdentityClaimService.releaseAlias(discordId, name);
+        if (!removed) return res.status(404).json({ error: 'You do not hold that iScored name.' });
+        res.json({ ok: true });
+    } catch (error) {
+        logError('API Error (DELETE /api/users/me/identity/aliases/:name):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 export default router;

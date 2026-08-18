@@ -9,6 +9,13 @@ import { buildPushErrorMessage } from '../lib/pushError';
 
 type AvatarProvider = 'discord' | 'google';
 
+interface ClaimState {
+  aliases: string[];
+  aliasCount: number;
+  maxAliases: number;
+  pending: { id: number; iscored_username: string; requested_at: string; room_name: string | null }[];
+}
+
 interface Profile {
   discord_user_id: string;
   display_name: string | null;
@@ -100,6 +107,12 @@ export default function AccountSettings() {
   const [avatarError, setAvatarError] = useState<string | null>(null);
   const [avatarSaved, setAvatarSaved] = useState(false);
 
+  // iScored alias claiming (identity arc P1, 2026-08-18).
+  const [claims, setClaims] = useState<ClaimState | null>(null);
+  const [claimInput, setClaimInput] = useState('');
+  const [claimBusy, setClaimBusy] = useState(false);
+  const [claimMsg, setClaimMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
   // Delete-account (danger zone): type-to-confirm modal + player-token DELETE.
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [confirmText, setConfirmText] = useState('');
@@ -158,6 +171,67 @@ export default function AccountSettings() {
   }, [playerToken]);
 
   useEffect(() => { loadProfile(); }, [loadProfile]);
+
+  const loadClaims = useCallback(async () => {
+    if (!playerToken) return;
+    try {
+      const res = await fetch('/api/users/me/identity/claims', {
+        headers: { Authorization: `Bearer ${playerToken}` },
+      });
+      if (res.ok) setClaims(await res.json());
+    } catch { /* the card simply stays hidden */ }
+  }, [playerToken]);
+
+  useEffect(() => { loadClaims(); }, [loadClaims]);
+
+  const submitClaim = async () => {
+    if (!playerToken || !claimInput.trim()) return;
+    setClaimBusy(true);
+    setClaimMsg(null);
+    try {
+      const res = await fetch('/api/users/me/identity/claims', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${playerToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ iscoredUsername: claimInput.trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setClaimInput('');
+        setClaimMsg({
+          ok: true,
+          text: data.result === 'auto_approved'
+            ? `Linked — that matched ${data.matchedOn}.`
+            : data.result === 'already_yours'
+              ? 'You already hold that name.'
+              : 'Sent to a room admin for review.',
+        });
+        await loadClaims();
+        await loadProfile();
+      } else {
+        setClaimMsg({ ok: false, text: data.error ?? 'Could not claim that name.' });
+      }
+    } catch {
+      setClaimMsg({ ok: false, text: 'Network error.' });
+    }
+    setClaimBusy(false);
+  };
+
+  const releaseAlias = async (alias: string) => {
+    if (!playerToken) return;
+    setClaimBusy(true);
+    setClaimMsg(null);
+    try {
+      const res = await fetch(`/api/users/me/identity/aliases/${encodeURIComponent(alias)}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${playerToken}` },
+      });
+      if (res.ok) { await loadClaims(); await loadProfile(); }
+      else setClaimMsg({ ok: false, text: 'Could not remove that name.' });
+    } catch {
+      setClaimMsg({ ok: false, text: 'Network error.' });
+    }
+    setClaimBusy(false);
+  };
 
   // Only a Discord-identity (canonical) viewer can HAVE links pointing at
   // them in v1 — a google identity is always the link's provider side, never
@@ -814,25 +888,84 @@ export default function AccountSettings() {
 
             <section>
               <h2 className="text-sm font-medium mb-2">Linked iScored aliases</h2>
-              {profile && profile.aliases.length > 0 ? (
+              <p className="text-xs text-muted mb-3">
+                Scores submitted under any of these names count for you on every leaderboard.
+                You can hold up to {claims?.maxAliases ?? 3}.
+              </p>
+
+              {claims && claims.aliases.length > 0 ? (
                 <ul className="space-y-1">
-                  {profile.aliases.map(alias => (
+                  {claims.aliases.map(alias => (
                     <li
                       key={alias}
-                      className="text-sm font-mono text-primary bg-surface border border-border rounded px-3 py-1.5"
+                      className="flex items-center justify-between gap-3 text-sm font-mono text-primary bg-surface border border-border rounded px-3 py-1.5"
                     >
-                      {alias}
+                      <span className="truncate">{alias}</span>
+                      <button
+                        onClick={() => releaseAlias(alias)}
+                        disabled={claimBusy}
+                        className="shrink-0 text-xs font-sans text-faint hover:text-neon-red cursor-pointer disabled:cursor-default bg-transparent border-none"
+                      >
+                        Remove
+                      </button>
                     </li>
                   ))}
                 </ul>
               ) : (
                 <p className="text-xs text-muted">
-                  No aliases yet. Submit a score on iScored under any name and a room admin can link it to you.
+                  No aliases yet. If you have posted scores on iScored under a different name, claim it below.
                 </p>
               )}
-              <p className="mt-2 text-xs text-faint">
-                Scores submitted under any of these names count for you on every leaderboard.
-              </p>
+
+              {claims && claims.pending.length > 0 && (
+                <ul className="mt-2 space-y-1">
+                  {claims.pending.map(p => (
+                    <li
+                      key={p.id}
+                      className="text-xs text-primary bg-neon-amber/10 border border-neon-amber/40 rounded px-3 py-1.5"
+                    >
+                      <span className="font-mono">{p.iscored_username}</span> — awaiting review
+                      {p.room_name ? ` by a ${p.room_name} admin` : ''}.
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {/* Claiming is guarded: an exact (case-insensitive) match against a
+                  name you already answer to is granted straight away; anything
+                  else goes to a room admin. Before this existed, /map-user let
+                  anyone self-claim any unclaimed name with no check at all. */}
+              {claims && claims.aliasCount < claims.maxAliases && (
+                <div className="mt-3">
+                  <label htmlFor="claim-name" className="block text-xs text-muted mb-1">
+                    Claim an iScored name
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      id="claim-name"
+                      value={claimInput}
+                      onChange={e => { setClaimInput(e.target.value); setClaimMsg(null); }}
+                      placeholder="Name exactly as it appears on iScored"
+                      className="flex-1 min-w-0 px-3 py-1.5 rounded bg-surface border border-border text-sm text-primary"
+                    />
+                    <button
+                      onClick={submitClaim}
+                      disabled={claimBusy || !claimInput.trim()}
+                      className="shrink-0 px-3 py-1.5 rounded text-xs font-medium border border-border text-muted hover:text-primary cursor-pointer disabled:cursor-default disabled:opacity-50 bg-transparent"
+                    >
+                      Claim
+                    </button>
+                  </div>
+                  {claimMsg && (
+                    <p className={`mt-2 text-xs ${claimMsg.ok ? 'text-neon-green' : 'text-neon-red'}`}>
+                      {claimMsg.text}
+                    </p>
+                  )}
+                  <p className="mt-1 text-xs text-faint">
+                    Names that match your account are linked immediately. Anything else is reviewed by a room admin.
+                  </p>
+                </div>
+              )}
             </section>
 
             <section className="mt-8 pt-8 border-t border-border">

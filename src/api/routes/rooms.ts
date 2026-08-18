@@ -5149,6 +5149,179 @@ router.delete('/:roomId/admins/invites/:inviteId', requireAuth, requireRoomAcces
 // --- Approval-room join requests (v2.39.0) ---
 
 // Room-admin queue. ?status=pending (default) | resolved
+// --- Identity claims (identity arc P1 + P4, 2026-08-18) ---
+//
+// Replaces the unguarded self-claim path in `/map-user`, which required
+// Administrator only when mapping SOMEONE ELSE. A claim auto-approves only on a
+// case-insensitive EXACT match against a name the claimant already answers to;
+// everything else queues for a room mod. See IdentityClaimService.
+
+/** Player: request an iScored name. Auto-approves or queues for review. */
+router.post('/:roomId/identity/claims', writeLimiter, requireDiscordUser, requireNotBanned, async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const userId = req.user!.discordId!;
+        const requested = typeof req.body?.iscoredUsername === 'string' ? req.body.iscoredUsername : '';
+
+        const { IdentityClaimService, ClaimError } = await import('../../services/IdentityClaimService.js');
+        try {
+            const outcome = await IdentityClaimService.claim(userId, roomId, requested);
+            await AuditService.log({
+                actor: userId,
+                action: outcome.result === 'auto_approved' ? 'identity_claim.auto_approved' : 'identity_claim.requested',
+                target_type: 'identity_claim',
+                target_id: String((outcome as { claimId?: number }).claimId ?? requested),
+                details: JSON.stringify({ roomId, iscoredUsername: requested, outcome }),
+                ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+                correlation_id: req.correlationId || '',
+            });
+            res.json(outcome);
+        } catch (err) {
+            if (err instanceof ClaimError) {
+                // 409 for "you cannot have this", 400 for a malformed request.
+                const status = err.code === 'INVALID_NAME' ? 400 : 409;
+                return res.status(status).json({ error: err.message, reason: err.code });
+            }
+            throw err;
+        }
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/identity/claims):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/** Player: what this account can claim right now — aliases held and the cap. */
+router.get('/:roomId/identity/claims/me', requireDiscordUser, async (req, res) => {
+    try {
+        const userId = req.user!.discordId!;
+        const { IdentityClaimService, MAX_ALIASES } = await import('../../services/IdentityClaimService.js');
+        const db = await getDatabase();
+        const pending = await db.all(
+            `SELECT id, iscored_username, requested_at FROM identity_claims
+              WHERE claimant_user_id = ? AND status = 'pending' ORDER BY requested_at DESC`,
+            userId,
+        );
+        res.json({
+            aliasCount: await IdentityClaimService.aliasCount(userId),
+            maxAliases: MAX_ALIASES,
+            pending,
+        });
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/identity/claims/me):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/** Player: give up an iScored name they hold, to stay under the cap. */
+router.delete('/:roomId/identity/aliases/:name', requireDiscordUser, requireNotBanned, async (req, res) => {
+    try {
+        const userId = req.user!.discordId!;
+        const name = decodeURIComponent(req.params.name as string);
+        const { IdentityClaimService } = await import('../../services/IdentityClaimService.js');
+        const removed = await IdentityClaimService.releaseAlias(userId, name);
+        if (!removed) return res.status(404).json({ error: 'You do not hold that iScored name.' });
+        await AuditService.log({
+            actor: userId,
+            action: 'identity_claim.released',
+            target_type: 'identity_alias',
+            target_id: name,
+            details: JSON.stringify({ roomId: req.params.roomId, iscoredUsername: name }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+        res.json({ ok: true });
+    } catch (error) {
+        logError('API Error (DELETE rooms/:roomId/identity/aliases/:name):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/** Mod queue: pending claims for this room. */
+router.get('/:roomId/admin/identity-claims', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const { IdentityClaimService } = await import('../../services/IdentityClaimService.js');
+        res.json({ requests: await IdentityClaimService.listPending(req.params.roomId as string) });
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/admin/identity-claims):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/** Mod queue badge count. */
+router.get('/:roomId/admin/identity-claims/count', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const { IdentityClaimService } = await import('../../services/IdentityClaimService.js');
+        res.json({ count: await IdentityClaimService.pendingCount(req.params.roomId as string) });
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/admin/identity-claims/count):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/** Mod queue: approve. Grants the alias globally — user_mappings has no room scope. */
+router.post('/:roomId/admin/identity-claims/:id/approve', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const claimId = parseInt(req.params.id as string, 10);
+        if (!Number.isFinite(claimId)) return res.status(400).json({ error: 'Invalid claim id' });
+        const actor = req.user!.discordId || req.user!.username || 'admin';
+
+        const { IdentityClaimService, ClaimError } = await import('../../services/IdentityClaimService.js');
+        try {
+            await IdentityClaimService.approve(claimId, roomId, actor);
+        } catch (err) {
+            if (err instanceof ClaimError) {
+                return res.status(err.code === 'NOT_FOUND' ? 404 : 409).json({ error: err.message, reason: err.code });
+            }
+            throw err;
+        }
+        await AuditService.log({
+            actor,
+            action: 'identity_claim.approved',
+            target_type: 'identity_claim',
+            target_id: String(claimId),
+            details: JSON.stringify({ roomId }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+        res.json({ ok: true });
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/admin/identity-claims/:id/approve):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/** Mod queue: reject. */
+router.post('/:roomId/admin/identity-claims/:id/reject', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const claimId = parseInt(req.params.id as string, 10);
+        if (!Number.isFinite(claimId)) return res.status(400).json({ error: 'Invalid claim id' });
+        const actor = req.user!.discordId || req.user!.username || 'admin';
+
+        const { IdentityClaimService, ClaimError } = await import('../../services/IdentityClaimService.js');
+        try {
+            await IdentityClaimService.reject(claimId, roomId, actor);
+        } catch (err) {
+            if (err instanceof ClaimError) return res.status(404).json({ error: err.message, reason: err.code });
+            throw err;
+        }
+        await AuditService.log({
+            actor,
+            action: 'identity_claim.rejected',
+            target_type: 'identity_claim',
+            target_id: String(claimId),
+            details: JSON.stringify({ roomId }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+        res.json({ ok: true });
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/admin/identity-claims/:id/reject):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 router.get('/:roomId/admin/join-requests', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
     try {
         const roomId = req.params.roomId as string;
