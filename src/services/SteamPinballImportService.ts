@@ -74,18 +74,24 @@ const PREFIX_STRIPPERS: Record<number, RegExp[]> = {
  * catches the four Zaccaria non-table DLCs flagged during the dry-run review
  * (Original Soundtrack, Artwork Editor, Campaign Mode, Zombie Invasion Mode).
  */
-const SKIP_RULES: Array<[RegExp, string]> = [
-    [/\bVolume\s*\d+\b/i,           'Volume pack'],
-    [/\bVol\.?\s*\d+\b/i,           'Volume pack'],
-    [/\bSeason\s*\d+(\s*Pack)?\b/i, 'Season pack'],
-    [/\bSeason\s+Pass\b/i,          'Season Pass'],
-    [/\bPack\b/i,                    'multi-table pack'],
-    [/\bBundle\b/i,                  'bundle'],
-    [/\bTables\b/i,                  'plural Tables (likely a pack)'],
-    [/^VR$/i,                        'VR mode entitlement'],
-    [/\bAdd-?on\b/i,                 'add-on'],
-    [/\bDLC\b/i,                     'generic DLC label'],
-    [/\b(Soundtrack|Editor|Mode)\b/i, 'non-table DLC (soundtrack/editor/game mode)'],
+/**
+ * `packish` marks a skip reason that MIGHT still hide tables worth importing.
+ * A pack can be expanded from its own store description (see extractPackTables);
+ * a soundtrack or an artwork editor never can, so those are skipped outright and
+ * never raise a maintenance warning.
+ */
+const SKIP_RULES: Array<[RegExp, string, boolean]> = [
+    [/\bVolume\s*\d+\b/i,           'Volume pack', true],
+    [/\bVol\.?\s*\d+\b/i,           'Volume pack', true],
+    [/\bSeason\s*\d+(\s*Pack)?\b/i, 'Season pack', true],
+    [/\bSeason\s+Pass\b/i,          'Season Pass', true],
+    [/\bPack\b/i,                    'multi-table pack', true],
+    [/\bBundle\b/i,                  'bundle', true],
+    [/\bTables\b/i,                  'plural Tables (likely a pack)', true],
+    [/^VR$/i,                        'VR mode entitlement', false],
+    [/\bAdd-?on\b/i,                 'add-on', false],
+    [/\bDLC\b/i,                     'generic DLC label', false],
+    [/\b(Soundtrack|Editor|Mode)\b/i, 'non-table DLC (soundtrack/editor/game mode)', false],
 ];
 
 const STEAM_API_BASE = 'https://store.steampowered.com/api/appdetails';
@@ -102,7 +108,17 @@ function sleep(ms: number): Promise<void> {
 
 interface SteamFetchResult {
     status: number;
-    payload: Record<string, { success?: boolean; data?: { name?: string; dlc?: number[]; header_image?: string } }> | null;
+    payload: Record<string, {
+        success?: boolean;
+        data?: {
+            name?: string;
+            dlc?: number[];
+            header_image?: string;
+            /** Pack DLCs list their constituent tables in here — see extractPackTables. */
+            detailed_description?: string;
+            about_the_game?: string;
+        };
+    }> | null;
 }
 
 /**
@@ -152,9 +168,98 @@ function stripPrefix(rawName: string, appId: number): string {
     return rawName.trim();
 }
 
-function checkSkip(stripped: string): string | null {
-    for (const [rx, reason] of SKIP_RULES) {
-        if (rx.test(stripped)) return reason;
+/**
+ * Table names hidden inside a pack DLC's own Steam store description.
+ *
+ * The curated `PACK_CONTENTS` map only ever covered 78 hand-listed packs and had
+ * "no defined go-forward path" — so every pack Zen or Zaccaria shipped after
+ * v2.5.0 was silently skipped. On the Zaccaria app alone that lost 40 Retro
+ * tables (one DLC) and seven EM+ packs, plus the POSTAL / Primal Carnage /
+ * Chernobylite / Fallen Aces / Blood West licensed packs.
+ *
+ * Steam lists the contents in the description, so they can be read rather than
+ * transcribed. The formats observed live (2026-08-18):
+ *
+ *   "This DLC unlocks the following contents:"          -> Time Machine Retro Table
+ *   "This table pack contains the following pinball..."  -> Combat EM+ table
+ *   "Purchase this DLC unlocks the following content:"   -> POSTAL 2 Retro Table (Sweet Home)
+ *
+ * DELIBERATELY CONSERVATIVE. A marker phrase must appear, and only lines that
+ * literally end in "Table"/"Tables" are taken. That means:
+ *
+ *   - "Bronze Pack", which says "Does NOT include any table unlocks" and then
+ *     lists "Ball size", "Table texture options", yields NOTHING. A looser
+ *     parser would import cosmetics as pinball tables.
+ *   - "Achievement Table Pack" (19 bare names, no suffix) and "Pinball Champ
+ *     Table Pack" (names inline in a sentence) also yield nothing, and are
+ *     reported by the caller so they can be curated into PACK_CONTENTS by hand.
+ *
+ * Skipping an ambiguous pack keeps today's behaviour; guessing at one would put
+ * junk in the catalogue that the dedup hierarchy would then faithfully preserve.
+ */
+export function extractPackTables(description: string | undefined): string[] {
+    if (!description) return [];
+
+    // Strip tags to lines. Steam wraps each entry in its own element, so the
+    // tag boundaries ARE the line boundaries — splitting on <br>/<li> only
+    // would miss the plain-<div> variants.
+    const lines = description
+        .replace(/<[^>]+>/g, '\n')
+        .replace(/&amp;/g, '&')
+        .replace(/&#39;/g, "'")
+        .replace(/&quot;/g, '"')
+        .replace(/&nbsp;/g, ' ')
+        .split('\n')
+        .map(l => l.trim())
+        .filter(Boolean);
+
+    const markerIdx = lines.findIndex(l => MARKER.test(l));
+    if (markerIdx < 0) return [];
+
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (const line of lines.slice(markerIdx + 1)) {
+        // Per-table detail blocks repeat the name as a heading further down;
+        // stop before them rather than relying on dedup alone.
+        if (/^(Information|Features)\s*:?$/i.test(line)) break;
+
+        const m = line.match(TABLE_LINE);
+        if (!m) continue;
+        const name = (m[1] ?? '').trim();
+        if (!name || NON_TABLE.test(name)) continue;
+        const key = name.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(name);
+    }
+    return out;
+}
+
+/** Phrases that introduce a contents list. Anchored loosely — Steam copy varies. */
+const MARKER = /(unlocks?|contains?|includes?)\s+the\s+following/i;
+
+/**
+ * A contents line naming a table: "<name> Table" or "<name> Tables", with an
+ * optional theme parenthetical on EITHER side of the suffix. Steam is not
+ * consistent about which — "POSTAL 2 Retro Table (Sweet Home)" but "POSTAL
+ * Brain Damaged Retro (Suburbia) Table" — and handling only one position made
+ * the same product family import under two naming conventions, which is the
+ * drift that forks a catalogue row later. The parenthetical is decoration, not
+ * identity: each description’s detail block gives "Name: POSTAL 2 Retro"
+ * without it. Same call the AtGames importer makes about storefront labels.
+ */
+const TABLE_LINE = /^(.+?)\s*(?:\([^)]*\))?\s+Tables?\s*(?:\([^)]*\))?$/i;
+
+/**
+ * Cosmetics and entitlements that happen to end in "Table". Without this,
+ * "1 Table Lockdown Bar" is safe (wrong suffix) but a future "Bonus Table"
+ * skin would not be.
+ */
+const NON_TABLE = /\b(skin|sticker|cabinet|panorama|cup holder|leg|bar|picture|soundtrack|wallpaper)s?\b/i;
+
+function checkSkip(stripped: string): { reason: string; packish: boolean } | null {
+    for (const [rx, reason, packish] of SKIP_RULES) {
+        if (rx.test(stripped)) return { reason, packish };
     }
     return null;
 }
@@ -165,7 +270,7 @@ function checkSkip(stripped: string): string | null {
  * collapsed. User preference: catalogue stays clean of TM/R/C/SM symbols
  * regardless of source feed.
  */
-function cleanTableName(s: string): string {
+export function cleanTableName(s: string): string {
     let out = s.replace(/[™®©℠]/g, '').replace(/\s+/g, ' ').trim();
     if (out.length >= 2) {
         const first = out[0];
@@ -177,6 +282,23 @@ function cleanTableName(s: string): string {
             (first === '‘' && last === '’');     // curly single
         if (matchedPair) out = out.slice(1, -1).trim();
     }
+
+    // Zaccaria names a great many of its DLCs "<table> Table" or "<table>
+    // Deluxe Pinball Table", and the suffix was landing in the catalogue: a
+    // 2026-08-18 dry run against a copy of prod found 19 rows named
+    // "Blackbelt Table", "Combat Deluxe Pinball Table", "Strike Table" and so
+    // on — the last of which is a THIRD copy of a table already held twice.
+    //
+    // This is NOT a pack-expansion problem; those rows arrive through the
+    // single-DLC path and always have. The skip list only catches the plural
+    // "Tables", so the singular sails straight through.
+    //
+    // Trade-off accepted: a table genuinely named "... Table" would lose the
+    // word. No such row exists in the Steam feed, and the catalogue's existing
+    // "King Arthur and his Round Table" is a VPX row that never passes through
+    // here. Worth revisiting only if Steam ships a counter-example.
+    out = out.replace(/\s+(?:Pinball\s+)?Table$/i, '').trim() || out;
+
     return out;
 }
 
@@ -244,7 +366,8 @@ export class SteamPinballImportService {
      * Import a single Steam product. Returns per-product metrics so importAll
      * can aggregate.
      */
-    private static async importProduct(product: SteamProduct): Promise<{
+    /** Exposed for the dry-run harness; importAll is the production entry point. */
+    public static async importProduct(product: SteamProduct): Promise<{
         imported: number;
         updated: number;
         skipped: number;
@@ -279,6 +402,7 @@ export class SteamPinballImportService {
         const dlcIds: number[] = data.dlc || [];
         logInfo(`SteamPinball: ${product.label} — ${dlcIds.length} DLC entries to process`);
 
+        const unexpandedPacks: string[] = [];
         for (let i = 0; i < dlcIds.length; i++) {
             const dlcId = dlcIds[i];
             if (dlcId === undefined) continue;  // tsconfig noUncheckedIndexedAccess
@@ -314,6 +438,39 @@ export class SteamPinballImportService {
                 const stripped = stripPrefix(dd.name, product.appId);
                 const skipReason = checkSkip(stripped);
                 if (skipReason) {
+                    // AUTO-EXPANSION (2026-08-18). A pack-ish skip may still be
+                    // hiding real tables; Steam lists them in the DLC's own
+                    // description, so read them rather than require a curated
+                    // PACK_CONTENTS entry that nobody has a process to maintain.
+                    //
+                    // Curated entries still win — they are checked before the
+                    // fetch above — so the 78 hand-listed packs are untouched.
+                    if (skipReason.packish) {
+                        const found = extractPackTables(dd.detailed_description || dd.about_the_game);
+                        if (found.length > 0) {
+                            for (const tableName of found) {
+                                const r = await this.upsertTable(
+                                    tableName, product, dd.header_image,
+                                    `https://store.steampowered.com/app/${dlcId}/`,
+                                );
+                                if (r === 'imported') imported++;
+                                else if (r === 'updated') updated++;
+                                else skipped++;
+                            }
+                            packsExpanded++;
+                            logInfo(`SteamPinball: auto-expanded "${stripped}" -> ${found.length} table(s)`);
+                            continue;
+                        }
+                        // Marker absent or nothing parseable. Skipping matches
+                        // today's behaviour; the WARN is the maintenance trigger
+                        // (same doctrine as the AtGames importer's unattributed
+                        // -tables warning) for adding a PACK_CONTENTS entry by
+                        // hand. Known cases: "Achievement Table Pack" lists 19
+                        // bare names with no "Table" suffix, and "Pinball Champ
+                        // Table Pack" names its two inline in a sentence.
+                        unexpandedPacks.push(stripped);
+                        logWarn(`SteamPinball: pack "${stripped}" (${dlcId}) could not be auto-expanded — curate it into PACK_CONTENTS if it holds tables.`);
+                    }
                     skipped++;
                     continue;
                 }
@@ -332,6 +489,9 @@ export class SteamPinballImportService {
             }
         }
 
+        if (unexpandedPacks.length > 0) {
+            logWarn(`SteamPinball: ${product.label} — ${unexpandedPacks.length} pack(s) still need curating: ${unexpandedPacks.join(', ')}`);
+        }
         return { imported, updated, skipped, packsExpanded };
     }
 
