@@ -1,5 +1,6 @@
 import { getDatabase } from '../database/database.js';
 import { nameRankSqlCase, nameRankSqlParams } from '../utils/searchRank.js';
+import { clampOrNull, type BgFraming } from '../utils/bgFraming.js';
 
 export class GameLibraryService {
     /**
@@ -29,12 +30,16 @@ export class GameLibraryService {
      * `game_room_game_library` overlay row; the table itself is on the way out
      * (step 2e), at which point this method's storage moves elsewhere.
      */
-    static async setRoomGameStyle(gameRoomId: string, gameName: string, catalogueStyleId: string | null, headerDisabled: boolean = false): Promise<boolean> {
+    static async setRoomGameStyle(gameRoomId: string, gameName: string, catalogueStyleId: string | null, headerDisabled: boolean = false, framing?: BgFraming): Promise<boolean> {
         const db = await getDatabase();
+        const zoom = clampOrNull(framing?.bgZoom, 100, 300);
+        const posX = clampOrNull(framing?.bgPosX, 0, 100);
+        const posY = clampOrNull(framing?.bgPosY, 0, 100);
         const result = await db.run(
-            `UPDATE game_room_game_library SET catalogue_style_id = ?, style_header_disabled = ?
+            `UPDATE game_room_game_library SET catalogue_style_id = ?, style_header_disabled = ?,
+                bg_zoom = ?, bg_pos_x = ?, bg_pos_y = ?
              WHERE game_room_id = ? AND game_name = ?`,
-            catalogueStyleId, headerDisabled ? 1 : 0, gameRoomId, gameName
+            catalogueStyleId, headerDisabled ? 1 : 0, zoom, posX, posY, gameRoomId, gameName
         );
         return (result.changes || 0) > 0;
     }
@@ -42,10 +47,12 @@ export class GameLibraryService {
     /**
      * Get the per-room default catalogue style for a game.
      */
-    static async getRoomGameStyle(gameRoomId: string, gameName: string): Promise<{ catalogue_style_id: string | null; logo_style_id: string | null; bg_style_id: string | null; style_header_disabled: number } | undefined> {
+    static async getRoomGameStyle(gameRoomId: string, gameName: string): Promise<{ catalogue_style_id: string | null; logo_style_id: string | null; bg_style_id: string | null; style_header_disabled: number; bg_zoom: number | null; bg_pos_x: number | null; bg_pos_y: number | null } | undefined> {
         const db = await getDatabase();
         return db.get(
-            `SELECT catalogue_style_id, logo_style_id, bg_style_id, style_header_disabled FROM game_room_game_library
+            `SELECT catalogue_style_id, logo_style_id, bg_style_id, style_header_disabled,
+                    bg_zoom, bg_pos_x, bg_pos_y
+             FROM game_room_game_library
              WHERE game_room_id = ? AND game_name = ?`,
             gameRoomId, gameName
         );

@@ -684,7 +684,7 @@ export class LeaderboardService {
     /**
      * Get leaderboards for all active games, optionally filtered by game room.
      */
-    static async getActiveLeaderboards(gameRoomId?: string): Promise<Array<{ gameId: string; gameName: string; displayName: string | null; tournamentName: string; tournamentType: string; imageUrl: string | null; gameStatus: string; catalogueStyleId: string | null; logoStyleId: string | null; bgStyleId: string | null; styleHeaderDisabled: boolean; externalUrl: string | null; notes: string | null; rankings: RankedEntry[]; nextMaintenanceAt: string | null; globalGameId: string | null }>> {
+    static async getActiveLeaderboards(gameRoomId?: string): Promise<Array<{ gameId: string; gameName: string; displayName: string | null; tournamentName: string; tournamentType: string; imageUrl: string | null; gameStatus: string; catalogueStyleId: string | null; logoStyleId: string | null; bgStyleId: string | null; styleHeaderDisabled: boolean; bgZoom: number | null; bgPosX: number | null; bgPosY: number | null; externalUrl: string | null; notes: string | null; rankings: RankedEntry[]; nextMaintenanceAt: string | null; globalGameId: string | null }>> {
         const db = await getDatabase();
 
         const roomFilter = gameRoomId ? ' AND t.game_room_id = ?' : '';
@@ -705,6 +705,12 @@ export class LeaderboardService {
                    CASE WHEN g.tournament_id IS NULL THEN 1 ELSE 0 END as is_pinned,
                    COALESCE(gg.local_image_path, gg.wheel_image_path, gg.image_url) as image_url,
                    g.catalogue_style_id, g.logo_style_id, g.bg_style_id, g.style_header_disabled,
+                   -- v2.115.0: per-game background framing. Per-FIELD COALESCE
+                   -- (not row-wins) so a room default still supplies the axes
+                   -- the game row leaves unset.
+                   COALESCE(g.bg_zoom, rl.bg_zoom) as bg_zoom,
+                   COALESCE(g.bg_pos_x, rl.bg_pos_x) as bg_pos_x,
+                   COALESCE(g.bg_pos_y, rl.bg_pos_y) as bg_pos_y,
                    g.tournament_id, g.external_url, g.notes,
                    -- v2.74.0 (S24.4): cadence + owning room ride along on the
                    -- row that needs them. Pre-S24 this method issued one
@@ -722,6 +728,7 @@ export class LeaderboardService {
             LEFT JOIN style_catalogue sc_bg ON g.bg_style_id = sc_bg.id
             LEFT JOIN style_catalogue sc_logo ON g.logo_style_id = sc_logo.id
             LEFT JOIN style_catalogue sc_cat ON g.catalogue_style_id = sc_cat.id
+            LEFT JOIN game_room_game_library rl ON rl.game_room_id = g.game_room_id AND LOWER(rl.game_name) = LOWER(g.name)
             WHERE g.status = 'ACTIVE'${roomFilter}
             GROUP BY COALESCE(g.tournament_id, g.id), g.name
             ORDER BY display_order ASC, g.start_date ASC
@@ -771,6 +778,9 @@ export class LeaderboardService {
                     SELECT g.id, g.name as game_name, g.display_name, g.status, g.tournament_id,
                            COALESCE(gg.local_image_path, gg.wheel_image_path, gg.image_url) as image_url,
                            g.catalogue_style_id, g.logo_style_id, g.bg_style_id, g.style_header_disabled,
+                           COALESCE(g.bg_zoom, rl.bg_zoom) as bg_zoom,
+                           COALESCE(g.bg_pos_x, rl.bg_pos_x) as bg_pos_x,
+                           COALESCE(g.bg_pos_y, rl.bg_pos_y) as bg_pos_y,
                            g.external_url, g.notes, g.end_date,
                            COALESCE(g.global_game_id, gg.id) as global_game_id,
                            sc_bg.has_background as bg_has_bg, sc_logo.has_header as logo_has_header,
@@ -783,6 +793,7 @@ export class LeaderboardService {
                     LEFT JOIN style_catalogue sc_bg ON g.bg_style_id = sc_bg.id
                     LEFT JOIN style_catalogue sc_logo ON g.logo_style_id = sc_logo.id
                     LEFT JOIN style_catalogue sc_cat ON g.catalogue_style_id = sc_cat.id
+                    LEFT JOIN game_room_game_library rl ON rl.game_room_id = g.game_room_id AND LOWER(rl.game_name) = LOWER(g.name)
                     WHERE g.tournament_id IN (${retainPlaceholders}) AND g.status = 'COMPLETED'
                 )
                 ORDER BY tournament_id, rn
@@ -932,6 +943,9 @@ export class LeaderboardService {
                 logoStyleId: game.logo_style_id || null,
                 bgStyleId: game.bg_style_id || null,
                 styleHeaderDisabled: game.style_header_disabled === 1,
+                bgZoom: game.bg_zoom ?? null,
+                bgPosX: game.bg_pos_x ?? null,
+                bgPosY: game.bg_pos_y ?? null,
                 bgHasBg: game.bg_has_bg ?? null,
                 logoHasHeader: game.logo_has_header ?? null,
                 catHasBg: game.cat_has_bg ?? null,

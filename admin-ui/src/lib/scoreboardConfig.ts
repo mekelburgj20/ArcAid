@@ -22,6 +22,14 @@ export interface ScoreboardConfig {
   minScores: number;
   showTimer: boolean;
   cardBgFill: boolean;
+  /**
+   * Owner ask, 2026-08-19 — the game-art block at the top of each card.
+   * Default ON. When off the cards drop the art imagery from their header
+   * region (Arcade's art panel, Banner's art strip + identifier, Showcase's
+   * floating identifier) but ALWAYS keep the game title, tournament chip and
+   * countdown: a card that loses its name is not a card any more.
+   */
+  gameHeaderEnabled: boolean;
   cardSpacing: number;
   titleFontSize: number;
 
@@ -151,6 +159,10 @@ export const TOGGLE_DEFAULT_ON = new Set([
   // Owner call, 2026-08-15 — both default ON product-wide.
   'SCOREBOARD_MOBILE_VERTICAL',
   'SCOREBOARD_CARD_BG_FILL',
+  // Owner ask, 2026-08-19 — the per-card game art block. Default ON so no
+  // existing room loses its art; surfaced to viewers inverted, as
+  // "Hide Game Art".
+  'SCOREBOARD_GAME_HEADER_ENABLED',
   // Not a scoreboard "feature" toggle but the same default-on rule: the logo
   // shows unless a room or viewer turns it off. Surfaced to viewers inverted,
   // as "Hide Game Room Logo".
@@ -221,6 +233,9 @@ export function deriveScoreboardConfig(config: Record<string, string>, roomName?
     // unless an admin found the toggle. Rooms that deliberately turned it off
     // keep it off — the stored 'false' still wins.
     cardBgFill: config.SCOREBOARD_CARD_BG_FILL !== 'false',
+    // Owner ask, 2026-08-19: default ON — absence means the art shows, exactly
+    // as every card behaved before the toggle existed.
+    gameHeaderEnabled: config.SCOREBOARD_GAME_HEADER_ENABLED !== 'false',
     cardSpacing: parseInt(config.SCOREBOARD_CARD_SPACING || '24', 10) || 24,
     titleFontSize: parseInt(config.SCOREBOARD_TITLE_FONT_SIZE || '0', 10) || 0,
 

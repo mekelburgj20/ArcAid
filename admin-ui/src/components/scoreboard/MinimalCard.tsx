@@ -8,6 +8,7 @@ import FitRowName from './FitRowName';
 import GameInfoPopup from './GameInfoPopup';
 import { useScoreExpand } from './useScoreExpand';
 import { qrEdgeMetrics, DEFAULT_QR_OFFSET_PX } from '../../lib/scoreboardConfig';
+import { bgTransformStyle } from '../../lib/bgFraming';
 import { formatScore } from '../../lib/format';
 import { resolveRowClick, opensQuickView, QUICK_VIEW_HINT } from '../../lib/scoreGesture';
 
@@ -26,6 +27,9 @@ interface MinimalCardProps {
   /** Signed distance from the anchored edge; negative overlaps into the card. */
   qrOffsetPx?: number;
   cardBgFill?: boolean;
+  /** v2.115.0 — accepted for CardRouter spread compat and deliberately inert:
+   *  Minimal never renders header art, so there is nothing for it to hide. */
+  gameHeaderEnabled?: boolean;
   titleFontSize?: number;
   gameTitleStyle?: string;
   onSubmitScore?: (lb: GameLeaderboard) => void;
@@ -140,7 +144,8 @@ export default function MinimalCard({
             className="absolute inset-0 z-0"
             style={{
               backgroundImage: `url(${bgImageUrl})`,
-              backgroundSize: 'cover', backgroundPosition: 'center',
+              backgroundSize: 'cover',
+              ...bgTransformStyle(lb),
             }}
           />
           <div className="absolute inset-0 z-0 bg-black/55" />

@@ -4,6 +4,10 @@ import NeonButton from './NeonButton';
 import ImageCropper from './ImageCropper';
 import { resizeImageToMaxBox } from '../lib/imageResize';
 import { api } from '../lib/api';
+import {
+  bgTransformStyle, resolveFraming, BG_ZOOM_MIN, BG_ZOOM_MAX, DEFAULT_BG_ZOOM, DEFAULT_BG_POS,
+  type BgFraming,
+} from '../lib/bgFraming';
 
 interface Style {
   id: string;
@@ -21,9 +25,28 @@ interface StylePickerProps {
   currentStyleId?: string | null;
   /** Whether header is currently disabled */
   headerDisabled?: boolean;
-  /** Called when a style is selected (or cleared) */
-  onSelect: (styleId: string | null, headerDisabled: boolean, setAsDefault?: boolean, imageType?: ImageApplyType) => void;
+  /**
+   * Called when a style is selected (or cleared).
+   *
+   * `framing` is present only when `showFraming` is on, and always carries the
+   * picker's full current state — the write paths treat a missing axis as
+   * "unframed", so a partial object would silently reset one.
+   */
+  onSelect: (styleId: string | null, headerDisabled: boolean, setAsDefault?: boolean, imageType?: ImageApplyType, framing?: BgFraming) => void;
   onClose: () => void;
+  /**
+   * v2.115.0 — show the background framing controls (zoom + drag). Off for
+   * targets with no per-game background to frame, e.g. the ranking-group
+   * style picker, whose endpoint takes a style id and nothing else.
+   */
+  showFraming?: boolean;
+  /** Current framing of the target, if any. */
+  bgZoom?: number | null;
+  bgPosX?: number | null;
+  bgPosY?: number | null;
+  /** Background the card falls back to when the chosen style has none (the
+   *  catalogue image). Used for the framing preview only. */
+  fallbackBgUrl?: string | null;
   /** Show "Set as default style for this game" checkbox */
   showDefaultOption?: boolean;
   /** Whether the library already has a default style for this game */
@@ -38,7 +61,22 @@ interface StylePickerProps {
 
 const PAGE_SIZE = 30;
 
-export default function StylePicker({ currentStyleId, headerDisabled = false, onSelect, onClose, showDefaultOption = false, libraryHasDefault = false, showImageTypeSelector = false, uploadPath, gameName }: StylePickerProps) {
+export default function StylePicker({
+  currentStyleId,
+  headerDisabled = false,
+  onSelect,
+  onClose,
+  showDefaultOption = false,
+  libraryHasDefault = false,
+  showImageTypeSelector = false,
+  uploadPath,
+  gameName,
+  showFraming = false,
+  bgZoom,
+  bgPosX,
+  bgPosY,
+  fallbackBgUrl,
+}: StylePickerProps) {
   const [styles, setStyles] = useState<Style[]>([]);
   const [total, setTotal] = useState(0);
   const [query, setQuery] = useState('');
@@ -50,6 +88,14 @@ export default function StylePicker({ currentStyleId, headerDisabled = false, on
   const [setAsDefault, setSetAsDefault] = useState(!libraryHasDefault);
   const [imageType, setImageType] = useState<ImageApplyType>('both');
   const [showUpload, setShowUpload] = useState(false);
+
+  // ── Background framing (v2.115.0) ────────────────────────────────────────
+  const initialFraming = resolveFraming({ bgZoom, bgPosX, bgPosY });
+  const [zoom, setZoom] = useState(initialFraming.zoom);
+  const [posX, setPosX] = useState(initialFraming.posX);
+  const [posY, setPosY] = useState(initialFraming.posY);
+  const previewRef = useRef<HTMLDivElement>(null);
+  const dragStart = useRef<{ clientX: number; clientY: number; posX: number; posY: number } | null>(null);
 
   const fetchStyles = useCallback(async (q: string, off: number) => {
     setLoading(true);
@@ -83,6 +129,41 @@ export default function StylePicker({ currentStyleId, headerDisabled = false, on
   const totalPages = Math.ceil(total / PAGE_SIZE);
 
   const backdropMouseDown = useRef(false);
+
+  // The background the framing acts on: the chosen style's, else the game's
+  // catalogue art (which is what the card falls back to). No image → nothing
+  // to frame, so the section stays hidden.
+  const framingBgUrl = (selectedId && selectedStyle?.has_background)
+    ? `/api/styles/images/backgrounds/${selectedId}.png`
+    : (fallbackBgUrl || null);
+  const framingVisible = showFraming && !!framingBgUrl && imageType !== 'logo';
+
+  const clampPct = (n: number) => Math.min(100, Math.max(0, n));
+
+  const beginDrag = (e: React.PointerEvent<HTMLDivElement>) => {
+    previewRef.current?.setPointerCapture?.(e.pointerId);
+    dragStart.current = { clientX: e.clientX, clientY: e.clientY, posX, posY };
+  };
+  const onDrag = (e: React.PointerEvent<HTMLDivElement>) => {
+    const start = dragStart.current;
+    const box = previewRef.current;
+    if (!start || !box) return;
+    const rect = box.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    // Subtraction, not addition: a HIGHER background-position percentage pulls
+    // the image left/up, so dragging right has to lower it for the image to
+    // follow the pointer.
+    setPosX(clampPct(start.posX - ((e.clientX - start.clientX) / rect.width) * 100));
+    setPosY(clampPct(start.posY - ((e.clientY - start.clientY) / rect.height) * 100));
+  };
+  const endDrag = (e: React.PointerEvent<HTMLDivElement>) => {
+    dragStart.current = null;
+    previewRef.current?.releasePointerCapture?.(e.pointerId);
+  };
+
+  /** The framing to emit — only when the section is actually in play. */
+  const framingOut = (): BgFraming | undefined =>
+    showFraming ? { bgZoom: zoom, bgPosX: posX, bgPosY: posY } : undefined;
 
   return (
     <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onMouseDown={e => { backdropMouseDown.current = e.target === e.currentTarget; }} onClick={e => { if (e.target === e.currentTarget && backdropMouseDown.current) onClose(); }}>
@@ -246,6 +327,57 @@ export default function StylePicker({ currentStyleId, headerDisabled = false, on
             </label>
           ) : null}
 
+          {/* Background framing — zoom + drag, live against the real image.
+              The preview box CLIPS, exactly like the card's background layer,
+              so what an admin frames here is what the card renders. */}
+          {framingVisible ? (
+            <div className="mb-3">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-sm text-muted">Background framing</span>
+                <button
+                  onClick={() => { setZoom(DEFAULT_BG_ZOOM); setPosX(DEFAULT_BG_POS); setPosY(DEFAULT_BG_POS); }}
+                  className="text-xs text-muted hover:text-neon-cyan bg-transparent border-0 cursor-pointer"
+                >
+                  Reset framing
+                </button>
+              </div>
+              <div
+                ref={previewRef}
+                onPointerDown={beginDrag}
+                onPointerMove={onDrag}
+                onPointerUp={endDrag}
+                onPointerCancel={endDrag}
+                data-testid="framing-preview"
+                className="relative w-full h-32 rounded overflow-hidden border border-border bg-raised cursor-move touch-none"
+                title="Drag to reposition"
+              >
+                <div
+                  className="absolute inset-0"
+                  style={{
+                    backgroundImage: `url(${framingBgUrl})`,
+                    backgroundSize: 'cover',
+                    ...bgTransformStyle({ bgZoom: zoom, bgPosX: posX, bgPosY: posY }),
+                  }}
+                />
+              </div>
+              <div className="flex items-center gap-2 mt-2">
+                <span className="text-xs text-muted shrink-0">Zoom</span>
+                <input
+                  type="range"
+                  aria-label="Background zoom"
+                  min={BG_ZOOM_MIN}
+                  max={BG_ZOOM_MAX}
+                  step={5}
+                  value={zoom}
+                  onChange={e => setZoom(Number(e.target.value))}
+                  className="flex-1 accent-neon-cyan cursor-pointer"
+                />
+                <span className="text-xs text-neon-cyan font-mono w-12 text-right">{zoom}%</span>
+              </div>
+              <p className="text-[11px] text-faint mt-1">Drag the preview to move the image behind the card.</p>
+            </div>
+          ) : null}
+
           {/* Set as default toggle */}
           {showDefaultOption && selectedId ? (
             <label className="flex items-center gap-2 mb-3 cursor-pointer">
@@ -264,6 +396,8 @@ export default function StylePicker({ currentStyleId, headerDisabled = false, on
           ) : null}
 
           <div className="flex justify-between gap-2">
+            {/* Clearing the style clears the framing with it — there is no
+                background left for it to describe. */}
             <NeonButton variant="ghost" onClick={() => onSelect(null, false, showDefaultOption ? setAsDefault : undefined, showImageTypeSelector ? imageType : undefined)}>
               Clear Style
             </NeonButton>
@@ -271,7 +405,7 @@ export default function StylePicker({ currentStyleId, headerDisabled = false, on
               <NeonButton variant="ghost" onClick={onClose}>Cancel</NeonButton>
               <NeonButton
                 disabled={!selectedId}
-                onClick={() => onSelect(selectedId, disableHeader, showDefaultOption ? setAsDefault : undefined, showImageTypeSelector ? imageType : undefined)}
+                onClick={() => onSelect(selectedId, disableHeader, showDefaultOption ? setAsDefault : undefined, showImageTypeSelector ? imageType : undefined, framingOut())}
               >
                 Apply Style
               </NeonButton>

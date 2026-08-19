@@ -66,6 +66,10 @@ const TOGGLE_PREFS: PrefDef[] = [
   // `invert` rather than adding a second key that means the opposite.
   { key: 'SCOREBOARD_LOGO_ENABLED', label: 'Hide Game Room Logo', description: 'Hide the room logo shown beside the leaderboard title', type: 'toggle', invert: true },
   { key: 'SCOREBOARD_CARD_BG_FILL', label: 'Card Background Fill', description: 'Game background images fill the entire card for an immersive look', type: 'toggle' },
+  // Owner ask, 2026-08-19. Inverted for the same reason as the logo above: the
+  // stored key is SCOREBOARD_GAME_HEADER_ENABLED (default on), and a viewer
+  // reaching for this is looking for a way to switch the art OFF.
+  { key: 'SCOREBOARD_GAME_HEADER_ENABLED', label: 'Hide Game Art', description: "Hide the art block at the top of each game card. Titles, tournament labels and countdowns stay.", type: 'toggle', invert: true },
   { key: 'SCOREBOARD_RANKINGS_STICKY', label: 'Always Visible Rankings', description: 'Keep the Overall Rankings card pinned on screen', type: 'toggle' },
   { key: 'SCOREBOARD_SHOW_TIMER', label: 'Show Countdown Timer', description: 'Display time remaining until next rotation', type: 'toggle' },
 ];
@@ -188,6 +192,7 @@ const ADVANCED_GROUPS: AdvancedGroup[] = [
       'SCOREBOARD_TITLE_HIDDEN',
       'SCOREBOARD_LOGO_ENABLED',
       'SCOREBOARD_CARD_BG_FILL',
+      'SCOREBOARD_GAME_HEADER_ENABLED',
       'SCOREBOARD_SHOW_TIMER',
       'SCOREBOARD_GAME_TITLE_STYLE',
       'SCOREBOARD_MAX_SCORES',
@@ -242,11 +247,13 @@ export default function ScoreboardPreferencesModal({
   const [saving, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [confirmResetAll, setConfirmResetAll] = useState(false);
   const [device, setDevice] = useState<DeviceType>(window.innerWidth <= 640 ? 'mobile' : 'desktop');
 
   useEffect(() => {
     if (!open || !playerToken) return;
     setLoaded(false);
+    setConfirmResetAll(false);
     fetch(`/api/me/scoreboard-preferences?device=${device}`, {
       headers: { Authorization: `Bearer ${playerToken}` },
     })
@@ -267,36 +274,41 @@ export default function ScoreboardPreferencesModal({
     });
   };
 
-  const handleSave = async () => {
+  /**
+   * `source` exists for Reset All: React state updates are not synchronous, so
+   * a reset that called `setPrefs({})` and then this would save the PREVIOUS
+   * prefs. The empty object is passed straight in instead.
+   */
+  const handleSave = async (source: Record<string, string> = prefs) => {
     setSaving(true);
     try {
       // Build the payload: explicitly set keys with values, clear removed keys by sending null
       const payload: Record<string, string | null> = {};
 
       // Theme
-      payload['UI_THEME'] = prefs['UI_THEME'] ?? null;
+      payload['UI_THEME'] = source['UI_THEME'] ?? null;
       // Style + theme
-      payload['SCOREBOARD_STYLE'] = prefs['SCOREBOARD_STYLE'] ?? null;
-      payload['SCOREBOARD_THEME'] = prefs['SCOREBOARD_THEME'] ?? null;
+      payload['SCOREBOARD_STYLE'] = source['SCOREBOARD_STYLE'] ?? null;
+      payload['SCOREBOARD_THEME'] = source['SCOREBOARD_THEME'] ?? null;
 
       // All toggle prefs
       for (const { key } of TOGGLE_PREFS) {
-        payload[key] = prefs[key] ?? null;
+        payload[key] = source[key] ?? null;
       }
       // All select prefs
       for (const { key } of SELECT_PREFS) {
-        payload[key] = prefs[key] ?? null;
+        payload[key] = source[key] ?? null;
       }
       // Advanced number prefs
       for (const { key } of ADVANCED_NUMBER_PREFS) {
-        payload[key] = prefs[key] ?? null;
+        payload[key] = source[key] ?? null;
       }
       // Mobile prefs
       for (const { key } of MOBILE_PREFS) {
-        payload[key] = prefs[key] ?? null;
+        payload[key] = source[key] ?? null;
       }
       // Zoom
-      payload[ZOOM_PREF.key] = prefs[ZOOM_PREF.key] ?? null;
+      payload[ZOOM_PREF.key] = source[ZOOM_PREF.key] ?? null;
 
       await fetch(`/api/me/scoreboard-preferences?device=${device}`, {
         method: 'POST',
@@ -313,6 +325,19 @@ export default function ScoreboardPreferencesModal({
     } finally {
       setSaving(false);
     }
+  };
+
+  /**
+   * Owner ask, 2026-08-19 — one action that hands the whole view back to the
+   * room's defaults. It has to go through `handleSave`, which enumerates EVERY
+   * key and posts the unset ones as null: the backend deletes keys posted as
+   * null and leaves absent keys alone, so posting a bare `{}` would clear
+   * nothing at all.
+   */
+  const handleResetAll = async () => {
+    setConfirmResetAll(false);
+    setPrefs({});
+    await handleSave({});
   };
 
   if (!open) return null;
@@ -455,9 +480,42 @@ export default function ScoreboardPreferencesModal({
           <div className="px-5 py-8 text-center text-muted text-sm">Loading...</div>
         ) : (
           <div className="px-5 py-4 space-y-1">
-            <p className="text-xs text-muted mb-3">
-              Override room defaults for your {device} leaderboard view. Reset a setting to use the room admin's default.
-            </p>
+            <div className="flex items-start justify-between gap-3 mb-3">
+              <p className="text-xs text-muted">
+                Override room defaults for your {device} leaderboard view. Reset a setting to use the room admin's default.
+              </p>
+              {!confirmResetAll && (
+                <button
+                  onClick={() => setConfirmResetAll(true)}
+                  className="shrink-0 text-xs text-muted hover:text-neon-cyan flex items-center gap-1 cursor-pointer"
+                  title={`Clear every ${device} preference override`}
+                >
+                  <RotateCcw size={12} /> Reset All
+                </button>
+              )}
+            </div>
+            {confirmResetAll && (
+              <div className="mb-3 rounded border border-border bg-raised px-3 py-2 flex items-center justify-between gap-3">
+                <span className="text-xs text-muted">
+                  Clear every {device} preference and go back to the room's defaults?
+                </span>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={() => setConfirmResetAll(false)}
+                    className="text-xs text-muted hover:text-primary cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleResetAll}
+                    disabled={saving}
+                    className="text-xs font-medium text-neon-cyan hover:brightness-110 disabled:opacity-50 cursor-pointer"
+                  >
+                    Reset everything
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* ── Card Style ───────────────────────────────────────── */}
             <div className="py-2">
@@ -603,7 +661,7 @@ export default function ScoreboardPreferencesModal({
             Cancel
           </button>
           <button
-            onClick={handleSave}
+            onClick={() => handleSave()}
             disabled={saving}
             className="px-4 py-2 text-sm bg-neon-cyan text-deep font-medium rounded hover:bg-neon-cyan/80 disabled:opacity-50 cursor-pointer"
           >

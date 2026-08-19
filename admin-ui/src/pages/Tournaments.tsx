@@ -78,6 +78,10 @@ interface ActiveGame {
   start_date: string;
   catalogue_style_id: string | null;
   style_header_disabled: number;
+  /** v2.115.0 — per-game background framing (null = unframed). */
+  bg_zoom: number | null;
+  bg_pos_x: number | null;
+  bg_pos_y: number | null;
 }
 
 interface RetainedCompletedGame {
@@ -667,18 +671,23 @@ export default function Tournaments() {
           libraryHasDefault={libraryHasDefault}
           uploadPath={`/rooms/${room.roomId}/admin/styles/upload`}
           gameName={styleTarget.name}
+          showFraming
+          bgZoom={styleTarget.bg_zoom}
+          bgPosX={styleTarget.bg_pos_x}
+          bgPosY={styleTarget.bg_pos_y}
           onClose={() => setStyleTarget(null)}
-          onSelect={async (styleId, headerDisabled, setAsDefault, imageType) => {
+          onSelect={async (styleId, headerDisabled, setAsDefault, imageType, framing) => {
             try {
               if (styleId) {
                 if (imageType && imageType !== 'both') {
                   await api.put(`/rooms/${room.roomId}/admin/games/${styleTarget.id}/image`, {
-                    styleId, imageType,
+                    styleId, imageType, ...framing,
                   });
                 } else {
                   await api.put(`/rooms/${room.roomId}/admin/games/${styleTarget.id}/style`, {
                     catalogueStyleId: styleId,
                     headerDisabled,
+                    ...framing,
                   });
                 }
                 toast('Style applied', 'success');
@@ -692,12 +701,13 @@ export default function Tournaments() {
                   if (styleId) {
                     if (imageType && imageType !== 'both') {
                       await api.put(`/rooms/${room.roomId}/game_library/${encodeURIComponent(styleTarget.name)}/image`, {
-                        styleId, imageType,
+                        styleId, imageType, ...framing,
                       });
                     } else {
                       await api.put(`/rooms/${room.roomId}/game_library/${encodeURIComponent(styleTarget.name)}/style`, {
                         catalogueStyleId: styleId,
                         headerDisabled,
+                        ...framing,
                       });
                     }
                     toast('Default style updated in library', 'success');

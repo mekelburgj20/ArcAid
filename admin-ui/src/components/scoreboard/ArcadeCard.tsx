@@ -10,6 +10,7 @@ import ArcadePodium from './ArcadePodium';
 import { arcadeNeonKey } from './arcadeNeon';
 import { useScoreExpand } from './useScoreExpand';
 import { qrEdgeMetrics, DEFAULT_QR_OFFSET_PX } from '../../lib/scoreboardConfig';
+import { bgTransformStyle } from '../../lib/bgFraming';
 import { formatScore } from '../../lib/format';
 import { resolveRowClick, opensQuickView, QUICK_VIEW_HINT } from '../../lib/scoreGesture';
 
@@ -76,6 +77,9 @@ interface ArcadeCardProps {
   /** Signed distance from the anchored edge; negative overlaps into the card. */
   qrOffsetPx?: number;
   cardBgFill?: boolean;
+  /** v2.115.0 — when false the art panel collapses to a compact header that
+   *  still carries the chip, the title and the countdown. */
+  gameHeaderEnabled?: boolean;
   titleFontSize?: number;
   gameTitleStyle?: string;
   onSubmitScore?: (lb: GameLeaderboard) => void;
@@ -200,6 +204,7 @@ export default function ArcadeCard({
   qrPosition = 'top-center',
   qrOffsetPx = DEFAULT_QR_OFFSET_PX,
   cardBgFill = false,
+  gameHeaderEnabled = true,
   titleFontSize,
   gameTitleStyle = 'default',
   onSubmitScore,
@@ -304,11 +309,16 @@ export default function ArcadeCard({
             an `inset-0` layer would paint over the frame's inner edge. */}
         {cardBgFill && bgImage && (
           <>
-            <div
-              className="absolute inset-px z-0 rounded-[8px]"
-              style={{ backgroundImage: `url(${bgImage})`, backgroundSize: 'cover', backgroundPosition: 'center' }}
-              aria-hidden="true"
-            />
+            {/* The wrapper is what CLIPS. `arc-card` deliberately doesn't clip
+                (its frame's fringe rings sit outside the box), so a framing
+                `scale()` on the image layer would paint past the card without
+                this. */}
+            <div className="absolute inset-px z-0 overflow-hidden rounded-[8px]" aria-hidden="true">
+              <div
+                className="absolute inset-0"
+                style={{ backgroundImage: `url(${bgImage})`, backgroundSize: 'cover', ...bgTransformStyle(lb) }}
+              />
+            </div>
             <div className="absolute inset-px z-0 rounded-[8px] bg-black/60" aria-hidden="true" />
           </>
         )}
@@ -316,11 +326,17 @@ export default function ArcadeCard({
         {/* 1. Art — the top REGION, and the surface the title is set on.
                `m-3` is the whole geometry rule: one 12px gutter on all four
                sides, and the podium below adds no top padding of its own. */}
+        {/* With the art switched off this same block becomes a COMPACT header:
+            natural height, no art surface, but the chip/title stack (and the
+            countdown, which has no art corner to ride any more) still render.
+            The testid stays on both shapes so the contract is assertable. */}
         <div
           data-testid="arcade-art"
-          className="relative z-[1] m-3 h-[176px] shrink-0 overflow-hidden rounded-[6px] bg-raised"
+          className={gameHeaderEnabled
+            ? 'relative z-[1] m-3 h-[176px] shrink-0 overflow-hidden rounded-[6px] bg-raised'
+            : 'relative z-[1] mx-3 mt-3 shrink-0 rounded-[6px]'}
         >
-          {bgImage ? (
+          {gameHeaderEnabled && (bgImage ? (
             <img
               src={bgImage}
               alt=""
@@ -331,12 +347,12 @@ export default function ArcadeCard({
             <div className="absolute inset-0 flex items-center justify-center bg-deep text-[12px] text-muted">
               No image
             </div>
-          )}
+          ))}
           {/* The room's identifier art (admin style header), when set. It sits
               in the LOWER half so the title's scrim band stays clear of it —
               Banner hides its title when an identifier exists, but Arcade sets
               the title on the art rather than above it, so both can coexist. */}
-          {styleHeaderUrl && (
+          {gameHeaderEnabled && styleHeaderUrl && (
             <img
               src={styleHeaderUrl}
               alt=""
@@ -348,11 +364,13 @@ export default function ArcadeCard({
               to setting 22px type over an arbitrary backglass. Polarity-
               flipping token: the light theme gets a white veil under dark ink
               rather than an island of white-on-black. */}
-          <div
-            className="absolute inset-x-0 top-0 h-[72%]"
-            style={{ background: 'var(--sb-art-scrim-top)' }}
-            aria-hidden="true"
-          />
+          {gameHeaderEnabled && (
+            <div
+              className="absolute inset-x-0 top-0 h-[72%]"
+              style={{ background: 'var(--sb-art-scrim-top)' }}
+              aria-hidden="true"
+            />
+          )}
 
           {/* Header, over the art — a centered STACK: tournament chip (+lock)
               on top, game title beneath it (owner field revision 2026-08-13:
@@ -361,7 +379,7 @@ export default function ArcadeCard({
               submit "+" overlay in the top-right corner. `pointer-events-none`
               with each interactive child opting back in, so the gaps don't
               become dead strips. */}
-          <div className="pointer-events-none absolute inset-x-0 top-0 z-[2] flex flex-col items-center gap-1.5 p-2">
+          <div className={`pointer-events-none ${gameHeaderEnabled ? 'absolute inset-x-0 top-0' : 'relative'} z-[2] flex flex-col items-center gap-1.5 p-2`}>
             {(label || lb.gameStatus === 'COMPLETED') && (
               <div className="pointer-events-auto flex items-center justify-center gap-1.5">
                 {label && (
@@ -397,11 +415,17 @@ export default function ArcadeCard({
                 {title}
               </h3>
             )}
+
+            {/* Art off: the countdown joins the stack, since the art corner it
+                normally rides no longer exists. */}
+            {!gameHeaderEnabled && showTimer && countdown && (
+              <span className="sb-fs-10 font-mono text-[10px] text-muted">{countdown}</span>
+            )}
           </div>
 
           {/* The countdown rides the bottom-left of the art, out of the
               title's way and off the podium's first row. */}
-          {showTimer && countdown && (
+          {gameHeaderEnabled && showTimer && countdown && (
             <span
               className="sb-fs-10 absolute bottom-1 left-2 z-[2] font-mono text-[10px]"
               style={{ color: 'var(--sb-art-meta-strong)', textShadow: 'var(--sb-art-title-shadow)' }}

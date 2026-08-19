@@ -38,6 +38,9 @@ interface GameRow {
   catalogue_aliases?: string[];
   catalogue_style_id?: string | null;
   style_header_disabled?: number;
+  /** Catalogue art the card falls back to — the framing preview's image when
+   *  the chosen style carries no background of its own. */
+  image_url?: string | null;
 }
 
 const emptyAddForm = { name: '', mode: 'pinball', platforms: '' };
@@ -1895,17 +1898,19 @@ export default function GameLibrary() {
           showImageTypeSelector
           uploadPath={`/rooms/${room.roomId}/admin/styles/upload`}
           gameName={styleTarget.name}
+          showFraming
+          fallbackBgUrl={styleTarget.image_url ?? null}
           onClose={() => setStyleTarget(null)}
-          onSelect={async (styleId, headerDisabled, _setAsDefault, imageType) => {
+          onSelect={async (styleId, headerDisabled, _setAsDefault, imageType, framing) => {
             try {
               if (styleId) {
                 if (imageType && imageType !== 'both') {
                   await api.put(`/rooms/${room.roomId}/game_library/${encodeURIComponent(styleTarget.name)}/image`, {
-                    styleId, imageType,
+                    styleId, imageType, ...framing,
                   });
                 } else {
                   await api.put(`/rooms/${room.roomId}/game_library/${encodeURIComponent(styleTarget.name)}/style`, {
-                    catalogueStyleId: styleId, headerDisabled,
+                    catalogueStyleId: styleId, headerDisabled, ...framing,
                   });
                 }
                 toast('Default style set', 'success');

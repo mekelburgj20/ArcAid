@@ -177,6 +177,21 @@ describe('deriveScoreboardConfig', () => {
       expect(deriveScoreboardConfig({ SCOREBOARD_CARD_BG_FILL: 'anything-else' }).cardBgFill).toBe(true);
     });
   });
+  // Owner ask (2026-08-19): the per-card game art block is ON unless a room or
+  // viewer turned it off — absence must never read as "hide the art", or every
+  // existing room loses its art on upgrade.
+  describe('gameHeaderEnabled', () => {
+    it('defaults to true when SCOREBOARD_GAME_HEADER_ENABLED is unset', () => {
+      expect(deriveScoreboardConfig({}).gameHeaderEnabled).toBe(true);
+      expect(deriveScoreboardConfig({ SCOREBOARD_STYLE: 'arcade' }).gameHeaderEnabled).toBe(true);
+    });
+
+    it('honors an explicit opt-out and ignores junk', () => {
+      expect(deriveScoreboardConfig({ SCOREBOARD_GAME_HEADER_ENABLED: 'false' }).gameHeaderEnabled).toBe(false);
+      expect(deriveScoreboardConfig({ SCOREBOARD_GAME_HEADER_ENABLED: 'true' }).gameHeaderEnabled).toBe(true);
+      expect(deriveScoreboardConfig({ SCOREBOARD_GAME_HEADER_ENABLED: 'anything-else' }).gameHeaderEnabled).toBe(true);
+    });
+  });
   /**
    * Owner call, 2026-08-15: the QR anchors to an EDGE and is always centred
    * horizontally, and its distance from that edge is a SIGNED offset —

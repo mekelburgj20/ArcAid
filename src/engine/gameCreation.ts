@@ -71,7 +71,8 @@ export async function pinGameToScoreboard(opts: PinGameOptions): Promise<PinGame
         opts.gameName,
     );
     const styleOverlay = await db.get(
-        `SELECT catalogue_style_id, logo_style_id, bg_style_id, style_header_disabled
+        `SELECT catalogue_style_id, logo_style_id, bg_style_id, style_header_disabled,
+                bg_zoom, bg_pos_x, bg_pos_y
          FROM game_room_game_library
          WHERE game_name = ? COLLATE NOCASE AND game_room_id = ?`,
         opts.gameName, opts.roomId,
@@ -98,14 +99,19 @@ export async function pinGameToScoreboard(opts: PinGameOptions): Promise<PinGame
         `INSERT INTO games (
             id, tournament_id, game_room_id, name, global_game_id, status, start_date, created_at,
             style_id, catalogue_style_id, logo_style_id, bg_style_id, style_header_disabled,
+            bg_zoom, bg_pos_x, bg_pos_y,
             display_name, external_url
-         ) VALUES (?, NULL, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         ) VALUES (?, NULL, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         gameId, opts.roomId, opts.gameName, globalGameId, nowIso, nowIso,
         styleId,
         libEntry?.catalogue_style_id ?? null,
         libEntry?.logo_style_id ?? null,
         libEntry?.bg_style_id ?? null,
         libEntry?.style_header_disabled ?? 0,
+        // v2.115.0: background framing follows the library default onto the pin.
+        libEntry?.bg_zoom ?? null,
+        libEntry?.bg_pos_x ?? null,
+        libEntry?.bg_pos_y ?? null,
         displayName,
         externalUrl,
     );

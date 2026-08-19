@@ -368,18 +368,23 @@ export default function Leaderboard() {
           uploadPath={`/rooms/${room.roomId}/admin/styles/upload`}
           gameName={styleTarget.gameName}
           libraryHasDefault={libraryHasDefault}
+          showFraming
+          bgZoom={styleTarget.bgZoom}
+          bgPosX={styleTarget.bgPosX}
+          bgPosY={styleTarget.bgPosY}
+          fallbackBgUrl={styleTarget.imageUrl}
           onClose={() => setStyleTarget(null)}
-          onSelect={async (styleId, headerDisabled, setAsDefault, imageType) => {
+          onSelect={async (styleId, headerDisabled, setAsDefault, imageType, framing) => {
             try {
               if (styleId) {
                 // Use new image endpoint for logo/background, legacy for 'both'
                 if (imageType && imageType !== 'both') {
                   await api.put(`/rooms/${room.roomId}/admin/games/${styleTarget.gameId}/image`, {
-                    styleId, imageType,
+                    styleId, imageType, ...framing,
                   });
                 } else {
                   await api.put(`/rooms/${room.roomId}/admin/games/${styleTarget.gameId}/style`, {
-                    catalogueStyleId: styleId, headerDisabled,
+                    catalogueStyleId: styleId, headerDisabled, ...framing,
                   });
                 }
                 toast('Style applied', 'success');
@@ -392,11 +397,11 @@ export default function Leaderboard() {
                   if (styleId) {
                     if (imageType && imageType !== 'both') {
                       await api.put(`/rooms/${room.roomId}/game_library/${encodeURIComponent(styleTarget.gameName)}/image`, {
-                        styleId, imageType,
+                        styleId, imageType, ...framing,
                       });
                     } else {
                       await api.put(`/rooms/${room.roomId}/game_library/${encodeURIComponent(styleTarget.gameName)}/style`, {
-                        catalogueStyleId: styleId, headerDisabled,
+                        catalogueStyleId: styleId, headerDisabled, ...framing,
                       });
                     }
                     toast('Default style updated in library', 'success');
