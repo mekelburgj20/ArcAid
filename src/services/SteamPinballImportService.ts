@@ -270,7 +270,7 @@ function checkSkip(stripped: string): { reason: string; packish: boolean } | nul
  * collapsed. User preference: catalogue stays clean of TM/R/C/SM symbols
  * regardless of source feed.
  */
-function cleanTableName(s: string): string {
+export function cleanTableName(s: string): string {
     let out = s.replace(/[™®©℠]/g, '').replace(/\s+/g, ' ').trim();
     if (out.length >= 2) {
         const first = out[0];
@@ -282,6 +282,23 @@ function cleanTableName(s: string): string {
             (first === '‘' && last === '’');     // curly single
         if (matchedPair) out = out.slice(1, -1).trim();
     }
+
+    // Zaccaria names a great many of its DLCs "<table> Table" or "<table>
+    // Deluxe Pinball Table", and the suffix was landing in the catalogue: a
+    // 2026-08-18 dry run against a copy of prod found 19 rows named
+    // "Blackbelt Table", "Combat Deluxe Pinball Table", "Strike Table" and so
+    // on — the last of which is a THIRD copy of a table already held twice.
+    //
+    // This is NOT a pack-expansion problem; those rows arrive through the
+    // single-DLC path and always have. The skip list only catches the plural
+    // "Tables", so the singular sails straight through.
+    //
+    // Trade-off accepted: a table genuinely named "... Table" would lose the
+    // word. No such row exists in the Steam feed, and the catalogue's existing
+    // "King Arthur and his Round Table" is a VPX row that never passes through
+    // here. Worth revisiting only if Steam ships a counter-example.
+    out = out.replace(/\s+(?:Pinball\s+)?Table$/i, '').trim() || out;
+
     return out;
 }
 
@@ -349,7 +366,8 @@ export class SteamPinballImportService {
      * Import a single Steam product. Returns per-product metrics so importAll
      * can aggregate.
      */
-    private static async importProduct(product: SteamProduct): Promise<{
+    /** Exposed for the dry-run harness; importAll is the production entry point. */
+    public static async importProduct(product: SteamProduct): Promise<{
         imported: number;
         updated: number;
         skipped: number;

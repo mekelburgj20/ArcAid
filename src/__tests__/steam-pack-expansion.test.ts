@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { extractPackTables } from '../services/SteamPinballImportService.js';
+import { extractPackTables, cleanTableName } from '../services/SteamPinballImportService.js';
 
 /**
  * Steam pack auto-expansion (2026-08-18).
@@ -160,5 +160,36 @@ describe('extractPackTables — theme parentheticals on either side of the suffi
     it('names match the sibling pack that writes it the other way round', () => {
         const a = extractPackTables(BRAIN_DAMAGED);
         expect(a.every(n => !n.includes('('))).toBe(true);
+    });
+});
+
+describe('cleanTableName — the " Table" suffix from single-DLC names', () => {
+    /**
+     * Pre-existing flaw the pack dry run surfaced: Zaccaria names many DLCs
+     * "<table> Table" or "<table> Deluxe Pinball Table", the skip list only
+     * catches the PLURAL "Tables", and the suffix landed in the catalogue —
+     * a prod-copy run found 19 such rows, one of which ("Combat Deluxe Pinball
+     * Table") was a THIRD copy of a table already held twice.
+     *
+     * These assertions exist because the first version of this fix shipped as
+     * /s+(?:Pinballs+)?Table$/ — backslashes eaten in transit — which compiled,
+     * typechecked, and matched nothing. Only the dry run caught it.
+     */
+    it.each([
+        ['Blackbelt Table', 'Blackbelt'],
+        ['Combat Deluxe Pinball Table', 'Combat Deluxe'],
+        ['Locomotion 2018 Table', 'Locomotion 2018'],
+        ['Strike Table', 'Strike'],
+    ])('strips the suffix: %s -> %s', (input, expected) => {
+        expect(cleanTableName(input)).toBe(expected);
+    });
+
+    it('leaves suffix-free names alone', () => {
+        expect(cleanTableName('Time Machine Retro')).toBe('Time Machine Retro');
+        expect(cleanTableName('Combat EM+')).toBe('Combat EM+');
+    });
+
+    it('never strips a name down to nothing', () => {
+        expect(cleanTableName('Table')).toBe('Table');
     });
 });
