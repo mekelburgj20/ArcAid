@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, setToken, getToken } from '../lib/api';
+import { api, setToken, getToken, getTokenRole } from '../lib/api';
 import NeonButton from '../components/NeonButton';
 
 function decodeJwtPayload(token: string): Record<string, unknown> | null {
@@ -28,10 +28,13 @@ export default function Login({ onLogin }: { onLogin: () => void }) {
   const [discordLoading, setDiscordLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
 
-  // Redirect if already authenticated with a valid token
+  // Redirect if already authenticated with a valid SUPER token. Role-checked:
+  // a room_admin/player token in the slot would bounce /superadmin →
+  // /admin/dashboard → SuperAdminLayout's role guard → landing page, and the
+  // visitor could never reach this form (2026-08-19 login-routing fixes).
   useEffect(() => {
     const token = getToken();
-    if (token && isTokenValid(token)) {
+    if (token && isTokenValid(token) && getTokenRole() === 'super_admin') {
       onLogin();
       navigate('/admin/dashboard', { replace: true });
     }

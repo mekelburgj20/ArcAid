@@ -98,6 +98,24 @@ export class AdminService {
         return rows.map((r: any) => r.game_room_id);
     }
 
+    /**
+     * Slugs for a set of room ids, in the SAME order as the input — the FE
+     * treats roomSlugs[0] as the room-admin's primary room when routing a
+     * login that carries no room context (the generic /login page's
+     * `state=__super__` flow). Rooms that no longer exist are skipped.
+     */
+    static async getRoomSlugs(roomIds: string[]): Promise<string[]> {
+        if (roomIds.length === 0) return [];
+        const db = await getDatabase();
+        const placeholders = roomIds.map(() => '?').join(', ');
+        const rows = await db.all(
+            `SELECT id, slug FROM game_rooms WHERE id IN (${placeholders})`,
+            ...roomIds
+        );
+        const slugById = new Map<string, string>(rows.map((r: any) => [r.id, r.slug]));
+        return roomIds.map(id => slugById.get(id)).filter((s): s is string => !!s);
+    }
+
     static async addRoomDiscordAdmin(
         gameRoomId: string, discordUserId: string, role: 'admin' | 'owner' = 'admin'
     ): Promise<void> {

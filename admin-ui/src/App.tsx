@@ -134,8 +134,12 @@ function App() {
         {/* Landing page */}
         <Route path="/" element={<ViewerAuthProvider><LandingPage /></ViewerAuthProvider>} />
 
-        {/* Super admin login */}
-        <Route path="/login" element={<Login onLogin={() => setAuthed(true)} />} />
+        {/* Super admin login — deliberately obscure URL (owner ask, 2026-08-19).
+            The old /login confused room admins into the __super__ OAuth flow
+            (RetroTechX lockout); mistaken visits now land on the public
+            landing page instead of an admin login form. */}
+        <Route path="/superadmin" element={<Login onLogin={() => setAuthed(true)} />} />
+        <Route path="/login" element={<Navigate to="/" replace />} />
 
         {/* Discord OAuth callback */}
         <Route path="/auth/discord/callback" element={<DiscordCallback onLogin={() => setAuthed(true)} />} />

@@ -20,6 +20,14 @@ const JWT_EXPIRY = '24h';
 export interface TokenPayload {
     role: 'room_admin' | 'super_admin' | 'player';
     gameRoomIds: string[];
+    // Slugs matching gameRoomIds, room_admin only. The OAuth callback pages
+    // route a room-admin login that carries no room context (the generic
+    // /login page, state=__super__) to `/${roomSlugs[0]}/admin/dashboard`;
+    // without this claim they fell through to the SUPER-admin dashboard,
+    // whose layout bounced the non-super token straight back to /login
+    // (RetroTechX lockout, 2026-08-19). ABSENT on legacy tokens — the FE
+    // fallback handles that until they expire.
+    roomSlugs?: string[];
     // Identity — exactly one of these is set:
     discordId?: string;
     localAdminId?: string;
@@ -145,7 +153,8 @@ export async function refreshAccessToken(
     } else {
         const roomIds = await AdminService.getRoomsForDiscordUser(discordId);
         if (roomIds.length > 0) {
-            payload = { role: 'room_admin', gameRoomIds: roomIds, discordId, username, avatar, provider };
+            const roomSlugs = await AdminService.getRoomSlugs(roomIds);
+            payload = { role: 'room_admin', gameRoomIds: roomIds, roomSlugs, discordId, username, avatar, provider };
         } else {
             payload = { role: 'player', gameRoomIds: [], discordId, username, avatar, provider };
         }

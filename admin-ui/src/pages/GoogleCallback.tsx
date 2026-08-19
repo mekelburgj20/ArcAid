@@ -217,25 +217,23 @@ export default function GoogleCallback({ onLogin }: { onLogin: () => void }) {
           }
 
           if (role === 'room_admin') {
-            const gameRoomIds = payload.gameRoomIds as string[] | undefined;
             if (state && state !== '__super__') {
               window.location.href = `/${state}/admin/dashboard`;
               return;
             }
+            // v2.114.1 — the token now carries roomSlugs (RetroTechX lockout;
+            // see DiscordCallback for the full story).
             const roomSlugs = payload.roomSlugs as string[] | undefined;
             if (roomSlugs && roomSlugs.length > 0) {
               window.location.href = `/${roomSlugs[0]}/admin/dashboard`;
               return;
             }
-            if (gameRoomIds && gameRoomIds.length > 0) {
-              window.location.href = '/admin/dashboard';
-              return;
-            }
           }
         }
 
-        // Default: go to super admin dashboard
-        window.location.href = '/admin/dashboard';
+        // Default: the landing page. Never assume super — only a super_admin
+        // token (handled above) belongs on /admin/*.
+        window.location.href = '/';
       })
       .catch(err => {
         setError(
@@ -271,8 +269,12 @@ export default function GoogleCallback({ onLogin }: { onLogin: () => void }) {
               wrong CTA and would suggest they've been signed out. */}
           {isLinkFlow ? (
             <a href="/account/settings" className="text-neon-cyan hover:underline text-sm">Back to Account Settings</a>
+          ) : state && state !== '__super__' && !state.startsWith('player:') ? (
+            // Bare slug = a room login flow — send them back to THAT room's
+            // login, not the (now obscure) super one.
+            <a href={`/${state}/login`} className="text-neon-cyan hover:underline text-sm">Back to Login</a>
           ) : (
-            <a href="/login" className="text-neon-cyan hover:underline text-sm">Back to Login</a>
+            <a href="/" className="text-neon-cyan hover:underline text-sm">Back to Arcaid</a>
           )}
         </div>
       </div>

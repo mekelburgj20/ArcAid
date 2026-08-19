@@ -260,25 +260,25 @@ export default function DiscordCallback({ onLogin }: { onLogin: () => void }) {
           }
 
           if (role === 'room_admin') {
-            const gameRoomIds = payload.gameRoomIds as string[] | undefined;
             if (state && state !== '__super__') {
               window.location.href = `/${state}/admin/dashboard`;
               return;
             }
+            // v2.114.1 — the token now carries roomSlugs (RetroTechX lockout:
+            // a room admin arriving via the generic super login page used to
+            // fall through to /admin/dashboard, whose layout bounced the
+            // non-super token straight back to the login form).
             const roomSlugs = payload.roomSlugs as string[] | undefined;
             if (roomSlugs && roomSlugs.length > 0) {
               window.location.href = `/${roomSlugs[0]}/admin/dashboard`;
               return;
             }
-            if (gameRoomIds && gameRoomIds.length > 0) {
-              window.location.href = '/admin/dashboard';
-              return;
-            }
           }
         }
 
-        // Default: go to super admin dashboard
-        window.location.href = '/admin/dashboard';
+        // Default: the landing page. Never assume super — only a super_admin
+        // token (handled above) belongs on /admin/*.
+        window.location.href = '/';
       })
       .catch(err => {
         setError(
@@ -314,8 +314,12 @@ export default function DiscordCallback({ onLogin }: { onLogin: () => void }) {
               identity they started as); "Back to Login" is the wrong CTA. */}
           {isLinkFlow ? (
             <a href="/account/settings" className="text-neon-cyan hover:underline text-sm">Back to Account Settings</a>
+          ) : state && state !== '__super__' && !state.startsWith('player:') && !isConnectFlow ? (
+            // Bare slug = a room login flow — send them back to THAT room's
+            // login, not the (now obscure) super one.
+            <a href={`/${state}/login`} className="text-neon-cyan hover:underline text-sm">Back to Login</a>
           ) : (
-            <a href="/login" className="text-neon-cyan hover:underline text-sm">Back to Login</a>
+            <a href="/" className="text-neon-cyan hover:underline text-sm">Back to Arcaid</a>
           )}
         </div>
       </div>

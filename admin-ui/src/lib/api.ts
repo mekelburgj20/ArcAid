@@ -124,7 +124,9 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     if (slug) {
       window.location.href = `/${slug}/login`;
     } else {
-      window.location.href = '/login';
+      // Expired session outside a room context = a super admin on /admin/*.
+      // Their login form lives at the obscure /superadmin (2026-08-19).
+      window.location.href = '/superadmin';
     }
     throw new Error('Session expired');
   }
@@ -188,7 +190,8 @@ export const api = {
       .then(async res => {
         if (res.status === 401) {
           setToken(null);
-          window.location.href = '/login';
+          const slug = getSlugFromPath();
+          window.location.href = slug ? `/${slug}/login` : '/superadmin';
           throw new Error('Session expired');
         }
         if (!res.ok) {
