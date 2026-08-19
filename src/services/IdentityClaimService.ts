@@ -183,6 +183,76 @@ export class IdentityClaimService {
     }
 
     /**
+     * P2 (2026-08-19) — should the submit response offer this player the name
+     * they just submitted under?
+     *
+     * The case: a room synced its history from iScored, so the board already
+     * carries scores under "ChalataLove" that belong to nobody. A player logs
+     * in, submits under that same name, and today nothing connects the two —
+     * they end up as two rows on the same board (the ChalataLove double-entry
+     * that started this arc). Offering the claim at the exact moment the two
+     * names coincide is the cheapest possible prompt.
+     *
+     * Returns null unless every condition holds, because an offer the player
+     * cannot accept is worse than no offer:
+     *   • the name is unclaimed by ANYONE (a claimed name is not on offer, and
+     *     one already theirs needs no prompt),
+     *   • it carries SYNCED scores in THIS room — `source = 'sync'` is the
+     *     whole point (their own community/tournament rows are not evidence of
+     *     a separate iScored identity), so this deliberately does NOT reuse the
+     *     all-source counts in `listPending`/`resolveReviewRoom`,
+     *   • they are under the alias cap,
+     *   • they have no pending request for it already.
+     *
+     * Runs inline in a submit response, so any failure is swallowed: a broken
+     * offer must never fail a score submission.
+     */
+    static async claimOfferForSubmit(
+        userId: string,
+        roomId: string,
+        username: string,
+    ): Promise<{ iscoredUsername: string; syncScoreCount: number } | null> {
+        try {
+            const name = (username ?? '').trim();
+            if (!name) return null;
+
+            const db = await getDatabase();
+
+            const mapped = await db.get(
+                'SELECT discord_user_id FROM user_mappings WHERE LOWER(iscored_username) = LOWER(?)',
+                name,
+            );
+            if (mapped) return null;
+
+            // Stored casing comes from the rows themselves — the offer names the
+            // identity as the board shows it, not as the player typed it.
+            const synced = await db.get(
+                `SELECT iscored_username, COUNT(*) AS n FROM score_history
+                  WHERE game_room_id = ? AND source = 'sync' AND LOWER(iscored_username) = LOWER(?)
+                  GROUP BY LOWER(iscored_username)`,
+                roomId, name,
+            );
+            if (!synced?.n) return null;
+
+            if (await this.aliasCount(userId) >= MAX_ALIASES) return null;
+
+            // Same claimant-id semantics as `claim`'s ALREADY_PENDING check —
+            // an offer that would bounce with "already pending" is not an offer.
+            const pending = await db.get(
+                `SELECT id FROM identity_claims WHERE claimant_user_id = ?
+                   AND LOWER(iscored_username) = LOWER(?) AND status = 'pending'`,
+                userId, name,
+            );
+            if (pending) return null;
+
+            return { iscoredUsername: synced.iscored_username as string, syncScoreCount: synced.n as number };
+        } catch (error) {
+            logWarn('Identity claim offer could not be computed (submit continues):', error);
+            return null;
+        }
+    }
+
+    /**
      * Which room should review a claim filed from a global surface (Account
      * Settings has no room context, but a queue does).
      *

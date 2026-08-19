@@ -71,6 +71,10 @@ interface RenderOpts {
     platformsResponse?: object;
     /** When true, the platforms fetch rejects (simulates a network failure). */
     fail?: boolean;
+    /** Body for the score POST (`/submit-score/...`) — identity P2's `claimOffer` lives here. */
+    submitResponse?: object;
+    /** Body + status for the identity-claim POST (`/identity/claims`). */
+    claimResponse?: { ok?: boolean; body?: object };
 }
 
 function renderSheet(opts: RenderOpts = {}) {
@@ -81,13 +85,28 @@ function renderSheet(opts: RenderOpts = {}) {
         ...opts.target,
     } as SubmissionTarget;
 
-    const fetchMock = vi.fn((url: string) => {
+    const fetchMock = vi.fn((url: string, _init?: RequestInit) => {
         if (url.startsWith('/api/submit/platforms')) {
             if (opts.fail) return Promise.reject(new Error('network failure'));
             return Promise.resolve({
                 ok: true,
                 status: 200,
                 json: () => Promise.resolve(opts.platformsResponse ?? {}),
+            });
+        }
+        if (url.includes('/identity/claims')) {
+            const claim = opts.claimResponse ?? {};
+            return Promise.resolve({
+                ok: claim.ok ?? true,
+                status: claim.ok === false ? 409 : 200,
+                json: () => Promise.resolve(claim.body ?? {}),
+            });
+        }
+        if (url.includes('/submit-score/')) {
+            return Promise.resolve({
+                ok: true,
+                status: 201,
+                json: () => Promise.resolve(opts.submitResponse ?? {}),
             });
         }
         return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({}) });
@@ -180,6 +199,108 @@ describe('SubmissionSheet — engine/device derivation', () => {
         // Device section never renders when there are no engine options.
         expect(screen.queryByText('Device')).not.toBeInTheDocument();
         expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+    });
+});
+
+/**
+ * Identity P2 — the success card offers an unclaimed iScored name when the
+ * submit response says the recorded name already carries synced scores in the
+ * room. Accepting files a claim; "Not me" is remembered per room + name so the
+ * prompt never nags on later submissions.
+ */
+describe('SubmissionSheet — identity claim offer (P2)', () => {
+    beforeEach(() => {
+        vi.restoreAllMocks();
+        localStorage.clear();
+    });
+
+    const OFFER = { iscoredUsername: 'ChalataLove', syncScoreCount: 4 };
+
+    /** Fills the form and submits — engine/device auto-lock on a `real` payload. */
+    async function submitScore() {
+        await screen.findByText('Real Cabinet');
+        fireEvent.change(screen.getByPlaceholderText('0'), { target: { value: '4200' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Submit Score' }));
+    }
+
+    function renderWithOffer(opts: Omit<RenderOpts, 'platformsResponse' | 'submitResponse'> = {}) {
+        return renderSheet({
+            ...opts,
+            platformsResponse: platformsPayload({ submittable: ['real'] }),
+            submitResponse: { displayName: 'ChalataLove', claimOffer: OFFER },
+        });
+    }
+
+    it('prompts with the synced name when the submit response carries an offer', async () => {
+        signIn();
+        renderWithOffer();
+        await submitScore();
+
+        expect(await screen.findByText(/There are already scores here under/)).toBeInTheDocument();
+        expect(screen.getByText('ChalataLove')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /Yes — link it to my account/ })).toBeInTheDocument();
+    });
+
+    it('no prompt when the response carries no offer', async () => {
+        signIn();
+        renderSheet({
+            platformsResponse: platformsPayload({ submittable: ['real'] }),
+            submitResponse: { displayName: 'Tester', claimOffer: null },
+        });
+        await submitScore();
+
+        expect(await screen.findByText('Score submitted!')).toBeInTheDocument();
+        expect(screen.queryByText(/There are already scores here under/)).not.toBeInTheDocument();
+    });
+
+    it('"Yes" posts the claim and reports the auto-approval', async () => {
+        signIn();
+        const { fetchMock } = renderWithOffer({
+            claimResponse: { body: { result: 'auto_approved', matchedOn: 'your account username' } },
+        });
+        await submitScore();
+
+        fireEvent.click(await screen.findByRole('button', { name: /Yes — link it to my account/ }));
+
+        expect(await screen.findByText('Linked — that matched your account username.')).toBeInTheDocument();
+        const claimCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/identity/claims'));
+        expect(claimCall).toBeTruthy();
+        expect(String(claimCall![0])).toBe('/api/rooms/room-1/identity/claims');
+        const init = claimCall![1] as RequestInit;
+        expect(init.method).toBe('POST');
+        expect(JSON.parse(init.body as string)).toEqual({ iscoredUsername: 'ChalataLove' });
+    });
+
+    it('a refused claim shows the server message', async () => {
+        signIn();
+        renderWithOffer({ claimResponse: { ok: false, body: { error: 'That name is already linked to another account.' } } });
+        await submitScore();
+
+        fireEvent.click(await screen.findByRole('button', { name: /Yes — link it to my account/ }));
+
+        expect(await screen.findByText('That name is already linked to another account.')).toBeInTheDocument();
+    });
+
+    it('"Not me" hides the prompt and remembers the refusal', async () => {
+        signIn();
+        renderWithOffer();
+        await submitScore();
+
+        fireEvent.click(await screen.findByRole('button', { name: 'Not me' }));
+
+        await waitFor(() =>
+            expect(screen.queryByText(/There are already scores here under/)).not.toBeInTheDocument());
+        expect(localStorage.getItem('arcaid_claim_offer_dismissed:room-1:chalatalove')).toBeTruthy();
+    });
+
+    it('a previously dismissed name never prompts again', async () => {
+        signIn();
+        localStorage.setItem('arcaid_claim_offer_dismissed:room-1:chalatalove', new Date().toISOString());
+        renderWithOffer();
+        await submitScore();
+
+        expect(await screen.findByText('Score submitted!')).toBeInTheDocument();
+        expect(screen.queryByText(/There are already scores here under/)).not.toBeInTheDocument();
     });
 });
 

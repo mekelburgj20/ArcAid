@@ -305,6 +305,98 @@ describe('identity claims — review-room routing (global surface)', () => {
     });
 });
 
+describe('identity claims — the submit-time offer (P2)', () => {
+    beforeEach(async () => { await setupTestDb(); });
+
+    async function seedScores(roomId: string, name: string, source: string, count: number) {
+        const db = await getDatabase();
+        for (let i = 0; i < count; i++) {
+            await db.run(
+                `INSERT INTO score_history (game_name, iscored_username, score, source, game_room_id, created_at)
+                 VALUES (?, ?, ?, ?, ?, datetime('now'))`,
+                'Game' + i, name, 100 + i, source, roomId,
+            );
+        }
+    }
+
+    it('offers the name — in the casing the board stores — with its synced-score count', async () => {
+        const roomId = await setup();
+        await seedUser('P-offer', { username: 'somebody' });
+        await seedScores(roomId, 'ChalataLove', 'sync', 4);
+
+        const offer = await IdentityClaimService.claimOfferForSubmit('P-offer', roomId, 'chalatalove');
+
+        expect(offer).toEqual({ iscoredUsername: 'ChalataLove', syncScoreCount: 4 });
+    });
+
+    it('matches case-insensitively in both directions', async () => {
+        const roomId = await setup();
+        await seedUser('P-case', { username: 'somebody' });
+        await seedScores(roomId, 'chalatalove', 'sync', 1);
+
+        const offer = await IdentityClaimService.claimOfferForSubmit('P-case', roomId, 'CHALATALOVE');
+        expect(offer?.iscoredUsername).toBe('chalatalove');
+    });
+
+    it('offers nothing when the name is already claimed — by anyone', async () => {
+        const roomId = await setup();
+        await seedUser('P-holder'); await giveAlias('P-holder', 'Taken');
+        await seedUser('P-asker', { username: 'somebody' });
+        await seedScores(roomId, 'Taken', 'sync', 3);
+
+        expect(await IdentityClaimService.claimOfferForSubmit('P-asker', roomId, 'Taken')).toBeNull();
+        // Including when the holder is the submitter themselves — nothing to offer.
+        expect(await IdentityClaimService.claimOfferForSubmit('P-holder', roomId, 'taken')).toBeNull();
+    });
+
+    it('offers nothing for non-synced history — their own scores are not evidence', async () => {
+        const roomId = await setup();
+        await seedUser('P-own', { username: 'somebody' });
+        await seedScores(roomId, 'OwnName', 'tournament', 2);
+        await seedScores(roomId, 'OwnName', 'community', 2);
+
+        expect(await IdentityClaimService.claimOfferForSubmit('P-own', roomId, 'OwnName')).toBeNull();
+    });
+
+    it('offers nothing when the name has no history at all', async () => {
+        const roomId = await setup();
+        await seedUser('P-none', { username: 'somebody' });
+
+        expect(await IdentityClaimService.claimOfferForSubmit('P-none', roomId, 'Nobody')).toBeNull();
+        expect(await IdentityClaimService.claimOfferForSubmit('P-none', roomId, '   ')).toBeNull();
+    });
+
+    it('is scoped to the room — synced scores elsewhere do not prompt here', async () => {
+        const here = await setup();
+        const elsewhere = await setup();
+        await seedUser('P-room', { username: 'somebody' });
+        await seedScores(elsewhere, 'FarAway', 'sync', 5);
+
+        expect(await IdentityClaimService.claimOfferForSubmit('P-room', here, 'FarAway')).toBeNull();
+        expect(await IdentityClaimService.claimOfferForSubmit('P-room', elsewhere, 'FarAway')).not.toBeNull();
+    });
+
+    it('offers nothing at the alias cap — an offer that cannot be accepted is worse than none', async () => {
+        const roomId = await setup();
+        await seedUser('P-cap', { username: 'somebody' });
+        for (let i = 0; i < MAX_ALIASES; i++) await giveAlias('P-cap', `Held${i}`);
+        await seedScores(roomId, 'Capped', 'sync', 2);
+
+        expect(await IdentityClaimService.claimOfferForSubmit('P-cap', roomId, 'Capped')).toBeNull();
+    });
+
+    it('offers nothing while the same claimant already has that request pending', async () => {
+        const roomId = await setup();
+        await seedUser('P-pend', { username: 'somebody' });
+        await seedScores(roomId, 'Queued', 'sync', 2);
+        expect(await IdentityClaimService.claimOfferForSubmit('P-pend', roomId, 'Queued')).not.toBeNull();
+
+        await IdentityClaimService.claim('P-pend', roomId, 'Queued');
+
+        expect(await IdentityClaimService.claimOfferForSubmit('P-pend', roomId, 'queued')).toBeNull();
+    });
+});
+
 describe('identity claims — the storage-layer guard (migration 153)', () => {
     beforeEach(async () => { await setupTestDb(); });
 

@@ -2347,7 +2347,15 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, requireDiscordUser,
             platform,
         }));
 
-        res.status(201).json(result);
+        // Identity P2 — offer the claim when the name this score landed under
+        // already carries unclaimed iScored-synced history here. Additive; the
+        // service swallows its own failures and returns null.
+        const { IdentityClaimService } = await import('../../services/IdentityClaimService.js');
+        const claimOffer = await IdentityClaimService.claimOfferForSubmit(
+            req.user!.discordId!, roomId, effectiveUsername,
+        );
+
+        res.status(201).json({ ...result, claimOffer });
     } catch (error) {
         if ((error as Error & { code?: string })?.code === 'NAME_NOT_ALLOWED') {
             return res.status(400).json({ error: (error as Error).message, code: 'NAME_NOT_ALLOWED' });
@@ -2503,12 +2511,19 @@ router.post('/:roomId/freeplay-score', writeLimiter, requireDiscordUser, require
             platform,
         }));
 
+        // Identity P2 — see the submit-score handler's note.
+        const { IdentityClaimService } = await import('../../services/IdentityClaimService.js');
+        const claimOffer = await IdentityClaimService.claimOfferForSubmit(
+            req.user!.discordId!, roomId, effectiveUsername,
+        );
+
         res.status(201).json({
             id: result.id,
             gameName: globalGame.name,
             displayName: result.displayName,
             suffixed: result.suffixed,
             requested: result.requested,
+            claimOffer,
         });
     } catch (error) {
         if ((error as Error & { code?: string })?.code === 'NAME_NOT_ALLOWED') {
