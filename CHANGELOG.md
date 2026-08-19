@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.113.0] — unreleased
+
+**Identity P2 — the claim is offered at the one moment the player can see both halves of their split identity.** A room that synced its history from iScored carries scores under names nobody holds. A logged-in player submits under the same name, and until now nothing connected the two: they became two rows on one board (the ChalataLove double-entry that opened this arc). The submit response now says so, and the success card asks.
+
+### Added
+- **Claim offer on the room submit response.** `POST /:roomId/submit-score/:gameName` and `POST /:roomId/freeplay-score` gained an additive `claimOffer` field — `{ iscoredUsername, syncScoreCount }` or `null`. Nothing else on either response changed.
+- **`IdentityClaimService.claimOfferForSubmit`** decides it, and returns null unless every condition holds, because an offer the player cannot accept is worse than no offer: the name is unclaimed by anyone, it carries `source = 'sync'` scores **in this room**, the claimant is under the alias cap, and they have no pending request for it. The `sync` predicate is the whole point — a player's own community/tournament rows are not evidence of a separate iScored identity — so this deliberately does not reuse the all-source counts behind the mod queue. The offer names the identity in the casing the board stores, not as the player typed it.
+- **The prompt on `SubmissionSheet`'s success card** — "There are already scores here under *Name*, synced from iScored. Is that you?" — with **Yes** filing a P1 claim through the existing `POST /:roomId/identity/claims` (so the same auto-approve boundary, alias cap and mod queue apply; outcome copy matches Account Settings). **Not me** is remembered per room + name in `localStorage`, so a declined offer never asks again.
+
+### Notes
+- The offer is computed inline in the submit handler and swallows its own failures: a broken offer must never fail a score submission.
+- Discord's `/submit-score` auto-map is untouched and still writes `user_mappings` directly, bypassing the cap and audit this path enforces. Tracked in `ROADMAP.md`.
+
 ## [2.112.0] — unreleased
 
 **The AtGames importer moves off the community Google Sheet and onto AtGames' own public API — and every table now says which studio made it.** The sheet gave names and nothing else, so every "Sync AtGames" click re-derived a table's identity from its name, which is the mechanism behind the 88 Zaccaria/AtGames duplicates repaired on prod 2026-08-16. AtGames' API carries a stable id.

@@ -123,6 +123,21 @@ export const PENDING_SUBMISSION_STORAGE_KEY = 'arcaid_pending_submission';
  */
 const LAST_DEVICE_KEY = 'arcaid_last_device';
 
+/**
+ * Identity P2 — the submit response offers an unclaimed iScored name when the
+ * one the score landed under already carries synced history in the room (see
+ * `IdentityClaimService.claimOfferForSubmit`). "Not me" is remembered per room
+ * + name so the prompt doesn't reappear on every subsequent submission.
+ */
+interface ClaimOffer {
+    iscoredUsername: string;
+    syncScoreCount: number;
+}
+
+function claimDismissKey(roomId: string, iscoredUsername: string): string {
+    return `arcaid_claim_offer_dismissed:${roomId}:${iscoredUsername.toLowerCase()}`;
+}
+
 export default function SubmissionSheet({
     target,
     onClose,
@@ -216,6 +231,10 @@ export default function SubmissionSheet({
     });
     // S5 — submit-moment ranking shown on the persistent success card.
     const [submitRank, setSubmitRank] = useState<SubmitRank | null>(null);
+    // Identity P2 — claim prompt on the success card (room targets only).
+    const [claimOffer, setClaimOffer] = useState<ClaimOffer | null>(null);
+    const [claimBusy, setClaimBusy] = useState(false);
+    const [claimMsg, setClaimMsg] = useState<{ ok: boolean; text: string } | null>(null);
     const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
     const [activeField, setActiveField] = useState<'name' | 'score' | null>(null);
     const [showKeyboard, setShowKeyboard] = useState(false);
@@ -369,6 +388,9 @@ export default function SubmissionSheet({
         if (fileInputRef.current) fileInputRef.current.value = '';
     };
 
+    /** Room the claim would be filed in — `global` targets have none. */
+    const claimRoomId = target.kind === 'global' ? null : target.roomId;
+
     /**
      * POST the score as the logged-in viewer. `phase` gates this behind
      * `loginRequired` on mount (see the `phase` initializer above), so
@@ -422,7 +444,10 @@ export default function SubmissionSheet({
             // v2.2.5: store the *resolved* display name (server-assigned for an
             // authed submitter, possibly auto-suffixed) so the next session
             // prefills with the sticky identity.
-            const responseData = data as { displayName?: string; suffixed?: boolean; requested?: string; rank?: SubmitRank | null };
+            const responseData = data as {
+                displayName?: string; suffixed?: boolean; requested?: string;
+                rank?: SubmitRank | null; claimOffer?: ClaimOffer | null;
+            };
             const resolvedName = responseData?.displayName || playerName.trim();
             localStorage.setItem('arcaid-player-name', resolvedName);
             setPlayerName(resolvedName);
@@ -431,6 +456,13 @@ export default function SubmissionSheet({
             // S5: capture the submit-moment rank (best-effort; null when the BE
             // couldn't compute it — the card falls back to a plain success line).
             setSubmitRank(responseData?.rank ?? null);
+            // Identity P2: only room targets carry an offer, and a name the
+            // player already said "not me" to never asks again.
+            const offer = responseData?.claimOffer;
+            if (offer?.iscoredUsername && claimRoomId
+                && !localStorage.getItem(claimDismissKey(claimRoomId, offer.iscoredUsername))) {
+                setClaimOffer(offer);
+            }
             setPhase('success');
             const successText = responseData?.suffixed && responseData.displayName && responseData.requested
                 ? `Submitted as ${responseData.displayName} — "${responseData.requested}" is already in use in this room.`
@@ -442,6 +474,44 @@ export default function SubmissionSheet({
             setPhase('error');
             setMessage({ text: err instanceof Error ? err.message : 'Submission failed', type: 'error' });
         }
+    };
+
+    /** Identity P2 — file the claim. Outcome copy mirrors Account Settings. */
+    const acceptClaimOffer = async () => {
+        if (!claimOffer || !claimRoomId || !playerToken) return;
+        setClaimBusy(true);
+        setClaimMsg(null);
+        try {
+            const res = await fetch(`/api/rooms/${claimRoomId}/identity/claims`, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${playerToken}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ iscoredUsername: claimOffer.iscoredUsername }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok) {
+                const outcome = data as { result?: string; matchedOn?: string };
+                setClaimMsg({
+                    ok: true,
+                    text: outcome.result === 'auto_approved'
+                        ? `Linked — that matched ${outcome.matchedOn}.`
+                        : outcome.result === 'already_yours'
+                            ? 'You already hold that name.'
+                            : 'Sent to a room admin for review.',
+                });
+            } else {
+                setClaimMsg({ ok: false, text: (data as { error?: string }).error ?? 'Could not claim that name.' });
+            }
+        } catch {
+            setClaimMsg({ ok: false, text: 'Network error.' });
+        }
+        setClaimBusy(false);
+    };
+
+    const dismissClaimOffer = () => {
+        if (claimOffer && claimRoomId) {
+            localStorage.setItem(claimDismissKey(claimRoomId, claimOffer.iscoredUsername), new Date().toISOString());
+        }
+        setClaimOffer(null);
     };
 
     const handleSubmitClick = async () => {
@@ -566,6 +636,39 @@ export default function SubmissionSheet({
                                 )}
                                 {message?.type === 'success' && message.text !== 'Score submitted!' && (
                                     <p className="text-xs text-muted">{message.text}</p>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Identity P2 — the name this score landed under already
+                            carries unclaimed iScored-synced scores in this room.
+                            Offering the link here is the one moment the player
+                            can see both halves of their split identity. */}
+                        {claimOffer && (
+                            <div className="text-left px-3 py-3 rounded-lg bg-neon-cyan/5 border border-neon-cyan/30 space-y-2">
+                                <p className="text-xs text-primary leading-relaxed break-words">
+                                    There are already scores here under{' '}
+                                    <span className="font-display font-bold text-neon-cyan">{claimOffer.iscoredUsername}</span>
+                                    , synced from iScored. Is that you?
+                                </p>
+                                {claimMsg ? (
+                                    <p className={`text-xs ${claimMsg.ok ? 'text-neon-green' : 'text-neon-amber'}`}>
+                                        {claimMsg.text}
+                                    </p>
+                                ) : (
+                                    <div className="grid grid-cols-1 gap-2">
+                                        <NeonButton onClick={acceptClaimOffer} disabled={claimBusy} className="w-full">
+                                            {claimBusy ? 'Linking…' : 'Yes — link it to my account'}
+                                        </NeonButton>
+                                        <button
+                                            type="button"
+                                            onClick={dismissClaimOffer}
+                                            disabled={claimBusy}
+                                            className="w-full px-4 py-2 rounded border border-border text-muted text-sm hover:text-primary hover:border-border/80 transition-colors cursor-pointer"
+                                        >
+                                            Not me
+                                        </button>
+                                    </div>
                                 )}
                             </div>
                         )}
