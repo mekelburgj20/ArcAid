@@ -193,9 +193,24 @@ export default function Scoreboard() {
     };
     const onLeaderboard = () => { loadData(); loadRankings(); };
     const onRotated = () => { loadData(); };
+    // v2.116.0 — a room admin saved the room's appearance. Same refetch the
+    // prefs modal does on save (viewer prefs are re-applied over the new room
+    // config, so a viewer's own overrides survive the room changing).
+    const onSettings = () => {
+      (async () => {
+        try {
+          const cfgRes = await fetch(`/api/rooms/${roomId}/scoreboard-config`, { headers: viewerHeaders });
+          const cfg = cfgRes.ok ? await cfgRes.json() : {};
+          setRoomConfig(cfg || {});
+          if (playerToken && await applyUserPrefs(cfg || {}, playerToken)) return;
+          setConfig(cfg || {});
+        } catch { /* ignore */ }
+      })();
+    };
     socket.on('score:new', onScore);
     socket.on('leaderboard:updated', onLeaderboard);
     socket.on('game:rotated', onRotated);
+    socket.on('settings:updated', onSettings);
 
     return () => {
       socket.emit('leave:room', roomId);
@@ -206,6 +221,7 @@ export default function Scoreboard() {
       socket.off('score:new', onScore);
       socket.off('leaderboard:updated', onLeaderboard);
       socket.off('game:rotated', onRotated);
+      socket.off('settings:updated', onSettings);
     };
   }, [roomId, playerToken]);
 

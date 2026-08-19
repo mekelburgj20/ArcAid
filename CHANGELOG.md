@@ -6,6 +6,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.116.0] — unreleased
+
+**Scoreboard appearance is edited on the scoreboard now, and the room sees the change without a reload.** The controls that dressed a room's cards lived on the Settings page next to a mock-data preview — three sample games, invented players — while the real board sat one nav item away. They move onto the admin Leaderboard page as an editing panel beside the actual cards, so every change previews on this room's own games and scores before it is saved. And because the room's other screens fetched their look exactly once, a save now announces itself: the kiosk on the wall re-dresses itself in about a second.
+
+### Added
+- **"Display settings" on the admin Leaderboard page.** Opens the room-display panel: Style Profiles → Look/Theme picker → the five card toggles → Fine tuning → Branding, structurally unchanged from the Settings card it replaces. On desktop it is a sticky 380px rail beside the board; below `lg` it is a bottom sheet with three snap points (peek / half / full) and a drag handle, so a mod editing from a phone keeps the live board visible above it.
+  - Edits go into a DRAFT of the room's scoreboard-config, and the surface renders the draft — the page is its own preview, with no second renderer to drift. A sticky Save/Discard bar appears when the draft differs from what's stored; Save posts only the changed keys. Closing with unsaved changes confirms first.
+  - Applying a style profile while the draft is dirty asks before it writes — a profile apply is a server-side write, and an unsaved draft would silently overwrite it on the next Save.
+  - **Phone preview** stays available as a desktop-only toggle in the panel: the room's real cards rendered inside a genuine 390px viewport, because mobile behaviour (the QR gate at ≤640px, the mobile scale/vertical settings) can't be seen from a desktop board.
+- **`settings:updated` — a room-scoped socket broadcast after any settings write** (the settings POST and a style-profile apply). The payload is deliberately empty: clients refetch `GET /:roomId/scoreboard-config`, which has its own key allowlist, rather than trusting anything pushed over the wire. The kiosk display and the public Scoreboard both listen and re-dress themselves; the public page re-applies the viewer's own preferences over the new room config, so a viewer's overrides survive the room changing underneath them. The admin Leaderboard listens too, but refetches ONLY while it has no unsaved draft.
+
+### Changed
+- **The Settings page's "Leaderboard Display" card is now a pointer**, not a control surface: one line of copy and a link to the room's Leaderboard page. Its keys stay claimed by `managedKeys` (the category's key list survives, and the toggle map is imported from `lib/displaySettings`), so nothing leaks into the raw "Other" card. The mock-data `ScoreboardPreview` sidebar retires with the section.
+- `StyleProfiles` accepts an optional `onBeforeApply` guard; omitting it keeps the existing apply-immediately behaviour.
+
+### Tests
+- New `settings-broadcast.test.ts` (3): the settings POST emits room-scoped, and neither a validation failure nor an unauthenticated write does.
+- New `DisplaySettingsPanel.test.tsx` (8): every relocated group renders, each control reports the key its Settings ancestor reported (default-resolved for toggles), and the phone preview only exists when the host supplies one.
+- New `LeaderboardDisplayRail.test.tsx` (8): the panel opens from the header, an edit reaches the real card props without touching the server, Save posts only the changed keys and re-baselines, Discard restores, an on-then-off toggle reads clean, closing dirty confirms, and `settings:updated` refetches only while clean.
+- New `LiveSettingsRefresh.test.tsx` (3): kiosk and public Scoreboard both refetch and re-render on `settings:updated`, and detach their handler on unmount.
+- Extended `Settings.test.tsx` (+2): the link card points at the room's Leaderboard page, and none of the ~33 relocated keys surfaces in the "Other" card.
+
 ## [2.115.0] — unreleased
 
 **Three owner asks about what a scoreboard card shows: the art can be switched off, the art that stays can be framed, and a viewer can undo all their tinkering in one click.** The first two are about rooms whose table art fights the scores rather than helping them — either the art goes, or it gets pushed into place. The third is the exit from a preferences panel with two dozen knobs in it.

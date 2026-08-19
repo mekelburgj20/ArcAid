@@ -70,7 +70,10 @@ export default function StyleThemePicker({ settings, onChange }: StyleThemePicke
             </span>
           )}
         </div>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {/* Always two columns: the picker's only host is the ~380px display
+            rail / bottom sheet, where a viewport-width sm: breakpoint would
+            wrongly grant 4 columns on desktop and crush the tiles to ~80px. */}
+        <div className="grid grid-cols-2 gap-2">
           {LOOK_DEFINITIONS.map(look => {
             // Highlight tracks the room's card family, exactly as it did
             // before Looks existed. Hand-tuning is reported by the

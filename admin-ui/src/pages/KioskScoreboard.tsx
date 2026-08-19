@@ -111,13 +111,26 @@ export default function KioskScoreboard() {
       }
     };
     const onUpdate = () => { loadData(); };
+    // v2.116.0 — an admin changed the room's appearance (typically from a
+    // phone, standing in front of this screen). The config was fetched ONCE on
+    // mount before this, so a look change needed a full page reload to land on
+    // a wall-mounted kiosk. Payload is empty by design; refetch the public
+    // config endpoint, which has its own key allowlist.
+    const onSettings = () => {
+      fetch(`/api/rooms/${roomId}/scoreboard-config`)
+        .then(r => (r.ok ? r.json() : null))
+        .then(cfg => { if (cfg) setConfig(cfg); })
+        .catch(() => { /* ignore */ });
+    };
     socket.on('score:new', onScore);
     socket.on('leaderboard:updated', onUpdate);
+    socket.on('settings:updated', onSettings);
     return () => {
       socket.emit('leave:room', roomId);
       socket.off('connect', onConnect);
       socket.off('score:new', onScore);
       socket.off('leaderboard:updated', onUpdate);
+      socket.off('settings:updated', onSettings);
     };
   }, [roomId, loadData]);
 

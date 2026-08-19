@@ -1,6 +1,6 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Search } from 'lucide-react';
+import { Search, SlidersHorizontal } from 'lucide-react';
 import { api, getToken, getTokenDiscordId } from '../lib/api';
 import { useRoom } from '../contexts/RoomContext';
 import { useToast } from '../components/Toast';
@@ -10,15 +10,18 @@ import NeonButton from '../components/NeonButton';
 import ConfirmModal from '../components/ConfirmModal';
 import LoadingState from '../components/LoadingState';
 import { InfoTip } from '../components/Tooltip';
-import StyleThemePicker from '../components/scoreboard/StyleThemePicker';
-import ScoreboardPreview from '../components/ScoreboardPreview';
-import TitleStyleSelect from '../components/TitleStyleSelect';
-import StyleProfiles from '../components/StyleProfiles';
-import { normalizeQrPosition, deriveQrOffsetPx, DEFAULT_QR_OFFSET_PX } from '../lib/scoreboardConfig';
-import ImageCropper from '../components/ImageCropper';
 import MemberAdminPicker from '../components/MemberAdminPicker';
-import { resizeImageToMaxBox } from '../lib/imageResize';
-import { getTitleStyleClass, getTitleSizeClass, PlayerAvatar } from '../components/ScoreboardComponents';
+import { PlayerAvatar } from '../components/ScoreboardComponents';
+// v2.116.0 (C1) — the Leaderboard Display controls moved to the admin
+// Leaderboard page's display rail, where they edit against the REAL
+// scoreboard. This page still has to CLAIM their keys (see `managedKeys`), so
+// the toggle map and the title-style option lists are imported from their new
+// home rather than re-declared here.
+import {
+  SCOREBOARD_TOGGLES,
+  TITLE_STYLE_OPTIONS,
+  TITLE_SIZE_OPTIONS,
+} from '../lib/displaySettings';
 
 /**
  * Validate-credentials button for the iScored Configuration card. Hits the
@@ -288,66 +291,16 @@ const LEGACY_CARD_KEYS = [
   'SCOREBOARD_SCORE_COLUMNS', 'SCOREBOARD_CARD_OPACITY',
 ];
 
-/**
- * Two heading tiers inside a settings card, and they must not look alike.
- *
- * Owner report, 2026-08-15: "Branding is the same heading style as Background
- * Image — even though Background Image is subordinate to Branding." It was:
- * the group heading and its own children were rendering the identical cyan
- * left-bar treatment, so the hierarchy read flat.
- *
- * GROUP  — a top-level division of the card (Advanced, Branding). Larger,
- *          wider tracking, full-width rule beneath it.
- * SUB    — a block inside a group (Background Image, Logo). The cyan left-bar,
- *          unchanged, and now visibly one level down.
- */
-const GROUP_HEADING_CLASS =
-  'text-[13px] font-display uppercase tracking-[0.18em] text-primary mb-3 pb-1.5 border-b border-border/40';
-const SUB_HEADING_CLASS =
-  'text-xs font-display uppercase tracking-wider text-neon-cyan/70 mb-2 pl-2 border-l-2 border-neon-cyan/30';
-
 const CATEGORIES: Record<string, string[]> = {
-  // Only keys with a LIVE control in this card. Every one of these is edited
-  // through StyleThemePicker or the Advanced block — the list now exists to
-  // mark the keys as managed and to keep the card rendering, not to generate
-  // inputs.
+  // v2.116.0 (C1) — this category no longer renders controls: its card is a
+  // pointer to the Leaderboard page's display rail. The key list STAYS,
+  // because `managedKeys` is built from CATEGORIES and dropping it would
+  // surface every one of these as a raw text input in the "Other" card.
   'Leaderboard Display': ['SCOREBOARD_LAYOUT', 'SCOREBOARD_GAME_TITLE_STYLE', 'SCOREBOARD_MAX_SCORES', 'SCOREBOARD_RANKINGS_POSITION', 'SCOREBOARD_ZOOM', 'SCOREBOARD_QR_MODE'],
   'Kiosk': ['KIOSK_REFRESH_SECONDS', 'KIOSK_ZOOM'],
   'Game Room': ['GAME_ROOM_NAME', 'GAME_ROOM_SLUG'],
   'Discord': ['DISCORD_GUILD_ID', 'DISCORD_ADMIN_ROLE_ID', 'DISCORD_ANNOUNCEMENT_CHANNEL_ID', 'DISCORD_INVITE_URL'],
   'iScored': ['ISCORED_USERNAME', 'ISCORED_PASSWORD', 'ISCORED_PUBLIC_URL'],
-};
-
-// Toggles that render inside the Scoreboard Display card
-// Style-system revamp P0 (honesty fix, item 9): SCOREBOARD_GAME_TITLE_ENHANCE
-// removed — it's read only by the legacy deriveCardProps path, so it does
-// nothing on any room using a card style (every room, post the P0 seed fix).
-// Stays honored in the legacy derivation until Phase 1 retires it.
-const SCOREBOARD_TOGGLES: Record<string, { label: string; description: string; defaultOn?: boolean }> = {
-  'SCOREBOARD_HIDE_EMPTY': {
-    label: 'Hide Empty Games',
-    description: 'When enabled, game cards with no scores are hidden from the public leaderboard.',
-  },
-  'SCOREBOARD_TITLE_HIDDEN': {
-    label: 'Hide Game Room Title',
-    description: 'When enabled, the game room name/heading (e.g., "Arcaid_Demo") is hidden on the public leaderboard.',
-  },
-  'SCOREBOARD_CARD_BG_FILL': {
-    label: 'Card Background Fill',
-    description: 'When enabled, game background images fill the entire card behind scores for an immersive look.',
-    // Owner call, 2026-08-15 — default ON, matching deriveScoreboardConfig.
-    defaultOn: true,
-  },
-  'SCOREBOARD_GAME_HEADER_ENABLED': {
-    label: 'Game Art Header',
-    description: "When enabled, each card shows the game's art block at the top. Turn it off for a text-first board — cards keep their title, tournament label and countdown either way.",
-    // Owner ask, 2026-08-19 — default ON, matching deriveScoreboardConfig.
-    defaultOn: true,
-  },
-  'SCOREBOARD_RANKINGS_STICKY': {
-    label: 'Always Visible Rankings',
-    description: 'When enabled, the Overall Rankings card stays pinned on screen and does not scroll away.',
-  },
 };
 
 // Style-system revamp P0 (item 10): REQUIRE_SCORE_PHOTO is submission policy,
@@ -522,35 +475,8 @@ const SETTING_LABELS: Record<string, { label: string; description: string }> = {
 };
 
 const SELECT_OPTIONS: Record<string, { value: string; label: string }[]> = {
-  SCOREBOARD_TITLE_STYLE: [
-    { value: 'default', label: 'Default' },
-    { value: 'glow', label: 'Neon Cyan' },
-    { value: 'neon-magenta', label: 'Neon Magenta' },
-    { value: 'chrome', label: 'Chrome' },
-    { value: 'fire', label: 'Fire' },
-    { value: 'plasma', label: 'Plasma' },
-    { value: 'backglass', label: 'Backglass' },
-    { value: 'marquee', label: 'Marquee' },
-    { value: 'retro', label: 'Retro' },
-    { value: 'pixel', label: 'Pixel' },
-    { value: 'shadow', label: 'Shadow' },
-    { value: 'arcade-red', label: 'Arcade Red' },
-    { value: 'arcade-cyan', label: 'Arcade Cyan' },
-    { value: 'arcade-amber', label: 'Arcade Amber' },
-    { value: 'arcade-green', label: 'Arcade Green' },
-    { value: 'holo', label: 'Holo Sweep' },
-    { value: 'outlined', label: 'Outlined' },
-  ],
-  SCOREBOARD_TITLE_SIZE: [
-    { value: 'xs', label: 'Extra Small' },
-    { value: 'sm', label: 'Small (Default)' },
-    { value: 'base', label: 'Medium' },
-    { value: 'lg', label: 'Large' },
-    { value: 'xl', label: 'Extra Large' },
-    { value: '2xl', label: '2X Large' },
-    { value: '3xl', label: '3X Large' },
-    { value: '4xl', label: '4X Large' },
-  ],
+  SCOREBOARD_TITLE_STYLE: TITLE_STYLE_OPTIONS,
+  SCOREBOARD_TITLE_SIZE: TITLE_SIZE_OPTIONS,
   SCOREBOARD_LAYOUT: [
     { value: 'scroll', label: 'Horizontal Scroll' },
     { value: 'vertical', label: 'Vertical Scroll' },
@@ -600,25 +526,7 @@ const SELECT_OPTIONS: Record<string, { value: string; label: string }[]> = {
     { value: 'outlined', label: 'Outlined (Stroke)' },
     { value: 'glow', label: 'Glow (Neon)' },
   ],
-  SCOREBOARD_GAME_TITLE_STYLE: [
-    { value: 'default', label: 'Default' },
-    { value: 'glow', label: 'Neon Cyan' },
-    { value: 'neon-magenta', label: 'Neon Magenta' },
-    { value: 'chrome', label: 'Chrome' },
-    { value: 'fire', label: 'Fire' },
-    { value: 'plasma', label: 'Plasma' },
-    { value: 'backglass', label: 'Backglass' },
-    { value: 'marquee', label: 'Marquee' },
-    { value: 'retro', label: 'Retro' },
-    { value: 'pixel', label: 'Pixel' },
-    { value: 'shadow', label: 'Shadow' },
-    { value: 'arcade-red', label: 'Arcade Red' },
-    { value: 'arcade-cyan', label: 'Arcade Cyan' },
-    { value: 'arcade-amber', label: 'Arcade Amber' },
-    { value: 'arcade-green', label: 'Arcade Green' },
-    { value: 'holo', label: 'Holo Sweep' },
-    { value: 'outlined', label: 'Outlined' },
-  ],
+  SCOREBOARD_GAME_TITLE_STYLE: TITLE_STYLE_OPTIONS,
   SCOREBOARD_SCORE_COLUMNS: [
     { value: '1', label: '1 Column (Default)' },
     { value: '2', label: '2 Columns (Side-by-Side)' },
@@ -681,15 +589,6 @@ export default function Settings() {
   // typeahead's suggestion list. Null for local-admin logins (no Discord
   // identity on that token).
   const viewerDiscordId = useMemo(() => getTokenDiscordId(), []);
-
-  // Branding upload state
-  const [bgUrl, setBgUrl] = useState('');
-  const [logoUrl, setLogoUrl] = useState('');
-  const [uploadingBg, setUploadingBg] = useState(false);
-  const [uploadingLogo, setUploadingLogo] = useState(false);
-  // Branding cropper state
-  const [brandingCropSrc, setBrandingCropSrc] = useState<string | null>(null);
-  const [brandingCropTarget, setBrandingCropTarget] = useState<'bg' | 'logo' | null>(null);
 
   const fetchAdmins = async () => {
     try {
@@ -772,15 +671,6 @@ export default function Settings() {
     }
   };
 
-  /** Re-pull the room's settings and re-baseline. Used on mount and after a
-   *  style profile is applied — the server has just rewritten some of these,
-   *  so the page must not keep showing (or re-saving) the pre-apply values. */
-  const reloadSettings = useCallback(async () => {
-    const data = await api.get<Record<string, string>>(`/rooms/${room.roomId}/settings`);
-    setSettings(data);
-    setBaseline({ ...data });
-  }, [room.roomId]);
-
   useEffect(() => {
     api.get<Record<string, string>>(`/rooms/${room.roomId}/settings`)
       .then(data => {
@@ -793,8 +683,6 @@ export default function Settings() {
         if (data.ADMIN_THEME && data.ADMIN_THEME !== adminTheme) {
           setAdminTheme(data.ADMIN_THEME as ThemeId);
         }
-        setBgUrl(data.SCOREBOARD_BG_URL || '');
-        setLogoUrl(data.LOGO_URL || '');
         setLoading(false);
       })
       .catch(() => { toast('Failed to load settings', 'error'); setLoading(false); });
@@ -859,43 +747,6 @@ export default function Settings() {
 
   const handleChange = (key: string, value: string) => {
     setSettings(prev => ({ ...prev, [key]: value }));
-  };
-
-  const uploadBrandingImage = async (target: 'bg' | 'logo', blob: Blob) => {
-    const endpoint = target === 'bg' ? 'background' : 'logo';
-    const setUploading = target === 'bg' ? setUploadingBg : setUploadingLogo;
-    setUploading(true);
-    try {
-      const formData = new FormData();
-      formData.append('file', new File([blob], `${endpoint}.png`, { type: 'image/png' }));
-      const result = await api.upload<{ success: boolean; url: string }>(`/rooms/${room.roomId}/admin/upload/${endpoint}`, formData);
-      if (target === 'bg') {
-        setBgUrl(result.url);
-        setSettings(prev => ({ ...prev, SCOREBOARD_BG_URL: result.url }));
-      } else {
-        setLogoUrl(result.url);
-        setSettings(prev => ({ ...prev, LOGO_URL: result.url }));
-      }
-      toast(`${target === 'bg' ? 'Background' : 'Logo'} uploaded`, 'success');
-    } catch (err: any) {
-      toast(err.message || 'Upload failed', 'error');
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const handleBrandingCropConfirm = async (blob: Blob) => {
-    const target = brandingCropTarget;
-    setBrandingCropSrc(null);
-    setBrandingCropTarget(null);
-    if (!target) return;
-    await uploadBrandingImage(target, blob);
-  };
-
-  const handleBrandingCropCancel = () => {
-    if (brandingCropSrc) URL.revokeObjectURL(brandingCropSrc);
-    setBrandingCropSrc(null);
-    setBrandingCropTarget(null);
   };
 
   // Smart constraints: keys to hide based on current settings
@@ -1383,457 +1234,24 @@ export default function Settings() {
       {categorized.map(({ category, entries }) => entries.length > 0 && (
         <Fragment key={category}>
         {category === 'Leaderboard Display' ? (
-          /* ── Scoreboard Display with Preview Sidebar ── */
-          <div className="flex flex-col lg:flex-row gap-4 mb-4">
-            <NeonCard title={category} className="lg:w-1/2 min-w-0">
-              {/* P2 — save/apply a whole look across rooms. Sits first: it is
-                  the two-click path for "make this room look like my other
-                  one", and everything below it is the manual way to get there. */}
-              <StyleProfiles
-                roomId={room.roomId}
-                hasUnsavedChanges={isDirty}
-                toast={toast}
-                onApplied={() => { void reloadSettings(); }}
-              />
-
-              {/* New Style/Theme picker — always shown */}
-              <StyleThemePicker settings={settings} onChange={handleChange} />
-
-              {/* Inline toggles */}
-              <div className="pt-3 mt-3 border-t border-border/30 space-y-4">
-                {Object.entries(SCOREBOARD_TOGGLES).map(([key, { label, description, defaultOn }]) => {
-                  const isOn = settings[key] !== undefined ? settings[key] === 'true' : !!defaultOn;
-                  return (
-                    <div key={key} className="flex items-center justify-between gap-4">
-                      <div>
-                        <p className="text-sm font-medium text-primary">{label}</p>
-                        <p className="text-xs text-muted">{description}</p>
-                      </div>
-                      <button
-                        onClick={() => handleChange(key, isOn ? 'false' : 'true')}
-                        className={`relative w-12 h-6 rounded-full transition-colors cursor-pointer border-none ${
-                          isOn ? 'bg-neon-cyan' : 'bg-raised border border-border'
-                        }`}
-                      >
-                        <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-primary transition-transform ${isOn ? 'translate-x-6' : ''}`} />
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Advanced numeric settings */}
-              <div className="pt-3 mt-3 border-t border-border/30 space-y-3">
-                {/* Was "Advanced" — the SECOND section on this card with
-                    that name (the original P0 audit flagged "two sections both
-                    named Advanced"; the collapsible one above is now "Display
-                    options"). Two identical headings in one card is not a
-                    hierarchy, it is a coin flip. */}
-                <p className={GROUP_HEADING_CLASS}>Fine tuning</p>
-                {[
-                  // Style-system revamp P0 (item 5): SCOREBOARD_MAX_SCORES
-                  // duplicate removed — the modern-path control lives in
-                  // StyleThemePicker's "Scores per card" select above.
-                  // Owner report: this fought "Scores per card". It now
-                  // TRACKS it when unset (see deriveScoreboardConfig), so the
-                  // input must show blank-with-a-placeholder rather than
-                  // advertise a fixed 20 the renderer no longer uses.
-                  { key: 'SCOREBOARD_MIN_SCORES', label: 'Min Card Height (score rows)', defaultVal: '', placeholder: 'Matches Scores per card', description: 'Leave empty to match Scores per card. Set a number to force taller cards.' },
-                  { key: 'SCOREBOARD_CARD_SPACING', label: 'Card Spacing (px)', defaultVal: '24', description: 'Gap between game cards in pixels' },
-                  { key: 'SCOREBOARD_TITLE_FONT_SIZE', label: 'Title Font Size (px)', defaultVal: '0', description: '0 = style default. Override game title font size.' },
-                  // Style-system revamp P0 (item 7): default aligned to 30 to
-                  // match the renderer's actual fallback (scoreboardConfig.ts) —
-                  // this input previously showed 24, drifted from reality.
-                  { key: 'SCOREBOARD_QR_SIZE', label: 'QR Code Size (px)', defaultVal: '30', description: 'Size of QR codes on game cards. Default: 30.' },
-                ].map(({ key, label, defaultVal, description, placeholder }) => (
-                  <div key={key} className="flex items-center justify-between gap-4">
-                    <div>
-                      <p className="text-sm font-medium text-primary">{label}</p>
-                      <p className="text-xs text-muted">{description}</p>
-                    </div>
-                    <input
-                      type="number"
-                      value={settings[key] ?? defaultVal}
-                      placeholder={placeholder}
-                      onChange={e => handleChange(key, e.target.value)}
-                      className={`text-sm text-center rounded border border-border bg-raised px-2 py-1 text-primary ${placeholder ? 'w-44 placeholder:text-[11px]' : 'w-20'}`}
-                    />
-                  </div>
-                ))}
-
-                {/* QR Position dropdown */}
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-sm font-medium text-primary">QR Code Position</p>
-                    <p className="text-xs text-muted">Where QR codes appear on game cards</p>
-                  </div>
-                  <select
-                    value={normalizeQrPosition(settings.SCOREBOARD_QR_POSITION)}
-                    onChange={e => handleChange('SCOREBOARD_QR_POSITION', e.target.value)}
-                    className="text-sm rounded border border-border bg-raised px-2 py-1 text-primary"
-                  >
-                    <option value="top-center">Top</option>
-                    <option value="bottom-center">Bottom</option>
-                  </select>
-                </div>
-
-                {/* QR Code Offset — owner spec, 2026-08-15. Signed distance
-                    from the chosen edge; the default is negative because the
-                    QR is meant to straddle the border rather than float off it. */}
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-sm font-medium text-primary">QR Code Offset (px)</p>
-                    <p className="text-xs text-muted">
-                      Distance from the card edge. Negative overlaps the border, positive moves it away. Default: {DEFAULT_QR_OFFSET_PX}.
-                    </p>
-                  </div>
-                  <input
-                    type="number"
-                    value={settings.SCOREBOARD_QR_OFFSET_PX ?? String(deriveQrOffsetPx(settings))}
-                    onChange={e => handleChange('SCOREBOARD_QR_OFFSET_PX', e.target.value)}
-                    className="w-20 text-sm text-center rounded border border-border bg-raised px-2 py-1 text-primary"
-                  />
-                </div>
-
-                {/* Game Title Style dropdown */}
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-sm font-medium text-primary">Game Title Style</p>
-                    <p className="text-xs text-muted">Visual style for game name text on score cards</p>
-                  </div>
-                  {/* Style-system revamp P1 (owner ask): each option renders in
-                      its own title style — impossible with a native <select>,
-                      whose <option>s ignore text-shadow/gradient/font rules. */}
-                  <TitleStyleSelect
-                    className="w-44 shrink-0"
-                    value={settings.SCOREBOARD_GAME_TITLE_STYLE || 'default'}
-                    onChange={v => handleChange('SCOREBOARD_GAME_TITLE_STYLE', v)}
-                    options={SELECT_OPTIONS.SCOREBOARD_GAME_TITLE_STYLE}
-                  />
-                </div>
-
-                {/* Mobile Vertical Scroll toggle */}
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-sm font-medium text-primary">Mobile Vertical Scroll</p>
-                    <p className="text-xs text-muted">When on, cards stack vertically on mobile. When off, mobile uses the same layout as desktop.</p>
-                  </div>
-                  <button
-                    onClick={() => handleChange('SCOREBOARD_MOBILE_VERTICAL', settings.SCOREBOARD_MOBILE_VERTICAL === 'false' ? 'true' : 'false')}
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer ${settings.SCOREBOARD_MOBILE_VERTICAL === 'false' ? 'bg-raised' : 'bg-neon-cyan'}`}
-                  >
-                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${settings.SCOREBOARD_MOBILE_VERTICAL === 'false' ? 'translate-x-1' : 'translate-x-6'}`} />
-                  </button>
-                </div>
-
-                {/* Mobile Density (S21: shrink is now opt-in; 1.0 = full size default)
-                    Style-system revamp P0 (item 12): moved inside the Advanced
-                    <div> it belongs to — was previously rendering just outside it. */}
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <label className="text-sm font-medium text-primary">Mobile Density</label>
-                    <p className="text-xs text-muted">Shrink cards to fit more on screen (0.3–1.0). Default 1.0 = full size, matching desktop.</p>
-                  </div>
-                  <input
-                    type="number"
-                    min="0.3"
-                    max="1"
-                    step="0.05"
-                    value={settings.SCOREBOARD_MOBILE_SCALE || '1.0'}
-                    onChange={e => handleChange('SCOREBOARD_MOBILE_SCALE', e.target.value)}
-                    className="w-20 rounded bg-deep border border-border px-2 py-1 text-sm text-primary"
-                  />
-                </div>
-              </div>
-
-              {/* ── Branding ──────────────────────────────────────────
-                  Owner call, 2026-08-15: this was its own card BELOW the
-                  Leaderboard Display card, which read as a separate
-                  feature even though the background, logo and title it
-                  sets are part of the same scoreboard the preview beside
-                  it is already showing. Folded in as a section of that
-                  card so the controls and their preview sit together. */}
-              <div className="pt-4 mt-4 border-t border-border/30">
-                <p className={GROUP_HEADING_CLASS}>Branding</p>
-              <div className="space-y-6">
-                {/* Background Image */}
-                <div>
-                  <p className={SUB_HEADING_CLASS}>Background Image</p>
-                  {bgUrl && (
-                    <div className="mb-3">
-                      <img src={bgUrl} alt="Background preview" className="max-h-32 rounded border border-border object-cover" />
-                    </div>
-                  )}
-                  <div className="flex items-center gap-3">
-                    <input
-                      id="bg-upload"
-                      type="file"
-                      accept="image/png,image/jpeg,image/webp"
-                      disabled={uploadingBg}
-                      onChange={async (e) => {
-                        const file = e.target.files?.[0];
-                        if (!file) return;
-                        e.target.value = '';
-                        // Backgrounds skip the cropper — the live render uses
-                        // CSS background-size: cover, which adapts any aspect
-                        // to any viewport. We just resize to a sane bounding
-                        // box (1920×1920) preserving aspect.
-                        try {
-                          const blob = await resizeImageToMaxBox(file, 1920, 1920);
-                          await uploadBrandingImage('bg', blob);
-                        } catch (err: any) {
-                          toast(err?.message || 'Image processing failed', 'error');
-                        }
-                      }}
-                      className="hidden"
-                    />
-                    <NeonButton
-                      variant="secondary"
-                      className="text-xs"
-                      disabled={uploadingBg}
-                      onClick={() => document.getElementById('bg-upload')?.click()}
-                    >
-                      {uploadingBg ? 'Uploading...' : bgUrl ? 'Replace Image' : 'Upload Image'}
-                    </NeonButton>
-                    {bgUrl && (
-                      <NeonButton
-                        variant="ghost"
-                        className="text-xs text-neon-magenta"
-                        disabled={uploadingBg}
-                        onClick={async () => {
-                          setUploadingBg(true);
-                          try {
-                            await api.delete(`/rooms/${room.roomId}/admin/upload/background`);
-                            setBgUrl('');
-                            setSettings(prev => {
-                              const next = { ...prev };
-                              delete next.SCOREBOARD_BG_URL;
-                              return next;
-                            });
-                            toast('Background removed', 'success');
-                          } catch {
-                            toast('Failed to remove background', 'error');
-                          } finally {
-                            setUploadingBg(false);
-                          }
-                        }}
-                      >
-                        Remove
-                      </NeonButton>
-                    )}
-                  </div>
-                  <p className="text-xs text-faint mt-2">PNG, JPEG, or WebP. Max 5 MB. Displayed behind the leaderboard.</p>
-                  <div className="mt-3">
-                    <label className="text-xs text-faint block mb-1">Background Mode</label>
-                    <select
-                      value={settings.SCOREBOARD_BG_MODE || 'cover'}
-                      onChange={e => handleChange('SCOREBOARD_BG_MODE', e.target.value)}
-                      className={inputClass}
-                    >
-                      <option value="cover">Cover (fill screen)</option>
-                      <option value="contain">Contain (fit)</option>
-                      <option value="repeat">Repeat (tile)</option>
-                      <option value="center">Center</option>
-                      <option value="fill-entire">Fill Entire (behind title)</option>
-                    </select>
-                  </div>
-                  <div className="mt-3">
-                    <label className="text-xs text-faint block mb-1">Background Opacity</label>
-                    <div className="flex items-center gap-3">
-                      <input
-                        type="range"
-                        min="0"
-                        max="100"
-                        step="5"
-                        value={Math.round((parseFloat(settings.SCOREBOARD_BG_OPACITY || '1') * 100))}
-                        onChange={e => handleChange('SCOREBOARD_BG_OPACITY', String(parseInt(e.target.value, 10) / 100))}
-                        className="flex-1 accent-neon-cyan cursor-pointer"
-                      />
-                      <span className="text-sm text-muted w-12 text-right">{Math.round((parseFloat(settings.SCOREBOARD_BG_OPACITY || '1') * 100))}%</span>
-                    </div>
-                  </div>
-                </div>
-                {/* Logo Image */}
-                <div>
-                  <p className={SUB_HEADING_CLASS}>Logo</p>
-                  {logoUrl && (
-                    <div className="flex items-center justify-between gap-4 mb-3">
-                      <div>
-                        <p className="text-sm text-primary">Show on Leaderboard</p>
-                        <p className="text-xs text-faint">Toggle off to hide the logo on the leaderboard while keeping it for Mystery Award.</p>
-                      </div>
-                      <button
-                        type="button"
-                        role="switch"
-                        aria-checked={settings.SCOREBOARD_LOGO_ENABLED !== 'false'}
-                        onClick={() => handleChange('SCOREBOARD_LOGO_ENABLED', settings.SCOREBOARD_LOGO_ENABLED === 'false' ? 'true' : 'false')}
-                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer ${settings.SCOREBOARD_LOGO_ENABLED === 'false' ? 'bg-border' : 'bg-neon-cyan/60'}`}
-                      >
-                        <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${settings.SCOREBOARD_LOGO_ENABLED === 'false' ? 'translate-x-1' : 'translate-x-6'}`} />
-                      </button>
-                    </div>
-                  )}
-                  {logoUrl && (
-                    <div className="mb-3">
-                      <img src={logoUrl} alt="Logo preview" className="max-h-16 rounded border border-border object-contain" />
-                    </div>
-                  )}
-                  <div className="flex items-center gap-3">
-                    <input
-                      id="logo-upload"
-                      type="file"
-                      accept="image/png,image/jpeg,image/webp"
-                      disabled={uploadingLogo}
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (!file) return;
-                        e.target.value = '';
-                        const url = URL.createObjectURL(file);
-                        setBrandingCropSrc(url);
-                        setBrandingCropTarget('logo');
-                      }}
-                      className="hidden"
-                    />
-                    <NeonButton
-                      variant="secondary"
-                      className="text-xs"
-                      disabled={uploadingLogo}
-                      onClick={() => document.getElementById('logo-upload')?.click()}
-                    >
-                      {uploadingLogo ? 'Uploading...' : logoUrl ? 'Replace Logo' : 'Upload Logo'}
-                    </NeonButton>
-                    {logoUrl && (
-                      <NeonButton
-                        variant="ghost"
-                        className="text-xs text-neon-magenta"
-                        disabled={uploadingLogo}
-                        onClick={async () => {
-                          setUploadingLogo(true);
-                          try {
-                            await api.delete(`/rooms/${room.roomId}/admin/upload/logo`);
-                            setLogoUrl('');
-                            setSettings(prev => {
-                              const next = { ...prev };
-                              delete next.LOGO_URL;
-                              return next;
-                            });
-                            toast('Logo removed', 'success');
-                          } catch {
-                            toast('Failed to remove logo', 'error');
-                          } finally {
-                            setUploadingLogo(false);
-                          }
-                        }}
-                      >
-                        Remove
-                      </NeonButton>
-                    )}
-                  </div>
-                  <p className="text-xs text-faint mt-2">
-                    PNG, JPEG, or WebP. Max 5 MB. Shown alongside the leaderboard title.
-                    A 1:1 (square) crop is also used as this room's badge on the Global Scoreboard.
-                    Non-square logos will prompt for a square crop on upload.
-                  </p>
-                  <div className="grid grid-cols-2 gap-3 mt-3">
-                    <div>
-                      <label className="text-xs text-faint block mb-1">Logo Position</label>
-                      <select
-                        value={settings.LOGO_POSITION || 'left'}
-                        onChange={e => handleChange('LOGO_POSITION', e.target.value)}
-                        className={inputClass}
-                      >
-                        <option value="left">Left of title</option>
-                        <option value="right">Right of title</option>
-                        <option value="above">Above title</option>
-                        <option value="below">Below title</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="text-xs text-faint block mb-1">Logo Max Height (px)</label>
-                      <input
-                        type="number"
-                        value={settings.LOGO_MAX_HEIGHT || '64'}
-                        onChange={e => handleChange('LOGO_MAX_HEIGHT', e.target.value)}
-                        className={inputClass}
-                        min="16"
-                        max="256"
-                      />
-                    </div>
-                  </div>
-                  {/* Scoreboard Title */}
-                  <div className="mt-3">
-                    <label className="text-xs text-faint block mb-1">Leaderboard Title</label>
-                    <input
-                      type="text"
-                      value={settings.SCOREBOARD_TITLE || ''}
-                      onChange={e => handleChange('SCOREBOARD_TITLE', e.target.value)}
-                      placeholder="Leave empty to use room name"
-                      className={inputClass}
-                    />
-                  </div>
-                  {/* Live title preview */}
-                  <div className="mt-3 p-3 bg-surface rounded border border-border/50">
-                    <div className={`flex items-center justify-center gap-3 py-2 ${
-                      (settings.LOGO_POSITION || 'left') === 'above' || (settings.LOGO_POSITION || 'left') === 'below' ? 'flex-col' : 'flex-row'
-                    }`}>
-                      {settings.LOGO_URL && ((settings.LOGO_POSITION || 'left') === 'left' || (settings.LOGO_POSITION || 'left') === 'above') && (
-                        <img src={settings.LOGO_URL} alt="" style={{ maxHeight: Number(settings.LOGO_MAX_HEIGHT || 64), objectFit: 'contain' }} />
-                      )}
-                      <p className={`font-display text-muted ${getTitleSizeClass(settings.SCOREBOARD_TITLE_SIZE || 'sm')} uppercase tracking-widest ${getTitleStyleClass(settings.SCOREBOARD_TITLE_STYLE || 'default')}`}>
-                        {settings.SCOREBOARD_TITLE || room.roomName || 'Leaderboard Title'}
-                      </p>
-                      {settings.LOGO_URL && ((settings.LOGO_POSITION || 'left') === 'right' || (settings.LOGO_POSITION || 'left') === 'below') && (
-                        <img src={settings.LOGO_URL} alt="" style={{ maxHeight: Number(settings.LOGO_MAX_HEIGHT || 64), objectFit: 'contain' }} />
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Title Style picker */}
-                  <div className="mt-3">
-                    <label className="text-xs text-faint block mb-1.5">Title Style</label>
-                    <div className="grid grid-cols-3 gap-2">
-                      {SELECT_OPTIONS.SCOREBOARD_TITLE_STYLE.map(opt => (
-                        <button
-                          key={opt.value}
-                          type="button"
-                          onClick={() => handleChange('SCOREBOARD_TITLE_STYLE', opt.value)}
-                          className={`p-2 rounded border text-center transition-colors ${
-                            (settings.SCOREBOARD_TITLE_STYLE || 'default') === opt.value
-                              ? 'border-neon-cyan bg-neon-cyan/10'
-                              : 'border-border/50 bg-raised hover:border-border'
-                          }`}
-                        >
-                          <span className={`font-display text-sm uppercase tracking-wider block ${getTitleStyleClass(opt.value)}`}>
-                            {opt.label}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Title Size */}
-                  <div className="mt-3">
-                    <label className="text-xs text-faint block mb-1">Title Size</label>
-                    <select
-                      value={settings.SCOREBOARD_TITLE_SIZE || 'sm'}
-                      onChange={e => handleChange('SCOREBOARD_TITLE_SIZE', e.target.value)}
-                      className={inputClass}
-                    >
-                      {SELECT_OPTIONS.SCOREBOARD_TITLE_SIZE.map(opt => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              </div>
-              </div>
-            </NeonCard>
-
-            {/* Preview sidebar — sticky on desktop */}
-            <div className="lg:w-1/2 lg:sticky lg:top-16 lg:self-start shrink-0">
-              <ScoreboardPreview settings={settings} roomSlug={room.roomSlug} roomName={room.roomName} />
-            </div>
-          </div>
+          /* v2.116.0 (C1) — the appearance controls moved to the Leaderboard
+             page, where they edit against this room's REAL cards and scores
+             instead of the mock-data preview that used to sit beside them.
+             Only the pointer stays here; the keys stay claimed above. */
+          <NeonCard title={category} className="mb-4">
+            <p className="text-muted text-sm mb-3">
+              Scoreboard appearance now lives on the Leaderboard page. Card style, theme,
+              fine tuning and branding are edited in a panel beside the real scoreboard,
+              so every change previews on your actual cards before you save it.
+            </p>
+            <Link
+              to={`/${room.roomSlug}/admin/leaderboard`}
+              className="inline-flex items-center gap-1.5 text-sm text-neon-cyan hover:underline no-underline"
+            >
+              <SlidersHorizontal size={14} />
+              Configure display settings
+            </Link>
+          </NeonCard>
         ) : isIntegrationCardHidden(category) ? (
           /* D2 (standalone rooms, v2.32.0) — quiet affordance in place of a
              credential card whose integration toggle is off. Not airtight:
@@ -2012,18 +1430,6 @@ export default function Settings() {
               )}
             </div>
           </NeonCard>
-        )}
-
-        {/* Branding image cropper overlay */}
-        {brandingCropSrc && brandingCropTarget && (
-          <ImageCropper
-            imageSrc={brandingCropSrc}
-            aspectRatio={brandingCropTarget === 'bg' ? 16 / 9 : 1}
-            maxOutputWidth={brandingCropTarget === 'bg' ? 1920 : 600}
-            onConfirm={handleBrandingCropConfirm}
-            onCancel={handleBrandingCropCancel}
-            notice={brandingCropTarget === 'logo' ? 'square-badge' : undefined}
-          />
         )}
 
         {/* Integrations — renders right after Game Room */}
