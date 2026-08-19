@@ -6,6 +6,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.114.0] — unreleased
+
+**Style-system revamp Phase 3, the last phase — the viewer Display Preferences panel is four controls.** The modal showed ~17 top-level controls, the same disease the admin editor was cured of in Phase 1. A viewer's actual choices are which cards, which colors, which layout, and how big — so that is the top level now.
+
+### Changed
+- **Top level: Card Style (with its conditional Showcase theme picker), UI Theme, Card Layout, Zoom.** Everything else moved under the existing collapsible Advanced section in four captioned groups: **Cards & header** (hide empty/title/logo, background fill, countdown timer, game title style, the four card numbers), **Rankings** (position, card style, always-visible — the ticker still hides the position select and says why), **QR codes — never show on phones** (mode, position, size, offset, finally in ONE group), and **Mobile** (vertical scroll, density).
+- This is a re-tiering only: no preference key was added, removed, or renamed; the save payload is byte-for-byte the same 24 keys, and every control keeps its per-setting Reset.
+
+### Tests
+- New `ScoreboardPreferencesModal.test.tsx` (11 tests — the modal had no component test): four-control top level, demoted controls absent until Advanced opens, group captions, demoted controls still write their keys, 24-key payload parity, ticker behavior, Reset on a demoted control. The boolean default-on parity test is untouched and green.
+
 ## [2.113.0] — unreleased
 
 **Identity P2 — the claim is offered at the one moment the player can see both halves of their split identity.** A room that synced its history from iScored carries scores under names nobody holds. A logged-in player submits under the same name, and until now nothing connected the two: they became two rows on one board (the ChalataLove double-entry that opened this arc). The submit response now says so, and the success card asks.
