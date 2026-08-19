@@ -140,11 +140,6 @@ const SELECT_PREFS: PrefDef[] = [
   },
 ];
 
-// Style-system revamp P0 (item 11) — QR controls are inert on phones (<=640px
-// by design, v2.104.0); grouped under one caption instead of scattered.
-const QR_SELECT_KEYS = new Set(['SCOREBOARD_QR_MODE', 'SCOREBOARD_QR_POSITION']);
-const QR_ADVANCED_KEYS = new Set(['SCOREBOARD_QR_SIZE', 'SCOREBOARD_QR_OFFSET_PX']);
-
 const ADVANCED_NUMBER_PREFS: PrefDef[] = [
   { key: 'SCOREBOARD_MAX_SCORES', label: 'Scores Per Card', description: 'Maximum visible scores per game card', type: 'number', min: 1, max: 50 },
   { key: 'SCOREBOARD_MIN_SCORES', label: 'Min Card Height (scores)', description: 'Minimum card height expressed as score rows', type: 'number', min: 1, max: 50 },
@@ -163,6 +158,71 @@ const MOBILE_PREFS: PrefDef[] = [
 // admin control (50-150) — was 50-200 here, letting a viewer set a zoom value
 // the room's own admin-facing control couldn't reach.
 const ZOOM_PREF: PrefDef = { key: 'SCOREBOARD_ZOOM', label: 'Zoom', type: 'range', min: 50, max: 150, suffix: '%' };
+
+// ── Tiering (Style-system revamp P3) ────────────────────────────────────────
+// The top level is four controls — Card Style (with its conditional Showcase
+// theme picker, which is part of the style choice), UI Theme, Card Layout and
+// Zoom. Everything else lives under the collapsible Advanced section, grouped
+// by what it affects. This is a re-tiering ONLY: every key defined above is
+// still rendered somewhere and still written by handleSave.
+
+const TOP_LEVEL_SELECT_KEY = 'SCOREBOARD_LAYOUT';
+
+/** Every non-top-level pref, keyed for group lookup. */
+const PREF_BY_KEY: Record<string, PrefDef> = Object.fromEntries(
+  [...TOGGLE_PREFS, ...SELECT_PREFS, ...ADVANCED_NUMBER_PREFS, ...MOBILE_PREFS].map(d => [d.key, d]),
+);
+
+interface AdvancedGroup {
+  id: 'cards' | 'rankings' | 'qr' | 'mobile';
+  caption: string;
+  keys: string[];
+}
+
+const ADVANCED_GROUPS: AdvancedGroup[] = [
+  {
+    id: 'cards',
+    caption: 'Cards & header',
+    keys: [
+      'SCOREBOARD_HIDE_EMPTY',
+      'SCOREBOARD_TITLE_HIDDEN',
+      'SCOREBOARD_LOGO_ENABLED',
+      'SCOREBOARD_CARD_BG_FILL',
+      'SCOREBOARD_SHOW_TIMER',
+      'SCOREBOARD_GAME_TITLE_STYLE',
+      'SCOREBOARD_MAX_SCORES',
+      'SCOREBOARD_MIN_SCORES',
+      'SCOREBOARD_CARD_SPACING',
+      'SCOREBOARD_TITLE_FONT_SIZE',
+    ],
+  },
+  {
+    id: 'rankings',
+    caption: 'Rankings',
+    keys: [
+      'SCOREBOARD_RANKINGS_POSITION',
+      'SCOREBOARD_RANKINGS_STYLE',
+      'SCOREBOARD_RANKINGS_STICKY',
+    ],
+  },
+  {
+    id: 'qr',
+    // Style-system revamp P0 (item 11) — QR controls are inert on phones
+    // (<=640px by design, v2.104.0); one caption instead of scattered.
+    caption: 'QR codes — never show on phones',
+    keys: [
+      'SCOREBOARD_QR_MODE',
+      'SCOREBOARD_QR_POSITION',
+      'SCOREBOARD_QR_SIZE',
+      'SCOREBOARD_QR_OFFSET_PX',
+    ],
+  },
+  {
+    id: 'mobile',
+    caption: 'Mobile',
+    keys: MOBILE_PREFS.map(d => d.key),
+  },
+];
 
 // ── Styles ──────────────────────────────────────────────────────────────────
 
@@ -346,6 +406,12 @@ export default function ScoreboardPreferencesModal({
     </div>
   );
 
+  const renderPref = (def: PrefDef) => {
+    if (def.type === 'toggle') return renderToggle(def);
+    if (def.type === 'select') return renderSelect(def);
+    return renderNumber(def);
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
       <div
@@ -472,23 +538,9 @@ export default function ScoreboardPreferencesModal({
               </select>
             </div>
 
-            {/* ── Toggles ──────────────────────────────────────────── */}
+            {/* ── Card Layout ──────────────────────────────────────── */}
             <div className="border-t border-border pt-2 mt-2">
-              {TOGGLE_PREFS.map(renderToggle)}
-            </div>
-
-            {/* ── Selects ──────────────────────────────────────────── */}
-            <div className="border-t border-border pt-2 mt-2">
-              {SELECT_PREFS.filter(d => !QR_SELECT_KEYS.has(d.key) && !(d.key === 'SCOREBOARD_RANKINGS_POSITION' && rankingsIsTicker)).map(renderSelect)}
-              {rankingsIsTicker && (
-                <p className="text-[10px] text-faint py-1">Ticker pins to the top — position doesn't apply</p>
-              )}
-            </div>
-
-            {/* ── QR codes (grouped — inert on phones, v2.104.0) ────── */}
-            <div className="border-t border-border pt-2 mt-2">
-              <p className="text-[10px] text-faint uppercase tracking-wider mb-1">QR codes — never show on phones</p>
-              {SELECT_PREFS.filter(d => QR_SELECT_KEYS.has(d.key)).map(renderSelect)}
+              {renderSelect(PREF_BY_KEY[TOP_LEVEL_SELECT_KEY])}
             </div>
 
             {/* ── Zoom slider ──────────────────────────────────────── */}
@@ -521,19 +573,21 @@ export default function ScoreboardPreferencesModal({
               </button>
               {advancedOpen && (
                 <div className="mt-1 space-y-0">
-                  {ADVANCED_NUMBER_PREFS.filter(d => !QR_ADVANCED_KEYS.has(d.key)).map(renderNumber)}
-
-                  <div className="border-t border-border/50 pt-2 mt-2">
-                    <span className="text-xs text-muted uppercase tracking-wider">QR codes — never show on phones</span>
-                  </div>
-                  {ADVANCED_NUMBER_PREFS.filter(d => QR_ADVANCED_KEYS.has(d.key)).map(renderNumber)}
-
-                  <div className="border-t border-border/50 pt-2 mt-2">
-                    <span className="text-xs text-muted uppercase tracking-wider">Mobile</span>
-                  </div>
-                  {MOBILE_PREFS.map(def =>
-                    def.type === 'toggle' ? renderToggle(def) : renderNumber(def)
-                  )}
+                  {ADVANCED_GROUPS.map((group, i) => (
+                    <div key={group.id}>
+                      <div className={i === 0 ? 'pt-1' : 'border-t border-border/50 pt-2 mt-2'}>
+                        <span className="text-xs text-muted uppercase tracking-wider">{group.caption}</span>
+                      </div>
+                      {group.keys
+                        // Ticker pins itself to the top of the scoreboard, so
+                        // the position select has nothing to act on.
+                        .filter(k => !(k === 'SCOREBOARD_RANKINGS_POSITION' && rankingsIsTicker))
+                        .map(k => renderPref(PREF_BY_KEY[k]))}
+                      {group.id === 'rankings' && rankingsIsTicker && (
+                        <p className="text-[10px] text-faint py-1">Ticker pins to the top — position doesn't apply</p>
+                      )}
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
