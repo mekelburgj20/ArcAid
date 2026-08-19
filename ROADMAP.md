@@ -5,13 +5,13 @@
 
 ---
 
-## Identity: claiming iScored names + verifying scores (owner-asked 2026-08-17, DESIGNED not built)
+## Identity: claiming iScored names + verifying scores (P1+P4 SHIPPED v2.112.0, PRs #243/#244 — P2/P3 remain)
 
 Full design + owner rulings: `tmp/identity-claim-design.md`. Prompted by the ChalataLove double-entry found during the pick-delegation investigation.
 
-- **[SECURITY] `/map-user` self-claim is UNGUARDED.** `mapuser.ts` requires Administrator only when mapping *someone else*; mapping yourself has no gate, no similarity check, and no approval. Any guild member can claim any unclaimed iScored username — and claimed names feed `resolveSubmissionPlayerId`, the leaderboard partition, `IdentityCandidateService`, and (since PR #239) the **pick cascade**. Fix ships as P1 below.
-- **P1 + P4 together — guarded claim + mod review queue.** Auto-approve only on a **case-insensitive EXACT** match (owner: no separator or space normalization) against the claimant's Arcaid username, display name, already-held aliases, linked Discord username, or linked Google local-part. Everything else queues for a mod. Max **3** aliases per account, managed in Account Settings. They ship together because case-only matching sends most genuine claims to the queue.
-- **P2 — duplicate-name prompt at submit time.** Submitting under a name that already has unclaimed iScored scores in the room offers the claim.
+- **P1 + P4 SHIPPED (2026-08-18, PRs #243 + #244).** Guarded claiming via `IdentityClaimService` (case-insensitive EXACT auto-match against username / display name / held aliases / linked Discord / Google local-part; max 3 aliases; everything else queues), Account Settings claim + release UI, the Identity Claims admin queue (badge appears only when something is pending; rows show `scores_in_room`), and migration 152/153 (`identity_claims` table; a PENDING claim must carry a review room — CHECK-enforced after #244 restored the guard a misanchored edit dropped). Google email local-part is now stored at login (compare-only, never rendered) to back auto-match source 5. Claims filed from the global Account Settings surface route their review to the room where the name actually has history. NOTE: approval grants the alias GLOBALLY (`user_mappings` has no room scope) — accepted because a room admin could already do the same via /map-user, and this path is reviewed + audited.
+- ~~[SECURITY] `/map-user` self-claim is UNGUARDED~~ — **CLOSED by P1.** `mapuser.ts` requires Administrator only when mapping *someone else*; mapping yourself has no gate, no similarity check, and no approval. Any guild member can claim any unclaimed iScored username — and claimed names feed `resolveSubmissionPlayerId`, the leaderboard partition, `IdentityCandidateService`, and (since PR #239) the **pick cascade**. Fix ships as P1 below.
+- **P2 (NEXT in this arc) — duplicate-name prompt at submit time.** Submitting under a name that already has unclaimed iScored scores in the room offers the claim.
 - **P3 — photo-verified promotion to the Global Scoreboard.** Amends **ADR 0016 P2 §3c**, which currently hard-blocks `source='sync'` at `GlobalScoreService.fanOutFromRoomSubmission`. **No mod gate** (owner ruling, premise verified in code: nothing is mod-gated before publication today, photos are public, and report routes already exist). Open: retroactive or forward-only? · what counts as verified — ChalataLove's row already carries a photo **of the wrong number**, so `photo_url IS NOT NULL` cannot be the test · synced scores carry no engine/device, which the global board expects.
 - **Rooms without `REQUIRE_SCORE_PHOTO` may not fan out to Global at all** (owner, 2026-08-17). Inert today: rtx_pinball is the only contributor and already requires photos, and all 35 `global_scores` rows carry one. Open: grandfather existing rows if a room later turns it off (recommended) or remove them.
 - **Importing the photo from iScored: investigated, NOT recommended.** `IScoredApiScore` is `{name,date,rank,score}` — no image field, so the API can never return one. iScored *accepts* photo uploads (`IScoredClient.submitScore` has a `photoPath`), so a DOM scrape is the only route, and it would be new fragile scraping. Note the live counter-example: ChalataLove entered the score in *Arcaid* and Arcaid pushed the number out, so no iScored-side photo ever existed — likely the common shape for Arcaid-fronted rooms.
@@ -21,6 +21,14 @@ Full design + owner rulings: `tmp/identity-claim-design.md`. Prompted by the Cha
 **ADR 0011's premise is wrong.** It assumed iScored has no per-score delete API; iScored exposes `deleteScore`/`editScore` against a `data-topscoreid` handle. `deleted_score_suppressions` tombstones are a workaround for a problem that is now actually solvable.
 
 This is what made the Blackbelt 2018 incident possible: a score deleted in Arcaid stayed on iScored as the high score and kept re-presenting itself, and PR #239 had to teach a *second* read path to ignore it. Deleting at the source removes the whole class.
+
+## Steam pack auto-expansion — SHIPPED v2.112.0 (PR #245, 2026-08-19)
+
+Owner asked how the Zaccaria Retro/EM+ packs get imported. Answer: they never were — the curated `PACK_CONTENTS` map had "no defined go-forward path" and Zaccaria had ZERO entries, so every pack DLC was skipped. Packs now auto-expand from their own Steam store description (`extractPackTables`; conservative — marker phrase required, only "…Table(s)" lines taken, ambiguity WARNs by name instead of guessing). `cleanTableName` also strips the " Table"/" Pinball Table" suffix the single-DLC path had been leaking into catalogue names.
+
+**Prod sync verified 2026-08-19 against a pre-run dry-run diff: +65 tables (4,174 → 4,239), 39 rows gained the Steam `zaccaria` platform (all 28 Retro + 8 EM+ AtGames rows now dual-platform), 0 new duplicate forks, 0 junk names.** Deploy-day data repair applied: plain "Combat Retro"/"Combat EM+" forms added to the renamed rows' `dedup_aliases` (the 2026-08-17 backfill was inconsistent — Deluxe had its plain form, Retro/EM+ didn't).
+
+**Open (optional):** Achievement Table Pack + Pinball Champ Table Pack hold ~21 real tables in formats the parser correctly refuses (bare names / inline prose) — hand-curate into `PACK_CONTENTS` if wanted. Bronze Pack is cosmetics; its WARN is correct and permanent.
 
 ## Discord link nudge — SHIPPED v2.112.0 (PR #242, 2026-08-18)
 
