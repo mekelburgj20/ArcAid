@@ -4399,6 +4399,7 @@ router.get('/:roomId/games/active', async (req, res) => {
         const rows = await db.all(
             `SELECT g.id, g.name, g.display_name, g.tournament_id, g.iscored_id, g.start_date,
                     g.catalogue_style_id, g.style_header_disabled,
+                    g.bg_zoom, g.bg_pos_x, g.bg_pos_y,
                     t.name as tournament_name, t.type as tournament_type
              FROM games g JOIN tournaments t ON g.tournament_id = t.id
              WHERE g.status = 'ACTIVE' AND t.game_room_id = ?
@@ -4476,7 +4477,13 @@ router.get('/:roomId/game_library/:name/style', requireAuth, requireRoomAccess('
     try {
         const gameName = decodeURIComponent(req.params.name as string);
         const style = await GameLibraryService.getRoomGameStyle(req.params.roomId as string, gameName);
-        res.json({ catalogueStyleId: style?.catalogue_style_id || null, headerDisabled: style?.style_header_disabled === 1 });
+        res.json({
+            catalogueStyleId: style?.catalogue_style_id || null,
+            headerDisabled: style?.style_header_disabled === 1,
+            bgZoom: style?.bg_zoom ?? null,
+            bgPosX: style?.bg_pos_x ?? null,
+            bgPosY: style?.bg_pos_y ?? null,
+        });
     } catch (error) {
         logError('API Error (GET rooms/:roomId/game_library/:name/style):', error);
         res.status(500).json({ error: 'Internal Server Error' });
@@ -4490,9 +4497,9 @@ router.put('/:roomId/game_library/:name/style', requireAuth, requireRoomAccess('
         const validationResult = validate(AssignStyleSchema, req.body);
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
 
-        const { catalogueStyleId, headerDisabled } = validationResult.data;
+        const { catalogueStyleId, headerDisabled, bgZoom, bgPosX, bgPosY } = validationResult.data;
         const updated = await GameLibraryService.setRoomGameStyle(
-            req.params.roomId as string, gameName, catalogueStyleId, headerDisabled
+            req.params.roomId as string, gameName, catalogueStyleId, headerDisabled, { bgZoom, bgPosX, bgPosY }
         );
         if (!updated) return res.status(404).json({ error: 'Game not found in room library' });
         res.json({ success: true });
@@ -5694,7 +5701,7 @@ router.put('/:roomId/admin/games/:gameId/style', requireAuth, requireRoomAccess(
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
 
         const { StyleCatalogueService } = await import('../../services/StyleCatalogueService.js');
-        const { catalogueStyleId, headerDisabled } = validationResult.data;
+        const { catalogueStyleId, headerDisabled, bgZoom, bgPosX, bgPosY } = validationResult.data;
 
         // Verify game belongs to this room
         const db = await getDatabase();
@@ -5707,7 +5714,7 @@ router.put('/:roomId/admin/games/:gameId/style', requireAuth, requireRoomAccess(
         if (!game) return res.status(404).json({ error: 'Game not found in this room' });
 
         const assigned = await StyleCatalogueService.assignToGame(
-            req.params.gameId as string, catalogueStyleId, headerDisabled
+            req.params.gameId as string, catalogueStyleId, headerDisabled, { bgZoom, bgPosX, bgPosY }
         );
         if (!assigned) return res.status(404).json({ error: 'Style not found' });
 
@@ -5746,12 +5753,15 @@ router.put('/:roomId/admin/games/:gameId/image', requireAuth, requireRoomAccess(
     try {
         const validationResult = validate(AssignImageSchema, req.body);
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
-        const { styleId, imageType } = validationResult.data;
+        const { styleId, imageType, bgZoom, bgPosX, bgPosY } = validationResult.data;
         const gameId = req.params.gameId as string;
 
         const { StyleCatalogueService } = await import('../../services/StyleCatalogueService.js');
         const result = await StyleCatalogueService.assignImageToGame(gameId, styleId, imageType);
         if (!result.ok) return res.status(400).json({ error: result.error });
+        // Framing rides along with the image choice — the picker sends both,
+        // and this is the branch it takes for a background-only assignment.
+        await StyleCatalogueService.setGameBgFraming(gameId, { bgZoom, bgPosX, bgPosY });
 
         const { LeaderboardService } = await import('../../services/LeaderboardService.js');
         await LeaderboardService.invalidate(gameId);
@@ -5767,13 +5777,14 @@ router.put('/:roomId/game_library/:name/image', requireAuth, requireRoomAccess('
     try {
         const validationResult = validate(AssignImageSchema, req.body);
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
-        const { styleId, imageType } = validationResult.data;
+        const { styleId, imageType, bgZoom, bgPosX, bgPosY } = validationResult.data;
         const roomId = req.params.roomId as string;
         const gameName = decodeURIComponent(req.params.name as string);
 
         const { StyleCatalogueService } = await import('../../services/StyleCatalogueService.js');
         const result = await StyleCatalogueService.assignImageToLibrary(roomId, gameName, styleId, imageType);
         if (!result.ok) return res.status(400).json({ error: result.error });
+        await StyleCatalogueService.setLibraryBgFraming(roomId, gameName, { bgZoom, bgPosX, bgPosY });
         res.json({ success: true });
     } catch (error) {
         logError('API Error (PUT rooms/:roomId/game_library/:name/image):', error);

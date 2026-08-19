@@ -2547,6 +2547,27 @@ async function doInitDatabase(): Promise<Database> {
                     ON identity_claims(game_room_id, status);
             `);
         } },
+        // 154 — per-game background framing (zoom + drag position) for the
+        // card background art. NULL means "not framed" and renders at the
+        // 100 / 50 / 50 default, so every existing row keeps its current look.
+        //
+        // Both overlay tables carry the same three columns: `games` is what the
+        // scoreboard reads, `game_room_game_library` is the room's saved default
+        // that gets copied onto each new games row at activation/pin time.
+        //
+        // A handler rather than plain SQL because six ALTERs in one `db.exec`
+        // abort at the first "duplicate column name" and silently skip the rest
+        // (the plain-SQL branch swallows that error by design).
+        { name: '154_card_bg_transform', handler: async (db) => {
+            for (const table of ['games', 'game_room_game_library']) {
+                const existing = await db.all(`PRAGMA table_info(${table})`) as Array<{ name: string }>;
+                const have = new Set(existing.map(c => c.name));
+                for (const col of ['bg_zoom', 'bg_pos_x', 'bg_pos_y']) {
+                    if (have.has(col)) continue;
+                    await db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} REAL`);
+                }
+            }
+        } },
     ];
 
     for (const migration of migrations) {

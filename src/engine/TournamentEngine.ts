@@ -157,14 +157,21 @@ export class TournamentEngine {
         // Auto-apply default catalogue style and display_name from room's game library (if set)
         if (tournament?.game_room_id) {
             const libraryEntry = await db.get(
-                `SELECT catalogue_style_id, logo_style_id, bg_style_id, style_header_disabled FROM game_room_game_library
+                `SELECT catalogue_style_id, logo_style_id, bg_style_id, style_header_disabled,
+                        bg_zoom, bg_pos_x, bg_pos_y
+                 FROM game_room_game_library
                  WHERE game_room_id = ? AND game_name = ? AND (catalogue_style_id IS NOT NULL OR logo_style_id IS NOT NULL OR bg_style_id IS NOT NULL)`,
                 tournament.game_room_id, gameName
             );
             if (libraryEntry) {
+                // v2.115.0: the background framing travels with the style, so a
+                // saved library default keeps its framing across rotations.
                 await db.run(
-                    'UPDATE games SET catalogue_style_id = ?, logo_style_id = ?, bg_style_id = ?, style_header_disabled = ? WHERE id = ?',
-                    libraryEntry.catalogue_style_id, libraryEntry.logo_style_id, libraryEntry.bg_style_id, libraryEntry.style_header_disabled, game.id
+                    `UPDATE games SET catalogue_style_id = ?, logo_style_id = ?, bg_style_id = ?, style_header_disabled = ?,
+                        bg_zoom = ?, bg_pos_x = ?, bg_pos_y = ? WHERE id = ?`,
+                    libraryEntry.catalogue_style_id, libraryEntry.logo_style_id, libraryEntry.bg_style_id, libraryEntry.style_header_disabled,
+                    libraryEntry.bg_zoom ?? null, libraryEntry.bg_pos_x ?? null, libraryEntry.bg_pos_y ?? null,
+                    game.id
                 );
             }
             // Apply display_name and external_url from the catalogue.

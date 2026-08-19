@@ -336,6 +336,7 @@ export default function ScoreboardSurface({
         maxScores={newConfig.maxScores} minScores={newConfig.minScores}
         showTimer={newConfig.showTimer}
         cardBgFill={newConfig.cardBgFill}
+        gameHeaderEnabled={newConfig.gameHeaderEnabled}
         titleFontSize={newConfig.titleFontSize || undefined}
         viewerUsername={viewerUsername} viewerEntry={lb.viewerEntry}
         qrMode={qrEnabled ? 'all' : 'disabled'}

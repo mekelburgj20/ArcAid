@@ -201,6 +201,47 @@ describe('ArcadeCard — room-card behaviour', () => {
   });
 });
 
+/**
+ * The "Game Art Header" toggle (v2.115.0, owner ask). The card may lose its
+ * ART; it may never lose its NAME — which is the half a screenshot won't catch
+ * on a card whose art was the thing being looked at.
+ */
+describe('ArcadeCard — game art header toggle', () => {
+  it('renders the art region as usual when the header is on', () => {
+    const { card } = renderCard(makeLb({ imageUrl: 'https://cdn/mm.png' }), { gameHeaderEnabled: true });
+    const art = within(card).getByTestId('arcade-art');
+    expect(art.querySelector('img')!.getAttribute('src')).toBe('https://cdn/mm.png');
+    expect(within(art).getByText('Medieval Madness')).toBeInTheDocument();
+  });
+
+  it('drops the art but keeps title, chip and countdown when the header is off', () => {
+    const { card } = renderCard(
+      makeLb({ imageUrl: 'https://cdn/mm.png', nextMaintenanceAt: new Date(Date.now() + 2 * 3600_000).toISOString() }),
+      { gameHeaderEnabled: false },
+    );
+    const art = within(card).getByTestId('arcade-art');
+
+    // No art image, no "No image" placeholder standing in for one, and no
+    // fixed-height art panel left behind.
+    expect(art.querySelector('img')).toBeNull();
+    expect(within(card).queryByText('No image')).toBeNull();
+    expect(art.className).not.toMatch(/h-\[176px\]/);
+
+    // The card still says what it is.
+    expect(within(art).getByText('Medieval Madness')).toBeInTheDocument();
+    expect(within(art).getByTestId('arcade-chip')).toHaveTextContent('Daily Grind');
+    expect(within(card).getByText(/\d+[hm]/)).toBeInTheDocument();
+  });
+
+  it('hides the identifier art too, not just the background', () => {
+    const { card } = renderCard(
+      makeLb({ logoStyleId: 'style-7', imageUrl: 'https://cdn/mm.png' }),
+      { gameHeaderEnabled: false },
+    );
+    expect(card.querySelectorAll('img')).toHaveLength(0);
+  });
+});
+
 describe('ArcadeCard — maintenance countdown', () => {
   beforeEach(() => { vi.useFakeTimers(); });
   afterEach(() => { vi.useRealTimers(); });

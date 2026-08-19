@@ -22,6 +22,7 @@ const SAVED_KEYS = [
   'SCOREBOARD_TITLE_HIDDEN',
   'SCOREBOARD_LOGO_ENABLED',
   'SCOREBOARD_CARD_BG_FILL',
+  'SCOREBOARD_GAME_HEADER_ENABLED',
   'SCOREBOARD_RANKINGS_STICKY',
   'SCOREBOARD_SHOW_TIMER',
   'SCOREBOARD_RANKINGS_POSITION',
@@ -46,6 +47,7 @@ const ADVANCED_LABELS = [
   'Hide Game Room Title',
   'Hide Game Room Logo',
   'Card Background Fill',
+  'Hide Game Art',
   'Show Countdown Timer',
   'Game Title Style',
   'Scores Per Card',
@@ -206,5 +208,58 @@ describe('ScoreboardPreferencesModal — P3 tiering', () => {
     expect(titleStyle.querySelector('button')).toBeNull();
     fireEvent.change(selectFor('Game Title Style'), { target: { value: 'fire' } });
     expect(screen.getByText('Game Title Style').closest('div.py-2')!.querySelector('button')).not.toBeNull();
+  });
+});
+
+/**
+ * Reset All (owner ask, 2026-08-19). The save path must be the SAME full
+ * enumeration the Save button uses: the backend deletes keys posted as null
+ * and leaves absent keys untouched, so a bare `{}` POST would clear nothing.
+ */
+describe('ScoreboardPreferencesModal — Reset All', () => {
+  beforeEach(() => {
+    mockFetch();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('asks for confirmation inline before resetting', async () => {
+    await renderModal();
+    expect(screen.queryByText('Reset everything')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('Reset All'));
+    expect(screen.getByText('Reset everything')).toBeInTheDocument();
+    // Backing out leaves nothing saved.
+    fireEvent.click(screen.getByText('Cancel', { selector: 'button.text-xs' }));
+    expect(screen.queryByText('Reset everything')).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(c => c[1]?.method === 'POST')).toBe(false);
+  });
+
+  it('clears local overrides and posts null for every key', async () => {
+    await renderModal();
+    openAdvanced();
+    // Two overrides in hand — one top-level, one demoted.
+    fireEvent.change(selectFor('Card Layout'), { target: { value: 'grid' } });
+    fireEvent.change(selectFor('Game Title Style'), { target: { value: 'fire' } });
+
+    fireEvent.click(screen.getByText('Reset All'));
+    fireEvent.click(screen.getByText('Reset everything'));
+
+    await waitFor(() => expect(fetchMock.mock.calls.some(c => c[1]?.method === 'POST')).toBe(true));
+    const post = fetchMock.mock.calls.find(c => c[1]?.method === 'POST')!;
+    const payload = JSON.parse(post[1].body as string);
+
+    for (const key of SAVED_KEYS) {
+      expect(payload[key]).toBeNull();
+    }
+    expect(Object.keys(payload)).toHaveLength(SAVED_KEYS.length);
+  });
+
+  it('closes through the normal saved flow', async () => {
+    const { onClose, onSaved } = await renderModal();
+    fireEvent.click(screen.getByText('Reset All'));
+    fireEvent.click(screen.getByText('Reset everything'));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(onClose).toHaveBeenCalled();
   });
 });

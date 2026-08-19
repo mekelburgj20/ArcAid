@@ -1,6 +1,7 @@
 import { getDatabase } from '../database/database.js';
 import { logInfo, logError } from '../utils/logger.js';
 import { nameRankSqlCase, nameRankSqlParams } from '../utils/searchRank.js';
+import { normalizeFraming, type BgFraming } from '../utils/bgFraming.js';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
@@ -215,16 +216,17 @@ export class StyleCatalogueService {
     /**
      * Assign a catalogue style to a game.
      */
-    static async assignToGame(gameId: string, catalogueStyleId: string, headerDisabled: boolean): Promise<boolean> {
+    static async assignToGame(gameId: string, catalogueStyleId: string, headerDisabled: boolean, framing?: BgFraming): Promise<boolean> {
         const db = await getDatabase();
 
         // Verify style exists
         const style = await db.get('SELECT id FROM style_catalogue WHERE id = ?', catalogueStyleId);
         if (!style) return false;
 
+        const f = normalizeFraming(framing);
         const result = await db.run(
-            'UPDATE games SET catalogue_style_id = ?, style_header_disabled = ? WHERE id = ?',
-            catalogueStyleId, headerDisabled ? 1 : 0, gameId
+            'UPDATE games SET catalogue_style_id = ?, style_header_disabled = ?, bg_zoom = ?, bg_pos_x = ?, bg_pos_y = ? WHERE id = ?',
+            catalogueStyleId, headerDisabled ? 1 : 0, f.bgZoom, f.bgPosX, f.bgPosY, gameId
         );
         return (result.changes ?? 0) > 0;
     }
@@ -235,10 +237,35 @@ export class StyleCatalogueService {
     static async removeFromGame(gameId: string): Promise<boolean> {
         const db = await getDatabase();
         const result = await db.run(
-            'UPDATE games SET catalogue_style_id = NULL, style_header_disabled = 0 WHERE id = ?',
+            'UPDATE games SET catalogue_style_id = NULL, style_header_disabled = 0, bg_zoom = NULL, bg_pos_x = NULL, bg_pos_y = NULL WHERE id = ?',
             gameId
         );
         return (result.changes ?? 0) > 0;
+    }
+
+    /**
+     * Background framing only — the write the image-assignment endpoints make,
+     * where the style id is set by `assignImageToGame` and the framing rides
+     * along beside it.
+     */
+    static async setGameBgFraming(gameId: string, framing?: BgFraming): Promise<void> {
+        const db = await getDatabase();
+        const f = normalizeFraming(framing);
+        await db.run(
+            'UPDATE games SET bg_zoom = ?, bg_pos_x = ?, bg_pos_y = ? WHERE id = ?',
+            f.bgZoom, f.bgPosX, f.bgPosY, gameId
+        );
+    }
+
+    /** Background framing only, on the room's library default row. */
+    static async setLibraryBgFraming(gameRoomId: string, gameName: string, framing?: BgFraming): Promise<void> {
+        const db = await getDatabase();
+        const f = normalizeFraming(framing);
+        await db.run(
+            `UPDATE game_room_game_library SET bg_zoom = ?, bg_pos_x = ?, bg_pos_y = ?
+             WHERE game_room_id = ? AND game_name = ?`,
+            f.bgZoom, f.bgPosX, f.bgPosY, gameRoomId, gameName
+        );
     }
 
     /**

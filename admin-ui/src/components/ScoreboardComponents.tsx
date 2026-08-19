@@ -92,6 +92,11 @@ export interface GameLeaderboard {
   logoStyleId: string | null;
   bgStyleId: string | null;
   styleHeaderDisabled: boolean;
+  /** v2.115.0 — per-game background framing. Null on each axis = unframed
+   *  (100% zoom, centred), which renders exactly as it did before. */
+  bgZoom?: number | null;
+  bgPosX?: number | null;
+  bgPosY?: number | null;
   bgHasBg?: number | null;
   logoHasHeader?: number | null;
   catHasBg?: number | null;

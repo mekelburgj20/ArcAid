@@ -120,6 +120,7 @@ export default function ScoreCardGrid({
                   minScores={newConfig.minScores}
                   showTimer={false}
                   cardBgFill={newConfig.cardBgFill}
+                  gameHeaderEnabled={newConfig.gameHeaderEnabled}
                   titleFontSize={newConfig.titleFontSize || undefined}
                   viewerUsername={viewerUsername}
                   viewerEntry={lb.viewerEntry}

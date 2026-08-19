@@ -10,6 +10,7 @@ import GameInfoPopup from './GameInfoPopup';
 import { useScoreExpand } from './useScoreExpand';
 import { CircuitBoardBackground, GlowNodes, ScanlineOverlay, PodiumBackground } from './neonCircuitAssets';
 import { qrEdgeMetrics, DEFAULT_QR_OFFSET_PX } from '../../lib/scoreboardConfig';
+import { bgTransformStyle } from '../../lib/bgFraming';
 
 interface ShowcaseCardProps {
   lb: GameLeaderboard;
@@ -27,6 +28,9 @@ interface ShowcaseCardProps {
   /** Signed distance from the anchored edge; negative overlaps into the card. */
   qrOffsetPx?: number;
   cardBgFill?: boolean;
+  /** v2.115.0 — when false the floating identifier image is dropped (and the
+   *  title area reclaims the space it reserved). */
+  gameHeaderEnabled?: boolean;
   titleFontSize?: number;
   gameTitleStyle?: string;
   onSubmitScore?: (lb: GameLeaderboard) => void;
@@ -60,6 +64,7 @@ export default function ShowcaseCard({
   minScores = 20,
   showTimer = true,
   cardBgFill = false,
+  gameHeaderEnabled = true,
   titleFontSize,
   gameTitleStyle = 'default',
   qrMode = 'disabled',
@@ -111,7 +116,9 @@ export default function ShowcaseCard({
 
   // Uniform top padding — all Showcase cards reserve space for identifier images
   // so card frames align even when some cards have identifiers and others don't
-  const hasFloatImage = !!styleHeaderUrl;
+  // v2.115.0: art off means no identifier to float, so the title area also
+  // drops the 90px it reserves for one.
+  const hasFloatImage = !!styleHeaderUrl && gameHeaderEnabled;
   const floatPadTop = 42;
 
   // Bottom-center QR needs extra bottom margin so next card isn't overlapped
@@ -164,7 +171,8 @@ export default function ShowcaseCard({
             <div style={{
               position: 'absolute', inset: 0, zIndex: 0,
               backgroundImage: `url(${bgImage})`,
-              backgroundSize: 'cover', backgroundPosition: 'center',
+              backgroundSize: 'cover',
+              ...bgTransformStyle(lb),
             }} />
             <div style={{ position: 'absolute', inset: 0, zIndex: 0, background: 'rgba(0,0,0,0.55)' }} />
           </>

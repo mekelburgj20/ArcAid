@@ -338,6 +338,12 @@ const SCOREBOARD_TOGGLES: Record<string, { label: string; description: string; d
     // Owner call, 2026-08-15 — default ON, matching deriveScoreboardConfig.
     defaultOn: true,
   },
+  'SCOREBOARD_GAME_HEADER_ENABLED': {
+    label: 'Game Art Header',
+    description: "When enabled, each card shows the game's art block at the top. Turn it off for a text-first board — cards keep their title, tournament label and countdown either way.",
+    // Owner ask, 2026-08-19 — default ON, matching deriveScoreboardConfig.
+    defaultOn: true,
+  },
   'SCOREBOARD_RANKINGS_STICKY': {
     label: 'Always Visible Rankings',
     description: 'When enabled, the Overall Rankings card stays pinned on screen and does not scroll away.',

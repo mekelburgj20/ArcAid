@@ -8,6 +8,7 @@ import FitRowName from './FitRowName';
 import GameInfoPopup from './GameInfoPopup';
 import { useScoreExpand } from './useScoreExpand';
 import { qrEdgeMetrics, DEFAULT_QR_OFFSET_PX } from '../../lib/scoreboardConfig';
+import { bgTransformStyle } from '../../lib/bgFraming';
 import { formatScore } from '../../lib/format';
 import { resolveRowClick, opensQuickView, QUICK_VIEW_HINT } from '../../lib/scoreGesture';
 
@@ -26,6 +27,9 @@ interface BannerCardProps {
   /** Signed distance from the anchored edge; negative overlaps into the card. */
   qrOffsetPx?: number;
   cardBgFill?: boolean;
+  /** v2.115.0 — when false the art strip and the identifier image are dropped;
+   *  the title area (and its plain-text title) always renders. */
+  gameHeaderEnabled?: boolean;
   titleFontSize?: number;
   gameTitleStyle?: string;
   onSubmitScore?: (lb: GameLeaderboard) => void;
@@ -68,6 +72,7 @@ export default function BannerCard({
   qrPosition = 'top-center',
   qrOffsetPx = DEFAULT_QR_OFFSET_PX,
   cardBgFill = false,
+  gameHeaderEnabled = true,
   titleFontSize,
   gameTitleStyle = 'default',
   onSubmitScore: _onSubmitScore,  // v2.2.8: no longer used here (title is a Link); kept in props for CardRouter spread compat
@@ -77,8 +82,10 @@ export default function BannerCard({
 }: BannerCardProps) {
   const { bgImage, styleHeaderUrl } = resolveImages(lb);
   const displayName = lb.displayName || lb.gameName;
-  // When cardBgFill is on, the separate image area is hidden so identifier isn't visible — always show title
-  const hasIdentifierImage = !!styleHeaderUrl && !cardBgFill;
+  // When cardBgFill is on, the separate image area is hidden so identifier isn't visible — always show title.
+  // v2.115.0: art switched off is the same situation — no identifier renders,
+  // so the title must be the plain-text one rather than the art-mode overlay.
+  const hasIdentifierImage = !!styleHeaderUrl && !cardBgFill && gameHeaderEnabled;
   const borderColor = TOURNAMENT_BORDER_COLORS[lb.tournamentType?.toUpperCase()] ?? 'border-border';
 
   // D1 (v2.34.0) — reserve a fixed two-line title box so a wrapping title
@@ -158,7 +165,7 @@ export default function BannerCard({
             backgroundImage: `url(${bgImage})`,
             backgroundSize: 'cover',
             backgroundRepeat: 'no-repeat',
-            backgroundPosition: 'center',
+            ...bgTransformStyle(lb),
           }}
         />
       )}
@@ -219,8 +226,9 @@ export default function BannerCard({
         )}
       </div>
 
-      {/* Background image area (hidden when bg fill is on since image covers whole card) */}
-      {bgImage && !cardBgFill && (
+      {/* Background image area (hidden when bg fill is on since image covers
+          whole card, and when the room switched the game art off). */}
+      {bgImage && !cardBgFill && gameHeaderEnabled && (
         <div className="relative h-28 bg-raised">
           <div
             className="absolute inset-0"

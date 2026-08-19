@@ -221,14 +221,27 @@ export const CreateLocalAdminSchema = z.object({
     display_name: z.string().max(100).optional(),
 });
 
+/**
+ * Per-game background framing (v2.115.0). Omitted or null CLEARS the framing
+ * back to the 100 / 50 / 50 default — the picker always sends its current
+ * state, so an absent field means "unframed", never "leave as-is".
+ */
+const BgFramingFields = {
+    bgZoom: z.number().min(100).max(300).nullable().optional(),
+    bgPosX: z.number().min(0).max(100).nullable().optional(),
+    bgPosY: z.number().min(0).max(100).nullable().optional(),
+};
+
 export const AssignStyleSchema = z.object({
     catalogueStyleId: z.string().min(1),
     headerDisabled: z.boolean().default(false),
+    ...BgFramingFields,
 });
 
 export const AssignImageSchema = z.object({
     styleId: z.string().min(1),
     imageType: z.enum(['logo', 'background', 'both']),
+    ...BgFramingFields,
 });
 
 // Ranking-card backgrounds (owner-designed 2026-08-09) — a ranking group has

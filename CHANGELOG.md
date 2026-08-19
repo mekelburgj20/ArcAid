@@ -6,6 +6,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.115.0] — unreleased
+
+**Three owner asks about what a scoreboard card shows: the art can be switched off, the art that stays can be framed, and a viewer can undo all their tinkering in one click.** The first two are about rooms whose table art fights the scores rather than helping them — either the art goes, or it gets pushed into place. The third is the exit from a preferences panel with two dozen knobs in it.
+
+### Added
+- **"Game Art Header" — a room setting (`SCOREBOARD_GAME_HEADER_ENABLED`, default ON).** Switch it off and every card drops its art imagery: Arcade's 176px art panel collapses to a compact header, Banner loses its art strip and identifier image, Showcase loses its floating identifier. What no card ever loses is its NAME — the game title, the tournament chip, the lock and the countdown render in every mode, because a card that can't say what game it is has stopped being a card. Minimal is unaffected (it never showed art). Absence of the key means ON, so no existing room changes on upgrade.
+  - Admin control on Settings → Scoreboard Display. Viewers get the same control inverted, as **"Hide Game Art"** under Display Preferences → Advanced → Cards & header — the same idiom as "Hide Game Room Logo".
+- **Per-game background framing — zoom and drag (migration 154).** `bg_zoom`, `bg_pos_x`, `bg_pos_y` on both overlay tables (`games` and `game_room_game_library`). NULL on any axis means "unframed" and renders identically to before, so nothing moves until an admin says so. Set it in the art-pack picker's new **Background framing** section: a live preview of the real image, a 100–300% zoom slider, and drag-to-reposition on the preview itself.
+  - Framing rides with the style through every existing path — the game style endpoint, the image-type endpoint, the room library default, and the library→game copy at tournament activation and pin creation, so a saved default follows the game into future rotations.
+  - Read resolution is per FIELD, `games` first then the room library, so a game that overrides only the zoom still inherits the library's position rather than snapping back to centre.
+  - One shared `bgTransformStyle` helper drives all four cards and the picker preview: `transformOrigin` has to track `backgroundPosition` or zooming walks the image off its own anchor, and that rule does not survive being copied five times.
+- **"Reset All" in viewer Display Preferences.** A quiet action beside the device toggle with an inline confirm, clearing every override for the current device (desktop and mobile are separate, as they already were) and handing the view back to the room's defaults.
+
+### Changed
+- `GET /:roomId/leaderboard` (via `LeaderboardService.getActiveLeaderboards`), the room scores payload (`RoomScoresService`), `GET /:roomId/games/active` and `GET /:roomId/game_library/:name/style` all ship the three framing fields additively. `AssignStyleSchema` and `AssignImageSchema` accept optional `bgZoom` (100–300), `bgPosX`/`bgPosY` (0–100); omitted or null CLEARS the framing, so newly chosen art always starts unframed rather than inheriting the last image's zoom.
+
+### Tests
+- New `card-bg-framing.test.ts` (11): migration 154's columns on both tables, NULL defaults, `assignToGame`/`setRoomGameStyle` round-trips, clear-on-omit, clamping, and the per-field games-over-library read precedence.
+- New `StylePickerFraming.test.tsx` (7): the section stays hidden for targets with no background to frame (the ranking-group picker included), prefills, emits, and resets. The drag maths is covered through `bgTransformStyle` rather than synthetic pointer events.
+- Extended: `ArcadeCard.test.tsx` (art on vs. off, with the title/chip/countdown contract pinned), `scoreboardConfig.test.ts`, `viewerPrefsToggleParity.test.ts`, and `ScoreboardPreferencesModal.test.tsx` (key parity + the Reset All confirm/save/close flow).
+
 ## [2.114.1] — unreleased
 
 **Room admins can log in from the generic /login page again (RetroTechX lockout).** A room admin using the Super Admin Login page's Discord (or Google) button got a correct `room_admin` token — and was then routed to the SUPER-admin dashboard, whose layout bounced the non-super token straight back to /login. The callback pages have always read `roomSlugs` off the JWT to find the admin's own room; no mint site ever included the claim, so the routing fell through to the wrong dashboard.

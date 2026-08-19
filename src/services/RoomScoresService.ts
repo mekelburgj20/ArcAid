@@ -32,6 +32,10 @@ export interface RoomScoreCard {
     logoStyleId: string | null;
     bgStyleId: string | null;
     styleHeaderDisabled: boolean;
+    /** v2.115.0 — per-game background framing (zoom %, position %). */
+    bgZoom: number | null;
+    bgPosX: number | null;
+    bgPosY: number | null;
     bgHasBg: number | null;
     logoHasHeader: number | null;
     catHasBg: number | null;
@@ -59,6 +63,9 @@ interface CardChrome {
     logoStyleId: string | null;
     bgStyleId: string | null;
     styleHeaderDisabled: boolean;
+    bgZoom: number | null;
+    bgPosX: number | null;
+    bgPosY: number | null;
     bgHasBg: number | null;
     logoHasHeader: number | null;
     catHasBg: number | null;
@@ -73,6 +80,9 @@ const EMPTY_CHROME: CardChrome = {
     logoStyleId: null,
     bgStyleId: null,
     styleHeaderDisabled: false,
+    bgZoom: null,
+    bgPosX: null,
+    bgPosY: null,
     bgHasBg: null,
     logoHasHeader: null,
     catHasBg: null,
@@ -160,6 +170,9 @@ export class RoomScoresService {
                 logoStyleId: chrome.logoStyleId,
                 bgStyleId: chrome.bgStyleId,
                 styleHeaderDisabled: chrome.styleHeaderDisabled,
+                bgZoom: chrome.bgZoom,
+                bgPosX: chrome.bgPosX,
+                bgPosY: chrome.bgPosY,
                 bgHasBg: chrome.bgHasBg,
                 logoHasHeader: chrome.logoHasHeader,
                 catHasBg: chrome.catHasBg,
@@ -339,7 +352,8 @@ export class RoomScoresService {
         const placeholders = lowerNames.map(() => '?').join(',');
 
         const roomLibRows = await db.all(`
-            SELECT game_name, catalogue_style_id, logo_style_id, bg_style_id, style_header_disabled, global_game_id
+            SELECT game_name, catalogue_style_id, logo_style_id, bg_style_id, style_header_disabled,
+                   bg_zoom, bg_pos_x, bg_pos_y, global_game_id
             FROM game_room_game_library
             WHERE game_room_id = ? AND LOWER(game_name) IN (${placeholders})
         `, roomId, ...lowerNames);
@@ -351,7 +365,8 @@ export class RoomScoresService {
         // tournament-active games AND pinned games (pinned rows are created
         // with status 'ACTIVE' and tournament_id NULL — see gameCreation.ts).
         const gamesRows = await db.all(`
-            SELECT name, catalogue_style_id, logo_style_id, bg_style_id, style_header_disabled, global_game_id
+            SELECT name, catalogue_style_id, logo_style_id, bg_style_id, style_header_disabled,
+                   bg_zoom, bg_pos_x, bg_pos_y, global_game_id
             FROM games
             WHERE game_room_id = ? AND status = 'ACTIVE' AND LOWER(name) IN (${placeholders})
         `, roomId, ...lowerNames);
@@ -402,6 +417,13 @@ export class RoomScoresService {
             const logoStyleId = overlaySource?.logo_style_id || null;
             const bgStyleId = overlaySource?.bg_style_id || null;
             const styleHeaderDisabled = !!(overlaySource?.style_header_disabled);
+            // v2.115.0 — framing resolves per FIELD (games row first, library
+            // default second), deliberately NOT through `overlaySource`: a game
+            // can carry a style with no framing of its own while the room's
+            // library default has one, and that framing should still apply.
+            const bgZoom = gamesRow?.bg_zoom ?? roomLib?.bg_zoom ?? null;
+            const bgPosX = gamesRow?.bg_pos_x ?? roomLib?.bg_pos_x ?? null;
+            const bgPosY = gamesRow?.bg_pos_y ?? roomLib?.bg_pos_y ?? null;
 
             let bgHasBg: number | null = null, logoHasHeader: number | null = null, catHasBg: number | null = null, catHasHeader: number | null = null;
             if (bgStyleId && styleById.has(bgStyleId)) bgHasBg = styleById.get(bgStyleId).has_background;
@@ -423,6 +445,9 @@ export class RoomScoresService {
                 logoStyleId,
                 bgStyleId,
                 styleHeaderDisabled,
+                bgZoom,
+                bgPosX,
+                bgPosY,
                 bgHasBg,
                 logoHasHeader,
                 catHasBg,

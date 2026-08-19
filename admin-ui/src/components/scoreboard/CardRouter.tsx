@@ -29,6 +29,9 @@ export interface CardRouterProps {
    *  positions only). Defaults to 10 when omitted. */
   qrOffsetPx?: number;
   cardBgFill?: boolean;
+  /** v2.115.0 — room/viewer "Game Art Header" toggle. Default true; when false
+   *  the cards drop their header ART but keep title, chip and countdown. */
+  gameHeaderEnabled?: boolean;
   cardSpacing?: number;
   titleFontSize?: number;
   gameTitleStyle?: string;
@@ -62,6 +65,7 @@ export default function CardRouter({
   qrPosition = 'top-center',
   qrOffsetPx = DEFAULT_QR_OFFSET_PX,
   cardBgFill = false,
+  gameHeaderEnabled = true,
   titleFontSize,
   gameTitleStyle,
   onSubmitScore,
@@ -83,6 +87,7 @@ export default function CardRouter({
     qrPosition,
     qrOffsetPx,
     cardBgFill,
+    gameHeaderEnabled,
     titleFontSize,
     gameTitleStyle,
     onSubmitScore,
