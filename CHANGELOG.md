@@ -6,6 +6,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.114.1] — unreleased
+
+**Room admins can log in from the generic /login page again (RetroTechX lockout).** A room admin using the Super Admin Login page's Discord (or Google) button got a correct `room_admin` token — and was then routed to the SUPER-admin dashboard, whose layout bounced the non-super token straight back to /login. The callback pages have always read `roomSlugs` off the JWT to find the admin's own room; no mint site ever included the claim, so the routing fell through to the wrong dashboard.
+
+### Fixed
+- `room_admin` tokens now carry `roomSlugs` (matching `gameRoomIds` order) from every mint site: Discord OAuth, Google OAuth, the room password login, and the refresh re-mint. The FE change is zero — both callback pages already consumed the claim.
+- New `AdminService.getRoomSlugs(roomIds)` preserves input order (the FE routes to `roomSlugs[0]`) and skips deleted rooms.
+- Legacy tokens without the claim keep the old fallback until they expire; logging in fresh always yields the routed token.
+
+### Changed
+- **The Super Admin login moved to the deliberately obscure `/superadmin`** (owner ask, same incident). Mistaken visits to `/login` redirect to the landing page, and an unauthenticated (or wrong-role) visit to `/admin/*` lands on the landing page instead of a login form. The role guard no longer wipes a wandering room-admin's perfectly good token. Expired super-admin sessions bounce to `/superadmin`; room-admin session expiry keeps bouncing to the room's own login.
+- **OAuth callback routing never assumes super**: a `room_admin` token routes to its room via `roomSlugs` (or the slug in `state`), and every unroutable fallback now lands on `/` — pre-fix the fallbacks all pointed at the super-admin dashboard. Login-failure cards link back to the room's own login when the flow carried a room, else to the landing page.
+- `/superadmin` only auto-forwards to the dashboard for an actual `super_admin` token (was: any valid token, which would have ping-ponged room admins).
+
 ## [2.114.0] — unreleased
 
 **Style-system revamp Phase 3, the last phase — the viewer Display Preferences panel is four controls.** The modal showed ~17 top-level controls, the same disease the admin editor was cured of in Phase 1. A viewer's actual choices are which cards, which colors, which layout, and how big — so that is the top level now.

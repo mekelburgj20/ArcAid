@@ -88,6 +88,7 @@ router.post('/login/:roomSlug', async (req, res) => {
         const token = signToken({
             role: 'room_admin',
             gameRoomIds: [room.id],
+            roomSlugs: [room.slug],
             localAdminId: admin.id,
             username: admin.display_name || admin.username,
         });
@@ -329,6 +330,7 @@ router.post('/discord/callback', async (req, res) => {
             const token = signToken({
                 role: 'room_admin',
                 gameRoomIds: roomIds,
+                roomSlugs: await AdminService.getRoomSlugs(roomIds),
                 discordId: canonicalUserId,
                 username: displayName,
                 avatar: avatarUrl || undefined,
@@ -689,6 +691,7 @@ router.post('/google/callback', async (req, res) => {
             const token = signToken({
                 role: 'room_admin',
                 gameRoomIds: roomIds,
+                roomSlugs: await AdminService.getRoomSlugs(roomIds),
                 discordId: canonicalUserId,
                 username: displayName,
                 avatar: pictureUrl || undefined,

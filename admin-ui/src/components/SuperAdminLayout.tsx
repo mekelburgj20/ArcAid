@@ -18,17 +18,19 @@ export default function SuperAdminLayout() {
 
   useEffect(() => {
     if (!isAuthenticated()) {
-      navigate('/login', { replace: true });
+      // Mistaken /admin visits go to the landing page, not a login form —
+      // the super login lives at the deliberately obscure /superadmin.
+      navigate('/', { replace: true });
       return;
     }
-    // Role guard: a non-super-admin token (e.g. a normal player who OAuth'd in
-    // via the old landing "Admin" link with __super__ intent) lands here with a
-    // valid-but-wrong-role token. The server 403s every /admin/* call regardless,
-    // but without this the empty Super Admin shell still renders — alarming and
-    // confusing. Bounce them to /login instead of painting the chrome.
+    // Role guard: a non-super-admin token lands here with a valid-but-wrong-role
+    // token. The server 403s every /admin/* call regardless, but without this
+    // the empty Super Admin shell still renders — alarming and confusing.
+    // Bounce to the landing page; the token is left INTACT (it may be a
+    // perfectly good room_admin session — wiping it here was part of the
+    // RetroTechX lockout loop).
     if (getTokenRole() !== 'super_admin') {
-      setToken(null);
-      navigate('/login', { replace: true });
+      navigate('/', { replace: true });
       return;
     }
     api.get<{ username: string; avatar: string | null }>('/auth/me')
@@ -60,7 +62,7 @@ export default function SuperAdminLayout() {
 
   const handleLogout = () => {
     setToken(null);
-    navigate('/login', { replace: true });
+    navigate('/superadmin', { replace: true });
   };
 
   const navItems: Array<{ path: string; label: string; icon: React.ReactNode; badge?: number }> = [
