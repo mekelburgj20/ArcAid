@@ -6,6 +6,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.120.0] — unreleased
+
+**A room can now forbid Arcaid from ever deleting a game on its iScored board.** Prompted by rtx_pinball linking to the RTX group's own, pre-existing iScored room (not a mirror Arcaid owns): with the tournaments' cleanup rules at `immediate`/`scheduled`, the next rotation would have deleted the finished boards — scores and all — from that room. The owner asked to be "absolutely sure" that cannot happen.
+
+### Added
+- **Room Settings → iScored → "Allow Arcaid to delete games on iScored"** (`ISCORED_ALLOW_DELETE`; absent/on = today's behaviour). **Off:** every delete path refuses — `runCleanup` (both the inline-from-maintenance and the standalone cron path) archives locally only and logs one WARN per run naming the tournament; `deleteGameCompletely` and unpin do their local work and report `iscoredStatus: 'skipped'`; the two admin "delete/remove game" routes do the local removal and report `skipped`; the `sync-iscored` `delete` action and the Reconcile execute POST return **409** (`ISCORED_DELETES_DISABLED_MESSAGE`) before any iScored session is opened (the Reconcile dry-run stays available). Lock/unlock/hide/unhide, create, score submit and lineup reorder are unaffected — reversible or additive. Helper `iscoredDeletesAllowed(roomId)` in `src/utils/iscoredCreds.ts`; guarded at all seven `deleteGame` call sites.
+- Deliberately NOT in `DANGEROUS_KEYS`: turning deletes off is the strictly safer direction and should not be nagged; turning them back on restores the default.
+
+### Tests
+- `iscored-delete-kill-switch.test.ts` (16): helper semantics · cleanup off (inline + standalone: `deleteGame` never called, games still ARCHIVED, one WARN) vs on · deleteGameCompletely + unpin off/on · four admin routes · lock/unlock still work with the switch off. Settings page +4 (renders inside the iScored card, default on, never in "Other", saves `'false'` without a confirm). Suites 2040 / 952.
+
 ## [2.119.1] — unreleased
 
 **The tournament chip on every card now shows the tournament's Tag.** Owner: the chips reading "Weekly Grind" were actually Weekly Grind - VPXS, while Weekly Grind - VPX was labelled correctly. Cause: `ArcadeCard` and `ShowcaseCard` each carried a hardcoded map that turned four known tags into invented English (`DG`→"Daily Grind", `WG-VPXS`→"Weekly Grind", `WG-VR`→"VR Weekly", `MG`→"Monthly Grind") and fell back to the tournament *name* for anything else — so a tag the map didn't know looked right and a tag it did know looked wrong — while `BannerCard`/`MinimalCard`/legacy `GameCard` showed the name. Four styles, three answers.

@@ -8,6 +8,7 @@ import { requireAuth, requireRoomAccess, requireDiscordUser, optionalDiscordUser
 import type { TokenPayload } from '../auth.js';
 import { validate } from '../validate.js';
 import { isProviderUserId, isDiscordUserId } from '../../utils/identityProvider.js';
+import { iscoredDeletesAllowed, ISCORED_DELETES_DISABLED_MESSAGE } from '../../utils/iscoredCreds.js';
 import {
     CreateTournamentSchema, UpdateTournamentSchema, ToggleTournamentActiveSchema,
     SettingsSchema,
@@ -6747,7 +6748,17 @@ router.delete('/:roomId/admin/game-states/:gameId', requireAuth, requireRoomAcce
         }
 
         // Delete from iScored if requested (per-room creds via resolver).
-        if (parsed.deleteFromIScored && game.iscored_id) {
+        // This route's PURPOSE is the local row removal (phantom/orphan cleanup);
+        // the iScored delete is an opt-in side effect. So when the per-room
+        // kill-switch refuses deletes we skip only that side effect and still do
+        // the local work, reporting `iscoredStatus: 'skipped'` — a 409 here would
+        // leave the admin unable to clean up their own local row.
+        const deletesAllowed = await iscoredDeletesAllowed(roomId);
+        let iscoredStatus: 'deleted' | 'failed' | 'skipped' | 'not-requested' = 'not-requested';
+        if (parsed.deleteFromIScored && game.iscored_id && !deletesAllowed) {
+            iscoredStatus = 'skipped';
+            logWarn(`iScored deletes disabled for room ${roomId} — "${game.name}" (${game.iscored_id}) left on iScored; removing local row only.`);
+        } else if (parsed.deleteFromIScored && game.iscored_id) {
             const { getIScoredCredsForRoom } = await import('../../utils/iscoredCreds.js');
             const creds = await getIScoredCredsForRoom(roomId);
             if (creds) {
@@ -6761,11 +6772,14 @@ router.delete('/:roomId/admin/game-states/:gameId', requireAuth, requireRoomAcce
                     });
                     if (deleted) {
                         logInfo(`Deleted game from iScored: ${game.name} (${game.iscored_id})`);
+                        iscoredStatus = 'deleted';
                     } else {
                         logWarn(`iScored delete skipped for ${game.name} (${game.iscored_id}): not in dropdown.`);
+                        iscoredStatus = 'failed';
                     }
                 } catch (err) {
                     logError(`Failed to delete game ${gameId} from iScored:`, err);
+                    iscoredStatus = 'failed';
                 }
             }
         }
@@ -6782,7 +6796,8 @@ router.delete('/:roomId/admin/game-states/:gameId', requireAuth, requireRoomAcce
         await RoomEventService.log(roomId, 'game_deleted', {
             gameName: game.name,
             status: game.status,
-            deletedFromIScored: parsed.deleteFromIScored && !!game.iscored_id,
+            deletedFromIScored: parsed.deleteFromIScored && !!game.iscored_id && deletesAllowed,
+            iscoredStatus,
         });
 
         // Explicit audit write — auditMiddleware does NOT fire on router routes.
@@ -6793,14 +6808,19 @@ router.delete('/:roomId/admin/game-states/:gameId', requireAuth, requireRoomAcce
             target_id: gameId,
             details: JSON.stringify({
                 roomId, gameName: game.name, status: game.status,
-                deletedFromIScored: parsed.deleteFromIScored && !!game.iscored_id, force: !!parsed.force,
+                deletedFromIScored: parsed.deleteFromIScored && !!game.iscored_id && deletesAllowed,
+                iscoredStatus, force: !!parsed.force,
             }),
             ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
             correlation_id: req.correlationId || '',
         });
 
         logInfo(`Admin deleted game: ${game.name} (status: ${game.status}, room: ${roomId})`);
-        res.json({ success: true });
+        res.json({
+            success: true,
+            iscoredStatus,
+            ...(iscoredStatus === 'skipped' ? { message: ISCORED_DELETES_DISABLED_MESSAGE } : {}),
+        });
     } catch (error: any) {
         if (error.name === 'ZodError') return res.status(400).json({ error: 'Invalid request', details: error.errors });
         logError('API Error (DELETE game-states/:gameId):', error);
@@ -6822,8 +6842,18 @@ router.delete('/:roomId/admin/games/:gameId', requireAuth, requireRoomAccess('ro
         `, gameId, roomId);
         if (!game) return res.status(404).json({ error: 'Game not found in this room' });
 
-        // Clean up on iScored if the game has an iScored ID
-        if (game.iscored_id) {
+        // Clean up on iScored if the game has an iScored ID.
+        // Like the sibling game-states delete, this route's PURPOSE is the local
+        // removal (scores are deliberately retained) — the iScored delete is a
+        // side effect. The per-room kill-switch therefore skips only that side
+        // effect, reported as `iscoredStatus: 'skipped'`; the local removal that
+        // the admin actually asked for still happens.
+        const deletesAllowed = await iscoredDeletesAllowed(roomId);
+        let iscoredStatus: 'deleted' | 'failed' | 'skipped' | 'not-requested' = 'not-requested';
+        if (game.iscored_id && !deletesAllowed) {
+            iscoredStatus = 'skipped';
+            logWarn(`iScored deletes disabled for room ${roomId} — "${game.name}" (${game.iscored_id}) left on iScored; removing local game row only.`);
+        } else if (game.iscored_id) {
             const { getIScoredCredsForRoom } = await import('../../utils/iscoredCreds.js');
             const creds = await getIScoredCredsForRoom(roomId);
             if (creds) {
@@ -6837,11 +6867,14 @@ router.delete('/:roomId/admin/games/:gameId', requireAuth, requireRoomAccess('ro
                     });
                     if (deleted) {
                         logInfo(`Deleted game from iScored: ${game.name} (${game.iscored_id})`);
+                        iscoredStatus = 'deleted';
                     } else {
                         logWarn(`iScored delete skipped for ${game.name} (${game.iscored_id}): not in dropdown.`);
+                        iscoredStatus = 'failed';
                     }
                 } catch (err) {
                     logError(`Failed to delete game ${gameId} from iScored:`, err);
+                    iscoredStatus = 'failed';
                     // Continue with local deletion even if iScored fails
                 }
             }
@@ -6865,6 +6898,7 @@ router.delete('/:roomId/admin/games/:gameId', requireAuth, requireRoomAccess('ro
             gameName: game.name,
             status: game.status,
             hadIScored: !!game.iscored_id,
+            iscoredStatus,
             scoresRetained: true,
         });
 
@@ -6880,7 +6914,11 @@ router.delete('/:roomId/admin/games/:gameId', requireAuth, requireRoomAccess('ro
         });
 
         logInfo(`Admin removed game from leaderboard: ${game.name} (status: ${game.status}, room: ${roomId}, scores retained)`);
-        res.json({ success: true });
+        res.json({
+            success: true,
+            iscoredStatus,
+            ...(iscoredStatus === 'skipped' ? { message: ISCORED_DELETES_DISABLED_MESSAGE } : {}),
+        });
     } catch (error: any) {
         logError('API Error (DELETE admin/games/:gameId):', error);
         res.status(500).json({ error: 'Internal Server Error' });
@@ -6916,6 +6954,14 @@ router.post('/:roomId/admin/game-states/:gameId/sync-iscored', requireAuth, requ
             || parsed.action === 'delete';
         if (requiresIscoredId && !game.iscored_id) {
             return res.status(400).json({ error: 'Game has no iScored ID' });
+        }
+        // Per-room delete kill-switch. Unlike the two game-removal routes, the
+        // ENTIRE purpose of this action is the remote delete — there is no local
+        // work to fall back to — so refuse outright, before any session is
+        // acquired. Every other action (lock/unlock/hide/unhide/create) is
+        // reversible or additive and stays allowed.
+        if (parsed.action === 'delete' && !(await iscoredDeletesAllowed(roomId))) {
+            return res.status(409).json({ error: ISCORED_DELETES_DISABLED_MESSAGE });
         }
         const { IScoredSessionRegistry } = await import('../../engine/IScoredSessionRegistry.js');
         await IScoredSessionRegistry.getInstance().withSession(creds, async (client) => {
@@ -7122,6 +7168,13 @@ router.post('/:roomId/admin/game-states/iscored-reconcile', requireAuth, require
             ? req.body.gameIds.map((g: unknown) => String(g))
             : [];
         if (gameIds.length === 0) return res.status(400).json({ error: 'No gameIds provided.' });
+
+        // Per-room delete kill-switch. Reconcile exists ONLY to delete iScored
+        // entities, so refuse before acquiring a session. The dry-run GET above
+        // is read-only and stays available.
+        if (!(await iscoredDeletesAllowed(roomId))) {
+            return res.status(409).json({ error: ISCORED_DELETES_DISABLED_MESSAGE });
+        }
 
         const { getIScoredCredsForRoom } = await import('../../utils/iscoredCreds.js');
         const creds = await getIScoredCredsForRoom(roomId);
