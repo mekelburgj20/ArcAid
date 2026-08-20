@@ -155,3 +155,38 @@ export async function getIScoredAccounts(): Promise<Array<{
     }
     return Array.from(accounts.values());
 }
+
+/**
+ * Per-room kill-switch for iScored game DELETES (`ISCORED_ALLOW_DELETE`).
+ *
+ * Motivation: a room may bridge Arcaid to an iScored board it does not own
+ * outright. The board's owner needs certainty that Arcaid can never REMOVE a
+ * game from it — not through a tournament cleanup rule, not through an admin
+ * button, not through reconcile. Everything reversible/additive (lock, unlock,
+ * hide, unhide, create, submit, reorder) stays allowed; only `deleteGame` is
+ * gated.
+ *
+ * Semantics: absent or any value other than the literal string `'false'` means
+ * deletes are allowed — same default-on-when-absent rule the other room flags
+ * use (`ISCORED_ENABLED`, `DISCORD_ENABLED`). A null/undefined roomId (the
+ * env-fallback callers that have no room context) resolves to allowed, so
+ * back-compat is preserved.
+ *
+ * NOT encrypted — it is a policy flag, not a secret.
+ */
+export async function iscoredDeletesAllowed(
+    gameRoomId: string | null | undefined,
+): Promise<boolean> {
+    if (!gameRoomId) return true;
+    const { GameRoomSettingsService } = await import('../services/GameRoomSettingsService.js');
+    const raw = await GameRoomSettingsService.get(gameRoomId, 'ISCORED_ALLOW_DELETE');
+    return raw !== 'false';
+}
+
+/**
+ * The 409 body every admin route returns when a delete is refused by the
+ * kill-switch. One constant so the message an admin sees is identical
+ * wherever the refusal happens.
+ */
+export const ISCORED_DELETES_DISABLED_MESSAGE =
+    'iScored deletes are disabled for this room (Room Settings → iScored → Allow Arcaid to delete games on iScored).';

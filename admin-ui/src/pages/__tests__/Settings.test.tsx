@@ -398,6 +398,62 @@ describe('Settings page — ROOM_LISTED, JOIN_POLICY, AUTO_APPROVE_GUILD_MEMBERS
       expect(lastSavePayload(fetchMock)!.ISCORED_PASSWORD).toBe('newSecretPass1');
     });
 
+    // v2.120.0 — ISCORED_ALLOW_DELETE, the per-room iScored delete kill-switch.
+    // It renders inside the iScored CREDENTIAL card (not Integrations, not
+    // "Other"), because it qualifies the connection rather than establishing
+    // one. Default-on-when-absent, same rule as the server helper
+    // (`iscoredDeletesAllowed`: any value but the literal 'false' allows).
+    const ALLOW_DELETE_LABEL = 'Allow Arcaid to delete games on iScored';
+
+    it('renders the delete kill-switch INSIDE the iScored card, defaulted on when absent', async () => {
+      stubFetch({ ISCORED_ENABLED: 'true' });
+      renderSettings();
+      await waitForLoaded();
+
+      // The NeonCard renders its title as an <h3> sibling of the body, so the
+      // heading's parent IS the card — scoping to it proves placement.
+      const iscoredCard = screen.getByRole('heading', { name: 'iScored' }).parentElement as HTMLElement;
+      expect(within(iscoredCard).getByText(ALLOW_DELETE_LABEL)).toBeInTheDocument();
+      expect(within(iscoredCard).getByText('iScored Username')).toBeInTheDocument();
+
+      // Absent → on.
+      const button = within(controlFor(ALLOW_DELETE_LABEL)).getByRole('button');
+      expect(button.className).toMatch(/bg-neon-cyan/);
+    });
+
+    it('never leaks into the raw "Other" card', async () => {
+      stubFetch({ ISCORED_ENABLED: 'true', ISCORED_ALLOW_DELETE: 'false' });
+      renderSettings();
+      await waitForLoaded();
+
+      expect(screen.queryByRole('heading', { name: 'Other' })).not.toBeInTheDocument();
+    });
+
+    it("turning it off saves ISCORED_ALLOW_DELETE='false' with no confirm() prompt", async () => {
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+      const fetchMock = stubFetch({ ISCORED_ENABLED: 'true' });
+      renderSettings();
+      await waitForLoaded();
+
+      fireEvent.click(within(controlFor(ALLOW_DELETE_LABEL)).getByRole('button'));
+      fireEvent.click(screen.getByRole('button', { name: /Save All Changes/ }));
+
+      await waitFor(() => expect(lastSavePayload(fetchMock)).not.toBeNull());
+      expect(lastSavePayload(fetchMock)!.ISCORED_ALLOW_DELETE).toBe('false');
+      // Deliberately NOT a DANGEROUS_KEYS member: turning deletes OFF is the
+      // safe direction and the generic confirm copy would misdescribe it.
+      expect(confirmSpy).not.toHaveBeenCalled();
+    });
+
+    it("reads 'false' as off", async () => {
+      stubFetch({ ISCORED_ENABLED: 'true', ISCORED_ALLOW_DELETE: 'false' });
+      renderSettings();
+      await waitForLoaded();
+
+      const button = within(controlFor(ALLOW_DELETE_LABEL)).getByRole('button');
+      expect(button.className).not.toMatch(/bg-neon-cyan/);
+    });
+
     it('clicking Remove clears the masked field to empty string (server deletes the row on save)', async () => {
       const fetchMock = stubFetch({
         ISCORED_ENABLED: 'true',

@@ -171,8 +171,15 @@ export async function unpinGameFromScoreboard(opts: {
 
     let iscoredStatus: 'deleted' | 'failed' | 'skipped' = 'skipped';
     if (opts.deleteOnIScored && row.iscored_id) {
-        const creds = await getIScoredCredsForRoom(opts.roomId);
-        if (creds) {
+        // Per-room delete kill-switch (ISCORED_ALLOW_DELETE=false). Checked
+        // before creds/session so a refusal never logs in to iScored. The local
+        // unpin still proceeds below; only the remote delete is skipped.
+        const { iscoredDeletesAllowed } = await import('../utils/iscoredCreds.js');
+        const deletesAllowed = await iscoredDeletesAllowed(opts.roomId);
+        const creds = deletesAllowed ? await getIScoredCredsForRoom(opts.roomId) : null;
+        if (!deletesAllowed) {
+            logWarn(`Unpin: iScored deletes disabled for room ${opts.roomId} — "${row.name}" (${row.iscored_id}) stays on iScored; local pin removed anyway.`);
+        } else if (creds) {
             try {
                 const deleted = await IScoredSessionRegistry.getInstance().withSession(creds, async (client) => {
                     // Rollback safety net (v2.117.0) — snapshot the iScored room

@@ -258,6 +258,12 @@ const DEAD_KEYS = new Set(['GAME_ROOM_NAME', 'GAME_ROOM_SLUG']);
 
 // Saving a change to any of these asks for explicit confirmation first — each
 // flips how players reach or use the room.
+// NOT included: ISCORED_ALLOW_DELETE. The confirm() fires on ANY change to a
+// listed key, and its copy ("This affects how players access this room") is
+// wrong for it in both directions — turning the switch OFF is the strictly
+// safer direction and must not be nagged, and turning it back ON restores the
+// default behaviour rather than changing player access. The toggle's own
+// description carries the consequence.
 const DANGEROUS_KEYS = ['ISCORED_ENABLED', 'DISCORD_ENABLED', 'GLOBAL_SCOREBOARD_ENABLED', 'JOIN_POLICY'];
 
 // D2 (standalone rooms, v2.32.0) — same default-on semantics as
@@ -324,6 +330,20 @@ const KIOSK_TOGGLES: Record<string, { label: string; description: string; defaul
   'KIOSK_AUTO_SCROLL': {
     label: 'Kiosk Auto-Scroll',
     description: 'When the card row is wider than the screen (e.g. with Kiosk Zoom set for TV distance), slowly scroll it back and forth so every card gets screen time.',
+    defaultOn: true,
+  },
+};
+
+// Toggles that render inside the iScored credential card. ISCORED_ALLOW_DELETE
+// is the per-room kill-switch for iScored game DELETES: absent or 'true' keeps
+// today's behaviour, 'false' means no Arcaid code path may remove a game from
+// this room's iScored board (cleanup archives locally instead; admin deletes
+// are refused). Locking, hiding, creating and lineup order are unaffected.
+// Deliberately NOT in DANGEROUS_KEYS — see the note there.
+const ISCORED_TOGGLES: Record<string, { label: string; description: string; defaultOn?: boolean }> = {
+  'ISCORED_ALLOW_DELETE': {
+    label: 'Allow Arcaid to delete games on iScored',
+    description: "On (default): finished games are removed from iScored according to each tournament's Cleanup rule, and admins can delete games there. Off: Arcaid never deletes a game from this iScored room — cleanup archives locally only, admin deletes are refused. Locking and lineup order are unaffected. Turn this off when the iScored room is shared or not owned by Arcaid.",
     defaultOn: true,
   },
 };
@@ -412,6 +432,7 @@ const TOGGLE_DEFAULTS: Record<string, boolean> = {
   ...Object.fromEntries(Object.entries(SCOREBOARD_TOGGLES).map(([k, v]) => [k, !!v.defaultOn])),
   ...Object.fromEntries(Object.entries(KIOSK_TOGGLES).map(([k, v]) => [k, !!v.defaultOn])),
   ...Object.fromEntries(Object.entries(GAME_ROOM_TOGGLES).map(([k, v]) => [k, !!v.defaultOn])),
+  ...Object.fromEntries(Object.entries(ISCORED_TOGGLES).map(([k, v]) => [k, !!v.defaultOn])),
   ...Object.fromEntries(Object.entries(TOGGLE_SETTINGS).map(([k, v]) => [k, !!v.defaultOn])),
   SCOREBOARD_MOBILE_VERTICAL: true,
   SCOREBOARD_LOGO_ENABLED: true,
@@ -832,6 +853,9 @@ export default function Settings() {
     ...Object.keys(SCOREBOARD_TOGGLES),
     ...Object.keys(KIOSK_TOGGLES),
     ...Object.keys(GAME_ROOM_TOGGLES),
+    // Rendered as an inline toggle inside the iScored credential card — claimed
+    // here so it never leaks into the raw "Other" card.
+    ...Object.keys(ISCORED_TOGGLES),
     ...Object.keys(TOGGLE_SETTINGS),
     // v2.39.0 — rendered as its own 2-option select, not a boolean toggle.
     JOIN_POLICY_KEY,
@@ -1387,6 +1411,33 @@ export default function Settings() {
               {category === 'Game Room' && (
                 <div className="pt-3 mt-3 border-t border-border/30 space-y-4">
                   {Object.entries(GAME_ROOM_TOGGLES).map(([key, { label, description, defaultOn }]) => {
+                    const isOn = settings[key] !== undefined ? settings[key] === 'true' : !!defaultOn;
+                    return (
+                      <div key={key} className="flex items-center justify-between gap-4">
+                        <div>
+                          <p className="text-sm font-medium text-primary">{label}</p>
+                          <p className="text-xs text-muted">{description}</p>
+                        </div>
+                        <button
+                          onClick={() => handleChange(key, isOn ? 'false' : 'true')}
+                          className={`relative w-12 h-6 rounded-full transition-colors cursor-pointer border-none ${
+                            isOn ? 'bg-neon-cyan' : 'bg-raised border border-border'
+                          }`}
+                        >
+                          <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-primary transition-transform ${isOn ? 'translate-x-6' : ''}`} />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Inline toggle for iScored — the per-room delete kill-switch.
+                  Lives in this card (not Integrations) because it qualifies
+                  the iScored connection itself, not whether the room has one. */}
+              {category === 'iScored' && (
+                <div className="pt-3 mt-3 border-t border-border/30 space-y-4">
+                  {Object.entries(ISCORED_TOGGLES).map(([key, { label, description, defaultOn }]) => {
                     const isOn = settings[key] !== undefined ? settings[key] === 'true' : !!defaultOn;
                     return (
                       <div key={key} className="flex items-center justify-between gap-4">

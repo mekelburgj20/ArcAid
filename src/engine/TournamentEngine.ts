@@ -9,7 +9,7 @@ import { getTerminology } from '../utils/terminology.js';
 import { sendChannelMessage, sendChannelEmbed, getTournamentColor, formatUserMention } from '../utils/discord.js';
 import { IScoredClient } from './IScoredClient.js';
 import { IScoredSessionRegistry } from './IScoredSessionRegistry.js';
-import { IScoredCreds } from '../utils/iscoredCreds.js';
+import { IScoredCreds, iscoredDeletesAllowed } from '../utils/iscoredCreds.js';
 import { GameRoomSettingsService } from '../services/GameRoomSettingsService.js';
 import { PickAwardGate } from '../services/PickAwardGate.js';
 import { emitGameRotated, emitPickerAssigned } from '../api/websocket.js';
@@ -406,8 +406,16 @@ export class TournamentEngine {
                 }
 
                 const { getIScoredCredsForRoom } = await import('../utils/iscoredCreds.js');
+                // Per-room delete kill-switch. Checked BEFORE creds resolution /
+                // session acquisition — refusing after a Playwright login would
+                // log in to iScored only to do nothing.
+                const deletesAllowed = await iscoredDeletesAllowed(row.game_room_id);
                 const creds = row.game_room_id ? await getIScoredCredsForRoom(row.game_room_id) : null;
-                if (creds) {
+                if (!deletesAllowed) {
+                    logWarn(`iScored deletes disabled for room ${row.game_room_id} — keeping "${row.name}" (${row.iscored_id}) on iScored; removing the local row only.`);
+                    iscoredStatus = 'skipped';
+                    iscoredError = 'iScored deletes are disabled for this room — the game was left on iScored.';
+                } else if (creds) {
                     try {
                         const deleted = await IScoredSessionRegistry.getInstance().withSession(creds, async (client) => {
                             const { IScoredSnapshotService } = await import('../services/IScoredSnapshotService.js');
@@ -2158,7 +2166,17 @@ export class TournamentEngine {
             }
         };
 
-        if (sharedClient) {
+        // Per-room delete kill-switch (ISCORED_ALLOW_DELETE=false). When deletes
+        // are refused, cleanup behaves EXACTLY like the iScored-disabled branch
+        // below: the completed games move to the ARCHIVED terminal state locally
+        // and iScored is never touched. Checked before any session is used so a
+        // maintenance-shared client is left alone too. One WARN per run.
+        const deletesAllowed = await iscoredDeletesAllowed(tournamentRow?.game_room_id);
+
+        if (!deletesAllowed) {
+            logWarn(`Cleanup for tournament ${tournamentId} (room ${tournamentRow?.game_room_id ?? 'n/a'}): iScored deletes disabled for this room — archiving locally only (${toHide.length} game(s) stay on iScored).`);
+            toHide.forEach((g) => archivable.add(g.id));
+        } else if (sharedClient) {
             logInfo(`Cleanup for tournament ${tournamentId}: deleting ${toHide.length} completed game(s) from iScored (shared session)`);
             await deleteAll(sharedClient);
         } else if (creds) {
