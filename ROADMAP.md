@@ -21,7 +21,10 @@ Full design + owner rulings: `tmp/identity-claim-design.md`. Prompted by the Cha
 
 Owner-asked (session #85) as rollback safety before the RTX group is onboarded. Design record `tmp/iscored-snapshots-design.md`. Built to spec: pre-mutation capture at all seven destructive iScored paths (debounced per account), 04:00 nightly sweep + 30-day prune, super-admin list/snapshot-now/download/delete/restore on `/admin/backups`. Restore = recreate missing games + replay per-player bests + re-link `games.iscored_id`. Structural limits (API accepts name+score only): dates and iScored ids are not preserved, photos and styles are not captured.
 
+**v2.117.1 same-day hotfix — `getGamesOnIScored` had returned `[]` on prod since June** (payload is `GameID`/`GameName` + JSON-string `tags`; the mapper read `gameID`/`gameName`). The first real snapshot exposed it (18 scores, 0 games, flagged partial). Two-month consequences: every `deleteGame` verified as confirmed, Reconcile always empty, restore would have duplicated every game. Fixed via `parseGetGameNamesPayload` pinned against the captured prod body.
+
 Follow-ups (none blocking):
+- **Re-run "Reconcile iScored" on prod** (Game States page) now that the live list is real — the June stragglers (Paranormal 95735, Attack from Mars 95586) and anything cleanup "confirmed" but never deleted should finally surface as unmanaged/orphan. Dry-run first, eyeball, then delete.
 - **Settings UI** for `ISCORED_SNAPSHOTS_ENABLED` / `ISCORED_SNAPSHOT_DEBOUNCE_MS` / `ISCORED_SNAPSHOT_RETENTION_DAYS` — env/global-settings only today; defaults are right.
 - **Poller onto `getIScoredAccounts()`** — `ScoreSyncPoller.poll` still groups accounts inline (`ScoreSyncPoller.ts:221-229`) with the same key; fold it onto the helper in a pure refactor (the `standalone-room-phase1-contract` already asked for this).
 - **Photo capture** — only `scrapePublicScores` sees `photoUrl` and only the Playwright `submitScore` can re-upload; both are DOM-driven per game, so a snapshot with photos is a different (slow) tool. `runCleanup` hard-deletes photo files from disk, so a pre-cleanup snapshot that wanted photos would have to copy the files too.

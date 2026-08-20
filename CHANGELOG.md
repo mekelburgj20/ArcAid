@@ -6,6 +6,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.117.1] — unreleased
+
+**The "what is on iScored right now" read has returned an empty list on prod since June.** Found minutes after v2.117.0 went live: the first real snapshot came back with 18 scores across 7 games but **zero games** — the new partial-capture guard refused to call the room empty, and a probe from inside the prod container showed why. iScored's `settingsCommands.php?c=getGameNames` answers with `GameID` / `GameName` (capitalised) and `tags` as a JSON-encoded *string*; `IScoredClient.getGamesOnIScored` (PR #32, 2026-06-25 — never live-verified) read `gameID` / `gameName` and expected an array, so every row lost its id and was filtered out.
+
+What that silently broke for two months: **`deleteGame`'s server-truth verification** ("is the game still in the list?") confirmed every delete, including ones iScored had ignored, so the orphan-safe cleanup backstop from PR #32 was inert; **Reconcile iScored** always built an empty plan; and the brand-new **snapshot restore** would have treated every game as missing and recreated duplicates.
+
+### Fixed
+- `getGamesOnIScored` parses through a new pure `parseGetGameNamesPayload` (`src/utils/iscoredGameNames.ts`): case-tolerant field reads (`gameID`/`GameID`/`id`, `gameName`/`GameName`/`name`), `tags` as array, JSON string or comma list, `Hidden`/`Locked` null-tolerant. **A payload that has rows but yields none now WARNs with the first row's keys** — the signal that would have caught this on day one.
+
+### Tests
+- New `iscored-getgamenames-payload.test.ts` (5) pins the exact prod payload, the legacy shape, the shape-drift WARN, empty/non-JSON/non-array bodies, and malformed tag strings.
+
 ## [2.117.0] — unreleased
 
 **Every destructive iScored run now leaves a copy of the room behind first.** iScored has no undo: a wrong delete — a maintenance rotation, the weekly cleanup, an admin delete, a reconcile sweep, an unpin — takes the game and every score on it. Asked for as rollback safety before the RTX group is onboarded onto iScored-backed tournaments. The snapshot is a small JSON file per iScored gameroom (every game with its hidden/locked state and tags, plus every score the public API shows), written into `data/iscored-snapshots/<gameroom>/` just before the mutation and kept for 30 days.

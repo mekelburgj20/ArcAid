@@ -31,6 +31,8 @@ async function withRetry<T>(fn: () => Promise<T>, label: string, maxAttempts: nu
     throw new Error('Unreachable');
 }
 
+import { parseGetGameNamesPayload } from '../utils/iscoredGameNames.js';
+
 const SCREENSHOT_DIR = path.join(process.cwd(), 'data', 'playwright-errors');
 
 export class IScoredClient {
@@ -856,24 +858,11 @@ export class IScoredClient {
                 });
                 return res.ok ? await res.text() : '';
             });
-            if (!raw) return [];
-            let parsed: unknown;
-            try {
-                parsed = JSON.parse(raw);
-            } catch {
-                logWarn('getGamesOnIScored: getGameNames response was not JSON.');
-                return [];
-            }
-            if (!Array.isArray(parsed)) return [];
-            return (parsed as Array<Record<string, unknown>>)
-                .map((g) => ({
-                    id: String(g.gameID ?? '').trim(),
-                    name: String(g.gameName ?? '').trim(),
-                    hidden: String(g.Hidden ?? '').toUpperCase() === 'TRUE',
-                    locked: String(g.Locked ?? '').toUpperCase() === 'TRUE',
-                    tags: Array.isArray(g.tags) ? (g.tags as unknown[]).map(String) : [],
-                }))
-                .filter((g) => g.id !== '');
+            // v2.117.1: the live payload is `GameID`/`GameName` with `tags` as a
+            // JSON string — the old inline mapper read `gameID`/`gameName` and
+            // returned [] for every row. Parsing lives in a pure util so the
+            // exact prod payload is pinned by a test.
+            return parseGetGameNamesPayload(raw, 'getGamesOnIScored');
         });
     }
 
