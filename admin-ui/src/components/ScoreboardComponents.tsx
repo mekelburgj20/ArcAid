@@ -6,6 +6,7 @@ import ScorePhotoModal from './ScorePhotoModal';
 import GameInfoPopup from './scoreboard/GameInfoPopup';
 import FitRowName from './scoreboard/FitRowName';
 import { fetchScoreCounts } from './scoreboard/scoreCountsBatcher';
+import { tournamentChipLabel } from './scoreboard/tournamentChip';
 import { resolveRowClick, opensQuickView, QUICK_VIEW_HINT } from '../lib/scoreGesture';
 import { AnonymousAvatarIcon } from '../assets/icons/ThemedIcons';
 // ShowcaseThemeConfig imported via SHOWCASE_THEMES lookup in RankingGroupCard
@@ -397,6 +398,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
   // When 2-column scores are enabled, double the visible scores so both columns fill
   const maxScores = scoreColumns === 2 ? Math.max(maxScoresProp, maxScoresProp * 2) : maxScoresProp;
   const borderColor = getTournamentBorderColor(lb.tournamentType);
+  const chipLabel = tournamentChipLabel(lb);
   const [scoreCounts, setScoreCounts] = useState<Record<string, number>>({});
   const [expandedPlayer, setExpandedPlayer] = useState<string | null>(null);
   const [playerHistory, setPlayerHistory] = useState<ScoreHistoryEntry[]>([]);
@@ -548,7 +550,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
                 <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} roomId={roomId} gameName={lb.gameName} globalGameId={lb.globalGameId} size={13} />
               </h3>
             )}
-            {lb.tournamentName && <p className={`text-[11px] uppercase tracking-wider mt-0.5 ${isFill ? 'text-white/60' : 'text-muted'}`}>{lb.tournamentName}</p>}
+            {chipLabel && <p className={`text-[11px] uppercase tracking-wider mt-0.5 ${isFill ? 'text-white/60' : 'text-muted'}`}>{chipLabel}</p>}
           </div>
           {lb.gameStatus === 'COMPLETED' && <span title="Completed" className="flex-shrink-0"><Lock size={18} strokeWidth={2.5} className="text-neon-amber" /></span>}
           {onSubmitScore && (
@@ -584,7 +586,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
                   <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} roomId={roomId} gameName={lb.gameName} globalGameId={lb.globalGameId} size={13} />
                 </h3>
               )}
-              {lb.tournamentName && <p className={`text-[11px] uppercase tracking-wider mt-0.5 ${isFill ? 'text-white/60' : 'text-muted'}`}>{lb.tournamentName}</p>}
+              {chipLabel && <p className={`text-[11px] uppercase tracking-wider mt-0.5 ${isFill ? 'text-white/60' : 'text-muted'}`}>{chipLabel}</p>}
               {lb.gameStatus === 'COMPLETED' && <span title="Completed" className="absolute right-3 top-1"><Lock size={18} strokeWidth={2.5} className="text-neon-amber" /></span>}
               {onSubmitScore && (
                 <span className="absolute left-3 top-1"><Upload size={14} className="text-faint group-hover:text-neon-cyan transition-colors" /></span>
@@ -620,7 +622,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
                 <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} roomId={roomId} gameName={lb.gameName} globalGameId={lb.globalGameId} size={13} />
               </h3>
             )}
-            {lb.tournamentName && <p className={`text-[11px] uppercase tracking-wider mt-0.5 ${isFill ? 'text-white/60' : 'text-muted'}`}>{lb.tournamentName}</p>}
+            {chipLabel && <p className={`text-[11px] uppercase tracking-wider mt-0.5 ${isFill ? 'text-white/60' : 'text-muted'}`}>{chipLabel}</p>}
           </div>
           {/* Status icons */}
           <div className="flex items-center gap-1.5 pr-3 flex-shrink-0">
@@ -646,7 +648,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
             {onSubmitScore && (
               <span className="absolute left-3 top-3"><Upload size={14} className="text-faint group-hover:text-neon-cyan transition-colors" /></span>
             )}
-            {lb.tournamentName && <p className={`text-[11px] uppercase tracking-wider mt-0.5 ${isFill ? 'text-white/60' : 'text-muted'}`}>{lb.tournamentName}</p>}
+            {chipLabel && <p className={`text-[11px] uppercase tracking-wider mt-0.5 ${isFill ? 'text-white/60' : 'text-muted'}`}>{chipLabel}</p>}
           </div>
 
           {/* Background image area — only shown in non-fill mode (fill mode uses the full card) */}

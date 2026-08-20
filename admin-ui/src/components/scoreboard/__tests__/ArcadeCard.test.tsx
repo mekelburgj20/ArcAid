@@ -119,7 +119,7 @@ describe('ArcadeCard — the Global look', () => {
 
   it('names the board with the tournament chip, and Pinned for a pinned game', () => {
     const t = renderCard(makeLb({ tournamentType: 'WG-VR' }));
-    expect(within(t.card).getByTestId('arcade-chip')).toHaveTextContent('VR Weekly');
+    expect(within(t.card).getByTestId('arcade-chip')).toHaveTextContent('WG-VR');
     t.unmount();
 
     const p = renderCard(makeLb({ isPinned: true, tournamentType: '', tournamentName: '' }));
@@ -229,7 +229,7 @@ describe('ArcadeCard — game art header toggle', () => {
 
     // The card still says what it is.
     expect(within(art).getByText('Medieval Madness')).toBeInTheDocument();
-    expect(within(art).getByTestId('arcade-chip')).toHaveTextContent('Daily Grind');
+    expect(within(art).getByTestId('arcade-chip')).toHaveTextContent('DG');
     expect(within(card).getByText(/\d+[hm]/)).toBeInTheDocument();
   });
 

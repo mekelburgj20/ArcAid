@@ -11,6 +11,7 @@ import { qrEdgeMetrics, DEFAULT_QR_OFFSET_PX } from '../../lib/scoreboardConfig'
 import { bgTransformStyle } from '../../lib/bgFraming';
 import { formatScore } from '../../lib/format';
 import { resolveRowClick, opensQuickView, QUICK_VIEW_HINT } from '../../lib/scoreGesture';
+import { tournamentChipLabel } from './tournamentChip';
 
 interface BannerCardProps {
   lb: GameLeaderboard;
@@ -87,6 +88,7 @@ export default function BannerCard({
   // so the title must be the plain-text one rather than the art-mode overlay.
   const hasIdentifierImage = !!styleHeaderUrl && !cardBgFill && gameHeaderEnabled;
   const borderColor = TOURNAMENT_BORDER_COLORS[lb.tournamentType?.toUpperCase()] ?? 'border-border';
+  const chipLabel = tournamentChipLabel(lb);
 
   // D1 (v2.34.0) — reserve a fixed two-line title box so a wrapping title
   // doesn't push the score area down vs sibling cards. Uses the SAME
@@ -207,14 +209,14 @@ export default function BannerCard({
             <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} roomId={roomId} gameName={lb.gameName} globalGameId={lb.globalGameId} size={13} />
           </div>
         )}
-        {(lb.tournamentName || lb.gameStatus === 'COMPLETED' || lb.isPinned) && (
+        {(chipLabel || lb.gameStatus === 'COMPLETED' || lb.isPinned) && (
           <p className={`text-[11px] sb-fs-11 uppercase tracking-wider ${hasIdentifierImage ? '' : 'mt-0.5'} text-muted flex items-center justify-center gap-1`}>
             {lb.isPinned ? (
               <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-sm bg-neon-cyan/10 text-neon-cyan/80 text-[10px] sb-fs-10 tracking-normal normal-case">
                 Pinned
               </span>
             ) : (
-              lb.tournamentName
+              chipLabel
             )}
             {lb.gameStatus === 'COMPLETED' && (
               <Lock size={14} strokeWidth={2.5} className="text-neon-amber flex-shrink-0" />
