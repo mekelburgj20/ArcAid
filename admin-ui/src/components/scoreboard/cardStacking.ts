@@ -52,3 +52,18 @@ export const CARD_QR_Z_INDEX = 15;
  * between the two does not silently re-bury them.
  */
 export const ADMIN_CARD_CHROME_Z_INDEX = CARD_QR_Z_INDEX + 5;
+
+/**
+ * v2.119.0 (C2) — the card-edit framing overlay, which captures the pointer
+ * over the SELECTED card while the rail is in card-edit mode.
+ *
+ * It sits in the headroom the constant above reserved, deliberately:
+ *   - ABOVE the QR (15), or a bottom-anchored QR would swallow drag gestures
+ *     in the bottom third of the card, exactly where a drag usually starts.
+ *   - BELOW the controls strip (20), so Name / Notes / Scores / Remove and —
+ *     the one that would actually be missed — the reorder grip stay clickable
+ *     while a card is being styled.
+ * The band the strip occupies is therefore not draggable. That is the trade,
+ * and it is the right way round: the strip is opaque chrome, the card is art.
+ */
+export const CARD_EDIT_OVERLAY_Z_INDEX = CARD_QR_Z_INDEX + 3;

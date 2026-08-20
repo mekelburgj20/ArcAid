@@ -23,7 +23,15 @@ export interface BgFraming {
 export const DEFAULT_BG_ZOOM = 100;
 export const DEFAULT_BG_POS = 50;
 
-export const BG_ZOOM_MIN = 100;
+/**
+ * v2.119.0 (C2) — the floor dropped 100 → 50 so an admin can zoom OUT.
+ * Below 100 a `scale(<1)` on a cover-sized layer stops covering the card and
+ * the card's own background shows through at the edges. That is deliberate:
+ * the editor previews on the REAL card, so the gaps are visible truth and the
+ * owner's eye decides per game. Storage is unchanged (migration 154's three
+ * columns); only the bounds moved, and every stored row is already >= 100.
+ */
+export const BG_ZOOM_MIN = 50;
 export const BG_ZOOM_MAX = 300;
 
 const clamp = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n));

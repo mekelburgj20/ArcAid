@@ -7,18 +7,19 @@ import { useToast } from '../components/Toast';
 import { getSocket } from '../lib/websocket';
 import LoadingState from '../components/LoadingState';
 import ConfirmModal from '../components/ConfirmModal';
-import StylePicker from '../components/StylePicker';
 import NeonButton from '../components/NeonButton';
 import GameQuickView from '../components/GameQuickView';
 import DevicePreviewFrame from '../components/DevicePreviewFrame';
 import ScoreboardSurface from '../components/scoreboard/ScoreboardSurface';
 import DisplaySettingsPanel from '../components/scoreboard/DisplaySettingsPanel';
+import CardStyleEditor, { type ArtPackStyle, type CardFraming, type ImageApplyType } from '../components/scoreboard/CardStyleEditor';
 import FixedHScrollbar from '../components/scoreboard/FixedHScrollbar';
 import { useCardReorder, type CardDragHandleProps } from '../components/scoreboard/useCardReorder';
 import type { HScrollMetrics } from '../components/HorizontalScrollNav';
 import { displaySettingChanged } from '../lib/displaySettings';
 import { tournamentCardTitleLink, tournamentCardTitleClick } from '../components/scoreboard/tournamentCardTitle';
-import { ADMIN_CARD_CHROME_Z_INDEX } from '../components/scoreboard/cardStacking';
+import { ADMIN_CARD_CHROME_Z_INDEX, CARD_EDIT_OVERLAY_Z_INDEX } from '../components/scoreboard/cardStacking';
+import { resolveFraming, DEFAULT_BG_ZOOM, DEFAULT_BG_POS } from '../lib/bgFraming';
 import { getTournamentBorderColor } from '../components/ScoreboardComponents';
 import type { GameLeaderboard, RankingGroupData } from '../components/ScoreboardComponents';
 
@@ -55,6 +56,85 @@ const PHONE_PREVIEW_SCALE = 0.85;
  */
 const SHEET_SNAPS = [0.3, 0.55, 0.92] as const;
 const SHEET_SNAP_LABELS = ['Peek', 'Half', 'Full'] as const;
+
+/**
+ * v2.119.0 (C2) — the per-card edit session.
+ *
+ * ONE card at a time, and the session is the ONLY place its pending changes
+ * live: the overlay handed to the surface is DERIVED from it on every render
+ * (see `buildGameCardOverlay`) rather than stored. That is what makes the
+ * preview survive a `leaderboard:updated` refetch — the refetch replaces the
+ * `leaderboards` array, and the next render simply re-merges the same session
+ * over the fresh row (build trap #8).
+ */
+interface CardEditSession {
+  kind: 'game' | 'ranking';
+  /** gameId, or ranking-group id. */
+  id: string;
+  name: string;
+  /** `undefined` = art untouched · `null` = "Clear style" staged · else the pick. */
+  pick?: ArtPackStyle | null;
+  applyAs: ImageApplyType;
+  headerDisabled: boolean;
+  framing: CardFraming;
+  setAsDefault: boolean;
+  libraryHasDefault: boolean;
+  /** Anything edited at all — drives Apply's enabled state and the
+   *  switch-card / apply-profile guards. */
+  touched: boolean;
+}
+
+/** The subset of a leaderboard row the card editor can move. */
+type CardStyleDraft = Partial<Pick<GameLeaderboard,
+  'catalogueStyleId' | 'logoStyleId' | 'bgStyleId' | 'styleHeaderDisabled' |
+  'bgZoom' | 'bgPosX' | 'bgPosY' | 'bgHasBg' | 'logoHasHeader' | 'catHasBg' | 'catHasHeader'
+>>;
+
+/**
+ * Session → the fields the CARDS actually read.
+ *
+ * Build trap #6: `resolveImages` gates on `bgHasBg`/`catHasBg`/`logoHasHeader`/
+ * `catHasHeader`, not on the ids, so a preview that set only the id would show
+ * the old art (or none) and lie about what Apply is going to do. The picked
+ * style carries `has_background`/`has_header`, so the flags come free.
+ *
+ * The three branches mirror the three endpoint families exactly — see
+ * `applyCardStyle`.
+ */
+function buildGameCardOverlay(s: CardEditSession): CardStyleDraft {
+  const d: CardStyleDraft = {
+    styleHeaderDisabled: s.headerDisabled,
+    bgZoom: s.framing.zoom,
+    bgPosX: s.framing.posX,
+    bgPosY: s.framing.posY,
+  };
+  if (s.pick === null) {
+    // DELETE .../style === `removeFromGame`: catalogue style, header flag and
+    // framing all go; the independent logo/bg overrides survive.
+    d.catalogueStyleId = null;
+    d.catHasBg = null;
+    d.catHasHeader = null;
+    d.styleHeaderDisabled = false;
+    d.bgZoom = null;
+    d.bgPosX = null;
+    d.bgPosY = null;
+  } else if (s.pick) {
+    if (s.applyAs === 'both') {
+      d.catalogueStyleId = s.pick.id;
+      d.catHasBg = s.pick.has_background;
+      d.catHasHeader = s.pick.has_header;
+    } else if (s.applyAs === 'background') {
+      d.bgStyleId = s.pick.id;
+      d.bgHasBg = s.pick.has_background;
+    } else {
+      d.logoStyleId = s.pick.id;
+      d.logoHasHeader = s.pick.has_header;
+    }
+  }
+  return d;
+}
+
+const clampPct = (n: number) => Math.min(100, Math.max(0, n));
 
 /**
  * ≥1024px (Tailwind `lg`) gets the sticky rail; anything narrower gets the
@@ -101,13 +181,24 @@ export default function Leaderboard() {
   const [displayPanelOpen, setDisplayPanelOpen] = useState(false);
   const [savingDisplay, setSavingDisplay] = useState(false);
   const isWideViewport = useIsWideViewport();
-  const [styleTarget, setStyleTarget] = useState<GameLeaderboard | null>(null);
-  const [libraryHasDefault, setLibraryHasDefault] = useState(false);
-  /** v2.9x (ranking-card backgrounds) — Style picker target for a ranking
-   *  GROUP card, kept separate from `styleTarget` (games): ranking groups
-   *  have no default-in-library concept and no header/logo, just one
-   *  background slot. */
-  const [rankingStyleTarget, setRankingStyleTarget] = useState<RankingGroupData['group'] | null>(null);
+  /**
+   * v2.119.0 (C2) — the card being edited, replacing BOTH `StylePicker` modals
+   * (game card + ranking group) on this page. `StylePicker` itself survives for
+   * GameLibrary/Tournaments until C3.
+   */
+  const [cardEdit, setCardEdit] = useState<CardEditSession | null>(null);
+  const [applyingCard, setApplyingCard] = useState(false);
+  /** A card the admin asked to edit while another card's session was dirty. */
+  const [pendingCardEdit, setPendingCardEdit] = useState<
+    { kind: 'game'; lb: GameLeaderboard } | { kind: 'ranking'; group: RankingGroupData['group'] } | null
+  >(null);
+  /** Was the rail already open when card-edit started? Close returns it to
+   *  exactly that state rather than always leaving Room display up. */
+  const railWasOpenRef = useRef(false);
+  const framingDragRef = useRef<{ clientX: number; clientY: number; posX: number; posY: number } | null>(null);
+  /** The gameId whose overlay has already been scrolled into view, so a
+   *  re-render mid-drag doesn't yank the strip back under the pointer. */
+  const spotlightedRef = useRef<string | null>(null);
   const [displayNameTarget, setDisplayNameTarget] = useState<GameLeaderboard | null>(null);
   const [displayNameInput, setDisplayNameInput] = useState('');
   const [displayNameSaving, setDisplayNameSaving] = useState(false);
@@ -314,12 +405,219 @@ export default function Leaderboard() {
   // bg 'fill-entire' mapping, and more). ScoreboardSurface owns all of it now,
   // so this page derives nothing about rendering — it just hands over config.
 
-  const handleStyleClick = async (target: GameLeaderboard) => {
+  /**
+   * The card overlay, DERIVED (never stored) and merged at RENDER time.
+   *
+   * Storing merged rows would lose every edit the moment a `leaderboard:updated`
+   * socket event replaced the `leaderboards` array mid-edit (build trap #8);
+   * deriving them means the next render simply re-merges the same session over
+   * whatever the server just sent.
+   */
+  const cardDrafts: Record<string, CardStyleDraft> =
+    cardEdit && cardEdit.kind === 'game' ? { [cardEdit.id]: buildGameCardOverlay(cardEdit) } : {};
+
+  const surfaceLeaderboards = cardEdit && cardEdit.kind === 'game'
+    ? leaderboards.map(lb => (cardDrafts[lb.gameId] ? { ...lb, ...cardDrafts[lb.gameId] } : lb))
+    : leaderboards;
+
+  const surfaceRankingGroups = cardEdit && cardEdit.kind === 'ranking' && cardEdit.pick !== undefined
+    ? rankingGroups.map(g => (g.group.id !== cardEdit.id ? g : {
+      ...g,
+      group: {
+        ...g.group,
+        bg_style_id: cardEdit.pick ? cardEdit.pick.id : null,
+        bg_has_bg: cardEdit.pick ? cardEdit.pick.has_background : null,
+      },
+    }))
+    : rankingGroups;
+
+  /** The row being edited, WITH the draft applied — the editor reads its
+   *  "current" values off this so the panel and the card never disagree. */
+  const editedLb = cardEdit && cardEdit.kind === 'game'
+    ? surfaceLeaderboards.find(lb => lb.gameId === cardEdit.id)
+    : undefined;
+  const editedGameName = editedLb?.gameName || '';
+
+  /**
+   * The style id Apply will send. Neither write schema accepts a null style id
+   * (`AssignStyleSchema`/`AssignImageSchema` both require one), so framing can
+   * only be persisted onto a card that HAS an art pack — a card drawing its
+   * background from plain catalogue art has nowhere to hang the numbers. The
+   * editor says so rather than failing at Apply.
+   */
+  const effectiveStyleId: string | null = cardEdit?.pick !== undefined
+    ? (cardEdit?.pick ? cardEdit.pick.id : null)
+    : cardEdit?.kind === 'ranking'
+      ? (surfaceRankingGroups.find(g => g.group.id === cardEdit.id)?.group.bg_style_id ?? null)
+      : cardEdit?.applyAs === 'background'
+        ? (editedLb?.bgStyleId ?? editedLb?.catalogueStyleId ?? null)
+        : cardEdit?.applyAs === 'logo'
+          ? (editedLb?.logoStyleId ?? editedLb?.catalogueStyleId ?? null)
+          : (editedLb?.catalogueStyleId ?? null);
+
+  // -- Card editor (C2) --------------------------------------------------
+  /** Opening a card editor while another card still has pending edits would
+   *  silently throw them away, so the second click parks and asks first. */
+  const requestCardEdit = (next: NonNullable<typeof pendingCardEdit>) => {
+    const nextId = next.kind === 'game' ? next.lb.gameId : next.group.id;
+    if (cardEdit?.touched && cardEdit.id !== nextId) { setPendingCardEdit(next); return; }
+    void openCardEdit(next);
+  };
+
+  const openCardEdit = async (next: NonNullable<typeof pendingCardEdit>) => {
+    setPendingCardEdit(null);
+    railWasOpenRef.current = displayPanelOpen;
+    if (next.kind === 'ranking') {
+      setCardEdit({
+        kind: 'ranking', id: next.group.id, name: next.group.name,
+        applyAs: 'both', headerDisabled: false,
+        framing: { zoom: DEFAULT_BG_ZOOM, posX: DEFAULT_BG_POS, posY: DEFAULT_BG_POS },
+        setAsDefault: false, libraryHasDefault: false, touched: false,
+      });
+      setDisplayPanelOpen(true);
+      return;
+    }
+    const lb = next.lb;
+    // Trap #9 - this response already carries the library framing too; only
+    // the "is there a default at all" bit is needed to word the toggle.
+    let libraryHasDefault = false;
     try {
-      const libStyle = await api.get<{ catalogueStyleId: string | null }>(`/rooms/${room.roomId}/game_library/${encodeURIComponent(target.gameName)}/style`);
-      setLibraryHasDefault(!!libStyle.catalogueStyleId);
-    } catch { setLibraryHasDefault(false); }
-    setStyleTarget(target);
+      const libStyle = await api.get<{ catalogueStyleId: string | null }>(
+        `/rooms/${room.roomId}/game_library/${encodeURIComponent(lb.gameName)}/style`);
+      libraryHasDefault = !!libStyle.catalogueStyleId;
+    } catch { /* no library row -> no default */ }
+    if (unmountedRef.current) return;
+    const f = resolveFraming(lb);
+    setCardEdit({
+      kind: 'game', id: lb.gameId, name: lb.displayName || lb.gameName,
+      applyAs: 'both', headerDisabled: !!lb.styleHeaderDisabled,
+      framing: { zoom: f.zoom, posX: f.posX, posY: f.posY },
+      setAsDefault: !libraryHasDefault, libraryHasDefault, touched: false,
+    });
+    setDisplayPanelOpen(true);
+  };
+
+  const patchCardEdit = (patch: Partial<CardEditSession>) =>
+    setCardEdit(prev => (prev ? { ...prev, ...patch, touched: true } : prev));
+
+  /** Cancel / Close. The overlay is DERIVED from the session, so dropping the
+   *  session is the discard - no request, nothing to roll back. */
+  const closeCardEdit = () => {
+    setCardEdit(null);
+    spotlightedRef.current = null;
+    if (!railWasOpenRef.current && !isDisplayDirty) {
+      setDraftConfig(null);
+      setDisplayPanelOpen(false);
+    }
+  };
+
+  const applyCardStyle = async () => {
+    if (!cardEdit) return;
+    const session = cardEdit;
+    setApplyingCard(true);
+    try {
+      if (session.kind === 'ranking') {
+        if (session.pick === null) {
+          await api.delete(`/rooms/${room.roomId}/ranking-groups/${session.id}/style`);
+          toast('Background removed', 'success');
+        } else if (session.pick) {
+          await api.put(`/rooms/${room.roomId}/ranking-groups/${session.id}/style`, { styleId: session.pick.id });
+          toast('Background applied', 'success');
+        }
+        loadRankings();
+      } else {
+        const styleId = effectiveStyleId;
+        // Trap #2 - the FULL triple on every write. The backend reads an
+        // omitted axis as "unframed" and would silently reset it.
+        const framing = { bgZoom: session.framing.zoom, bgPosX: session.framing.posX, bgPosY: session.framing.posY };
+        const perImage = session.applyAs !== 'both';
+        const clearing = session.pick === null || !styleId;
+        if (clearing) {
+          await api.delete(`/rooms/${room.roomId}/admin/games/${session.id}/style`);
+          toast('Style removed', 'success');
+        } else if (perImage) {
+          // Trap #3 - the image endpoint family carries the framing separately.
+          await api.put(`/rooms/${room.roomId}/admin/games/${session.id}/image`, {
+            styleId, imageType: session.applyAs, ...framing,
+          });
+          toast('Style applied', 'success');
+        } else {
+          await api.put(`/rooms/${room.roomId}/admin/games/${session.id}/style`, {
+            catalogueStyleId: styleId, headerDisabled: session.headerDisabled, ...framing,
+          });
+          toast('Style applied', 'success');
+        }
+        if (session.setAsDefault) {
+          const gameName = encodeURIComponent(editedGameName || session.name);
+          try {
+            if (clearing) {
+              await api.delete(`/rooms/${room.roomId}/game_library/${gameName}/style`);
+              toast('Default style cleared in library', 'success');
+            } else if (perImage) {
+              await api.put(`/rooms/${room.roomId}/game_library/${gameName}/image`, {
+                styleId, imageType: session.applyAs, ...framing,
+              });
+              toast('Default style updated in library', 'success');
+            } else {
+              await api.put(`/rooms/${room.roomId}/game_library/${gameName}/style`, {
+                catalogueStyleId: styleId, headerDisabled: session.headerDisabled, ...framing,
+              });
+              toast('Default style updated in library', 'success');
+            }
+          } catch {
+            toast('Failed to update library default', 'error');
+          }
+        }
+        loadData();
+      }
+      if (!unmountedRef.current) closeCardEdit();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Failed to apply card style', 'error');
+    } finally {
+      if (!unmountedRef.current) setApplyingCard(false);
+    }
+  };
+
+  // -- Framing drag, directly on the selected card -----------------------
+  /** The box the drag is measured against: the CARD, not the slot column,
+   *  which also contains the controls strip. Falls back to the overlay's own
+   *  rect when the card reports no layout (jsdom, or a mocked card). */
+  const framingRect = (overlay: HTMLElement): DOMRect => {
+    const card = overlay.parentElement?.firstElementChild as HTMLElement | null;
+    const r = card?.getBoundingClientRect();
+    if (r && r.width && r.height) return r;
+    return overlay.getBoundingClientRect();
+  };
+
+  const beginFramingDrag = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!cardEdit) return;
+    // The strip lives inside HorizontalScrollNav, which drags to scroll on
+    // pointerdown - the same reason the reorder grip stops propagation.
+    e.stopPropagation();
+    e.preventDefault();
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    framingDragRef.current = {
+      clientX: e.clientX, clientY: e.clientY,
+      posX: cardEdit.framing.posX, posY: cardEdit.framing.posY,
+    };
+  };
+
+  const moveFramingDrag = (e: React.PointerEvent<HTMLDivElement>) => {
+    const start = framingDragRef.current;
+    if (!start) return;
+    const rect = framingRect(e.currentTarget);
+    if (!rect.width || !rect.height) return;
+    // Subtraction, not addition (the v1 picker's math): a HIGHER
+    // background-position percentage pulls the image left/up, so dragging
+    // right has to lower it for the art to follow the pointer.
+    const posX = clampPct(start.posX - ((e.clientX - start.clientX) / rect.width) * 100);
+    const posY = clampPct(start.posY - ((e.clientY - start.clientY) / rect.height) * 100);
+    setCardEdit(prev => (prev ? { ...prev, touched: true, framing: { ...prev.framing, posX, posY } } : prev));
+  };
+
+  const endFramingDrag = (e: React.PointerEvent<HTMLDivElement>) => {
+    framingDragRef.current = null;
+    e.currentTarget.releasePointerCapture?.(e.pointerId);
   };
   const handleEditDisplayName = (target: GameLeaderboard) => {
     setDisplayNameInput(target.displayName || '');
@@ -382,9 +680,14 @@ export default function Leaderboard() {
   /** Build trap #4 — "Apply" on a style profile writes server-side at once, so
    *  a dirty draft would silently overwrite it on the next Save. */
   const handleBeforeProfileApply = () => {
-    if (!isDisplayDirty) return true;
+    // v2.119.0 (C2) — the same hazard for the per-card session: a profile
+    // apply rewrites room settings server-side, and a stale card overlay
+    // sitting on top of the refreshed board is a preview that lies.
+    const cardDirty = !!cardEdit?.touched;
+    if (!isDisplayDirty && !cardDirty) return true;
     if (!window.confirm('Discard unsaved changes and apply this profile?')) return false;
     setDraftConfig(null);
+    if (cardDirty) closeCardEdit();
     return true;
   };
 
@@ -422,14 +725,49 @@ export default function Leaderboard() {
               config={surfaceConfig}
               roomName={room.roomName}
               slug={room.roomSlug || ''}
-              leaderboards={leaderboards}
-              rankingGroups={rankingGroups}
+              leaderboards={surfaceLeaderboards}
+              rankingGroups={surfaceRankingGroups}
             />
           </DevicePreviewFrame>
         </div>
       ) : undefined}
     />
   );
+
+  const cardEditorBody = cardEdit ? (
+    <CardStyleEditor
+      mode={cardEdit.kind}
+      cardName={cardEdit.name}
+      selectedStyleId={effectiveStyleId}
+      onPickStyle={style => patchCardEdit({ pick: style })}
+      applyAs={cardEdit.applyAs}
+      onApplyAs={t => patchCardEdit({ applyAs: t })}
+      headerDisabled={cardEdit.headerDisabled}
+      onHeaderDisabled={v => patchCardEdit({ headerDisabled: v })}
+      framing={cardEdit.framing}
+      onFraming={f => patchCardEdit({ framing: f })}
+      fillOn={(draftConfig ?? config).SCOREBOARD_CARD_BG_FILL !== 'false'}
+      onEnableFill={() => handleDisplayChange('SCOREBOARD_CARD_BG_FILL', 'true')}
+      showDefaultOption={cardEdit.kind === 'game'}
+      libraryHasDefault={cardEdit.libraryHasDefault}
+      setAsDefault={cardEdit.setAsDefault}
+      onSetAsDefault={v => patchCardEdit({ setAsDefault: v })}
+      uploadPath={cardEdit.kind === 'game' ? `/rooms/${room.roomId}/admin/styles/upload` : undefined}
+      gameName={editedGameName || undefined}
+      applyNote={cardEdit.kind === 'game' && cardEdit.pick !== null && !effectiveStyleId
+        ? 'Pick an art pack before applying — framing is stored against the art pack, so there is nothing to attach it to yet.'
+        : undefined}
+      dirty={cardEdit.touched && (cardEdit.pick === null || !!effectiveStyleId)}
+      applying={applyingCard}
+      onApply={applyCardStyle}
+      onCancel={closeCardEdit}
+      onClear={() => patchCardEdit({ pick: null })}
+    />
+  ) : null;
+
+  const panelTitle = cardEdit ? 'Edit card' : 'Room display';
+  const panelBody = cardEditorBody ?? displayPanelBody;
+  const closePanel = cardEdit ? closeCardEdit : closeDisplayPanel;
 
   const displaySaveBar = isDisplayDirty ? (
     <div
@@ -511,8 +849,8 @@ export default function Leaderboard() {
         roomName={room.roomName}
         roomId={room.roomId}
         slug={room.roomSlug || ''}
-        leaderboards={leaderboards}
-        rankingGroups={rankingGroups}
+        leaderboards={surfaceLeaderboards}
+        rankingGroups={surfaceRankingGroups}
         titleLinkTo={tournamentCardTitleLink(room.roomSlug || '')}
         titleLinkOnClick={tournamentCardTitleClick(setQuickViewLb)}
         /* v2.118.0 — the arrow overlays reach the viewport edge, so on this
@@ -526,7 +864,8 @@ export default function Leaderboard() {
             lb={lb}
             dragHandleProps={reorder.getHandleProps(lb.gameId, lb.displayName || lb.gameName)}
             dragging={reorder.draggingId === lb.gameId}
-            onStyleClick={handleStyleClick}
+            editing={cardEdit?.kind === 'game' && cardEdit.id === lb.gameId}
+            onStyleClick={lb => requestCardEdit({ kind: 'game', lb })}
             onEditDisplayName={handleEditDisplayName}
             onDeleteGame={setDeleteTarget}
             onEditNotes={handleEditNotes}
@@ -534,7 +873,36 @@ export default function Leaderboard() {
           />
         )}
         renderUnderRankingCard={group => (
-          <RankingAdminControlsStrip group={group} onStyleClick={setRankingStyleTarget} />
+          <RankingAdminControlsStrip
+            group={group}
+            editing={cardEdit?.kind === 'ranking' && cardEdit.id === group.id}
+            onStyleClick={group => requestCardEdit({ kind: 'ranking', group })}
+          />
+        )}
+        /* v2.119.0 (C2) - the selected card's spotlight ring AND its framing
+           drag surface. Null for every other card, and for every card when no
+           card is being edited, so the public slot markup is untouched. */
+        renderCardOverlay={lb => (
+          cardEdit?.kind === 'game' && cardEdit.id === lb.gameId ? (
+            <div
+              data-testid="card-edit-overlay"
+              ref={el => {
+                if (!el || spotlightedRef.current === lb.gameId) return;
+                spotlightedRef.current = lb.gameId;
+                el.scrollIntoView?.({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+              }}
+              role="application"
+              aria-label={`Drag to reposition the background art for ${lb.displayName || lb.gameName}`}
+              title="Drag to reposition the background art"
+              onPointerDown={beginFramingDrag}
+              onPointerMove={moveFramingDrag}
+              onPointerUp={endFramingDrag}
+              onPointerCancel={endFramingDrag}
+              onMouseDown={e => e.stopPropagation()}
+              style={{ zIndex: CARD_EDIT_OVERLAY_Z_INDEX }}
+              className="absolute inset-0 rounded-lg cursor-move touch-none ring-2 ring-neon-cyan ring-offset-2 ring-offset-transparent"
+            />
+          ) : null
         )}
       />
 
@@ -565,8 +933,8 @@ export default function Leaderboard() {
           aria-label="Display settings"
           className="w-[380px] shrink-0 flex flex-col rounded-lg border border-border bg-surface sticky top-16 max-h-[calc(100vh-5rem)] overflow-hidden"
         >
-          <DisplayPanelHeader onClose={closeDisplayPanel} />
-          <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4">{displayPanelBody}</div>
+          <DisplayPanelHeader title={panelTitle} onClose={closePanel} />
+          <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4">{panelBody}</div>
           {displaySaveBar}
         </aside>
       )}
@@ -575,8 +943,8 @@ export default function Leaderboard() {
           driving scenario is a mod in the game room with only a phone,
           watching the kiosk on the wall. */}
       {displayPanelOpen && !isWideViewport && (
-        <DisplaySettingsSheet onClose={closeDisplayPanel} footer={displaySaveBar}>
-          {displayPanelBody}
+        <DisplaySettingsSheet title={panelTitle} onClose={closePanel} footer={displaySaveBar}>
+          {panelBody}
         </DisplaySettingsSheet>
       )}
       </div>
@@ -728,95 +1096,16 @@ export default function Leaderboard() {
         />
       )}
 
-      {/* Style Picker for leaderboard games */}
-      {styleTarget && (
-        <StylePicker
-          currentStyleId={styleTarget.catalogueStyleId}
-          headerDisabled={styleTarget.styleHeaderDisabled}
-          showDefaultOption
-          showImageTypeSelector
-          uploadPath={`/rooms/${room.roomId}/admin/styles/upload`}
-          gameName={styleTarget.gameName}
-          libraryHasDefault={libraryHasDefault}
-          showFraming
-          bgZoom={styleTarget.bgZoom}
-          bgPosX={styleTarget.bgPosX}
-          bgPosY={styleTarget.bgPosY}
-          fallbackBgUrl={styleTarget.imageUrl}
-          onClose={() => setStyleTarget(null)}
-          onSelect={async (styleId, headerDisabled, setAsDefault, imageType, framing) => {
-            try {
-              if (styleId) {
-                // Use new image endpoint for logo/background, legacy for 'both'
-                if (imageType && imageType !== 'both') {
-                  await api.put(`/rooms/${room.roomId}/admin/games/${styleTarget.gameId}/image`, {
-                    styleId, imageType, ...framing,
-                  });
-                } else {
-                  await api.put(`/rooms/${room.roomId}/admin/games/${styleTarget.gameId}/style`, {
-                    catalogueStyleId: styleId, headerDisabled, ...framing,
-                  });
-                }
-                toast('Style applied', 'success');
-              } else {
-                await api.delete(`/rooms/${room.roomId}/admin/games/${styleTarget.gameId}/style`);
-                toast('Style removed', 'success');
-              }
-              if (setAsDefault) {
-                try {
-                  if (styleId) {
-                    if (imageType && imageType !== 'both') {
-                      await api.put(`/rooms/${room.roomId}/game_library/${encodeURIComponent(styleTarget.gameName)}/image`, {
-                        styleId, imageType, ...framing,
-                      });
-                    } else {
-                      await api.put(`/rooms/${room.roomId}/game_library/${encodeURIComponent(styleTarget.gameName)}/style`, {
-                        catalogueStyleId: styleId, headerDisabled, ...framing,
-                      });
-                    }
-                    toast('Default style updated in library', 'success');
-                  } else {
-                    await api.delete(`/rooms/${room.roomId}/game_library/${encodeURIComponent(styleTarget.gameName)}/style`);
-                    toast('Default style cleared in library', 'success');
-                  }
-                } catch {
-                  toast('Failed to update library default', 'error');
-                }
-              }
-              loadData();
-            } catch (err: any) {
-              toast(err.message, 'error');
-            }
-            setStyleTarget(null);
-          }}
-        />
-      )}
-
-      {/* Style Picker for ranking-group cards (v2.9x). No showDefaultOption
-          (ranking groups have no library-default concept) and no
-          showImageTypeSelector (no header/logo — just the one background
-          slot), so onSelect's imageType/setAsDefault args are always
-          undefined here. */}
-      {rankingStyleTarget && (
-        <StylePicker
-          currentStyleId={rankingStyleTarget.bg_style_id ?? null}
-          onClose={() => setRankingStyleTarget(null)}
-          onSelect={async (styleId) => {
-            const target = rankingStyleTarget;
-            try {
-              if (styleId) {
-                await api.put(`/rooms/${room.roomId}/ranking-groups/${target.id}/style`, { styleId });
-                toast('Background applied', 'success');
-              } else {
-                await api.delete(`/rooms/${room.roomId}/ranking-groups/${target.id}/style`);
-                toast('Background removed', 'success');
-              }
-              loadRankings();
-            } catch (err) {
-              toast(err instanceof Error ? err.message : 'Failed to update background', 'error');
-            }
-            setRankingStyleTarget(null);
-          }}
+      {/* v2.119.0 (C2) - guard for switching cards mid-edit. The overlay is
+          derived from the session, so confirming simply drops it; there is no
+          request to cancel. */}
+      {pendingCardEdit && (
+        <ConfirmModal
+          title="Discard card changes"
+          message={`You have unapplied changes on ${cardEdit?.name ?? 'this card'}. Discard them and edit ${pendingCardEdit.kind === 'game' ? (pendingCardEdit.lb.displayName || pendingCardEdit.lb.gameName) : pendingCardEdit.group.name} instead?`}
+          confirmLabel="Discard"
+          onConfirm={() => { void openCardEdit(pendingCardEdit); }}
+          onCancel={() => setPendingCardEdit(null)}
         />
       )}
     </div>
@@ -824,10 +1113,10 @@ export default function Leaderboard() {
 }
 
 /** Shared title bar for both hosts of the display panel. */
-function DisplayPanelHeader({ onClose }: { onClose: () => void }) {
+function DisplayPanelHeader({ title, onClose }: { title: string; onClose: () => void }) {
   return (
     <div className="shrink-0 flex items-center justify-between gap-2 border-b border-border/50 px-4 py-3">
-      <h2 className="font-display text-sm font-bold uppercase tracking-wider">Room display</h2>
+      <h2 className="font-display text-sm font-bold uppercase tracking-wider">{title}</h2>
       <button
         type="button"
         onClick={onClose}
@@ -854,7 +1143,8 @@ function DisplayPanelHeader({ onClose }: { onClose: () => void }) {
  * captured pointer, and release snaps to whichever of the three fractions the
  * gesture ended nearest.
  */
-function DisplaySettingsSheet({ onClose, footer, children }: {
+function DisplaySettingsSheet({ title, onClose, footer, children }: {
+  title: string;
   onClose: () => void;
   footer: ReactNode;
   children: ReactNode;
@@ -917,7 +1207,7 @@ function DisplaySettingsSheet({ onClose, footer, children }: {
         <div className="mx-auto h-1.5 w-10 rounded-full bg-border" />
       </div>
       <div className="shrink-0 flex items-center justify-between gap-2 border-b border-border/50 px-4 pb-3">
-        <h2 className="font-display text-sm font-bold uppercase tracking-wider">Room display</h2>
+        <h2 className="font-display text-sm font-bold uppercase tracking-wider">{title}</h2>
         <div className="flex items-center gap-1">
           {SHEET_SNAP_LABELS.map((label, i) => (
             <button
@@ -979,11 +1269,13 @@ function DisplaySettingsSheet({ onClose, footer, children }: {
  *  `ADMIN_CARD_CHROME_Z_INDEX`; see `cardStacking.ts` for the stacking-context
  *  analysis. The QR stays visible behind the strip, which is what the owner
  *  asked for — an admin needs to SEE the QR, not scan it. */
-function AdminControlsStrip({ lb, dragHandleProps, dragging, onStyleClick, onEditDisplayName, onDeleteGame, onEditNotes, onManageScores }: {
+function AdminControlsStrip({ lb, dragHandleProps, dragging, editing, onStyleClick, onEditDisplayName, onDeleteGame, onEditNotes, onManageScores }: {
   lb: GameLeaderboard;
   /** v2.118.0 — everything the drag handle needs, from `useCardReorder`. */
   dragHandleProps?: CardDragHandleProps;
   dragging?: boolean;
+  /** v2.119.0 — this card owns the rail's card editor right now. */
+  editing?: boolean;
   onStyleClick: (lb: GameLeaderboard) => void;
   onEditDisplayName: (lb: GameLeaderboard) => void;
   onDeleteGame: (lb: GameLeaderboard) => void;
@@ -1020,8 +1312,16 @@ function AdminControlsStrip({ lb, dragHandleProps, dragging, onStyleClick, onEdi
       <NeonButton variant={lb.notes ? 'secondary' : 'ghost'} onClick={() => onEditNotes(lb)} className="text-[10px] px-1.5 py-0.5" title="Edit notes">
         <StickyNote size={11} /> Notes
       </NeonButton>
-      <NeonButton variant={lb.catalogueStyleId ? 'secondary' : 'ghost'} onClick={() => onStyleClick(lb)} className="text-[10px] px-1.5 py-0.5" title="Change card style">
-        Style
+      {/* v2.119.0 (C2) — relabelled from "Style": it no longer opens a style
+          modal, it puts THIS card into the rail's live editor. */}
+      <NeonButton
+        variant={editing ? 'primary' : lb.catalogueStyleId ? 'secondary' : 'ghost'}
+        onClick={() => onStyleClick(lb)}
+        className="text-[10px] px-1.5 py-0.5"
+        title="Edit this card's art, identifier and background framing"
+        aria-pressed={!!editing}
+      >
+        Edit card
       </NeonButton>
       <NeonButton variant="ghost" onClick={() => onManageScores(lb)} className="text-[10px] px-1.5 py-0.5" title="Manage submitted scores">
         Scores
@@ -1041,18 +1341,31 @@ function AdminControlsStrip({ lb, dragHandleProps, dragging, onStyleClick, onEdi
  *  opens the same `StylePicker` used for game backgrounds. Same flush,
  *  always-visible, z-stacked band as the game strip — see the doc comment
  *  on `AdminControlsStrip` for the layout/QR rationale, unchanged here. */
-function RankingAdminControlsStrip({ group, onStyleClick }: {
+function RankingAdminControlsStrip({ group, editing, onStyleClick }: {
   group: RankingGroupData['group'];
+  editing?: boolean;
   onStyleClick: (group: RankingGroupData['group']) => void;
 }) {
   return (
     <div
       data-testid="ranking-admin-card-controls"
       style={{ zIndex: ADMIN_CARD_CHROME_Z_INDEX }}
-      className="relative flex-shrink-0 min-w-0 flex flex-wrap items-center justify-center gap-1 border-2 border-border bg-raised px-2 mt-1 py-1.5 rounded-lg"
+      /* v2.119.0 — the selected ranking card is marked on its strip rather
+         than with the game cards' full-card overlay: a ranking group has no
+         framing to drag (its schema is `{ styleId }` and nothing else), so an
+         interactive card overlay would only take clicks away for nothing. */
+      className={`relative flex-shrink-0 min-w-0 flex flex-wrap items-center justify-center gap-1 border-2 bg-raised px-2 mt-1 py-1.5 rounded-lg ${
+        editing ? 'border-neon-cyan' : 'border-border'
+      }`}
     >
-      <NeonButton variant={group.bg_style_id ? 'secondary' : 'ghost'} onClick={() => onStyleClick(group)} className="text-[10px] px-1.5 py-0.5" title="Change card background">
-        Style
+      <NeonButton
+        variant={editing ? 'primary' : group.bg_style_id ? 'secondary' : 'ghost'}
+        onClick={() => onStyleClick(group)}
+        className="text-[10px] px-1.5 py-0.5"
+        title="Edit this card's background"
+        aria-pressed={!!editing}
+      >
+        Edit card
       </NeonButton>
     </div>
   );

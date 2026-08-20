@@ -200,6 +200,23 @@ export class StyleCatalogueService {
         try { if (fs.existsSync(bgPath)) fs.unlinkSync(bgPath); } catch { /* ignore */ }
         try { if (fs.existsSync(headerPath)) fs.unlinkSync(headerPath); } catch { /* ignore */ }
 
+        // v2.119.0 (C2, build trap #5) — framing describes a background, so it
+        // dies with the background it was cropped for. Same semantic as
+        // `removeFromGame`. This runs BEFORE the id-nulling below so it can
+        // still see which rows this style was the EFFECTIVE background of: a
+        // row that also carries a bg_style_id override keeps its framing when
+        // the (now shadowed) catalogue style is the one being deleted.
+        await db.run(
+            `UPDATE games SET bg_zoom = NULL, bg_pos_x = NULL, bg_pos_y = NULL
+             WHERE bg_style_id = ? OR (bg_style_id IS NULL AND catalogue_style_id = ?)`,
+            id, id,
+        );
+        await db.run(
+            `UPDATE game_room_game_library SET bg_zoom = NULL, bg_pos_x = NULL, bg_pos_y = NULL
+             WHERE bg_style_id = ? OR (bg_style_id IS NULL AND catalogue_style_id = ?)`,
+            id, id,
+        );
+
         // Clear references on any games using this style
         await db.run('UPDATE games SET catalogue_style_id = NULL, style_header_disabled = 0 WHERE catalogue_style_id = ?', id);
         await db.run('UPDATE games SET logo_style_id = NULL WHERE logo_style_id = ?', id);
