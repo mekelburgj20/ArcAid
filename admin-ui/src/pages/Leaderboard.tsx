@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { Lock, Trash2, Pencil, StickyNote, ExternalLink } from 'lucide-react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Lock, Trash2, Pencil, StickyNote, ExternalLink, SlidersHorizontal, X } from 'lucide-react';
 import { api } from '../lib/api';
 import { getPortal } from '../lib/portal';
 import { useRoom } from '../contexts/RoomContext';
@@ -10,7 +10,10 @@ import ConfirmModal from '../components/ConfirmModal';
 import StylePicker from '../components/StylePicker';
 import NeonButton from '../components/NeonButton';
 import GameQuickView from '../components/GameQuickView';
+import DevicePreviewFrame from '../components/DevicePreviewFrame';
 import ScoreboardSurface from '../components/scoreboard/ScoreboardSurface';
+import DisplaySettingsPanel from '../components/scoreboard/DisplaySettingsPanel';
+import { displaySettingChanged } from '../lib/displaySettings';
 import { tournamentCardTitleLink, tournamentCardTitleClick } from '../components/scoreboard/tournamentCardTitle';
 import { ADMIN_CARD_CHROME_Z_INDEX } from '../components/scoreboard/cardStacking';
 import { getTournamentBorderColor } from '../components/ScoreboardComponents';
@@ -36,6 +39,47 @@ interface Suppression {
   deletedBy: string | null;
 }
 
+/** iPhone 14/15 logical width — the phone preview's viewport (same constant
+ *  ScoreboardPreview uses), scaled to sit inside the 380px rail. */
+const PHONE_PREVIEW_WIDTH = 390;
+const PHONE_PREVIEW_SCALE = 0.85;
+
+/**
+ * Bottom-sheet snap points as a fraction of the viewport height: peek / half /
+ * full. Half is the resting position — the point of the sheet is that the live
+ * surface stays visible and editable ABOVE it while a mod tweaks the room from
+ * a phone, which a full-height modal would defeat.
+ */
+const SHEET_SNAPS = [0.3, 0.55, 0.92] as const;
+const SHEET_SNAP_LABELS = ['Peek', 'Half', 'Full'] as const;
+
+/**
+ * ≥1024px (Tailwind `lg`) gets the sticky rail; anything narrower gets the
+ * bottom sheet. Only ONE of the two is ever mounted — the panel owns file
+ * inputs addressed by element id, so a hidden second copy would shadow them.
+ * Defaults to the rail when `matchMedia` is unavailable (jsdom), mirroring the
+ * guard idiom in ScoreboardSurface/ThemeProvider.
+ */
+function useIsWideViewport(): boolean {
+  const [wide, setWide] = useState(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return true;
+    return window.matchMedia('(min-width: 1024px)').matches;
+  });
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const handler = () => setWide(mq.matches);
+    handler();
+    if (mq.addEventListener) mq.addEventListener('change', handler);
+    else mq.addListener(handler);
+    return () => {
+      if (mq.removeEventListener) mq.removeEventListener('change', handler);
+      else mq.removeListener(handler);
+    };
+  }, []);
+  return wide;
+}
+
 export default function Leaderboard() {
   const room = useRoom();
   const { toast } = useToast();
@@ -43,6 +87,17 @@ export default function Leaderboard() {
   const [rankingGroups, setRankingGroups] = useState<RankingGroupData[]>([]);
   const [loading, setLoading] = useState(true);
   const [config, setConfig] = useState<Record<string, string>>({});
+  /**
+   * v2.116.0 (C1) — the room-display editing rail's DRAFT of `config`. Null
+   * means "no editing session": the page then renders `config` and behaves
+   * exactly as it did before the rail existed. When a draft exists the SURFACE
+   * renders it, so every control on the panel previews against this room's
+   * real cards, real styles and real scores.
+   */
+  const [draftConfig, setDraftConfig] = useState<Record<string, string> | null>(null);
+  const [displayPanelOpen, setDisplayPanelOpen] = useState(false);
+  const [savingDisplay, setSavingDisplay] = useState(false);
+  const isWideViewport = useIsWideViewport();
   const [styleTarget, setStyleTarget] = useState<GameLeaderboard | null>(null);
   const [libraryHasDefault, setLibraryHasDefault] = useState(false);
   /** v2.9x (ranking-card backgrounds) — Style picker target for a ranking
@@ -81,6 +136,19 @@ export default function Leaderboard() {
   const unmountedRef = useRef(false);
   useEffect(() => () => { unmountedRef.current = true; }, []);
 
+  // Draft-vs-server diff. Boolean toggles compare by EFFECTIVE state so a
+  // switch flipped on and back off reads as clean (an off-default toggle
+  // stores nothing until touched) — see `displaySettingChanged`.
+  const dirtyDisplayKeys = draftConfig
+    ? Array.from(new Set([...Object.keys(config), ...Object.keys(draftConfig)]))
+      .filter(k => displaySettingChanged(k, draftConfig, config))
+    : [];
+  const isDisplayDirty = dirtyDisplayKeys.length > 0;
+  // Read by the socket handler and by `loadConfig`, both of which live outside
+  // this render's closure.
+  const displayDirtyRef = useRef(false);
+  useEffect(() => { displayDirtyRef.current = isDisplayDirty; }, [isDisplayDirty]);
+
   const loadData = () => {
     api.get<GameLeaderboard[]>(`/rooms/${room.roomId}/leaderboard`)
       .then(d => { if (!unmountedRef.current) setLeaderboards(d); })
@@ -96,7 +164,14 @@ export default function Leaderboard() {
 
   const loadConfig = () => {
     api.get<Record<string, string>>(`/rooms/${room.roomId}/scoreboard-config`)
-      .then(c => { if (!unmountedRef.current) setConfig(c); })
+      .then(c => {
+        if (unmountedRef.current) return;
+        setConfig(c);
+        // An UNTOUCHED draft mirrors the server, so keep it in step — that is
+        // what lets another admin's save land in an open (but clean) rail. A
+        // dirty draft is left alone; see the socket handler below.
+        setDraftConfig(prev => (prev && !displayDirtyRef.current ? { ...c } : prev));
+      })
       .catch(() => {});
   };
 
@@ -118,6 +193,12 @@ export default function Leaderboard() {
     // slot's game until something else happened to refresh it.
     const onRotated = () => { loadData(); };
     socket.on('game:rotated', onRotated);
+    // v2.116.0 — someone saved this room's appearance (another admin, or this
+    // admin from their phone). Refetch ONLY while this page has no unsaved
+    // draft: overwriting an in-progress edit with someone else's save is worse
+    // than showing a slightly stale baseline until Save or Discard.
+    const onSettings = () => { if (!displayDirtyRef.current) loadConfig(); };
+    socket.on('settings:updated', onSettings);
 
     return () => {
       socket.emit('leave:room', room.roomId);
@@ -128,6 +209,7 @@ export default function Leaderboard() {
       socket.off('leaderboard:updated', onUpdate);
       socket.off('score:new', onUpdate);
       socket.off('game:rotated', onRotated);
+      socket.off('settings:updated', onSettings);
     };
   }, [room.roomId]);
 
@@ -164,26 +246,153 @@ export default function Leaderboard() {
     setNotesTarget(target);
   };
 
+  // ── Room display rail ──────────────────────────────────────────────────
+  const openDisplayPanel = () => {
+    setDraftConfig(prev => prev ?? { ...config });
+    setDisplayPanelOpen(true);
+  };
+
+  const closeDisplayPanel = () => {
+    if (isDisplayDirty && !window.confirm('You have unsaved display changes. Close without saving?')) return;
+    setDraftConfig(null);
+    setDisplayPanelOpen(false);
+  };
+
+  const handleDisplayChange = (key: string, value: string) => {
+    setDraftConfig(prev => ({ ...(prev ?? config), [key]: value }));
+  };
+
+  /** Image upload/delete endpoints write the setting themselves, so the
+   *  baseline moves with the draft — reporting it as an unsaved change would
+   *  be a lie, and Save would re-post a value that is already stored. */
+  const handleDisplayServerChange = (key: string, value: string) => {
+    setConfig(prev => ({ ...prev, [key]: value }));
+    setDraftConfig(prev => (prev ? { ...prev, [key]: value } : prev));
+  };
+
+  const discardDisplayChanges = () => setDraftConfig({ ...config });
+
+  const handleDisplaySave = async () => {
+    if (!draftConfig || dirtyDisplayKeys.length === 0) return;
+    // Only the changed keys go out. None of them is in the Settings page's
+    // DANGEROUS_KEYS set (iScored/Discord/global/join-policy), so there is
+    // nothing to confirm before writing.
+    const payload: Record<string, string> = {};
+    for (const k of dirtyDisplayKeys) payload[k] = draftConfig[k] ?? '';
+    setSavingDisplay(true);
+    try {
+      await api.post(`/rooms/${room.roomId}/settings`, payload);
+      const fresh = await api.get<Record<string, string>>(`/rooms/${room.roomId}/scoreboard-config`);
+      if (!unmountedRef.current) {
+        setConfig(fresh);
+        setDraftConfig({ ...fresh });
+      }
+      toast('Display settings saved', 'success');
+    } catch (err: any) {
+      toast(err?.message || 'Failed to save display settings', 'error');
+    } finally {
+      if (!unmountedRef.current) setSavingDisplay(false);
+    }
+  };
+
+  /** Build trap #4 — "Apply" on a style profile writes server-side at once, so
+   *  a dirty draft would silently overwrite it on the next Save. */
+  const handleBeforeProfileApply = () => {
+    if (!isDisplayDirty) return true;
+    if (!window.confirm('Discard unsaved changes and apply this profile?')) return false;
+    setDraftConfig(null);
+    return true;
+  };
+
   // `sb-theme-scope` restates the default (dark) tokens so the surface is dark
   // even when the admin's own theme is not; the room's theme class, when it
   // has one, then overrides from there. See index.css.
   const roomThemeClass = `sb-theme-scope${roomTheme && roomTheme !== 'dark' ? ` theme-${roomTheme}` : ''}`;
 
+  // The surface renders the DRAFT whenever an editing session is open, so the
+  // page itself is the preview — no second renderer, no mock data.
+  const surfaceConfig = draftConfig ?? config;
+
+  const displayPanelBody = (
+    <DisplaySettingsPanel
+      roomId={room.roomId}
+      roomName={room.roomName}
+      settings={surfaceConfig}
+      onChange={handleDisplayChange}
+      onServerChange={handleDisplayServerChange}
+      hasUnsavedChanges={isDisplayDirty}
+      onBeforeProfileApply={handleBeforeProfileApply}
+      onProfileApplied={loadConfig}
+      toast={toast}
+      // Desktop only: on a phone you are already looking at the mobile render.
+      renderPhonePreview={isWideViewport ? () => (
+        // Height-capped with its own scroll: the full mobile board at 390px is
+        // taller than the rail, and uncapped it pushes every control below the
+        // rail's max-h cutoff.
+        <div className="flex justify-center max-h-[420px] overflow-y-auto overscroll-contain rounded border border-border/50">
+          <DevicePreviewFrame width={PHONE_PREVIEW_WIDTH} scale={PHONE_PREVIEW_SCALE}>
+            <ScoreboardSurface
+              embedded
+              forceMobile
+              themeClass={roomThemeClass}
+              config={surfaceConfig}
+              roomName={room.roomName}
+              slug={room.roomSlug || ''}
+              leaderboards={leaderboards}
+              rankingGroups={rankingGroups}
+            />
+          </DevicePreviewFrame>
+        </div>
+      ) : undefined}
+    />
+  );
+
+  const displaySaveBar = isDisplayDirty ? (
+    <div
+      data-testid="display-settings-savebar"
+      className="shrink-0 flex items-center justify-between gap-3 border-t border-border bg-surface px-4 py-3"
+    >
+      <span className="text-xs text-neon-amber">
+        {dirtyDisplayKeys.length} unsaved change{dirtyDisplayKeys.length === 1 ? '' : 's'}
+      </span>
+      <div className="flex items-center gap-2">
+        <NeonButton variant="ghost" onClick={discardDisplayChanges} disabled={savingDisplay}>Discard</NeonButton>
+        <NeonButton onClick={handleDisplaySave} disabled={savingDisplay}>
+          {savingDisplay ? 'Saving...' : 'Save'}
+        </NeonButton>
+      </div>
+    </div>
+  ) : null;
+
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      {/* flex-wrap: with the Display settings button added, the unwrapped row
+          overflows a 390px viewport and drags the whole document sideways. */}
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <h1 className="font-display text-2xl font-bold">Leaderboards</h1>
-        <a
-          href={`/${room.roomSlug}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-1.5 text-xs text-muted hover:text-neon-cyan transition-colors no-underline"
-        >
-          <ExternalLink size={14} />
-          <span>View Public Leaderboard</span>
-        </a>
+        <div className="flex flex-wrap items-center gap-4">
+          <NeonButton
+            variant={displayPanelOpen ? 'secondary' : 'ghost'}
+            className="text-xs"
+            onClick={() => (displayPanelOpen ? closeDisplayPanel() : openDisplayPanel())}
+            aria-expanded={displayPanelOpen}
+          >
+            <SlidersHorizontal size={14} /> Display settings
+          </NeonButton>
+          <a
+            href={`/${room.roomSlug}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 text-xs text-muted hover:text-neon-cyan transition-colors no-underline"
+          >
+            <ExternalLink size={14} />
+            <span>View Public Leaderboard</span>
+          </a>
+        </div>
       </div>
 
+      <div className="flex items-start gap-4">
+      <div className="flex-1 min-w-0">
       {/* The scoreboard, rendered by the SAME component the public page uses.
           Everything below the room theme wrapper is public code — no admin
           fork of card rendering, layout, sizing or config handling exists any
@@ -198,7 +407,7 @@ export default function Leaderboard() {
       <ScoreboardSurface
         embedded
         themeClass={roomThemeClass}
-        config={config}
+        config={surfaceConfig}
         roomName={room.roomName}
         roomId={room.roomId}
         slug={room.roomSlug || ''}
@@ -220,6 +429,31 @@ export default function Leaderboard() {
           <RankingAdminControlsStrip group={group} onStyleClick={setRankingStyleTarget} />
         )}
       />
+      </div>
+
+      {/* Editing rail — desktop. Sticky beside the surface, which reflows on
+          width all by itself (the layouts are the public ones). */}
+      {displayPanelOpen && isWideViewport && (
+        <aside
+          data-testid="display-settings-rail"
+          aria-label="Display settings"
+          className="w-[380px] shrink-0 flex flex-col rounded-lg border border-border bg-surface sticky top-16 max-h-[calc(100vh-5rem)] overflow-hidden"
+        >
+          <DisplayPanelHeader onClose={closeDisplayPanel} />
+          <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4">{displayPanelBody}</div>
+          {displaySaveBar}
+        </aside>
+      )}
+
+      {/* Editing sheet — phone/tablet. First-class, not a fallback: the
+          driving scenario is a mod in the game room with only a phone,
+          watching the kiosk on the wall. */}
+      {displayPanelOpen && !isWideViewport && (
+        <DisplaySettingsSheet onClose={closeDisplayPanel} footer={displaySaveBar}>
+          {displayPanelBody}
+        </DisplaySettingsSheet>
+      )}
+      </div>
 
       {/* Card-title quick-view — mirrors the public Scoreboard exactly, so a
           title click previews the game here the way it does for a player. */}
@@ -449,6 +683,131 @@ export default function Leaderboard() {
           }}
         />
       )}
+    </div>
+  );
+}
+
+/** Shared title bar for both hosts of the display panel. */
+function DisplayPanelHeader({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="shrink-0 flex items-center justify-between gap-2 border-b border-border/50 px-4 py-3">
+      <h2 className="font-display text-sm font-bold uppercase tracking-wider">Room display</h2>
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Close display settings"
+        className="min-h-11 min-w-11 inline-flex items-center justify-center rounded text-muted hover:text-primary cursor-pointer bg-transparent border-none"
+      >
+        <X size={16} />
+      </button>
+    </div>
+  );
+}
+
+/**
+ * The mobile editing sheet: three snap points (peek / half / full), a drag
+ * handle, and scroll containment so a flick inside the panel never scrolls the
+ * scoreboard behind it.
+ *
+ * Height is computed in PIXELS off `window.innerHeight` rather than in `vh`
+ * units — mobile browsers report `vh` against the largest viewport (URL bar
+ * expanded), which would push the sheet's own footer under the chrome exactly
+ * when the Save button is the thing you need.
+ *
+ * Hand-rolled on pointer events, no new dependency: the drag is a single
+ * captured pointer, and release snaps to whichever of the three fractions the
+ * gesture ended nearest.
+ */
+function DisplaySettingsSheet({ onClose, footer, children }: {
+  onClose: () => void;
+  footer: ReactNode;
+  children: ReactNode;
+}) {
+  const [snap, setSnap] = useState(1);
+  /** Live drag delta in px (down is positive), or null when not dragging. */
+  const [dragDy, setDragDy] = useState<number | null>(null);
+  const startYRef = useRef(0);
+  /** Fraction the sheet was at when the drag began. State, not a ref: the
+   *  render below reads it to size the sheet mid-drag. */
+  const [dragStartFrac, setDragStartFrac] = useState<number>(SHEET_SNAPS[1]);
+  const [viewportH, setViewportH] = useState(() => (typeof window === 'undefined' ? 800 : window.innerHeight));
+
+  useEffect(() => {
+    const onResize = () => setViewportH(window.innerHeight);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  const frac = dragDy === null
+    ? SHEET_SNAPS[snap]
+    : Math.min(0.95, Math.max(0.15, dragStartFrac - dragDy / viewportH));
+
+  const endDrag = () => {
+    if (dragDy === null) return;
+    const target = dragStartFrac - dragDy / viewportH;
+    let best = 0;
+    SHEET_SNAPS.forEach((s, i) => {
+      if (Math.abs(s - target) < Math.abs(SHEET_SNAPS[best] - target)) best = i;
+    });
+    setSnap(best);
+    setDragDy(null);
+  };
+
+  return (
+    <div
+      data-testid="display-settings-sheet"
+      role="dialog"
+      aria-label="Display settings"
+      className="fixed inset-x-0 bottom-0 z-40 flex flex-col rounded-t-2xl border-t border-border bg-surface shadow-2xl"
+      style={{
+        height: Math.round(viewportH * frac),
+        transition: dragDy === null ? 'height 180ms ease' : undefined,
+      }}
+    >
+      <div
+        role="separator"
+        aria-label="Resize display settings"
+        onPointerDown={e => {
+          (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+          startYRef.current = e.clientY;
+          setDragStartFrac(SHEET_SNAPS[snap]);
+          setDragDy(0);
+        }}
+        onPointerMove={e => { if (dragDy !== null) setDragDy(e.clientY - startYRef.current); }}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+        className="shrink-0 py-3 touch-none cursor-grab active:cursor-grabbing"
+      >
+        <div className="mx-auto h-1.5 w-10 rounded-full bg-border" />
+      </div>
+      <div className="shrink-0 flex items-center justify-between gap-2 border-b border-border/50 px-4 pb-3">
+        <h2 className="font-display text-sm font-bold uppercase tracking-wider">Room display</h2>
+        <div className="flex items-center gap-1">
+          {SHEET_SNAP_LABELS.map((label, i) => (
+            <button
+              key={label}
+              type="button"
+              onClick={() => setSnap(i)}
+              aria-pressed={snap === i}
+              className={`min-h-11 px-2 text-[11px] font-display uppercase tracking-wider cursor-pointer bg-transparent border-none transition-colors ${
+                snap === i ? 'text-neon-cyan' : 'text-faint hover:text-primary'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close display settings"
+            className="min-h-11 min-w-11 inline-flex items-center justify-center rounded text-muted hover:text-primary cursor-pointer bg-transparent border-none"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      </div>
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 pb-4">{children}</div>
+      {footer}
     </div>
   );
 }

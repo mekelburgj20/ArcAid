@@ -1445,6 +1445,13 @@ router.post('/:roomId/admin/style-profiles/:id/apply', requireAuth, requireRoomA
             correlation_id: req.correlationId || '',
         });
 
+        // Applying a profile IS a settings write — same live-apply broadcast
+        // as POST /:roomId/settings, same fire-and-forget posture.
+        try {
+            const { emitSettingsUpdated } = await import('../websocket.js');
+            emitSettingsUpdated(roomId);
+        } catch { /* socket optional */ }
+
         res.json({ applied });
     } catch (error) {
         logError('API Error (POST rooms/:roomId/admin/style-profiles/:id/apply):', error);
@@ -3860,6 +3867,14 @@ router.post('/:roomId/settings', requireAuth, requireRoomAccess('roomId'), requi
             ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
             correlation_id: req.correlationId || '',
         });
+
+        // Live-apply across the room (kiosk on the wall, open public
+        // scoreboards, other admins). Fire-and-forget: a socket failure must
+        // never fail a save that already committed.
+        try {
+            const { emitSettingsUpdated } = await import('../websocket.js');
+            emitSettingsUpdated(roomId);
+        } catch { /* socket optional */ }
 
         res.json({ success: true });
     } catch (error) {

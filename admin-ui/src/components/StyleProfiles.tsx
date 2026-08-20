@@ -33,10 +33,18 @@ interface StyleProfilesProps {
    *  state, not what is on screen — so the control says so rather than
    *  silently snapshotting something the admin isn't looking at. */
   hasUnsavedChanges: boolean;
+  /**
+   * Last chance to abort before "Apply" writes server-side. A host holding an
+   * unsaved DRAFT of the same settings (the Leaderboard page's display rail)
+   * uses it to confirm first — otherwise the draft silently overwrites the
+   * profile it just applied on the next Save. Omitted = apply immediately,
+   * which is the Settings-page behaviour this shipped with.
+   */
+  onBeforeApply?: () => boolean;
   toast: (msg: string, kind?: 'success' | 'error') => void;
 }
 
-export default function StyleProfiles({ roomId, onApplied, hasUnsavedChanges, toast }: StyleProfilesProps) {
+export default function StyleProfiles({ roomId, onApplied, hasUnsavedChanges, onBeforeApply, toast }: StyleProfilesProps) {
   const [profiles, setProfiles] = useState<StyleProfile[]>([]);
   const [current, setCurrent] = useState<Record<string, string>>({});
   const [selectedId, setSelectedId] = useState('');
@@ -102,6 +110,7 @@ export default function StyleProfiles({ roomId, onApplied, hasUnsavedChanges, to
   const handleApply = () => run(async () => {
     const profile = profiles.find(p => p.id === selectedId);
     if (!profile) return;
+    if (onBeforeApply && !onBeforeApply()) return;
     try {
       const { applied } = await api.post<{ applied: string[] }>(
         `/rooms/${roomId}/admin/style-profiles/${profile.id}/apply`, {},

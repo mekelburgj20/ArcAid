@@ -600,4 +600,59 @@ describe('Settings page — ROOM_LISTED, JOIN_POLICY, AUTO_APPROVE_GUILD_MEMBERS
       expect(await screen.findByText('Charlie added.')).toBeInTheDocument();
     });
   });
+
+  // ---------------------------------------------------------------------
+  // v2.116.0 (C1) — the Leaderboard Display card's controls moved to the
+  // admin Leaderboard page's display rail. Two things must hold here: the
+  // page points at their new home, and it still CLAIMS their keys. The
+  // second is the silent one — `managedKeys` is built from CATEGORIES plus
+  // the toggle maps, so dropping either would dump every moved key into the
+  // raw "Other" card as an unlabelled text input.
+  // ---------------------------------------------------------------------
+  describe('Leaderboard Display relocation (C1)', () => {
+    it('replaces the appearance controls with a link to the Leaderboard page', async () => {
+      stubFetch({});
+      renderSettings();
+      await waitForLoaded();
+
+      const link = screen.getByRole('link', { name: /Configure display settings/ });
+      expect(link).toHaveAttribute('href', `/${ROOM_SLUG}/admin/leaderboard`);
+
+      // None of the relocated groups renders here any more.
+      expect(screen.queryByText('Style Profiles')).not.toBeInTheDocument();
+      expect(screen.queryByText('Look')).not.toBeInTheDocument();
+      expect(screen.queryByText('Fine tuning')).not.toBeInTheDocument();
+      expect(screen.queryByText('Branding')).not.toBeInTheDocument();
+      expect(screen.queryByText('Card Background Fill')).not.toBeInTheDocument();
+      expect(screen.queryByText('Leaderboard Title')).not.toBeInTheDocument();
+    });
+
+    it('keeps every moved key out of the raw "Other" card', async () => {
+      const MOVED_KEYS = [
+        // CATEGORIES['Leaderboard Display']
+        'SCOREBOARD_LAYOUT', 'SCOREBOARD_GAME_TITLE_STYLE', 'SCOREBOARD_MAX_SCORES',
+        'SCOREBOARD_RANKINGS_POSITION', 'SCOREBOARD_ZOOM', 'SCOREBOARD_QR_MODE',
+        // SCOREBOARD_TOGGLES (imported from lib/displaySettings)
+        'SCOREBOARD_HIDE_EMPTY', 'SCOREBOARD_TITLE_HIDDEN', 'SCOREBOARD_CARD_BG_FILL',
+        'SCOREBOARD_GAME_HEADER_ENABLED', 'SCOREBOARD_RANKINGS_STICKY',
+        // Fine tuning + branding
+        'SCOREBOARD_MIN_SCORES', 'SCOREBOARD_CARD_SPACING', 'SCOREBOARD_TITLE_FONT_SIZE',
+        'SCOREBOARD_QR_SIZE', 'SCOREBOARD_QR_POSITION', 'SCOREBOARD_QR_OFFSET_PX',
+        'SCOREBOARD_MOBILE_VERTICAL', 'SCOREBOARD_MOBILE_SCALE',
+        'SCOREBOARD_BG_URL', 'SCOREBOARD_BG_MODE', 'SCOREBOARD_BG_OPACITY',
+        'LOGO_URL', 'LOGO_POSITION', 'LOGO_MAX_HEIGHT', 'SCOREBOARD_LOGO_ENABLED',
+        'SCOREBOARD_TITLE', 'SCOREBOARD_TITLE_STYLE', 'SCOREBOARD_TITLE_SIZE',
+        'SCOREBOARD_STYLE', 'SCOREBOARD_THEME', 'SCOREBOARD_PODIUM_VARIANT',
+        'SCOREBOARD_SHOW_TIMER',
+      ];
+      stubFetch(Object.fromEntries(MOVED_KEYS.map(k => [k, 'x'])));
+      renderSettings();
+      await waitForLoaded();
+
+      expect(screen.queryByRole('heading', { name: 'Other' })).not.toBeInTheDocument();
+      for (const key of MOVED_KEYS) {
+        expect(screen.queryByText(key), `${key} leaked into "Other"`).not.toBeInTheDocument();
+      }
+    });
+  });
 });

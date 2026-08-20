@@ -188,6 +188,22 @@ export function emitLeaderboardUpdated(roomId: string, data: { gameId: string })
 }
 
 /**
+ * Emit a settings:updated event to a room's scoreboard channel.
+ *
+ * The payload is deliberately EMPTY. Room settings include credentials and
+ * policy keys; the only shape a public client is allowed to see is the
+ * `GET /:roomId/scoreboard-config` allowlist, so clients refetch that endpoint
+ * rather than trusting anything pushed over the socket. Emitted after any
+ * write that changes stored settings (the settings POST, a style-profile
+ * apply) so the kiosk on the wall and every open scoreboard re-dress
+ * themselves within a second instead of waiting for a full page reload.
+ */
+export function emitSettingsUpdated(roomId: string) {
+    if (!io) return;
+    io.to(`room:${roomId}`).emit('settings:updated', {});
+}
+
+/**
  * Emit a lobby:event to clients watching a specific game room's lobby.
  */
 export function emitLobbyEvent(roomId: string, event: Record<string, unknown>) {
