@@ -96,6 +96,47 @@ describe('HorizontalScrollNav', () => {
     expect(arrow.parentElement).toBe(wrapper.ownerDocument.body);
   });
 
+  /**
+   * v2.118.0 — the admin Leaderboard page turns the arrows OFF. The right-hand
+   * arrow is sized `viewportWidth - wrapper.right + zone`, i.e. it covers
+   * everything to the right of the cards, which on that page is the
+   * display-settings rail: the overlay sat on top of the rail and ate its
+   * clicks. Default (public page, kiosk) is unchanged.
+   */
+  it('renders NO arrows with showArrows={false}, even overflowing and hovered', () => {
+    const { container } = render(
+      <HorizontalScrollNav showArrows={false}><div style={{ width: 3000 }}>cards</div></HorizontalScrollNav>,
+    );
+    makeScrollable(container);
+    fireEvent.scroll(container.querySelector('[role="region"]')!);
+    hoverRightEdge();
+
+    expect(screen.queryByRole('button', { name: 'Scroll right' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Scroll left' })).not.toBeInTheDocument();
+    // The scroll region itself is untouched — drag-to-scroll and the keyboard
+    // path are the same as ever.
+    expect(screen.getByRole('region')).toBeInTheDocument();
+  });
+
+  it('reports scroller geometry through onScrollMetrics', () => {
+    const onScrollMetrics = vi.fn();
+    const { container } = render(
+      <HorizontalScrollNav onScrollMetrics={onScrollMetrics}><div style={{ width: 3000 }}>cards</div></HorizontalScrollNav>,
+    );
+    const { scroller } = makeScrollable(container);
+    fireEvent.scroll(scroller);
+
+    expect(onScrollMetrics).toHaveBeenCalled();
+    const last = onScrollMetrics.mock.calls.at(-1)![0];
+    // left/width describe the WRAPPER, not the negatively-margined scroll
+    // element — a scrollbar drawn from them must not run under the rail.
+    expect(last).toMatchObject({ scrollLeft: 0, scrollWidth: 3000, clientWidth: 800, left: 0, width: 800 });
+
+    Object.defineProperty(scroller, 'scrollLeft', { value: 250, configurable: true, writable: true });
+    fireEvent.scroll(scroller);
+    expect(onScrollMetrics.mock.calls.at(-1)![0].scrollLeft).toBe(250);
+  });
+
   it('still renders its children and keeps the scroll region accessible', () => {
     render(<HorizontalScrollNav ariaLabel="Game cards"><div>cards</div></HorizontalScrollNav>);
     expect(screen.getByText('cards')).toBeInTheDocument();

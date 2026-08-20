@@ -11,7 +11,7 @@ import {
   getTitleSizeClass,
 } from '../ScoreboardComponents';
 import CardRouter from './CardRouter';
-import HorizontalScrollNav from '../HorizontalScrollNav';
+import HorizontalScrollNav, { type HScrollMetrics } from '../HorizontalScrollNav';
 import { deriveCardProps, deriveScoreboardConfig, getCardWidth, qrEdgeMetrics } from '../../lib/scoreboardConfig';
 import { compareByRank } from '../../lib/searchRank';
 
@@ -189,6 +189,16 @@ export interface ScoreboardSurfaceProps {
    * public page, admin Leaderboard, and kiosk all want the real viewport.
    */
   forceMobile?: boolean;
+
+  /**
+   * v2.118.0 — pass-throughs to `HorizontalScrollNav` for the horizontal-scroll
+   * layout. The admin Leaderboard page turns the arrow overlays off (they sit
+   * over its display-settings rail) and draws its own bottom scrollbar from the
+   * reported metrics. Both default to the existing behaviour, so the public
+   * page and the kiosk are untouched.
+   */
+  hscrollArrows?: boolean;
+  onHscrollMetrics?: (m: HScrollMetrics) => void;
 }
 
 export default function ScoreboardSurface({
@@ -217,6 +227,8 @@ export default function ScoreboardSurface({
   qrKioskOnlyEnabled = false,
   kioskHeaderSpacing = false,
   forceMobile,
+  hscrollArrows = true,
+  onHscrollMetrics,
 }: ScoreboardSurfaceProps) {
   // New style/theme config
   const newConfig = deriveScoreboardConfig(config, roomName);
@@ -673,7 +685,7 @@ export default function ScoreboardSurface({
         ) : (
           /* Horizontal scroll (default for Banner, also available for others) */
           <div className="flex-1 min-w-0">
-            <HorizontalScrollNav className="-mx-4 sm:-mx-6 scoreboard-hscroll-layout">
+            <HorizontalScrollNav className="-mx-4 sm:-mx-6 scoreboard-hscroll-layout" showArrows={hscrollArrows} onScrollMetrics={onHscrollMetrics}>
               <div className={`flex pb-2 px-4 sm:px-6 ${useNewCards ? '' : 'gap-3 sm:gap-5'} ${isBanner ? 'scoreboard-banner-scroll' : ''}`} style={useNewCards ? { gap: newConfig.cardSpacing } : undefined}>
                 {visibleLeaderboards.map(lb => (
                   <div key={lb.gameId} className="flex-shrink-0 relative group/card scoreboard-card-slot" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, ...(!useNewCards && headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : {}), marginBottom: cardMarginBottom || undefined }}>

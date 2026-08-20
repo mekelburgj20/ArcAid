@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import Leaderboard from '../Leaderboard';
 import { RoomContext } from '../../contexts/RoomContext';
@@ -64,6 +64,9 @@ const LEADERBOARDS = [
 function stubFetch(config: Record<string, string> = {}, leaderboards: unknown = LEADERBOARDS) {
   const fetchMock = vi.fn((url: string) => {
     const j = (body: unknown) => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) });
+    // v2.118.0 — must precede '/leaderboard', which would otherwise answer the
+    // card-order status with an array of boards.
+    if (url.includes('/card-order')) return j({ active: false, savedAt: null });
     if (url.includes('/scoreboard-config')) return j(config);
     if (url.includes('/portal')) return j({ id: ROOM_ID, roomId: ROOM_ID, slug: 'test-room', name: 'Test Room', public_theme: null });
     if (url.includes('/rankings')) return j([]);
@@ -298,6 +301,118 @@ describe('Leaderboard admin card controls (legacy card path)', () => {
 
     await screen.findByText('Krobs');
     await waitFor(() => expect(screen.queryByLabelText('Verified score')).not.toBeInTheDocument());
+  });
+});
+
+/**
+ * v2.118.0 — drag-to-reposition, which lives on this same strip.
+ *
+ * The order the page sends is the FULL server order with one id moved. The
+ * "Manual order · Reset" chip is driven by the SERVER's answer, not by local
+ * state, because the override self-invalidates (a tournament rotates, an admin
+ * edits the configured positions) and the page must not claim an order that
+ * every board has already discarded.
+ */
+describe('Leaderboard card reorder', () => {
+  const TWO = [
+    LEADERBOARDS[0],
+    { ...LEADERBOARDS[0], gameId: 'game-2', gameName: 'Attack From Mars', rankings: [] },
+  ];
+
+  function stubOrder(status: { active: boolean; savedAt: string | null }, boards: unknown = TWO) {
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      const j = (body: unknown) => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) });
+      if (url.includes('/card-order')) {
+        if (init?.method === 'PUT') return j({ active: true, savedAt: '2026-08-20T17:10:00.000Z' });
+        if (init?.method === 'DELETE') return j({ active: false, savedAt: null });
+        return j(status);
+      }
+      if (url.includes('/scoreboard-config')) return j({});
+      if (url.includes('/portal')) return j({ id: ROOM_ID, roomId: ROOM_ID, slug: 'test-room', name: 'Test Room', public_theme: null });
+      if (url.includes('/rankings')) return j([]);
+      if (url.includes('/leaderboard')) return j(boards);
+      return j([]);
+    });
+    vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+    return fetchMock;
+  }
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    localStorage.clear();
+  });
+
+  it('puts a labelled drag handle in every card strip', async () => {
+    stubOrder({ active: false, savedAt: null });
+    renderLeaderboard();
+
+    await screen.findAllByTestId('admin-card-controls');
+    const handles = screen.getAllByLabelText(/^Drag to reorder /);
+    expect(handles).toHaveLength(2);
+    expect(handles[0]).toHaveAttribute('aria-label', 'Drag to reorder Medieval Madness');
+    // 44px touch target, and no browser touch-scroll competing with the drag.
+    expect(handles[0].className).toMatch(/w-11/);
+    expect(handles[0].style.touchAction).toBe('none');
+  });
+
+  it('sends the full order when a card is dropped on another', async () => {
+    const fetchMock = stubOrder({ active: false, savedAt: null });
+    const { container } = renderLeaderboard();
+    await screen.findAllByTestId('admin-card-controls');
+
+    container.querySelectorAll('.scoreboard-card-slot').forEach((el, i) => {
+      const left = i * 200;
+      (el as HTMLElement).getBoundingClientRect = () => ({
+        left, right: left + 200, top: 0, bottom: 200, width: 200, height: 200, x: left, y: 0, toJSON: () => ({}),
+      }) as DOMRect;
+    });
+
+    const handle = screen.getByLabelText('Drag to reorder Medieval Madness');
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: 10, clientY: 100 });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 300, clientY: 100 });
+    fireEvent.pointerUp(handle, { pointerId: 1, clientX: 300, clientY: 100 });
+
+    await waitFor(() => {
+      const put = fetchMock.mock.calls.find(c => (c[1] as RequestInit)?.method === 'PUT');
+      expect(put).toBeTruthy();
+      expect(String(put![0])).toContain(`/rooms/${ROOM_ID}/admin/leaderboard/card-order`);
+      expect(JSON.parse((put![1] as RequestInit).body as string)).toEqual({ gameIds: ['game-2', 'game-1'] });
+    });
+
+    // Optimistic: the strip order flips before any refetch lands.
+    const names = [...document.querySelectorAll('[aria-label^="Drag to reorder "]')]
+      .map(el => el.getAttribute('aria-label'));
+    expect(names).toEqual(['Drag to reorder Attack From Mars', 'Drag to reorder Medieval Madness']);
+  });
+
+  it('shows the Manual order chip only when the server says the override survives', async () => {
+    stubOrder({ active: false, savedAt: null });
+    const view = renderLeaderboard();
+    await screen.findAllByTestId('admin-card-controls');
+    expect(screen.queryByTestId('card-order-chip')).not.toBeInTheDocument();
+    view.unmount();
+
+    stubOrder({ active: true, savedAt: '2026-08-20T17:10:00.000Z' });
+    renderLeaderboard();
+    expect(await screen.findByTestId('card-order-chip')).toHaveTextContent('Manual order');
+  });
+
+  it('resets through a confirm dialog, never a native confirm()', async () => {
+    const fetchMock = stubOrder({ active: true, savedAt: '2026-08-20T17:10:00.000Z' });
+    const nativeConfirm = vi.spyOn(window, 'confirm');
+    renderLeaderboard();
+
+    fireEvent.click(within(await screen.findByTestId('card-order-chip')).getByRole('button', { name: 'Reset' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Reset card order' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Reset' }));
+
+    await waitFor(() => {
+      const del = fetchMock.mock.calls.find(c => (c[1] as RequestInit)?.method === 'DELETE');
+      expect(del).toBeTruthy();
+      expect(String(del![0])).toContain('/admin/leaderboard/card-order');
+    });
+    await waitFor(() => expect(screen.queryByTestId('card-order-chip')).not.toBeInTheDocument());
+    expect(nativeConfirm).not.toHaveBeenCalled();
   });
 });
 

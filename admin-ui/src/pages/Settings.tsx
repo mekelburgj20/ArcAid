@@ -853,6 +853,10 @@ export default function Settings() {
     'ADMIN_THEME', 'SCOREBOARD_RANKINGS_STYLE',
     // Platforms (managed in Platforms card)
     'PLATFORMS',
+    // v2.118.0 — the admin Leaderboard page's manual card order. A JSON blob
+    // managed entirely by drag-and-drop there; surfacing it here as a raw text
+    // input would invite an admin to corrupt it by hand.
+    'LEADERBOARD_CARD_ORDER',
     // New style system advanced settings
     'SCOREBOARD_MIN_SCORES', 'SCOREBOARD_CARD_BG_FILL', 'SCOREBOARD_CARD_SPACING',
     'SCOREBOARD_TITLE_FONT_SIZE', 'SCOREBOARD_RANKINGS_STICKY',
