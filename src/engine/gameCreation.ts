@@ -174,9 +174,13 @@ export async function unpinGameFromScoreboard(opts: {
         const creds = await getIScoredCredsForRoom(opts.roomId);
         if (creds) {
             try {
-                const deleted = await IScoredSessionRegistry.getInstance().withSession(creds, (client) =>
-                    client.deleteGame(row.iscored_id, row.name),
-                );
+                const deleted = await IScoredSessionRegistry.getInstance().withSession(creds, async (client) => {
+                    // Rollback safety net (v2.117.0) — snapshot the iScored room
+                    // before an unpin deletes the entity there. Never throws.
+                    const { IScoredSnapshotService } = await import('../services/IScoredSnapshotService.js');
+                    await IScoredSnapshotService.captureBeforeMutation(client, creds, 'unpin', [opts.roomId]);
+                    return await client.deleteGame(row.iscored_id, row.name);
+                });
                 if (deleted) {
                     iscoredStatus = 'deleted';
                 } else {

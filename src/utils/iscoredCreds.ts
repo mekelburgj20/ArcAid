@@ -124,3 +124,34 @@ function envCreds(): IScoredCreds | null {
     if (!gameroomName) return null;
     return { username: u, password: p, publicUrl: url, gameroomName, source: 'env' };
 }
+
+/**
+ * One entry per distinct iScored ACCOUNT across every game room, keyed the same
+ * way `ScoreSyncPoller.poll` keys its per-tick grouping (`${gameroomName}::${publicUrl}`)
+ * so "an account" means the same thing in both places. Rooms sharing credentials
+ * collapse into a single entry carrying all their room ids.
+ *
+ * Added for the nightly iScored snapshot sweep (v2.117.0). The poller keeps its
+ * own inline grouping for now — deliberately NOT refactored onto this helper in
+ * the same change.
+ */
+export async function getIScoredAccounts(): Promise<Array<{
+    key: string;
+    creds: IScoredCreds;
+    roomIds: string[];
+}>> {
+    const { getDatabase } = await import('../database/database.js');
+    const db = await getDatabase();
+    const rooms = (await db.all('SELECT id FROM game_rooms')) as Array<{ id: string }>;
+    const credsByRoom = await getIScoredCredsForRooms(rooms.map((r) => r.id));
+
+    const accounts = new Map<string, { key: string; creds: IScoredCreds; roomIds: string[] }>();
+    for (const room of rooms) {
+        const creds = credsByRoom.get(room.id);
+        if (!creds) continue;
+        const key = `${creds.gameroomName}::${creds.publicUrl}`;
+        if (!accounts.has(key)) accounts.set(key, { key, creds, roomIds: [] });
+        accounts.get(key)!.roomIds.push(room.id);
+    }
+    return Array.from(accounts.values());
+}

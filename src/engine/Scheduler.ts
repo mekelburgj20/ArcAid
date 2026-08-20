@@ -101,6 +101,61 @@ export class Scheduler {
 
         // S9: scheduled DB+assets backup (driven by global settings)
         await this.startBackupCron();
+
+        // Nightly iScored room snapshots (4 AM)
+        this.startIScoredSnapshotCron();
+    }
+
+    /**
+     * Nightly iScored room snapshot sweep (v2.117.0).
+     *
+     * 04:00 in BOT_TIMEZONE — after the 22:00 maintenance/cleanup wave and after
+     * the 03:00-03:45 housekeeping crons, so the night's rotations are already
+     * reflected. Iterates EVERY enabled iScored account (rooms sharing creds
+     * collapse into one), forces past the pre-mutation debounce, then prunes.
+     * Gated by `ISCORED_SNAPSHOTS_ENABLED` inside the service — unlike backups
+     * it defaults ON, because a rollback net must work out of the box.
+     * One account's failure never blocks the others.
+     */
+    private startIScoredSnapshotCron(): void {
+        const timezone = process.env.BOT_TIMEZONE || 'America/Chicago';
+        const task = cron.schedule('0 4 * * *', async () => {
+            try {
+                const { IScoredSnapshotService } = await import('../services/IScoredSnapshotService.js');
+                if (!(await IScoredSnapshotService.isEnabled())) {
+                    logInfo('Nightly iScored snapshot skipped (ISCORED_SNAPSHOTS_ENABLED=false).');
+                    return;
+                }
+                const { getIScoredAccounts } = await import('../utils/iscoredCreds.js');
+                const { IScoredSessionRegistry } = await import('./IScoredSessionRegistry.js');
+                const accounts = await getIScoredAccounts();
+                if (accounts.length === 0) {
+                    logInfo('Nightly iScored snapshot: no iScored-enabled accounts.');
+                    return;
+                }
+                let ok = 0;
+                for (const account of accounts) {
+                    try {
+                        const result = await IScoredSessionRegistry.getInstance().withSession(
+                            account.creds,
+                            (client) => IScoredSnapshotService.capture(
+                                client, account.creds, 'nightly', account.roomIds, { force: true },
+                            ),
+                        );
+                        if (result.ok) ok++;
+                    } catch (error) {
+                        logError(`Nightly iScored snapshot failed for ${account.creds.gameroomName}:`, error);
+                    }
+                }
+                logInfo(`Nightly iScored snapshot: ${ok}/${accounts.length} account(s) captured.`);
+                await IScoredSnapshotService.prune();
+            } catch (error) {
+                logError('Nightly iScored snapshot error:', error);
+            }
+        }, { timezone });
+
+        this.tasks.set('__iscored_snapshot__', task);
+        logInfo('iScored snapshot cron scheduled (daily at 4 AM).');
     }
 
     /**

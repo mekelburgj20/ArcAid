@@ -17,6 +17,15 @@ Full design + owner rulings: `tmp/identity-claim-design.md`. Prompted by the Cha
 - **Rooms without `REQUIRE_SCORE_PHOTO` may not fan out to Global at all** (owner, 2026-08-17). Inert today: rtx_pinball is the only contributor and already requires photos, and all 35 `global_scores` rows carry one. Open: grandfather existing rows if a room later turns it off (recommended) or remove them.
 - **Importing the photo from iScored: investigated, NOT recommended.** `IScoredApiScore` is `{name,date,rank,score}` — no image field, so the API can never return one. iScored *accepts* photo uploads (`IScoredClient.submitScore` has a `photoPath`), so a DOM scrape is the only route, and it would be new fragile scraping. Note the live counter-example: ChalataLove entered the score in *Arcaid* and Arcaid pushed the number out, so no iScored-side photo ever existed — likely the common shape for Arcaid-fronted rooms.
 
+## iScored room snapshots — ✅ SHIPPED v2.117.0 (2026-08-20)
+
+Owner-asked (session #85) as rollback safety before the RTX group is onboarded. Design record `tmp/iscored-snapshots-design.md`. Built to spec: pre-mutation capture at all seven destructive iScored paths (debounced per account), 04:00 nightly sweep + 30-day prune, super-admin list/snapshot-now/download/delete/restore on `/admin/backups`. Restore = recreate missing games + replay per-player bests + re-link `games.iscored_id`. Structural limits (API accepts name+score only): dates and iScored ids are not preserved, photos and styles are not captured.
+
+Follow-ups (none blocking):
+- **Settings UI** for `ISCORED_SNAPSHOTS_ENABLED` / `ISCORED_SNAPSHOT_DEBOUNCE_MS` / `ISCORED_SNAPSHOT_RETENTION_DAYS` — env/global-settings only today; defaults are right.
+- **Poller onto `getIScoredAccounts()`** — `ScoreSyncPoller.poll` still groups accounts inline (`ScoreSyncPoller.ts:221-229`) with the same key; fold it onto the helper in a pure refactor (the `standalone-room-phase1-contract` already asked for this).
+- **Photo capture** — only `scrapePublicScores` sees `photoUrl` and only the Playwright `submitScore` can re-upload; both are DOM-driven per game, so a snapshot with photos is a different (slow) tool. `runCleanup` hard-deletes photo files from disk, so a pre-cleanup snapshot that wanted photos would have to copy the files too.
+
 ## Delete-on-iScored when a score is deleted in Arcaid (2026-08-17)
 
 **ADR 0011's premise is wrong.** It assumed iScored has no per-score delete API; iScored exposes `deleteScore`/`editScore` against a `data-topscoreid` handle. `deleted_score_suppressions` tombstones are a workaround for a problem that is now actually solvable.

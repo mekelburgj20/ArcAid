@@ -409,9 +409,14 @@ export class TournamentEngine {
                 const creds = row.game_room_id ? await getIScoredCredsForRoom(row.game_room_id) : null;
                 if (creds) {
                     try {
-                        const deleted = await IScoredSessionRegistry.getInstance().withSession(creds, (client) =>
-                            client.deleteGame(row.iscored_id, row.name),
-                        );
+                        const deleted = await IScoredSessionRegistry.getInstance().withSession(creds, async (client) => {
+                            const { IScoredSnapshotService } = await import('../services/IScoredSnapshotService.js');
+                            await IScoredSnapshotService.captureBeforeMutation(
+                                client, creds, 'delete-game',
+                                row.game_room_id ? [row.game_room_id] : [],
+                            );
+                            return await client.deleteGame(row.iscored_id, row.name);
+                        });
                         if (deleted) {
                             logInfo(`Deleted on iScored: ${row.name} (${row.iscored_id})`);
                             iscoredStatus = 'deleted';
@@ -800,9 +805,19 @@ export class TournamentEngine {
             const creds = await getIScoredCredsForRoom(tournamentRow?.game_room_id);
 
             if (creds) {
-                return await IScoredSessionRegistry.getInstance().withSession(creds, (client) =>
-                    this.runMaintenanceWork(tournamentId, client, creds),
-                );
+                return await IScoredSessionRegistry.getInstance().withSession(creds, async (client) => {
+                    // Rollback safety net (v2.117.0): capture the iScored room
+                    // BEFORE any rotation work deactivates/deletes anything.
+                    // Debounced per account, so the Wed 22:00 multi-tournament
+                    // fire on one account writes exactly one snapshot. Never
+                    // throws — a missing snapshot must not stop maintenance.
+                    const { IScoredSnapshotService } = await import('../services/IScoredSnapshotService.js');
+                    await IScoredSnapshotService.captureBeforeMutation(
+                        client, creds, 'maintenance',
+                        tournamentRow?.game_room_id ? [tournamentRow.game_room_id] : [],
+                    );
+                    return await this.runMaintenanceWork(tournamentId, client, creds);
+                });
             } else {
                 return await this.runMaintenanceWork(tournamentId, null, null);
             }
@@ -2148,7 +2163,20 @@ export class TournamentEngine {
             await deleteAll(sharedClient);
         } else if (creds) {
             logInfo(`Cleanup for tournament ${tournamentId}: deleting ${toHide.length} completed game(s) from iScored`);
-            await IScoredSessionRegistry.getInstance().withSession(creds, deleteAll);
+            const cleanupCreds = creds;
+            await IScoredSessionRegistry.getInstance().withSession(cleanupCreds, async (client) => {
+                // Standalone cleanup (scheduled cron / admin) opens its own
+                // session — snapshot inside it before anything is deleted. When
+                // cleanup runs INLINE from maintenance the shared-client branch
+                // above is taken and the maintenance snapshot already covers it
+                // (the debounce would skip this one anyway).
+                const { IScoredSnapshotService } = await import('../services/IScoredSnapshotService.js');
+                await IScoredSnapshotService.captureBeforeMutation(
+                    client, cleanupCreds, 'cleanup',
+                    tournamentRow?.game_room_id ? [tournamentRow.game_room_id] : [],
+                );
+                await deleteAll(client);
+            });
         } else {
             // iScored disabled for the room — nothing to delete remotely, so all
             // completed games can move straight to the ARCHIVED terminal state.

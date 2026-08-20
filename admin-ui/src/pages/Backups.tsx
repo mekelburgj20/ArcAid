@@ -5,6 +5,7 @@ import NeonButton from '../components/NeonButton';
 import DataTable from '../components/DataTable';
 import LoadingState from '../components/LoadingState';
 import { useToast } from '../components/Toast';
+import IScoredSnapshotRestoreModal, { type SnapshotInfo } from '../components/IScoredSnapshotRestoreModal';
 
 interface BackupInfo {
   name: string;
@@ -29,6 +30,11 @@ function formatBytes(bytes: number): string {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 }
 
+/** Snapshots are identified by gameroom + filename — neither alone is unique. */
+function snapKey(snap: { gameroom: string; name: string }): string {
+  return `${snap.gameroom}/${snap.name}`;
+}
+
 export default function Backups() {
   const [backups, setBackups] = useState<BackupInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -40,6 +46,16 @@ export default function Backups() {
   const [deleting, setDeleting] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const { toast } = useToast();
+
+  // iScored room snapshots (v2.117.0) — rollback safety for the destructive
+  // iScored paths. Separate from DB backups: a snapshot is one iScored
+  // gameroom's games + scores, not the Arcaid database.
+  const [snapshots, setSnapshots] = useState<SnapshotInfo[]>([]);
+  const [snapshotsLoading, setSnapshotsLoading] = useState(true);
+  const [snapshotting, setSnapshotting] = useState(false);
+  const [restoreSnapshot, setRestoreSnapshot] = useState<SnapshotInfo | null>(null);
+  const [confirmSnapshotDelete, setConfirmSnapshotDelete] = useState<SnapshotInfo | null>(null);
+  const [deletingSnapshot, setDeletingSnapshot] = useState<string | null>(null);
 
   // Schedule / retention config (mirrors GlobalSettings' form pattern).
   const [config, setConfig] = useState<Record<string, string>>({});
@@ -74,10 +90,70 @@ export default function Backups() {
       .finally(() => setConfigLoading(false));
   };
 
+  const loadSnapshots = () => {
+    setSnapshotsLoading(true);
+    api.get<SnapshotInfo[]>('/admin/iscored-snapshots')
+      .then(setSnapshots)
+      .catch(err => {
+        toast(err.message || 'Failed to load iScored snapshots', 'error');
+        setSnapshots([]);
+      })
+      .finally(() => setSnapshotsLoading(false));
+  };
+
   useEffect(() => {
     loadBackups();
     loadConfig();
+    loadSnapshots();
   }, []);
+
+  const handleSnapshotNow = async () => {
+    setSnapshotting(true);
+    try {
+      const res = await api.post<{ results: { gameroom: string; ok: boolean; error?: string }[] }>(
+        '/admin/iscored-snapshots', {},
+      );
+      const ok = res.results.filter(r => r.ok).length;
+      const failed = res.results.filter(r => !r.ok);
+      if (res.results.length === 0) {
+        toast('No rooms have iScored enabled — nothing to snapshot', 'error');
+      } else if (failed.length > 0) {
+        toast(`Snapshotted ${ok}/${res.results.length} account(s). Failed: ${failed.map(f => f.gameroom).join(', ')}`, 'error');
+      } else {
+        toast(`Snapshotted ${ok} iScored account(s)`, 'success');
+      }
+      loadSnapshots();
+    } catch (err: any) {
+      toast(err.message || 'Snapshot failed', 'error');
+    } finally {
+      setSnapshotting(false);
+    }
+  };
+
+  const handleSnapshotDownload = async (snap: SnapshotInfo) => {
+    try {
+      await api.download(
+        `/admin/iscored-snapshots/${encodeURIComponent(snap.gameroom)}/${encodeURIComponent(snap.name)}/download`,
+        `${snap.gameroom}-${snap.name}`,
+      );
+    } catch (err: any) {
+      toast(err.message || 'Download failed', 'error');
+    }
+  };
+
+  const handleSnapshotDelete = async (snap: SnapshotInfo) => {
+    setConfirmSnapshotDelete(null);
+    setDeletingSnapshot(snapKey(snap));
+    try {
+      await api.delete(`/admin/iscored-snapshots/${encodeURIComponent(snap.gameroom)}/${encodeURIComponent(snap.name)}`);
+      toast('Snapshot deleted', 'success');
+      loadSnapshots();
+    } catch (err: any) {
+      toast(err.message || 'Delete failed', 'error');
+    } finally {
+      setDeletingSnapshot(null);
+    }
+  };
 
   const handleChange = (key: string, value: string) => {
     setConfig(prev => ({ ...prev, [key]: value }));
@@ -239,6 +315,72 @@ export default function Backups() {
     },
   ];
 
+  const snapshotColumns = [
+    {
+      key: 'gameroom',
+      header: 'Gameroom',
+      render: (item: SnapshotInfo) => (
+        <span className="font-medium font-mono text-sm">{item.gameroom}</span>
+      ),
+    },
+    {
+      key: 'capturedAt',
+      header: 'Captured',
+      render: (item: SnapshotInfo) => (
+        <span className="text-muted text-sm">{new Date(item.capturedAt).toLocaleString()}</span>
+      ),
+    },
+    {
+      key: 'reason',
+      header: 'Reason',
+      render: (item: SnapshotInfo) => (
+        <span className="text-muted text-sm">
+          {item.reason}
+          {(!item.gamesCaptured || !item.scoresCaptured) && (
+            <span
+              className="ml-2 text-[10px] uppercase tracking-wider text-neon-amber"
+              title={`Incomplete capture — ${!item.gamesCaptured ? 'game list' : 'scores'} could not be read`}
+            >
+              partial
+            </span>
+          )}
+        </span>
+      ),
+    },
+    {
+      key: 'games',
+      header: 'Games',
+      render: (item: SnapshotInfo) => <span className="text-muted text-sm">{item.games}</span>,
+    },
+    {
+      key: 'scores',
+      header: 'Scores',
+      render: (item: SnapshotInfo) => <span className="text-muted text-sm">{item.scores}</span>,
+    },
+    {
+      key: 'actions',
+      header: '',
+      className: 'text-right',
+      render: (item: SnapshotInfo) => (
+        <div className="flex justify-end gap-2">
+          <NeonButton variant="ghost" onClick={() => handleSnapshotDownload(item)}>
+            Download
+          </NeonButton>
+          <NeonButton onClick={() => setRestoreSnapshot(item)} disabled={restoreSnapshot !== null}>
+            Restore
+          </NeonButton>
+          <NeonButton
+            variant="ghost"
+            onClick={() => setConfirmSnapshotDelete(item)}
+            disabled={deletingSnapshot !== null}
+          >
+            {deletingSnapshot === snapKey(item) ? 'Deleting...' : 'Delete'}
+          </NeonButton>
+        </div>
+      ),
+    },
+  ];
+
   return (
     <div>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
@@ -362,6 +504,76 @@ export default function Backups() {
           />
         )}
       </NeonCard>
+
+      <NeonCard title="iScored Snapshots" className="mt-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+          <p className="text-muted text-sm">
+            A point-in-time copy of each iScored gameroom's games and scores. Captured automatically
+            just before anything destructive runs against iScored (tournament rotation, cleanup,
+            reconcile, admin delete, unpin) and nightly at 4&nbsp;AM. Restoring recreates a
+            wrongly-deleted game and replays each player's best score so the sync poller picks it
+            back up.
+          </p>
+          <div className="flex flex-wrap gap-2 shrink-0">
+            <NeonButton onClick={handleSnapshotNow} disabled={snapshotting}>
+              {snapshotting ? 'Snapshotting...' : 'Snapshot Now'}
+            </NeonButton>
+            <NeonButton variant="ghost" onClick={loadSnapshots} disabled={snapshotsLoading}>
+              Refresh
+            </NeonButton>
+          </div>
+        </div>
+        {snapshotsLoading ? (
+          <LoadingState message="Loading snapshots..." />
+        ) : (
+          <DataTable
+            columns={snapshotColumns}
+            data={snapshots}
+            emptyMessage="No iScored snapshots yet. They appear automatically before iScored deletes, or use Snapshot Now."
+            keyExtractor={(item) => snapKey(item)}
+          />
+        )}
+      </NeonCard>
+
+      {restoreSnapshot && (
+        <IScoredSnapshotRestoreModal
+          snapshot={restoreSnapshot}
+          onClose={() => setRestoreSnapshot(null)}
+          onFinished={(message, kind) => toast(message, kind)}
+        />
+      )}
+
+      {confirmSnapshotDelete && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-deep/80 backdrop-blur-sm"
+          onClick={() => setConfirmSnapshotDelete(null)}
+        >
+          <div
+            className="bg-surface border border-border rounded-lg p-6 w-full max-w-md shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 className="font-display text-lg font-bold text-primary mb-2">Delete Snapshot</h3>
+            <p className="text-muted mb-4">
+              Permanently delete the{' '}
+              <span className="font-mono text-primary">{confirmSnapshotDelete.gameroom}</span> snapshot from{' '}
+              {new Date(confirmSnapshotDelete.capturedAt).toLocaleString()}? This cannot be undone.
+              {snapshots.filter(s => s.gameroom === confirmSnapshotDelete.gameroom).length === 1 && (
+                <span className="block mt-2 text-neon-amber">
+                  This is the only snapshot for that gameroom — you'll have nothing to roll back to.
+                </span>
+              )}
+            </p>
+            <div className="flex justify-end gap-3">
+              <NeonButton variant="ghost" onClick={() => setConfirmSnapshotDelete(null)}>
+                Cancel
+              </NeonButton>
+              <NeonButton variant="danger" onClick={() => handleSnapshotDelete(confirmSnapshotDelete)}>
+                Delete
+              </NeonButton>
+            </div>
+          </div>
+        </div>
+      )}
 
       {confirmRestore && (
         <div
