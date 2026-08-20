@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.116.1] — unreleased
+
+**A tournament's nightly maintenance could target the game it had just switched on for deletion.** Prod, 2026-08-20 03:00 UTC, on WG-VPXS: the run ended with a database error, its second game slot never filled. The run reads the list of queued games once at the start, but since the pick-delegation work of 2026-08-17 the part that hands a winner their own queued pick re-reads the queue fresh and switches a game on. The stale list still held that game, the run met it a second time, decided it had "been played too recently" (its own brand-new activation was the recent play), and issued a delete for a live, in-progress game. Nothing was lost — a foreign key on the cached leaderboard refused the delete — but that refusal is what aborted the rest of the run.
+
+### Fixed
+- **The extra-slot fill loop re-queries the queue instead of consuming the run-start snapshot** (`TournamentEngine.runMaintenanceWork`). The cascade consumes queued rows through fresh reads, so the snapshot is stale by the time this loop runs.
+- **Guard order swapped in that loop: the same-name-ACTIVE twin check now runs before the cooldown revalidation.** A queued twin of a currently-ACTIVE game is supposed to be *left queued* — but it trivially fails the cooldown check (its own ACTIVE twin is a recent play), so the cooldown branch deleted it first and the twin guard was unreachable dead code on exactly the rows it was written for.
+- **Both cooldown-removal deletes are now structurally incapable of removing a non-queued row.** The extra-slot loop and `nextEligibleQueuedFor` each clear the `leaderboard_cache` row (a NO-ACTION FK to `games`) and constrain the delete with `AND status = 'QUEUED'`.
+- **`queue_order` is cleared at every queued→ACTIVE promotion** (both the cascade activation and the extra-slot promotion). An ACTIVE row that keeps its queue position reads as still-queued to anything ordering by it; prod carried exactly one such row out of this incident.
+
+### Tests
+- New `maintenance-stale-queue.test.ts` (4): the incident reproduction (the cascade-activated game survives the extra-slot loop, the run completes, and the activated row's `queue_order` is NULL); a queued twin of a now-ACTIVE game survives as QUEUED; a genuinely ineligible queued row is still removed even with a cached leaderboard seeded, without an FK throw; and `nextEligibleQueuedFor` drops an ineligible row with a seeded cache row without throwing. All four fail against the pre-fix engine.
+
 ## [2.116.0] — unreleased
 
 **Scoreboard appearance is edited on the scoreboard now, and the room sees the change without a reload.** The controls that dressed a room's cards lived on the Settings page next to a mock-data preview — three sample games, invented players — while the real board sat one nav item away. They move onto the admin Leaderboard page as an editing panel beside the actual cards, so every change previews on this room's own games and scores before it is saved. And because the room's other screens fetched their look exactly once, a save now announces itself: the kiosk on the wall re-dresses itself in about a second.
