@@ -227,7 +227,10 @@ export const CreateLocalAdminSchema = z.object({
  * state, so an absent field means "unframed", never "leave as-is".
  */
 const BgFramingFields = {
-    bgZoom: z.number().min(100).max(300).nullable().optional(),
+    // v2.119.0 (C2): floor 100 -> 50 (zoom-out). 49 is a client bug, not a
+    // value to silently round, so the schema rejects it; `normalizeFraming`
+    // clamps as defence in depth behind this.
+    bgZoom: z.number().min(50).max(300).nullable().optional(),
     bgPosX: z.number().min(0).max(100).nullable().optional(),
     bgPosY: z.number().min(0).max(100).nullable().optional(),
 };

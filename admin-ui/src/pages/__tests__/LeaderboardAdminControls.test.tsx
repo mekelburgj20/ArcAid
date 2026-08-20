@@ -89,7 +89,9 @@ function renderLeaderboard() {
   );
 }
 
-const CONTROL_LABELS = ['Name', 'Notes', 'Style', 'Scores'];
+// v2.119.0 (C2) — 'Style' is now 'Edit card': the button no longer opens a
+// style modal, it hands THIS card to the rail's live editor.
+const CONTROL_LABELS = ['Name', 'Notes', 'Edit card', 'Scores'];
 
 describe('Leaderboard admin card controls (legacy card path)', () => {
   beforeEach(() => {

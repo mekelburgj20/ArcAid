@@ -9,12 +9,18 @@ import { stubResizeObserver } from '../../test/stubResizeObserver';
 stubResizeObserver();
 
 /**
- * Ranking-card backgrounds (owner-designed 2026-08-09) — the admin Style
+ * Ranking-card backgrounds (owner-designed 2026-08-09) — the admin card
  * control on the room-admin Leaderboard page for RANKING GROUP cards,
  * mirroring the game-card `AdminControlsStrip` pattern from v2.85.0/v2.86.0
  * (see LeaderboardAdminControls.test.tsx). Covers: the strip renders on the
- * ranking card (not the game card), opens the same StylePicker, and PUT/
- * DELETE the correct ranking-groups/:id/style endpoint on select/clear.
+ * ranking card (not the game card), opens the rail's `CardStyleEditor`, and
+ * PUT/DELETEs the correct ranking-groups/:id/style endpoint on apply/clear.
+ *
+ * v2.119.0 (C2) — the modal `StylePicker` was replaced here by the in-rail
+ * editor. A ranking group is the STYLE-ONLY case: its write schema is
+ * `{ styleId }` and nothing else, so the editor must offer no Apply-as, no
+ * framing and no library default, and its edits must reach the card live
+ * before Apply ever fires.
  */
 
 vi.mock('../../lib/websocket', () => ({
@@ -82,62 +88,78 @@ function renderLeaderboard() {
   );
 }
 
+/** Click the ranking card's "Edit card" button and wait for the rail editor. */
+async function openRankingEditor() {
+  const strip = await screen.findByTestId('ranking-admin-card-controls');
+  fireEvent.click(within(strip).getByRole('button', { name: 'Edit card' }));
+  return screen.findByTestId('card-style-editor');
+}
+
 describe('Leaderboard admin ranking-card Style control', () => {
   it('renders a Style control on the ranking card, separate from any game strip', async () => {
     stubFetch();
     renderLeaderboard();
 
     const strip = await screen.findByTestId('ranking-admin-card-controls');
-    expect(within(strip).getByRole('button', { name: 'Style' })).toBeInTheDocument();
+    expect(within(strip).getByRole('button', { name: 'Edit card' })).toBeInTheDocument();
     // Only one ranking card in this fixture → exactly one strip.
     expect(screen.getAllByTestId('ranking-admin-card-controls')).toHaveLength(1);
   });
 
-  it('opens the StylePicker and PUTs the selected style to the ranking group', async () => {
+  it('opens the in-rail card editor, style-only', async () => {
     stubFetch();
     renderLeaderboard();
 
-    const strip = await screen.findByTestId('ranking-admin-card-controls');
-    fireEvent.click(within(strip).getByRole('button', { name: 'Style' }));
-
-    // The shared StylePicker modal opens with the seeded style tile.
-    await waitFor(() => expect(screen.getByText('Select Art Pack')).toBeInTheDocument());
+    await openRankingEditor();
     await waitFor(() => expect(screen.getByText('Neon Wall')).toBeInTheDocument());
 
-    fireEvent.click(screen.getByText('Neon Wall'));
-    fireEvent.click(screen.getByRole('button', { name: 'Apply Style' }));
-
-    await waitFor(() => expect(screen.queryByText('Select Art Pack')).not.toBeInTheDocument());
+    // A ranking group has one background slot and nothing else, so none of the
+    // game-card affordances may appear.
+    expect(screen.queryByText('Apply as')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('card-framing-controls')).not.toBeInTheDocument();
+    expect(screen.queryByRole('switch', { name: 'Hide game identifier' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('slider', { name: 'Background zoom' })).not.toBeInTheDocument();
   });
 
   it('sends a PUT with the chosen styleId to /ranking-groups/:id/style', async () => {
     const stub = stubFetch();
     renderLeaderboard();
 
-    const strip = await screen.findByTestId('ranking-admin-card-controls');
-    fireEvent.click(within(strip).getByRole('button', { name: 'Style' }));
+    await openRankingEditor();
     await waitFor(() => expect(screen.getByText('Neon Wall')).toBeInTheDocument());
     fireEvent.click(screen.getByText('Neon Wall'));
-    fireEvent.click(screen.getByRole('button', { name: 'Apply Style' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
 
     await waitFor(() => expect(stub.putCalls).toHaveLength(1));
     expect(stub.putCalls[0]!.url).toContain(`/rooms/${ROOM_ID}/ranking-groups/group-1/style`);
     expect(stub.putCalls[0]!.body).toEqual({ styleId: 'style-1' });
   });
 
-  it('DELETEs the style when Clear Style is pressed', async () => {
+  it('DELETEs the style when Clear style is applied', async () => {
     const stub = stubFetch({
       rankingGroups: [{ ...RANKING_GROUPS[0], group: { ...RANKING_GROUPS[0]!.group, bg_style_id: 'style-1', bg_has_bg: 1 } }],
     });
     renderLeaderboard();
 
-    const strip = await screen.findByTestId('ranking-admin-card-controls');
-    fireEvent.click(within(strip).getByRole('button', { name: 'Style' }));
-    await waitFor(() => expect(screen.getByText('Select Art Pack')).toBeInTheDocument());
-
-    fireEvent.click(screen.getByRole('button', { name: 'Clear Style' }));
+    await openRankingEditor();
+    fireEvent.click(screen.getByRole('button', { name: 'Clear style' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
 
     await waitFor(() => expect(stub.deleteCalls).toHaveLength(1));
     expect(stub.deleteCalls[0]).toContain(`/rooms/${ROOM_ID}/ranking-groups/group-1/style`);
+  });
+
+  it('Cancel drops the edit without touching the server', async () => {
+    const stub = stubFetch();
+    renderLeaderboard();
+
+    await openRankingEditor();
+    await waitFor(() => expect(screen.getByText('Neon Wall')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Neon Wall'));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    await waitFor(() => expect(screen.queryByTestId('card-style-editor')).not.toBeInTheDocument());
+    expect(stub.putCalls).toHaveLength(0);
+    expect(stub.deleteCalls).toHaveLength(0);
   });
 });

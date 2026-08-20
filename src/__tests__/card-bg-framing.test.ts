@@ -4,6 +4,8 @@ import { getDatabase } from '../database/database.js';
 import { StyleCatalogueService } from '../services/StyleCatalogueService.js';
 import { GameLibraryService } from '../services/GameLibraryService.js';
 import { LeaderboardService } from '../services/LeaderboardService.js';
+import { normalizeFraming } from '../utils/bgFraming.js';
+import { AssignStyleSchema } from '../api/schemas.js';
 
 /**
  * Per-game background framing (v2.115.0, migration 154).
@@ -124,6 +126,25 @@ describe('framing write paths', () => {
         expect(row.bg_pos_y).toBe(100);
     });
 
+    // v2.119.0 (C2) — the floor moved 100 -> 50 so an admin can zoom OUT and
+    // let the card show through around the art. Storage did not change; only
+    // the bounds did, so the round-trip is the thing to pin.
+    it('round-trips a zoomed-OUT value (the new 50 floor)', async () => {
+        const db = await getDatabase();
+        await StyleCatalogueService.assignToGame(gameId, styleId, false, { bgZoom: 50, bgPosX: 50, bgPosY: 50 });
+
+        const row = await db.get('SELECT bg_zoom FROM games WHERE id = ?', gameId);
+        expect(row.bg_zoom).toBe(50);
+    });
+
+    it('clamps below the floor rather than storing it', async () => {
+        const db = await getDatabase();
+        await StyleCatalogueService.assignToGame(gameId, styleId, false, { bgZoom: 49, bgPosX: 50, bgPosY: 50 });
+
+        const row = await db.get('SELECT bg_zoom FROM games WHERE id = ?', gameId);
+        expect(row.bg_zoom).toBe(50);
+    });
+
     it('setRoomGameStyle round-trips the library default framing', async () => {
         await seedLibraryRow(roomId, 'Medieval Madness');
         const ok = await GameLibraryService.setRoomGameStyle(roomId, 'Medieval Madness', styleId, false, {
@@ -200,5 +221,119 @@ describe('framing read path — getActiveLeaderboards', () => {
         expect(card.bgZoom).toBe(260);
         expect(card.bgPosX).toBe(20);
         expect(card.bgPosY).toBe(80);
+    });
+});
+
+/**
+ * v2.119.0 (C2) — the zoom-out floor.
+ *
+ * Three clamp sites had to move together (`normalizeFraming`, the Zod bounds,
+ * and `GameLibraryService`'s own clamp on the library-default path). A floor
+ * left at 100 in any ONE of them turns a zoomed-out card into either a 400 at
+ * the API boundary or a silent snap back to 100 on write, which is exactly the
+ * class of drift a test is for.
+ */
+describe('zoom floor (v2.119.0)', () => {
+    it('normalizeFraming accepts 50 and clamps 49 up to it', () => {
+        expect(normalizeFraming({ bgZoom: 50, bgPosX: 10, bgPosY: 20 }).bgZoom).toBe(50);
+        expect(normalizeFraming({ bgZoom: 49, bgPosX: 10, bgPosY: 20 }).bgZoom).toBe(50);
+        expect(normalizeFraming({ bgZoom: 1, bgPosX: 10, bgPosY: 20 }).bgZoom).toBe(50);
+    });
+
+    it('leaves the pre-existing 100-300 behaviour alone', () => {
+        expect(normalizeFraming({ bgZoom: 100 }).bgZoom).toBe(100);
+        expect(normalizeFraming({ bgZoom: 300 }).bgZoom).toBe(300);
+        expect(normalizeFraming({ bgZoom: 301 }).bgZoom).toBe(300);
+        // An omitted framing object still CLEARS — unchanged, and load-bearing.
+        expect(normalizeFraming()).toEqual({ bgZoom: null, bgPosX: null, bgPosY: null });
+    });
+
+    it('the write schema accepts 50 and rejects 49', () => {
+        const base = { catalogueStyleId: 'style-1', headerDisabled: false, bgPosX: 50, bgPosY: 50 };
+        expect(AssignStyleSchema.safeParse({ ...base, bgZoom: 50 }).success).toBe(true);
+        expect(AssignStyleSchema.safeParse({ ...base, bgZoom: 49 }).success).toBe(false);
+        expect(AssignStyleSchema.safeParse({ ...base, bgZoom: 300 }).success).toBe(true);
+        expect(AssignStyleSchema.safeParse({ ...base, bgZoom: 301 }).success).toBe(false);
+    });
+
+    it('the library-default path stores a zoomed-OUT value too', async () => {
+        await setupTestDb();
+        const roomId = await createTestRoom('zoomout_room', 'Zoom Out Room');
+        await seedStyle('style-zo');
+        const db = await getDatabase();
+        await db.run(`INSERT INTO game_room_game_library (game_room_id, game_name) VALUES (?, ?)`, roomId, 'Medieval Madness');
+
+        await GameLibraryService.setRoomGameStyle(roomId, 'Medieval Madness', 'style-zo', false, {
+            bgZoom: 50, bgPosX: 50, bgPosY: 50,
+        });
+        expect((await GameLibraryService.getRoomGameStyle(roomId, 'Medieval Madness'))?.bg_zoom).toBe(50);
+
+        await GameLibraryService.setRoomGameStyle(roomId, 'Medieval Madness', 'style-zo', false, {
+            bgZoom: 49, bgPosX: 50, bgPosY: 50,
+        });
+        expect((await GameLibraryService.getRoomGameStyle(roomId, 'Medieval Madness'))?.bg_zoom).toBe(50);
+    });
+});
+
+/**
+ * v2.119.0 (C2), build trap #5 — deleting a style used to null the style ids
+ * and leave the framing columns behind, so the next background to land on that
+ * card inherited a crop made for art that no longer exists. Live preview makes
+ * that visible immediately, so it is fixed here: framing dies with the
+ * background it was cropped for, exactly as `removeFromGame` already did.
+ */
+describe('style deletion clears the framing it described', () => {
+    let roomId: string;
+    let gameId: string;
+
+    beforeEach(async () => {
+        await setupTestDb();
+        roomId = await createTestRoom('framing_room', 'Framing Room');
+        const tournamentId = await createTestTournament(roomId);
+        gameId = await createTestGame(tournamentId, { name: 'Medieval Madness' });
+        await seedStyle('style-a');
+        await seedStyle('style-b');
+    });
+
+    it('clears the game framing when the deleted style WAS the background', async () => {
+        const db = await getDatabase();
+        await StyleCatalogueService.assignToGame(gameId, 'style-a', false, { bgZoom: 200, bgPosX: 10, bgPosY: 90 });
+
+        await StyleCatalogueService.delete('style-a');
+
+        const row = await db.get('SELECT catalogue_style_id, bg_zoom, bg_pos_x, bg_pos_y FROM games WHERE id = ?', gameId);
+        expect(row.catalogue_style_id).toBeNull();
+        expect(row.bg_zoom).toBeNull();
+        expect(row.bg_pos_x).toBeNull();
+        expect(row.bg_pos_y).toBeNull();
+    });
+
+    it('KEEPS the framing when a surviving bg override still supplies the art', async () => {
+        const db = await getDatabase();
+        await StyleCatalogueService.assignToGame(gameId, 'style-a', false, { bgZoom: 200, bgPosX: 10, bgPosY: 90 });
+        // An independent background override outranks the catalogue style, so
+        // deleting the catalogue style leaves the framed art in place.
+        await db.run('UPDATE games SET bg_style_id = ? WHERE id = ?', 'style-b', gameId);
+
+        await StyleCatalogueService.delete('style-a');
+
+        const row = await db.get('SELECT bg_style_id, bg_zoom FROM games WHERE id = ?', gameId);
+        expect(row.bg_style_id).toBe('style-b');
+        expect(row.bg_zoom).toBe(200);
+    });
+
+    it('clears the library default framing the same way', async () => {
+        const db = await getDatabase();
+        await db.run(`INSERT INTO game_room_game_library (game_room_id, game_name) VALUES (?, ?)`, roomId, 'Medieval Madness');
+        await GameLibraryService.setRoomGameStyle(roomId, 'Medieval Madness', 'style-a', false, {
+            bgZoom: 140, bgPosX: 33, bgPosY: 66,
+        });
+
+        await StyleCatalogueService.delete('style-a');
+
+        const saved = await GameLibraryService.getRoomGameStyle(roomId, 'Medieval Madness');
+        expect(saved?.bg_zoom).toBeNull();
+        expect(saved?.bg_pos_x).toBeNull();
+        expect(saved?.bg_pos_y).toBeNull();
     });
 });

@@ -6,6 +6,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.119.0] — unreleased
+
+**The real score card is now the art editor (consolidation C2).** Owner, after using v2.115.0's framing: "Zoom still at 100% minimum. Can't reposition left and right. Background framing doesn't look like the card sizing. I thought we were going to use an actual card to apply art." The "Select Art Pack" pop-up's fixed wide-strip preview simulated no card style, so what you framed was never what the board rendered. On the admin Leaderboard page that pop-up is gone: **Edit card** on a card's control strip selects it (scroll-into-view + spotlight ring) and the Display-settings rail becomes the editor — every change previews on that card with its real style, theme, toggles and scores; nothing is saved until Apply.
+
+### Added
+- **`CardStyleEditor`** in the rail (desktop) / bottom sheet (phone): art-pack search + paged grid + Upload (the form lifted out of StylePicker into `StyleUploadForm`), **Apply as** Both / Background / Identifier, **Hide game identifier** as a first-class switch (the old checkbox was unreachable from this flow), **Background framing** zoom **50–300%** + Reset, **Set as this game's room default**, Apply / Cancel / Clear style. Ranking-group cards use the same selection model, style-only.
+- **Framing drag ON the card**: in edit mode a pointer-capture overlay sits on the selected card (mouse + touch) and moves the background with the same subtractive delta the old strip used — you drag the exact pixels the viewer sees. Sits above the QR, below the control strip, so the reorder grip and Name/Notes/Scores stay clickable; it stops propagation so the strip's drag-to-scroll never engages.
+- **Zoom-out to 50%** at all four clamp sites (`admin-ui/src/lib/bgFraming.ts` `BG_ZOOM_MIN`, `src/api/schemas.ts` `BgFramingFields`, `src/utils/bgFraming.ts` `normalizeFraming`, and the library-default path in `GameLibraryService.setRoomGameStyle` — the design named three; the fourth would have snapped a zoomed-out room default back to 100). Storage unchanged (migration 154); below 100% the card's own background honestly shows around the art. Zod rejects 49; the normaliser clamps as defence in depth.
+- An inline note when Card Background Fill is off ("Framing has no effect while Card Background Fill is off") with a one-click enable that writes the room draft — v1 silently previewed framing that could never render.
+
+### Changed
+- The card-edit draft is a per-card overlay merged at render time (never stored merged), so a `leaderboard:updated` refetch mid-edit keeps your unsaved changes; the `has_*` image flags come from the picked style so the preview cannot lie. Switching cards or applying a style profile with a dirty card draft asks first.
+- `ScoreboardSurface` gains an optional `renderCardOverlay` slot; the public DOM is byte-identical when unused.
+- **Deleting a style now clears the framing columns** it was the effective background of (`StyleCatalogueService.delete`, on `games` and `game_room_game_library`) — a row that keeps a `bg_style_id` override keeps its framing. Pre-existing residue that the live preview would have made visible.
+
+### Known limits
+- Framing needs an art pack to persist (no framing-only endpoint; plain catalogue art has nowhere to store the numbers) — Apply is disabled with an explanatory note, as v1 was. Ranking-card framing remains deferred (owner). GameLibrary and Tournaments still open the legacy StylePicker until C3 retires it.
+
+### Tests
+- FE `LeaderboardCardEditor.test.tsx` (9): current values + spotlight · style pick previews with flags and writes nothing · zoom min 50 / 49 clamps · on-card drag delta · hide-identifier live · Apply(Both) → `/style` with the full triple · Apply(Background) → `/image` · Cancel sends nothing · overlay survives refetch; `LeaderboardRankingBg` rewritten for the rail (+1); suite 942. BE `card-bg-framing.test.ts` +9 (50 accepted, 49 clamped/rejected, 100–300 unchanged, library-default zoom-out, 3 style-deletion cascade cases); suite 2024. Screenshot loop: desktop edit/zoom-50/mid-drag/hide-identifier, 390px sheet-half + touch drag, document scroll delta 0.
+
 ## [2.118.0] — unreleased
 
 **Drag a card to reorder the board — and the Display-settings rail is clickable again.** Owner-reported the same day the rail shipped: with it open, the card strip's `<` / `>` scroll overlays sat on top of the rail and swallowed clicks (the right arrow is `position: fixed`, portalled to `<body>`, and sized to cover everything right of the strip — exactly the rail column). Second ask in the same breath: pick up a score card and move it left or right, as an override of the tournaments' configured "Lineup Position" order.

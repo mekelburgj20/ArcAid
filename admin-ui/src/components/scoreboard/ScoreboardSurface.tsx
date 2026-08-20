@@ -122,6 +122,15 @@ export interface ScoreboardSurfaceProps {
    *  RankingGroupCard/RankingsRow/RankingsColumn). Rendered under every
    *  ranking card in EVERY layout branch, inline or sticky. */
   renderUnderRankingCard?: (group: RankingGroupData['group']) => ReactNode;
+  /**
+   * v2.119.0 (C2) — an absolutely-positioned admin overlay for ONE card,
+   * rendered as the last child of the card's slot column. Used by the admin
+   * Leaderboard page for the selected card's spotlight ring + framing drag
+   * capture; returning null (every card but the selected one, and every card
+   * when nothing is being edited) leaves the slot byte-identical to before.
+   * The column only becomes a positioning context when an overlay exists.
+   */
+  renderCardOverlay?: (lb: GameLeaderboard) => ReactNode;
 
   /** Free-text game-name filter (public search box). */
   searchFilter?: string;
@@ -215,6 +224,7 @@ export default function ScoreboardSurface({
   onOpenQuickView,
   renderUnderCard,
   renderUnderRankingCard,
+  renderCardOverlay,
   searchFilter,
   overlays,
   headerExtras,
@@ -379,14 +389,16 @@ export default function ScoreboardSurface({
    * defeats the flex/grid automatic minimum size, without which a long
    * (nowrap) title widens the card past its grid track.
    */
-  const renderSlotContent = (lb: LeaderboardWithViewer) => (
-    renderUnderCard ? (
-      <div className="flex flex-col h-full min-w-0">
+  const renderSlotContent = (lb: LeaderboardWithViewer) => {
+    const overlay = renderCardOverlay?.(lb) ?? null;
+    return renderUnderCard ? (
+      <div className={`flex flex-col h-full min-w-0${overlay ? ' relative' : ''}`}>
         {renderCard(lb)}
         {renderUnderCard(lb)}
+        {overlay}
       </div>
-    ) : renderCard(lb)
-  );
+    ) : renderCard(lb);
+  };
 
   /** Same idea as `renderSlotContent`, for the inline-rankings render sites
    *  (grid/vertical/horizontal). RankingsRow/RankingsColumn (the
