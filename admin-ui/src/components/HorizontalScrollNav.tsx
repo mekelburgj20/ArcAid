@@ -23,7 +23,35 @@ interface Props {
   dragThresholdPx?: number;
   /** s20: accessible name for the scroll region (role="region"). */
   ariaLabel?: string;
+  /**
+   * v2.118.0 — the edge-hover arrow overlays are `position: fixed` and the
+   * right-hand one is sized `viewportWidth - wrapper.right + zone`, i.e. it
+   * covers everything to the right of the cards. On the admin Leaderboard page
+   * that is the display-settings rail, so the overlay sat on top of the rail
+   * and ate its clicks. That page passes `false`; every other surface keeps
+   * the arrows. Drag-to-scroll and keyboard scrolling are unaffected.
+   */
+  showArrows?: boolean;
+  /**
+   * v2.118.0 — reports the scroller's geometry so a caller can render its own
+   * scrollbar (see `FixedHScrollbar`). Fires on scroll, on resize, and on any
+   * size change the existing ResizeObserver already watches. `left`/`width`
+   * describe the WRAPPER (never the negatively-margined scroll element), so a
+   * scrollbar drawn from them stays inside the surface column.
+   */
+  onScrollMetrics?: (m: HScrollMetrics) => void;
   children: ReactNode;
+}
+
+/** Geometry reported by `onScrollMetrics`. */
+export interface HScrollMetrics {
+  scrollLeft: number;
+  scrollWidth: number;
+  clientWidth: number;
+  /** Viewport-space left edge of the wrapper. */
+  left: number;
+  /** Wrapper width. */
+  width: number;
 }
 
 /**
@@ -59,6 +87,8 @@ export default function HorizontalScrollNav({
   holdDelayMs = 280,
   dragThresholdPx = 5,
   ariaLabel = 'Scrollable content',
+  showArrows = true,
+  onScrollMetrics,
   children,
 }: Props) {
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -90,12 +120,33 @@ export default function HorizontalScrollNav({
     }
   };
 
+  // v2.118.0 — held in a ref so the metrics callback can change identity every
+  // render (an inline arrow, which every call site writes) without re-binding
+  // the scroll/resize listeners below.
+  const metricsCbRef = useRef(onScrollMetrics);
+  useEffect(() => { metricsCbRef.current = onScrollMetrics; });
+
+  const emitMetrics = () => {
+    const cb = metricsCbRef.current;
+    const el = scrollRef.current;
+    if (!cb || !el) return;
+    const wrap = wrapperRef.current?.getBoundingClientRect();
+    cb({
+      scrollLeft: el.scrollLeft,
+      scrollWidth: el.scrollWidth,
+      clientWidth: el.clientWidth,
+      left: wrap?.left ?? 0,
+      width: wrap?.width ?? el.clientWidth,
+    });
+  };
+
   const updateCanScroll = () => {
     const el = scrollRef.current;
     if (!el) return;
     setCanLeft(el.scrollLeft > 0);
     // -1 tolerance: some browsers leave a fractional pixel at the end.
     setCanRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
+    emitMetrics();
   };
 
   const updateWrapperRect = () => {
@@ -125,6 +176,9 @@ export default function HorizontalScrollNav({
       // read from the ref during render — refs are not render-time values.
       portalTarget: wrapperRef.current.ownerDocument.body,
     });
+    // The wrapper's viewport-space left/width just changed (window resize,
+    // ancestor scroll), which moves any externally-drawn scrollbar with it.
+    emitMetrics();
   };
 
   // Scroll-bounds tracking + wrapper-rect tracking.
@@ -273,8 +327,9 @@ export default function HorizontalScrollNav({
   };
 
   // `narrow` kills both arrows at phone widths — see updateWrapperRect.
-  const showLeft = canLeft && (hoverLeft || focusWithin) && wrapperRect != null && !wrapperRect.narrow;
-  const showRight = canRight && (hoverRight || focusWithin) && wrapperRect != null && !wrapperRect.narrow;
+  // `showArrows` kills them outright (admin Leaderboard — see the prop doc).
+  const showLeft = showArrows && canLeft && (hoverLeft || focusWithin) && wrapperRect != null && !wrapperRect.narrow;
+  const showRight = showArrows && canRight && (hoverRight || focusWithin) && wrapperRect != null && !wrapperRect.narrow;
 
   // Per-button geometry. zone = how far INTO the wrapper the hover/click
   // area extends past the wrapper edge.

@@ -448,6 +448,20 @@ export const ReorderQueueSchema = z.object({
     gameIds: z.array(z.string().min(1)).min(1).max(20),
 });
 
+/**
+ * PUT /:roomId/admin/leaderboard/card-order body (v2.118.0).
+ *
+ * The FULL ordered card-id list, not a delta — same contract as
+ * `ReorderQueueSchema`, and what makes the drag robust to cards the admin
+ * cannot see (hidden-when-empty, search-filtered). 200 is the storage bound
+ * shared with `CARD_ORDER_MAX_IDS`; duplicates are a client bug, not a
+ * silently-deduped input.
+ */
+export const CardOrderSchema = z.object({
+    gameIds: z.array(z.string().min(1)).min(1).max(200)
+        .refine(ids => new Set(ids).size === ids.length, { message: 'must not contain duplicates' }),
+});
+
 export const GameCommentSchema = z.object({
     display_name: z.string().min(1).max(50),
     type: z.enum(['comment', 'tip']),

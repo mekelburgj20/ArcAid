@@ -8,6 +8,7 @@ import {
     normalizeProvenanceToken,
 } from '../utils/scoreProvenance.js';
 import { resolveProfiles } from './PlayerProfileResolver.js';
+import { CardOrderService } from './CardOrderService.js';
 
 /**
  * v2.0.3: translate stored catalogue paths (`data/catalogue-images/…`) to the
@@ -821,12 +822,20 @@ export class LeaderboardService {
 
         // Deduplicate by game name + tournament
         const seen = new Set<string>();
-        const deduped = allGames.filter(g => {
+        const defaultOrder = allGames.filter(g => {
             const key = `${g.tournament_name}:${g.game_name}`;
             if (seen.has(key)) return false;
             seen.add(key);
             return true;
         });
+
+        // v2.118.0 — the room admin's manual card order, applied at READ time
+        // from a self-invalidating fingerprint (no rotation hooks anywhere; see
+        // CardOrderService). Costs ONE settings read for a room that has never
+        // dragged a card, and is skipped entirely for a non-room-scoped read.
+        const deduped = gameRoomId
+            ? await CardOrderService.applyStored(gameRoomId, defaultOrder)
+            : defaultOrder;
 
         // Batch-load cached leaderboards (avoid N+1 per-game queries)
         const gameIds = deduped.map(g => g.id);

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Lock, Trash2, Pencil, StickyNote, ExternalLink, SlidersHorizontal, X } from 'lucide-react';
+import { Lock, Trash2, Pencil, StickyNote, ExternalLink, SlidersHorizontal, X, GripHorizontal, ListOrdered } from 'lucide-react';
 import { api } from '../lib/api';
 import { getPortal } from '../lib/portal';
 import { useRoom } from '../contexts/RoomContext';
@@ -13,6 +13,9 @@ import GameQuickView from '../components/GameQuickView';
 import DevicePreviewFrame from '../components/DevicePreviewFrame';
 import ScoreboardSurface from '../components/scoreboard/ScoreboardSurface';
 import DisplaySettingsPanel from '../components/scoreboard/DisplaySettingsPanel';
+import FixedHScrollbar from '../components/scoreboard/FixedHScrollbar';
+import { useCardReorder, type CardDragHandleProps } from '../components/scoreboard/useCardReorder';
+import type { HScrollMetrics } from '../components/HorizontalScrollNav';
 import { displaySettingChanged } from '../lib/displaySettings';
 import { tournamentCardTitleLink, tournamentCardTitleClick } from '../components/scoreboard/tournamentCardTitle';
 import { ADMIN_CARD_CHROME_Z_INDEX } from '../components/scoreboard/cardStacking';
@@ -128,6 +131,21 @@ export default function Leaderboard() {
    */
   const [roomTheme, setRoomTheme] = useState<string | null>(null);
 
+  /**
+   * v2.118.0 — the manual card order.
+   *
+   * `cardOrder.active` comes from the server, which runs the SAME
+   * self-invalidation the read path runs, so the chip can never claim a manual
+   * order that every board has already discarded (a tournament rotated, an
+   * admin edited the configured positions). Refetched on `leaderboard:updated`
+   * for exactly that reason.
+   */
+  const [cardOrder, setCardOrder] = useState<{ active: boolean; savedAt: string | null }>({ active: false, savedAt: null });
+  const [confirmResetOrder, setConfirmResetOrder] = useState(false);
+  /** Geometry of the card strip's scroller, reported by HorizontalScrollNav. */
+  const [hscrollMetrics, setHscrollMetrics] = useState<HScrollMetrics | null>(null);
+  const surfaceRef = useRef<HTMLDivElement>(null);
+
   // Unmount guard for the three loaders — they're fired from the mount effect
   // AND from socket handlers, so an in-flight response can land after unmount
   // (late-setState flake class; the roomTheme effect below already guards the
@@ -162,6 +180,12 @@ export default function Leaderboard() {
       .finally(() => { if (!unmountedRef.current) setLoading(false); });
   };
 
+  const loadCardOrder = () => {
+    api.get<{ active: boolean; savedAt: string | null }>(`/rooms/${room.roomId}/admin/leaderboard/card-order`)
+      .then(s => { if (!unmountedRef.current) setCardOrder(s); })
+      .catch(() => {});
+  };
+
   const loadConfig = () => {
     api.get<Record<string, string>>(`/rooms/${room.roomId}/scoreboard-config`)
       .then(c => {
@@ -179,13 +203,14 @@ export default function Leaderboard() {
     loadData();
     loadRankings();
     loadConfig();
+    loadCardOrder();
 
     const socket = getSocket();
     socket.emit('join:room', room.roomId);
     // Re-join on every (re)connect — room membership doesn't survive a reconnect.
     const onConnect = () => socket.emit('join:room', room.roomId);
     socket.on('connect', onConnect);
-    const onUpdate = () => { loadData(); loadRankings(); };
+    const onUpdate = () => { loadData(); loadRankings(); loadCardOrder(); };
     socket.on('leaderboard:updated', onUpdate);
     socket.on('score:new', onUpdate);
     // v2.86.0 — the public Scoreboard has always refetched on rotation; admin
@@ -221,6 +246,65 @@ export default function Leaderboard() {
       .catch(() => { if (!cancelled) setRoomTheme('dark'); });
     return () => { cancelled = true; };
   }, [room.roomSlug]);
+
+  /**
+   * The horizontal-scroll layout can disappear (an admin switches to grid or
+   * vertical) without `HorizontalScrollNav` saying so — it simply unmounts and
+   * stops reporting. Drop the stale geometry whenever a layout-bearing config
+   * value changes; if the strip is still mounted its ResizeObserver re-reports
+   * within the same frame.
+   */
+  const layoutKey = [
+    config.SCOREBOARD_STYLE, config.SCOREBOARD_LAYOUT,
+    draftConfig?.SCOREBOARD_STYLE, draftConfig?.SCOREBOARD_LAYOUT,
+  ].join('|');
+  const [lastLayoutKey, setLastLayoutKey] = useState(layoutKey);
+  if (layoutKey !== lastLayoutKey) {
+    // React's documented "adjust state during render" pattern — an effect here
+    // would be a cascading render (and the lint rule says so).
+    setLastLayoutKey(layoutKey);
+    setHscrollMetrics(null);
+  }
+
+  /**
+   * v2.118.0 — drag-to-reposition. The payload is the FULL server order with
+   * one id moved, so cards hidden by `hideEmpty` keep their positions; the
+   * local reorder is optimistic and reverts on failure.
+   */
+  const handleCardReorder = async (next: string[]) => {
+    const previous = leaderboards;
+    const byId = new Map(previous.map(lb => [lb.gameId, lb]));
+    setLeaderboards(next.map(id => byId.get(id)).filter(Boolean) as GameLeaderboard[]);
+    try {
+      const saved = await api.put<{ active: boolean; savedAt: string }>(
+        `/rooms/${room.roomId}/admin/leaderboard/card-order`, { gameIds: next },
+      );
+      if (!unmountedRef.current) setCardOrder({ active: true, savedAt: saved.savedAt });
+    } catch (err) {
+      if (unmountedRef.current) return;
+      setLeaderboards(previous);
+      toast(err instanceof Error ? err.message : 'Failed to save card order', 'error');
+    }
+  };
+
+  const reorder = useCardReorder({
+    order: leaderboards.map(lb => lb.gameId),
+    names: Object.fromEntries(leaderboards.map(lb => [lb.gameId, lb.displayName || lb.gameName])),
+    onReorder: handleCardReorder,
+  });
+
+  const handleResetCardOrder = async () => {
+    setConfirmResetOrder(false);
+    try {
+      await api.delete(`/rooms/${room.roomId}/admin/leaderboard/card-order`);
+      if (unmountedRef.current) return;
+      setCardOrder({ active: false, savedAt: null });
+      loadData();
+      toast('Card order reset to tournament order', 'success');
+    } catch (err) {
+      if (!unmountedRef.current) toast(err instanceof Error ? err.message : 'Failed to reset card order', 'error');
+    }
+  };
 
   if (loading) return <LoadingState message="Loading leaderboards..." />;
 
@@ -371,6 +455,22 @@ export default function Leaderboard() {
       <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <h1 className="font-display text-2xl font-bold">Leaderboards</h1>
         <div className="flex flex-wrap items-center gap-4">
+          {cardOrder.active && (
+            <span
+              data-testid="card-order-chip"
+              className="inline-flex items-center gap-2 rounded-full border border-neon-cyan/40 bg-raised px-3 py-1 text-[11px] text-neon-cyan"
+              title={cardOrder.savedAt ? `Saved ${new Date(cardOrder.savedAt).toLocaleString()}` : undefined}
+            >
+              <ListOrdered size={12} /> Manual order
+              <button
+                type="button"
+                onClick={() => setConfirmResetOrder(true)}
+                className="bg-transparent border-0 p-0 text-muted hover:text-primary underline cursor-pointer text-[11px]"
+              >
+                Reset
+              </button>
+            </span>
+          )}
           <NeonButton
             variant={displayPanelOpen ? 'secondary' : 'ghost'}
             className="text-xs"
@@ -392,7 +492,7 @@ export default function Leaderboard() {
       </div>
 
       <div className="flex items-start gap-4">
-      <div className="flex-1 min-w-0">
+      <div className="flex-1 min-w-0" ref={surfaceRef}>
       {/* The scoreboard, rendered by the SAME component the public page uses.
           Everything below the room theme wrapper is public code — no admin
           fork of card rendering, layout, sizing or config handling exists any
@@ -415,9 +515,17 @@ export default function Leaderboard() {
         rankingGroups={rankingGroups}
         titleLinkTo={tournamentCardTitleLink(room.roomSlug || '')}
         titleLinkOnClick={tournamentCardTitleClick(setQuickViewLb)}
+        /* v2.118.0 — the arrow overlays reach the viewport edge, so on this
+           page the right-hand one sat over the display-settings rail and ate
+           its clicks. Replaced here (and ONLY here) by the fixed bottom
+           scrollbar below; the public page and kiosk keep their arrows. */
+        hscrollArrows={false}
+        onHscrollMetrics={setHscrollMetrics}
         renderUnderCard={lb => (
           <AdminControlsStrip
             lb={lb}
+            dragHandleProps={reorder.getHandleProps(lb.gameId, lb.displayName || lb.gameName)}
+            dragging={reorder.draggingId === lb.gameId}
             onStyleClick={handleStyleClick}
             onEditDisplayName={handleEditDisplayName}
             onDeleteGame={setDeleteTarget}
@@ -429,6 +537,24 @@ export default function Leaderboard() {
           <RankingAdminControlsStrip group={group} onStyleClick={setRankingStyleTarget} />
         )}
       />
+
+      {/* v2.118.0 — the card strip's own scrollbar is hidden by design and the
+          arrow overlays are off on this page, so this is the visible scroll
+          affordance. Viewport-fixed (the strip is taller than the screen) but
+          only as wide as the surface column, so it never runs under the rail.
+          Hidden while the mobile sheet is up — the sheet owns the bottom of
+          the screen, and a phone scrolls the strip by swiping it anyway. */}
+      <FixedHScrollbar
+        metrics={hscrollMetrics}
+        hidden={displayPanelOpen && !isWideViewport}
+        onScrollTo={left => {
+          const el = surfaceRef.current?.querySelector('.scoreboard-hscroll-nobar') as HTMLElement | null;
+          if (el) el.scrollLeft = left;
+        }}
+      />
+
+      {/* s20 keyboard/AT parity for the drag handle. */}
+      <div aria-live="polite" className="sr-only" data-testid="card-order-live">{reorder.announcement}</div>
       </div>
 
       {/* Editing rail — desktop. Sticky beside the surface, which reflows on
@@ -454,6 +580,16 @@ export default function Leaderboard() {
         </DisplaySettingsSheet>
       )}
       </div>
+
+      {confirmResetOrder && (
+        <ConfirmModal
+          title="Reset card order"
+          message="Drop the manual card order and go back to the order your tournaments are configured in? Every board in this room updates immediately."
+          confirmLabel="Reset"
+          onConfirm={handleResetCardOrder}
+          onCancel={() => setConfirmResetOrder(false)}
+        />
+      )}
 
       {/* Card-title quick-view — mirrors the public Scoreboard exactly, so a
           title click previews the game here the way it does for a player. */}
@@ -843,8 +979,11 @@ function DisplaySettingsSheet({ onClose, footer, children }: {
  *  `ADMIN_CARD_CHROME_Z_INDEX`; see `cardStacking.ts` for the stacking-context
  *  analysis. The QR stays visible behind the strip, which is what the owner
  *  asked for — an admin needs to SEE the QR, not scan it. */
-function AdminControlsStrip({ lb, onStyleClick, onEditDisplayName, onDeleteGame, onEditNotes, onManageScores }: {
+function AdminControlsStrip({ lb, dragHandleProps, dragging, onStyleClick, onEditDisplayName, onDeleteGame, onEditNotes, onManageScores }: {
   lb: GameLeaderboard;
+  /** v2.118.0 — everything the drag handle needs, from `useCardReorder`. */
+  dragHandleProps?: CardDragHandleProps;
+  dragging?: boolean;
   onStyleClick: (lb: GameLeaderboard) => void;
   onEditDisplayName: (lb: GameLeaderboard) => void;
   onDeleteGame: (lb: GameLeaderboard) => void;
@@ -861,6 +1000,20 @@ function AdminControlsStrip({ lb, onStyleClick, onEditDisplayName, onDeleteGame,
       style={{ zIndex: ADMIN_CARD_CHROME_Z_INDEX }}
       className={`relative flex-shrink-0 min-w-0 flex flex-wrap items-center justify-center gap-1 border-2 ${borderColor} bg-raised px-2 mt-1 py-1.5 rounded-lg`}
     >
+      {/* v2.118.0 — drag-to-reposition. A HANDLE, not the whole card: the card
+          itself already owns a title link, the score-row expand gesture and
+          HorizontalScrollNav's drag-to-scroll. 44px hit target (the button is
+          padded out beyond the 11px glyph) per the touch-target rule; the
+          keyboard path (Arrow keys) lives on the same button. */}
+      {dragHandleProps && (
+        <button
+          {...dragHandleProps}
+          className={`flex items-center justify-center w-11 h-11 -my-2 -ml-1 bg-transparent border-0 transition-colors ${dragging ? 'text-neon-cyan' : 'text-muted hover:text-neon-cyan'}`}
+          title="Drag to reorder (or use the arrow keys)"
+        >
+          <GripHorizontal size={14} />
+        </button>
+      )}
       <NeonButton variant="ghost" onClick={() => onEditDisplayName(lb)} className="text-[10px] px-1.5 py-0.5" title="Edit display name">
         <Pencil size={11} /> Name
       </NeonButton>

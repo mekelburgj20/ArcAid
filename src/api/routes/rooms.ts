@@ -30,6 +30,7 @@ import {
     GameCommentSchema,
     PickGameSchema,
     ReorderQueueSchema,
+    CardOrderSchema,
     UpdateGameStateSchema,
     DeleteGameStateSchema,
     SyncIScoredActionSchema,
@@ -4424,6 +4425,86 @@ router.get('/:roomId/games/active', async (req, res) => {
         res.json(rows);
     } catch (error) {
         logError('API Error (GET rooms/:roomId/games/active):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// ── Manual card order (v2.118.0) ──────────────────────────────────────────
+// The admin Leaderboard page's drag-to-reposition. One per-room override of
+// the configured (tournament) order, self-invalidating from a stored
+// fingerprint — no rotation hooks anywhere; see CardOrderService. Every write
+// emits a ROOM-SCOPED `leaderboard:updated` so the public Scoreboard, the
+// kiosk on the wall and any other open admin page repaint themselves.
+router.get('/:roomId/admin/leaderboard/card-order', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const { CardOrderService } = await import('../../services/CardOrderService.js');
+        const status = await CardOrderService.getStatus(req.params.roomId as string);
+        res.json(status);
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/admin/leaderboard/card-order):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.put('/:roomId/admin/leaderboard/card-order', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const validationResult = validate(CardOrderSchema, req.body);
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+
+        const roomId = req.params.roomId as string;
+        const { CardOrderService } = await import('../../services/CardOrderService.js');
+        const result = await CardOrderService.save(roomId, validationResult.data.gameIds);
+        if (!result.ok) {
+            return res.status(400).json({
+                error: `Not cards on this room's leaderboard: ${result.invalid.join(', ')}`,
+                invalid: result.invalid,
+            });
+        }
+
+        // Explicit audit write — auditMiddleware does NOT fire on router routes.
+        await AuditService.log({
+            actor: req.user!.discordId || req.user!.username || req.user!.localAdminId || 'admin',
+            action: 'leaderboard.card_order_set',
+            target_type: 'game_room',
+            target_id: roomId,
+            details: JSON.stringify({ count: validationResult.data.gameIds.length }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
+        const { emitLeaderboardUpdated } = await import('../websocket.js');
+        emitLeaderboardUpdated(roomId, { gameId: '' });
+
+        res.json({ active: true, savedAt: result.savedAt });
+    } catch (error) {
+        logError('API Error (PUT rooms/:roomId/admin/leaderboard/card-order):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.delete('/:roomId/admin/leaderboard/card-order', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const { CardOrderService } = await import('../../services/CardOrderService.js');
+        await CardOrderService.clear(roomId);
+
+        // Explicit audit write — auditMiddleware does NOT fire on router routes.
+        await AuditService.log({
+            actor: req.user!.discordId || req.user!.username || req.user!.localAdminId || 'admin',
+            action: 'leaderboard.card_order_clear',
+            target_type: 'game_room',
+            target_id: roomId,
+            details: '{}',
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
+        const { emitLeaderboardUpdated } = await import('../websocket.js');
+        emitLeaderboardUpdated(roomId, { gameId: '' });
+
+        res.json({ active: false, savedAt: null });
+    } catch (error) {
+        logError('API Error (DELETE rooms/:roomId/admin/leaderboard/card-order):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

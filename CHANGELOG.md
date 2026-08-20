@@ -6,6 +6,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.118.0] — unreleased
+
+**Drag a card to reorder the board — and the Display-settings rail is clickable again.** Owner-reported the same day the rail shipped: with it open, the card strip's `<` / `>` scroll overlays sat on top of the rail and swallowed clicks (the right arrow is `position: fixed`, portalled to `<body>`, and sized to cover everything right of the strip — exactly the rail column). Second ask in the same breath: pick up a score card and move it left or right, as an override of the tournaments' configured "Lineup Position" order.
+
+### Fixed
+- **No scroll-arrow overlays on the admin Leaderboard page** (`ScoreboardSurface hscrollArrows={false}` → `HorizontalScrollNav showArrows`). Replaced by a thin scrollbar **fixed to the bottom of the window that spans only the card strip** (never under the rail), with a draggable thumb, click-to-jump and touch support; it hides while the phone bottom sheet is open. The hand-grab drag-to-scroll stays. Public Scoreboard and kiosk keep their arrows.
+
+### Added
+- **Drag-to-reposition cards** via a grip handle on each card's admin control strip — mouse, touch (pointer events + capture) and keyboard (arrow keys move one slot, `aria-live` announces). The drop saves a **per-room manual order** that every surface renders immediately (room-scoped `leaderboard:updated`, which the public board, kiosk and other open admin pages already refetch on). "Manual order · Reset" chip in the page header drops back to configured order.
+- **The override is self-invalidating — no rotation hooks anywhere** (ADR 0013's "the data tells us when it is stale"). The stored blob (`game_room_settings.LEADERBOARD_CARD_ORDER`) carries a fingerprint of each tournament's `display_order` and ACTIVE game set; every read compares it to the room right now: **(1)** any tournament's position value changed → the whole manual order is discarded; **(2)** a tournament's active set changed — promotion, deactivate, delete, auto-pick, timeout, Discord, every path — → only *that* tournament's cards return to their configured slot, everything else keeps the dragged order (a Daily Grind rollover never disturbs a hand-ordered Weekly Grind; a 2-slot Weekly Grind's manual swap survives until its own rotation). Pins hold their spot until unpinned. Merge rule is slot-fill: the positions the surviving manual ids occupy in the configured order are refilled in manual order; every other card keeps its configured position.
+- `GET/PUT/DELETE /api/rooms/:roomId/admin/leaderboard/card-order` (room admin; PUT takes the FULL id list, validates it against the cards the board renders, 400 names strays; writes audited).
+- Not related to the **iScored lineup** (`reorderIScoredLineup` / the Tournaments page's "Sync iScored Lineup") — that follows its own rule and is untouched; the manual order affects Arcaid boards only. `games.display_order` remains unwritten.
+
+### Tests
+- BE `card-order-override.test.ts` (27): slot-fill merge incl. the worked examples · rule 1 discard (and a deleted tournament not triggering it) · rule 2 per-tournament drop, pins survive, unpin vanishes · end-to-end through `getActiveLeaderboards` across a rotation · PUT validation + emit + room gate · multi-slot survival. Suite 2015.
+- FE: `useCardReorder.test.tsx` (9), `FixedHScrollbar.test.tsx` (7), +2 `HorizontalScrollNav`, +1 parity (public still renders arrows), +4 admin controls (handle stops propagation, PUT body, disabled-while-searching, keyboard). Suite 932. Screenshot loop: desktop with the rail open (a rail toggle clicked by Playwright — it responded), mid-drag, after-drop chip, 390px sheet-half (document scroll delta 0), touch reorder.
+
 ## [2.117.1] — unreleased
 
 **The "what is on iScored right now" read has returned an empty list on prod since June.** Found minutes after v2.117.0 went live: the first real snapshot came back with 18 scores across 7 games but **zero games** — the new partial-capture guard refused to call the room empty, and a probe from inside the prod container showed why. iScored's `settingsCommands.php?c=getGameNames` answers with `GameID` / `GameName` (capitalised) and `tags` as a JSON-encoded *string*; `IScoredClient.getGamesOnIScored` (PR #32, 2026-06-25 — never live-verified) read `gameID` / `gameName` and expected an array, so every row lost its id and was filtered out.

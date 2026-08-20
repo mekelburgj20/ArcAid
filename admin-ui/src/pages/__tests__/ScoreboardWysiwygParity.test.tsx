@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Link, MemoryRouter, Route, Routes } from 'react-router-dom';
 import { RoomContext } from '../../contexts/RoomContext';
 import { ToastProvider } from '../../components/Toast';
@@ -120,6 +120,9 @@ const LEADERBOARDS = [
 function stubFetch(config: Record<string, string>) {
   vi.stubGlobal('fetch', vi.fn((url: string) => {
     const j = (body: unknown) => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) });
+    // v2.118.0 — must precede the '/leaderboard' branch below, which would
+    // otherwise answer the card-order status with an array of boards.
+    if (url.includes('/card-order')) return j({ active: false, savedAt: null });
     if (url.includes('/scoreboard-config')) return j(config);
     if (url.includes('/portal')) return j({ id: ROOM_ID, roomId: ROOM_ID, slug: SLUG, name: 'Test Room', public_theme: null });
     if (url.includes('/scoreboard-preferences')) return Promise.resolve({ ok: false, status: 401, json: () => Promise.resolve({}) });
@@ -227,6 +230,37 @@ describe('admin Leaderboard mirrors the public Scoreboard', () => {
 
     expect(adminCard.props.gameTitleStyle).toBe('fire');
     expect(adminCard.props).toEqual(publicCard.props);
+  });
+
+  /**
+   * v2.118.0 — the ONE deliberate divergence from public rendering.
+   *
+   * The edge-hover arrows are `position: fixed` and the right-hand one is
+   * sized to reach the viewport edge, so on the admin page it sat over the
+   * display-settings rail and swallowed its clicks. Admin turns them off and
+   * draws a fixed bottom scrollbar instead; the public page keeps them.
+   */
+  it('renders the scroll arrows on the public page but NOT on admin', async () => {
+    const config = { SCOREBOARD_STYLE: 'banner' };
+    const seen: Record<string, boolean> = {};
+    for (const page of ['public', 'admin'] as const) {
+      stubFetch(config);
+      const view = renderPage(page);
+      await screen.findByTestId('card');
+
+      const scroller = view.container.querySelector('.scoreboard-hscroll-layout') as HTMLElement;
+      expect(scroller).toBeInTheDocument();
+      Object.defineProperty(scroller, 'scrollWidth', { value: 3000, configurable: true });
+      Object.defineProperty(scroller, 'clientWidth', { value: 800, configurable: true });
+      fireEvent.scroll(scroller);
+      await act(async () => {
+        document.dispatchEvent(new MouseEvent('mousemove', { clientX: 0, clientY: 0, bubbles: true }));
+      });
+
+      seen[page] = !!screen.queryByRole('button', { name: 'Scroll right' });
+      view.unmount();
+    }
+    expect(seen).toEqual({ public: true, admin: false });
   });
 
   it('applies the banner-forces-scroll rule on both pages', async () => {
