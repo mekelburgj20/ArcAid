@@ -870,29 +870,63 @@ export class TournamentEngine {
             const currentActive = await this.getActiveGames(tournamentId);
             let slotsAvailable = maxSlots - currentActive.length;
 
-            while (slotsAvailable > 0 && queuedQueue.length > 0) {
-                const queuedRow = queuedQueue.shift()!;
+            // Consume a FRESH queue here, never the run-start `queuedQueue`
+            // snapshot.
+            //
+            // INCIDENT (prod 2026-08-20 03:00 UTC, WG-VPXS): since the pick-
+            // delegation arc (2026-08-17) the per-slot cascade consumes queued
+            // rows through fresh DB reads (`nextEligibleQueuedFor`) and flips
+            // the chosen row to ACTIVE. The run-start snapshot still held that
+            // row, so this loop re-encountered the just-activated game ("Bad
+            // Cats"), `isGameEligible` returned false (the game's own fresh
+            // activation counts as "played within the lookback"), and the
+            // cooldown branch below issued a DELETE against a live ACTIVE game
+            // with an open iScored board. Only the `leaderboard_cache.game_id`
+            // NO-ACTION FK blocked it, and the resulting SQLITE_CONSTRAINT
+            // aborted the rest of the maintenance run (second slot unfilled).
+            const freshQueue = await db.all(
+                `SELECT * FROM games WHERE tournament_id = ? AND status = ? ORDER BY queue_order ASC, rowid ASC`,
+                tournamentId, 'QUEUED'
+            );
+
+            while (slotsAvailable > 0 && freshQueue.length > 0) {
+                const queuedRow = freshQueue.shift()!;
                 // Skip placeholder picker slots
                 if (queuedRow.name === '[Pending Pick]') continue;
-
-                // Cooldown revalidation — skip games that became ineligible while queued
-                const stillEligible = await this.isGameEligible(tournamentId, queuedRow.name);
-                if (!stillEligible) {
-                    logWarn(`   -> Skipping queued game "${queuedRow.name}" — no longer eligible (cooldown). Removing from queue.`);
-                    await db.run('DELETE FROM games WHERE id = ?', queuedRow.id);
-                    continue;
-                }
 
                 // v2.103.0 duplicate-activation guard, queued-promotion twin of
                 // activateGame's check: a same-name game already ACTIVE means
                 // this row stays QUEUED (not deleted — it activates naturally
                 // once the twin completes and cooldown allows).
+                //
+                // ORDER MATTERS — this runs BEFORE the cooldown revalidation.
+                // A queued twin of an ACTIVE game trivially fails the cooldown
+                // check (its own ACTIVE twin is a recent non-QUEUED row), so
+                // while cooldown went first this guard was unreachable dead
+                // code on exactly the rows it was written to protect: they were
+                // deleted instead of left queued.
                 const activeTwin = await db.get(
                     `SELECT id FROM games WHERE tournament_id = ? AND status = 'ACTIVE' AND LOWER(name) = LOWER(?)`,
                     tournamentId, queuedRow.name,
                 );
                 if (activeTwin) {
                     logWarn(`   -> Skipping queued game "${queuedRow.name}" — a same-name game is already ACTIVE in this tournament. Leaving it queued.`);
+                    continue;
+                }
+
+                // Cooldown revalidation — skip games that became ineligible while queued
+                const stillEligible = await this.isGameEligible(tournamentId, queuedRow.name);
+                if (!stillEligible) {
+                    logWarn(`   -> Skipping queued game "${queuedRow.name}" — no longer eligible (cooldown). Removing from queue.`);
+                    // `leaderboard_cache` carries a NO-ACTION FK to `games`, so
+                    // a cached row makes the DELETE throw (that FK is what
+                    // turned the 2026-08-20 incident into an aborted run rather
+                    // than a destroyed ACTIVE game). Clear it first, then guard
+                    // the delete on `status = 'QUEUED'` so this statement is
+                    // structurally incapable of removing a non-queued row no
+                    // matter how stale the caller's view of it is.
+                    await db.run('DELETE FROM leaderboard_cache WHERE game_id = ?', queuedRow.id);
+                    await db.run(`DELETE FROM games WHERE id = ? AND status = 'QUEUED'`, queuedRow.id);
                     continue;
                 }
 
@@ -911,8 +945,11 @@ export class TournamentEngine {
                 }
 
                 const finalId = newIscoredId ?? queuedRow.iscored_id ?? null;
+                // `queue_order` is cleared on promotion: an ACTIVE row is no
+                // longer in anybody's queue, and leftover positions are what
+                // let a stale snapshot mistake it for a queued row.
                 await db.run(
-                    'UPDATE games SET status = ?, start_date = ?, iscored_id = COALESCE(?, iscored_id) WHERE id = ?',
+                    'UPDATE games SET status = ?, start_date = ?, iscored_id = COALESCE(?, iscored_id), queue_order = NULL WHERE id = ?',
                     'ACTIVE', new Date().toISOString(), finalId, queuedRow.id
                 );
                 logInfo(`   -> Activated extra slot: ${queuedRow.name}`);
@@ -1462,8 +1499,12 @@ export class TournamentEngine {
             }
 
             const finalIscoredId = newIscoredId ?? queuedRow.iscored_id ?? null;
+            // `queue_order` is cleared on promotion — see the extra-slot
+            // promotion below. A row that keeps its position after going ACTIVE
+            // reads as still-queued to anything ordering by `queue_order`
+            // (prod carried exactly such a row out of the 2026-08-20 incident).
             await db.run(
-                'UPDATE games SET status = ?, start_date = ?, iscored_id = COALESCE(?, iscored_id) WHERE id = ?',
+                'UPDATE games SET status = ?, start_date = ?, iscored_id = COALESCE(?, iscored_id), queue_order = NULL WHERE id = ?',
                 'ACTIVE', new Date().toISOString(), finalIscoredId, queuedRow.id
             );
             logInfo(`   -> Activated in DB: ${queuedRow.name}`);
@@ -1768,7 +1809,12 @@ export class TournamentEngine {
         for (const row of rows) {
             if (await this.isGameEligible(tournamentId, row.name)) return row;
             logWarn(`   -> Dropping queued game "${row.name}" — no longer eligible (cooldown).`);
-            await db.run('DELETE FROM games WHERE id = ?', row.id);
+            // Same shape as the extra-slot loop's removal (2026-08-20 incident):
+            // clear the NO-ACTION `leaderboard_cache` FK first, and constrain
+            // the delete to QUEUED rows so this walker can never take out a row
+            // that changed status underneath it.
+            await db.run('DELETE FROM leaderboard_cache WHERE game_id = ?', row.id);
+            await db.run(`DELETE FROM games WHERE id = ? AND status = 'QUEUED'`, row.id);
         }
         return null;
     }
