@@ -11,6 +11,7 @@ import { useScoreExpand } from './useScoreExpand';
 import { CircuitBoardBackground, GlowNodes, ScanlineOverlay, PodiumBackground } from './neonCircuitAssets';
 import { qrEdgeMetrics, DEFAULT_QR_OFFSET_PX } from '../../lib/scoreboardConfig';
 import { bgTransformStyle } from '../../lib/bgFraming';
+import { tournamentChipLabel } from './tournamentChip';
 
 interface ShowcaseCardProps {
   lb: GameLeaderboard;
@@ -282,12 +283,7 @@ export default function ShowcaseCard({
                   );
                 }
                 const tBadge = lb.tournamentType ? TOURNAMENT_BADGE_COLORS[lb.tournamentType.toUpperCase()] : null;
-                const label =
-                  lb.tournamentType === 'DG' ? 'Daily Grind' :
-                  lb.tournamentType === 'WG-VPXS' ? 'Weekly Grind' :
-                  lb.tournamentType === 'WG-VR' ? 'VR Weekly' :
-                  lb.tournamentType === 'MG' ? 'Monthly Grind' :
-                  lb.tournamentName;
+                const label = tournamentChipLabel(lb);
                 // v2.0.1: hide the tournament badge when label is empty (catalogue
                 // / community rows have no tournament context to surface).
                 if (!label) return null;

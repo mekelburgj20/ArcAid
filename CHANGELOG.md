@@ -6,6 +6,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.119.1] — unreleased
+
+**The tournament chip on every card now shows the tournament's Tag.** Owner: the chips reading "Weekly Grind" were actually Weekly Grind - VPXS, while Weekly Grind - VPX was labelled correctly. Cause: `ArcadeCard` and `ShowcaseCard` each carried a hardcoded map that turned four known tags into invented English (`DG`→"Daily Grind", `WG-VPXS`→"Weekly Grind", `WG-VR`→"VR Weekly", `MG`→"Monthly Grind") and fell back to the tournament *name* for anything else — so a tag the map didn't know looked right and a tag it did know looked wrong — while `BannerCard`/`MinimalCard`/legacy `GameCard` showed the name. Four styles, three answers.
+
+### Fixed
+- One rule for all card styles: chip = the tournament **Tag** as configured on the Tournaments page (`DG`, `WG-VPXS`, `WG-VPX`, `WG-VR`, `MG`…), falling back to the tournament name only when a tournament has no tag. Shared helper `tournamentChipLabel` (`admin-ui/src/components/scoreboard/tournamentChip.ts`); both hardcoded maps deleted. Pinned/COMPLETED handling, chip colours (already tag-keyed) and layout unchanged. Picks/History pages still show full tournament names on purpose.
+
+### Tests
+- `tournamentChip.test.ts` (3) + `cardTournamentChip.test.tsx` (3: Showcase/Banner/Minimal render `WG-VPXS`, never "Weekly Grind"); two `ArcadeCard` assertions flipped to the tag. Suite 938. Shots `tmp/chip-tag-shots/` — all four styles read `DG` / `WG-VPXS` / `WG-VPX`.
+
 ## [2.119.0] — unreleased
 
 **The real score card is now the art editor (consolidation C2).** Owner, after using v2.115.0's framing: "Zoom still at 100% minimum. Can't reposition left and right. Background framing doesn't look like the card sizing. I thought we were going to use an actual card to apply art." The "Select Art Pack" pop-up's fixed wide-strip preview simulated no card style, so what you framed was never what the board rendered. On the admin Leaderboard page that pop-up is gone: **Edit card** on a card's control strip selects it (scroll-into-view + spotlight ring) and the Display-settings rail becomes the editor — every change previews on that card with its real style, theme, toggles and scores; nothing is saved until Apply.

@@ -13,6 +13,7 @@ import { qrEdgeMetrics, DEFAULT_QR_OFFSET_PX } from '../../lib/scoreboardConfig'
 import { bgTransformStyle } from '../../lib/bgFraming';
 import { formatScore } from '../../lib/format';
 import { resolveRowClick, opensQuickView, QUICK_VIEW_HINT } from '../../lib/scoreGesture';
+import { tournamentChipLabel } from './tournamentChip';
 
 /**
  * ArcadeCard — the Global Scoreboard's card language, on room-card behaviour.
@@ -109,13 +110,7 @@ function resolveImages(lb: GameLeaderboard) {
 /** The chip that names the board — the room analogue of the fidelity chip. */
 function tournamentLabel(lb: GameLeaderboard): string | null {
   if (lb.isPinned) return 'Pinned';
-  switch ((lb.tournamentType || '').toUpperCase()) {
-    case 'DG': return 'Daily Grind';
-    case 'WG-VPXS': return 'Weekly Grind';
-    case 'WG-VR': return 'VR Weekly';
-    case 'MG': return 'Monthly Grind';
-    default: return lb.tournamentName || null;
-  }
+  return tournamentChipLabel(lb);
 }
 
 /** A rank-4-and-below row. Podium rows live in `ArcadePodium` (the swap seam). */

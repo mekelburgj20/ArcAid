@@ -11,6 +11,7 @@ import { qrEdgeMetrics, DEFAULT_QR_OFFSET_PX } from '../../lib/scoreboardConfig'
 import { bgTransformStyle } from '../../lib/bgFraming';
 import { formatScore } from '../../lib/format';
 import { resolveRowClick, opensQuickView, QUICK_VIEW_HINT } from '../../lib/scoreGesture';
+import { tournamentChipLabel } from './tournamentChip';
 
 interface MinimalCardProps {
   lb: GameLeaderboard;
@@ -62,6 +63,7 @@ export default function MinimalCard({
   onOpenQuickView,
 }: MinimalCardProps) {
   const displayName = lb.displayName || lb.gameName;
+  const chipLabel = tournamentChipLabel(lb);
   const { expandedPlayer, playerHistory, historyLoading, togglePlayer, hasMultiple } = useScoreExpand(roomId, lb.gameId, lb.gameName, lb.rankings.length);
 
   // D1 (v2.34.0) — reserve a fixed two-line title box so a wrapping title
@@ -175,9 +177,9 @@ export default function MinimalCard({
             <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-sm bg-neon-cyan/10 text-neon-cyan/80 text-[10px] uppercase tracking-wider">
               Pinned
             </span>
-          ) : lb.tournamentName && (
+          ) : chipLabel && (
             <span className="text-[11px] uppercase tracking-wider text-muted">
-              {lb.tournamentName}
+              {chipLabel}
             </span>
           )}
           {lb.gameStatus === 'COMPLETED' && (
