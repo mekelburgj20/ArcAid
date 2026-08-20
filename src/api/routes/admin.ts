@@ -541,6 +541,221 @@ router.put('/backups/config', async (req, res) => {
     }
 });
 
+// --- iScored Room Snapshots (v2.117.0) ---
+//
+// Rollback safety for the destructive iScored paths. Router-level requireAuth +
+// requireSuperAdmin already applies; destructive actions are audited explicitly
+// because auditMiddleware does NOT fire on router routes (see the backups block
+// above and ROADMAP "Audit").
+
+const SnapshotParamsSchema = z.object({
+    // Both segments are machine-generated, so validate positively rather than
+    // blacklisting traversal sequences. `IScoredSnapshotService.resolvePath`
+    // re-checks and additionally verifies the resolved path stays under the root.
+    gameroom: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/, 'Invalid gameroom'),
+    name: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z\.json$/, 'Invalid snapshot name'),
+});
+
+const SnapshotRestoreSchema = z.object({
+    dryRun: z.boolean().optional().default(true),
+    gameIds: z.array(z.string()).optional(),
+});
+
+/** The account whose iScored gameroom slug matches `gameroom`, or null. */
+async function findSnapshotAccount(gameroom: string) {
+    const { getIScoredAccounts } = await import('../../utils/iscoredCreds.js');
+    const accounts = await getIScoredAccounts();
+    return accounts.find((a) => a.creds.gameroomName === gameroom) ?? null;
+}
+
+// GET /api/admin/iscored-snapshots — every snapshot across all gamerooms, newest first.
+router.get('/iscored-snapshots', async (req, res) => {
+    try {
+        const { IScoredSnapshotService } = await import('../../services/IScoredSnapshotService.js');
+        res.json(await IScoredSnapshotService.list());
+    } catch (error) {
+        logError('API Error (GET /api/admin/iscored-snapshots):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// POST /api/admin/iscored-snapshots — snapshot every enabled account now (forced
+// past the pre-mutation debounce), then prune. One account failing never aborts
+// the sweep.
+router.post('/iscored-snapshots', async (req, res) => {
+    try {
+        const { IScoredSnapshotService } = await import('../../services/IScoredSnapshotService.js');
+        const { getIScoredAccounts } = await import('../../utils/iscoredCreds.js');
+        const { IScoredSessionRegistry } = await import('../../engine/IScoredSessionRegistry.js');
+
+        const accounts = await getIScoredAccounts();
+        const results: Array<{ gameroom: string; ok: boolean; name?: string; error?: string }> = [];
+        for (const account of accounts) {
+            try {
+                const result = await IScoredSessionRegistry.getInstance().withSession(
+                    account.creds,
+                    (client) => IScoredSnapshotService.capture(
+                        client, account.creds, 'manual', account.roomIds, { force: true },
+                    ),
+                );
+                results.push({
+                    gameroom: account.creds.gameroomName,
+                    ok: result.ok,
+                    ...(result.name ? { name: result.name } : {}),
+                    ...(result.error ? { error: result.error } : {}),
+                });
+            } catch (err) {
+                results.push({
+                    gameroom: account.creds.gameroomName,
+                    ok: false,
+                    error: err instanceof Error ? err.message : String(err),
+                });
+            }
+        }
+
+        try {
+            await IScoredSnapshotService.prune();
+        } catch (pruneErr) {
+            logError('iScored snapshot prune after manual capture failed (captures themselves succeeded):', pruneErr);
+        }
+
+        res.json({ results });
+    } catch (error) {
+        logError('API Error (POST /api/admin/iscored-snapshots):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// GET /api/admin/iscored-snapshots/:gameroom/:name/download — the raw JSON file.
+router.get('/iscored-snapshots/:gameroom/:name/download', async (req, res) => {
+    try {
+        const validationResult = validate(SnapshotParamsSchema, {
+            gameroom: req.params.gameroom as string,
+            name: req.params.name as string,
+        });
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+        const { gameroom, name } = validationResult.data;
+
+        const { IScoredSnapshotService } = await import('../../services/IScoredSnapshotService.js');
+        const full = IScoredSnapshotService.resolvePath(gameroom, name);
+        if (!full || !fs.existsSync(full)) return res.status(404).json({ error: 'Snapshot not found' });
+        return res.download(full, `${gameroom}-${name}`);
+    } catch (error) {
+        logError('API Error (GET /api/admin/iscored-snapshots/:gameroom/:name/download):', error);
+        if (!res.headersSent) res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// DELETE /api/admin/iscored-snapshots/:gameroom/:name
+router.delete('/iscored-snapshots/:gameroom/:name', async (req, res) => {
+    try {
+        const validationResult = validate(SnapshotParamsSchema, {
+            gameroom: req.params.gameroom as string,
+            name: req.params.name as string,
+        });
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+        const { gameroom, name } = validationResult.data;
+
+        const { IScoredSnapshotService } = await import('../../services/IScoredSnapshotService.js');
+        const deleted = await IScoredSnapshotService.delete(gameroom, name);
+        if (!deleted) return res.status(404).json({ error: 'Snapshot not found' });
+
+        await AuditService.log({
+            actor: req.user!.discordId || req.user!.username || req.user!.localAdminId || 'admin',
+            action: 'iscored_snapshot.delete',
+            target_type: 'iscored_snapshot',
+            target_id: `${gameroom}/${name}`,
+            details: '{}',
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
+        res.json({ success: true, message: `Snapshot "${gameroom}/${name}" deleted.` });
+    } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        logError('API Error (DELETE /api/admin/iscored-snapshots/:gameroom/:name):', error);
+        res.status(400).json({ error: message });
+    }
+});
+
+// POST /api/admin/iscored-snapshots/:gameroom/:name/restore
+//
+// Two-step like the room-level reconcile flow: `dryRun: true` returns the plan
+// (what would be recreated, what is already live, how many per-player bests
+// would be replayed); `dryRun: false` executes it inside a serialized session.
+// Losses are structural and documented in the UI: iScored assigns NEW game ids,
+// score dates become restore time, photos are not restored, and only per-player
+// best scores come back.
+router.post('/iscored-snapshots/:gameroom/:name/restore', async (req, res) => {
+    try {
+        const paramsResult = validate(SnapshotParamsSchema, {
+            gameroom: req.params.gameroom as string,
+            name: req.params.name as string,
+        });
+        if ('error' in paramsResult) return res.status(400).json({ error: paramsResult.error });
+        const { gameroom, name } = paramsResult.data;
+
+        const bodyResult = validate(SnapshotRestoreSchema, req.body ?? {});
+        if ('error' in bodyResult) return res.status(400).json({ error: bodyResult.error });
+        const { dryRun, gameIds } = bodyResult.data;
+
+        const { IScoredSnapshotService } = await import('../../services/IScoredSnapshotService.js');
+        const snapshot = await IScoredSnapshotService.read(gameroom, name);
+        if (!snapshot) return res.status(404).json({ error: 'Snapshot not found' });
+
+        const account = await findSnapshotAccount(gameroom);
+        if (!account) {
+            return res.status(404).json({ error: `No room is configured with iScored gameroom "${gameroom}" any more — cannot restore.` });
+        }
+
+        const db = await getDatabase();
+        const localRows = (await db.all(
+            'SELECT id, name, iscored_id FROM games WHERE iscored_id IS NOT NULL',
+        )) as Array<{ id: string; name: string; iscored_id: string | null }>;
+
+        const { IScoredSessionRegistry } = await import('../../engine/IScoredSessionRegistry.js');
+        const registry = IScoredSessionRegistry.getInstance();
+
+        if (dryRun) {
+            const plan = await registry.withSession(account.creds, async (client) => {
+                const live = await client.getGamesOnIScored();
+                return IScoredSnapshotService.planRestore(snapshot, live, localRows, gameIds);
+            });
+            return res.json({ dryRun: true, plan });
+        }
+
+        const report = await registry.withSession(account.creds, async (client) => {
+            // Re-derive the plan INSIDE the session so a stale client-side plan
+            // can never make us recreate a game that is already live.
+            const live = await client.getGamesOnIScored();
+            const plan = IScoredSnapshotService.planRestore(snapshot, live, localRows, gameIds);
+            const results = await IScoredSnapshotService.executeRestore(client, account.creds, plan);
+            return { plan, results };
+        });
+
+        await AuditService.log({
+            actor: req.user!.discordId || req.user!.username || req.user!.localAdminId || 'admin',
+            action: 'iscored_snapshot.restore',
+            target_type: 'iscored_snapshot',
+            target_id: `${gameroom}/${name}`,
+            details: JSON.stringify({
+                gameIds: gameIds ?? null,
+                created: report.results.filter((r) => r.newId).length,
+                failed: report.results.filter((r) => r.error).length,
+            }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
+        logInfo(`iScored snapshot restore ${gameroom}/${name}: ${report.results.filter((r) => r.newId).length}/${report.results.length} game(s) recreated.`);
+        res.json({ dryRun: false, ...report });
+    } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        logError('API Error (POST /api/admin/iscored-snapshots/:gameroom/:name/restore):', error);
+        res.status(400).json({ error: message });
+    }
+});
+
 // --- Logs ---
 
 router.get('/logs', (req, res) => {

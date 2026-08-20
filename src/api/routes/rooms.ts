@@ -6672,9 +6672,12 @@ router.delete('/:roomId/admin/game-states/:gameId', requireAuth, requireRoomAcce
             if (creds) {
                 try {
                     const { IScoredSessionRegistry } = await import('../../engine/IScoredSessionRegistry.js');
-                    const deleted = await IScoredSessionRegistry.getInstance().withSession(creds, (client) =>
-                        client.deleteGame(game.iscored_id, game.name),
-                    );
+                    const deleted = await IScoredSessionRegistry.getInstance().withSession(creds, async (client) => {
+                        // Rollback safety net (v2.117.0) — snapshot before the delete.
+                        const { IScoredSnapshotService } = await import('../../services/IScoredSnapshotService.js');
+                        await IScoredSnapshotService.captureBeforeMutation(client, creds, 'admin-delete', [roomId]);
+                        return await client.deleteGame(game.iscored_id, game.name);
+                    });
                     if (deleted) {
                         logInfo(`Deleted game from iScored: ${game.name} (${game.iscored_id})`);
                     } else {
@@ -6745,9 +6748,12 @@ router.delete('/:roomId/admin/games/:gameId', requireAuth, requireRoomAccess('ro
             if (creds) {
                 try {
                     const { IScoredSessionRegistry } = await import('../../engine/IScoredSessionRegistry.js');
-                    const deleted = await IScoredSessionRegistry.getInstance().withSession(creds, (client) =>
-                        client.deleteGame(game.iscored_id, game.name),
-                    );
+                    const deleted = await IScoredSessionRegistry.getInstance().withSession(creds, async (client) => {
+                        // Rollback safety net (v2.117.0) — snapshot before the delete.
+                        const { IScoredSnapshotService } = await import('../../services/IScoredSnapshotService.js');
+                        await IScoredSnapshotService.captureBeforeMutation(client, creds, 'admin-delete', [roomId]);
+                        return await client.deleteGame(game.iscored_id, game.name);
+                    });
                     if (deleted) {
                         logInfo(`Deleted game from iScored: ${game.name} (${game.iscored_id})`);
                     } else {
@@ -7044,6 +7050,11 @@ router.post('/:roomId/admin/game-states/iscored-reconcile', requireAuth, require
         const { buildReconcilePlan } = await import('../../services/IScoredReconcileService.js');
 
         const results = await IScoredSessionRegistry.getInstance().withSession(creds, async (client) => {
+            // Rollback safety net (v2.117.0) — reconcile deletes iScored
+            // entities outright, so snapshot the room first. Never throws.
+            const { IScoredSnapshotService } = await import('../../services/IScoredSnapshotService.js');
+            await IScoredSnapshotService.captureBeforeMutation(client, creds, 'reconcile', [roomId]);
+
             const iscoredGames = await client.getGamesOnIScored();
             const plan = await buildReconcilePlan(iscoredGames);
             const deletable = new Map<string, string>(); // id -> name (orphans + unmanaged only)

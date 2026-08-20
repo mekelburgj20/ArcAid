@@ -1,5 +1,5 @@
 import { logInfo, logError, logWarn, logDebug } from '../utils/logger.js';
-import { IScoredApiClient, IScoredApiGameScores } from './IScoredApiClient.js';
+import { IScoredApiClient } from './IScoredApiClient.js';
 import { IScoredNotificationGate } from './IScoredNotificationGate.js';
 import { getDatabase } from '../database/database.js';
 import { normalizeSubmitterUserId } from '../services/SubmissionContextService.js';
@@ -7,6 +7,7 @@ import { OpsAlertService } from '../services/OpsAlertService.js';
 import { trackBackground } from '../utils/backgroundTasks.js';
 import { UNKNOWN } from '../utils/scoreProvenance.js';
 import type { IScoredCreds } from '../utils/iscoredCreds.js';
+import { normalizeIScoredScoreResponse } from '../utils/iscoredScores.js';
 
 // Tick cadence for the notification-file gate. The actual `getAllScores` call
 // is gated inside `IScoredNotificationGate.shouldSync` so most ticks are a
@@ -386,7 +387,10 @@ export class ScoreSyncPoller {
             logInfo(`ScoreSyncPoller[${creds.gameroomName}]: API returned ${Array.isArray(rawResponse) ? rawResponse.length : '?'} entries`);
         }
 
-        const allScores = this.normalizeScoreResponse(rawResponse);
+        const allScores = normalizeIScoredScoreResponse(rawResponse, {
+            context: 'ScoreSyncPoller',
+            logTotals: this._pollCount === 0,
+        });
 
         if (roomIds.length === 0) return; // defensive; should not happen
 
@@ -531,51 +535,5 @@ export class ScoreSyncPoller {
             }
         }
     }
-
-    /**
-     * Normalize the getAllScores flat response into grouped-by-game format.
-     *
-     * API returns: { scores: [{ name, game, gameName, score, date, ... }] }
-     * We need:     [{ GameID, gameName, scores: [{ name, score, ... }] }]
-     */
-    private normalizeScoreResponse(data: any): IScoredApiGameScores[] {
-        // getAllScores returns { scores: [...] } with flat score entries
-        let flatScores: any[] = [];
-
-        if (data && data.scores && Array.isArray(data.scores)) {
-            flatScores = data.scores;
-        } else if (Array.isArray(data)) {
-            flatScores = data;
-        } else {
-            logWarn(`ScoreSyncPoller: unexpected API response shape — keys: ${data ? Object.keys(data).join(', ') : 'null'}`);
-            return [];
-        }
-
-        if (this._pollCount === 0) {
-            logInfo(`ScoreSyncPoller: API returned ${flatScores.length} total score entries`);
-        }
-
-        // Group flat scores by game ID
-        const grouped = new Map<string, IScoredApiGameScores>();
-        for (const entry of flatScores) {
-            const gameId = String(entry.game || entry.GameID || '');
-            if (!gameId) continue;
-
-            if (!grouped.has(gameId)) {
-                grouped.set(gameId, {
-                    GameID: gameId,
-                    gameName: entry.gameName || '',
-                    scores: [],
-                });
-            }
-            grouped.get(gameId)!.scores.push({
-                name: entry.name || '',
-                score: String(entry.score || '0'),
-                date: entry.date || '',
-                rank: entry.rank || '',
-            });
-        }
-
-        return Array.from(grouped.values());
-    }
 }
+

@@ -23,6 +23,7 @@ assets/*.png
 
 # Runtime image/asset data (importer downloads, user uploads)
 data/catalogue-images/
+data/iscored-snapshots/
 data/iscored-styles/
 data/score-photos/
 data/styles/
