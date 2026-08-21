@@ -16,6 +16,9 @@ import { trackBackground } from '../../utils/backgroundTasks.js';
 import { BanService } from '../../services/BanService.js';
 import { ScoreProvenanceService } from '../../services/ScoreProvenanceService.js';
 import { getEngineDisplay, getDeviceDisplay, UNKNOWN } from '../../utils/scoreProvenance.js';
+import {
+    resolveGuildReadScope, buildGuildScopedRoomSqlFilter, isRoomInGuildScope,
+} from '../../utils/discordRoomFilter.js';
 import fs from 'fs/promises';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
@@ -117,17 +120,29 @@ export const submitscore: Command = {
 
     async autocomplete(interaction) {
         const focusedOption = interaction.options.getFocused(true);
+
+        // v2.120.2 — guild-scoped autocomplete. Pre-fix the `game` list showed
+        // every room's ACTIVE games plus their tournament names to any guild.
+        // `null` scope (unlinked guild / DM) → empty list for every branch.
+        const guildScope = await resolveGuildReadScope(interaction.guildId);
+        if (!guildScope) {
+            await interaction.respond([]);
+            return;
+        }
+
         const db = await getDatabase();
 
         if (focusedOption.name === 'game') {
             // Only suggest ACTIVE games with a tournament for score submission
+            const { sql: scopeFilter, params: scopeParams } =
+                buildGuildScopedRoomSqlFilter('t.game_room_id', guildScope);
             const rows = await db.all(`
                 SELECT g.name, t.name as tournament_name
                 FROM games g
                 JOIN tournaments t ON g.tournament_id = t.id
-                WHERE g.status = 'ACTIVE'
+                WHERE g.status = 'ACTIVE' ${scopeFilter}
                 ORDER BY t.display_order ASC, g.name ASC
-            `);
+            `, ...scopeParams);
 
             const filtered = rows
                 .filter((r: any) => r.name.toLowerCase().includes(focusedOption.value.toLowerCase()))
@@ -155,6 +170,12 @@ export const submitscore: Command = {
             }
             const resolved = await resolveActiveSubmitGame(gameName);
             if (!resolved.ok) {
+                await interaction.respond([]);
+                return;
+            }
+            // A game name typed by hand can still name another guild's game —
+            // don't disclose its engine/device availability.
+            if (!isRoomInGuildScope(resolved.game.game_room_id, guildScope)) {
                 await interaction.respond([]);
                 return;
             }

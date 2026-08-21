@@ -3,6 +3,7 @@ import { Command } from './index.js';
 import { getDatabase } from '../../database/database.js';
 import { logInfo, logError } from '../../utils/logger.js';
 import { TournamentEngine } from '../../engine/TournamentEngine.js';
+import { resolveGuildReadScope, buildGuildScopedRoomSqlFilter } from '../../utils/discordRoomFilter.js';
 
 export const deactivategame: Command = {
     data: new SlashCommandBuilder()
@@ -18,14 +19,27 @@ export const deactivategame: Command = {
 
     async autocomplete(interaction) {
         const focusedOption = interaction.options.getFocused(true);
+
+        // v2.120.2 — guild-scoped autocomplete. Pre-fix this listed every
+        // room's ACTIVE games AND their tournament names; the execute path's
+        // `validateDiscordWriteTarget` guard blocked the mutation but the
+        // names had already leaked into the picker. `null` scope → empty list.
+        const scope = await resolveGuildReadScope(interaction.guildId);
+        if (!scope) {
+            await interaction.respond([]);
+            return;
+        }
+        const { sql: scopeFilter, params: scopeParams } = buildGuildScopedRoomSqlFilter('t.game_room_id', scope);
+
         const db = await getDatabase();
 
         if (focusedOption.name === 'game') {
             const rows = await db.all(
                 `SELECT g.id, g.name, t.name as tournament_name
                  FROM games g JOIN tournaments t ON g.tournament_id = t.id
-                 WHERE g.status = 'ACTIVE'
-                 ORDER BY g.start_date DESC`
+                 WHERE g.status = 'ACTIVE' ${scopeFilter}
+                 ORDER BY g.start_date DESC`,
+                ...scopeParams,
             );
             const filtered = rows
                 .filter(r => r.name.toLowerCase().includes(focusedOption.value.toLowerCase())

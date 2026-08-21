@@ -4,6 +4,7 @@ import { getDatabase } from '../../database/database.js';
 import { TournamentEngine } from '../../engine/TournamentEngine.js';
 import { logError } from '../../utils/logger.js';
 import { rankName } from '../../utils/searchRank.js';
+import { resolveGuildReadScope, buildGuildScopedRoomSqlFilter } from '../../utils/discordRoomFilter.js';
 
 export const forcemaintenance: Command = {
     data: new SlashCommandBuilder()
@@ -18,9 +19,24 @@ export const forcemaintenance: Command = {
         ) as SlashCommandBuilder,
 
     async autocomplete(interaction) {
+        // v2.120.2 — guild-scoped autocomplete. Pre-fix this listed EVERY
+        // room's active tournaments, so one guild's admins saw (and could
+        // target) another room's tournament names. `null` scope = unlinked
+        // guild or DM → empty list, the autocomplete analogue of the
+        // not-linked reply the execute paths give.
+        const scope = await resolveGuildReadScope(interaction.guildId);
+        if (!scope) {
+            await interaction.respond([]);
+            return;
+        }
+
         const db = await getDatabase();
         const focused = interaction.options.getFocused();
-        const rows = await db.all("SELECT id, name FROM tournaments WHERE is_active = 1");
+        const { sql: scopeFilter, params: scopeParams } = buildGuildScopedRoomSqlFilter('t.game_room_id', scope);
+        const rows = await db.all(
+            `SELECT t.id, t.name FROM tournaments t WHERE t.is_active = 1 ${scopeFilter}`,
+            ...scopeParams,
+        );
         const filtered = rows
             .filter((r: any) => r.name.toLowerCase().includes(focused.toLowerCase()))
             .sort((a: any, b: any) => {
