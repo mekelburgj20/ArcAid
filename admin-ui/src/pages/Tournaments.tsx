@@ -8,7 +8,7 @@ import NeonButton from '../components/NeonButton';
 import TournamentBadge from '../components/TournamentBadge';
 import DataTable from '../components/DataTable';
 import LoadingState from '../components/LoadingState';
-import StylePicker from '../components/StylePicker';
+import CardStyleEditorSheet from '../components/scoreboard/CardStyleEditorSheet';
 import TournamentFormFields, {
   useTournamentForm,
   getPlatformRuleConflicts,
@@ -661,69 +661,33 @@ export default function Tournaments() {
         </div>
       )}
 
-      {/* Style Picker */}
+      {/* v2.124.0 (C3) — the card-art editor, replacing `StylePicker`'s
+          "Select Art Pack" modal. This page edits ONE ACTIVATED GAME
+          (`games.*`), with the optional library twin the modal already had, so
+          the target is the game row and "Set as this game's room default" is
+          kept exactly as before. */}
       {styleTarget && (
-        <StylePicker
-          currentStyleId={styleTarget.catalogue_style_id}
-          headerDisabled={styleTarget.style_header_disabled === 1}
-          showDefaultOption
-          showImageTypeSelector
-          libraryHasDefault={libraryHasDefault}
-          uploadPath={`/rooms/${room.roomId}/admin/styles/upload`}
-          gameName={styleTarget.name}
-          showFraming
-          bgZoom={styleTarget.bg_zoom}
-          bgPosX={styleTarget.bg_pos_x}
-          bgPosY={styleTarget.bg_pos_y}
-          onClose={() => setStyleTarget(null)}
-          onSelect={async (styleId, headerDisabled, setAsDefault, imageType, framing) => {
-            try {
-              if (styleId) {
-                if (imageType && imageType !== 'both') {
-                  await api.put(`/rooms/${room.roomId}/admin/games/${styleTarget.id}/image`, {
-                    styleId, imageType, ...framing,
-                  });
-                } else {
-                  await api.put(`/rooms/${room.roomId}/admin/games/${styleTarget.id}/style`, {
-                    catalogueStyleId: styleId,
-                    headerDisabled,
-                    ...framing,
-                  });
-                }
-                toast('Style applied', 'success');
-              } else {
-                await api.delete(`/rooms/${room.roomId}/admin/games/${styleTarget.id}/style`);
-                toast('Style removed', 'success');
-              }
-              // Also update library default if requested
-              if (setAsDefault) {
-                try {
-                  if (styleId) {
-                    if (imageType && imageType !== 'both') {
-                      await api.put(`/rooms/${room.roomId}/game_library/${encodeURIComponent(styleTarget.name)}/image`, {
-                        styleId, imageType, ...framing,
-                      });
-                    } else {
-                      await api.put(`/rooms/${room.roomId}/game_library/${encodeURIComponent(styleTarget.name)}/style`, {
-                        catalogueStyleId: styleId,
-                        headerDisabled,
-                        ...framing,
-                      });
-                    }
-                    toast('Default style updated in library', 'success');
-                  } else {
-                    await api.delete(`/rooms/${room.roomId}/game_library/${encodeURIComponent(styleTarget.name)}/style`);
-                  }
-                } catch {
-                  toast('Failed to update library default', 'error');
-                }
-              }
-              fetchActiveGames();
-            } catch (err: any) {
-              toast(err.message, 'error');
-            }
-            setStyleTarget(null);
+        <CardStyleEditorSheet
+          roomId={room.roomId}
+          slug={room.roomSlug}
+          roomName={room.roomName}
+          target={{ kind: 'game', gameId: styleTarget.id, gameName: styleTarget.name }}
+          source={{
+            gameName: styleTarget.name,
+            displayName: styleTarget.display_name,
+            catalogueStyleId: styleTarget.catalogue_style_id,
+            styleHeaderDisabled: styleTarget.style_header_disabled === 1,
+            bgZoom: styleTarget.bg_zoom,
+            bgPosX: styleTarget.bg_pos_x,
+            bgPosY: styleTarget.bg_pos_y,
+            tournamentName: styleTarget.tournament_name,
+            tournamentType: styleTarget.tournament_type,
           }}
+          showDefaultOption
+          libraryHasDefault={libraryHasDefault}
+          toast={toast}
+          onApplied={fetchActiveGames}
+          onClose={() => setStyleTarget(null)}
         />
       )}
 

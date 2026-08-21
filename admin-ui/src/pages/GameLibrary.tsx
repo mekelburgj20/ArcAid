@@ -7,7 +7,7 @@ import NeonCard from '../components/NeonCard';
 import NeonButton from '../components/NeonButton';
 import LoadingState from '../components/LoadingState';
 import StarRating from '../components/StarRating';
-import StylePicker from '../components/StylePicker';
+import CardStyleEditorSheet from '../components/scoreboard/CardStyleEditorSheet';
 import GameInfoModal from '../components/GameInfoModal';
 import RAGameSearch, { type RAImportResult } from '../components/RAGameSearch';
 import PlatformChips from '../components/PlatformChips';
@@ -403,8 +403,18 @@ export default function GameLibrary() {
   const [pinOnIScored, setPinOnIScored] = useState(true);
   const [pinSubmitting, setPinSubmitting] = useState(false);
 
-  // Style picker
-  const [styleTarget, setStyleTarget] = useState<GameRow | null>(null);
+  /**
+   * v2.124.0 (C3) — the card-art editor target. `StylePicker`'s "Select Art
+   * Pack" modal is gone; this opens the SAME `CardStyleEditor` the admin
+   * Leaderboard rail hosts, beside a synthetic card built from the room's real
+   * scoreboard config. The stored FRAMING is not on the library list row (trap
+   * #9 — only `GET .../game_library/:name/style` carries it), so the button
+   * fetches it before opening; without that the editor would open at 100/50/50
+   * and a plain Apply would silently reset a framed default.
+   */
+  const [styleTarget, setStyleTarget] = useState<
+    { row: GameRow; bgZoom: number | null; bgPosX: number | null; bgPosY: number | null } | null
+  >(null);
 
   // Sorting
   const [sortKey, setSortKey] = useState<SortKey>('name');
@@ -1682,7 +1692,16 @@ export default function GameLibrary() {
                           {room && (
                             <NeonButton
                               variant={g.catalogue_style_id ? 'secondary' : 'ghost'}
-                              onClick={() => setStyleTarget(g)}
+                              onClick={async () => {
+                                let framing = { bgZoom: null, bgPosX: null, bgPosY: null } as
+                                  { bgZoom: number | null; bgPosX: number | null; bgPosY: number | null };
+                                try {
+                                  const st = await api.get<{ bgZoom: number | null; bgPosX: number | null; bgPosY: number | null }>(
+                                    `${prefix}/game_library/${encodeURIComponent(g.name)}/style`);
+                                  framing = { bgZoom: st.bgZoom ?? null, bgPosX: st.bgPosX ?? null, bgPosY: st.bgPosY ?? null };
+                                } catch { /* no library row yet -> unframed */ }
+                                setStyleTarget({ row: g, ...framing });
+                              }}
                               className="text-xs px-2 py-1"
                             >
                               Style
@@ -1890,40 +1909,28 @@ export default function GameLibrary() {
         </div>
       )}
 
-      {/* Style Picker for room library games */}
+      {/* v2.124.0 (C3) — the card-art editor. This page edits the ROOM DEFAULT
+          for a game (game_room_game_library), so the target is the library row
+          itself and there is no "set as default" twin: it IS the default. */}
       {styleTarget && room && (
-        <StylePicker
-          currentStyleId={styleTarget.catalogue_style_id}
-          headerDisabled={styleTarget.style_header_disabled === 1}
-          showImageTypeSelector
-          uploadPath={`/rooms/${room.roomId}/admin/styles/upload`}
-          gameName={styleTarget.name}
-          showFraming
-          fallbackBgUrl={styleTarget.image_url ?? null}
-          onClose={() => setStyleTarget(null)}
-          onSelect={async (styleId, headerDisabled, _setAsDefault, imageType, framing) => {
-            try {
-              if (styleId) {
-                if (imageType && imageType !== 'both') {
-                  await api.put(`/rooms/${room.roomId}/game_library/${encodeURIComponent(styleTarget.name)}/image`, {
-                    styleId, imageType, ...framing,
-                  });
-                } else {
-                  await api.put(`/rooms/${room.roomId}/game_library/${encodeURIComponent(styleTarget.name)}/style`, {
-                    catalogueStyleId: styleId, headerDisabled, ...framing,
-                  });
-                }
-                toast('Default style set', 'success');
-              } else {
-                await api.delete(`/rooms/${room.roomId}/game_library/${encodeURIComponent(styleTarget.name)}/style`);
-                toast('Default style cleared', 'success');
-              }
-              fetchGames();
-            } catch (err: any) {
-              toast(err.message, 'error');
-            }
-            setStyleTarget(null);
+        <CardStyleEditorSheet
+          roomId={room.roomId}
+          slug={room.roomSlug}
+          roomName={room.roomName}
+          target={{ kind: 'library', gameName: styleTarget.row.name }}
+          source={{
+            gameName: styleTarget.row.name,
+            displayName: styleTarget.row.display_name || null,
+            imageUrl: styleTarget.row.image_url ?? null,
+            catalogueStyleId: styleTarget.row.catalogue_style_id ?? null,
+            styleHeaderDisabled: styleTarget.row.style_header_disabled === 1,
+            bgZoom: styleTarget.bgZoom,
+            bgPosX: styleTarget.bgPosX,
+            bgPosY: styleTarget.bgPosY,
           }}
+          toast={toast}
+          onApplied={fetchGames}
+          onClose={() => setStyleTarget(null)}
         />
       )}
     </div>

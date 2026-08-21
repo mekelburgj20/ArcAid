@@ -12,16 +12,21 @@ import GameQuickView from '../components/GameQuickView';
 import DevicePreviewFrame from '../components/DevicePreviewFrame';
 import ScoreboardSurface from '../components/scoreboard/ScoreboardSurface';
 import DisplaySettingsPanel from '../components/scoreboard/DisplaySettingsPanel';
-import CardStyleEditor, { type ArtPackStyle, type CardFraming, type ImageApplyType } from '../components/scoreboard/CardStyleEditor';
+import CardStyleEditor from '../components/scoreboard/CardStyleEditor';
 import FixedHScrollbar from '../components/scoreboard/FixedHScrollbar';
 import { useCardReorder, type CardDragHandleProps } from '../components/scoreboard/useCardReorder';
 import type { HScrollMetrics } from '../components/HorizontalScrollNav';
 import { displaySettingChanged } from '../lib/displaySettings';
 import { tournamentCardTitleLink, tournamentCardTitleClick } from '../components/scoreboard/tournamentCardTitle';
 import { ADMIN_CARD_CHROME_Z_INDEX, CARD_EDIT_OVERLAY_Z_INDEX } from '../components/scoreboard/cardStacking';
-import { resolveFraming, dragFramingPos, fitWholeImageZoom, DEFAULT_BG_ZOOM, DEFAULT_BG_POS } from '../lib/bgFraming';
-import type { CoverFramingGeometry } from '../lib/bgFraming';
-import { readLayerGeometry, BG_FRAMING_LAYER_ATTR } from '../components/scoreboard/useCoverFraming';
+import { fitWholeImageZoom } from '../lib/bgFraming';
+import CardFramingDragOverlay, { useFramingGeometry } from '../components/scoreboard/CardFramingDragOverlay';
+import {
+  buildGameCardOverlay, isCardEditDirty, isFramingOnlyEdit, newGameCardSession, newRankingCardSession,
+  type CardEditSession, type CardStyleDraft,
+} from '../components/scoreboard/cardEditSession';
+import { applyCardEdits } from '../components/scoreboard/cardEditApply';
+import useIsWideViewport from '../lib/useIsWideViewport';
 import { getTournamentBorderColor } from '../components/ScoreboardComponents';
 import type { GameLeaderboard, RankingGroupData } from '../components/ScoreboardComponents';
 
@@ -46,7 +51,7 @@ interface Suppression {
 }
 
 /** iPhone 14/15 logical width — the phone preview's viewport (same constant
- *  ScoreboardPreview uses), scaled to sit inside the 380px rail. */
+ *  SyntheticCardPreview's hosts use), scaled to sit inside the 380px rail. */
 const PHONE_PREVIEW_WIDTH = 390;
 const PHONE_PREVIEW_SCALE = 0.85;
 
@@ -60,117 +65,15 @@ const SHEET_SNAPS = [0.3, 0.55, 0.92] as const;
 const SHEET_SNAP_LABELS = ['Peek', 'Half', 'Full'] as const;
 
 /**
- * v2.119.0 (C2) — the per-card edit session.
- *
- * ONE card at a time, and the session is the ONLY place its pending changes
- * live: the overlay handed to the surface is DERIVED from it on every render
- * (see `buildGameCardOverlay`) rather than stored. That is what makes the
- * preview survive a `leaderboard:updated` refetch — the refetch replaces the
- * `leaderboards` array, and the next render simply re-merges the same session
- * over the fresh row (build trap #8).
+ * v2.124.0 (C3) — the per-card edit session, the overlay it derives, the drag
+ * overlay and the Apply router all moved to
+ * `components/scoreboard/cardEditSession.ts` / `cardEditApply.ts` /
+ * `CardFramingDragOverlay.tsx`, because `CardStyleEditorSheet` (GameLibrary,
+ * Tournaments) runs the same machine. This page is unchanged in behaviour: it
+ * still owns ONE session at a time, still derives the overlay at render time so
+ * a `leaderboard:updated` refetch can't wipe it (build trap #8), and still
+ * hands the drag the card's own live geometry.
  */
-interface CardEditSession {
-  kind: 'game' | 'ranking';
-  /** gameId, or ranking-group id. */
-  id: string;
-  name: string;
-  /** `undefined` = art untouched · `null` = "Clear style" staged · else the pick. */
-  pick?: ArtPackStyle | null;
-  applyAs: ImageApplyType;
-  headerDisabled: boolean;
-  framing: CardFraming;
-  setAsDefault: boolean;
-  libraryHasDefault: boolean;
-  /** Anything edited at all — drives the switch-card / apply-profile guards.
-   *  NOT Apply's enabled state: see `baseline`. */
-  touched: boolean;
-  /**
-   * v2.122.1 — the card's state when the session opened, so Apply can enable on
-   * a REAL change instead of on any interaction. The v1 rule ANDed `touched`
-   * with "there is an art-pack id to hang framing on", which left Apply dead
-   * after a zoom-only edit; framing now has its own endpoint, so the id is no
-   * longer a precondition and the honest question is simply "did anything
-   * move?".
-   */
-  baseline: { applyAs: ImageApplyType; headerDisabled: boolean; framing: CardFraming; setAsDefault: boolean };
-}
-
-/** The subset of a leaderboard row the card editor can move. */
-type CardStyleDraft = Partial<Pick<GameLeaderboard,
-  'catalogueStyleId' | 'logoStyleId' | 'bgStyleId' | 'styleHeaderDisabled' |
-  'bgZoom' | 'bgPosX' | 'bgPosY' | 'bgHasBg' | 'logoHasHeader' | 'catHasBg' | 'catHasHeader'
->>;
-
-/**
- * Session → the fields the CARDS actually read.
- *
- * Build trap #6: `resolveImages` gates on `bgHasBg`/`catHasBg`/`logoHasHeader`/
- * `catHasHeader`, not on the ids, so a preview that set only the id would show
- * the old art (or none) and lie about what Apply is going to do. The picked
- * style carries `has_background`/`has_header`, so the flags come free.
- *
- * The three branches mirror the three endpoint families exactly — see
- * `applyCardStyle`.
- */
-function buildGameCardOverlay(s: CardEditSession): CardStyleDraft {
-  const d: CardStyleDraft = {
-    styleHeaderDisabled: s.headerDisabled,
-    bgZoom: s.framing.zoom,
-    bgPosX: s.framing.posX,
-    bgPosY: s.framing.posY,
-  };
-  if (s.pick === null) {
-    // DELETE .../style === `removeFromGame`: catalogue style, header flag and
-    // framing all go; the independent logo/bg overrides survive.
-    d.catalogueStyleId = null;
-    d.catHasBg = null;
-    d.catHasHeader = null;
-    d.styleHeaderDisabled = false;
-    d.bgZoom = null;
-    d.bgPosX = null;
-    d.bgPosY = null;
-  } else if (s.pick) {
-    if (s.applyAs === 'both') {
-      d.catalogueStyleId = s.pick.id;
-      d.catHasBg = s.pick.has_background;
-      d.catHasHeader = s.pick.has_header;
-    } else if (s.applyAs === 'background') {
-      d.bgStyleId = s.pick.id;
-      d.bgHasBg = s.pick.has_background;
-    } else {
-      d.logoStyleId = s.pick.id;
-      d.logoHasHeader = s.pick.has_header;
-    }
-  }
-  return d;
-}
-
-/**
- * ≥1024px (Tailwind `lg`) gets the sticky rail; anything narrower gets the
- * bottom sheet. Only ONE of the two is ever mounted — the panel owns file
- * inputs addressed by element id, so a hidden second copy would shadow them.
- * Defaults to the rail when `matchMedia` is unavailable (jsdom), mirroring the
- * guard idiom in ScoreboardSurface/ThemeProvider.
- */
-function useIsWideViewport(): boolean {
-  const [wide, setWide] = useState(() => {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return true;
-    return window.matchMedia('(min-width: 1024px)').matches;
-  });
-  useEffect(() => {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
-    const mq = window.matchMedia('(min-width: 1024px)');
-    const handler = () => setWide(mq.matches);
-    handler();
-    if (mq.addEventListener) mq.addEventListener('change', handler);
-    else mq.addListener(handler);
-    return () => {
-      if (mq.removeEventListener) mq.removeEventListener('change', handler);
-      else mq.removeListener(handler);
-    };
-  }, []);
-  return wide;
-}
 
 export default function Leaderboard() {
   const room = useRoom();
@@ -192,8 +95,8 @@ export default function Leaderboard() {
   const isWideViewport = useIsWideViewport();
   /**
    * v2.119.0 (C2) — the card being edited, replacing BOTH `StylePicker` modals
-   * (game card + ranking group) on this page. `StylePicker` itself survives for
-   * GameLibrary/Tournaments until C3.
+   * (game card + ranking group) on this page. v2.124.0 (C3) gave the last two
+   * call sites the same editor in a sheet and deleted `StylePicker` outright.
    */
   const [cardEdit, setCardEdit] = useState<CardEditSession | null>(null);
   const [applyingCard, setApplyingCard] = useState(false);
@@ -204,12 +107,6 @@ export default function Leaderboard() {
   /** Was the rail already open when card-edit started? Close returns it to
    *  exactly that state rather than always leaving Room display up. */
   const railWasOpenRef = useRef(false);
-  /** The edited card's measured fill geometry — see the effect below. */
-  const [framingGeom, setFramingGeom] = useState<CoverFramingGeometry | null>(null);
-  const framingDragRef = useRef<
-    { clientX: number; clientY: number; posX: number; posY: number;
-      cardW: number; cardH: number; dispW: number; dispH: number } | null
-  >(null);
   /** The gameId whose overlay has already been scrolled into view, so a
    *  re-render mid-drag doesn't yank the strip back under the pointer. */
   const spotlightedRef = useRef<string | null>(null);
@@ -412,42 +309,15 @@ export default function Leaderboard() {
   };
 
   /**
-   * v2.122.1 — the edited card's LIVE fill geometry, mirrored into state so the
-   * rail can offer "Fit whole image" with a real number on it.
-   *
-   * The card publishes it as data attributes (`useCoverFraming`) because the
-   * measurement belongs to the card, not the panel; a MutationObserver is how
-   * a sibling learns it changed. Scoped to the surface and to an open game
-   * session, coalesced into one animation frame, and torn down with the
-   * session — it observes nothing when no card is being edited.
+   * v2.122.1 — the edited card's LIVE fill geometry, so the rail can offer
+   * "Fit whole image" with a real number on it. The measurement belongs to the
+   * card (`useCoverFraming` publishes it as data attributes); the hook is the
+   * sibling's MutationObserver read of it, shared with the C3 sheet.
    */
-  useEffect(() => {
-    if (!cardEdit || cardEdit.kind !== 'game') { setFramingGeom(null); return; }
-    let raf = 0;
-    const read = () => {
-      const overlay = document.querySelector('[data-testid="card-edit-overlay"]');
-      const next = readLayerGeometry(overlay?.parentElement?.querySelector(`[${BG_FRAMING_LAYER_ATTR}]`));
-      setFramingGeom(prev => (
-        prev && next && prev.cardW === next.cardW && prev.cardH === next.cardH
-          && prev.dispW === next.dispW && prev.dispH === next.dispH ? prev : next
-      ));
-    };
-    read();
-    if (typeof MutationObserver === 'undefined') return;
-    const obs = new MutationObserver(() => {
-      if (typeof requestAnimationFrame === 'undefined') { read(); return; }
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(read);
-    });
-    obs.observe(surfaceRef.current ?? document.body, {
-      subtree: true, childList: true, attributes: true,
-      attributeFilter: ['data-bg-card-w', 'data-bg-card-h', 'data-bg-disp-w', 'data-bg-disp-h'],
-    });
-    return () => {
-      obs.disconnect();
-      if (typeof cancelAnimationFrame !== 'undefined') cancelAnimationFrame(raf);
-    };
-  }, [cardEdit?.id, cardEdit?.kind]);
+  const framingGeom = useFramingGeometry(
+    cardEdit && cardEdit.kind === 'game' ? `game:${cardEdit.id}` : null,
+    surfaceRef,
+  );
 
   if (loading) return <LoadingState message="Loading leaderboards..." />;
 
@@ -517,30 +387,10 @@ export default function Leaderboard() {
     ? fitWholeImageZoom(framingGeom.cardW, framingGeom.cardH, framingGeom.dispW, framingGeom.dispH)
     : null;
 
-  /** Did the framing actually move? Both sides are already defaults-applied. */
-  const framingMoved = (a: CardFraming, b: CardFraming) =>
-    a.zoom !== b.zoom || a.posX !== b.posX || a.posY !== b.posY;
-
-  /**
-   * A pure framing edit — no art pack picked or cleared, no identifier toggle,
-   * no Apply-as change. That is the case the `/framing` endpoints exist for:
-   * they write `bg_zoom/bg_pos_x/bg_pos_y` and nothing else, so zoom and
-   * position apply to ANY card rather than only to art-pack ones.
-   */
-  const framingOnlyEdit = !!cardEdit && cardEdit.kind === 'game'
-    && cardEdit.pick === undefined
-    && cardEdit.applyAs === cardEdit.baseline.applyAs
-    && cardEdit.headerDisabled === cardEdit.baseline.headerDisabled;
-
-  /** Apply's enabled state: a real difference from the opening state. */
-  const cardEditDirty = !cardEdit ? false
-    : cardEdit.kind === 'ranking'
-      ? cardEdit.touched
-      : cardEdit.pick !== undefined
-        || cardEdit.applyAs !== cardEdit.baseline.applyAs
-        || cardEdit.headerDisabled !== cardEdit.baseline.headerDisabled
-        || cardEdit.setAsDefault !== cardEdit.baseline.setAsDefault
-        || framingMoved(cardEdit.framing, cardEdit.baseline.framing);
+  /** A pure framing edit takes the `/framing` family; Apply enables on a REAL
+   *  difference from the opening state. Both rules are shared with the sheet. */
+  const framingOnlyEdit = isFramingOnlyEdit(cardEdit);
+  const cardEditDirty = isCardEditDirty(cardEdit);
 
   // -- Card editor (C2) --------------------------------------------------
   /** Opening a card editor while another card still has pending edits would
@@ -555,14 +405,7 @@ export default function Leaderboard() {
     setPendingCardEdit(null);
     railWasOpenRef.current = displayPanelOpen;
     if (next.kind === 'ranking') {
-      const rankFraming = { zoom: DEFAULT_BG_ZOOM, posX: DEFAULT_BG_POS, posY: DEFAULT_BG_POS };
-      setCardEdit({
-        kind: 'ranking', id: next.group.id, name: next.group.name,
-        applyAs: 'both', headerDisabled: false,
-        framing: rankFraming,
-        setAsDefault: false, libraryHasDefault: false, touched: false,
-        baseline: { applyAs: 'both', headerDisabled: false, framing: rankFraming, setAsDefault: false },
-      });
+      setCardEdit(newRankingCardSession(next.group.id, next.group.name));
       setDisplayPanelOpen(true);
       return;
     }
@@ -576,19 +419,13 @@ export default function Leaderboard() {
       libraryHasDefault = !!libStyle.catalogueStyleId;
     } catch { /* no library row -> no default */ }
     if (unmountedRef.current) return;
-    // `resolveFraming` applies the 100/50/50 defaults, so an unframed card and
-    // a card framed AT the defaults compare equal — which is what "did anything
-    // move?" means to an admin.
-    const f = resolveFraming(lb);
-    const framing = { zoom: f.zoom, posX: f.posX, posY: f.posY };
-    const headerDisabled = !!lb.styleHeaderDisabled;
-    setCardEdit({
-      kind: 'game', id: lb.gameId, name: lb.displayName || lb.gameName,
-      applyAs: 'both', headerDisabled,
-      framing,
-      setAsDefault: !libraryHasDefault, libraryHasDefault, touched: false,
-      baseline: { applyAs: 'both', headerDisabled, framing, setAsDefault: !libraryHasDefault },
-    });
+    setCardEdit(newGameCardSession({
+      id: lb.gameId,
+      name: lb.displayName || lb.gameName,
+      headerDisabled: !!lb.styleHeaderDisabled,
+      framing: lb,
+      libraryHasDefault,
+    }));
     setDisplayPanelOpen(true);
   };
 
@@ -621,67 +458,32 @@ export default function Leaderboard() {
         }
         loadRankings();
       } else {
-        const styleId = effectiveStyleId;
-        // Trap #2 - the FULL triple on every write. The backend reads an
-        // omitted axis as "unframed" and would silently reset it.
-        const framing = { bgZoom: session.framing.zoom, bgPosX: session.framing.posX, bgPosY: session.framing.posY };
-        const perImage = session.applyAs !== 'both';
-        const clearing = session.pick === null || !styleId;
-        // v2.122.1 - a pure framing edit takes the framing-only endpoints, which
-        // touch the three columns and no style id at all. Without this branch a
-        // zoom on a plain-catalogue-art card had nowhere to go (`clearing` would
-        // have DELETEd the style instead of saving the zoom).
-        if (framingOnlyEdit) {
-          await api.put(`/rooms/${room.roomId}/admin/games/${session.id}/framing`, framing);
-          toast('Framing applied', 'success');
-          if (session.setAsDefault) {
-            const gameName = encodeURIComponent(editedGameName || session.name);
-            try {
-              await api.put(`/rooms/${room.roomId}/game_library/${gameName}/framing`, framing);
-              toast('Default framing updated in library', 'success');
-            } catch {
-              toast('Failed to update library default', 'error');
-            }
-          }
-          loadData();
-          if (!unmountedRef.current) closeCardEdit();
-          return;
-        }
-        if (clearing) {
-          await api.delete(`/rooms/${room.roomId}/admin/games/${session.id}/style`);
-          toast('Style removed', 'success');
-        } else if (perImage) {
-          // Trap #3 - the image endpoint family carries the framing separately.
-          await api.put(`/rooms/${room.roomId}/admin/games/${session.id}/image`, {
-            styleId, imageType: session.applyAs, ...framing,
-          });
-          toast('Style applied', 'success');
-        } else {
-          await api.put(`/rooms/${room.roomId}/admin/games/${session.id}/style`, {
-            catalogueStyleId: styleId, headerDisabled: session.headerDisabled, ...framing,
-          });
-          toast('Style applied', 'success');
-        }
+        // Trap #2 (always the FULL framing triple), trap #3 (the `/image`
+        // family carries framing separately) and the framing-only branch all
+        // live in `applyCardEdits` now — one router, shared with the C3 sheet,
+        // so the two hosts cannot drift apart the way the three v1 call sites
+        // had already drifted.
+        const { outcome, libraryError } = await applyCardEdits({
+          roomId: room.roomId,
+          target: { kind: 'game', gameId: session.id, gameName: editedGameName || session.name },
+          session,
+          styleId: effectiveStyleId,
+          framingOnly: framingOnlyEdit,
+          alsoSetLibraryDefault: session.setAsDefault,
+        });
+        toast(
+          outcome === 'framing' ? 'Framing applied'
+            : outcome === 'cleared' ? 'Style removed' : 'Style applied',
+          'success',
+        );
         if (session.setAsDefault) {
-          const gameName = encodeURIComponent(editedGameName || session.name);
-          try {
-            if (clearing) {
-              await api.delete(`/rooms/${room.roomId}/game_library/${gameName}/style`);
-              toast('Default style cleared in library', 'success');
-            } else if (perImage) {
-              await api.put(`/rooms/${room.roomId}/game_library/${gameName}/image`, {
-                styleId, imageType: session.applyAs, ...framing,
-              });
-              toast('Default style updated in library', 'success');
-            } else {
-              await api.put(`/rooms/${room.roomId}/game_library/${gameName}/style`, {
-                catalogueStyleId: styleId, headerDisabled: session.headerDisabled, ...framing,
-              });
-              toast('Default style updated in library', 'success');
-            }
-          } catch {
-            toast('Failed to update library default', 'error');
-          }
+          if (libraryError) toast('Failed to update library default', 'error');
+          else toast(
+            outcome === 'framing' ? 'Default framing updated in library'
+              : outcome === 'cleared' ? 'Default style cleared in library'
+                : 'Default style updated in library',
+            'success',
+          );
         }
         loadData();
       }
@@ -693,62 +495,6 @@ export default function Leaderboard() {
     }
   };
 
-  // -- Framing drag, directly on the selected card -----------------------
-  /**
-   * v2.122.1 — the drag needs the LIVE geometry, not just a box: how far a
-   * background-position percentage moves the picture depends on the signed
-   * slack between the card and the displayed image, which flips sign when the
-   * image is smaller than the card (zoom < 100). The card publishes both on
-   * its fill layer (`useCoverFraming`), so the overlay reads them off the DOM
-   * of the card it is sitting on — the one coupling that works for all four
-   * card types without threading a ref through public card components.
-   *
-   * Fallback when the layer hasn't measured yet (image still loading, or a
-   * mocked card in jsdom): the CARD's own box, with the image assumed to
-   * overflow — which is what the layer is still drawing in that window.
-   */
-  const framingGeometry = (overlay: HTMLElement) => {
-    const slot = overlay.parentElement;
-    const measured = readLayerGeometry(slot?.querySelector(`[${BG_FRAMING_LAYER_ATTR}]`));
-    if (measured) return measured;
-    const card = slot?.firstElementChild as HTMLElement | null;
-    let rect = card?.getBoundingClientRect();
-    if (!rect || !rect.width || !rect.height) rect = overlay.getBoundingClientRect();
-    if (!rect.width || !rect.height) return null;
-    return { cardW: rect.width, cardH: rect.height, dispW: rect.width * 2, dispH: rect.height * 2 };
-  };
-
-  const beginFramingDrag = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!cardEdit) return;
-    // The strip lives inside HorizontalScrollNav, which drags to scroll on
-    // pointerdown - the same reason the reorder grip stops propagation.
-    e.stopPropagation();
-    e.preventDefault();
-    e.currentTarget.setPointerCapture?.(e.pointerId);
-    const g = framingGeometry(e.currentTarget);
-    if (!g) return;
-    framingDragRef.current = {
-      clientX: e.clientX, clientY: e.clientY,
-      posX: cardEdit.framing.posX, posY: cardEdit.framing.posY,
-      ...g,
-    };
-  };
-
-  const moveFramingDrag = (e: React.PointerEvent<HTMLDivElement>) => {
-    const start = framingDragRef.current;
-    if (!start) return;
-    // The picture follows the pointer in BOTH axes; `dragFramingPos` derives
-    // the sign from the geometry instead of assuming overflow, and no-ops the
-    // axis where the image exactly fits (nothing to slide).
-    const posX = dragFramingPos(start.posX, e.clientX - start.clientX, start.cardW, start.dispW);
-    const posY = dragFramingPos(start.posY, e.clientY - start.clientY, start.cardH, start.dispH);
-    setCardEdit(prev => (prev ? { ...prev, touched: true, framing: { ...prev.framing, posX, posY } } : prev));
-  };
-
-  const endFramingDrag = (e: React.PointerEvent<HTMLDivElement>) => {
-    framingDragRef.current = null;
-    e.currentTarget.releasePointerCapture?.(e.pointerId);
-  };
   const handleEditDisplayName = (target: GameLeaderboard) => {
     setDisplayNameInput(target.displayName || '');
     setDisplayNameTarget(target);
@@ -1013,23 +759,18 @@ export default function Leaderboard() {
            card is being edited, so the public slot markup is untouched. */
         renderCardOverlay={lb => (
           cardEdit?.kind === 'game' && cardEdit.id === lb.gameId ? (
-            <div
-              data-testid="card-edit-overlay"
-              ref={el => {
+            <CardFramingDragOverlay
+              framing={cardEdit.framing}
+              onFramingPos={(posX, posY) => setCardEdit(prev => (
+                prev ? { ...prev, touched: true, framing: { ...prev.framing, posX, posY } } : prev
+              ))}
+              cardLabel={lb.displayName || lb.gameName}
+              elementRef={el => {
                 if (!el || spotlightedRef.current === lb.gameId) return;
                 spotlightedRef.current = lb.gameId;
                 el.scrollIntoView?.({ behavior: 'smooth', block: 'nearest', inline: 'center' });
               }}
-              role="application"
-              aria-label={`Drag to reposition the background art for ${lb.displayName || lb.gameName}`}
-              title="Drag to reposition the background art"
-              onPointerDown={beginFramingDrag}
-              onPointerMove={moveFramingDrag}
-              onPointerUp={endFramingDrag}
-              onPointerCancel={endFramingDrag}
-              onMouseDown={e => e.stopPropagation()}
               style={{ zIndex: CARD_EDIT_OVERLAY_Z_INDEX }}
-              className="absolute inset-0 rounded-lg cursor-move touch-none ring-2 ring-neon-cyan ring-offset-2 ring-offset-transparent"
             />
           ) : null
         )}
@@ -1467,7 +1208,7 @@ function AdminControlsStrip({ lb, dragHandleProps, dragging, editing, onStyleCli
  *  game-specific affordances (no display name, notes, per-score management,
  *  or delete-from-here — groups are managed on the Rankings admin page), so
  *  this is deliberately a single-button strip: just the Style control that
- *  opens the same `StylePicker` used for game backgrounds. Same flush,
+ *  opens the same card editor used for game backgrounds. Same flush,
  *  always-visible, z-stacked band as the game strip — see the doc comment
  *  on `AdminControlsStrip` for the layout/QR rationale, unchanged here. */
 function RankingAdminControlsStrip({ group, editing, onStyleClick }: {
