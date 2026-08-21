@@ -78,11 +78,25 @@ export const nominatepicker: Command = {
 
             if (subcommand === 'designate') {
                 const nominatedUser = interaction.options.getUser('user', true);
+                // v2.120.2 — `UPDATE ... LIMIT 1` is not valid in stock SQLite
+                // (it needs the optional SQLITE_ENABLE_UPDATE_DELETE_LIMIT
+                // compile flag, which the bundled build does not set), so this
+                // branch threw `SQLITE_ERROR: near "LIMIT"` on every run and
+                // replied with the generic error message. Rewritten as an
+                // id-subquery, which expresses the same "exactly one row"
+                // intent portably. Selection semantics are unchanged: the same
+                // WHERE, and — since the original had no ORDER BY — the same
+                // arbitrary-but-stable pick, made explicit as `rowid` (the
+                // order SQLite scanned in) so it can't drift.
                 await db.run(`
                     UPDATE games
                     SET picker_discord_id = ?, picker_type = 'WINNER', picker_designated_at = ?
-                    WHERE tournament_id = ? AND status = 'QUEUED'
-                    LIMIT 1
+                    WHERE id = (
+                        SELECT id FROM games
+                        WHERE tournament_id = ? AND status = 'QUEUED'
+                        ORDER BY rowid ASC
+                        LIMIT 1
+                    )
                 `, nominatedUser.id, new Date().toISOString(), tournamentId);
 
                 await AuditService.log({

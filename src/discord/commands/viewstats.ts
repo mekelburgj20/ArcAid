@@ -62,7 +62,13 @@ export const viewstats: Command = {
         const db = await getDatabase();
 
         try {
-            const stats = await StatsService.getGameStats(gameName);
+            // v2.120.2 — the headline numbers (times played, average, unique
+            // players, all-time high + record holder) were deployment-wide:
+            // only the two supplementary queries below were guild-scoped, so
+            // one server's embed reported another server's record holder.
+            // An EMPTY `scope.roomIds` (linked guild, everything excluded)
+            // matches nothing and falls through to the normal "no stats" reply.
+            const stats = await StatsService.getGameStats(gameName, undefined, scope.roomIds, scope.legacyEnv);
 
             if (!stats) {
                 await interaction.editReply(`No play history found for "${gameName}".`);

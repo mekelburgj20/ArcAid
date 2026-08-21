@@ -3,6 +3,10 @@ import { Command } from './index.js';
 import { logError } from '../../utils/logger.js';
 import { checkCooldown } from '../../utils/cooldown.js';
 import { StatsService } from '../../services/StatsService.js';
+import {
+    resolveGuildReadScope,
+    DISCORD_GUILD_NOT_LINKED_MESSAGE,
+} from '../../utils/discordRoomFilter.js';
 
 export const mystats: Command = {
     data: new SlashCommandBuilder()
@@ -16,10 +20,23 @@ export const mystats: Command = {
             return;
         }
 
+        // v2.120.2 — guild-scoped read. `/my-stats` used to aggregate the
+        // player's scores across EVERY room in the deployment, so a player in
+        // two servers saw one merged number in both. Owner ruling: every
+        // command is per-server, so a DM (no guild context) gets the
+        // not-linked notice too rather than the cross-room total.
+        const scope = await resolveGuildReadScope(interaction.guildId);
+        if (!scope) {
+            await interaction.reply({ content: DISCORD_GUILD_NOT_LINKED_MESSAGE, ephemeral: true });
+            return;
+        }
+
         await interaction.deferReply({ ephemeral: true });
 
         try {
-            const stats = await StatsService.getPlayerStats(interaction.user.id);
+            const stats = await StatsService.getPlayerStats(
+                interaction.user.id, undefined, scope.roomIds, scope.legacyEnv,
+            );
 
             if (stats.totalGamesPlayed === 0) {
                 await interaction.editReply('You haven\'t submitted any scores yet. Use `/submit-score` to get started!');

@@ -18,6 +18,7 @@ import { PickDispositionService, SelfNominationError } from '../../services/Pick
 import { resolveSubmissionPlayerId } from '../../utils/submissionAttribution.js';
 import { trackBackground } from '../../utils/backgroundTasks.js';
 import { rankName } from '../../utils/searchRank.js';
+import { resolveGuildReadScope, buildGuildScopedRoomSqlFilter } from '../../utils/discordRoomFilter.js';
 import { v4 as uuidv4 } from 'uuid';
 // TODO(§8): gate /mystery-award when that command is authored (Q6 — out of scope for Sprint 5).
 
@@ -87,10 +88,25 @@ export const pickgame: Command = {
 
     async autocomplete(interaction) {
         const focusedOption = interaction.options.getFocused(true);
+
+        // v2.120.2 — guild-scoped autocomplete (see activate-game for the
+        // full rationale). The `game` branch's catalogue is global, but the
+        // tournament it derives mode/platform-rules/room-tags from must be
+        // one of THIS guild's.
+        const scope = await resolveGuildReadScope(interaction.guildId);
+        if (!scope) {
+            await interaction.respond([]);
+            return;
+        }
+        const { sql: scopeFilter, params: scopeParams } = buildGuildScopedRoomSqlFilter('t.game_room_id', scope);
+
         const db = await getDatabase();
 
         if (focusedOption.name === 'tournament') {
-            const rows = await db.all("SELECT name FROM tournaments WHERE is_active = 1");
+            const rows = await db.all(
+                `SELECT t.name FROM tournaments t WHERE t.is_active = 1 ${scopeFilter}`,
+                ...scopeParams,
+            );
             const choices = rows.map(r => r.name);
 
             const filtered = choices.filter(choice =>
@@ -109,7 +125,11 @@ export const pickgame: Command = {
             let platformRules: TournamentRules = emptyTournamentRules();
 
             if (selectedTournamentName) {
-                const tournamentRow = await db.get("SELECT id, type, mode, platform_rules, game_room_id FROM tournaments WHERE name = ? COLLATE NOCASE", selectedTournamentName);
+                const tournamentRow = await db.get(
+                    `SELECT t.id, t.type, t.mode, t.platform_rules, t.game_room_id FROM tournaments t
+                     WHERE t.name = ? COLLATE NOCASE ${scopeFilter}`,
+                    selectedTournamentName, ...scopeParams,
+                );
                 if (tournamentRow) {
                     tournamentId = tournamentRow.id;
                     tournamentMode = tournamentRow.mode;

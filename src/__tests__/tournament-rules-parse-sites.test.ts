@@ -128,6 +128,10 @@ function fakeAutocomplete(tournamentName: string, focused = 'game') {
     return {
         responded,
         interaction: {
+            // v2.120.2 — autocomplete is guild-scoped now, so the double has
+            // to carry a guild id and its room must be linked to it (same
+            // pairing `fakeCommand` already needed for the write guard).
+            guildId: FAKE_COMMAND_GUILD_ID,
             options: {
                 getFocused: () => ({ name: focused, value: '' }),
                 getString: (n: string) => (n === 'tournament' ? tournamentName : null),
@@ -177,6 +181,7 @@ beforeEach(async () => {
 describe('site 1: pickgame autocomplete', () => {
     it('offers only games that satisfy the tournament `required` rule', async () => {
         const roomId = await seedRoom('pg-auto');
+        await GameRoomSettingsService.set(roomId, 'DISCORD_GUILD_ID', FAKE_COMMAND_GUILD_ID);
         await seedTournament(roomId, 'PG Auto', ATGAMES_ONLY);
 
         const { pickgame } = await import('../discord/commands/pickgame.js');
@@ -190,6 +195,7 @@ describe('site 1: pickgame autocomplete', () => {
 
     it('offers everything when the tournament has no rules', async () => {
         const roomId = await seedRoom('pg-auto-open');
+        await GameRoomSettingsService.set(roomId, 'DISCORD_GUILD_ID', FAKE_COMMAND_GUILD_ID);
         await seedTournament(roomId, 'PG Open', {});
 
         const { pickgame } = await import('../discord/commands/pickgame.js');

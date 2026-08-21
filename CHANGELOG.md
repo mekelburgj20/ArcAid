@@ -6,6 +6,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.120.2] — unreleased
+
+**The last cross-room residue in slash commands.** Follow-up to v2.120.1 (owner: every command is per-server).
+
+### Fixed
+- **Autocomplete dropdowns** on `/activate-game`, `/pick-game`, `/force-maintenance` (tournament) and `/deactivate-game`, `/submit-score` (game) list only the invoking server's rooms; an unlinked server or DM gets an empty list. The name-typed fallbacks inside those handlers (mode/rules lookups, `/submit-score`'s engine/device branches) refuse a foreign tournament/game too. Execution was already room-gated.
+- **`/view-stats` headline numbers and `/my-stats`** are scoped to the invoking server's rooms: `StatsService.getGameStats` / `getPlayerStats` gained an optional `gameRoomIds[]` (and a legacy-env flag mirroring the scope helper's NULL-room policy); web callers pass nothing new and are test-pinned to identical results. `/my-stats` in a DM or unlinked server now gets the not-linked reply instead of deployment-wide totals.
+- **`/nominate-picker designate` never worked**: its `UPDATE … LIMIT 1` is rejected by stock SQLite; rewritten as `WHERE id = (SELECT id … ORDER BY rowid LIMIT 1)`.
+
+### Not changed
+- `/reorder-lineup` keeps its hand-rolled, additive env-fallback scope (an iScored write; switching it to the read scope would change behaviour in the env-guild corner) — documented, not a leak of another server's data.
+
+### Tests
+- `discord-autocomplete-stats-guild-scope.test.ts` (28). Suite 2104.
+
 ## [2.120.1] — unreleased
 
 **Slash commands now see only the game rooms linked to the Discord server they're typed in.** Found minutes after the RTX Pinball server came online: `/list-active` there listed "Freeze Play: Medieval Madness" — a tournament from an unrelated room ("The Fridge"). The read commands were written cross-room: every Discord-enabled room, whichever server you invoked from. Invisible with one server; a two-way leak with two. Worse, the audit found `/run-cleanup` ran cleanup for **every active tournament in every room**, and `/nominate-picker` / `/pause-pick` acted on any tournament id without checking its room.

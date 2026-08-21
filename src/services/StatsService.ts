@@ -62,18 +62,77 @@ export interface StatsWindowFilters {
     to?: string;
 }
 
+/**
+ * v2.120.2 — multi-room scoping for the Discord guild-scoped reads.
+ *
+ * `getPlayerStats` / `getGameStats` were single-room (`gameRoomId?`) because
+ * their only scoped caller was the web room page. Discord slash commands are
+ * scoped to a GUILD, and one guild can link several rooms
+ * (`resolveGuildReadScope` returns a LIST), so both methods gained an optional
+ * `gameRoomIds?: string[]`.
+ *
+ * Resolution precedence, deliberately explicit:
+ *   - `gameRoomIds` present (even `[]`) wins. An EMPTY array means "the guild
+ *     is linked but every room it links to is excluded" and must match NOTHING
+ *     — the same meaning `buildGuildScopedRoomSqlFilter`'s `AND 1 = 0` carries.
+ *     Silently degrading `[]` to "all rooms" would restore the cross-room leak.
+ *   - else single `gameRoomId` → a one-element list (`IN (?)` is result-
+ *     identical to the previous `= ?`).
+ *   - else `null` → no room predicate at all, i.e. the exact pre-v2.120.2 SQL
+ *     the web callers rely on.
+ */
+function resolveRoomScope(gameRoomId?: string, gameRoomIds?: string[]): string[] | null {
+    if (gameRoomIds !== undefined) return gameRoomIds;
+    return gameRoomId ? [gameRoomId] : null;
+}
+
+/**
+ * `col IN (?, ?)` for a room list; a match-nothing predicate when empty.
+ *
+ * `includeUnattributed` mirrors `buildGuildScopedRoomSqlFilter`'s legacy-env
+ * NULL allowance: in the single-tenant env-fallback deployment, rows that
+ * predate multi-room and carry no room attribution at all belong to the one
+ * guild there is, and dropping them would silently shrink its stats.
+ */
+function roomInClause(
+    column: string, roomIds: string[], includeUnattributed = false,
+): { sql: string; params: string[] } {
+    if (includeUnattributed) {
+        if (roomIds.length === 0) return { sql: `${column} IS NULL`, params: [] };
+        return {
+            sql: `(${column} IS NULL OR ${column} IN (${roomIds.map(() => '?').join(', ')}))`,
+            params: roomIds,
+        };
+    }
+    if (roomIds.length === 0) return { sql: '1 = 0', params: [] };
+    return { sql: `${column} IN (${roomIds.map(() => '?').join(', ')})`, params: roomIds };
+}
+
 export class StatsService {
     /**
      * Get comprehensive stats for a player by Discord user ID.
+     *
+     * Room scoping (see `resolveRoomScope`) restricts EVERY aggregate — games
+     * played, wins, average/best score, best game, recent scores — via
+     * `games` → `tournaments.game_room_id`. Pinned rows (`tournament_id IS
+     * NULL`) stay excluded from any scoped call, per this file's header note.
      */
-    static async getPlayerStats(discordUserId: string, gameRoomId?: string) {
+    static async getPlayerStats(
+        discordUserId: string, gameRoomId?: string, gameRoomIds?: string[],
+        includeUnattributedRoom = false,
+    ) {
         const db = await getDatabase();
 
+        const scopeRoomIds = resolveRoomScope(gameRoomId, gameRoomIds);
+        const roomClause = scopeRoomIds
+            ? roomInClause('t.game_room_id', scopeRoomIds, includeUnattributedRoom)
+            : null;
+
         // Build room-scoped subquery for game IDs
-        const gameIdFilter = gameRoomId
-            ? `AND s.game_id IN (SELECT g.id FROM games g JOIN tournaments t ON g.tournament_id = t.id WHERE t.game_room_id = ?)`
+        const gameIdFilter = roomClause
+            ? `AND s.game_id IN (SELECT g.id FROM games g JOIN tournaments t ON g.tournament_id = t.id WHERE ${roomClause.sql})`
             : '';
-        const roomParams = gameRoomId ? [gameRoomId] : [];
+        const roomParams = roomClause ? roomClause.params : [];
 
         // Total games played (unique games they submitted scores for)
         const gamesPlayed = await db.get(`
@@ -88,12 +147,12 @@ export class StatsService {
                 SELECT s.game_id
                 FROM submissions s
                 JOIN games g ON s.game_id = g.id
-                ${gameRoomId ? 'JOIN tournaments t ON g.tournament_id = t.id' : ''}
+                ${roomClause ? 'JOIN tournaments t ON g.tournament_id = t.id' : ''}
                 WHERE g.status IN ('COMPLETED', 'ARCHIVED')
                 AND s.score = (SELECT MAX(s2.score) FROM submissions s2 WHERE s2.game_id = s.game_id AND s2.orphaned_at IS NULL)
                 AND s.discord_user_id = ?
                 AND s.orphaned_at IS NULL
-                ${gameRoomId ? 'AND t.game_room_id = ?' : ''}
+                ${roomClause ? `AND ${roomClause.sql}` : ''}
             )
         `, discordUserId, ...roomParams);
 
@@ -109,10 +168,10 @@ export class StatsService {
             SELECT g.name as game_name, s.score
             FROM submissions s
             JOIN games g ON s.game_id = g.id
-            ${gameRoomId ? 'JOIN tournaments t ON g.tournament_id = t.id' : ''}
+            ${roomClause ? 'JOIN tournaments t ON g.tournament_id = t.id' : ''}
             WHERE s.discord_user_id = ?
             AND s.orphaned_at IS NULL
-            ${gameRoomId ? 'AND t.game_room_id = ?' : ''}
+            ${roomClause ? `AND ${roomClause.sql}` : ''}
             ORDER BY s.score DESC
             LIMIT 1
         `, discordUserId, ...roomParams);
@@ -122,10 +181,10 @@ export class StatsService {
             SELECT g.name as game_name, s.score, s.timestamp as date
             FROM submissions s
             JOIN games g ON s.game_id = g.id
-            ${gameRoomId ? 'JOIN tournaments t ON g.tournament_id = t.id' : ''}
+            ${roomClause ? 'JOIN tournaments t ON g.tournament_id = t.id' : ''}
             WHERE s.discord_user_id = ?
             AND s.orphaned_at IS NULL
-            ${gameRoomId ? 'AND t.game_room_id = ?' : ''}
+            ${roomClause ? `AND ${roomClause.sql}` : ''}
             ORDER BY s.timestamp DESC
             LIMIT 10
         `, discordUserId, ...roomParams);
@@ -231,20 +290,37 @@ export class StatsService {
 
     /**
      * Get comprehensive stats for a game by name.
+     *
+     * Room scoping (see `resolveRoomScope`) restricts every aggregate:
+     * `timesPlayed` + `recentResults` via `games` → `tournaments.game_room_id`,
+     * and `avgScore` / `uniquePlayers` / `allTimeHigh` / `allTimeHighPlayer`
+     * via `score_history.game_room_id` (which is where community/freeplay
+     * scores land too — they dual-write into `score_history`).
      */
-    static async getGameStats(gameName: string, gameRoomId?: string) {
+    static async getGameStats(
+        gameName: string, gameRoomId?: string, gameRoomIds?: string[],
+        includeUnattributedRoom = false,
+    ) {
         const db = await getDatabase();
+
+        const scopeRoomIds = resolveRoomScope(gameRoomId, gameRoomIds);
+        const tournamentRoomClause = scopeRoomIds
+            ? roomInClause('t.game_room_id', scopeRoomIds, includeUnattributedRoom)
+            : null;
+        const historyRoomClause = scopeRoomIds
+            ? roomInClause('game_room_id', scopeRoomIds, includeUnattributedRoom)
+            : null;
 
         // Find all games with this name, optionally filtered by room. Still used for
         // timesPlayed ('times featured') and recentResults (genuine tournament outcomes) —
         // those stay games/submissions-based.
         let games;
-        if (gameRoomId) {
+        if (tournamentRoomClause) {
             games = await db.all(
                 `SELECT g.id FROM games g
                  JOIN tournaments t ON g.tournament_id = t.id
-                 WHERE g.name = ? COLLATE NOCASE AND t.game_room_id = ?`,
-                gameName, gameRoomId
+                 WHERE g.name = ? COLLATE NOCASE AND ${tournamentRoomClause.sql}`,
+                gameName, ...tournamentRoomClause.params
             );
         } else {
             games = await db.all('SELECT id FROM games WHERE name = ? COLLATE NOCASE', gameName);
@@ -262,8 +338,8 @@ export class StatsService {
         // community score was previously invisible to All-Time High / unique players.
         // Keyed by (game_room_id, game_name) rather than the games.id list above so it
         // also picks up scores logged against unpinned/no-longer-active game rows.
-        const roomFilter = gameRoomId ? 'AND game_room_id = ?' : '';
-        const scoreParams = gameRoomId ? [gameName, gameRoomId] : [gameName];
+        const roomFilter = historyRoomClause ? `AND ${historyRoomClause.sql}` : '';
+        const scoreParams = historyRoomClause ? [gameName, ...historyRoomClause.params] : [gameName];
 
         // avg_score mirrors the CURRENT aggregate meaning: the prior query had no
         // per-player GROUP BY (`AVG(score) FROM submissions WHERE game_id IN (...)`) —
@@ -305,10 +381,10 @@ export class StatsService {
                 WHERE orphaned_at IS NULL
             ) s ON s.game_id = g.id AND s.rn = 1
             WHERE g.name = ? COLLATE NOCASE AND g.status IN ('COMPLETED', 'ARCHIVED')
-            ${gameRoomId ? 'AND t.game_room_id = ?' : ''}
+            ${tournamentRoomClause ? `AND ${tournamentRoomClause.sql}` : ''}
             ORDER BY g.end_date DESC
             LIMIT 10
-        `, gameName, ...(gameRoomId ? [gameRoomId] : []));
+        `, gameName, ...(tournamentRoomClause ? tournamentRoomClause.params : []));
 
         return {
             gameName,

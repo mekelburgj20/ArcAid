@@ -112,6 +112,9 @@ describe('drift-audit fix #7 — /activate-game autocomplete filters by tourname
 
     it('offers a video_game catalogue entry but not a pinball one for a videogame-mode tournament', async () => {
         const roomId = await createTestRoom('activate-mode-filter');
+        // v2.120.2 — autocomplete is guild-scoped, so the room has to be
+        // linked to the guild the fake interaction claims to come from.
+        await GameRoomSettingsService.set(roomId, 'DISCORD_GUILD_ID', 'guild-activate-mode-filter');
         await createTestTournament(roomId, { name: 'VG Mode Tournament', mode: 'videogame' });
 
         const db = await getDatabase();
@@ -119,6 +122,7 @@ describe('drift-audit fix #7 — /activate-game autocomplete filters by tourname
         await db.run(`INSERT INTO global_games (id, name, type, status) VALUES (?, 'Autocomplete Pin Game', 'pinball', 'approved')`, crypto.randomUUID());
 
         const { interaction, replies } = makeInteraction({
+            guildId: 'guild-activate-mode-filter',
             options: {
                 getFocused: () => ({ name: 'game_name', value: '' }),
                 getString: (name: string) => (name === 'tournament' ? 'VG Mode Tournament' : null),
