@@ -377,7 +377,7 @@ These commands are available to all members in your Discord server.
 | `/view-stats` | Look up historical stats for any game (with autocomplete) | See all-time records for a specific game |
 | `/my-stats` | Personal stats card: wins, win rate, average score, best score, recent games | Check your own performance |
 | `/list-winners` | Hall of fame showing recent tournament winners | See who's been winning lately |
-| `/view-selection` | Shows queued games and what's coming up next | See what games are in the lineup |
+| `/view-queue` | Shows the games in your own pick queue | See what you have lined up if you win |
 | `/pick-game` | When nominated as picker, choose the next game from eligible options | It's your turn to pick! |
 | `/map-user` | Link your Discord account to your iScored username | First-time setup or username change |
 | `/create-backup` | Triggers a database backup | Before major changes |

@@ -184,7 +184,7 @@ All six feed the same dedup/upsert path, so re-running any of them is safe and i
 | `/view-stats` | Historical stats for any game (autocomplete) |
 | `/my-stats` | Personal stats card (wins, win%, average, best, recent games) |
 | `/list-winners` | Hall of fame — recent tournament winners |
-| `/view-selection` | Show queued games and what's next in the lineup |
+| `/view-queue` | Show the games in your own pick queue |
 | `/pick-game` | Nominated picker selects the next game (eligible games only) |
 | `/map-user` | Add an iScored alias to your own Discord account |
 | `/create-backup` | Trigger a database backup |

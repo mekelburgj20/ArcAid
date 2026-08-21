@@ -379,6 +379,19 @@ export const AdminSetPickDispositionSchema = SetPickDispositionSchema.extend({
 });
 
 /**
+ * Admin queue-on-behalf body (v2.121.0) — "I won't be around to pick but I
+ * want Medieval Madness if I win", relayed by an admin. `forUserId` is the
+ * player whose queue the row lands in (`games.picker_discord_id`); the game
+ * is resolved against the approved catalogue by the shared
+ * `PickQueueService` pipeline, so the spelling here only has to be
+ * case-insensitively right.
+ */
+export const AdminQueueOnBehalfSchema = z.object({
+    forUserId: z.string().min(1),
+    gameName: z.string().min(1).max(200),
+});
+
+/**
  * Input for the per-room game-library proposal flow. Used by:
  *   - POST /:roomId/game_library/proposals       (dedup preview)
  *   - POST /:roomId/game_library/submit_to_global (commit pending global submission)
