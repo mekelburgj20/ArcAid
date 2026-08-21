@@ -404,6 +404,177 @@ describe('read commands — end-to-end guild scoping', () => {
     });
 });
 
+describe('/list-scores tournament filter (v2.123.x)', () => {
+    const savedEnv = process.env.DISCORD_GUILD_ID;
+    beforeEach(async () => {
+        await setupTestDb();
+        delete process.env.DISCORD_GUILD_ID;
+    });
+    afterEach(() => {
+        if (savedEnv === undefined) delete process.env.DISCORD_GUILD_ID;
+        else process.env.DISCORD_GUILD_ID = savedEnv;
+    });
+
+    /** Seeds one room with two active tournaments, each with one active game + score. */
+    async function seedRoomWithTwoTournaments(opts: {
+        slug: string;
+        guildId: string;
+        t1: { name: string; type: string; gameName: string };
+        t2: { name: string; type: string; gameName: string };
+    }) {
+        const roomId = await createTestRoom(opts.slug, opts.slug);
+        await GameRoomSettingsService.set(roomId, 'DISCORD_GUILD_ID', opts.guildId);
+
+        const t1Id = await createTestTournament(roomId, { name: opts.t1.name, type: opts.t1.type });
+        const g1Id = await createTestGame(t1Id, {
+            name: opts.t1.gameName, status: 'ACTIVE', endDate: new Date().toISOString(),
+        });
+        await createTestSubmission(g1Id, { username: `${opts.slug}-p1`, score: 111 });
+
+        const t2Id = await createTestTournament(roomId, { name: opts.t2.name, type: opts.t2.type });
+        const g2Id = await createTestGame(t2Id, {
+            name: opts.t2.gameName, status: 'ACTIVE', endDate: new Date().toISOString(),
+        });
+        await createTestSubmission(g2Id, { username: `${opts.slug}-p2`, score: 222 });
+
+        return { roomId, t1Id, g1Id, t2Id, g2Id };
+    }
+
+    function tournamentInteraction(guildId: string | null, userId: string, opts: {
+        tournament?: string | null;
+        user?: { id: string; displayName: string } | null;
+    } = {}) {
+        return makeInteraction(guildId, {
+            user: { id: userId, tag: `${userId}#0`, displayName: userId },
+            options: {
+                getString: (name: string) => (name === 'tournament' ? (opts.tournament ?? null) : null),
+                getUser: () => opts.user ?? null,
+                getInteger: () => null,
+                getFocused: () => '',
+            },
+        });
+    }
+
+    it('filters by tournament id to only that tournament\'s active game(s)', async () => {
+        const { t1Id } = await seedRoomWithTwoTournaments({
+            slug: 'tf-id', guildId: GUILD_A,
+            t1: { name: 'Filter Cup', type: 'DG', gameName: 'Filter Game One' },
+            t2: { name: 'Other Cup', type: 'WK', gameName: 'Filter Game Two' },
+        });
+
+        const { interaction, replies } = tournamentInteraction(GUILD_A, 'tf-user-id', { tournament: t1Id });
+        await listscores.execute(interaction);
+
+        const text = replyText(replies);
+        expect(text).toContain('Filter Game One');
+        expect(text).not.toContain('Filter Game Two');
+    });
+
+    it('filters by typed tournament name, case-insensitive', async () => {
+        await seedRoomWithTwoTournaments({
+            slug: 'tf-name', guildId: GUILD_A,
+            t1: { name: 'Name Cup', type: 'DG', gameName: 'Name Game One' },
+            t2: { name: 'Other Name Cup', type: 'WK', gameName: 'Name Game Two' },
+        });
+
+        const { interaction, replies } = tournamentInteraction(GUILD_A, 'tf-user-name', { tournament: 'name cup' });
+        await listscores.execute(interaction);
+
+        const text = replyText(replies);
+        expect(text).toContain('Name Game One');
+        expect(text).not.toContain('Name Game Two');
+    });
+
+    it('filters by typed tournament tag', async () => {
+        await seedRoomWithTwoTournaments({
+            slug: 'tf-tag', guildId: GUILD_A,
+            t1: { name: 'Tag Cup', type: 'DG', gameName: 'Tag Game One' },
+            t2: { name: 'Tag Other Cup', type: 'WK', gameName: 'Tag Game Two' },
+        });
+
+        const { interaction, replies } = tournamentInteraction(GUILD_A, 'tf-user-tag', { tournament: 'wk' });
+        await listscores.execute(interaction);
+
+        const text = replyText(replies);
+        expect(text).toContain('Tag Game Two');
+        expect(text).not.toContain('Tag Game One');
+    });
+
+    it('an unknown tournament name replies not-found and shows no embeds', async () => {
+        await seedRoom({ slug: 'tf-unknown', guildId: GUILD_A, tournamentName: 'Known Cup', gameName: 'Known Game' });
+
+        const { interaction, replies } = tournamentInteraction(GUILD_A, 'tf-user-unknown', { tournament: 'Nope Cup' });
+        await listscores.execute(interaction);
+
+        expect(replies).toEqual([`No tournament named "Nope Cup" in this server's rooms.`]);
+    });
+
+    it('a tournament id from another guild\'s room resolves to not-found (scope enforced)', async () => {
+        await seedRoom({ slug: 'tf-scope-a', guildId: GUILD_A, tournamentName: 'Scope Cup A', gameName: 'Scope Game A' });
+        const b = await seedRoom({ slug: 'tf-scope-b', guildId: GUILD_B, tournamentName: 'Scope Cup B', gameName: 'Scope Game B' });
+
+        const { interaction, replies } = tournamentInteraction(GUILD_A, 'tf-user-foreign', { tournament: b.tournamentId });
+        await listscores.execute(interaction);
+
+        expect(replies).toEqual([`No tournament named "${b.tournamentId}" in this server's rooms.`]);
+        expect(replyText(replies)).not.toContain('Scope Game B');
+    });
+
+    it('autocomplete lists only the invoking guild\'s tournaments and filters by typed text', async () => {
+        const a = await seedRoom({ slug: 'tf-ac-a', guildId: GUILD_A, tournamentName: 'Autocomplete Cup', gameName: 'AC Game A' });
+        await seedRoom({ slug: 'tf-ac-b', guildId: GUILD_B, tournamentName: 'Other Cup', gameName: 'AC Game B' });
+
+        const focus = { name: 'tournament', value: 'auto' };
+        const { interaction, replies } = makeInteraction(GUILD_A, {
+            options: {
+                getFocused: () => focus, getString: () => null, getUser: () => null, getInteger: () => null,
+            },
+        });
+        await listscores.autocomplete!(interaction);
+
+        expect(replies).toEqual([[{ name: 'Autocomplete Cup (DG)', value: a.tournamentId }]]);
+    });
+
+    it('autocomplete shows nothing for an unlinked guild', async () => {
+        await seedRoom({ slug: 'tf-ac-unlinked', guildId: GUILD_A, tournamentName: 'Autocomplete Cup', gameName: 'AC Game' });
+
+        const focus = { name: 'tournament', value: '' };
+        const { interaction, replies } = makeInteraction(GUILD_UNLINKED, {
+            options: {
+                getFocused: () => focus, getString: () => null, getUser: () => null, getInteger: () => null,
+            },
+        });
+        await listscores.autocomplete!(interaction);
+
+        expect(replies).toEqual([[]]);
+    });
+
+    it('combines the tournament filter with the user filter', async () => {
+        const { t1Id } = await seedRoomWithTwoTournaments({
+            slug: 'tf-combo', guildId: GUILD_A,
+            t1: { name: 'Combo Cup', type: 'DG', gameName: 'Combo Game One' },
+            t2: { name: 'Combo Other Cup', type: 'WK', gameName: 'Combo Game Two' },
+        });
+
+        const db = await getDatabase();
+        await db.run(
+            `INSERT INTO user_mappings (discord_user_id, iscored_username) VALUES (?, ?)`,
+            'combo-discord-user', 'tf-combo-p1',
+        );
+
+        const { interaction, replies } = tournamentInteraction(GUILD_A, 'tf-user-combo', {
+            tournament: t1Id,
+            user: { id: 'combo-discord-user', displayName: 'Combo Player' },
+        });
+        await listscores.execute(interaction);
+
+        const text = replyText(replies);
+        expect(text).toContain('Combo Game One');
+        expect(text).not.toContain('Combo Game Two');
+        expect(text).toContain('Filtered to Combo Player');
+    });
+});
+
 describe('isRoomInGuildScope — point membership guard', () => {
     it('is false for a null scope (unlinked guild / DM)', () => {
         expect(isRoomInGuildScope('r1', null)).toBe(false);
