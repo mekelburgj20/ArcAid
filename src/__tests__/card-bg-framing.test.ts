@@ -1,11 +1,14 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import express from 'express';
+import request from 'supertest';
 import { setupTestDb, createTestRoom, createTestTournament, createTestGame } from './helpers.js';
+import { signToken } from '../api/auth.js';
 import { getDatabase } from '../database/database.js';
 import { StyleCatalogueService } from '../services/StyleCatalogueService.js';
 import { GameLibraryService } from '../services/GameLibraryService.js';
 import { LeaderboardService } from '../services/LeaderboardService.js';
 import { normalizeFraming } from '../utils/bgFraming.js';
-import { AssignStyleSchema } from '../api/schemas.js';
+import { AssignStyleSchema, AssignFramingSchema } from '../api/schemas.js';
 
 /**
  * Per-game background framing (v2.115.0, migration 154).
@@ -127,22 +130,23 @@ describe('framing write paths', () => {
     });
 
     // v2.119.0 (C2) — the floor moved 100 -> 50 so an admin can zoom OUT and
-    // let the card show through around the art. Storage did not change; only
-    // the bounds did, so the round-trip is the thing to pin.
-    it('round-trips a zoomed-OUT value (the new 50 floor)', async () => {
+    // let the card show through around the art. v2.122.1 took it to 10, which
+    // is what "fit the whole image" needs on a wide strip. Storage did not
+    // change; only the bounds did, so the round-trip is the thing to pin.
+    it('round-trips a zoomed-OUT value at the new 10 floor', async () => {
         const db = await getDatabase();
-        await StyleCatalogueService.assignToGame(gameId, styleId, false, { bgZoom: 50, bgPosX: 50, bgPosY: 50 });
+        await StyleCatalogueService.assignToGame(gameId, styleId, false, { bgZoom: 10, bgPosX: 50, bgPosY: 50 });
 
         const row = await db.get('SELECT bg_zoom FROM games WHERE id = ?', gameId);
-        expect(row.bg_zoom).toBe(50);
+        expect(row.bg_zoom).toBe(10);
     });
 
     it('clamps below the floor rather than storing it', async () => {
         const db = await getDatabase();
-        await StyleCatalogueService.assignToGame(gameId, styleId, false, { bgZoom: 49, bgPosX: 50, bgPosY: 50 });
+        await StyleCatalogueService.assignToGame(gameId, styleId, false, { bgZoom: 9, bgPosX: 50, bgPosY: 50 });
 
         const row = await db.get('SELECT bg_zoom FROM games WHERE id = ?', gameId);
-        expect(row.bg_zoom).toBe(50);
+        expect(row.bg_zoom).toBe(10);
     });
 
     it('setRoomGameStyle round-trips the library default framing', async () => {
@@ -233,11 +237,13 @@ describe('framing read path — getActiveLeaderboards', () => {
  * the API boundary or a silent snap back to 100 on write, which is exactly the
  * class of drift a test is for.
  */
-describe('zoom floor (v2.119.0)', () => {
-    it('normalizeFraming accepts 50 and clamps 49 up to it', () => {
+describe('zoom floor (v2.119.0, lowered v2.122.1)', () => {
+    it('normalizeFraming accepts the floor and clamps below it (v2.122.1: 50 -> 10)', () => {
         expect(normalizeFraming({ bgZoom: 50, bgPosX: 10, bgPosY: 20 }).bgZoom).toBe(50);
-        expect(normalizeFraming({ bgZoom: 49, bgPosX: 10, bgPosY: 20 }).bgZoom).toBe(50);
-        expect(normalizeFraming({ bgZoom: 1, bgPosX: 10, bgPosY: 20 }).bgZoom).toBe(50);
+        expect(normalizeFraming({ bgZoom: 9, bgPosX: 10, bgPosY: 20 }).bgZoom).toBe(10);
+        expect(normalizeFraming({ bgZoom: 10, bgPosX: 10, bgPosY: 20 }).bgZoom).toBe(10);
+        expect(normalizeFraming({ bgZoom: 49, bgPosX: 10, bgPosY: 20 }).bgZoom).toBe(49);
+        expect(normalizeFraming({ bgZoom: 1, bgPosX: 10, bgPosY: 20 }).bgZoom).toBe(10);
     });
 
     it('leaves the pre-existing 100-300 behaviour alone', () => {
@@ -248,10 +254,12 @@ describe('zoom floor (v2.119.0)', () => {
         expect(normalizeFraming()).toEqual({ bgZoom: null, bgPosX: null, bgPosY: null });
     });
 
-    it('the write schema accepts 50 and rejects 49', () => {
+    it('the write schema accepts the floor and rejects below it', () => {
         const base = { catalogueStyleId: 'style-1', headerDisabled: false, bgPosX: 50, bgPosY: 50 };
+        expect(AssignStyleSchema.safeParse({ ...base, bgZoom: 10 }).success).toBe(true);
+        expect(AssignStyleSchema.safeParse({ ...base, bgZoom: 9 }).success).toBe(false);
+        // 50 was the v2.119 floor and is still perfectly valid data.
         expect(AssignStyleSchema.safeParse({ ...base, bgZoom: 50 }).success).toBe(true);
-        expect(AssignStyleSchema.safeParse({ ...base, bgZoom: 49 }).success).toBe(false);
         expect(AssignStyleSchema.safeParse({ ...base, bgZoom: 300 }).success).toBe(true);
         expect(AssignStyleSchema.safeParse({ ...base, bgZoom: 301 }).success).toBe(false);
     });
@@ -269,9 +277,9 @@ describe('zoom floor (v2.119.0)', () => {
         expect((await GameLibraryService.getRoomGameStyle(roomId, 'Medieval Madness'))?.bg_zoom).toBe(50);
 
         await GameLibraryService.setRoomGameStyle(roomId, 'Medieval Madness', 'style-zo', false, {
-            bgZoom: 49, bgPosX: 50, bgPosY: 50,
+            bgZoom: 9, bgPosX: 50, bgPosY: 50,
         });
-        expect((await GameLibraryService.getRoomGameStyle(roomId, 'Medieval Madness'))?.bg_zoom).toBe(50);
+        expect((await GameLibraryService.getRoomGameStyle(roomId, 'Medieval Madness'))?.bg_zoom).toBe(10);
     });
 });
 
@@ -335,5 +343,177 @@ describe('style deletion clears the framing it described', () => {
         expect(saved?.bg_zoom).toBeNull();
         expect(saved?.bg_pos_x).toBeNull();
         expect(saved?.bg_pos_y).toBeNull();
+    });
+});
+
+
+/**
+ * v2.122.1 — the framing-ONLY endpoints.
+ *
+ * The style/image endpoints can only carry framing beside a style id, so a card
+ * whose background is plain catalogue art could never be zoomed or dragged: the
+ * editor had to grey Apply out. These two routes write the three framing
+ * columns and nothing else, on any game the room owns.
+ *
+ * What is worth pinning here is the "and nothing else": a route that quietly
+ * cleared `catalogue_style_id`, or that let a game from ANOTHER room be framed,
+ * would be invisible in the UI and obvious in production.
+ */
+describe('PUT /:roomId/admin/games/:gameId/framing', () => {
+    let app: express.Express;
+    let roomId: string;
+    let gameId: string;
+    let token: string;
+
+    beforeEach(async () => {
+        await setupTestDb();
+        app = express();
+        app.use(express.json());
+        const { default: roomsRouter } = await import('../api/routes/rooms.js');
+        app.use('/api/rooms', roomsRouter);
+
+        roomId = await createTestRoom('framing_api_room', 'Framing API Room');
+        const tournamentId = await createTestTournament(roomId);
+        gameId = await createTestGame(tournamentId, { name: 'Medieval Madness' });
+        token = signToken({ role: 'room_admin', gameRoomIds: [roomId] });
+    });
+
+    const put = (body: unknown) =>
+        request(app)
+            .put(`/api/rooms/${roomId}/admin/games/${gameId}/framing`)
+            .set('Authorization', `Bearer ${token}`)
+            .send(body as object);
+
+    it('writes ONLY the framing columns', async () => {
+        const db = await getDatabase();
+        await seedStyle('style-keep');
+        await StyleCatalogueService.assignToGame(gameId, 'style-keep', true);
+
+        const res = await put({ bgZoom: 65, bgPosX: 10, bgPosY: 90 });
+        expect(res.status).toBe(200);
+
+        const row = await db.get(
+            `SELECT catalogue_style_id, style_header_disabled, logo_style_id, bg_style_id,
+                    bg_zoom, bg_pos_x, bg_pos_y FROM games WHERE id = ?`, gameId);
+        expect(row.bg_zoom).toBe(65);
+        expect(row.bg_pos_x).toBe(10);
+        expect(row.bg_pos_y).toBe(90);
+        // Untouched — this route knows nothing about art packs.
+        expect(row.catalogue_style_id).toBe('style-keep');
+        expect(row.style_header_disabled).toBe(1);
+    });
+
+    it('frames a card that has NO art pack at all — the whole point', async () => {
+        const db = await getDatabase();
+        const res = await put({ bgZoom: 50, bgPosX: 0, bgPosY: 100 });
+        expect(res.status).toBe(200);
+        const row = await db.get('SELECT catalogue_style_id, bg_zoom FROM games WHERE id = ?', gameId);
+        expect(row.catalogue_style_id).toBeNull();
+        expect(row.bg_zoom).toBe(50);
+    });
+
+    it('an omitted axis CLEARS — same doctrine as the style writes', async () => {
+        const db = await getDatabase();
+        await put({ bgZoom: 200, bgPosX: 20, bgPosY: 80 });
+        const res = await put({});
+        expect(res.status).toBe(200);
+        const row = await db.get('SELECT bg_zoom, bg_pos_x, bg_pos_y FROM games WHERE id = ?', gameId);
+        expect(row.bg_zoom).toBeNull();
+        expect(row.bg_pos_x).toBeNull();
+        expect(row.bg_pos_y).toBeNull();
+    });
+
+    it('rejects below the floor — out of range is a client bug, not a value to round', async () => {
+        // v2.122.1: the floor is 10, so "fit the whole image" is reachable.
+        expect((await put({ bgZoom: 10, bgPosX: 50, bgPosY: 50 })).status).toBe(200);
+        expect((await put({ bgZoom: 9, bgPosX: 50, bgPosY: 50 })).status).toBe(400);
+        expect((await put({ bgZoom: 301, bgPosX: 50, bgPosY: 50 })).status).toBe(400);
+        expect((await put({ bgZoom: 100, bgPosX: 101, bgPosY: 50 })).status).toBe(400);
+        expect(AssignFramingSchema.safeParse({ bgZoom: 9 }).success).toBe(false);
+        expect(AssignFramingSchema.safeParse({ bgZoom: 10 }).success).toBe(true);
+        expect(AssignFramingSchema.safeParse({}).success).toBe(true);
+    });
+
+    it('frames a PINNED game — LEFT JOIN, not the INNER JOIN its siblings use', async () => {
+        const db = await getDatabase();
+        // A pin is `tournament_id IS NULL` + an explicit game_room_id (ADR 0005).
+        await db.run('UPDATE games SET tournament_id = NULL, game_room_id = ? WHERE id = ?', roomId, gameId);
+        const res = await put({ bgZoom: 140, bgPosX: 30, bgPosY: 60 });
+        expect(res.status).toBe(200);
+        expect((await db.get('SELECT bg_zoom FROM games WHERE id = ?', gameId)).bg_zoom).toBe(140);
+    });
+
+    it('404s a game the room does not own, and 401s without a token', async () => {
+        const otherRoom = await createTestRoom('other_room', 'Other Room');
+        const otherTournament = await createTestTournament(otherRoom);
+        const otherGame = await createTestGame(otherTournament, { name: 'Attack from Mars' });
+
+        const cross = await request(app)
+            .put(`/api/rooms/${roomId}/admin/games/${otherGame}/framing`)
+            .set('Authorization', `Bearer ${token}`)
+            .send({ bgZoom: 120, bgPosX: 50, bgPosY: 50 });
+        expect(cross.status).toBe(404);
+
+        const anon = await request(app)
+            .put(`/api/rooms/${roomId}/admin/games/${gameId}/framing`)
+            .send({ bgZoom: 120, bgPosX: 50, bgPosY: 50 });
+        expect(anon.status).toBe(401);
+    });
+});
+
+describe('PUT /:roomId/game_library/:name/framing', () => {
+    let app: express.Express;
+    let roomId: string;
+    let token: string;
+
+    beforeEach(async () => {
+        await setupTestDb();
+        app = express();
+        app.use(express.json());
+        const { default: roomsRouter } = await import('../api/routes/rooms.js');
+        app.use('/api/rooms', roomsRouter);
+        roomId = await createTestRoom('framing_lib_room', 'Framing Library Room');
+        token = signToken({ role: 'room_admin', gameRoomIds: [roomId] });
+    });
+
+    const put = (name: string, body: unknown) =>
+        request(app)
+            .put(`/api/rooms/${roomId}/game_library/${encodeURIComponent(name)}/framing`)
+            .set('Authorization', `Bearer ${token}`)
+            .send(body as object);
+
+    it('UPSERTs — a game that never had a style assignment has no overlay row yet', async () => {
+        const res = await put('Medieval Madness', { bgZoom: 75, bgPosX: 20, bgPosY: 40 });
+        expect(res.status).toBe(200);
+        const saved = await GameLibraryService.getRoomGameStyle(roomId, 'Medieval Madness');
+        expect(saved?.bg_zoom).toBe(75);
+        expect(saved?.bg_pos_x).toBe(20);
+        expect(saved?.bg_pos_y).toBe(40);
+        expect(saved?.catalogue_style_id).toBeNull();
+    });
+
+    it('leaves an existing row’s style alone and clears on omitted', async () => {
+        await seedStyle('style-lib');
+        await seedLibraryRow(roomId, 'Medieval Madness');
+        await GameLibraryService.setRoomGameStyle(roomId, 'Medieval Madness', 'style-lib', true, {
+            bgZoom: 150, bgPosX: 10, bgPosY: 10,
+        });
+
+        expect((await put('Medieval Madness', { bgZoom: 80, bgPosX: 60, bgPosY: 30 })).status).toBe(200);
+        let saved = await GameLibraryService.getRoomGameStyle(roomId, 'Medieval Madness');
+        expect(saved?.bg_zoom).toBe(80);
+        expect(saved?.catalogue_style_id).toBe('style-lib');
+        expect(saved?.style_header_disabled).toBe(1);
+
+        expect((await put('Medieval Madness', {})).status).toBe(200);
+        saved = await GameLibraryService.getRoomGameStyle(roomId, 'Medieval Madness');
+        expect(saved?.bg_zoom).toBeNull();
+        expect(saved?.catalogue_style_id).toBe('style-lib');
+    });
+
+    it('rejects below the floor here too, and stores a 10', async () => {
+        expect((await put('Medieval Madness', { bgZoom: 9, bgPosX: 50, bgPosY: 50 })).status).toBe(400);
+        expect((await put('Medieval Madness', { bgZoom: 10, bgPosX: 50, bgPosY: 50 })).status).toBe(200);
+        expect((await GameLibraryService.getRoomGameStyle(roomId, 'Medieval Madness'))?.bg_zoom).toBe(10);
     });
 });

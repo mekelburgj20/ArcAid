@@ -286,6 +286,32 @@ export class StyleCatalogueService {
     }
 
     /**
+     * v2.122.1 — the room default's framing with no style id in sight, for
+     * `PUT /:roomId/game_library/:name/framing`.
+     *
+     * UPSERT rather than the UPDATE above: `setRoomGameStyle` and
+     * `setLibraryBgFraming` both assume the overlay row already exists (it is
+     * created when a style is assigned), but framing is now saveable on a game
+     * whose background is plain catalogue art — which may never have had a row.
+     * The PK is (game_room_id, game_name); the dead FK to the dropped
+     * `game_library` table was removed by migration 104(B), so an INSERT here
+     * is safe under FK enforcement.
+     */
+    static async setLibraryFramingOnly(gameRoomId: string, gameName: string, framing?: BgFraming): Promise<void> {
+        const db = await getDatabase();
+        const f = normalizeFraming(framing);
+        await db.run(
+            `INSERT INTO game_room_game_library (game_room_id, game_name, bg_zoom, bg_pos_x, bg_pos_y)
+             VALUES (?, ?, ?, ?, ?)
+             ON CONFLICT(game_room_id, game_name) DO UPDATE SET
+                bg_zoom = excluded.bg_zoom,
+                bg_pos_x = excluded.bg_pos_x,
+                bg_pos_y = excluded.bg_pos_y`,
+            gameRoomId, gameName, f.bgZoom, f.bgPosX, f.bgPosY
+        );
+    }
+
+    /**
      * Get the style assigned to a game.
      */
     static async getGameStyle(gameId: string): Promise<{ style: StyleCatalogueEntry; headerDisabled: boolean } | null> {

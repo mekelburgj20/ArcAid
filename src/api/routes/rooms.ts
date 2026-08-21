@@ -17,6 +17,7 @@ import {
     CreateLocalAdminSchema,
     AssignStyleSchema,
     AssignImageSchema,
+    AssignFramingSchema,
     AssignRankingGroupStyleSchema,
     StyleUploadSchema,
     CommunityScoreSchema,
@@ -5937,6 +5938,71 @@ router.put('/:roomId/admin/games/:gameId/image', requireAuth, requireRoomAccess(
         res.json({ success: true });
     } catch (error) {
         logError('API Error (PUT rooms/:roomId/admin/games/:gameId/image):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Background framing only, on an active/pinned game (v2.122.1).
+//
+// The style/image endpoints can only carry framing beside a style id, so a card
+// whose background is plain catalogue art could never be zoomed or dragged —
+// the editor had to grey Apply out and say so. This writes the three framing
+// columns and NOTHING else: style ids, the header flag and the library row are
+// untouched.
+//
+// LEFT JOIN tournaments, not the INNER JOIN its siblings use: a PINNED row has
+// tournament_id IS NULL and owns its room through games.game_room_id, and those
+// cards are framable like any other.
+router.put('/:roomId/admin/games/:gameId/framing', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const validationResult = validate(AssignFramingSchema, req.body);
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+        const { bgZoom, bgPosX, bgPosY } = validationResult.data;
+        const roomId = req.params.roomId as string;
+        const gameId = req.params.gameId as string;
+
+        const db = await getDatabase();
+        const game = await db.get(
+            `SELECT g.id, g.game_room_id, t.game_room_id as tournament_room_id
+             FROM games g
+             LEFT JOIN tournaments t ON t.id = g.tournament_id
+             WHERE g.id = ?`,
+            gameId
+        );
+        if (!game) return res.status(404).json({ error: 'Game not found' });
+        const ownedByRoom = game.tournament_room_id === roomId || game.game_room_id === roomId;
+        if (!ownedByRoom) return res.status(404).json({ error: 'Game not found in this room' });
+
+        const { StyleCatalogueService } = await import('../../services/StyleCatalogueService.js');
+        await StyleCatalogueService.setGameBgFraming(gameId, { bgZoom, bgPosX, bgPosY });
+
+        const { LeaderboardService } = await import('../../services/LeaderboardService.js');
+        await LeaderboardService.invalidate(gameId);
+        const { emitLeaderboardUpdated } = await import('../websocket.js');
+        emitLeaderboardUpdated(roomId, { gameId });
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (PUT rooms/:roomId/admin/games/:gameId/framing):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Background framing only, as the room's library default (v2.122.1). UPSERTs:
+// the overlay row is normally created by a style assignment, and a game framed
+// on its plain catalogue art may not have one yet.
+router.put('/:roomId/game_library/:name/framing', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const validationResult = validate(AssignFramingSchema, req.body);
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+        const { bgZoom, bgPosX, bgPosY } = validationResult.data;
+        const roomId = req.params.roomId as string;
+        const gameName = decodeURIComponent(req.params.name as string);
+
+        const { StyleCatalogueService } = await import('../../services/StyleCatalogueService.js');
+        await StyleCatalogueService.setLibraryFramingOnly(roomId, gameName, { bgZoom, bgPosX, bgPosY });
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (PUT rooms/:roomId/game_library/:name/framing):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

@@ -56,6 +56,17 @@ export interface CardStyleEditorProps {
   onHeaderDisabled: (v: boolean) => void;
   framing: CardFraming;
   onFraming: (f: CardFraming) => void;
+  /**
+   * v2.122.1 — the zoom at which the WHOLE background fits inside this card,
+   * for the "Fit whole image" button. It depends on the card's live geometry
+   * and the art's aspect, so the host measures it (`useCoverFraming` publishes
+   * both); null means the image has not reported its size yet and the button
+   * is offered as disabled rather than hidden — a control that vanishes for a
+   * second reads as a bug.
+   */
+  fitZoom?: number | null;
+  /** The floor stopped the fit short: the art still overflows at `fitZoom`. */
+  fitClamped?: boolean;
   /** `SCOREBOARD_CARD_BG_FILL` — framing renders only on the fill layer, so
    *  with fill off the controls are honest about doing nothing visible. */
   fillOn: boolean;
@@ -66,8 +77,6 @@ export interface CardStyleEditorProps {
   onSetAsDefault: (v: boolean) => void;
   uploadPath?: string;
   gameName?: string;
-  /** Why Apply is unavailable, when it is. Rendered above the actions. */
-  applyNote?: string;
   dirty: boolean;
   applying: boolean;
   onApply: () => void;
@@ -92,6 +101,8 @@ export default function CardStyleEditor({
   onHeaderDisabled,
   framing,
   onFraming,
+  fitZoom = null,
+  fitClamped = false,
   fillOn,
   onEnableFill,
   showDefaultOption,
@@ -100,7 +111,6 @@ export default function CardStyleEditor({
   onSetAsDefault,
   uploadPath,
   gameName,
-  applyNote,
   dirty,
   applying,
   onApply,
@@ -143,6 +153,9 @@ export default function CardStyleEditor({
   // Framing acts on a background, so it is pointless while the picked art is
   // being applied as the identifier only.
   const framingVisible = isGame && applyAs !== 'logo';
+  /** The zoom is exactly the whole-image fit — worth saying, since the number
+   *  itself (16%) looks arbitrary otherwise. */
+  const atFit = fitZoom !== null && framing.zoom === fitZoom;
 
   if (showUpload && uploadPath) {
     return (
@@ -334,20 +347,43 @@ export default function CardStyleEditor({
 
               <div className="flex items-center gap-2 mt-2">
                 <span className="text-xs text-muted shrink-0">Zoom</span>
+                {/* v2.122.1 — step 1, not 5. The floor moved to 10, and the
+                    values that matter down there are single digits apart (a
+                    3:1 strip fits a 1:2 card at 16%, not 15 or 20), so a
+                    5-point grid could not express the fit it now offers. */}
                 <input
                   type="range"
                   aria-label="Background zoom"
                   min={BG_ZOOM_MIN}
                   max={BG_ZOOM_MAX}
-                  step={5}
+                  step={1}
                   value={framing.zoom}
                   onChange={e => onFraming({ ...framing, zoom: clampZoom(Number(e.target.value)) })}
                   className="flex-1 accent-neon-cyan cursor-pointer h-11"
                 />
-                <span className="text-xs text-neon-cyan font-mono w-12 text-right">{framing.zoom}%</span>
+                <span data-testid="card-framing-zoom-value" className="text-xs text-neon-cyan font-mono shrink-0 text-right">
+                  {framing.zoom}%{atFit ? (fitClamped ? ' · closest' : ' · fits') : ''}
+                </span>
               </div>
+              <button
+                type="button"
+                data-testid="card-framing-fit"
+                onClick={() => { if (fitZoom !== null) onFraming({ zoom: fitZoom, posX: DEFAULT_BG_POS, posY: DEFAULT_BG_POS }); }}
+                disabled={fitZoom === null}
+                title={fitZoom === null
+                  ? 'Available once the background image has loaded'
+                  : `Zoom to ${fitZoom}% and centre, so the whole picture is inside the card`}
+                className={`${TOUCH} mt-1 inline-flex items-center px-2 text-[11px] rounded border bg-transparent cursor-pointer transition-colors ${
+                  fitZoom === null
+                    ? 'text-faint border-border cursor-not-allowed'
+                    : 'text-neon-cyan border-neon-cyan/40 hover:bg-neon-cyan/10'
+                }`}
+              >
+                Fit whole image
+              </button>
               <p className="text-[11px] text-faint mt-1">
-                Drag the highlighted card to reposition the art. Below 100% the card shows through around the edges.
+                Drag the highlighted card to reposition the art. Below 100% the whole picture is zoomed out to fit,
+                so the card shows through as bars on the short side.
               </p>
             </div>
           )}
@@ -364,8 +400,11 @@ export default function CardStyleEditor({
         </>
       )}
 
-      {/* ── Actions ───────────────────────────────────────────────────────── */}
-      {applyNote && <p className="mt-4 text-[11px] text-neon-amber">{applyNote}</p>}
+      {/* ── Actions ─────────────────────────────────────────────────────────
+          v2.122.1 — the "pick an art pack before applying" note is GONE with
+          the rule it explained: framing has its own endpoint now, so zoom and
+          position save onto any card, art pack or plain catalogue art. The
+          fill-off note above stays — that one is still true. */}
       <div className="flex flex-wrap justify-between gap-2 mt-5 pt-3 border-t border-border/40">
         <NeonButton variant="ghost" className="text-xs" onClick={onClear} disabled={applying}>
           Clear style
