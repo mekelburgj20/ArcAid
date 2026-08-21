@@ -712,3 +712,85 @@ describe('Settings page — ROOM_LISTED, JOIN_POLICY, AUTO_APPROVE_GUILD_MEMBERS
     });
   });
 });
+
+/**
+ * v2.123.0 — "Arcaid Callout Responses". The retired `ENABLE_CALLOUTS` toggle
+ * that used to sit in the Integrations card wrote a per-room key nothing read
+ * (the bot gated on the GLOBAL env var). `CALLOUTS_ENABLED` is the real
+ * per-room gate and is deliberately OPT-IN: absent reads as OFF, because
+ * replying in someone else's Discord server is a social choice.
+ */
+describe('Settings page — Arcaid Callout Responses (per-room opt-in)', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    localStorage.clear();
+    document.documentElement.className = '';
+    window.HTMLElement.prototype.scrollIntoView = vi.fn();
+  });
+
+  it('reads OFF when the key is absent (opt-in, unlike most toggles here)', async () => {
+    stubFetch({});
+    renderSettings();
+    await waitForLoaded();
+
+    const button = within(controlFor('Arcaid Callout Responses')).getByRole('button');
+    expect(button.className).not.toMatch(/bg-neon-cyan/);
+  });
+
+  it('reads ON when stored as \'true\'', async () => {
+    stubFetch({ CALLOUTS_ENABLED: 'true' });
+    renderSettings();
+    await waitForLoaded();
+
+    const button = within(controlFor('Arcaid Callout Responses')).getByRole('button');
+    expect(button.className).toMatch(/bg-neon-cyan/);
+  });
+
+  it('turning it on saves CALLOUTS_ENABLED=\'true\'', async () => {
+    const fetchMock = stubFetch({});
+    renderSettings();
+    await waitForLoaded();
+
+    fireEvent.click(within(controlFor('Arcaid Callout Responses')).getByRole('button'));
+    fireEvent.click(screen.getByRole('button', { name: /Save All Changes/ }));
+
+    await waitFor(() => expect(lastSavePayload(fetchMock)).not.toBeNull());
+    expect(lastSavePayload(fetchMock)!.CALLOUTS_ENABLED).toBe('true');
+  });
+
+  it('turning it off saves CALLOUTS_ENABLED=\'false\'', async () => {
+    const fetchMock = stubFetch({ CALLOUTS_ENABLED: 'true' });
+    renderSettings();
+    await waitForLoaded();
+
+    fireEvent.click(within(controlFor('Arcaid Callout Responses')).getByRole('button'));
+    fireEvent.click(screen.getByRole('button', { name: /Save All Changes/ }));
+
+    await waitFor(() => expect(lastSavePayload(fetchMock)).not.toBeNull());
+    expect(lastSavePayload(fetchMock)!.CALLOUTS_ENABLED).toBe('false');
+  });
+
+  it('the optional channel pin saves alongside it', async () => {
+    const fetchMock = stubFetch({ CALLOUTS_ENABLED: 'true' });
+    renderSettings();
+    await waitForLoaded();
+
+    const input = screen.getByLabelText(/Callout Channel ID/) as HTMLInputElement;
+    expect(input.value).toBe('');
+    fireEvent.change(input, { target: { value: '123456789012345678' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save All Changes/ }));
+
+    await waitFor(() => expect(lastSavePayload(fetchMock)).not.toBeNull());
+    expect(lastSavePayload(fetchMock)!.CALLOUTS_CHANNEL_ID).toBe('123456789012345678');
+  });
+
+  it('the retired global toggle is gone, and a stored legacy value never leaks into "Other"', async () => {
+    stubFetch({ ENABLE_CALLOUTS: 'true' });
+    renderSettings();
+    await waitForLoaded();
+
+    expect(screen.queryByText('Callouts (Easter Egg)')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Other' })).not.toBeInTheDocument();
+    expect(screen.queryByText('ENABLE_CALLOUTS')).not.toBeInTheDocument();
+  });
+});

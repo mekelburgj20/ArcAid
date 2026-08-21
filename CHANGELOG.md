@@ -6,6 +6,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.123.0] — unreleased
+
+**Callouts are a managed, per-room feature now — and they can answer questions.** The Easter-egg bot replies lived in a `data/callouts.json` file read on every message and were gated by a single global env flag, so they fired in every server the bot could see (the per-room "callouts" toggle on the Settings page wrote a key nothing read). Discovered while tracing why callouts were firing on prod: they weren't — the owner's local dev container, auto-started after a reboot with the same bot token, was answering. Owner: "we need a per game room gate… and I want the list uploadable to the Global Admin Settings."
+
+### Added
+- **DB-backed list** (`callouts` table, migration 155; `CalloutService` with an in-memory cache — the handler no longer touches disk or DB per message). Boot seeds the table once from `data/callouts.json` if it exists and the table is empty; the file is not read at runtime after that.
+- **Super-admin → Settings → Callouts card**: upload a JSON file (client-side validation with a count preview or the first error + index), Replace (confirm), Download current, and an inline editor (trigger chips with `!` exclusions in magenta, enable/disable, add/delete rows, action select). `GET/PUT /api/admin/callouts`, `PATCH/DELETE …/:id`, `GET …/export` (audited).
+- **Per-room gate "Arcaid Callout Responses"** (`CALLOUTS_ENABLED`, **off by default**) on the room's Settings → Discord card, with optional **`CALLOUTS_CHANNEL_ID`** ("only reply in this channel"). The bot replies only in servers linked to a room that opted in (same guild→room resolution as slash commands; Discord-off / approval / suspended rooms can never fire; DMs never fire).
+- **Live answers**: an entry may carry `action` instead of static `responses` — `active_games` ("What's the table today?" → the room's active games per tournament, shared with `/list-active` via `listActiveGamesForScope`), `picks_link`, `scores_link`, `how_to_submit`; static responses may use `{room_name}` `{room_url}` `{picks_url}` `{scores_url}` (first room in scope).
+- Matching unchanged in spirit (whole word, case-insensitive, `!word` exclusions, first match wins, random reply) and now pure + tested (`matchCallout`); curly apostrophes fold to straight so "What’s" matches "what's"; `!` exclusions are now case-insensitive too (they used to match the raw message).
+
+### Changed
+- Global `ENABLE_CALLOUTS` is retired as the gate; for one release it is honoured only as a master OFF when set to the literal `'false'`, with a one-time deprecation WARN at boot. The old room-page toggle is replaced; its dead key stays in `managedKeys` so stored values don't surface.
+
+### Tests
+- `callouts.test.ts` (84): matcher incl. escaping/exclusions/variants · validation + export round-trip · seed once · gate order (linked+on → reply; off → silent; channel restriction; DM; legacy off) · actions + placeholders · cache invalidation · super-admin routes. FE `CalloutsCard.test.tsx` (19) + Settings (6). Suites 2254 / 1015.
+
 ## [2.122.1] — unreleased
 
 **Background framing finally does what the slider says.** Owner, with screenshots of a wide (3:1) art-pack strip on a tall card: zooming out shrank the existing crop instead of revealing more of the picture; dragging up moved the image down; a zoom-only change on a card that already had art left Apply disabled.

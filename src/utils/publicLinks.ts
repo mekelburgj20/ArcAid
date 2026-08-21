@@ -14,6 +14,15 @@ export function publicBaseUrl(): string {
 }
 
 /**
+ * A room's public page — the scoreboard, since `/:slug` renders it as the
+ * index route. Used by the callout responders and by any Discord copy that
+ * needs to point a player at 'where the scores live'.
+ */
+export function roomUrl(slug: string): string {
+    return `${publicBaseUrl()}/${slug}`;
+}
+
+/**
  * A room's Picks page. With `tournamentName` it deep-links to that
  * tournament's tab via the human slug (`?t=daily_grind`), matching
  * `TournamentEngine.announceNomineeOnboarding`.

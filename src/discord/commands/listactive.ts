@@ -1,13 +1,12 @@
 import { ChatInputCommandInteraction, SlashCommandBuilder, EmbedBuilder } from 'discord.js';
 import { Command } from './index.js';
-import { getDatabase } from '../../database/database.js';
 import { getTerminology, capitalize } from '../../utils/terminology.js';
 import { logError } from '../../utils/logger.js';
 import {
     resolveGuildReadScope,
-    buildGuildScopedRoomSqlFilter,
     DISCORD_GUILD_NOT_LINKED_MESSAGE,
 } from '../../utils/discordRoomFilter.js';
+import { listActiveGamesForScope } from '../activeGames.js';
 
 export const listactive: Command = {
     data: new SlashCommandBuilder()
@@ -26,19 +25,11 @@ export const listactive: Command = {
 
         await interaction.deferReply();
         const term = getTerminology();
-        const db = await getDatabase();
 
         try {
-            const { sql: enabledFilter, params } = buildGuildScopedRoomSqlFilter('t.game_room_id', scope);
-            // INNER JOIN — orphan games with no tournament (legacy pre-multi-room
-            // data) have no room attribution and shouldn't surface in any guild's
-            // output. Only tournament-attributed games are relevant to Discord.
-            const activeGames = await db.all(`
-                SELECT g.name as game_name, t.name as tournament_name
-                FROM games g
-                JOIN tournaments t ON g.tournament_id = t.id
-                WHERE g.status = 'ACTIVE' ${enabledFilter}
-            `, ...params);
+            // v2.123.0 — the query moved to `listActiveGamesForScope` so the
+            // `active_games` callout responder answers from the same rows.
+            const activeGames = await listActiveGamesForScope(scope);
 
             if (activeGames.length === 0) {
                 await interaction.editReply(`There are no active ${term.games.toLowerCase()} right now.`);

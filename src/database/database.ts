@@ -2568,6 +2568,38 @@ async function doInitDatabase(): Promise<Database> {
                 }
             }
         } },
+        // --- Callouts moved out of data/callouts.json and into the DB (v2.123.0) ---
+        //
+        // The Easter-egg bot replies used to live in a git-tracked JSON file that
+        // the MessageCreate handler re-read and re-parsed on EVERY message, gated
+        // by a single global ENABLE_CALLOUTS env switch. Owner ask: upload the list
+        // from the super-admin UI instead of pushing a change, and let each room
+        // decide whether the bot talks in ITS Discord server (per-room
+        // CALLOUTS_ENABLED, absent = off — see src/discord/callouts.ts).
+        //
+        // triggers/responses are JSON arrays (SQLite has no array type and the
+        // list is read whole into an in-memory cache, so there is nothing to index
+        // or join on). sort_order carries MATCH order, which is significant:
+        // first matching entry wins. A one-time boot seed imports the legacy file
+        // when this table is empty (CalloutService.seedFromFileIfEmpty).
+        //
+        // `action` names a built-in live-data responder ('active_games',
+        // 'picks_link', 'scores_link', 'how_to_submit') for questions a fixed
+        // string can't answer ("what's the table today?"). NULL for ordinary
+        // entries; when set it wins over responses, which may then be empty.
+        { name: '155_callouts', sql: `
+            CREATE TABLE IF NOT EXISTS callouts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                triggers TEXT NOT NULL,
+                responses TEXT NOT NULL,
+                action TEXT,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_callouts_order ON callouts(sort_order, id);
+        ` },
     ];
 
     for (const migration of migrations) {

@@ -23,8 +23,7 @@ import { activategame } from './commands/activategame.js';
 import { deactivategame } from './commands/deactivategame.js';
 import { reorderlineup } from './commands/reorderlineup.js';
 import { notifications } from './commands/notifications.js';
-import fs from 'fs';
-import path from 'path';
+import { handleCalloutMessage } from './callouts.js';
 
 /**
  * Module-level handle to the live DiscordClient, set in the constructor so
@@ -171,43 +170,14 @@ export class DiscordClient {
             emitBotStatus({ online: true });
         });
 
+        // Callouts (Easter egg) — v2.123.0 moved the list into the DB and the
+        // on/off decision into a per-room opt-in. This listener stays a
+        // one-liner on purpose: `handleCalloutMessage` owns the gate order
+        // (DM → legacy master switch → guild→rooms scope → CALLOUTS_ENABLED →
+        // CALLOUTS_CHANNEL_ID) and never throws. Pre-v2.123.0 this block
+        // re-read and re-parsed data/callouts.json from disk on EVERY message.
         this.client.on(Events.MessageCreate, async (message: Message) => {
-            if (message.author.bot) return;
-            if (process.env.ENABLE_CALLOUTS !== 'true') return;
-
-            const content = message.content.toLowerCase();
-            const calloutsPath = path.join(process.cwd(), 'data', 'callouts.json');
-            
-            if (fs.existsSync(calloutsPath)) {
-                try {
-                    const callouts = JSON.parse(fs.readFileSync(calloutsPath, 'utf8'));
-                    for (const entry of callouts) {
-                        const allTriggers: string[] = entry.triggers;
-                        const inclusionTriggers = allTriggers.filter(t => !t.startsWith('!'));
-                        const exclusionTriggers = allTriggers.filter(t => t.startsWith('!')).map(t => t.slice(1));
-
-                        const hasInclusion = inclusionTriggers.some((trigger: string) => {
-                            const escaped = trigger.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                            return new RegExp(`\\b${escaped}\\b`, 'i').test(content);
-                        });
-
-                        if (hasInclusion) {
-                            const isExcluded = exclusionTriggers.some((trigger: string) => {
-                                const escaped = trigger.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                                return new RegExp(`\\b${escaped}\\b`).test(message.content);
-                            });
-
-                            if (!isExcluded) {
-                                const response = entry.responses[Math.floor(Math.random() * entry.responses.length)];
-                                await message.reply(response);
-                                return;
-                            }
-                        }
-                    }
-                } catch (e) {
-                    logError('Failed to load or parse callouts.json:', e);
-                }
-            }
+            await handleCalloutMessage(message);
         });
 
         this.client.on(Events.InteractionCreate, async (interaction) => {
