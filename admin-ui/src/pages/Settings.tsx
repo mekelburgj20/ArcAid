@@ -365,10 +365,6 @@ const TOGGLE_SETTINGS: Record<string, { label: string; description: string; defa
     description: 'When enabled, the bot @mentions users in announcements (winner picks, reminders, etc.). Disable to use display names instead.',
     defaultOn: true,
   },
-  'ENABLE_CALLOUTS': {
-    label: 'Callouts (Easter Egg)',
-    description: 'When enabled, the bot responds to trigger words defined in data/callouts.json.',
-  },
   'GLOBAL_SCOREBOARD_ENABLED': {
     label: 'Post Scores to Global Scoreboard',
     description: 'When enabled, scores submitted in this room are also fanned out to the Global Scoreboard at arcaid.app/scoreboard. Players can still opt out per-score.',
@@ -388,6 +384,27 @@ const TOGGLE_SETTINGS: Record<string, { label: string; description: string; defa
   // most rooms and never referenced by TournamentForm, so the tournament form
   // showed live-looking pick controls that this switch silently disabled.
   // Winner-picks is now per-tournament only; do not reintroduce it here.
+};
+
+// v2.123.0 — "Arcaid Callout Responses". The old global `ENABLE_CALLOUTS`
+// toggle lived in TOGGLE_SETTINGS above and was a lie on this page: it wrote a
+// PER-ROOM setting that nothing read, while the bot gated on the GLOBAL
+// `process.env.ENABLE_CALLOUTS` and replied in every guild it could see.
+// `CALLOUTS_ENABLED` is the real per-room gate; the LIST it draws from is
+// global and managed by the super admin under Admin → Settings → Callouts.
+//
+// Rendered as a plain inline toggle inside the Discord card rather than
+// through TOGGLE_SETTINGS/TOGGLE_DEFAULTS' default-resolved diffing, because
+// absent must read as OFF and stay that way until someone opts in.
+const CALLOUTS_ENABLED_KEY = 'CALLOUTS_ENABLED';
+const CALLOUTS_CHANNEL_KEY = 'CALLOUTS_CHANNEL_ID';
+const CALLOUTS_META = {
+  label: 'Arcaid Callout Responses',
+  description: "When on, the bot replies with a fun callout when someone in this room's Discord server mentions a trigger word (e.g. a table name). The list is managed by the super admin under Admin → Settings → Callouts.",
+};
+const CALLOUTS_CHANNEL_META = {
+  label: 'Callout Channel ID',
+  description: 'Optional. Leave blank to let callouts fire in any channel the bot can read, or paste a channel ID to confine them to that one channel. Right-click channel → Copy Channel ID.',
 };
 
 // v2.39.0 — approval rooms. Rendered as its own 2-option select (kept out of
@@ -863,6 +880,11 @@ export default function Settings() {
     AUTO_APPROVE_GUILD_KEY,
     // 2026-08-17 — rendered as a toggle beside AUTO_APPROVE_GUILD_MEMBERS.
     DISCORD_REMINDERS_KEY,
+    // v2.123.0 — rendered as an inline toggle + channel field in the Discord
+    // card. ENABLE_CALLOUTS is the RETIRED global switch: no editor any more,
+    // but still claimed so a legacy stored row never surfaces as a raw text
+    // input in "Other".
+    CALLOUTS_ENABLED_KEY, CALLOUTS_CHANNEL_KEY, 'ENABLE_CALLOUTS',
     // Scoreboard branding (managed in inline card)
     'SCOREBOARD_BG_URL', 'SCOREBOARD_BG_MODE', 'SCOREBOARD_BG_OPACITY',
     'LOGO_URL', 'LOGO_POSITION', 'LOGO_MAX_HEIGHT', 'SCOREBOARD_LOGO_ENABLED',
@@ -1404,6 +1426,46 @@ export default function Settings() {
                   </div>
                 );
               })}
+
+              {/* v2.123.0 — per-room callout opt-in. Lives in the Discord card
+                  (not Integrations) because it is a property of THIS room's
+                  Discord server, and because the optional channel pin below it
+                  is a Discord channel ID like the others in this card.
+                  ABSENT MEANS OFF: replying in someone else's server is a
+                  social choice, so this is the rare opt-in toggle. */}
+              {category === 'Discord' && (
+                <div className="pt-3 mt-3 border-t border-border/30 space-y-4">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <p className="text-sm font-medium text-primary">{CALLOUTS_META.label}</p>
+                      <p className="text-xs text-muted">{CALLOUTS_META.description}</p>
+                    </div>
+                    <button
+                      onClick={() => handleChange(CALLOUTS_ENABLED_KEY, settings[CALLOUTS_ENABLED_KEY] === 'true' ? 'false' : 'true')}
+                      aria-label={CALLOUTS_META.label}
+                      className={`relative w-12 h-6 rounded-full transition-colors cursor-pointer border-none ${
+                        settings[CALLOUTS_ENABLED_KEY] === 'true' ? 'bg-neon-cyan' : 'bg-raised border border-border'
+                      }`}
+                    >
+                      <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-primary transition-transform ${settings[CALLOUTS_ENABLED_KEY] === 'true' ? 'translate-x-6' : ''}`} />
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <label className="w-64 shrink-0 text-sm font-mono text-muted flex items-center" htmlFor="callouts-channel-id">
+                      Callout Channel ID
+                      <InfoTip text={CALLOUTS_CHANNEL_META.description} />
+                    </label>
+                    <input
+                      id="callouts-channel-id"
+                      type="text"
+                      placeholder="Any channel"
+                      value={settings[CALLOUTS_CHANNEL_KEY] ?? ''}
+                      onChange={e => handleChange(CALLOUTS_CHANNEL_KEY, e.target.value)}
+                      className={`${inputClass} flex-1`}
+                    />
+                  </div>
+                </div>
+              )}
 
               {/* Inline toggle for Game Room (style-system revamp P0, item 10 —
                   REQUIRE_SCORE_PHOTO is submission policy, relocated here out

@@ -191,6 +191,7 @@ middleware redacts them from request bodies.
 | Port | HTTP server port (default: 3001) |
 | Max Log Lines | Maximum log lines returned by the API |
 | Backup Retention Days | How many days to keep automatic backups |
+| Callouts | The global trigger/response list for the callout Easter egg. Upload/download JSON or edit entries inline on the Global Settings page; each room opts in separately. An entry can answer with **live data** instead of a fixed string via `"action"` (`active_games`, `picks_link`, `scores_link`, `how_to_submit`) — e.g. "what's the table today?"; static responses may use the `{room_name}` / `{room_url}` / `{picks_url}` / `{scores_url}` placeholders. Stored in the `callouts` table — the legacy `data/callouts.json` is imported once on first boot and never read again |
 | iScored API Enabled | Use iScored REST API for score sync instead of Playwright (default: true) |
 | iScored API Poll Interval | How often to check iScored's notification file for changes in seconds (default: 10, hot-reloads on save). The expensive `getAllScores` call only fires when the notification file changes, plus a backstop sync every 10 min (`ISCORED_API_POLL_BACKSTOP_MS`). |
 
@@ -221,7 +222,7 @@ middleware redacts them from request bodies.
 | Game Columns | Auto (fill based on card size) or 2 (force two cards per row on desktop) |
 | Wheel Icon Scale | Size of wheel icons when using Wheel header style (100-200%, default 150%) |
 | Global Card Styles | Toggle + color overrides for game card titles, scores, borders, backgrounds |
-| Callouts | Easter egg — bot responds to trigger words from `data/callouts.json` |
+| Arcaid Callout Responses | Easter egg — when on, the bot replies with a fun callout when someone in this room's Discord server says a trigger word. Off unless enabled. Optional **Callout Channel ID** confines replies to one channel. The trigger/response list is global (see Global Settings → Callouts) |
 
 ### Tournament Settings
 | Setting | Description |

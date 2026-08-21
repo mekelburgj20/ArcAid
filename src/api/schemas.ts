@@ -628,3 +628,29 @@ export const SuspendRoomSchema = z.object({
 export const AdminSetDisplayNameSchema = z.object({
     displayName: z.string().trim().min(1).max(32).nullable(),
 });
+/**
+ * PUT /admin/callouts body (v2.123.0). Deliberately loose here: this schema
+ * only asserts the envelope shape, because the per-entry rules live in
+ * `validateCalloutEntries` (src/utils/callouts.ts), which is shared with the
+ * boot seed and produces INDEX-NAMED errors ("entry 3: ...") that a Zod issue
+ * path can't express as readably. `CalloutService.replaceAll` runs it and
+ * throws `CalloutValidationError`, which the route maps to a 400.
+ */
+export const CalloutsReplaceSchema = z.object({
+    entries: z.array(z.unknown()),
+});
+
+/**
+ * PATCH /admin/callouts/:id body — any subset; re-validated in the service.
+ * `action: null` clears a live-data responder back to a plain static entry.
+ */
+export const CalloutPatchSchema = z.object({
+    enabled: z.boolean().optional(),
+    triggers: z.array(z.string()).optional(),
+    responses: z.array(z.string()).optional(),
+    action: z.enum(['active_games', 'picks_link', 'scores_link', 'how_to_submit']).nullable().optional(),
+}).refine(
+    body => body.enabled !== undefined || body.triggers !== undefined
+        || body.responses !== undefined || body.action !== undefined,
+    { message: 'Provide at least one of enabled, triggers, responses, action' },
+);

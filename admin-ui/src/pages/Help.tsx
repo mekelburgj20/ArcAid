@@ -471,6 +471,8 @@ export default function Help() {
                 <tr><Td><strong>Discord Guild ID</strong></Td><Td>Your Discord server's ID. Right-click your server name &rarr; Copy Server ID</Td></tr>
                 <tr><Td><strong>Default Announcement Channel</strong></Td><Td>Default channel for tournament announcements. Used as a fallback when a tournament doesn't have its own channel configured</Td></tr>
                 <tr><Td><strong>Admin Role</strong></Td><Td>Discord role ID that grants access to admin-only bot commands</Td></tr>
+                <tr><Td><strong>Arcaid Callout Responses</strong></Td><Td>Fun automated bot replies. When on, the bot answers with a callout when someone in your Discord server mentions a trigger word (usually a table name). Some entries answer with live data instead &mdash; what&rsquo;s active right now, a link to Picks, how to submit a score. Off unless you turn it on. The list of trigger words and replies is global and maintained by the server&rsquo;s super admin</Td></tr>
+                <tr><Td><strong>Callout Channel ID</strong></Td><Td>Optional companion to the toggle above &mdash; leave blank for any channel the bot can read, or paste a channel ID to confine callouts to that one channel</Td></tr>
               </tbody>
             </table>
           </div>
@@ -511,7 +513,6 @@ export default function Help() {
                 <tr><Td><strong>Discord @Mentions</strong></Td><Td>Whether announcements @-mention players</Td></tr>
                 <tr><Td><strong>Post Scores to Global Scoreboard</strong></Td><Td>Fan this room's scores out to the cross-room Global Scoreboard</Td></tr>
                 <tr><Td><strong>Require Login for Score Submissions</strong></Td><Td>Force Discord login before anyone can submit a score</Td></tr>
-                <tr><Td><strong>Callouts</strong></Td><Td>Fun automated bot replies to trigger phrases</Td></tr>
               </tbody>
             </table>
           </div>

@@ -13,8 +13,10 @@ import {
     BackupRestoreParamsSchema, CreateGameRoomSchema, UpdateGameRoomSchema,
     ResolveContentReportSchema, BanActionSchema, CreateBanSchema,
     SuspendRoomSchema, AdminSetDisplayNameSchema,
+    CalloutsReplaceSchema, CalloutPatchSchema,
 } from '../schemas.js';
 import { SettingsService } from '../../services/SettingsService.js';
+import { CalloutService, CalloutValidationError } from '../../services/CalloutService.js';
 import { GameRoomService } from '../../services/GameRoomService.js';
 import { isProviderUserId } from '../../utils/identityProvider.js';
 import { AdminService } from '../../services/AdminService.js';
@@ -2482,6 +2484,144 @@ router.post('/global-backfill', requireAuth, requireSuperAdmin, async (_req, res
         res.json({ success: true, stats });
     } catch (error) {
         logError('API Error (POST /api/admin/global-backfill):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+
+// --- Callouts (Easter-egg bot replies) ---
+//
+// The list is GLOBAL and lives in the `callouts` table (migration 155); each
+// game room opts in separately via its `CALLOUTS_ENABLED` setting. Before
+// v2.123.0 the list was a git-tracked `data/callouts.json` — every change was
+// a code push and a redeploy. These five routes are the owner-facing
+// replacement.
+//
+// `requireAuth, requireSuperAdmin` already applies (router-level, top of
+// file). Writes are audited EXPLICITLY — the app-level auditMiddleware does
+// not fire on router routes (see the backups block above).
+
+router.get('/callouts', async (req, res) => {
+    try {
+        const [entries, counts] = await Promise.all([
+            CalloutService.list(),
+            CalloutService.counts(),
+        ]);
+        res.json({ entries, counts });
+    } catch (error) {
+        logError('API Error (GET /api/admin/callouts):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Declared before any '/callouts/:id' route so 'export' is never read as an id.
+router.get('/callouts/export', async (req, res) => {
+    try {
+        const entries = await CalloutService.exportEntries();
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.setHeader('Content-Disposition', 'attachment; filename="callouts.json"');
+        // Pretty-printed: this file gets hand-edited and re-uploaded, and it is
+        // byte-compatible with the legacy data/callouts.json shape.
+        res.send(JSON.stringify(entries, null, 2));
+    } catch (error) {
+        logError('API Error (GET /api/admin/callouts/export):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Replace-all — the upload path. Validation runs before the transaction, so a
+// rejected file leaves the existing list untouched; the 400 names the offending
+// entry index (`entry 3: responses must be a non-empty array`).
+router.put('/callouts', async (req, res) => {
+    const parsed = validate(CalloutsReplaceSchema, req.body);
+    if ('error' in parsed) {
+        res.status(400).json({ error: parsed.error });
+        return;
+    }
+    try {
+        const count = await CalloutService.replaceAll(parsed.data.entries);
+        await AuditService.log({
+            actor: req.user?.username || req.user?.discordId || 'super_admin',
+            action: 'PUT /api/admin/callouts',
+            target_type: 'callouts',
+            target_id: 'all',
+            details: JSON.stringify({ entries: count }),
+            ip_address: (req.ip || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+        const counts = await CalloutService.counts();
+        res.json({ success: true, counts });
+    } catch (error) {
+        if (error instanceof CalloutValidationError) {
+            res.status(400).json({ error: error.message });
+            return;
+        }
+        logError('API Error (PUT /api/admin/callouts):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.patch('/callouts/:id', async (req, res) => {
+    const id = parseInt(req.params.id as string, 10);
+    if (!Number.isFinite(id)) {
+        res.status(400).json({ error: 'Invalid callout id' });
+        return;
+    }
+    const parsed = validate(CalloutPatchSchema, req.body);
+    if ('error' in parsed) {
+        res.status(400).json({ error: parsed.error });
+        return;
+    }
+    try {
+        const updated = await CalloutService.update(id, parsed.data);
+        if (!updated) {
+            res.status(404).json({ error: 'Callout not found' });
+            return;
+        }
+        await AuditService.log({
+            actor: req.user?.username || req.user?.discordId || 'super_admin',
+            action: 'PATCH /api/admin/callouts',
+            target_type: 'callout',
+            target_id: String(id),
+            details: JSON.stringify(parsed.data),
+            ip_address: (req.ip || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+        res.json(updated);
+    } catch (error) {
+        if (error instanceof CalloutValidationError) {
+            res.status(400).json({ error: error.message });
+            return;
+        }
+        logError('API Error (PATCH /api/admin/callouts/:id):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.delete('/callouts/:id', async (req, res) => {
+    const id = parseInt(req.params.id as string, 10);
+    if (!Number.isFinite(id)) {
+        res.status(400).json({ error: 'Invalid callout id' });
+        return;
+    }
+    try {
+        const removed = await CalloutService.remove(id);
+        if (!removed) {
+            res.status(404).json({ error: 'Callout not found' });
+            return;
+        }
+        await AuditService.log({
+            actor: req.user?.username || req.user?.discordId || 'super_admin',
+            action: 'DELETE /api/admin/callouts',
+            target_type: 'callout',
+            target_id: String(id),
+            details: '{}',
+            ip_address: (req.ip || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (DELETE /api/admin/callouts/:id):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

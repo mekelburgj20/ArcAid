@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { logInfo, logError } from './utils/logger.js';
+import { logInfo, logError, logWarn } from './utils/logger.js';
 import { initDatabase, getDatabase } from './database/database.js';
 import { DiscordClient } from './discord/DiscordClient.js';
 import { startApiServer } from './api/server.js';
@@ -55,6 +55,31 @@ async function bootstrap() {
         } catch (err) {
             // Non-fatal — styles can be imported later via admin UI
             logInfo('Style catalogue auto-import skipped (scraped data not found or already populated).');
+        }
+
+        // 1.75 Callouts: one-time import of the legacy data/callouts.json.
+        //      Only runs while the `callouts` table is empty, so an existing
+        //      deployment keeps the list it already had and every later boot
+        //      no-ops. After this the DB is the source of truth and the file
+        //      is never read again — the super admin uploads a new list from
+        //      Admin → Settings → Callouts.
+        try {
+            const { CalloutService } = await import('./services/CalloutService.js');
+            await CalloutService.seedFromFileIfEmpty();
+            // ENABLE_CALLOUTS was the global on/off switch. It is now only a
+            // legacy master KILL switch ('false' silences every room) and is
+            // scheduled for removal; the real control is the per-room
+            // CALLOUTS_ENABLED opt-in.
+            if (process.env.ENABLE_CALLOUTS !== undefined) {
+                logWarn(
+                    `[callouts] ENABLE_CALLOUTS is deprecated (value: '${process.env.ENABLE_CALLOUTS}'). `
+                    + "Callouts are now opted into per room (Room Settings → Discord → 'Arcaid Callout Responses'). "
+                    + "Only the literal value 'false' still does anything: it silences callouts in every room. "
+                    + 'Remove the variable once each room is configured.',
+                );
+            }
+        } catch (err) {
+            logError('Callout seed/deprecation check failed (non-fatal):', err);
         }
 
         // 1.8 Validate environment configuration
