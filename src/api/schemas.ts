@@ -510,8 +510,17 @@ export const DeleteGameStateSchema = z.object({
     force: z.boolean().default(false),
 });
 
+/**
+ * Granular per-game iScored actions.
+ *
+ * `recreate` (v2.123.2) is the REPAIR action: the game's iScored entry is gone
+ * (deleted on iScored behind Arcaid's back), so every score push answers
+ * "Access Denied". It creates a fresh entry, re-links `games.iscored_id`, and
+ * replays the Arcaid-side per-player bests onto it. `create` is kept for API
+ * compatibility — the admin UI routes its button to `recreate`.
+ */
 export const SyncIScoredActionSchema = z.object({
-    action: z.enum(['lock', 'unlock', 'hide', 'unhide', 'delete', 'create']),
+    action: z.enum(['lock', 'unlock', 'hide', 'unhide', 'delete', 'create', 'recreate']),
 });
 
 /**
