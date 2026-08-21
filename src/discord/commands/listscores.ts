@@ -6,7 +6,11 @@ import { logError } from '../../utils/logger.js';
 import { checkCooldown } from '../../utils/cooldown.js';
 import { LeaderboardService } from '../../services/LeaderboardService.js';
 import { getTournamentColor } from '../../utils/discord.js';
-import { buildEnabledRoomSqlFilter } from '../../utils/discordRoomFilter.js';
+import {
+    resolveGuildReadScope,
+    buildGuildScopedRoomSqlFilter,
+    DISCORD_GUILD_NOT_LINKED_MESSAGE,
+} from '../../utils/discordRoomFilter.js';
 
 const PAGE_SIZE = 10;
 
@@ -33,6 +37,16 @@ export const listscores: Command = {
             return;
         }
 
+        // v2.120.1 - guild-scoped read. Resolved BEFORE deferring so the
+        // not-linked notice can be ephemeral. `null` = this guild maps to
+        // no Arcaid room (or the interaction is a DM, which has no guild
+        // context at all) - show nothing rather than every room's data.
+        const scope = await resolveGuildReadScope(interaction.guildId);
+        if (!scope) {
+            await interaction.reply({ content: DISCORD_GUILD_NOT_LINKED_MESSAGE, ephemeral: true });
+            return;
+        }
+
         await interaction.deferReply();
         const term = getTerminology();
         const db = await getDatabase();
@@ -41,7 +55,7 @@ export const listscores: Command = {
         const offset = (page - 1) * PAGE_SIZE;
 
         try {
-            const { sql: enabledFilter, params } = await buildEnabledRoomSqlFilter('t.game_room_id');
+            const { sql: enabledFilter, params } = buildGuildScopedRoomSqlFilter('t.game_room_id', scope);
             // INNER JOIN — orphan games have no room and aren't relevant to
             // any Discord guild's scoreboard.
             const activeGames = await db.all(`

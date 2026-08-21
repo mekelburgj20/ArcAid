@@ -4,6 +4,11 @@ import { getDatabase } from '../../database/database.js';
 import { logError } from '../../utils/logger.js';
 import { PickAwardGate, PICK_AWARD_DISABLED_REPLY } from '../../services/PickAwardGate.js';
 import { v4 as uuidv4 } from 'uuid';
+import {
+    resolveGuildReadScope,
+    isRoomInGuildScope,
+    DISCORD_FOREIGN_TOURNAMENT_MESSAGE,
+} from '../../utils/discordRoomFilter.js';
 
 export const pausepick: Command = {
     data: new SlashCommandBuilder()
@@ -21,8 +26,19 @@ export const pausepick: Command = {
         const db = await getDatabase();
 
         try {
-            // Pick-award gate (plan §8) — short-circuit with exact reply string.
             const tournament = await db.get('SELECT game_room_id FROM tournaments WHERE id = ?', tournamentId);
+
+            // v2.120.1 - guild gate. Same shape as /nominate-picker:
+            // `tournament-id` is free text, and this command INSERTs a QUEUED
+            // game row, so without the gate any guild could inject a game into
+            // any room's lineup.
+            const scope = await resolveGuildReadScope(interaction.guildId);
+            if (!isRoomInGuildScope(tournament?.game_room_id ?? null, scope)) {
+                await interaction.editReply(DISCORD_FOREIGN_TOURNAMENT_MESSAGE);
+                return;
+            }
+
+            // Pick-award gate (plan §8) — short-circuit with exact reply string.
             const pickEnabled = await PickAwardGate.isEnabled(tournament?.game_room_id ?? null, tournamentId);
             if (!pickEnabled) {
                 await interaction.editReply(PICK_AWARD_DISABLED_REPLY);
