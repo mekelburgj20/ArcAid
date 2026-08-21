@@ -1,6 +1,9 @@
 import { z } from 'zod';
 import { containsBlockedTerm } from '../utils/contentBlocklist.js';
 import { normalizeTournamentRulesInput } from '../utils/platformRules.js';
+import {
+    CALLOUT_ACTIONS, CALLOUT_CATEGORIES, CalloutAction, CalloutCategory,
+} from '../utils/callouts.js';
 
 // S22 Phase 1 content moderation (v2.43.0) — shared field-level refine so a
 // blocked-term name fails Zod validation before it ever reaches a service.
@@ -657,9 +660,14 @@ export const CalloutPatchSchema = z.object({
     enabled: z.boolean().optional(),
     triggers: z.array(z.string()).optional(),
     responses: z.array(z.string()).optional(),
-    action: z.enum(['active_games', 'picks_link', 'scores_link', 'how_to_submit']).nullable().optional(),
+    // Built from CALLOUT_ACTIONS / CALLOUT_CATEGORIES rather than re-typed, so
+    // adding a live answer or a category cannot leave this schema behind
+    // rejecting the very value the rest of the stack now accepts.
+    action: z.enum([...CALLOUT_ACTIONS] as [CalloutAction, ...CalloutAction[]]).nullable().optional(),
+    category: z.enum([...CALLOUT_CATEGORIES] as [CalloutCategory, ...CalloutCategory[]]).optional(),
 }).refine(
     body => body.enabled !== undefined || body.triggers !== undefined
-        || body.responses !== undefined || body.action !== undefined,
-    { message: 'Provide at least one of enabled, triggers, responses, action' },
+        || body.responses !== undefined || body.action !== undefined
+        || body.category !== undefined,
+    { message: 'Provide at least one of enabled, triggers, responses, action, category' },
 );

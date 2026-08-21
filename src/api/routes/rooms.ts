@@ -5862,6 +5862,44 @@ router.get('/:roomId/admin/guild-members/search', requireAuth, requireRoomAccess
     }
 });
 
+// Text channels of the room's linked guild — the picker behind Room Settings →
+// Discord → Arcaid Chat Responses → Allowed channels (v2.125.0).
+//
+// Unlike its guild-members siblings above, this one does NOT degrade silently
+// to an empty list: an admin looking at an empty channel picker needs to know
+// WHY (no guild linked / bot not in the server / gateway down), because each
+// has a different fix and the UI has a paste-an-ID fallback either way. So the
+// three failure modes are 400s with distinct copy.
+router.get('/:roomId/admin/discord/channels', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const guildId = await GameRoomSettingsService.get(roomId, 'DISCORD_GUILD_ID');
+        if (!guildId) {
+            return res.status(400).json({
+                error: 'This room has no Discord server linked yet. Set the Guild ID above first.',
+            });
+        }
+
+        const { getDiscordClient } = await import('../../discord/DiscordClient.js');
+        const client = getDiscordClient();
+        if (!client || !client.isReady()) {
+            return res.status(400).json({
+                error: "The Discord bot isn't connected right now, so its channel list is unavailable. Paste a channel ID instead, or try again shortly.",
+            });
+        }
+        if (!client.isInGuild(guildId)) {
+            return res.status(400).json({
+                error: "The bot isn't a member of that Discord server, so it can't list its channels. Invite it, then reload this page.",
+            });
+        }
+
+        res.json({ channels: client.listGuildTextChannels(guildId) });
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/admin/discord/channels):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 // --- Game Style Assignment ---
 
 // Assign a catalogue style to a game

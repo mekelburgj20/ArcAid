@@ -1,5 +1,8 @@
 /**
- * Callouts — FE-side upload parsing/validation.
+ * Arcaid Chat Responses — FE-side upload parsing/validation.
+ *
+ * User-facing name is "Arcaid Chat Responses" (v2.125.0); the identifiers stay
+ * `callout*` to match the API paths and the DB. See `src/utils/callouts.ts`.
  *
  * Deliberately mirrors `src/utils/callouts.ts`'s `validateCalloutEntries`
  * (same rules, same index-named error strings) so the upload card can show a
@@ -12,10 +15,15 @@
  * Built-in live-data responders — mirror of `CalloutAction` in
  * `src/utils/callouts.ts`. Adding one means touching both.
  */
-export type CalloutAction = 'active_games' | 'picks_link' | 'scores_link' | 'how_to_submit';
+export type CalloutAction =
+  | 'active_games' | 'picks_link' | 'scores_link' | 'how_to_submit'
+  | 'time_left' | 'leaders' | 'my_rank' | 'pick_status' | 'tournament_rules'
+  | 'how_to_claim';
 
 export const CALLOUT_ACTIONS: CalloutAction[] = [
   'active_games', 'picks_link', 'scores_link', 'how_to_submit',
+  'time_left', 'leaders', 'my_rank', 'pick_status', 'tournament_rules',
+  'how_to_claim',
 ];
 
 /** What each action answers with, for the editor's select + badge tooltip. */
@@ -24,7 +32,51 @@ export const CALLOUT_ACTION_LABELS: Record<CalloutAction, string> = {
   picks_link: 'Link to the Picks page',
   scores_link: 'Link to the scoreboard',
   how_to_submit: 'How to submit a score',
+  time_left: 'Time left in the round (live)',
+  leaders: 'Who leads each active game (live)',
+  my_rank: "The asker's own rank (live)",
+  pick_status: 'Who owes a pick, and how long they have (live)',
+  tournament_rules: 'Platform rules and cooldown (live)',
+  how_to_claim: 'How to claim your iScored name',
 };
+
+/**
+ * Entry categories — mirror of `CalloutCategory` in `src/utils/callouts.ts`.
+ * Rooms enable these individually, so the labels here are the same words the
+ * room Settings sub-toggles use.
+ */
+export type CalloutCategory = 'help' | 'callouts' | 'banter' | 'easter_eggs';
+
+export const CALLOUT_CATEGORIES: CalloutCategory[] = [
+  'help', 'callouts', 'banter', 'easter_eggs',
+];
+
+export const CALLOUT_CATEGORY_LABELS: Record<CalloutCategory, string> = {
+  help: 'Helpful answers',
+  callouts: 'Game callouts',
+  banter: 'Banter',
+  easter_eggs: 'Easter eggs',
+};
+
+export function isCalloutCategory(value: unknown): value is CalloutCategory {
+  return typeof value === 'string' && (CALLOUT_CATEGORIES as string[]).includes(value);
+}
+
+/** Mirror of the backend's `deriveCalloutCategory` — same order, same words. */
+const BANTER_TRIGGER_WORDS = ['bot', 'arcaid'];
+const EASTER_EGG_TRIGGERS = ['seafood', 'dork cow', 'secret cow'];
+
+export function deriveCalloutCategory(entry: {
+  triggers?: unknown; action?: unknown;
+}): CalloutCategory {
+  if (isCalloutAction(entry.action)) return 'help';
+  const triggers = (Array.isArray(entry.triggers) ? entry.triggers : [])
+    .filter((t): t is string => typeof t === 'string')
+    .map(t => t.toLowerCase());
+  if (triggers.some(t => BANTER_TRIGGER_WORDS.some(w => t.includes(w)))) return 'banter';
+  if (triggers.some(t => EASTER_EGG_TRIGGERS.some(w => t.includes(w)))) return 'easter_eggs';
+  return 'callouts';
+}
 
 export function isCalloutAction(value: unknown): value is CalloutAction {
   return typeof value === 'string' && (CALLOUT_ACTIONS as string[]).includes(value);
@@ -37,6 +89,8 @@ export interface CalloutEntry {
   responses?: string[];
   /** Live-data responder; wins over `responses` when set. */
   action?: CalloutAction;
+  /** Absent on upload means "infer it" — see `deriveCalloutCategory`. */
+  category?: CalloutCategory;
   enabled?: boolean;
 }
 
@@ -46,6 +100,7 @@ export interface CalloutRow {
   triggers: string[];
   responses: string[];
   action: CalloutAction | null;
+  category: CalloutCategory;
   enabled: boolean;
   sort_order: number;
   created_at: string;
@@ -59,6 +114,8 @@ export interface CalloutCounts {
   responses: number;
   /** How many entries answer with live data rather than a fixed string. */
   actions: number;
+  /** Per-category totals; every category is present, 0 included. */
+  byCategory: Record<CalloutCategory, number>;
 }
 
 export const MAX_CALLOUT_ENTRIES = 500;
@@ -88,8 +145,9 @@ export function validateCalloutEntries(input: unknown): CalloutParseResult {
     const where = `entry ${i}`;
     if (!isPlainObject(raw)) return { ok: false, error: `${where}: must be an object` };
 
-    const { triggers, responses, enabled, action } = raw as {
+    const { triggers, responses, enabled, action, category } = raw as {
       triggers?: unknown; responses?: unknown; enabled?: unknown; action?: unknown;
+      category?: unknown;
     };
 
     if (!Array.isArray(triggers) || triggers.length === 0) {
@@ -116,12 +174,19 @@ export function validateCalloutEntries(input: unknown): CalloutParseResult {
     }
     const hasAction = isCalloutAction(action);
 
+    if (category !== undefined && !isCalloutCategory(category)) {
+      return { ok: false, error: `${where}: category must be one of ${CALLOUT_CATEGORIES.join(', ')}` };
+    }
+    const cleanCategory: CalloutCategory = isCalloutCategory(category)
+      ? category
+      : deriveCalloutCategory({ triggers: cleanTriggers, action });
+
     // Responses are required UNLESS the entry answers with live data.
     if (responses === undefined && hasAction) {
       if (enabled !== undefined && typeof enabled !== 'boolean') {
         return { ok: false, error: `${where}: enabled must be a boolean` };
       }
-      const actionEntry: CalloutEntry = { triggers: cleanTriggers, action };
+      const actionEntry: CalloutEntry = { triggers: cleanTriggers, action, category: cleanCategory };
       if (enabled === false) actionEntry.enabled = false;
       entries.push(actionEntry);
       continue;
@@ -153,6 +218,7 @@ export function validateCalloutEntries(input: unknown): CalloutParseResult {
 
     const entry: CalloutEntry = { triggers: cleanTriggers, responses: cleanResponses };
     if (hasAction) entry.action = action;
+    entry.category = cleanCategory;
     if (enabled === false) entry.enabled = false;
     entries.push(entry);
   }

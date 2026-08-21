@@ -10,6 +10,19 @@ export interface ActiveGameRow {
     tournament_name: string | null;
     tournament_type: string | null;
     game_room_id: string | null;
+    /**
+     * v2.125.0 — the extra columns the `time_left` / `leaders` / `my_rank` /
+     * `tournament_rules` chat answers need. Added to THIS query rather than
+     * given one of their own so all five surfaces (including `/list-active`)
+     * agree on which games are active and which guild may see them; a second
+     * query would drift silently. `/list-active` simply ignores them.
+     */
+    game_id: string;
+    tournament_id: string | null;
+    /** Raw `tournaments.cadence` JSON — cron + timezone for the countdown. */
+    cadence: string | null;
+    platform_rules: string | null;
+    eligibility_days: number | null;
 }
 
 /**
@@ -30,9 +43,14 @@ export async function listActiveGamesForScope(scope: GuildReadScope): Promise<Ac
     const { sql: scopeFilter, params } = buildGuildScopedRoomSqlFilter('t.game_room_id', scope);
     return (await db.all(`
         SELECT g.name AS game_name,
+               g.id AS game_id,
                t.name AS tournament_name,
                t.type AS tournament_type,
-               t.game_room_id AS game_room_id
+               t.game_room_id AS game_room_id,
+               t.id AS tournament_id,
+               t.cadence AS cadence,
+               t.platform_rules AS platform_rules,
+               t.eligibility_days AS eligibility_days
         FROM games g
         JOIN tournaments t ON g.tournament_id = t.id
         WHERE g.status = 'ACTIVE' ${scopeFilter}

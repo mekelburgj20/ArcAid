@@ -31,6 +31,12 @@ export const notifications: Command = {
                     { name: 'Toggle: Rotation Ready', value: 'rotationReady' },
                     { name: 'Enable all', value: 'enable_all' },
                     { name: 'Disable all', value: 'disable_all' },
+                    // v2.125.0 — Arcaid Chat Responses. Two explicit choices
+                    // rather than a toggle: this one defaults ON, so someone
+                    // reaching for it wants a specific direction ("make it
+                    // stop"), not a flip whose result they have to read back.
+                    { name: 'Chat responses: ON', value: 'chat_responses_on' },
+                    { name: 'Chat responses: OFF', value: 'chat_responses_off' },
                 )),
 
     async execute(interaction: ChatInputCommandInteraction) {
@@ -47,6 +53,15 @@ export const notifications: Command = {
             const userId = interaction.user.id;
             const prefs = await NotificationService.getPrefs(userId);
 
+            if (action === 'chat_responses_on' || action === 'chat_responses_off') {
+                const enabled = action === 'chat_responses_on';
+                await NotificationService.setChatResponsesEnabled(userId, enabled);
+                await interaction.editReply(enabled
+                    ? "**Arcaid chat responses**: `ON` — I'll reply to your messages again."
+                    : "**Arcaid chat responses**: `OFF` — I'll stay out of your conversations.");
+                return;
+            }
+
             if (action === 'show') {
                 const embed = new EmbedBuilder()
                     .setTitle('Notification Preferences')
@@ -62,6 +77,16 @@ export const notifications: Command = {
                         inline: true,
                     });
                 }
+
+                // Not one of PREF_LABELS: it is an inbound reply defaulting to
+                // ON, not an outbound DM defaulting to OFF, so it is reported
+                // apart from them (and is untouched by Enable/Disable all).
+                const chatOn = await NotificationService.chatResponsesEnabled(userId);
+                embed.addFields({
+                    name: 'Arcaid Chat Responses',
+                    value: chatOn ? '`ON`' : '`OFF`',
+                    inline: true,
+                });
 
                 await interaction.editReply({ embeds: [embed] });
                 return;

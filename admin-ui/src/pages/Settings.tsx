@@ -11,6 +11,7 @@ import ConfirmModal from '../components/ConfirmModal';
 import LoadingState from '../components/LoadingState';
 import { InfoTip } from '../components/Tooltip';
 import MemberAdminPicker from '../components/MemberAdminPicker';
+import ChatResponsesSettings from '../components/ChatResponsesSettings';
 import { PlayerAvatar } from '../components/ScoreboardComponents';
 // v2.116.0 (C1) — the Leaderboard Display controls moved to the admin
 // Leaderboard page's display rail, where they edit against the REAL
@@ -386,26 +387,29 @@ const TOGGLE_SETTINGS: Record<string, { label: string; description: string; defa
   // Winner-picks is now per-tournament only; do not reintroduce it here.
 };
 
-// v2.123.0 — "Arcaid Callout Responses". The old global `ENABLE_CALLOUTS`
-// toggle lived in TOGGLE_SETTINGS above and was a lie on this page: it wrote a
-// PER-ROOM setting that nothing read, while the bot gated on the GLOBAL
-// `process.env.ENABLE_CALLOUTS` and replied in every guild it could see.
-// `CALLOUTS_ENABLED` is the real per-room gate; the LIST it draws from is
-// global and managed by the super admin under Admin → Settings → Callouts.
+// v2.125.0 — "Arcaid Chat Responses" (v2.123.0's "Arcaid Callout Responses").
 //
-// Rendered as a plain inline toggle inside the Discord card rather than
+// The old global `ENABLE_CALLOUTS` toggle lived in TOGGLE_SETTINGS above and
+// was a lie on this page: it wrote a PER-ROOM setting that nothing read, while
+// the bot gated on the GLOBAL `process.env.ENABLE_CALLOUTS` and replied in
+// every guild it could see. The four keys below are the real per-room gate; the
+// LIST they draw from is global and managed by the super admin under
+// Admin → Settings → Arcaid Chat Responses.
+//
+// Rendered by `ChatResponsesSettings` inside the Discord card rather than
 // through TOGGLE_SETTINGS/TOGGLE_DEFAULTS' default-resolved diffing, because
 // absent must read as OFF and stay that way until someone opts in.
-const CALLOUTS_ENABLED_KEY = 'CALLOUTS_ENABLED';
-const CALLOUTS_CHANNEL_KEY = 'CALLOUTS_CHANNEL_ID';
-const CALLOUTS_META = {
-  label: 'Arcaid Callout Responses',
-  description: "When on, the bot replies with a fun callout when someone in this room's Discord server mentions a trigger word (e.g. a table name). The list is managed by the super admin under Admin → Settings → Callouts.",
-};
-const CALLOUTS_CHANNEL_META = {
-  label: 'Callout Channel ID',
-  description: 'Optional. Leave blank to let callouts fire in any channel the bot can read, or paste a channel ID to confine them to that one channel. Right-click channel → Copy Channel ID.',
-};
+//
+// The two v2.123.0 keys are still claimed by `managedKeys` below: the boot
+// migration deletes them, but a room whose rows were read before that ran must
+// not surface them as raw text inputs in the "Other" card.
+const CHAT_RESPONSES_KEYS = [
+  'CHAT_RESPONSES_ENABLED',
+  'CHAT_RESPONSES_CATEGORIES',
+  'CHAT_RESPONSES_CHANNEL_IDS',
+  'CHAT_RESPONSES_COOLDOWN_SEC',
+];
+const LEGACY_CALLOUTS_KEYS = ['CALLOUTS_ENABLED', 'CALLOUTS_CHANNEL_ID'];
 
 // v2.39.0 — approval rooms. Rendered as its own 2-option select (kept out of
 // TOGGLE_SETTINGS/boolean diffing since it reads more naturally as a named
@@ -787,6 +791,50 @@ export default function Settings() {
     setSettings(prev => ({ ...prev, [key]: value }));
   };
 
+  /**
+   * Save a few keys RIGHT NOW, without the Save bar.
+   *
+   * Most of this page is a form: you edit several fields, then press Save. A
+   * SWITCH is not a form field — it reads as the state of the world, and an
+   * admin who flips one has already made the change in their head. The owner
+   * turned the old chat-responses toggle off, never pressed Save, and the bot
+   * kept talking; the control lied about what the system was doing. So the
+   * chat-response controls commit on interaction instead.
+   *
+   * `baseline` is advanced in lockstep with `settings`, which is what keeps
+   * these keys out of the Save bar's dirty diff and out of the unsaved-changes
+   * navigation guard. On failure BOTH are rolled back to exactly what they
+   * were — including "the key was absent", which is a different state from
+   * "the key is an empty string" for a setting whose absence means off.
+   *
+   * The POST is partial on purpose: `GameRoomSettingsService.saveMany` upserts
+   * only the keys it is given, so this cannot disturb an unrelated field the
+   * admin is midway through editing elsewhere on the page.
+   */
+  const saveSettingsNow = async (patch: Record<string, string>) => {
+    const previous = new Map<string, string | undefined>();
+    for (const key of Object.keys(patch)) previous.set(key, settings[key]);
+
+    const restore = (prev: Record<string, string>) => {
+      const next = { ...prev };
+      for (const [key, value] of previous) {
+        if (value === undefined) delete next[key]; else next[key] = value;
+      }
+      return next;
+    };
+
+    setSettings(prev => ({ ...prev, ...patch }));
+    setBaseline(prev => ({ ...prev, ...patch }));
+    try {
+      await api.post(`/rooms/${room.roomId}/settings`, patch);
+      toast('Saved', 'success');
+    } catch {
+      setSettings(restore);
+      setBaseline(restore);
+      toast('Could not save that change', 'error');
+    }
+  };
+
   // Smart constraints: keys to hide based on current settings
   const handleSave = async () => {
     // Confirm before saving a change to any access-affecting toggle.
@@ -880,11 +928,12 @@ export default function Settings() {
     AUTO_APPROVE_GUILD_KEY,
     // 2026-08-17 — rendered as a toggle beside AUTO_APPROVE_GUILD_MEMBERS.
     DISCORD_REMINDERS_KEY,
-    // v2.123.0 — rendered as an inline toggle + channel field in the Discord
-    // card. ENABLE_CALLOUTS is the RETIRED global switch: no editor any more,
-    // but still claimed so a legacy stored row never surfaces as a raw text
-    // input in "Other".
-    CALLOUTS_ENABLED_KEY, CALLOUTS_CHANNEL_KEY, 'ENABLE_CALLOUTS',
+    // v2.125.0 — rendered by ChatResponsesSettings inside the Discord card.
+    // The v2.123.0 pair is claimed alongside the new keys because the boot
+    // migration deletes those rows but a page loaded mid-upgrade would
+    // otherwise leak them. ENABLE_CALLOUTS is the RETIRED global switch: no
+    // editor any more, but still claimed for the same reason.
+    ...CHAT_RESPONSES_KEYS, ...LEGACY_CALLOUTS_KEYS, 'ENABLE_CALLOUTS',
     // Scoreboard branding (managed in inline card)
     'SCOREBOARD_BG_URL', 'SCOREBOARD_BG_MODE', 'SCOREBOARD_BG_OPACITY',
     'LOGO_URL', 'LOGO_POSITION', 'LOGO_MAX_HEIGHT', 'SCOREBOARD_LOGO_ENABLED',
@@ -1427,44 +1476,21 @@ export default function Settings() {
                 );
               })}
 
-              {/* v2.123.0 — per-room callout opt-in. Lives in the Discord card
+              {/* v2.123.0 — per-room opt-in, rebuilt in v2.125.0 as "Arcaid
+                  Chat Responses": a master switch, four category sub-toggles, a
+                  multi-channel picker and a cooldown. Lives in the Discord card
                   (not Integrations) because it is a property of THIS room's
-                  Discord server, and because the optional channel pin below it
-                  is a Discord channel ID like the others in this card.
-                  ABSENT MEANS OFF: replying in someone else's server is a
-                  social choice, so this is the rare opt-in toggle. */}
+                  Discord server. ABSENT MEANS OFF: replying in someone else's
+                  server is a social choice, so this is the rare opt-in toggle.
+                  Rendered from its own component — see the comment at the top
+                  of ChatResponsesSettings.tsx. */}
               {category === 'Discord' && (
-                <div className="pt-3 mt-3 border-t border-border/30 space-y-4">
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <p className="text-sm font-medium text-primary">{CALLOUTS_META.label}</p>
-                      <p className="text-xs text-muted">{CALLOUTS_META.description}</p>
-                    </div>
-                    <button
-                      onClick={() => handleChange(CALLOUTS_ENABLED_KEY, settings[CALLOUTS_ENABLED_KEY] === 'true' ? 'false' : 'true')}
-                      aria-label={CALLOUTS_META.label}
-                      className={`relative w-12 h-6 rounded-full transition-colors cursor-pointer border-none ${
-                        settings[CALLOUTS_ENABLED_KEY] === 'true' ? 'bg-neon-cyan' : 'bg-raised border border-border'
-                      }`}
-                    >
-                      <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-primary transition-transform ${settings[CALLOUTS_ENABLED_KEY] === 'true' ? 'translate-x-6' : ''}`} />
-                    </button>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <label className="w-64 shrink-0 text-sm font-mono text-muted flex items-center" htmlFor="callouts-channel-id">
-                      Callout Channel ID
-                      <InfoTip text={CALLOUTS_CHANNEL_META.description} />
-                    </label>
-                    <input
-                      id="callouts-channel-id"
-                      type="text"
-                      placeholder="Any channel"
-                      value={settings[CALLOUTS_CHANNEL_KEY] ?? ''}
-                      onChange={e => handleChange(CALLOUTS_CHANNEL_KEY, e.target.value)}
-                      className={`${inputClass} flex-1`}
-                    />
-                  </div>
-                </div>
+                <ChatResponsesSettings
+                  roomId={room.roomId}
+                  settings={settings}
+                  onSaveNow={saveSettingsNow}
+                  hasGuild={!!settings.DISCORD_GUILD_ID?.trim()}
+                />
               )}
 
               {/* Inline toggle for Game Room (style-system revamp P0, item 10 —

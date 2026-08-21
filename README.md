@@ -191,7 +191,7 @@ middleware redacts them from request bodies.
 | Port | HTTP server port (default: 3001) |
 | Max Log Lines | Maximum log lines returned by the API |
 | Backup Retention Days | How many days to keep automatic backups |
-| Callouts | The global trigger/response list for the callout Easter egg. Upload/download JSON or edit entries inline on the Global Settings page; each room opts in separately. An entry can answer with **live data** instead of a fixed string via `"action"` (`active_games`, `picks_link`, `scores_link`, `how_to_submit`) — e.g. "what's the table today?"; static responses may use the `{room_name}` / `{room_url}` / `{picks_url}` / `{scores_url}` placeholders. Stored in the `callouts` table — the legacy `data/callouts.json` is imported once on first boot and never read again |
+| Arcaid Chat Responses | The global trigger/response list the bot answers ordinary Discord chat with. Upload/download JSON or edit entries inline on the Global Settings page; each room opts in separately and picks which categories it wants. Every entry has a **category** (`help`, `callouts`, `banter`, `easter_eggs`) — omit it on upload and it is inferred. An entry can answer with **live data** instead of a fixed string via `"action"` (`active_games`, `picks_link`, `scores_link`, `how_to_submit`, `time_left`, `leaders`, `my_rank`, `pick_status`, `tournament_rules`, `how_to_claim`); static responses may use the `{room_name}` / `{room_url}` / `{picks_url}` / `{scores_url}` placeholders. Stored in the `callouts` table — the legacy `data/callouts.json` is imported once on first boot and never read again; every built-in live answer is auto-seeded with default triggers if no entry uses it |
 | iScored API Enabled | Use iScored REST API for score sync instead of Playwright (default: true) |
 | iScored API Poll Interval | How often to check iScored's notification file for changes in seconds (default: 10, hot-reloads on save). The expensive `getAllScores` call only fires when the notification file changes, plus a backstop sync every 10 min (`ISCORED_API_POLL_BACKSTOP_MS`). |
 
@@ -222,7 +222,7 @@ middleware redacts them from request bodies.
 | Game Columns | Auto (fill based on card size) or 2 (force two cards per row on desktop) |
 | Wheel Icon Scale | Size of wheel icons when using Wheel header style (100-200%, default 150%) |
 | Global Card Styles | Toggle + color overrides for game card titles, scores, borders, backgrounds |
-| Arcaid Callout Responses | Easter egg — when on, the bot replies with a fun callout when someone in this room's Discord server says a trigger word. Off unless enabled. Optional **Callout Channel ID** confines replies to one channel. The trigger/response list is global (see Global Settings → Callouts) |
+| Arcaid Chat Responses | When on, the bot replies to ordinary chat in this room's Discord server — table callouts plus live answers ("how long left?", "who's winning?", "whose pick?"). Off unless enabled. Four **category** sub-toggles (Helpful answers / Game callouts / Banter / Easter eggs; new rooms get the first two), an **Allowed channels** picker (empty = anywhere the bot can read), and a per-channel **Cooldown** in seconds (default 30) that helpful answers deliberately ignore. Players can opt out individually via `/arcaid-notifications`, Account Settings, or by saying "Arcaid, shush". The trigger/response list is global (see Global Settings → Arcaid Chat Responses) |
 
 ### Tournament Settings
 | Setting | Description |

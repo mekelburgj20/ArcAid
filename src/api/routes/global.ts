@@ -691,7 +691,15 @@ router.put('/me/notification-settings', requireDiscordUser, async (req, res) => 
         // Same allowlisted merge as the legacy PUT /me/notification-preferences:
         // only the five typed booleans are honoured, so a caller-crafted body
         // can never set `webPush`, `_hvFooterShown`, or forge/clear `_dmNudge`.
-        const updates = NotificationService.typedPrefUpdates(req.body.prefs ?? req.body);
+        const body = req.body.prefs ?? req.body;
+        const updates = {
+            ...NotificationService.typedPrefUpdates(body),
+            // v2.125.0 — the Arcaid Chat Responses mute rides in the same blob
+            // but is extracted separately, because `typedPrefUpdates` promises
+            // "the typed DM opt-ins and nothing else" and widening it would let
+            // a crafted body reach the keys it exists to exclude.
+            ...NotificationService.chatResponsePrefUpdate(body),
+        };
         await NotificationService.mergePrefs(req.user!.discordId!, updates);
         res.json(await buildNotificationSettings(req.user!.discordId!));
     } catch (error) {

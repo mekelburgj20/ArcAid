@@ -714,13 +714,21 @@ describe('Settings page — ROOM_LISTED, JOIN_POLICY, AUTO_APPROVE_GUILD_MEMBERS
 });
 
 /**
- * v2.123.0 — "Arcaid Callout Responses". The retired `ENABLE_CALLOUTS` toggle
- * that used to sit in the Integrations card wrote a per-room key nothing read
- * (the bot gated on the GLOBAL env var). `CALLOUTS_ENABLED` is the real
- * per-room gate and is deliberately OPT-IN: absent reads as OFF, because
- * replying in someone else's Discord server is a social choice.
+ * v2.125.0 — "Arcaid Chat Responses" (v2.123.0's "Arcaid Callout Responses").
+ *
+ * The retired `ENABLE_CALLOUTS` toggle that used to sit in the Integrations
+ * card wrote a per-room key nothing read (the bot gated on the GLOBAL env var).
+ * The four `CHAT_RESPONSES_*` keys are the real per-room gate, and the master
+ * one is deliberately OPT-IN: absent reads as OFF, because replying in someone
+ * else's Discord server is a social choice.
+ *
+ * THE CENTRAL CONTRACT IN THIS BLOCK IS INSTANT SAVE. Every test that changes
+ * a control asserts the POST WITHOUT pressing "Save All Changes". The owner
+ * flipped the old toggle off, never pressed Save, and the bot kept replying in
+ * their Discord server — the switch showed OFF while the system was ON. These
+ * tests exist so that cannot come back.
  */
-describe('Settings page — Arcaid Callout Responses (per-room opt-in)', () => {
+describe('Settings page — Arcaid Chat Responses (per-room opt-in)', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     localStorage.clear();
@@ -728,64 +736,222 @@ describe('Settings page — Arcaid Callout Responses (per-room opt-in)', () => {
     window.HTMLElement.prototype.scrollIntoView = vi.fn();
   });
 
+  const master = () => screen.getByRole('switch', { name: 'Arcaid Chat Responses' });
+
   it('reads OFF when the key is absent (opt-in, unlike most toggles here)', async () => {
     stubFetch({});
     renderSettings();
     await waitForLoaded();
 
-    const button = within(controlFor('Arcaid Callout Responses')).getByRole('button');
-    expect(button.className).not.toMatch(/bg-neon-cyan/);
+    expect(master()).toHaveAttribute('aria-checked', 'false');
   });
 
-  it('reads ON when stored as \'true\'', async () => {
-    stubFetch({ CALLOUTS_ENABLED: 'true' });
+  it('reads ON when stored as true', async () => {
+    stubFetch({ CHAT_RESPONSES_ENABLED: 'true' });
     renderSettings();
     await waitForLoaded();
 
-    const button = within(controlFor('Arcaid Callout Responses')).getByRole('button');
-    expect(button.className).toMatch(/bg-neon-cyan/);
+    expect(master()).toHaveAttribute('aria-checked', 'true');
   });
 
-  it('turning it on saves CALLOUTS_ENABLED=\'true\'', async () => {
+  it('the master toggle POSTs immediately, with NO Save press', async () => {
     const fetchMock = stubFetch({});
     renderSettings();
     await waitForLoaded();
 
-    fireEvent.click(within(controlFor('Arcaid Callout Responses')).getByRole('button'));
-    fireEvent.click(screen.getByRole('button', { name: /Save All Changes/ }));
+    fireEvent.click(master());
 
+    // No "Save All Changes" click anywhere in this test — that is the point.
     await waitFor(() => expect(lastSavePayload(fetchMock)).not.toBeNull());
-    expect(lastSavePayload(fetchMock)!.CALLOUTS_ENABLED).toBe('true');
+    const payload = lastSavePayload(fetchMock)!;
+    expect(payload.CHAT_RESPONSES_ENABLED).toBe('true');
+    // The UI must not leave the sub-toggles reading "all off" while the backend
+    // quietly applies its own default — it writes the same pair explicitly, in
+    // the SAME request, so a half-failed save cannot leave the room enabled
+    // with no categories.
+    expect(JSON.parse(payload.CHAT_RESPONSES_CATEGORIES)).toEqual(['help', 'callouts']);
   });
 
-  it('turning it off saves CALLOUTS_ENABLED=\'false\'', async () => {
-    const fetchMock = stubFetch({ CALLOUTS_ENABLED: 'true' });
+  it('the instant POST carries ONLY the changed keys', async () => {
+    const fetchMock = stubFetch({ CHAT_RESPONSES_ENABLED: 'true', DISCORD_GUILD_ID: '123' });
     renderSettings();
     await waitForLoaded();
 
-    fireEvent.click(within(controlFor('Arcaid Callout Responses')).getByRole('button'));
-    fireEvent.click(screen.getByRole('button', { name: /Save All Changes/ }));
+    fireEvent.click(master());
 
     await waitFor(() => expect(lastSavePayload(fetchMock)).not.toBeNull());
-    expect(lastSavePayload(fetchMock)!.CALLOUTS_ENABLED).toBe('false');
+    // A partial POST cannot disturb a field the admin is midway through editing
+    // elsewhere on the page (saveMany upserts only what it is given).
+    expect(Object.keys(lastSavePayload(fetchMock)!)).toEqual(['CHAT_RESPONSES_ENABLED']);
   });
 
-  it('the optional channel pin saves alongside it', async () => {
-    const fetchMock = stubFetch({ CALLOUTS_ENABLED: 'true' });
+  it('turning it off saves the master key as false, immediately', async () => {
+    const fetchMock = stubFetch({ CHAT_RESPONSES_ENABLED: 'true' });
     renderSettings();
     await waitForLoaded();
 
-    const input = screen.getByLabelText(/Callout Channel ID/) as HTMLInputElement;
-    expect(input.value).toBe('');
-    fireEvent.change(input, { target: { value: '123456789012345678' } });
-    fireEvent.click(screen.getByRole('button', { name: /Save All Changes/ }));
+    fireEvent.click(master());
 
     await waitFor(() => expect(lastSavePayload(fetchMock)).not.toBeNull());
-    expect(lastSavePayload(fetchMock)!.CALLOUTS_CHANNEL_ID).toBe('123456789012345678');
+    expect(lastSavePayload(fetchMock)!.CHAT_RESPONSES_ENABLED).toBe('false');
+  });
+
+  it('a failed save reverts the switch instead of leaving it lying', async () => {
+    // The whole reason for instant save is that the control must agree with the
+    // server. If the write fails, the control has to go back.
+    const fetchMock = stubFetch({ CHAT_RESPONSES_ENABLED: 'true' });
+    renderSettings();
+    await waitForLoaded();
+
+    fetchMock.mockImplementation((...args: FetchArgs) => {
+      const [url, init] = args;
+      const method = (init?.method || 'GET').toUpperCase();
+      if (url.includes('/settings') && method === 'POST') {
+        return Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({ error: 'nope' }) });
+      }
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({}) });
+    });
+
+    fireEvent.click(master());
+    // Flips optimistically, then comes back when the write is refused.
+    await waitFor(() => expect(master()).toHaveAttribute('aria-checked', 'true'));
+  });
+
+  it('the four category sub-toggles read from and instantly write the categories array', async () => {
+    const fetchMock = stubFetch({
+      CHAT_RESPONSES_ENABLED: 'true',
+      CHAT_RESPONSES_CATEGORIES: JSON.stringify(['help', 'callouts']),
+    });
+    renderSettings();
+    await waitForLoaded();
+
+    expect(screen.getByRole('switch', { name: 'Helpful answers' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('switch', { name: 'Game callouts' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('switch', { name: 'Banter' })).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByRole('switch', { name: 'Easter eggs' })).toHaveAttribute('aria-checked', 'false');
+
+    fireEvent.click(screen.getByRole('switch', { name: 'Banter' }));
+
+    await waitFor(() => expect(lastSavePayload(fetchMock)).not.toBeNull());
+    // Written in canonical order, not click order, so the stored value is
+    // stable however the admin got there.
+    expect(JSON.parse(lastSavePayload(fetchMock)!.CHAT_RESPONSES_CATEGORIES))
+      .toEqual(['help', 'callouts', 'banter']);
+  });
+
+  it('turning a category OFF removes it from the array, immediately', async () => {
+    const fetchMock = stubFetch({
+      CHAT_RESPONSES_ENABLED: 'true',
+      CHAT_RESPONSES_CATEGORIES: JSON.stringify(['help', 'callouts']),
+    });
+    renderSettings();
+    await waitForLoaded();
+
+    fireEvent.click(screen.getByRole('switch', { name: 'Game callouts' }));
+
+    await waitFor(() => expect(lastSavePayload(fetchMock)).not.toBeNull());
+    expect(JSON.parse(lastSavePayload(fetchMock)!.CHAT_RESPONSES_CATEGORIES)).toEqual(['help']);
+  });
+
+  it('stored channel ids render as removable chips', async () => {
+    stubFetch({
+      CHAT_RESPONSES_ENABLED: 'true',
+      CHAT_RESPONSES_CHANNEL_IDS: JSON.stringify(['111', '222']),
+    });
+    renderSettings();
+    await waitForLoaded();
+
+    const chips = within(screen.getByTestId('chat-channel-chips')).getAllByRole('button');
+    expect(chips).toHaveLength(2);
+    expect(chips[0]!.textContent).toContain('111');
+  });
+
+  it('the paste-an-ID fallback appends to the channel list, immediately', async () => {
+    const fetchMock = stubFetch({ CHAT_RESPONSES_ENABLED: 'true' });
+    renderSettings();
+    await waitForLoaded();
+
+    // Empty list reads as "anywhere" — the documented absent state.
+    expect(screen.getByText('Any channel the bot can read.')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Channel ID'), { target: { value: '123456789012345678' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+
+    await waitFor(() => expect(lastSavePayload(fetchMock)).not.toBeNull());
+    expect(JSON.parse(lastSavePayload(fetchMock)!.CHAT_RESPONSES_CHANNEL_IDS))
+      .toEqual(['123456789012345678']);
+  });
+
+  it('removing the last chip clears the row rather than storing an empty array', async () => {
+    const fetchMock = stubFetch({
+      CHAT_RESPONSES_ENABLED: 'true',
+      CHAT_RESPONSES_CHANNEL_IDS: JSON.stringify(['111']),
+    });
+    renderSettings();
+    await waitForLoaded();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove #111' }));
+
+    await waitFor(() => expect(lastSavePayload(fetchMock)).not.toBeNull());
+    // Empty string is how GameRoomSettingsService is told to DELETE the row.
+    expect(lastSavePayload(fetchMock)!.CHAT_RESPONSES_COOLDOWN_SEC).toBeUndefined();
+    expect(lastSavePayload(fetchMock)!.CHAT_RESPONSES_CHANNEL_IDS).toBe('');
+  });
+
+  it('the cooldown defaults to 30 and commits on blur', async () => {
+    const fetchMock = stubFetch({ CHAT_RESPONSES_ENABLED: 'true' });
+    renderSettings();
+    await waitForLoaded();
+
+    const input = screen.getByLabelText(/Cooldown \(seconds\)/) as HTMLInputElement;
+    expect(input.value).toBe('30');
+    fireEvent.change(input, { target: { value: '90' } });
+    fireEvent.blur(input, { target: { value: '90' } });
+
+    await waitFor(() => expect(lastSavePayload(fetchMock)).not.toBeNull());
+    expect(lastSavePayload(fetchMock)!.CHAT_RESPONSES_COOLDOWN_SEC).toBe('90');
+  });
+
+  it('the cooldown also commits on its own after the admin stops typing', async () => {
+    const fetchMock = stubFetch({ CHAT_RESPONSES_ENABLED: 'true' });
+    renderSettings();
+    await waitForLoaded();
+
+    const input = screen.getByLabelText(/Cooldown \(seconds\)/) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '4' } });
+    fireEvent.change(input, { target: { value: '45' } });
+
+    // Mid-keystroke nothing has gone out, so "4" is never stored...
+    expect(lastSavePayload(fetchMock)).toBeNull();
+
+    // ...and then the debounce commits it with no further interaction. This is
+    // what makes it safe for this field to skip the Save bar.
+    await waitFor(
+      () => expect(lastSavePayload(fetchMock)).not.toBeNull(),
+      { timeout: 3000 },
+    );
+    expect(lastSavePayload(fetchMock)!.CHAT_RESPONSES_COOLDOWN_SEC).toBe('45');
+  });
+
+  it('none of these controls make the page dirty (they are already saved)', async () => {
+    stubFetch({ CHAT_RESPONSES_ENABLED: 'true' });
+    renderSettings();
+    await waitForLoaded();
+
+    expect(screen.getByRole('button', { name: /Save All Changes/ })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('switch', { name: 'Banter' }));
+
+    // Baseline advances in lockstep with settings, so the Save bar stays inert
+    // and the unsaved-changes navigation guard never fires for these keys.
+    await waitFor(() => expect(screen.getByRole('switch', { name: 'Banter' })).toHaveAttribute('aria-checked', 'true'));
+    expect(screen.getByRole('button', { name: /Save All Changes/ })).toBeDisabled();
   });
 
   it('the retired global toggle is gone, and a stored legacy value never leaks into "Other"', async () => {
-    stubFetch({ ENABLE_CALLOUTS: 'true' });
+    // The v2.123.0 pair is claimed too: the boot migration deletes those rows,
+    // but a page loaded mid-upgrade must not leak them as raw text inputs.
+    stubFetch({ ENABLE_CALLOUTS: 'true', CALLOUTS_ENABLED: 'true', CALLOUTS_CHANNEL_ID: '9' });
     renderSettings();
     await waitForLoaded();
 

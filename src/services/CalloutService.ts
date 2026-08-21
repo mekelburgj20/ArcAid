@@ -3,11 +3,17 @@ import path from 'path';
 import { getDatabase } from '../database/database.js';
 import { logInfo, logError } from '../utils/logger.js';
 import {
+    CALLOUT_CATEGORIES,
     CalloutAction,
+    CalloutCategory,
     CalloutEntry,
+    calloutCategoryOf,
+    DEFAULT_CALLOUT_CATEGORY,
     isCalloutAction,
+    isCalloutCategory,
     validateCalloutEntries,
 } from '../utils/callouts.js';
+import { BUILTIN_HELP_ENTRIES } from '../utils/calloutBuiltins.js';
 
 /** A stored callout, as the admin API returns it. */
 export interface CalloutRow {
@@ -16,6 +22,8 @@ export interface CalloutRow {
     responses: string[];
     /** Built-in live-data responder; null for ordinary static entries. */
     action: CalloutAction | null;
+    /** Which room-toggleable bucket this entry sits in (migration 156). */
+    category: CalloutCategory;
     enabled: boolean;
     sort_order: number;
     created_at: string;
@@ -35,6 +43,7 @@ interface DbCalloutRow {
     triggers: string;
     responses: string;
     action: string | null;
+    category: string | null;
     enabled: number;
     sort_order: number;
     created_at: string;
@@ -68,8 +77,8 @@ export class CalloutService {
         CalloutService.cache = rows
             .filter(r => r.enabled)
             .map(r => (r.action
-                ? { id: r.id, triggers: r.triggers, responses: r.responses, action: r.action }
-                : { id: r.id, triggers: r.triggers, responses: r.responses }));
+                ? { id: r.id, triggers: r.triggers, responses: r.responses, action: r.action, category: r.category }
+                : { id: r.id, triggers: r.triggers, responses: r.responses, category: r.category }));
         return CalloutService.cache;
     }
 
@@ -77,7 +86,7 @@ export class CalloutService {
     static async list(): Promise<CalloutRow[]> {
         const db = await getDatabase();
         const rows = (await db.all(
-            `SELECT id, triggers, responses, action, enabled, sort_order, created_at, updated_at
+            `SELECT id, triggers, responses, action, category, enabled, sort_order, created_at, updated_at
              FROM callouts ORDER BY sort_order ASC, id ASC`,
         )) as DbCalloutRow[];
         return rows.map(CalloutService.hydrate);
@@ -99,10 +108,10 @@ export class CalloutService {
             await db.run('DELETE FROM callouts');
             for (const [i, e] of entries.entries()) {
                 await db.run(
-                    `INSERT INTO callouts (triggers, responses, action, enabled, sort_order)
-                     VALUES (?, ?, ?, ?, ?)`,
+                    `INSERT INTO callouts (triggers, responses, action, category, enabled, sort_order)
+                     VALUES (?, ?, ?, ?, ?, ?)`,
                     JSON.stringify(e.triggers), JSON.stringify(e.responses ?? []),
-                    e.action ?? null, e.enabled === false ? 0 : 1, i,
+                    e.action ?? null, calloutCategoryOf(e), e.enabled === false ? 0 : 1, i,
                 );
             }
             await db.exec('COMMIT');
@@ -128,11 +137,13 @@ export class CalloutService {
             responses?: string[];
             /** `null` clears the action back to a plain static entry. */
             action?: CalloutAction | null;
+            /** Which room-toggleable bucket the entry moves to. */
+            category?: CalloutCategory;
         },
     ): Promise<CalloutRow | null> {
         const db = await getDatabase();
         const existing = (await db.get(
-            `SELECT id, triggers, responses, action, enabled, sort_order, created_at, updated_at
+            `SELECT id, triggers, responses, action, category, enabled, sort_order, created_at, updated_at
              FROM callouts WHERE id = ?`, id,
         )) as DbCalloutRow | undefined;
         if (!existing) return null;
@@ -148,9 +159,16 @@ export class CalloutService {
         // Re-validated through the SAME rules as an upload. An action entry may
         // legitimately end up with no responses, so the probe omits the key
         // entirely in that case (matching the uploaded normal form).
+        // The category is carried explicitly rather than left to inference:
+        // an admin who moved an entry to `banter` must not have it silently
+        // re-derived back to `callouts` by an unrelated trigger edit.
+        const nextCategory = patch.category ?? current.category;
         const probe = nextAction && next.responses.length === 0
-            ? { triggers: next.triggers, action: nextAction }
-            : { triggers: next.triggers, responses: next.responses, action: nextAction ?? undefined };
+            ? { triggers: next.triggers, action: nextAction, category: nextCategory }
+            : {
+                triggers: next.triggers, responses: next.responses,
+                action: nextAction ?? undefined, category: nextCategory,
+            };
         const check = validateCalloutEntries([probe]);
         if ('error' in check) throw new CalloutValidationError(check.error.replace(/^entry 0: /, ''));
         const clean = check.entries[0];
@@ -158,15 +176,16 @@ export class CalloutService {
 
         await db.run(
             `UPDATE callouts
-             SET triggers = ?, responses = ?, action = ?, enabled = ?, updated_at = datetime('now')
+             SET triggers = ?, responses = ?, action = ?, category = ?, enabled = ?,
+                 updated_at = datetime('now')
              WHERE id = ?`,
             JSON.stringify(clean.triggers), JSON.stringify(clean.responses ?? []),
-            clean.action ?? null, next.enabled ? 1 : 0, id,
+            clean.action ?? null, calloutCategoryOf(clean), next.enabled ? 1 : 0, id,
         );
         CalloutService.invalidateCache();
 
         const updated = (await db.get(
-            `SELECT id, triggers, responses, action, enabled, sort_order, created_at, updated_at
+            `SELECT id, triggers, responses, action, category, enabled, sort_order, created_at, updated_at
              FROM callouts WHERE id = ?`, id,
         )) as DbCalloutRow;
         return CalloutService.hydrate(updated);
@@ -196,21 +215,34 @@ export class CalloutService {
             const entry: CalloutEntry = { triggers: r.triggers };
             if (!r.action || r.responses.length > 0) entry.responses = r.responses;
             if (r.action) entry.action = r.action;
+            // Always emitted (v2.125.0) — an export that dropped it would make
+            // a re-upload fall back to inference and silently re-file every
+            // entry an admin had hand-sorted.
+            entry.category = r.category;
             if (!r.enabled) entry.enabled = false;
             return entry;
         });
     }
 
-    /** Counts for the admin card header. */
-    static async counts(): Promise<{ total: number; enabled: number; disabled: number; responses: number; actions: number }> {
+    /** Counts for the admin card header, including the per-category split. */
+    static async counts(): Promise<{
+        total: number; enabled: number; disabled: number; responses: number; actions: number;
+        byCategory: Record<CalloutCategory, number>;
+    }> {
         const rows = await CalloutService.list();
         const enabled = rows.filter(r => r.enabled).length;
+        // Every category is present with 0 rather than absent, so the FE can
+        // render a stable set of chips without defaulting each lookup.
+        const byCategory = Object.fromEntries(
+            CALLOUT_CATEGORIES.map(c => [c, rows.filter(r => r.category === c).length]),
+        ) as Record<CalloutCategory, number>;
         return {
             total: rows.length,
             enabled,
             disabled: rows.length - enabled,
             responses: rows.reduce((sum, r) => sum + r.responses.length, 0),
             actions: rows.filter(r => r.action !== null).length,
+            byCategory,
         };
     }
 
@@ -243,12 +275,64 @@ export class CalloutService {
         }
     }
 
+    /**
+     * Boot step (v2.125.0): make sure every built-in live answer is reachable.
+     *
+     * For each action in `BUILTIN_HELP_ENTRIES`, if the table holds NO row with
+     * that action — enabled OR disabled — one is appended with the default
+     * trigger phrases. Idempotent by construction, and deliberately blind to
+     * `enabled`: an admin who switched a built-in off has made a decision, and
+     * re-adding it on the next restart would override them silently.
+     *
+     * New rows go at the END of `sort_order`, so they can never shadow an
+     * existing entry in the first-match-wins loop.
+     *
+     * Returns how many were added. Never throws — a failure here must not take
+     * down boot; the feature degrades to "that action has no trigger yet".
+     */
+    static async ensureBuiltinHelpEntries(): Promise<number> {
+        try {
+            const db = await getDatabase();
+            const existing = (await db.all(
+                'SELECT DISTINCT action FROM callouts WHERE action IS NOT NULL',
+            )) as Array<{ action: string }>;
+            const have = new Set(existing.map(r => r.action));
+
+            const missing = BUILTIN_HELP_ENTRIES.filter(e => e.action && !have.has(e.action));
+            if (missing.length === 0) return 0;
+
+            const maxRow = await db.get('SELECT MAX(sort_order) AS max_order FROM callouts');
+            let order = (maxRow?.max_order ?? -1) + 1;
+
+            for (const entry of missing) {
+                await db.run(
+                    `INSERT INTO callouts (triggers, responses, action, category, enabled, sort_order)
+                     VALUES (?, '[]', ?, ?, 1, ?)`,
+                    JSON.stringify(entry.triggers), entry.action ?? null,
+                    calloutCategoryOf(entry), order++,
+                );
+            }
+            CalloutService.invalidateCache();
+            logInfo(
+                `[chat-responses] Added ${missing.length} built-in help answer(s): `
+                + `${missing.map(e => e.action).join(', ')}.`,
+            );
+            return missing.length;
+        } catch (err) {
+            logError('[chat-responses] ensureBuiltinHelpEntries failed (non-fatal) —', err);
+            return 0;
+        }
+    }
+
     private static hydrate(row: DbCalloutRow): CalloutRow {
         return {
             id: row.id,
             triggers: CalloutService.parseJsonArray(row.triggers),
             responses: CalloutService.parseJsonArray(row.responses),
             action: isCalloutAction(row.action) ? row.action : null,
+            // A hand-edited or pre-migration row with a junk/NULL category
+            // degrades to the default rather than escaping every filter.
+            category: isCalloutCategory(row.category) ? row.category : DEFAULT_CALLOUT_CATEGORY,
             enabled: row.enabled !== 0,
             sort_order: row.sort_order,
             created_at: row.created_at,

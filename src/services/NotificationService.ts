@@ -165,6 +165,21 @@ const rateBuckets = new Map<string, RateBucket>();
 let flagCache: { value: boolean; ts: number } | null = null;
 const FLAG_TTL_MS = 10_000;
 
+/**
+ * The `notification_prefs` key holding the Arcaid Chat Responses mute
+ * (v2.125.0). Absent === ON; only an explicit `false` silences the bot.
+ */
+export const CHAT_RESPONSES_PREF_KEY = 'chatResponses';
+
+/**
+ * Per-user memo for that flag. The Discord MessageCreate path consults it once
+ * per MATCHED message, which in a busy guild is often enough that a DB read
+ * each time is waste; every write path drops the entry, so a mute is never
+ * stale by more than the write itself.
+ */
+const chatResponseCache = new Map<string, { value: boolean; ts: number }>();
+const CHAT_RESPONSE_TTL_MS = 60_000;
+
 export class NotificationService {
     /**
      * Send a Discord DM notification if the user has opted in and is within rate limits.
@@ -442,7 +457,75 @@ export class NotificationService {
              ON CONFLICT(discord_user_id) DO UPDATE SET notification_prefs = excluded.notification_prefs`,
             userId, JSON.stringify(merged)
         );
+        // Any write to the blob may have moved `chatResponses` — including a
+        // bulk enable/disable that never names it. Dropping the entry is
+        // cheaper than reasoning about which writers can touch it.
+        chatResponseCache.delete(userId);
         return merged;
+    }
+
+    /**
+     * Whether the bot may reply to THIS user's ordinary chat messages
+     * (Arcaid Chat Responses, v2.125.0).
+     *
+     * Lives in the same `notification_prefs` JSON as the DM opt-ins but is NOT
+     * a `NotificationType`: every type there is an outbound DM defaulting to
+     * OFF, while this is an inbound reply defaulting to ON. Folding it into
+     * `NotificationPrefs` would put it in `PREF_TYPE_KEYS`, where "Disable all"
+     * would sweep it and the account page would render it as another DM switch.
+     *
+     * Read on a hot path — once per matched message — so the answer is memoized
+     * per user for `CHAT_RESPONSE_TTL_MS`. `setChatResponsesEnabled` and
+     * `mergePrefs` both drop the entry, so a mute takes effect on the very next
+     * message rather than up to a minute later.
+     */
+    static async chatResponsesEnabled(userId: string): Promise<boolean> {
+        const cached = chatResponseCache.get(userId);
+        if (cached && Date.now() - cached.ts < CHAT_RESPONSE_TTL_MS) return cached.value;
+        let value = true;
+        try {
+            const db = await getDatabase();
+            const row = await db.get(
+                'SELECT notification_prefs FROM user_preferences WHERE discord_user_id = ?',
+                userId,
+            );
+            if (row?.notification_prefs) {
+                const parsed = JSON.parse(row.notification_prefs);
+                // Absent === ON. Only an explicit `false` silences the bot, so a
+                // user who has never touched the setting still gets answers.
+                value = parsed[CHAT_RESPONSES_PREF_KEY] !== false;
+            }
+        } catch {
+            // A read failure must not silence the bot for everyone — the
+            // permissive default is the same as never having set the pref.
+            value = true;
+        }
+        chatResponseCache.set(userId, { value, ts: Date.now() });
+        return value;
+    }
+
+    /** Sets the chat-response mute and drops the cached answer immediately. */
+    static async setChatResponsesEnabled(userId: string, enabled: boolean): Promise<void> {
+        await this.mergePrefs(userId, { [CHAT_RESPONSES_PREF_KEY]: enabled });
+    }
+
+    /** Drops one user's cached mute state, or the whole cache when omitted. */
+    static invalidateChatResponseCache(userId?: string): void {
+        if (userId) chatResponseCache.delete(userId); else chatResponseCache.clear();
+    }
+
+    /**
+     * Extract the chat-response mute from an untrusted body, if present.
+     * Separate from `typedPrefUpdates` because that method's contract is "the
+     * typed DM opt-ins and nothing else" — widening it would let a crafted body
+     * reach keys it deliberately excludes.
+     */
+    static chatResponsePrefUpdate(body: unknown): { chatResponses?: boolean } {
+        if (body && typeof body === 'object') {
+            const value = (body as Record<string, unknown>)[CHAT_RESPONSES_PREF_KEY];
+            if (typeof value === 'boolean') return { [CHAT_RESPONSES_PREF_KEY]: value };
+        }
+        return {};
     }
 
     /**
