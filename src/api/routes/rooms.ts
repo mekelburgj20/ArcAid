@@ -39,6 +39,7 @@ import {
     CreateBanSchema,
     SetPickDispositionSchema,
     AdminSetPickDispositionSchema,
+    AdminQueueOnBehalfSchema,
 } from '../schemas.js';
 import { writeLimiter, pickLimiter, pickAlertsLimiter, guestContentLimiter } from '../rateLimit.js';
 import { isAllowedImage } from '../uploadValidation.js';
@@ -53,6 +54,10 @@ import {
     emptyTournamentRules, resolveSubmittablePlatforms, type TournamentRules,
 } from '../../utils/platformRules.js';
 import { deleteScorePhotoFiles } from '../../utils/scorePhotoCleanup.js';
+import {
+    checkPickQueueEligibility, findActiveTwin, getPlayerQueue, queueGameOnBehalf,
+    notifyQueuedOnBehalf,
+} from '../../services/PickQueueService.js';
 import { catalogueTypeMatchesTournamentMode } from '../../utils/tournamentMode.js';
 import { trackBackground } from '../../utils/backgroundTasks.js';
 import { normalizeSubmitterUserId } from '../../services/SubmissionContextService.js';
@@ -899,90 +904,19 @@ router.post('/:roomId/pick-game', pickLimiter, requireDiscordUser, requireNotBan
         const discordId = req.user!.discordId!;
         const { tournamentId, gameName } = validationResult.data;
 
-        // 1. Verify tournament belongs to this room and is active
-        const tournament = await db.get(
-            'SELECT id, name, type, mode, max_active_games, platform_rules, game_room_id, eligibility_days FROM tournaments WHERE id = ? AND game_room_id = ? AND is_active = 1',
-            tournamentId, roomId
-        );
-        if (!tournament) return res.status(404).json({ error: 'Tournament not found or inactive' });
+        // Steps 1-6 — tournament resolution + is_active, the pick-award gate,
+        // catalogue lookup, mode match, platform rules, cooldown and the
+        // max-5 queue cap — moved into `PickQueueService` (v2.121.0) so the
+        // admin queue-on-behalf endpoint and the `/nominate-picker queue`
+        // slash subcommand run this exact gate rather than a copy of it.
+        // Statuses and copy are byte-identical to the inline version; the
+        // duplicate-in-queue guard stays OFF here because this route never
+        // had one.
+        const eligibility = await checkPickQueueEligibility({ roomId, tournamentId, gameName, forUserId: discordId });
+        if (!eligibility.ok) return res.status(eligibility.status).json({ error: eligibility.message });
 
-        // 1a. Pick-award gate (plan §5 / §8). Mirrors the Discord-command gate so the web
-        //     pick path can't re-enable a flow that admins have opted out of.
-        //     v2.56.0 — per-tournament only (tournaments.winner_picks); the
-        //     room-level ENABLE_GAME_PICK_AWARD switch is gone.
-        const { PickAwardGate } = await import('../../services/PickAwardGate.js');
-        const pickEnabled = await PickAwardGate.isEnabled(tournament.game_room_id, tournament.id);
-        if (!pickEnabled) return res.status(403).json({ error: 'Winner picks is turned off for this tournament' });
-
-        // 2. Look up game in catalogue.
-        const gameLibEntry = await db.get(
-            `SELECT name, type AS mode, platforms, features FROM global_games
-             WHERE LOWER(name) = LOWER(?) AND status = 'approved' LIMIT 1`,
-            gameName,
-        );
-        if (!gameLibEntry) return res.status(404).json({ error: `Game "${gameName}" not found in the catalogue` });
-
-        // 3. Check mode match. `catalogueTypeMatchesTournamentMode` bridges the
-        //    tournament-mode vocabulary ('videogame') against the catalogue-type
-        //    vocabulary ('video_game' | 'arcade') — see src/utils/tournamentMode.ts.
-        if (!catalogueTypeMatchesTournamentMode(gameLibEntry.mode, tournament.mode)) {
-            return res.status(400).json({ error: `Game mode "${gameLibEntry.mode}" does not match tournament mode "${tournament.mode}"` });
-        }
-
-        // 4. Check platform rules. Game's effective platforms = catalogue ∪ room tags.
-        //    Parsed ONCE — the gate and its rejection message must come from the
-        //    same read of the blob, or the two drift apart.
-        const platformRules = parseTournamentRules(tournament);
-
-        const cataloguePlatforms = parsePlatformsList(gameLibEntry.platforms || '[]');
-        const roomTags = await RoomGameTagsService.getTagsForGameName(roomId, gameName);
-        const gamePlatforms = Array.from(new Set([...cataloguePlatforms, ...roomTags]));
-        // Features carry the device-axis availability the fold moved out of
-        // `platforms` (ADR 0016 catalogue phase §4). Room tags are platforms
-        // only — they have never expressed availability.
-        const gameFeatures = parsePlatformsList(gameLibEntry.features || '[]');
-
-        if (!passesplatformRules(gamePlatforms, platformRules, gameFeatures)) {
-            const restrictedText = platformRules.restrictedText;
-            return res.status(400).json({
-                error: restrictedText || 'This game is not available for this tournament type (platform restriction)',
-            });
-        }
-
-        // 5. Check cooldown (eligibility)
+        const { tournament, styleId, gameName: resolvedName } = eligibility;
         const engine = TournamentEngine.getInstance();
-        const isEligible = await engine.isGameEligible(tournamentId, gameLibEntry.name);
-        if (!isEligible) {
-            // Calculate remaining cooldown days for the error message
-            const eligibilityDays = tournament.eligibility_days ?? 120;
-
-            const lastPlayed = await db.get(
-                `SELECT start_date FROM games WHERE tournament_id = ? AND name = ? COLLATE NOCASE AND status != 'QUEUED' ORDER BY start_date DESC LIMIT 1`,
-                tournamentId, gameLibEntry.name
-            );
-            let daysRemaining = eligibilityDays;
-            if (lastPlayed?.start_date) {
-                const playedDate = new Date(lastPlayed.start_date);
-                const availableDate = new Date(playedDate);
-                availableDate.setDate(availableDate.getDate() + eligibilityDays);
-                daysRemaining = Math.max(1, Math.ceil((availableDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
-            }
-
-            return res.status(400).json({
-                error: `"${gameLibEntry.name}" is in cooldown for ${daysRemaining} more day${daysRemaining === 1 ? '' : 's'}`,
-            });
-        }
-
-        // 6. Check queue limit (max 5 per user per tournament)
-        const queueCount = await db.get(
-            `SELECT COUNT(*) as count FROM games
-             WHERE tournament_id = ? AND status = 'QUEUED'
-               AND picker_discord_id = ? AND name != '[Pending Pick]'`,
-            tournamentId, discordId
-        );
-        if ((queueCount?.count ?? 0) >= 5) {
-            return res.status(400).json({ error: 'Queue limit reached (max 5 games per tournament)' });
-        }
 
         // 6a. Sprint 6.5: a successful pick action establishes room membership.
         const { RoomMembershipService } = await import('../../services/RoomMembershipService.js');
@@ -994,7 +928,6 @@ router.post('/:roomId/pick-game', pickLimiter, requireDiscordUser, requireNotBan
             tournamentId, discordId
         );
 
-        const styleId = gameLibEntry.style_id || undefined;
         const maxSlots = tournament.max_active_games ?? 1;
         const activeGames = await engine.getActiveGames(tournamentId);
         const hasOpenSlot = activeGames.length < maxSlots;
@@ -1003,12 +936,9 @@ router.post('/:roomId/pick-game', pickLimiter, requireDiscordUser, requireNotBan
         // /pick-game check exactly (UAT incident: same game picked twice in
         // 5 minutes → twin ACTIVE rows + twin iScored boards). Rejecting
         // before any side effect preserves the player's pick rights.
-        const activeTwin = await db.get(
-            `SELECT id FROM games WHERE tournament_id = ? AND status = 'ACTIVE' AND LOWER(name) = LOWER(?)`,
-            tournamentId, gameLibEntry.name,
-        );
+        const activeTwin = await findActiveTwin(tournamentId, resolvedName);
         if (activeTwin) {
-            return res.status(409).json({ error: `"${gameLibEntry.name}" is already running in ${tournament.name} — pick a different game.`, code: 'ALREADY_ACTIVE' });
+            return res.status(409).json({ error: `"${resolvedName}" is already running in ${tournament.name} — pick a different game.`, code: 'ALREADY_ACTIVE' });
         }
 
         if (pendingPick) {
@@ -1026,7 +956,7 @@ router.post('/:roomId/pick-game', pickLimiter, requireDiscordUser, requireNotBan
                     if (credsForPick) {
                         const { IScoredSessionRegistry } = await import('../../engine/IScoredSessionRegistry.js');
                         iscoredId = await IScoredSessionRegistry.getInstance().withSession(credsForPick, async (client) => {
-                            const id = await client.createGame(gameLibEntry.name, styleId);
+                            const id = await client.createGame(resolvedName, styleId);
                             await client.setGameTags(id, tournament.type);
                             await client.setGameStatus(id, { locked: false, hidden: false });
                             return id;
@@ -1036,31 +966,31 @@ router.post('/:roomId/pick-game', pickLimiter, requireDiscordUser, requireNotBan
 
                 // Delete the pending pick placeholder and activate the real game
                 await db.run('DELETE FROM games WHERE id = ?', pendingPick.id);
-                await engine.activateGame(tournamentId, gameLibEntry.name, styleId, iscoredId, false);
+                await engine.activateGame(tournamentId, resolvedName, styleId, iscoredId, false);
 
                 // Reorder iScored lineup in background, scoped to this room.
                 if (hasCredentials) {
                     engine.reorderIScoredLineup(roomId).catch(() => {});
                 }
 
-                logInfo(`Web pick (activated): ${req.user!.username} picked ${gameLibEntry.name} for ${tournament.name}`);
-                return res.json({ status: 'activated', gameName: gameLibEntry.name, tournamentName: tournament.name });
+                logInfo(`Web pick (activated): ${req.user!.username} picked ${resolvedName} for ${tournament.name}`);
+                return res.json({ status: 'activated', gameName: resolvedName, tournamentName: tournament.name });
             } else {
                 // All slots full — update placeholder to real game name (will activate at next maintenance)
                 await db.run(
                     'UPDATE games SET name = ?, style_id = ? WHERE id = ?',
-                    gameLibEntry.name, styleId || null, pendingPick.id
+                    resolvedName, styleId || null, pendingPick.id
                 );
 
-                logInfo(`Web pick (queued, slots full): ${req.user!.username} picked ${gameLibEntry.name} for ${tournament.name}`);
-                return res.json({ status: 'queued', gameName: gameLibEntry.name, tournamentName: tournament.name });
+                logInfo(`Web pick (queued, slots full): ${req.user!.username} picked ${resolvedName} for ${tournament.name}`);
+                return res.json({ status: 'queued', gameName: resolvedName, tournamentName: tournament.name });
             }
         } else {
             // No pending pick — queue the game for next time
-            await engine.queueGame(tournamentId, gameLibEntry.name, styleId, undefined, discordId);
+            await engine.queueGame(tournamentId, resolvedName, styleId, undefined, discordId);
 
-            logInfo(`Web pick (queued): ${req.user!.username} queued ${gameLibEntry.name} for ${tournament.name}`);
-            return res.json({ status: 'queued', gameName: gameLibEntry.name, tournamentName: tournament.name });
+            logInfo(`Web pick (queued): ${req.user!.username} queued ${resolvedName} for ${tournament.name}`);
+            return res.json({ status: 'queued', gameName: resolvedName, tournamentName: tournament.name });
         }
     } catch (error) {
         logError('API Error (POST rooms/:roomId/pick-game):', error);
@@ -1495,6 +1425,29 @@ router.delete('/:roomId/admin/style-profiles/:id', requireAuth, requireRoomAcces
     }
 });
 
+// Read one player's stored disposition, admin-side. The self-service GET
+// above answers only for the caller; the admin on-behalf PUT/DELETE shipped
+// without a read partner, which is why the web UI for them could not exist
+// until now (v2.121.0).
+router.get('/:roomId/admin/tournaments/:tournamentId/pick-disposition/:forUserId', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const db = await getDatabase();
+        const roomId = req.params.roomId as string;
+        const tournamentId = req.params.tournamentId as string;
+        const forUserId = req.params.forUserId as string;
+
+        const tournament = await db.get('SELECT id FROM tournaments WHERE id = ? AND game_room_id = ?', tournamentId, roomId);
+        if (!tournament) return res.status(404).json({ error: 'Tournament not found in this room' });
+
+        const { PickDispositionService } = await import('../../services/PickDispositionService.js');
+        const row = await PickDispositionService.get(tournamentId, forUserId);
+        res.json({ disposition: row ? { disposition: row.disposition, nomineeDiscordId: row.nominee_discord_id } : null });
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/admin/tournaments/:tournamentId/pick-disposition/:forUserId):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 router.put('/:roomId/admin/tournaments/:tournamentId/pick-disposition', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
     try {
         const validationResult = validate(AdminSetPickDispositionSchema, req.body);
@@ -1568,6 +1521,116 @@ router.delete('/:roomId/admin/tournaments/:tournamentId/pick-disposition/:forUse
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
+
+// --- Admin queue-on-behalf (v2.121.0) ---
+//
+// Owner ask (2026-08-20): "I won't be around to pick but I want Medieval
+// Madness if I win" — an admin relays that into the player's own queue. The
+// on-behalf twin of the player's `POST /:roomId/pick-game` queue branch, and
+// the sibling of the pick-disposition on-behalf routes above.
+//
+// It always QUEUES: no placeholder fulfilment, no immediate activation, no
+// iScored creation. An absent player's stated preference is "if I win", which
+// is exactly what a queue row means; activating on their behalf would start a
+// round nobody asked for. `PickQueueService` runs the identical eligibility
+// pipeline the player path runs (mode, platform rules, cooldown, max-5 cap)
+// plus a duplicate guard, so an admin can never put a row in a queue the
+// player couldn't have put there themselves.
+router.post('/:roomId/admin/tournaments/:tournamentId/queue', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const validationResult = validate(AdminQueueOnBehalfSchema, req.body);
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+
+        const roomId = req.params.roomId as string;
+        const tournamentId = req.params.tournamentId as string;
+        const { forUserId, gameName } = validationResult.data;
+
+        const result = await queueGameOnBehalf({ roomId, tournamentId, gameName, forUserId });
+        if (!result.ok) return res.status(result.status).json({ error: result.message, code: result.reason });
+
+        await AuditService.log({
+            actor: req.user!.discordId || req.user!.username || 'admin',
+            action: 'pick.queue_on_behalf',
+            target_type: 'tournament',
+            target_id: tournamentId,
+            details: JSON.stringify({ forUserId, gameName: result.game.name, tournamentId }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
+        // Courtesy DM — never allowed to fail the request.
+        trackBackground(notifyQueuedOnBehalf({
+            forUserId, roomId, tournamentName: result.tournament.name, gameName: result.game.name,
+        })).catch(() => {});
+
+        logInfo(`Admin queue-on-behalf: ${req.user!.username} queued ${result.game.name} for ${forUserId} in ${result.tournament.name}`);
+        res.json({ game: result.game, tournament: result.tournament, queue: result.queue });
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/admin/tournaments/:tournamentId/queue):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Admin removal of a queued row — the on-behalf twin of the player's
+// `DELETE /:roomId/queue/:gameId`. Same shape (QUEUED, not a placeholder,
+// room-owned) minus the `picker_discord_id === me` ownership clause, which is
+// the entire point: an admin may clear anyone's queued pick.
+router.delete('/:roomId/admin/tournaments/:tournamentId/queue/:gameId', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const db = await getDatabase();
+        const roomId = req.params.roomId as string;
+        const tournamentId = req.params.tournamentId as string;
+        const gameId = req.params.gameId as string;
+
+        const game = await db.get(
+            `SELECT g.id, g.name, g.picker_discord_id, g.tournament_id, t.game_room_id
+             FROM games g JOIN tournaments t ON g.tournament_id = t.id
+             WHERE g.id = ? AND g.status = 'QUEUED' AND g.name != '[Pending Pick]'`,
+            gameId,
+        );
+        if (!game) return res.status(404).json({ error: 'Queued game not found' });
+        if (game.game_room_id !== roomId) return res.status(403).json({ error: 'Game does not belong to this room' });
+        if (game.tournament_id !== tournamentId) return res.status(404).json({ error: 'Queued game not found in this tournament' });
+
+        await db.run('DELETE FROM games WHERE id = ?', gameId);
+
+        await AuditService.log({
+            actor: req.user!.discordId || req.user!.username || 'admin',
+            action: 'pick.queue_remove_on_behalf',
+            target_type: 'tournament',
+            target_id: tournamentId,
+            details: JSON.stringify({ forUserId: game.picker_discord_id, gameName: game.name, gameId }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
+        logInfo(`Admin queue removal: ${req.user!.username} removed queued game ${gameId} (${game.name})`);
+        res.json({ success: true, queue: await getPlayerQueue(tournamentId, game.picker_discord_id) });
+    } catch (error) {
+        logError('API Error (DELETE rooms/:roomId/admin/tournaments/:tournamentId/queue/:gameId):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// The player's current queue for one tournament, admin-side (powers the
+// queue-on-behalf panel's "what have they already picked?" list).
+router.get('/:roomId/admin/tournaments/:tournamentId/queue/:forUserId', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const db = await getDatabase();
+        const roomId = req.params.roomId as string;
+        const tournamentId = req.params.tournamentId as string;
+        const forUserId = req.params.forUserId as string;
+
+        const tournament = await db.get('SELECT id FROM tournaments WHERE id = ? AND game_room_id = ?', tournamentId, roomId);
+        if (!tournament) return res.status(404).json({ error: 'Tournament not found in this room' });
+
+        res.json({ queue: await getPlayerQueue(tournamentId, forUserId) });
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/admin/tournaments/:tournamentId/queue/:forUserId):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 
 // v2.9x — shared query-param reader for the two filterable stats endpoints
 // below (enhanced/players, games-activity), so their `type`/`from`/`to`

@@ -6,6 +6,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.121.0] — unreleased
+
+**Admins can now queue a pick — or set a pick disposition — on a player's behalf, and `/view-selection` became `/view-queue`.** Owner, reviewing the slash commands on the RTX server: `/view-selection` listed *everyone's* queue plus "the first 10 catalogue titles alphabetically" (useless), and there was no way for an admin to act for a player who says "I won't be around tonight — I want Medieval Madness if I win" or "pass my pick to Leon".
+
+### Added
+- **Admin queue-on-behalf.** `POST /:roomId/admin/tournaments/:tournamentId/queue` `{forUserId, gameName}` runs the EXACT eligibility gate the player's own `/pick-game` queue path runs (tournament active + pick-award enabled, catalogue match, mode, platform rules, cooldown, max-5 cap — now shared in `PickQueueService.checkPickQueueEligibility` with typed reasons; the player route calls the same helper, behaviour unchanged and test-pinned), attributes the row to the player (`picker_discord_id`), audits (`pick.queue_on_behalf`) and DMs the player ("An admin in <room> queued **<game>** for you…", never fails the request). Companion `DELETE …/queue/:gameId` and `GET …/queue/:forUserId`. Only ever queues — never activates, never touches iScored.
+- **Slash:** `/nominate-picker queue tournament-id for-user game` (admin-only, guild-scoped; `game` autocomplete is the same helper `/pick-game` uses — `src/discord/gameAutocomplete.ts` — so the two lists cannot drift).
+- **Web:** "Pick on behalf of a player" card on the room-admin **Game States** page: tournament → member picker → game search with cooldown labels → the player's current queue with remove → **and the disposition-on-behalf controls** (give their pick to…, forfeit to runner-up, roll the dice). The disposition endpoints had shipped in v2.96.0 with no web surface at all; a missing `GET …/pick-disposition/:forUserId` read route was added so a UI could exist.
+- **`/view-queue`** replaces `/view-selection`: only the invoking player's queued games, grouped by tournament (name + Tag) in engine queue order, `[Pending Pick]` placeholders excluded, and a per-room "Visit your Arcaid game room here: <url>/picks to view all of the pick options for this tournament." link (`PUBLIC_URL`-aware via the new `src/utils/publicLinks.ts`). Empty → "Your queue is empty." + link. The old command name disappears at boot (global re-registration).
+
+### Changed
+- Docs listing live slash commands (README, FEATURES, HOW-TO-GUIDE, quick-spinup script, CLAUDE.md) now say `/view-queue`.
+
+### Tests
+- `admin-queue-on-behalf.test.ts` (11), `view-queue-command.test.ts` (11), +3 guild-scope cases for the new subcommand, FE `AdminPickOnBehalf.test.tsx` (4). Suites 2129 / 956.
+
 ## [2.120.2] — unreleased
 
 **The last cross-room residue in slash commands.** Follow-up to v2.120.1 (owner: every command is per-server).

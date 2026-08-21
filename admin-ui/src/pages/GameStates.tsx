@@ -4,6 +4,7 @@ import { useRoom } from '../contexts/RoomContext';
 import NeonCard from '../components/NeonCard';
 import NeonButton from '../components/NeonButton';
 import LoadingState from '../components/LoadingState';
+import AdminPickOnBehalf from '../components/AdminPickOnBehalf';
 import { AlertTriangle, Trash2, XCircle, RefreshCw, Play, Lock, EyeOff, Plus, Zap, Recycle } from 'lucide-react';
 
 interface GameState {
@@ -75,8 +76,9 @@ export default function GameStates() {
     options?: { label: string; key: string; checked: boolean }[];
   } | null>(null);
 
-  // Tournament list for force-maintenance
-  const [tournaments, setTournaments] = useState<{ id: string; name: string }[]>([]);
+  // Tournament list for force-maintenance + the pick-on-behalf panel (which
+  // only offers ACTIVE tournaments — the queue endpoint requires is_active).
+  const [tournaments, setTournaments] = useState<{ id: string; name: string; is_active?: number | boolean }[]>([]);
 
   // iScored reconcile modal state
   const [reconcile, setReconcile] = useState<{ loading: boolean; plan: ReconcilePlan | null; selected: Set<string>; running: boolean } | null>(null);
@@ -106,7 +108,7 @@ export default function GameStates() {
     : games.filter(g => g.status === filter);
 
   useEffect(() => {
-    api.get<{ id: string; name: string }[]>(`/rooms/${room.roomId}/tournaments`)
+    api.get<{ id: string; name: string; is_active?: number | boolean }[]>(`/rooms/${room.roomId}/tournaments`)
       .then(data => setTournaments(data))
       .catch(() => {});
   }, [room.roomId]);
@@ -387,6 +389,12 @@ export default function GameStates() {
           </div>
         </NeonCard>
       )}
+
+      {/* Pick on behalf of a player (v2.121.0) */}
+      <AdminPickOnBehalf
+        roomId={room.roomId}
+        tournaments={tournaments.filter(t => t.is_active !== 0 && t.is_active !== false).map(t => ({ id: t.id, name: t.name }))}
+      />
 
       {/* Games table */}
       <NeonCard>

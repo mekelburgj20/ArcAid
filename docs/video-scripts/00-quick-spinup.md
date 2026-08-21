@@ -84,7 +84,7 @@ Format: beat sheet, not teleprompter. Key lines are quoted; everything else is d
 **Beats:**
 - **Score submission from Discord** — `/submit-score`, photo attached, platform autofilled when there's only one.
 - **Game picking from Discord** — `/pick-game` mirrors the web flow including queue behavior.
-- **Personal stats and lookups** — `/my-stats`, `/list-scores`, `/list-active`, `/list-winners`, `/view-stats`, `/view-selection`.
+- **Personal stats and lookups** — `/my-stats`, `/list-scores`, `/list-active`, `/list-winners`, `/view-stats`, `/view-queue`.
 - **DM notifications**, all opt-in and rate-limited: tournament win, your turn to pick, tournament starting, your rank got dethroned, a friend posted a score.
 - **Channel embeds** for picker prompts and announcements are color-coded by cadence — daily gold, weekly blue, monthly purple, custom green.
 

@@ -7,17 +7,13 @@ import { TournamentEngine } from '../../engine/TournamentEngine.js';
 // IScoredClient construction is owned by IScoredSessionRegistry.
 import { checkCooldown } from '../../utils/cooldown.js';
 import { getTournamentColor } from '../../utils/discord.js';
-import {
-    passesplatformRules, parsePlatformsList, parseTournamentRules,
-    emptyTournamentRules, resolveSubmittablePlatforms, type TournamentRules,
-} from '../../utils/platformRules.js';
 import { PickAwardGate, PICK_AWARD_DISABLED_REPLY } from '../../services/PickAwardGate.js';
 import { catalogueTypeMatchesTournamentMode } from '../../utils/tournamentMode.js';
 import { BanService } from '../../services/BanService.js';
 import { PickDispositionService, SelfNominationError } from '../../services/PickDispositionService.js';
 import { resolveSubmissionPlayerId } from '../../utils/submissionAttribution.js';
 import { trackBackground } from '../../utils/backgroundTasks.js';
-import { rankName } from '../../utils/searchRank.js';
+import { buildGameAutocompleteChoices, type AutocompleteTournament } from '../gameAutocomplete.js';
 import { resolveGuildReadScope, buildGuildScopedRoomSqlFilter } from '../../utils/discordRoomFilter.js';
 import { v4 as uuidv4 } from 'uuid';
 // TODO(§8): gate /mystery-award when that command is authored (Q6 — out of scope for Sprint 5).
@@ -119,95 +115,19 @@ export const pickgame: Command = {
         }
         else if (focusedOption.name === 'game') {
             const selectedTournamentName = interaction.options.getString('tournament');
-            let tournamentId: string | null = null;
-            let tournamentMode: string | null = null;
-            let tournamentRoomId: string | null = null;
-            let platformRules: TournamentRules = emptyTournamentRules();
+            let tournamentRow: AutocompleteTournament | null = null;
 
             if (selectedTournamentName) {
-                const tournamentRow = await db.get(
+                const row = await db.get(
                     `SELECT t.id, t.type, t.mode, t.platform_rules, t.game_room_id FROM tournaments t
                      WHERE t.name = ? COLLATE NOCASE ${scopeFilter}`,
                     selectedTournamentName, ...scopeParams,
                 );
-                if (tournamentRow) {
-                    tournamentId = tournamentRow.id;
-                    tournamentMode = tournamentRow.mode;
-                    tournamentRoomId = tournamentRow.game_room_id;
-                    platformRules = parseTournamentRules(tournamentRow);
-                }
+                if (row) tournamentRow = row;
             }
 
-            // Fetch the catalogue for autocomplete (one row per name).
-                // `MIN(features)` alongside `MIN(platforms)`: the device axis
-                // reads availability out of `features` post-fold (ADR 0016
-                // catalogue phase §4). Both are MIN over a name-group for the
-                // same pre-existing reason — variants are collapsed for
-                // autopick and one row has to stand for the name.
-            const rows = await db.all(`
-                SELECT name, MIN(type) AS mode, MIN(platforms) AS platforms, MIN(features) AS features
-                FROM global_games WHERE status = 'approved'
-                GROUP BY LOWER(name)
-            `);
-
-            // Pre-load this room's tag map (name → tags) so the platform-rule
-            // filter unions room tags into each game's effective platforms.
-            // Single query — much cheaper than per-game lookup at autocomplete
-            // latencies.
-            let tagMap: Map<string, string[]> = new Map();
-            if (tournamentRoomId) {
-                const { RoomGameTagsService } = await import('../../services/RoomGameTagsService.js');
-                tagMap = await RoomGameTagsService.getTagMapByGameNameForRoom(tournamentRoomId);
-            }
-
-            let choices = rows;
-
-            // Filter by tournament mode. `catalogueTypeMatchesTournamentMode`
-            // bridges tournament.mode ('videogame') against global_games.type
-            // ('video_game' | 'arcade') — see src/utils/tournamentMode.ts.
-            if (tournamentMode) {
-                choices = choices.filter(r => catalogueTypeMatchesTournamentMode(r.mode, tournamentMode));
-            }
-
-            // Filter by platform rules + the v2.102.2 no-submittable-platform
-            // hide (mirrors game-availability's JS gate exactly: a game whose
-            // EVERY platform the rules exclude can be picked but never scored,
-            // so it stays out of the list; a game merely CARRYING an excluded
-            // platform — e.g. a real machine with a VPXS port in a VPXS
-            // tournament — stays IN, per ADR 0009's excluded-is-not-eligibility).
-            choices = choices.filter(r => {
-                const cataloguePlatforms = parsePlatformsList(r.platforms || '[]');
-                const tags = tagMap.get(r.name.toLowerCase()) || [];
-                const gamePlatforms = [...cataloguePlatforms, ...tags];
-                if (!passesplatformRules(gamePlatforms, platformRules, parsePlatformsList(r.features || '[]'))) return false;
-                // Platform-less placeholder rows: nothing for exclusions to
-                // remove — same guard as game-availability's JS gate.
-                return gamePlatforms.length === 0 || resolveSubmittablePlatforms(gamePlatforms, platformRules).length > 0;
-            });
-
-            // Filter by what the user is currently typing, ranked
-            // nearest-exact-match first (search-relevance work package,
-            // 2026-08-13) before slicing to Discord's 25-choice cap.
-            const filtered = choices
-                .filter(r => r.name.toLowerCase().includes(focusedOption.value.toLowerCase()))
-                .sort((a, b) => {
-                    const diff = rankName(a.name, focusedOption.value) - rankName(b.name, focusedOption.value);
-                    return diff !== 0 ? diff : a.name.localeCompare(b.name);
-                })
-                .slice(0, 25);
-
-            // Check eligibility for display labels
-            const engine = TournamentEngine.getInstance();
-            const results = await Promise.all(filtered.map(async (r) => {
-                if (!tournamentId) return { name: r.name, label: r.name };
-                const eligible = await engine.isGameEligible(tournamentId, r.name);
-                const label = eligible ? r.name : `${r.name} (recently played)`;
-                return { name: r.name, label };
-            }));
-
-            await interaction.respond(
-                results.map(r => ({ name: r.label, value: r.name }))
-            );
+            // Shared with `/nominate-picker queue` — see src/discord/gameAutocomplete.ts.
+            await interaction.respond(await buildGameAutocompleteChoices(tournamentRow, focusedOption.value));
         }
     },
 

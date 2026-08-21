@@ -11,7 +11,7 @@ import {
 } from '../utils/discordRoomFilter.js';
 import { listactive } from '../discord/commands/listactive.js';
 import { listwinners } from '../discord/commands/listwinners.js';
-import { viewselection } from '../discord/commands/viewselection.js';
+import { viewqueue } from '../discord/commands/viewqueue.js';
 import { listscores } from '../discord/commands/listscores.js';
 import { viewstats } from '../discord/commands/viewstats.js';
 import { runcleanup } from '../discord/commands/runcleanup.js';
@@ -315,18 +315,22 @@ describe('read commands — end-to-end guild scoping', () => {
         expect(text).not.toContain('Winner Game B');
     });
 
-    it('/view-selection scopes queued games to the invoking guild', async () => {
-        await seedRoom({
+    // v2.121.0 — `/view-selection` became `/view-queue`: it shows only the
+    // INVOKER's queue, so the seeded rows have to carry their picker id.
+    it("/view-queue scopes the invoker's queued games to the invoking guild", async () => {
+        const a = await seedRoom({
             slug: 'queue-a', guildId: GUILD_A, tournamentName: 'Queue Cup A',
             gameName: 'Queued Game A', status: 'QUEUED',
         });
-        await seedRoom({
+        const b = await seedRoom({
             slug: 'queue-b', guildId: GUILD_B, tournamentName: 'Queue Cup B',
             gameName: 'Queued Game B', status: 'QUEUED',
         });
+        const db = await getDatabase();
+        await db.run("UPDATE games SET picker_discord_id = 'scope-user-1' WHERE id IN (?, ?)", a.gameId, b.gameId);
 
         const { interaction, replies } = makeInteraction(GUILD_A);
-        await viewselection.execute(interaction);
+        await viewqueue.execute(interaction);
 
         const text = replyText(replies);
         expect(text).toContain('Queued Game A');
@@ -526,6 +530,93 @@ describe('admin commands — guild gate (cross-room WRITE closures)', () => {
         const text = replyText(replies);
         expect(text).not.toContain(DISCORD_FOREIGN_TOURNAMENT_MESSAGE);
         expect(text).toContain('Cleared');
+    });
+
+    // --- /nominate-picker queue (v2.121.0, admin queue-on-behalf) ---
+
+    /** An approved catalogue row so the shared pick pipeline can resolve a name. */
+    async function seedCatalogueGame(name: string) {
+        const db = await getDatabase();
+        await db.run(
+            `INSERT INTO global_games (id, name, type, platforms, features, status)
+             VALUES (?, ?, 'pinball', '["vpx"]', '[]', 'approved')`,
+            `gg-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`, name,
+        );
+    }
+
+    it('/nominate-picker queue puts the game in the TARGET player’s queue', async () => {
+        const own = await seedRoom({ slug: 'nom-queue-own', guildId: GUILD_A, tournamentName: 'Queue Cup', gameName: 'OG' });
+        const db = await getDatabase();
+        await db.run('UPDATE tournaments SET winner_picks = 1 WHERE id = ?', own.tournamentId);
+        await seedCatalogueGame('Medieval Madness');
+
+        const { interaction, replies } = makeInteraction(GUILD_A, {
+            id: 'interaction-nom-queue-1',
+            options: {
+                getSubcommand: () => 'queue',
+                getString: (name: string) => (name === 'tournament-id' ? own.tournamentId : 'Medieval Madness'),
+                getUser: () => ({ id: 'target-player-1', toString: () => '<@target-player-1>' }),
+            },
+            user: { id: 'admin-q1', tag: 'admin#0', toString: () => '<@admin-q1>' },
+        });
+        await nominatepicker.execute(interaction);
+
+        expect(replyText(replies)).toContain('Medieval Madness');
+        const row = await db.get(
+            `SELECT picker_discord_id, status FROM games WHERE tournament_id = ? AND name = 'Medieval Madness'`,
+            own.tournamentId,
+        );
+        expect(row.picker_discord_id).toBe('target-player-1');
+        expect(row.status).toBe('QUEUED');
+    });
+
+    it('/nominate-picker queue refuses a tournament belonging to another guild room', async () => {
+        const foreign = await seedRoom({ slug: 'nom-queue-foreign', guildId: GUILD_B, tournamentName: 'Foreign Queue Cup', gameName: 'FG' });
+        const db = await getDatabase();
+        await db.run('UPDATE tournaments SET winner_picks = 1 WHERE id = ?', foreign.tournamentId);
+        await seedCatalogueGame('Attack From Mars');
+
+        const { interaction, replies } = makeInteraction(GUILD_A, {
+            id: 'interaction-nom-queue-2',
+            options: {
+                getSubcommand: () => 'queue',
+                getString: (name: string) => (name === 'tournament-id' ? foreign.tournamentId : 'Attack From Mars'),
+                getUser: () => ({ id: 'target-player-2', toString: () => '<@target-player-2>' }),
+            },
+            user: { id: 'admin-q2', tag: 'admin#0', toString: () => '<@admin-q2>' },
+        });
+        await nominatepicker.execute(interaction);
+
+        expect(replyText(replies)).toContain(DISCORD_FOREIGN_TOURNAMENT_MESSAGE);
+        expect(await db.get(`SELECT id FROM games WHERE name = 'Attack From Mars'`)).toBeUndefined();
+    });
+
+    it('/nominate-picker queue game autocomplete is guild scoped', async () => {
+        const own = await seedRoom({ slug: 'nom-ac-own', guildId: GUILD_A, tournamentName: 'AC Own Cup', gameName: 'OG' });
+        const foreign = await seedRoom({ slug: 'nom-ac-foreign', guildId: GUILD_B, tournamentName: 'AC Foreign Cup', gameName: 'FG' });
+        await seedCatalogueGame('Autocomplete Table');
+
+        const focus = { name: 'game', value: 'Auto' };
+
+        const inScope = makeInteraction(GUILD_A, {
+            options: {
+                getFocused: () => focus,
+                getString: () => own.tournamentId,
+                getUser: () => null,
+            },
+        });
+        await nominatepicker.autocomplete!(inScope.interaction);
+        expect(replyText(inScope.replies)).toContain('Autocomplete Table');
+
+        const outOfScope = makeInteraction(GUILD_A, {
+            options: {
+                getFocused: () => focus,
+                getString: () => foreign.tournamentId,
+                getUser: () => null,
+            },
+        });
+        await nominatepicker.autocomplete!(outOfScope.interaction);
+        expect(outOfScope.replies).toEqual([[]]);
     });
 
     it('/pause-pick rejects a tournament belonging to another guild room and injects nothing', async () => {
