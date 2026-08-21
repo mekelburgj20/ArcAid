@@ -5604,7 +5604,7 @@ router.post('/:roomId/admin/join-requests/:id/deny', requireAuth, requireRoomAcc
     }
 });
 
-// --- Room-tier bans (v2.49.0, tmp/room-bans-contract.md) ---
+// --- Room-tier bans (v2.49.0, docs/contracts/room-bans-contract.md) ---
 // v2.49.0 fix-round (#2) — NOT auto-audited. The app-level auditLog
 // middleware (server.ts `app.use('/api/', auditLog)`) is mounted BEFORE the
 // routers, so it runs before `requireAuth` has set `req.user` and early-

@@ -5,7 +5,7 @@ import { setupTestDb, createTestRoom } from './helpers.js';
 import { getDatabase } from '../database/database.js';
 import { signToken } from '../api/auth.js';
 
-// S22 Phase 1 content moderation (v2.43.0, tmp/s22-moderation-contract.md) —
+// S22 Phase 1 content moderation (v2.43.0, docs/contracts/s22-moderation-contract.md) —
 // covers the new content_reports table: room reports + player-name reports,
 // the anti-spam partial-unique-index dedup, and the super-admin queue.
 

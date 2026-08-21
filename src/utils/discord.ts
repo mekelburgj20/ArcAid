@@ -233,7 +233,7 @@ const DISCORD_USER_INFO_TTL_MS = 60 * 60 * 1000;
 
 /**
  * Best-effort fetch of a Discord user's current username + global (display)
- * name — v2.49.0, name-resolution follow-up (tmp/room-bans-contract.md
+ * name — v2.49.0, name-resolution follow-up (docs/contracts/room-bans-contract.md
  * Workstream 2). Used as the last-resort fallback when a raw provider id has
  * no `user_profiles` row yet (the admin/user never logged into Arcaid), so an
  * admin-facing list can still show a human name instead of a bare snowflake.

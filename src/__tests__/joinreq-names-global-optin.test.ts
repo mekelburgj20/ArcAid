@@ -8,11 +8,11 @@ import { signToken } from '../api/auth.js';
 import { GameRoomSettingsService } from '../services/GameRoomSettingsService.js';
 import { GlobalScoreService } from '../services/GlobalScoreService.js';
 
-// D1 (v2.40.0) — tmp/joinreq-names-global-optin-contract.md: join-request
+// D1 (v2.40.0) — docs/contracts/joinreq-names-global-optin-contract.md: join-request
 // name resolution (username fallback).
 //
 // D2 was originally v2.40.0's per-room "opt into the Global Scoreboard"
-// toggle for approval-policy rooms. v2.41.0 (tmp/player-governs-global-
+// toggle for approval-policy rooms. v2.41.0 (docs/contracts/player-governs-global-
 // contract.md) removed that room-level gate entirely: whether a room-
 // originated score reaches the Global Scoreboard is now governed ONLY by the
 // pre-existing per-submission `excludeFromGlobal` flag, identically for open

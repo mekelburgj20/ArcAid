@@ -1,7 +1,7 @@
 /**
  * ArcaidLogoAnimated — "Delta House Chrome" animated wordmark (v2.45.0).
  *
- * Faithful port of tmp/Arcaid Delta House Chrome - Final.html (an
+ * Faithful port of docs/design-sources/arcaid-delta-house-chrome-final.html (an
  * artifact-bundler export). The original is a fixed 620x560 composition:
  * a neon-pink double-triangle SVG rotated -15deg behind a chrome "ARCAıD"
  * wordmark, with pink/cyan "glitch-ghost" duplicate layers that nudge out
@@ -23,7 +23,7 @@
  *
  * ─── LIGHT VARIANT (v2.60.0) ───
  *
- * Port of `tmp/Arcaid Light-Logo Redesign Directions/assets/light/README.txt`.
+ * Port of `docs/design-sources/light-logo/README.txt`.
  * Same 620x560 sign canvas, same crop, same glitch keyframes and cadence — the
  * artwork differences are exactly the five the pack lists:
  *

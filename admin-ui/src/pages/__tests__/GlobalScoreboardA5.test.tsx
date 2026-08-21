@@ -9,7 +9,7 @@ import GlobalScoreboard from '../GlobalScoreboard';
 
 /**
  * v2.57.0 (A5a) — hero card, Top 6 / My Score density toggle, live indicator
- * (tmp/global-scoreboard-a5a-contract.md).
+ * (docs/contracts/global-scoreboard-a5a-contract.md).
  *
  * The page is exercised end-to-end rather than the components in isolation,
  * because the two things most likely to break are page-level: the toggle must

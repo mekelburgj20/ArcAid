@@ -1409,7 +1409,7 @@ export class TournamentEngine {
         //
         // Queues are now PER PLAYER — "my pick if I win", never a room-level
         // play-next list — and `pickResolution.resolvePick` is the single
-        // decision point. See tmp/pick-delegation-contract.md.
+        // decision point. See docs/contracts/pick-delegation-contract.md.
 
         // Sweep genuinely ORPHANED picker placeholders (their won game is gone).
         // A placeholder belonging to a different LIVE slot is deliberately left

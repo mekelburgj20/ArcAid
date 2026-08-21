@@ -9,7 +9,7 @@ import { HERO_MIN_WEEKLY_SCORES } from '../services/GlobalLeaderboardService.js'
 
 /**
  * v2.57.0 (Track A, phase A5a) — the Global Scoreboard hero card
- * (tmp/global-scoreboard-a5a-contract.md).
+ * (docs/contracts/global-scoreboard-a5a-contract.md).
  *
  * The interesting behaviour under test is the DELIBERATE deviation from the
  * design handoff: the hero only claims `HOT` when the trailing-7-day leader

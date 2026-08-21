@@ -6,7 +6,7 @@ import { signToken } from '../api/auth.js';
 import { getDatabase } from '../database/database.js';
 import { RoomMembershipService } from '../services/RoomMembershipService.js';
 
-// v2.38.0 — explicit room join/leave contract (tmp/join-leave-contract.md).
+// v2.38.0 — explicit room join/leave contract (docs/contracts/join-leave-contract.md).
 // POST/DELETE /api/me/rooms/:roomId, RoomMembershipService source='self_join'.
 
 async function createTestApp() {

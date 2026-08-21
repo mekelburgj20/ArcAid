@@ -8,7 +8,7 @@ const DISMISSED_KEY = 'arcaid_tutorial_dismissed';
 const START_DELAY_MS = 600;
 
 /**
- * v2.48.0 — first-login player tutorial (tmp/first-login-tutorial-contract.md).
+ * v2.48.0 — first-login player tutorial (docs/contracts/first-login-tutorial-contract.md).
  * Mounted inside PublicLayout's resolved-room branch (after the RoomJoinGate
  * resolves), so a gated/suspended/loading room never shows it. Owns only the
  * *gating* decision — whether the tour should render at all; TourOverlay owns

@@ -22,7 +22,7 @@ import { IdentityLinkService } from './IdentityLinkService.js';
  * different canonical than itself resolves to) handles "banned id is a
  * sibling alias" direction.
  *
- * v2.49.0 (room-tier bans, tmp/room-bans-contract.md) — `isIdentityBanned`
+ * v2.49.0 (room-tier bans, docs/contracts/room-bans-contract.md) — `isIdentityBanned`
  * takes an optional `gameRoomId`. Omitted/null preserves every pre-existing
  * call site's behavior exactly: global bans only (`game_room_id IS NULL`).
  * Passed: `(game_room_id IS NULL OR game_room_id = ?)` — a global ban still
@@ -106,7 +106,7 @@ export class BanService {
     }
 
     /**
-     * v2.49.0 fix-round (tmp/room-bans-fixes.md #3) — the full link-graph
+     * v2.49.0 fix-round (docs/contracts/room-bans-fixes.md #3) — the full link-graph
      * expansion for `providerUserId`, extracted out of `computeIsIdentityBanned`
      * so it's the ONE source of truth for "every identity this could be."
      * `computeIsIdentityBanned` uses it internally; callers that need to

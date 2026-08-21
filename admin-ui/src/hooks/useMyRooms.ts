@@ -28,7 +28,7 @@ export interface UseMyRoomsResult {
 
 /**
  * Shared "My Game Rooms" membership state + explicit join/leave mutations
- * (v2.38.0 join-leave contract, tmp/join-leave-contract.md). Extracted so
+ * (v2.38.0 join-leave contract, docs/contracts/join-leave-contract.md). Extracted so
  * LandingPage (bookmark toggle on room cards) and PublicLayout (room-page
  * join/leave affordance) share one fetch + one optimistic-update strategy
  * instead of duplicating the /api/me/rooms plumbing.

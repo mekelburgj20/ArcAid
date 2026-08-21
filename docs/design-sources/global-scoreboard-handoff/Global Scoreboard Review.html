@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>ArcAid — Global Scoreboard UX Review</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&family=Press+Start+2P&display=swap" rel="stylesheet" />
+
+<style>
+  :root {
+    /* === Real ArcAid tokens from admin-ui/src/index.css === */
+    --deep: oklch(21.15% 0.012 254.09);
+    --surface: oklch(23.26% 0.014 253.1);
+    --raised: oklch(25.33% 0.016 252.42);
+    --border: oklch(35% 0.02 255);
+    --border-glow: oklch(58% 0.233 277.117);
+
+    --neon-cyan: oklch(74% 0.16 232.661);
+    --neon-magenta: oklch(65% 0.241 354.308);
+    --neon-green: oklch(76% 0.177 163.223);
+    --neon-amber: oklch(82% 0.189 84.429);
+    --neon-purple: oklch(58% 0.233 277.117);
+    --neon-coral: oklch(71% 0.194 13.428);
+
+    --primary: oklch(97.807% 0.029 256.847);
+    --muted: oklch(70% 0.02 255);
+    --faint: oklch(45% 0.015 255);
+
+    --font-display: "Orbitron", sans-serif;
+    --font-pixel: "Press Start 2P", cursive;
+    --font-body: "Inter", sans-serif;
+    --font-mono: "JetBrains Mono", monospace;
+  }
+
+  html, body { margin: 0; background: #f0eee9; }
+  @keyframes blink { 50% { opacity: 0; } }
+</style>
+
+<!-- React + Babel (pinned) -->
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" src="design-canvas.jsx"></script>
+<script type="text/babel" src="components/icons.jsx"></script>
+<script type="text/babel" src="components/shared.jsx"></script>
+<script type="text/babel" src="components/CurrentAnnotated.jsx"></script>
+<script type="text/babel" src="components/DirA_TrimmedCurrent.jsx"></script>
+<script type="text/babel" src="components/DirB_PodiumFirst.jsx"></script>
+<script type="text/babel" src="components/DirC_LeaderboardList.jsx"></script>
+<script type="text/babel" src="components/DirD_BroadcastHero.jsx"></script>
+<script type="text/babel" src="components/DirE_MarqueeWall.jsx"></script>
+<script type="text/babel" src="components/DirD2_Merged.jsx"></script>
+<script type="text/babel" src="components/CardDensity.jsx"></script>
+<script type="text/babel" src="components/ToggleCard.jsx"></script>
+<script type="text/babel" src="components/App.jsx"></script>
+
+<script type="text/babel">
+  const root = ReactDOM.createRoot(document.getElementById('root'));
+  root.render(<App />);
+</script>
+</body>
+</html>

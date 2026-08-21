@@ -19,7 +19,7 @@ interface MyStatsResponse {
 }
 
 /**
- * My Stats v1 (v2.82.0, Identity arc Phase 3 — plan tmp/my-stats-v282-plan.md).
+ * My Stats v1 (v2.82.0, Identity arc Phase 3 — plan docs/contracts/my-stats-v282-plan.md).
  *
  * Built on the MyRooms.tsx skeleton: same logged-out gate + return-path login
  * idiom, same nav header. Entry is account/user-menu ONLY (no global-nav

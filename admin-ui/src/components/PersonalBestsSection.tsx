@@ -6,7 +6,7 @@ import { compareByRank } from '../lib/searchRank';
 
 /**
  * A Personal Best row. Two call sites share this shape (v2.82.0 — moved from
- * PlayerDetail.tsx, see plan decision 5 at tmp/my-stats-v282-plan.md):
+ * PlayerDetail.tsx, see plan decision 5 at docs/contracts/my-stats-v282-plan.md):
  *
  * - PlayerDetail's room-scoped `/stats/enhanced/player/:id` — rows carry
  *   `room_rank`, no `source`/`room_slug`/`room_name`/`global_game_id`. The

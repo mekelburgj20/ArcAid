@@ -935,7 +935,7 @@ export default function Settings() {
         Manage admin accounts for this game room.
       </p>
       {/* v2.49.1 — pointer only; ban management lives on the dedicated Members
-          page now (tmp/members-admin-move-contract.md), not here. */}
+          page now (docs/contracts/members-admin-move-contract.md), not here. */}
       <p className="text-muted text-sm mb-4">
         Managing players (including bans)? See{' '}
         <Link to={`/${room.roomSlug}/admin/members`} className="text-neon-cyan hover:underline">Members</Link>.

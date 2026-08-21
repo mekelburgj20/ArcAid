@@ -9,7 +9,7 @@ import { resolveLeaderboardPlaces } from '../utils/submissionAttribution.js';
 
 /**
  * Pick delegation cascade — owner spec 2026-08-17.
- * Contract: tmp/pick-delegation-contract.md
+ * Contract: docs/contracts/pick-delegation-contract.md
  *
  * The bug these pin down was live in prod on 2026-08-17: the queue was a
  * tournament-global FIFO, so winning activated whoever queued FIRST rather than

@@ -9,9 +9,9 @@ import { GlobalScoreService } from '../services/GlobalScoreService.js';
 import { RoomAccessService } from '../services/RoomAccessService.js';
 import { discordExcludedRoomIds, buildEnabledRoomSqlFilter } from '../utils/discordRoomFilter.js';
 
-// v2.39.0 — approval-rooms leak closures (tmp/approval-rooms-contract.md, D3).
+// v2.39.0 — approval-rooms leak closures (docs/contracts/approval-rooms-contract.md, D3).
 //
-// v2.41.0 (tmp/player-governs-global-contract.md) removed the room-level
+// v2.41.0 (docs/contracts/player-governs-global-contract.md) removed the room-level
 // Global Scoreboard fan-out gate that the "approval-room early return" and
 // "flip-to-approval scrub" describe blocks below used to assert — per-
 // submission `excludeFromGlobal` now governs fan-out uniformly for open and

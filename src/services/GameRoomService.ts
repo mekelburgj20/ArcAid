@@ -219,7 +219,7 @@ export class GameRoomService {
             await db.run('DELETE FROM ranking_groups WHERE game_room_id = ?', id);
             await db.run('DELETE FROM tournaments WHERE game_room_id = ?', id);
             await db.run('UPDATE global_scores SET origin_game_room_id = NULL WHERE origin_game_room_id = ?', id);
-            // v2.49.0 fix-round (tmp/room-bans-fixes.md #12) — user_bans.game_room_id
+            // v2.49.0 fix-round (docs/contracts/room-bans-fixes.md #12) — user_bans.game_room_id
             // is a pseudo-FK (no cascade possible), same as the other columns
             // handled explicitly above. Without this, room-tier bans for a
             // deleted room orphan invisibly (game_room_id pointing at nothing).

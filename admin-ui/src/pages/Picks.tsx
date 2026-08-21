@@ -777,7 +777,7 @@ export default function Picks() {
           tournament. One preference, no precedence puzzles.
 
           Lifetime is SPLIT by type (owner ruling — see
-          tmp/pick-delegation-contract.md §5 Q2): "Give my pick to…" fires once
+          docs/contracts/pick-delegation-contract.md §5 Q2): "Give my pick to…" fires once
           and clears, while "Forfeit" and "Roll the dice" stand until changed.
           The copy below says so rather than claiming one rule for all three. */}
       {discordUser && selectedTournamentId && (

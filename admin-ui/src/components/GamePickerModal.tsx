@@ -3,7 +3,7 @@ import { Search, X } from 'lucide-react';
 import NeonButton from './NeonButton';
 import { api } from '../lib/api';
 import { RoomContext } from '../contexts/RoomContext';
-import type { ImageApplyType } from './StylePicker';
+import type { ImageApplyType } from './scoreboard/CardStyleEditor';
 import { compareByRank } from '../lib/searchRank';
 
 interface LeaderboardGame {

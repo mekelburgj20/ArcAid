@@ -3,7 +3,7 @@ import { rankName, compareByRank } from '../searchRank';
 
 /**
  * Search-relevance work package (owner ask 2026-08-13). Pins the tier scheme
- * from `tmp/search-relevance-contract.md` against the owner's own "Strike"
+ * from `docs/contracts/search-relevance-contract.md` against the owner's own "Strike"
  * example set. Mirrors `src/__tests__/searchRank.test.ts` on the backend.
  */
 
