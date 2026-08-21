@@ -70,7 +70,10 @@ export interface CardStyleEditorProps {
   /** `SCOREBOARD_CARD_BG_FILL` — framing renders only on the fill layer, so
    *  with fill off the controls are honest about doing nothing visible. */
   fillOn: boolean;
-  onEnableFill: () => void;
+  /** Flips `SCOREBOARD_CARD_BG_FILL` in the host's room draft. Omitted by
+   *  hosts that have no room draft to flip (the C3 sheet on GameLibrary /
+   *  Tournaments) — the note then just says where the setting lives. */
+  onEnableFill?: () => void;
   showDefaultOption: boolean;
   libraryHasDefault: boolean;
   setAsDefault: boolean;
@@ -335,13 +338,19 @@ export default function CardStyleEditor({
                     Framing has no effect while Card Background Fill is off — the card draws its art in a separate
                     panel instead of behind the scores.
                   </p>
-                  <button
-                    type="button"
-                    onClick={onEnableFill}
-                    className={`${TOUCH} mt-1 px-0 text-[11px] text-neon-cyan underline bg-transparent border-0 cursor-pointer`}
-                  >
-                    Turn Card Background Fill on
-                  </button>
+                  {onEnableFill ? (
+                    <button
+                      type="button"
+                      onClick={onEnableFill}
+                      className={`${TOUCH} mt-1 px-0 text-[11px] text-neon-cyan underline bg-transparent border-0 cursor-pointer`}
+                    >
+                      Turn Card Background Fill on
+                    </button>
+                  ) : (
+                    <p className="mt-1 text-[11px] text-faint">
+                      Turn it on under Display settings on the admin Leaderboard page.
+                    </p>
+                  )}
                 </div>
               )}
 
