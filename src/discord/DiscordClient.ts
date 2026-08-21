@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, Collection, Events, REST, Routes, Message } from 'discord.js';
+import { Client, GatewayIntentBits, Collection, Events, REST, Routes, Message, ChannelType } from 'discord.js';
 import { logInfo, logError, logWarn } from '../utils/logger.js';
 import { emitBotStatus } from '../api/websocket.js';
 import { Command } from './commands/index.js';
@@ -128,6 +128,43 @@ export class DiscordClient {
             // 10007 Unknown Member is the expected "not a member" path; every
             // other failure (rate limit, transport) degrades the same way.
             return false;
+        }
+    }
+
+    /**
+     * The guild's text channels the bot can post in, for the Arcaid Chat
+     * Responses channel picker (v2.125.0).
+     *
+     * Reads the gateway's CHANNEL CACHE, which the non-privileged `Guilds`
+     * intent already populates and keeps current — so this needs no portal
+     * change and costs no API call. Filtered to text and announcement channels
+     * (`GuildText` = 0, `GuildAnnouncement` = 5): voice, forum and category
+     * channels can't carry a chat reply, and offering them would produce a
+     * setting that silently never matches.
+     *
+     * `parent` is the category name, so the picker can render "general" under
+     * "TEXT CHANNELS" the way Discord does. Sorted by category then by
+     * Discord's own `position`, so the list reads in channel-list order.
+     *
+     * Returns an empty array — never throws — when the gateway isn't ready or
+     * the bot isn't in the guild. The ROUTE turns those into a 400 with a
+     * message; here they are simply "nothing to offer".
+     */
+    public listGuildTextChannels(guildId: string): Array<{ id: string; name: string; parent: string | null }> {
+        try {
+            if (!this.client.isReady()) return [];
+            const guild = this.client.guilds.cache.get(guildId);
+            if (!guild) return [];
+            return guild.channels.cache
+                .filter(c => c.type === ChannelType.GuildText || c.type === ChannelType.GuildAnnouncement)
+                .sort((a, b) => {
+                    const parentDiff = (a.parent?.position ?? -1) - (b.parent?.position ?? -1);
+                    if (parentDiff !== 0) return parentDiff;
+                    return (a.position ?? 0) - (b.position ?? 0);
+                })
+                .map(c => ({ id: c.id, name: c.name, parent: c.parent?.name ?? null }));
+        } catch {
+            return [];
         }
     }
 

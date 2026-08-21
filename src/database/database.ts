@@ -2600,6 +2600,51 @@ async function doInitDatabase(): Promise<Database> {
             );
             CREATE INDEX IF NOT EXISTS idx_callouts_order ON callouts(sort_order, id);
         ` },
+        // --- Arcaid Chat Responses: per-entry category (v2.125.0) ---
+        //
+        // Rooms now enable the KINDS of reply they want individually, so every
+        // entry has to declare which kind it is. Four values: 'help' (live
+        // answers + how-tos), 'callouts' (the classic game callouts), 'banter'
+        // (replies about the bot), 'easter_eggs' (the obscure in-jokes).
+        //
+        // The default is 'callouts' at the column level so a row inserted by
+        // anything that predates this migration is still filterable, but the
+        // BACKFILL below is the real classifier and its rule is shared with
+        // `deriveCalloutCategory` in src/utils/callouts.ts — an admin who
+        // re-uploads the legacy JSON (which carries no `category`) gets each
+        // entry back in the same bucket this migration put it in, instead of a
+        // silent collapse to the default. Change one, change the other.
+        //
+        // Order matters and is the owner's: an action entry is `help` whatever
+        // fires it; then bot-directed banter; then the three named Easter eggs;
+        // everything else is an ordinary game callout.
+        { name: '156_callout_category', handler: async (db) => {
+            const columns = (await db.all(`PRAGMA table_info(callouts)`)) as Array<{ name: string }>;
+            if (!columns.some(c => c.name === 'category')) {
+                await db.exec(
+                    `ALTER TABLE callouts ADD COLUMN category TEXT NOT NULL DEFAULT 'callouts'`,
+                );
+            }
+            // Backfill runs unconditionally over rows still sitting on the
+            // column default, so a half-applied migration completes on the next
+            // boot rather than leaving everything filed as 'callouts'.
+            await db.run(
+                `UPDATE callouts SET category = 'help'
+                 WHERE action IS NOT NULL AND category = 'callouts'`,
+            );
+            await db.run(
+                `UPDATE callouts SET category = 'banter'
+                 WHERE action IS NULL AND category = 'callouts'
+                   AND (LOWER(triggers) LIKE '%bot%' OR LOWER(triggers) LIKE '%arcaid%')`,
+            );
+            await db.run(
+                `UPDATE callouts SET category = 'easter_eggs'
+                 WHERE action IS NULL AND category = 'callouts'
+                   AND (LOWER(triggers) LIKE '%seafood%'
+                     OR LOWER(triggers) LIKE '%dork cow%'
+                     OR LOWER(triggers) LIKE '%secret cow%')`,
+            );
+        } },
     ];
 
     for (const migration of migrations) {

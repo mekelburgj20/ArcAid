@@ -182,16 +182,27 @@ function useClient(onBoard?: Array<{ id: string; name: string }>) {
     return fake;
 }
 
+// The env-fallback iScored account (ISCORED_USERNAME/PASSWORD/PUBLIC_URL in a
+// developer's .env) would satisfy "no credentials" rooms and turn the 400 cases
+// into 200s — CI has no .env, a workstation usually does. Pin it per test.
+const ENV_CREDS_KEYS = ['ISCORED_USERNAME', 'ISCORED_PASSWORD', 'ISCORED_PUBLIC_URL'] as const;
+let savedEnvCreds: Record<string, string | undefined> = {};
+
 beforeEach(async () => {
     vi.mocked(logError).mockClear();
     iscoredApi.submitted = [];
     iscoredApi.rejectScoresFor = new Set();
     iscoredApi.throwOnSubmit = null;
     delete process.env.ISCORED_API_ENABLED;
+    savedEnvCreds = {};
+    for (const k of ENV_CREDS_KEYS) { savedEnvCreds[k] = process.env[k]; delete process.env[k]; }
     useClient();
 });
 
 afterEach(async () => {
+    for (const k of ENV_CREDS_KEYS) {
+        if (savedEnvCreds[k] === undefined) delete process.env[k]; else process.env[k] = savedEnvCreds[k];
+    }
     const reg = IScoredSessionRegistry.getInstance();
     reg.setClientFactoryForTests(null);
     await reg.shutdown();

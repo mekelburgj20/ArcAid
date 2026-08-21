@@ -12,7 +12,10 @@ import {
   textToResponses,
   CALLOUT_ACTIONS,
   CALLOUT_ACTION_LABELS,
+  CALLOUT_CATEGORIES,
+  CALLOUT_CATEGORY_LABELS,
   type CalloutAction,
+  type CalloutCategory,
   type CalloutCounts,
   type CalloutEntry,
   type CalloutParseResult,
@@ -23,7 +26,7 @@ const inputClass =
   'w-full px-3 py-2 bg-raised border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan transition-colors';
 
 /**
- * Super-admin Callouts manager (v2.123.0).
+ * Super-admin Arcaid Chat Responses manager (v2.123.0, renamed v2.125.0).
  *
  * The list used to be a git-tracked `data/callouts.json`, so every new table
  * catchphrase was a code change + redeploy. It now lives in the DB and this
@@ -31,13 +34,23 @@ const inputClass =
  * file, upload it back; the inline table is for one-off tweaks (toggle an
  * entry off, fix a typo) without a round-trip through a text editor.
  *
- * Rooms opt in separately: Room Settings → Discord → "Arcaid Callout
- * Responses". Nothing here turns callouts on for anybody.
+ * Every entry carries a CATEGORY (v2.125.0), because rooms enable the kinds of
+ * reply they want individually. The filter and the per-category counts exist so
+ * an admin can answer "how much banter is even in here?" before a room asks.
+ *
+ * Rooms opt in separately: Room Settings → Discord → "Arcaid Chat Responses".
+ * Nothing here turns replies on for anybody.
  */
 export default function CalloutsCard() {
   const { toast } = useToast();
   const [rows, setRows] = useState<CalloutRow[]>([]);
-  const [counts, setCounts] = useState<CalloutCounts>({ total: 0, enabled: 0, disabled: 0, responses: 0, actions: 0 });
+  const [counts, setCounts] = useState<CalloutCounts>({
+    total: 0, enabled: 0, disabled: 0, responses: 0, actions: 0,
+    byCategory: { help: 0, callouts: 0, banter: 0, easter_eggs: 0 },
+  });
+  // '' = show everything. Filtering is display-only: add/replace still operate
+  // on the WHOLE list, so a filtered view can never silently drop entries.
+  const [categoryFilter, setCategoryFilter] = useState<CalloutCategory | ''>('');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
 
@@ -51,6 +64,7 @@ export default function CalloutsCard() {
   const [editTriggers, setEditTriggers] = useState('');
   const [editResponses, setEditResponses] = useState('');
   const [editAction, setEditAction] = useState<CalloutAction | ''>('');
+  const [editCategory, setEditCategory] = useState<CalloutCategory>('callouts');
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
   const load = async () => {
@@ -59,7 +73,7 @@ export default function CalloutsCard() {
       setRows(data.entries);
       setCounts(data.counts);
     } catch {
-      toast('Failed to load callouts', 'error');
+      toast('Failed to load chat responses', 'error');
     } finally {
       setLoading(false);
     }
@@ -72,6 +86,7 @@ export default function CalloutsCard() {
     const entry: CalloutEntry = { triggers: r.triggers };
     if (!r.action || r.responses.length > 0) entry.responses = r.responses;
     if (r.action) entry.action = r.action;
+    entry.category = r.category;
     if (!r.enabled) entry.enabled = false;
     return entry;
   });
@@ -105,7 +120,7 @@ export default function CalloutsCard() {
   const handleReplace = async () => {
     setConfirming(false);
     if (!pending || !pending.result.ok) return;
-    const ok = await putEntries(pending.result.entries, `Replaced with ${pending.result.entries.length} callouts`);
+    const ok = await putEntries(pending.result.entries, `Replaced with ${pending.result.entries.length} chat responses`);
     if (ok) {
       setPending(null);
       if (fileRef.current) fileRef.current.value = '';
@@ -129,6 +144,7 @@ export default function CalloutsCard() {
     setEditTriggers(triggersToText(row.triggers));
     setEditResponses(responsesToText(row.responses));
     setEditAction(row.action ?? '');
+    setEditCategory(row.category);
   };
 
   const saveEdit = async (row: CalloutRow) => {
@@ -139,10 +155,11 @@ export default function CalloutsCard() {
         responses: textToResponses(editResponses),
         // null clears a live-data responder back to a plain static entry.
         action: editAction === '' ? null : editAction,
+        category: editCategory,
       });
       setEditingId(null);
       await load();
-      toast('Callout updated', 'success');
+      toast('Chat response updated', 'success');
     } catch (err) {
       toast((err as Error).message || 'Update failed', 'error');
     } finally {
@@ -156,7 +173,7 @@ export default function CalloutsCard() {
     try {
       await api.delete(`/admin/callouts/${id}`);
       await load();
-      toast('Callout deleted', 'success');
+      toast('Chat response deleted', 'success');
     } catch (err) {
       toast((err as Error).message || 'Delete failed', 'error');
     } finally {
@@ -169,7 +186,7 @@ export default function CalloutsCard() {
   const handleAdd = async () => {
     const added = await putEntries(
       [...toEntries(rows), { triggers: ['new trigger'], responses: ['New response'] }],
-      'Callout added — edit it below',
+      'Entry added — edit it below',
     );
     if (added) setEditingId(null);
   };
@@ -182,19 +199,25 @@ export default function CalloutsCard() {
     }
   };
 
+  // Display-only. Every mutation still round-trips the FULL `rows` list, so a
+  // Replace performed while a filter is active cannot drop the hidden entries.
+  const visibleRows = categoryFilter === ''
+    ? rows
+    : rows.filter(r => r.category === categoryFilter);
+
   return (
-    <NeonCard title="Callouts" className="mb-4">
+    <NeonCard title="Arcaid Chat Responses" className="mb-4">
       <p className="text-muted text-sm mb-1">
-        Fun automated bot replies. When someone in a participating room&rsquo;s Discord server says a
-        trigger word (usually a table name), the bot answers with one of that entry&rsquo;s responses
-        at random. An entry can instead answer with <strong>live data</strong> &mdash; what&rsquo;s
-        active right now, a link to Picks, how to submit a score &mdash; for questions a fixed
-        reply can&rsquo;t answer.
+        Automatic bot replies to ordinary chat. When someone in a participating room&rsquo;s Discord
+        server says a trigger word (usually a table name), the bot answers with one of that
+        entry&rsquo;s responses at random. An entry can instead answer with <strong>live data</strong>{' '}
+        &mdash; what&rsquo;s active right now, how long the round has left, who&rsquo;s winning, whose
+        pick it is &mdash; for questions a fixed reply can&rsquo;t answer.
       </p>
       <p className="text-muted text-sm mb-4">
-        This list is global. Each room opts in on its own Settings page under
-        <strong> Discord &rarr; Arcaid Callout Responses</strong> &mdash; nothing here makes the bot
-        talk in anybody&rsquo;s server.
+        This list is global, and every entry has a <strong>category</strong>. Each room opts in on its
+        own Settings page under <strong>Discord &rarr; Arcaid Chat Responses</strong> and chooses
+        which categories it wants &mdash; nothing here makes the bot talk in anybody&rsquo;s server.
       </p>
 
       {loading ? (
@@ -213,6 +236,39 @@ export default function CalloutsCard() {
             <span className="font-mono">{counts.actions}</span> live answers
           </p>
 
+          {/* Per-category counts double as the filter: an admin asking "how
+              much banter is in here?" and an admin wanting to SEE it are the
+              same person one click apart. */}
+          <div className="flex flex-wrap items-center gap-2 mb-4" data-testid="callout-category-filter">
+            <button
+              onClick={() => setCategoryFilter('')}
+              aria-pressed={categoryFilter === ''}
+              className={`px-2.5 py-1 rounded text-xs border cursor-pointer transition-colors ${
+                categoryFilter === ''
+                  ? 'border-neon-cyan text-neon-cyan bg-neon-cyan/10'
+                  : 'border-border text-muted bg-transparent hover:text-primary'
+              }`}
+            >
+              All <span className="font-mono">{counts.total}</span>
+            </button>
+            {CALLOUT_CATEGORIES.map(category => (
+              <button
+                key={category}
+                onClick={() => setCategoryFilter(categoryFilter === category ? '' : category)}
+                aria-pressed={categoryFilter === category}
+                data-testid={`callout-category-count-${category}`}
+                className={`px-2.5 py-1 rounded text-xs border cursor-pointer transition-colors ${
+                  categoryFilter === category
+                    ? 'border-neon-cyan text-neon-cyan bg-neon-cyan/10'
+                    : 'border-border text-muted bg-transparent hover:text-primary'
+                }`}
+              >
+                {CALLOUT_CATEGORY_LABELS[category]}{' '}
+                <span className="font-mono">{counts.byCategory?.[category] ?? 0}</span>
+              </button>
+            ))}
+          </div>
+
           {/* ── Upload (the primary path) ── */}
           <div className="border border-border rounded p-4 mb-4">
             <p className="text-xs font-display uppercase tracking-wider text-neon-cyan/70 mb-2">
@@ -225,7 +281,9 @@ export default function CalloutsCard() {
               that entry firing even when another of its triggers matched. Add
               <span className="font-mono"> "action"</span> (one of {CALLOUT_ACTIONS.join(', ')}) to
               answer with live data instead &mdash; <span className="font-mono">responses</span> can
-              then be omitted. Responses may use
+              then be omitted. Add <span className="font-mono">"category"</span> (one of
+              {' '}{CALLOUT_CATEGORIES.join(', ')}) to choose which room toggle governs the entry;
+              omit it and one is inferred. Responses may use
               <span className="font-mono"> {'{room_name}'} {'{room_url}'} {'{picks_url}'} {'{scores_url}'}</span>,
               filled in from the first room linked to the asking server.
             </p>
@@ -272,10 +330,15 @@ export default function CalloutsCard() {
           </div>
 
           {rows.length === 0 ? (
-            <p className="text-faint text-sm">No callouts yet. Upload a list to get started.</p>
+            <p className="text-faint text-sm">No chat responses yet. Upload a list to get started.</p>
+          ) : visibleRows.length === 0 ? (
+            <p className="text-faint text-sm">
+              Nothing in {CALLOUT_CATEGORY_LABELS[categoryFilter as CalloutCategory]}. Clear the
+              filter to see the rest.
+            </p>
           ) : (
             <div className="space-y-2">
-              {rows.map(row => (
+              {visibleRows.map(row => (
                 <div
                   key={row.id}
                   className={`border border-border rounded px-3 py-2 ${row.enabled ? '' : 'opacity-50'}`}
@@ -322,6 +385,21 @@ export default function CalloutsCard() {
                           ))}
                         </select>
                       </div>
+                      <div>
+                        <label className="text-xs text-faint block mb-1" htmlFor={`category-${row.id}`}>
+                          Category (rooms turn these on and off individually)
+                        </label>
+                        <select
+                          id={`category-${row.id}`}
+                          className={inputClass}
+                          value={editCategory}
+                          onChange={e => setEditCategory(e.target.value as CalloutCategory)}
+                        >
+                          {CALLOUT_CATEGORIES.map(c => (
+                            <option key={c} value={c}>{CALLOUT_CATEGORY_LABELS[c]}</option>
+                          ))}
+                        </select>
+                      </div>
                       <div className="flex gap-2">
                         <NeonButton className="text-xs px-2 py-1" onClick={() => saveEdit(row)} disabled={busy}>
                           Save
@@ -348,6 +426,14 @@ export default function CalloutsCard() {
                             </span>
                           ))}
                         </div>
+                        <p className="mb-1">
+                          <span
+                            className="px-2 py-0.5 rounded text-xs border border-border text-muted"
+                            data-testid="callout-category-badge"
+                          >
+                            {CALLOUT_CATEGORY_LABELS[row.category]}
+                          </span>
+                        </p>
                         {row.action && (
                           <p className="mb-1">
                             <span
@@ -369,7 +455,7 @@ export default function CalloutsCard() {
                         <button
                           onClick={() => handleToggle(row)}
                           disabled={busy}
-                          aria-label={row.enabled ? 'Disable callout' : 'Enable callout'}
+                          aria-label={row.enabled ? 'Disable chat response' : 'Enable chat response'}
                           className={`relative w-12 h-6 rounded-full transition-colors cursor-pointer border-none ${
                             row.enabled ? 'bg-neon-cyan' : 'bg-raised border border-border'
                           }`}
@@ -402,7 +488,7 @@ export default function CalloutsCard() {
 
       {confirming && pending?.result.ok && (
         <ConfirmModal
-          title="Replace the callout list?"
+          title="Replace the chat response list?"
           message={`This deletes all ${counts.total} current entries and replaces them with the ${pending.result.entries.length} from ${pending.name}. Download the current list first if you want a backup.`}
           confirmLabel="Replace"
           onConfirm={handleReplace}
@@ -412,7 +498,7 @@ export default function CalloutsCard() {
 
       {deletingId !== null && (
         <ConfirmModal
-          title="Delete this callout?"
+          title="Delete this chat response?"
           message="The entry is removed from the list. Other entries are unaffected."
           confirmLabel="Delete"
           onConfirm={() => handleDelete(deletingId)}

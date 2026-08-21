@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import CalloutsCard from '../../components/CalloutsCard';
 import { ToastProvider } from '../../components/Toast';
-import { parseCalloutsJson } from '../../lib/callouts';
+import { parseCalloutsJson, deriveCalloutCategory } from '../../lib/callouts';
 
 /**
- * v2.123.0 — the super-admin Callouts card on /admin/settings.
+ * v2.123.0 — the super-admin card on /admin/settings, renamed to "Arcaid Chat
+ * Responses" in v2.125.0.
  *
  * The card replaced a git-tracked `data/callouts.json`, so the upload path is
  * the one that matters: parse → preview → confirm → PUT. Covered here plus the
@@ -28,13 +29,17 @@ const WITH_ACTION = [
 type FetchArgs = [url: string, init?: RequestInit];
 
 function stubFetch(entries: ReadonlyArray<{
-  triggers: string[]; responses?: string[]; action?: string;
+  triggers: string[]; responses?: string[]; action?: string; category?: string;
 }> = SAMPLE) {
   const rows = entries.map((e, i) => ({
     id: i + 1,
     triggers: e.triggers,
     responses: (e as { responses?: string[] }).responses ?? [],
     action: (e as { action?: string }).action ?? null,
+    // v2.125.0 — the API always ships a resolved category; the stub mirrors
+    // that by falling back to the same inference the server uses.
+    category: (e as { category?: string }).category
+      ?? deriveCalloutCategory({ triggers: e.triggers, action: (e as { action?: string }).action }),
     enabled: true,
     sort_order: i,
     created_at: '2026-08-21',
@@ -46,6 +51,12 @@ function stubFetch(entries: ReadonlyArray<{
     disabled: 0,
     responses: rows.reduce((n, r) => n + r.responses.length, 0),
     actions: rows.filter(r => r.action !== null).length,
+    byCategory: {
+      help: rows.filter(r => r.category === 'help').length,
+      callouts: rows.filter(r => r.category === 'callouts').length,
+      banter: rows.filter(r => r.category === 'banter').length,
+      easter_eggs: rows.filter(r => r.category === 'easter_eggs').length,
+    },
   };
   const fetchMock = vi.fn((...args: FetchArgs) => {
     const [url, init] = args;
@@ -114,15 +125,21 @@ describe('CalloutsCard', () => {
     expect(screen.getByText('Rendered from live room data')).toBeInTheDocument();
   });
 
-  it('the editor offers the four actions and PATCHes the chosen one', async () => {
+  it('the editor offers every live answer and PATCHes the chosen one', async () => {
     const fetchMock = stubFetch(WITH_ACTION);
     renderCard();
     await waitFor(() => expect(screen.getAllByTestId('callout-row').length).toBe(3));
 
     fireEvent.click(screen.getAllByRole('button', { name: 'Edit' })[0]);
     const select = screen.getByLabelText(/Live answer/) as HTMLSelectElement;
+    // v2.125.0 added six. Pinned in full so a new action cannot be added to the
+    // backend union without the FE mirror being updated in the same change.
     expect(Array.from(select.options).map(o => o.value))
-      .toEqual(['', 'active_games', 'picks_link', 'scores_link', 'how_to_submit']);
+      .toEqual([
+        '', 'active_games', 'picks_link', 'scores_link', 'how_to_submit',
+        'time_left', 'leaders', 'my_rank', 'pick_status', 'tournament_rules',
+        'how_to_claim',
+      ]);
 
     fireEvent.change(select, { target: { value: 'picks_link' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
@@ -206,14 +223,21 @@ describe('CalloutsCard', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Replace list' }));
     // Nothing goes out until the ConfirmModal is accepted.
     expect(lastCall(fetchMock, 'PUT')).toBeUndefined();
-    expect(screen.getByRole('dialog')).toHaveTextContent('Replace the callout list?');
+    expect(screen.getByRole('dialog')).toHaveTextContent('Replace the chat response list?');
 
     fireEvent.click(screen.getByRole('button', { name: 'Replace' }));
 
     await waitFor(() => expect(lastCall(fetchMock, 'PUT')).toBeDefined());
     const [url, init] = lastCall(fetchMock, 'PUT')!;
     expect(url).toContain('/admin/callouts');
-    expect(JSON.parse(init!.body as string)).toEqual({ entries: SAMPLE });
+    // The parsed list carries a resolved category per entry, even though the
+    // uploaded file omitted it.
+    expect(JSON.parse(init!.body as string)).toEqual({
+      entries: [
+        { ...SAMPLE[0], category: 'easter_eggs' },
+        { ...SAMPLE[1], category: 'callouts' },
+      ],
+    });
   });
 
   it('cancelling the confirm sends nothing', async () => {
@@ -230,12 +254,68 @@ describe('CalloutsCard', () => {
     expect(lastCall(fetchMock, 'PUT')).toBeUndefined();
   });
 
+  it('shows a per-category count for every category, zeros included', async () => {
+    stubFetch(WITH_ACTION);
+    renderCard();
+
+    const filter = await screen.findByTestId('callout-category-filter');
+    // seafood -> easter_eggs, addams family -> callouts, the action -> help.
+    expect(within(filter).getByTestId('callout-category-count-help')).toHaveTextContent('1');
+    expect(within(filter).getByTestId('callout-category-count-callouts')).toHaveTextContent('1');
+    expect(within(filter).getByTestId('callout-category-count-easter_eggs')).toHaveTextContent('1');
+    // Present at zero rather than absent, so the chip row never reflows.
+    expect(within(filter).getByTestId('callout-category-count-banter')).toHaveTextContent('0');
+  });
+
+  it('the category filter narrows the list and clears again', async () => {
+    stubFetch(WITH_ACTION);
+    renderCard();
+    await waitFor(() => expect(screen.getAllByTestId('callout-row').length).toBe(3));
+
+    fireEvent.click(screen.getByTestId('callout-category-count-help'));
+    expect(screen.getAllByTestId('callout-row')).toHaveLength(1);
+    expect(screen.getByTestId('callout-action-badge')).toBeInTheDocument();
+
+    // Clicking the active chip again clears the filter.
+    fireEvent.click(screen.getByTestId('callout-category-count-help'));
+    expect(screen.getAllByTestId('callout-row')).toHaveLength(3);
+  });
+
+  it('an empty filtered view says so instead of looking like an empty list', async () => {
+    stubFetch(SAMPLE);
+    renderCard();
+    await waitFor(() => expect(screen.getAllByTestId('callout-row').length).toBe(2));
+
+    fireEvent.click(screen.getByTestId('callout-category-count-banter'));
+    expect(screen.queryAllByTestId('callout-row')).toHaveLength(0);
+    expect(screen.getByText(/Nothing in Banter/)).toBeInTheDocument();
+  });
+
+  it('the editor offers the four categories and PATCHes the chosen one', async () => {
+    const fetchMock = stubFetch(SAMPLE);
+    renderCard();
+    await waitFor(() => expect(screen.getAllByTestId('callout-row').length).toBe(2));
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Edit' })[0]);
+    const select = screen.getByLabelText(/Category/) as HTMLSelectElement;
+    expect(Array.from(select.options).map(o => o.value))
+      .toEqual(['help', 'callouts', 'banter', 'easter_eggs']);
+    // Pre-selected to the row's own category, not to a constant.
+    expect(select.value).toBe('easter_eggs');
+
+    fireEvent.change(select, { target: { value: 'banter' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(lastCall(fetchMock, 'PATCH')).toBeDefined());
+    expect(JSON.parse(lastCall(fetchMock, 'PATCH')![1]!.body as string).category).toBe('banter');
+  });
+
   it('the per-row switch PATCHes enabled', async () => {
     const fetchMock = stubFetch();
     renderCard();
     await waitFor(() => expect(screen.getAllByTestId('callout-row').length).toBe(2));
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Disable callout' })[0]);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Disable chat response' })[0]);
 
     await waitFor(() => expect(lastCall(fetchMock, 'PATCH')).toBeDefined());
     const [url, init] = lastCall(fetchMock, 'PATCH')!;
@@ -252,7 +332,11 @@ describe('CalloutsCard', () => {
 describe('parseCalloutsJson', () => {
   it('accepts and trims a valid list', () => {
     expect(parseCalloutsJson(JSON.stringify([{ triggers: ['  taf '], responses: [' Thing! '] }])))
-      .toEqual({ ok: true, entries: [{ triggers: ['taf'], responses: ['Thing!'] }], responseCount: 1 });
+      .toEqual({
+        ok: true,
+        entries: [{ triggers: ['taf'], responses: ['Thing!'], category: 'callouts' }],
+        responseCount: 1,
+      });
   });
 
   it('rejects a non-array top level', () => {
@@ -269,13 +353,26 @@ describe('parseCalloutsJson', () => {
   it('preserves enabled:false so a download/upload round-trip is lossless', () => {
     const input = [{ triggers: ['a'], responses: ['b'], enabled: false }];
     const result = parseCalloutsJson(JSON.stringify(input));
-    expect(result.ok && result.entries).toEqual(input);
+    expect(result.ok && result.entries).toEqual([{ ...input[0], category: 'callouts' }]);
   });
 
   it('accepts an action entry with no responses, and round-trips it', () => {
     const input = [{ triggers: ['what table'], action: 'active_games' }];
     const result = parseCalloutsJson(JSON.stringify(input));
-    expect(result.ok && result.entries).toEqual(input);
+    expect(result.ok && result.entries).toEqual([{ ...input[0], category: 'help' }]);
+  });
+
+  it('keeps an explicit category and rejects an unknown one', () => {
+    const kept = parseCalloutsJson(JSON.stringify([
+      { triggers: ['seafood'], responses: ['MEOW'], category: 'banter' },
+    ]));
+    expect(kept.ok && kept.entries[0]!.category).toBe('banter');
+
+    const bad = parseCalloutsJson(JSON.stringify([
+      { triggers: ['x'], responses: ['y'], category: 'chaos' },
+    ]));
+    expect(bad.ok).toBe(false);
+    expect(bad.ok === false && bad.error).toMatch(/category must be one of/);
   });
 
   it('rejects an entry with neither responses nor action', () => {

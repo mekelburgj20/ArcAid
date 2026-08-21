@@ -9,7 +9,9 @@ import { getDatabase } from '../database/database.js';
 import { signToken } from '../api/auth.js';
 import { GameRoomSettingsService } from '../services/GameRoomSettingsService.js';
 import { CalloutService, CalloutValidationError } from '../services/CalloutService.js';
-import { handleCalloutMessage, CalloutMessageLike } from '../discord/callouts.js';
+import {
+    handleCalloutMessage, resetCalloutCooldowns, CalloutMessageLike,
+} from '../discord/callouts.js';
 import {
     matchCallout,
     findCalloutEntry,
@@ -160,7 +162,10 @@ describe('matchCallout', () => {
 describe('validateCalloutEntries', () => {
     it('accepts and normalizes a valid list', () => {
         const result = validateCalloutEntries([{ triggers: ['  taf '], responses: [' Thing! '] }]);
-        expect(result).toEqual({ entries: [{ triggers: ['taf'], responses: ['Thing!'] }] });
+        // An omitted category is filled in by inference, not left undefined.
+        expect(result).toEqual({
+            entries: [{ triggers: ['taf'], responses: ['Thing!'], category: 'callouts' }],
+        });
     });
 
     it('rejects a non-array payload', () => {
@@ -205,9 +210,14 @@ describe('validateCalloutEntries', () => {
 // 3. CalloutService
 // ---------------------------------------------------------------------------
 
+// v2.125.0 — every entry now carries a category. These two are written
+// explicitly rather than left to inference, but the values are exactly what
+// `deriveCalloutCategory` would produce ('seafood' is a named Easter egg; a
+// table name is an ordinary game callout), so the export round-trip stays
+// byte-exact either way.
 const SAMPLE = [
-    { triggers: ['seafood', 'milk'], responses: ['MEOW MEOW MEOW MEOW!'] },
-    { triggers: ['addams family', 'taf'], responses: ['THIIIING!', 'The Mamushka!'] },
+    { triggers: ['seafood', 'milk'], responses: ['MEOW MEOW MEOW MEOW!'], category: 'easter_eggs' as const },
+    { triggers: ['addams family', 'taf'], responses: ['THIIIING!', 'The Mamushka!'], category: 'callouts' as const },
 ];
 
 describe('CalloutService', () => {
@@ -254,6 +264,7 @@ describe('CalloutService', () => {
         await CalloutService.update(rows[0]!.id, { enabled: false });
         expect(await CalloutService.counts()).toEqual({
             total: 2, enabled: 1, disabled: 1, responses: 3, actions: 0,
+            byCategory: { help: 0, callouts: 1, banter: 0, easter_eggs: 1 },
         });
     });
 
@@ -385,6 +396,10 @@ function fakeMessage(overrides: Partial<CalloutMessageLike> & { replies: string[
 describe('handleCalloutMessage — per-room gate', () => {
     beforeEach(() => {
         CalloutService.invalidateCache();
+        // v2.125.0 — the per-channel throttle is process-wide and these tests
+        // all fire into the same guild:channel within its 30s window, so a
+        // later test would be suppressed by an earlier test's reply.
+        resetCalloutCooldowns();
         delete process.env.ENABLE_CALLOUTS;
         delete process.env.DISCORD_GUILD_ID;
     });
@@ -547,7 +562,10 @@ describe('/api/admin/callouts', () => {
             .set('Authorization', `Bearer ${superToken()}`);
         expect(res.status).toBe(200);
         expect(res.body.entries.length).toBe(2);
-        expect(res.body.counts).toEqual({ total: 2, enabled: 1 + 1, disabled: 0, responses: 3, actions: 0 });
+        expect(res.body.counts).toEqual({
+            total: 2, enabled: 1 + 1, disabled: 0, responses: 3, actions: 0,
+            byCategory: { help: 0, callouts: 1, banter: 0, easter_eggs: 1 },
+        });
     });
 
     it('is super-admin only — a room admin gets 403, anonymous gets 401', async () => {
@@ -574,7 +592,9 @@ describe('/api/admin/callouts', () => {
             .send({ entries: [{ triggers: ['only'], responses: ['one'] }] });
         expect(res.status).toBe(200);
         expect(res.body.counts.total).toBe(1);
-        expect(await CalloutService.exportEntries()).toEqual([{ triggers: ['only'], responses: ['one'] }]);
+        expect(await CalloutService.exportEntries()).toEqual([
+            { triggers: ['only'], responses: ['one'], category: 'callouts' },
+        ]);
     });
 
     it('PUT invalidates the Discord handler cache', async () => {
@@ -740,6 +760,7 @@ describe('matchCallout — question variants', () => {
 describe('callout actions', () => {
     beforeEach(() => {
         CalloutService.invalidateCache();
+        resetCalloutCooldowns();
         delete process.env.ENABLE_CALLOUTS;
         delete process.env.DISCORD_GUILD_ID;
         process.env.PUBLIC_URL = 'https://test.arcaid.app';
@@ -930,8 +951,12 @@ describe('callout actions — validation and storage', () => {
     beforeEach(() => CalloutService.invalidateCache());
 
     it('accepts an entry with an action and no responses', () => {
+        // An action entry is inferred into 'help' — the category that is never
+        // rate-limited and survives a room turning the fun off.
         expect(validateCalloutEntries([{ triggers: ['what table'], action: 'active_games' }]))
-            .toEqual({ entries: [{ triggers: ['what table'], action: 'active_games' }] });
+            .toEqual({
+                entries: [{ triggers: ['what table'], action: 'active_games', category: 'help' }],
+            });
     });
 
     it('rejects an entry with neither responses nor action', () => {
@@ -956,9 +981,12 @@ describe('callout actions — validation and storage', () => {
     it('export round-trips action entries byte-for-byte', async () => {
         await setupTestDb();
         const list = [
-            { triggers: ['seafood'], responses: ['MEOW!'] },
-            { triggers: ['what table'], action: 'active_games' as const },
-            { triggers: ['standings'], responses: ['see {scores_url}'], action: 'scores_link' as const },
+            { triggers: ['seafood'], responses: ['MEOW!'], category: 'easter_eggs' as const },
+            { triggers: ['what table'], action: 'active_games' as const, category: 'help' as const },
+            {
+                triggers: ['standings'], responses: ['see {scores_url}'],
+                action: 'scores_link' as const, category: 'help' as const,
+            },
         ];
         await CalloutService.replaceAll(list);
         expect(await CalloutService.exportEntries()).toEqual(list);
@@ -972,6 +1000,7 @@ describe('callout actions — validation and storage', () => {
         ]);
         expect(await CalloutService.counts()).toEqual({
             total: 2, enabled: 2, disabled: 0, responses: 1, actions: 1,
+            byCategory: { help: 1, callouts: 0, banter: 0, easter_eggs: 1 },
         });
     });
 

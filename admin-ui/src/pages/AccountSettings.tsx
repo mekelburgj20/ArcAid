@@ -1115,6 +1115,52 @@ export default function AccountSettings() {
                       );
                     })}
                   </div>
+                  {/* v2.125.0 — Arcaid Chat Responses. Rendered BELOW the list
+                      and outside its map on purpose: every entry above is an
+                      outbound DM defaulting to OFF, while this is an inbound
+                      reply defaulting to ON, so `draftPrefs?.[key] === true`
+                      (the list's test) would show it off for anyone who has
+                      never touched it. It also has no delivery-channel chips —
+                      it isn't delivered anywhere, it's a reply in the channel
+                      the person is already typing in. */}
+                  <label
+                    className="flex items-start justify-between gap-3 py-2.5 mt-3 pt-3 border-t border-border cursor-pointer"
+                    data-testid="chat-responses-pref"
+                  >
+                    <span className="min-w-0">
+                      <span className="block text-sm text-primary">
+                        Arcaid chat responses to my messages
+                      </span>
+                      <span className="block text-xs text-faint">
+                        Lets the bot reply in Discord when you say something it recognises — a table
+                        name, or a question like &ldquo;how long left?&rdquo;. Turn it off and it
+                        will ignore you everywhere. You can also say &ldquo;Arcaid, shush&rdquo; in
+                        chat.
+                      </span>
+                    </span>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={draftPrefs?.chatResponses !== false}
+                      aria-label="Arcaid chat responses to my messages"
+                      onClick={() => setDraftPrefs(prev => ({
+                        ...(prev ?? {}),
+                        chatResponses: !(prev?.chatResponses !== false),
+                      }))}
+                      className={`shrink-0 mt-0.5 w-9 h-5 rounded-full border transition-colors ${
+                        draftPrefs?.chatResponses !== false
+                          ? 'bg-neon-cyan/30 border-neon-cyan/50'
+                          : 'bg-surface border-border'
+                      }`}
+                    >
+                      <span
+                        className={`block w-4 h-4 rounded-full bg-primary transition-transform ${
+                          draftPrefs?.chatResponses !== false ? 'translate-x-4' : 'translate-x-0.5'
+                        }`}
+                        style={{ marginTop: '1px' }}
+                      />
+                    </button>
+                  </label>
                   {notifSaveError && (
                     <p className="mt-2 text-xs text-rose-400 inline-flex items-center gap-1">
                       <AlertCircle size={12} /> {notifSaveError}

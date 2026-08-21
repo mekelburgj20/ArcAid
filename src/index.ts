@@ -66,6 +66,27 @@ async function bootstrap() {
         try {
             const { CalloutService } = await import('./services/CalloutService.js');
             await CalloutService.seedFromFileIfEmpty();
+
+            // v2.125.0 — make sure every built-in live answer has a trigger.
+            // Runs AFTER the seed so a fresh deployment gets the legacy list
+            // first and the built-ins are appended behind it (first-match-wins
+            // order, so an existing entry always keeps priority). Idempotent:
+            // an action that already has ANY row — enabled or disabled — is
+            // left alone, so a disabled built-in stays disabled.
+            await CalloutService.ensureBuiltinHelpEntries();
+
+            // v2.125.0 — lift the v2.123.0 per-room keys onto the four
+            // CHAT_RESPONSES_* keys and delete the old rows. Idempotent (skips
+            // any room that already has the new master key), non-fatal, and a
+            // no-op after the first boot on this version.
+            const { migrateLegacyCalloutSettings } = await import(
+                './services/ChatResponseSettingsService.js'
+            );
+            const migratedRooms = await migrateLegacyCalloutSettings();
+            if (migratedRooms > 0) {
+                logInfo(`[chat-responses] Migrated ${migratedRooms} room(s) from the v2.123.0 CALLOUTS_* settings.`);
+            }
+
             // ENABLE_CALLOUTS was the global on/off switch. It is now only a
             // legacy master KILL switch ('false' silences every room) and is
             // scheduled for removal; the real control is the per-room

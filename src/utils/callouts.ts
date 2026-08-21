@@ -1,5 +1,11 @@
 /**
- * Callouts — the Easter-egg bot replies.
+ * Arcaid Chat Responses — the bot's automatic replies to ordinary chat.
+ *
+ * NAMING: the feature is called "Arcaid Chat Responses" everywhere a human can
+ * read it (v2.125.0). The internal identifiers stay `callout*` — the table,
+ * the service, the API paths, the settings the DB already holds. Renaming
+ * those would be a migration with no user-visible benefit; renaming the COPY
+ * was the point. "Game callouts" survives as one CATEGORY label.
  *
  * This module is the PURE half: matching + shape validation, no DB, no disk,
  * no discord.js. `CalloutService` owns storage/caching and
@@ -20,14 +26,93 @@
  * Adding one means touching: this union, `CALLOUT_ACTIONS`, the renderer's
  * switch, and the FE mirror in `admin-ui/src/lib/callouts.ts`.
  */
-export type CalloutAction = 'active_games' | 'picks_link' | 'scores_link' | 'how_to_submit';
+export type CalloutAction =
+    | 'active_games' | 'picks_link' | 'scores_link' | 'how_to_submit'
+    | 'time_left' | 'leaders' | 'my_rank' | 'pick_status' | 'tournament_rules'
+    | 'how_to_claim';
 
 export const CALLOUT_ACTIONS: readonly CalloutAction[] = [
     'active_games', 'picks_link', 'scores_link', 'how_to_submit',
+    'time_left', 'leaders', 'my_rank', 'pick_status', 'tournament_rules',
+    'how_to_claim',
 ];
 
 export function isCalloutAction(value: unknown): value is CalloutAction {
     return typeof value === 'string' && (CALLOUT_ACTIONS as readonly string[]).includes(value);
+}
+
+/**
+ * What KIND of reply an entry is. Rooms enable categories individually
+ * (v2.125.0), so a server that wants the bot to answer questions but never
+ * crack a joke turns `banter` off and keeps `help` on.
+ *
+ *   help         — live answers and how-tos. The useful stuff; never rate
+ *                  limited (see the cooldown in `src/discord/callouts.ts`).
+ *   callouts     — the classic game/table callouts ("Troll! In the pantry!").
+ *   banter       — replies about the bot itself.
+ *   easter_eggs  — the deliberately obscure ones.
+ */
+export type CalloutCategory = 'help' | 'callouts' | 'banter' | 'easter_eggs';
+
+export const CALLOUT_CATEGORIES: readonly CalloutCategory[] = [
+    'help', 'callouts', 'banter', 'easter_eggs',
+];
+
+/** The category an entry lands in when it says nothing and nothing is inferred. */
+export const DEFAULT_CALLOUT_CATEGORY: CalloutCategory = 'callouts';
+
+/**
+ * The categories a room gets when its master switch is turned on and it has
+ * never chosen. The two that are useful-or-harmless; the room opts INTO being
+ * joked at.
+ */
+export const DEFAULT_ENABLED_CATEGORIES: readonly CalloutCategory[] = ['help', 'callouts'];
+
+export function isCalloutCategory(value: unknown): value is CalloutCategory {
+    return typeof value === 'string' && (CALLOUT_CATEGORIES as readonly string[]).includes(value);
+}
+
+/** Trigger words that mark an entry as being ABOUT the bot rather than a game. */
+const BANTER_TRIGGER_WORDS = ['bot', 'arcaid'];
+/** The historical in-jokes, named explicitly because nothing else identifies them. */
+const EASTER_EGG_TRIGGERS = ['seafood', 'dork cow', 'secret cow'];
+
+/**
+ * The ONE inference rule for an entry with no explicit category — shared by
+ * migration 156's backfill and by an upload that omits the field, so a
+ * re-uploaded legacy file lands exactly where the migration put it.
+ *
+ * Order is significant and matches the owner's spec: a live-data action is
+ * `help` no matter what it is triggered by; then bot-directed banter; then the
+ * named Easter eggs; everything else is an ordinary game callout.
+ */
+export function deriveCalloutCategory(entry: {
+    triggers?: unknown; action?: unknown;
+}): CalloutCategory {
+    if (isCalloutAction(entry.action)) return 'help';
+    const triggers = (Array.isArray(entry.triggers) ? entry.triggers : [])
+        .filter((t): t is string => typeof t === 'string')
+        .map(t => t.toLowerCase());
+    if (triggers.some(t => BANTER_TRIGGER_WORDS.some(w => t.includes(w)))) return 'banter';
+    if (triggers.some(t => EASTER_EGG_TRIGGERS.some(w => t.includes(w)))) return 'easter_eggs';
+    return DEFAULT_CALLOUT_CATEGORY;
+}
+
+/** An entry's effective category: what it says, else what we infer. */
+export function calloutCategoryOf(entry: CalloutEntry): CalloutCategory {
+    return isCalloutCategory(entry.category) ? entry.category : deriveCalloutCategory(entry);
+}
+
+/**
+ * Narrows a list to the categories a room has enabled. Applied BEFORE matching
+ * (never after) so a `banter` trigger can't win first-match and silence the
+ * `callouts` entry sitting behind it in a room with banter switched off.
+ */
+export function filterByCategories(
+    entries: CalloutEntry[],
+    allowed: ReadonlySet<CalloutCategory>,
+): CalloutEntry[] {
+    return entries.filter(e => allowed.has(calloutCategoryOf(e)));
 }
 
 /** Shape of one callout as it appears in the uploaded/exported JSON. */
@@ -53,6 +138,12 @@ export interface CalloutEntry {
      * of an action entry is that a fixed string cannot answer the question.
      */
     action?: CalloutAction;
+    /**
+     * Which room-toggleable bucket this entry belongs to (v2.125.0). Absent on
+     * an upload means "infer it" — see `deriveCalloutCategory`, the same rule
+     * migration 156 used to backfill the existing rows.
+     */
+    category?: CalloutCategory;
     /** Absent === enabled. Disabled entries are skipped by `matchCallout`. */
     enabled?: boolean;
 }
@@ -183,7 +274,8 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
  * exclusion-only entry can never fire, so it is a silent no-op and rejected),
  * and a way to REPLY — either a non-empty `responses` array or a recognised
  * `action`. Only strings are allowed in both arrays. Strings are trimmed;
- * `enabled` defaults to true.
+ * `enabled` defaults to true; `category` is optional and defaults through
+ * `deriveCalloutCategory` (the migration-156 rule), never to a bare constant.
  *
  * Errors are single-string and index-named on purpose — both the API 400 and
  * the FE upload preview show the FIRST problem with its position.
@@ -200,8 +292,9 @@ export function validateCalloutEntries(input: unknown): CalloutValidationOk | Ca
         const where = `entry ${i}`;
         if (!isPlainObject(raw)) return { error: `${where}: must be an object` };
 
-        const { triggers, responses, enabled, action } = raw as {
+        const { triggers, responses, enabled, action, category } = raw as {
             triggers?: unknown; responses?: unknown; enabled?: unknown; action?: unknown;
+            category?: unknown;
         };
 
         if (!Array.isArray(triggers) || triggers.length === 0) {
@@ -228,9 +321,22 @@ export function validateCalloutEntries(input: unknown): CalloutValidationOk | Ca
         }
         const hasAction = isCalloutAction(action);
 
+        // Category is OPTIONAL on upload and resolved through the same
+        // inference migration 156 used, so a legacy file re-uploaded after the
+        // migration lands each entry back in the bucket it was backfilled into
+        // rather than dumping everything into the default.
+        if (category !== undefined && !isCalloutCategory(category)) {
+            return { error: `${where}: category must be one of ${CALLOUT_CATEGORIES.join(', ')}` };
+        }
+        const cleanCategory: CalloutCategory = isCalloutCategory(category)
+            ? category
+            : deriveCalloutCategory({ triggers: cleanTriggers, action });
+
         // Responses are required UNLESS the entry answers with live data.
         if (responses === undefined && hasAction) {
-            const actionEntry: CalloutEntry = { triggers: cleanTriggers, action: action as CalloutAction };
+            const actionEntry: CalloutEntry = {
+                triggers: cleanTriggers, action: action as CalloutAction, category: cleanCategory,
+            };
             if (enabled !== undefined && typeof enabled !== 'boolean') {
                 return { error: `${where}: enabled must be a boolean` };
             }
@@ -263,6 +369,7 @@ export function validateCalloutEntries(input: unknown): CalloutValidationOk | Ca
 
         const entry: CalloutEntry = { triggers: cleanTriggers, responses: cleanResponses };
         if (hasAction) entry.action = action as CalloutAction;
+        entry.category = cleanCategory;
         if (enabled === false) entry.enabled = false;
         out.push(entry);
     }

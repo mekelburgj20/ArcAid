@@ -6,6 +6,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.125.0] — unreleased
+
+**Callouts become "Arcaid Chat Responses": categorised, per-room granular, channel-scoped, throttled, mutable — and they answer more questions.** Owner, after one day live: "I want to toggle certain aspects… someone doesn't want the snarky responses… an allowed-channels list… make cooldown configurable… something that describes exactly what it is." Plus the live bug that prompted it: the old room toggle only *staged* its change until the page's Save bar was pressed, so an "off" never reached the server and the bot kept replying.
+
+### Added
+- **Categories** on every entry (migration 156 adds `callouts.category`; backfill: `action` rows → `help`, triggers mentioning `bot`/`arcaid` → `banter`, seafood/cow → `easter_eggs`, rest → `callouts`; the same rule — `deriveCalloutCategory` — resolves uploads without a category). Admin card renamed **Arcaid Chat Responses** with per-category filter chips, counts and a category select per row; upload/export carry `category`.
+- **Per-room controls** (Room Settings → Discord → **Arcaid Chat Responses**): master switch; four sub-toggles **Helpful answers / Game callouts / Banter / Easter eggs** (new rooms default to help + callouts); **Allowed channels** picked from the linked server's text channels (`GET /:roomId/admin/discord/channels` from the gateway cache — no new intent) shown as chips, with a paste-an-ID fallback; **Cooldown (seconds)** per channel (default 30; help answers are never throttled). **All of these save the moment you touch them** (only the changed keys, "Saved" toast, rollback on failure, never on the Save bar). Keys `CHAT_RESPONSES_ENABLED` / `_CATEGORIES` / `_CHANNEL_IDS` / `_COOLDOWN_SEC`; a boot migration converts the v2.123.0 `CALLOUTS_ENABLED`/`CALLOUTS_CHANNEL_ID` rows (on → all four categories, channel carried over) and deletes the legacy keys.
+- **Per-user mute**: Account Settings → Notifications → "Arcaid chat responses to my messages"; `/arcaid-notifications` gains a chat-responses option; in chat, **"Arcaid, shush"** (mention + shush/quiet/mute) silences replies to that person and **"Arcaid, unmute"** restores them — handled before the matcher, immune to categories and cooldown.
+- **Six more live answers** (`time_left` with the next rotation computed from the tournament's cron in its timezone and a Discord `<t:>` stamp; `leaders`; `my_rank` — unlinked askers get the claim nudge; `pick_status`; `tournament_rules`; `how_to_claim`), seeded once as editable `help` entries by `ensureBuiltinHelpEntries()` (never re-added if an admin disables or deletes one).
+
+### Changed
+- Gate order per message: DM → legacy `ENABLE_CALLOUTS='false'` → guild scope → room master → allowed channels → in-chat mute toggle → per-user mute → **filter entries to enabled categories (before matching, so a disabled category can't win first-match)** → match → cooldown (non-help only) → reply.
+- User-facing copy, README, FEATURES, Help rows say "Arcaid Chat Responses"; "Callouts" survives only as the name of the game-quote category.
+
+### Tests
+- `chat-responses.test.ts` (+62): migration backfill, validator, gate matrix, legacy settings migration, built-in seeding, each new action, channels endpoint, instant-save behaviour (POST without Save, changed key only, rollback, cooldown debounce/blur). FE `AccountSettingsChatResponses.test.tsx` + Settings/CalloutsCard updates. Suites 2324 / 1031.
+
 ## [2.124.0] — unreleased
 
 **Consolidation C3 — one card editor everywhere; the legacy "Select Art Pack" modal is gone.** Game Library and Tournaments used the old `StylePicker` (wide-strip preview, no framing-only save); the admin Leaderboard had the real-card editor since C2. Now all three share it.
