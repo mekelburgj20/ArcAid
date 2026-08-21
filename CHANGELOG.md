@@ -6,6 +6,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.124.0] — unreleased
+
+**Consolidation C3 — one card editor everywhere; the legacy "Select Art Pack" modal is gone.** Game Library and Tournaments used the old `StylePicker` (wide-strip preview, no framing-only save); the admin Leaderboard had the real-card editor since C2. Now all three share it.
+
+### Added
+- **`CardStyleEditorSheet`** — a dialog (desktop: synthetic card left, editor right; ≤1024px: full-screen sheet, card above controls, scroll contained) hosting the same `CardStyleEditor`, with **`SyntheticCardPreview`**: a mock card built from the library/game row + the room's real scoreboard config (same allowlist the public board uses, so Style/Theme/toggles/fill match) + six placeholder players, rendered through the standalone single-card path. Framing drag + Fit work on the synthetic card via the shared geometry.
+- **Game Library** → room default for a game name: `PUT /game_library/:name/style|image`, `DELETE …/style`, and now **`…/framing`** for zoom/drag-only edits (it seeds the stored framing from `GET …/style` first so a plain Apply can't silently reset a framed default). **Tournaments** → one activated game: `PUT /admin/games/:id/style|image`, `DELETE …/style`, **`…/framing`**, each with the library twin when "Set as this game's room default" is on (opens ON when the library has no default, as before). Neither page had a framing path before.
+- Shared pieces extracted from the Leaderboard page and reused by it unchanged: `cardEditSession.ts`, `cardEditApply.ts` (the one Apply router), `CardFramingDragOverlay.tsx` (+ `useFramingGeometry`), `lib/useIsWideViewport.ts`. Leaderboard shrank 1684 → 1425 lines; its five suites pass untouched.
+
+### Removed
+- `admin-ui/src/components/StylePicker.tsx` (430 lines) and its framing test; `GamePickerModal` imports `ImageApplyType` from the editor. `stylePickerRetired.test.ts` pins that the module no longer resolves.
+
+### Changed
+- `CardStyleEditor.onEnableFill` is optional: the sheet has no room draft to flip, so with Card Background Fill off it shows static guidance instead of the one-click enable.
+
+### Known (pre-existing, dev only)
+- The admin pages' unmount guard never resets, so under `vite dev` + React StrictMode's double-mount the admin Leaderboard hangs on "Loading leaderboards…". Production builds don't double-mount. Queued.
+
+### Tests
+- `SyntheticCardPreview.test.tsx`, `CardStyleEditorSheet.test.tsx` (library + game targets: Apply(Both)→`/style`, Background→`/image`, zoom-only→`/framing`, Clear→DELETE, Cancel→nothing, unsaved-close confirm), `stylePickerRetired.test.ts` — admin-ui 1030 (−11 retired, +22). Backend unchanged. Shots `tmp/c3-shots/` a–e incl. 390px (document scroll delta 0, sheet scroll contained).
+
 ## [2.123.2] — unreleased
 
 **An admin can now repair a game whose iScored entry is gone.** rtx_pinball, 2026-08-21: two "Clown Deluxe" games existed on iScored; the admin deleted the one Arcaid was linked to, and every score push after that was refused with the same "Access Denied" iScored uses for everything. Game States offered no way out — "Create on iScored" only appears for id-less games, and nothing could re-point an existing link.
@@ -20,6 +41,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ### Tests
 - `iscored-recreate-repair.test.ts` (13), `GameStatesLinkRepair.test.tsx` (4). Suites 2275 / 1015.
+
+## [2.123.1] — unreleased
+
+### Added
+- **`/list-scores tournament:<pick>`** — optional, guild-scoped autocomplete (choices "Weekly Grind - VPXS (WG-VPXS)", value = tournament id) restricting the output to that tournament's active game(s); a typed exact name or tag also resolves; anything else → "No tournament named X in this server's rooms." Combines with `user` and `page`. Multi-slot tournaments list each active game. (+8 tests.)
 
 ## [2.123.0] — unreleased
 
