@@ -1,5 +1,7 @@
 import { getDatabase } from '../database/database.js';
 import { logError } from '../utils/logger.js';
+import { trackBackground } from '../utils/backgroundTasks.js';
+import { IdentityAutoLinkService } from './IdentityAutoLinkService.js';
 
 export type RoomMemberSource = 'submission' | 'admin_invite' | 'claim' | 'backfill' | 'self_join';
 
@@ -34,11 +36,23 @@ export class RoomMembershipService {
         if (!roomId) return;
         try {
             const db = await getDatabase();
-            await db.run(
+            const res = await db.run(
                 `INSERT OR IGNORE INTO room_members (user_id, room_id, joined_at, source)
                  VALUES (?, ?, datetime('now'), ?)`,
                 userId, roomId, source
             );
+            // Third auto-link trigger (2026-08-20): joining is the moment a room's
+            // unclaimed iScored names become YOUR problem, and waiting for the next
+            // login or the next synced score is an arbitrary delay.
+            //
+            // Gated on `res.changes` — INSERT OR IGNORE runs on every score submit
+            // ('submission' source), and this must fire on membership CREATION, not
+            // on every write that touches the row. Fire-and-forget via
+            // trackBackground (v2.24.1 doctrine); a membership must never fail
+            // because an identity lookup did.
+            if (res?.changes) {
+                trackBackground(IdentityAutoLinkService.autoLinkForUser(userId, { roomId })).catch(() => {});
+            }
         } catch (err) {
             logError('RoomMembershipService.addMember', err);
         }

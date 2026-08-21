@@ -23,7 +23,8 @@ import { isProviderUserId } from '../utils/identityProvider.js';
 import { catalogueTypeMatchesTournamentMode } from '../utils/tournamentMode.js';
 import { trackBackground } from '../utils/backgroundTasks.js';
 import { PickDispositionService } from '../services/PickDispositionService.js';
-import { resolveSubmissionPlayerId, resolveLeaderboardPlaces } from '../utils/submissionAttribution.js';
+import { resolveSubmissionPlayerId, resolveLeaderboardPlaces, resolveStrippedLeaders } from '../utils/submissionAttribution.js';
+import { accountSettingsUrl } from '../utils/publicLinks.js';
 import { resolvePick, MAX_PLACES } from './pickResolution.js';
 import { tournamentUrlSlug } from '../utils/tournamentSlug.js';
 
@@ -44,6 +45,34 @@ export class DuplicateActiveGameError extends Error {
  * trail. 'error' is recorded by runMaintenance when the work throws.
  */
 type MaintenanceRunOutcome = { outcome: 'success' | 'skipped'; summary: string };
+
+/**
+ * The rotation's account of the leaders the pick cascade could not reach.
+ *
+ * INCIDENT (rtx_pinball Daily Grind, 2026-08-20 22:00 CDT). The top two
+ * finishers were unlinked iScored names, so `resolveLeaderboardPlaces` dropped
+ * both and the pick fell to the first LINKED player - correct behaviour, but
+ * the channel was told nothing about it. The board showed one name and the
+ * rotation activated a game that name's owner had never queued.
+ *
+ * UNIFIES the pre-existing v2.2.1 copy: that block said 'Is this you?' about
+ * the WINNER only, and said nothing about the pick moving on. One line per
+ * stripped leader replaces it, winner first, capped at the three places the
+ * cascade actually consults. The claim link is emitted ONCE at the end rather
+ * than per line - three copies of the same URL reads as a form letter.
+ */
+export function strippedLeaderNarrative(
+    stripped: Array<{ iscoredUsername: string }>,
+): string | null {
+    if (stripped.length === 0) return null;
+    const parts = stripped.slice(0, MAX_PLACES).map((leader, index) => (
+        index === 0
+            ? `**${leader.iscoredUsername}** topped the board but isn't linked to an Arcaid account, so the pick passes to the next linked player.`
+            : `**${leader.iscoredUsername}** was next and isn't linked either.`
+    ));
+    parts.push(`Claim your name: ${accountSettingsUrl()}`);
+    return parts.join(' ');
+}
 
 export class TournamentEngine {
     private static instance: TournamentEngine;
@@ -1332,6 +1361,14 @@ export class TournamentEngine {
             }
         }
 
+        // Who the cascade is about to drop. Computed here (not inside the
+        // cascade block) because BOTH the completion embed and the activation
+        // copy below need it, and because the max-slots / duplicate-placeholder
+        // guards can `return` before the cascade ever runs - the completion
+        // embed is the one announcement that always fires.
+        const strippedLeaders = await resolveStrippedLeaders(db, activeGame.id, MAX_PLACES);
+        const strippedNarrative = strippedLeaderNarrative(strippedLeaders);
+
         // Announce completion
         if (channelId) {
             const color = getTournamentColor(tournamentRow.type);
@@ -1351,16 +1388,12 @@ export class TournamentEngine {
                 desc += `\n**Winner:** ${displayName}`;
                 if (winnerScore) desc += ` — **${winnerScore.toLocaleString()}**`;
             }
-            // v2.2.1: when the winner has no Discord mapping, they can't @mention,
-            // they can't use /pick-game, and their identity might not match their
-            // real Discord name. Tell them how to claim so future wins work.
-            if (!winnerId && winnerIscoredName) {
-                const roomRow = tournamentRow.game_room_id
-                    ? await db.get('SELECT slug FROM game_rooms WHERE id = ?', tournamentRow.game_room_id)
-                    : null;
-                const scoreboardLink = roomRow?.slug ? `https://arcaid.app/${roomRow.slug}` : 'the room scoreboard';
-                desc += `\n\n_Is this you?_ Log in with Discord on ${scoreboardLink} to claim future scores. If your Discord name differs from \`${winnerIscoredName}\`, ask an admin to merge identities. An admin will pick the next ${term.game} in the meantime.`;
-            }
+            // v2.2.1 -> 2026-08-20: this used to be a winner-only 'Is this you?'
+            // paragraph. It now covers EVERY leader the cascade will skip, and
+            // says out loud that the pick moves on - see
+            // `strippedLeaderNarrative`. Do not re-add a second claim message
+            // elsewhere; one line per stripped leader, in one place.
+            if (strippedNarrative) desc += `\n\n${strippedNarrative}`;
             embed.setDescription(desc);
             await sendChannelEmbed(channelId, embed);
         }
@@ -1446,6 +1479,9 @@ export class TournamentEngine {
 
         // --- Run the cascade ---
         let queuedRow: any = null;
+        // Whose queue the cascade actually drew from. Needed for the
+        // announcement copy: it is NOT always the winner (2026-08-20).
+        let queueOwnerId: string | null = null;
         let pickerResolution: {
             pickerId: string;
             pickerType: 'WINNER' | 'RUNNER_UP';
@@ -1478,6 +1514,7 @@ export class TournamentEngine {
 
             if (outcome.kind === 'activate') {
                 queuedRow = outcome.game;
+                queueOwnerId = outcome.playerId;
                 announceExtraForQueue = reason;
                 logInfo(`   -> Cascade: activating ${outcome.playerId}'s queued game "${outcome.game.name}".`);
             } else if (outcome.kind === 'window') {
@@ -1569,17 +1606,29 @@ export class TournamentEngine {
                 // cascade's narrative explains the hand-off, so the copy never
                 // implies the activated game was the winner's own pick when it
                 // wasn't.
+                // Whose queue actually fired. When the cascade walked past the
+                // top scorer - unlinked, forfeited, dynasty-blocked - "from the
+                // queue" reads as the WINNER's queue and is simply false. The
+                // 2026-08-20 rotation announced StopNudgingMe's win over a game
+                // BrickShotBobes had queued. Name the owner whenever it differs.
+                const queueOwnerLabel = queueOwnerId && queueOwnerId !== winnerId
+                    ? await this.labelForPlayer(queueOwnerId)
+                    : null;
+                const activatedClause = queueOwnerLabel
+                    ? `**${queuedRow.name}** is now active from ${queueOwnerLabel}'s queue.`
+                    : `**${queuedRow.name}** is now active from the queue.`;
+
                 if (winnerId) {
                     const winnerMention = await formatUserMention(winnerId, winnerLabel, tournamentRow.game_room_id);
                     embed.setDescription(announceExtraForQueue
-                        ? `${winnerMention} — congrats on the win! ${announceExtraForQueue} **${queuedRow.name}** is now active.`
-                        : `${winnerMention} — congrats on the win! **${queuedRow.name}** is now active from the queue.`);
+                        ? `${winnerMention} — congrats on the win! ${announceExtraForQueue} ${activatedClause}`
+                        : `${winnerMention} — congrats on the win! ${activatedClause}`);
                 } else if (winnerIscoredName) {
                     embed.setDescription(announceExtraForQueue
-                        ? `**${winnerIscoredName}** wins! ${announceExtraForQueue} **${queuedRow.name}** is now active.`
-                        : `**${winnerIscoredName}** wins! **${queuedRow.name}** is now active from the queue.`);
+                        ? `**${winnerIscoredName}** wins! ${announceExtraForQueue} ${activatedClause}`
+                        : `**${winnerIscoredName}** wins! ${activatedClause}`);
                 } else {
-                    embed.setDescription(`**${queuedRow.name}** is now active from the queue.`);
+                    embed.setDescription(activatedClause);
                 }
                 embed.setFooter({ text: tournamentRow.name });
                 await sendChannelEmbed(channelId, embed);

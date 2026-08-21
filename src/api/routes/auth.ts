@@ -13,6 +13,8 @@ import { BanService } from '../../services/BanService.js';
 import { DiscordReachabilityService } from '../../services/DiscordReachabilityService.js';
 import { DmNudgeService } from '../../services/DmNudgeService.js';
 import { UserProfileService, effectiveAvatarUrlFor } from '../../services/UserProfileService.js';
+import { IdentityAutoLinkService } from '../../services/IdentityAutoLinkService.js';
+import { trackBackground } from '../../utils/backgroundTasks.js';
 
 const router = Router();
 
@@ -306,6 +308,21 @@ router.post('/discord/callback', async (req, res) => {
         // a super-admin or room-admin login must carry the same avatar a player
         // login does. See effectiveAvatarUrlFor.
         avatarUrl = (await effectiveAvatarUrlFor(canonicalUserId)) ?? avatarUrl;
+
+        // Auto-link exact-match iScored names (owner ruling, 2026-08-20).
+        // Placed once, ahead of all three token branches, so an admin login
+        // links the same names a player login does.
+        //
+        // Fire-and-forget: this is a convenience, and a login must never fail
+        // because an identity lookup did. `trackBackground` rather than a bare
+        // floating promise per the v2.24.1 doctrine — untracked chains outlive
+        // a test's DB reset and are the known nested-transaction flake family.
+        //
+        // No room context reaches this callback (the FE posts only
+        // code/redirectUri/linkNonce; `player:<slug>` state is decoded
+        // client-side), so the scan is driven off `room_members` — every room
+        // this account already belongs to.
+        trackBackground(IdentityAutoLinkService.autoLinkForUser(canonicalUserId)).catch(() => {});
 
         // 1. Check super_admins table
         const isSuperAdmin = await AdminService.isSuperAdmin(canonicalUserId);
@@ -669,6 +686,21 @@ router.post('/google/callback', async (req, res) => {
         // Same as the Discord branch above — the effective avatar, ahead of all
         // three token mints. See effectiveAvatarUrlFor.
         pictureUrl = (await effectiveAvatarUrlFor(canonicalUserId)) ?? pictureUrl;
+
+        // Auto-link exact-match iScored names (owner ruling, 2026-08-20).
+        // Placed once, ahead of all three token branches, so an admin login
+        // links the same names a player login does.
+        //
+        // Fire-and-forget: this is a convenience, and a login must never fail
+        // because an identity lookup did. `trackBackground` rather than a bare
+        // floating promise per the v2.24.1 doctrine — untracked chains outlive
+        // a test's DB reset and are the known nested-transaction flake family.
+        //
+        // No room context reaches this callback (the FE posts only
+        // code/redirectUri/linkNonce; `player:<slug>` state is decoded
+        // client-side), so the scan is driven off `room_members` — every room
+        // this account already belongs to.
+        trackBackground(IdentityAutoLinkService.autoLinkForUser(canonicalUserId)).catch(() => {});
 
         const isSuperAdmin = await AdminService.isSuperAdmin(canonicalUserId);
         if (isSuperAdmin) {

@@ -6,6 +6,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.122.0] — unreleased
+
+**Exact-match iScored names now link themselves, and a rotation says when it skipped an unlinked leader.** First Daily Grind on the RTX board (2026-08-20 22:00 CDT): the top scorer and runner-up were both unlinked names, so the cascade (per the 2026-08-17 contract) stripped them and activated 4th place's queued game — correctly, but silently, and the runner-up had actually created his account an hour later by setting a display name that matched. Owner: "soggybacon should've auto linked because they are a match."
+
+### Added
+- **Auto-link on exact match** (`IdentityAutoLinkService`): an unclaimed iScored name that equals the player's Arcaid username or display name (case-insensitive) is linked automatically — implemented by filing and auto-approving the claim through `IdentityClaimService`, so the 3-alias cap, one-alias-one-user uniqueness, the `identity_claims` audit row and "never override an existing claim" all stay P1's guarantees. Triggers: **login** (Discord + Google callbacks, scanning the rooms the account belongs to), **joining a room** (both `room_members` writers, only on genuine creation), and **sync import** (`ScoreSyncPoller`, one batched lookup per cycle, negatives cached per cycle, and the matching row is attributed immediately). Sync matching is restricted to **members of the rooms on that iScored account** (a board name "Jay" never attaches to an unrelated `jay`); ambiguous matches are dropped, not guessed; a name with someone else's pending claim is skipped; Google-only accounts match on display name / email local-part only (their `username` is not a Discord handle). Kill-switch `IDENTITY_AUTO_LINK_EXACT` (global or per-room; absent = on).
+- **Rotation announcement names skipped leaders**: "**StopNudgingMe** topped the board but isn't linked to an Arcaid account, so the pick passes to the next linked player. **DennisB** was next and isn't linked either. Claim your name: <account settings URL>" — one sentence per stripped leader (max 3), replacing the old winner-only "Is this you?" paragraph; and the activation copy now says "**Taxi** is now active from BrickShotBobes's queue" whenever the queue owner isn't the top scorer.
+
+### Fixed
+- **Member pickers showed raw Discord IDs** for players without a custom display name (the new "Pick on behalf" card, and the Settings admin-add picker): `GET /:roomId/admin/members` now resolves `displayName` as global display name → Discord username → room-claimed name, and orders by the resolved label.
+- **iScored push rejections are logged by cause**: a score rejected because the round locked between read and write logs a WARN ("game is locked (round closed); the score still counts in Arcaid"); a rejection on a live game stays an ERROR with "(check that Write access is enabled on the iScored gameroom)". Context: the first RTX web submit was refused only because Write wasn't enabled yet; a locked board returns the identical "Access Denied" text.
+
+### Tests
+- `identity-auto-link.test.ts` (20), `rotation-unlinked-leaders.test.ts` (3, replays the incident), `admin-members-labels.test.ts` (6), `iscored-submit-lock-logging.test.ts` (3). Suite 2161 / FE 956.
+
 ## [2.121.0] — unreleased
 
 **Admins can now queue a pick — or set a pick disposition — on a player's behalf, and `/view-selection` became `/view-queue`.** Owner, reviewing the slash commands on the RTX server: `/view-selection` listed *everyone's* queue plus "the first 10 catalogue titles alphabetically" (useless), and there was no way for an admin to act for a player who says "I won't be around tonight — I want Medieval Madness if I win" or "pass my pick to Leon".

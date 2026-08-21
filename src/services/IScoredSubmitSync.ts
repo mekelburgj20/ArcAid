@@ -83,8 +83,48 @@ export async function syncScoreToIScored(opts: {
             logInfo(`iScored Playwright sync: submitted score for "${gameName}" by ${username}`);
         }
     } catch (err) {
-        logError(`iScored sync failed for "${gameName}" by ${username}:`, err);
+        // iScored answers "Access Denied" to BOTH a locked game and a gameroom
+        // with Write access switched off — same six characters, two completely
+        // different operator actions. Arcaid knows which one it is.
+        //
+        // The lookup above requires status='ACTIVE', so a non-ACTIVE row here
+        // means the round CLOSED between that read and this write: rotation
+        // locks the game on iScored while a submit is already in flight. That is
+        // routine, the score is safely in Arcaid regardless, and it does not
+        // deserve an ERROR that reads like a broken integration.
+        const message = err instanceof Error ? err.message : String(err);
+        if (await gameRoundClosed(roomId, gameName)) {
+            logWarn(`iScored sync for "${gameName}" by ${username} was rejected by iScored — the game is locked (round closed); the score still counts in Arcaid.`);
+        } else {
+            logError(`iScored sync failed for "${gameName}" by ${username}: ${message} (check that Write access is enabled on the iScored gameroom)`, err);
+        }
     } finally {
         if (tempPhotoPath) try { fs.unlinkSync(tempPhotoPath); } catch {}
+    }
+}
+
+/**
+ * Has this room's copy of the game stopped being live? Re-read at FAILURE time,
+ * not reused from the pre-submit lookup — the whole point is to catch the row
+ * changing underneath an in-flight submit.
+ *
+ * `end_date` counts alongside status because deactivation stamps it, and a row
+ * that has an end date is finished whatever its status column says. Its own
+ * errors are swallowed: this only decides a log level.
+ */
+async function gameRoundClosed(roomId: string, gameName: string): Promise<boolean> {
+    try {
+        const db = await getDatabase();
+        const row = await db.get(`
+            SELECT g.status, g.end_date FROM games g
+            JOIN tournaments t ON t.id = g.tournament_id
+            WHERE LOWER(g.name) = LOWER(?) AND t.game_room_id = ?
+            ORDER BY CASE g.status WHEN 'ACTIVE' THEN 0 ELSE 1 END, g.created_at DESC
+            LIMIT 1
+        `, gameName, roomId);
+        if (!row) return false;
+        return row.status !== 'ACTIVE' || !!row.end_date;
+    } catch {
+        return false;
     }
 }

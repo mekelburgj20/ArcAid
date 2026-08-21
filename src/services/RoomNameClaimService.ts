@@ -1,6 +1,7 @@
 import { getDatabase } from '../database/database.js';
 import { logError } from '../utils/logger.js';
 import { assertNameAllowed } from '../utils/contentBlocklist.js';
+import { trackBackground } from '../utils/backgroundTasks.js';
 
 /**
  * v2.2.0 — first-claim-wins identity service.
@@ -107,11 +108,24 @@ export class RoomNameClaimService {
         try {
             if (claimant.kind === 'discord') {
                 // Ensure the membership row exists first.
-                await db.run(
+                const created = await db.run(
                     `INSERT OR IGNORE INTO room_members (user_id, room_id, joined_at, source, display_name)
                      VALUES (?, ?, datetime('now'), 'submission', ?)`,
                     claimant.discordUserId, roomId, candidate,
                 );
+                // The SECOND writer of `room_members` (the other is
+                // `RoomMembershipService.addMember`, which cannot be reused here
+                // because this insert also carries the claimed display_name).
+                // It gets the same membership-creation auto-link trigger, or a
+                // player whose first act is a submit would wait for their next
+                // login. Creation only (`changes`), fire-and-forget, never throws
+                // into a score submission.
+                if (created?.changes) {
+                    const { IdentityAutoLinkService } = await import('./IdentityAutoLinkService.js');
+                    trackBackground(
+                        IdentityAutoLinkService.autoLinkForUser(claimant.discordUserId, { roomId }),
+                    ).catch(() => {});
+                }
                 // Update their per-room display name unconditionally. room_members
                 // is one row per (user, room), so a Discord user has exactly one
                 // display name per room at any time. Changing it doesn't rewrite
