@@ -6,7 +6,7 @@ import { PersonalBestsSection, type PersonalBestRow } from '../PersonalBestsSect
 /**
  * Searchable Personal Bests (ROADMAP line 11). Moved from
  * PlayerDetail.tsx/PlayerDetailPersonalBests.test.tsx in v2.82.0 (My Stats,
- * plan decision 5, tmp/my-stats-v282-plan.md) so both PlayerDetail
+ * plan decision 5, docs/contracts/my-stats-v282-plan.md) so both PlayerDetail
  * (room-scoped, `room_rank` rows, no `source`) and MyStats (cross-room,
  * `rank` + `source` rows) can share the component.
  *

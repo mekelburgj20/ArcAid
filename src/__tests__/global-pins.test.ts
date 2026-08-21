@@ -9,7 +9,7 @@ import { GlobalPinService } from '../services/GlobalPinService.js';
 
 /**
  * v2.52.0 (Track A, phase A4) — Global Scoreboard pins + per-viewer rank
- * context (tmp/global-scoreboard-a4-contract.md).
+ * context (docs/contracts/global-scoreboard-a4-contract.md).
  *
  * Bootstrap follows global-scoreboard-hasscores.test.ts: global.ts declares its
  * routes WITHOUT a '/global' prefix on the router itself, so it mounts at bare

@@ -4,7 +4,7 @@ import type { TourStep } from '../lib/tourSteps';
 
 /**
  * v2.48.0 — first-login player tutorial overlay
- * (tmp/first-login-tutorial-contract.md). Spotlight-cutout technique (a
+ * (docs/contracts/first-login-tutorial-contract.md). Spotlight-cutout technique (a
  * fixed-position div sized to the target's getBoundingClientRect() with a
  * giant box-shadow, no SVG mask) + an adjacent tooltip bubble. Portal to
  * document.body at z-[100] — above the z-50 modals/toasts, following the

@@ -1480,7 +1480,7 @@ select option {
  * ═══ Holo Steps podium (Showcase card, owner design handoff 2026-08-13) ═══
  *
  * Translucent metal-tinted glass risers. Two animations, both spec'd in the
- * handoff README (tmp/design_handoff_podium_restyle):
+ * handoff README (docs/design-sources/podium-restyle):
  *
  *   pr-breathe — each occupied riser slowly glows bright then dim in its own
  *   metal color. Duration/delay are set INLINE per rank (3.6s + rank·0.6s,

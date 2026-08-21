@@ -9,7 +9,7 @@ import { getDatabase } from '../database/database.js';
  * ABSENCE of a `picker_dispositions` row.
  *
  * LIFETIME IS SPLIT BY TYPE (owner ruling 2026-08-17 — see
- * tmp/pick-delegation-contract.md §5 Q2):
+ * docs/contracts/pick-delegation-contract.md §5 Q2):
  *   - `nominate` is ONE-SHOT. Handing your pick to a named person is a decision
  *     about one round, so `consume()` deletes it when it fires.
  *   - `forfeit` and `auto` are STANDING. They are stances about how the player
@@ -109,7 +109,7 @@ export class PickDispositionService {
      * Called ONLY for the player who actually WON the slot. Walking a chain
      * (a nominee's disposition, or a runner-up reached by forfeit) must use
      * `get()` — otherwise one person winning would burn several other people's
-     * settings. See tmp/pick-delegation-contract.md §4.6.
+     * settings. See docs/contracts/pick-delegation-contract.md §4.6.
      */
     static async consume(tournamentId: string, discordUserId: string): Promise<PickDispositionRow | null> {
         const row = await this.get(tournamentId, discordUserId);

@@ -8,7 +8,7 @@ import { getDatabase } from '../database/database.js';
 import { GameRoomSettingsService } from '../services/GameRoomSettingsService.js';
 import { RoomMembershipService } from '../services/RoomMembershipService.js';
 
-// v2.39.0 — approval-rooms view gate (tmp/approval-rooms-contract.md, D1).
+// v2.39.0 — approval-rooms view gate (docs/contracts/approval-rooms-contract.md, D1).
 // `roomVisibilityGate` is mounted ONCE in rooms.ts right after portal +
 // scoreboard-config, so those two stay reachable for everyone while every
 // other room-scoped route (leaderboard, tournaments, lobby, admin, ...) is
@@ -228,7 +228,7 @@ describe('self-join on an approval room', () => {
     });
 });
 
-// D2 (v2.41.0, tmp/player-governs-global-contract.md) — the contract's
+// D2 (v2.41.0, docs/contracts/player-governs-global-contract.md) — the contract's
 // premise is that approval-room submit endpoints are ALREADY member-gated via
 // `roomVisibilityGate` (mounted at `router.use('/:roomId', roomVisibilityGate)`
 // in rooms.ts, BEFORE the submit-score/freeplay-score/community-scores route

@@ -4,7 +4,7 @@ import { PickDispositionService } from '../services/PickDispositionService.js';
  * pickResolution — who gets the pick when a tournament slot completes.
  *
  * This is the single implementation of the cascade specified by the owner on
- * 2026-08-17 (contract: tmp/pick-delegation-contract.md §3). Both entry points
+ * 2026-08-17 (contract: docs/contracts/pick-delegation-contract.md §3). Both entry points
  * share it:
  *   - `TournamentEngine.processSlotMaintenance` runs it when a slot completes.
  *   - `TimeoutManager` runs it again, starting one place lower, when a pick

@@ -62,7 +62,7 @@ export async function resolveTopSubmissionPlayers(
 /**
  * The finishing order of a completed slot expressed as PLACES — 1st, 2nd, 3rd —
  * rather than as submission rows. This is what the pick cascade walks
- * (tmp/pick-delegation-contract.md §3).
+ * (docs/contracts/pick-delegation-contract.md §3).
  *
  * Differs from `resolveTopSubmissionPlayers` in three ways that all matter once
  * a place can be awarded a pick:

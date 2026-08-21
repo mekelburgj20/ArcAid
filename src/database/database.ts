@@ -1883,7 +1883,7 @@ async function doInitDatabase(): Promise<Database> {
             );
             CREATE INDEX IF NOT EXISTS idx_user_identity_links_canonical ON user_identity_links(canonical_user_id);
         ` },
-        // v2.38.0 — explicit room join/leave (tmp/join-leave-contract.md). Widens
+        // v2.38.0 — explicit room join/leave (docs/contracts/join-leave-contract.md). Widens
         // room_members.source's CHECK to admit 'self_join' (user-initiated join
         // via the landing-page bookmark toggle / room-page affordance) alongside
         // the existing submission/admin_invite/claim/backfill sources. SQLite
@@ -1915,7 +1915,7 @@ async function doInitDatabase(): Promise<Database> {
                     WHERE display_name IS NOT NULL;
             `);
         } },
-        // v2.39.0 — approval rooms (tmp/approval-rooms-contract.md). Per-room
+        // v2.39.0 — approval rooms (docs/contracts/approval-rooms-contract.md). Per-room
         // JOIN_POLICY ('open'|'approval', stored in game_room_settings — no
         // schema change needed for that). This table backs the request queue
         // for 'approval' rooms: a user requests, a room admin approves/denies.
@@ -1935,7 +1935,7 @@ async function doInitDatabase(): Promise<Database> {
             CREATE UNIQUE INDEX IF NOT EXISTS idx_join_requests_pending ON join_requests(game_room_id, user_id) WHERE status='pending';
             CREATE INDEX IF NOT EXISTS idx_join_requests_room_status ON join_requests(game_room_id, status);
         ` },
-        // v2.40.0 — join-request name resolution (tmp/joinreq-names-global-optin-
+        // v2.40.0 — join-request name resolution (docs/contracts/joinreq-names-global-optin-
         // contract.md, D1). The join-requests admin queue was rendering a raw
         // Discord snowflake because login only ever persisted avatar_hash/url
         // into user_profiles, never a name — display_name stays NULL until a
@@ -2008,13 +2008,13 @@ async function doInitDatabase(): Promise<Database> {
                 ON comment_reports(comment_id, reporter_discord_id) WHERE resolved_at IS NULL;
             CREATE INDEX IF NOT EXISTS idx_comment_reports_unresolved ON comment_reports(resolved_at);
         ` },
-        // v2.48.0 — first-login player tutorial (tmp/first-login-tutorial-contract.md).
+        // v2.48.0 — first-login player tutorial (docs/contracts/first-login-tutorial-contract.md).
         // Nullable ISO timestamp (not boolean) so a future "reset tutorial" admin
         // action can re-show it just by clearing the column. Same ALTER-add
         // idempotency convention as migration 040 (scoreboard_prefs) — duplicate
         // column errors are swallowed by the migration loop's try/catch below.
         { name: '121_user_preferences_tutorial_seen', sql: `ALTER TABLE user_preferences ADD COLUMN tutorial_seen_at TEXT` },
-        // v2.49.0 — room-tier bans (tmp/room-bans-contract.md). Nullable
+        // v2.49.0 — room-tier bans (docs/contracts/room-bans-contract.md). Nullable
         // `game_room_id` on the EXISTING `user_bans` table (NOT a separate
         // table) — NULL keeps meaning "global ban" (every pre-existing row
         // and every global-ban write path is unaffected), a populated value
@@ -2023,7 +2023,7 @@ async function doInitDatabase(): Promise<Database> {
         // bans still bite inside rooms, but a room ban never leaks to other
         // rooms or global surfaces (decision 5).
         //
-        // v2.49.0 fix-round (tmp/room-bans-fixes.md #11) — split into two
+        // v2.49.0 fix-round (docs/contracts/room-bans-fixes.md #11) — split into two
         // migration entries. The original single-entry form ran the ALTER
         // and the CREATE INDEX in one `exec`: on a DB where the column
         // already exists but the `schema_migrations` row for this name
@@ -2037,7 +2037,7 @@ async function doInitDatabase(): Promise<Database> {
         { name: '122_user_bans_room_scope', sql: `ALTER TABLE user_bans ADD COLUMN game_room_id TEXT` },
         { name: '123_user_bans_room_index', sql: `CREATE INDEX IF NOT EXISTS idx_user_bans_user_room ON user_bans(discord_user_id, game_room_id)` },
         // v2.52.0 — Global Scoreboard pins (Track A, phase A4;
-        // tmp/global-scoreboard-a4-contract.md).
+        // docs/contracts/global-scoreboard-a4-contract.md).
         //
         // FK TARGET IS `global_games(id)`. The design handoff specified
         // `REFERENCES global_games(global_game_id)` — that column does not
@@ -2400,7 +2400,7 @@ async function doInitDatabase(): Promise<Database> {
             await addAtGamesCatalogueColumns(db);
         } },
         // --- Pick delegation & per-player queues (owner spec 2026-08-17;
-        // contract at tmp/pick-delegation-contract.md) ---
+        // contract at docs/contracts/pick-delegation-contract.md) ---
         // 149 admits the new 'auto' ("roll the dice") disposition; the value is
         // in a CHECK constraint so it needs a table rebuild (see the handler).
         { name: '149_pick_disposition_auto', handler: async (db) => {

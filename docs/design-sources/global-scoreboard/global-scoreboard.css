@@ -1,0 +1,61 @@
+/* ARCAID — Global Scoreboard title lockup
+   Add .gs-dark or .gs-light on .gs-title. Requires Orbitron 400 + 900. */
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;900&display=swap');
+
+.gs-title { --gs-fringe:.55; display:flex; flex-direction:column; align-items:flex-start; gap:18px; }
+.gs-lockup { position:relative; display:flex; align-items:center; padding:22px 30px 24px 158px; }
+
+/* purple backdrop plate (light theme only) */
+.gs-plate { display:none; position:absolute; left:2px; right:2px; top:6px; bottom:8px; transform:skewX(-10deg); border-radius:12px; }
+
+/* neon trophy */
+.gs-trophy { position:absolute; left:30px; top:50%; margin-top:-52px; width:104px; height:104px; overflow:visible; animation:gsNeonFlash 4.2s steps(1) infinite; }
+.gs-t-bloom, .gs-t-core, .gs-t-fil { fill:none; stroke-linecap:round; stroke-linejoin:round; }
+.gs-t-bloom { stroke:#FF2E63; stroke-width:8.5; opacity:.34; filter:blur(4px); }
+.gs-t-core  { stroke:#FF2E63; stroke-width:4; filter:drop-shadow(0 0 4px #FF2E63) drop-shadow(0 0 13px rgba(255,46,99,.6)); }
+.gs-t-fil   { stroke:#FFE3EC; stroke-width:1.3; animation:gsFlicker 6.2s steps(1) infinite; }
+
+/* wordmark */
+.gs-word { position:relative; font-family:'Orbitron',sans-serif; font-weight:900; font-style:italic; font-size:68px; line-height:1.14; white-space:nowrap; }
+.gs-word > span { display:block; }
+.gs-sh1, .gs-sh2, .gs-fringe-a, .gs-fringe-b, .gs-slice-a, .gs-slice-b { position:absolute; left:0; top:0; }
+.gs-chrome, .gs-slice-a, .gs-slice-b {
+  background:linear-gradient(180deg,#F6FCFF 0%,#CBE7F8 36%,#7FB2D9 47%,#142E4B 51%,#9FCBEA 55%,#FFFFFF 64%,#6FA5CF 100%);
+  -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent;
+}
+.gs-chrome { position:relative; padding-right:.06em; margin-right:-.06em; }
+.gs-fringe-a { left:-3px; top:2px; color:#FF2E63; opacity:var(--gs-fringe); animation:gsShift 4.2s steps(1) infinite; }
+.gs-fringe-b { left:3px; top:-2px; color:#5BC8F5; opacity:var(--gs-fringe); animation:gsShift 4.2s steps(1) infinite reverse; }
+.gs-slice-a { animation:gsSliceA 4.2s steps(1) infinite; }
+.gs-slice-b { animation:gsSliceB 5.6s steps(1) infinite; }
+
+.gs-sub { margin:0; padding-left:158px; font-family:'Orbitron',sans-serif; font-weight:400; font-size:17px; letter-spacing:.07em; }
+
+/* ---- dark theme ---- */
+.gs-dark .gs-sh1, .gs-dark .gs-sh2 { display:none; }
+.gs-dark .gs-word { filter:drop-shadow(0 0 10px rgba(53,214,232,.75)) drop-shadow(0 0 34px rgba(53,214,232,.34)); }
+.gs-dark .gs-sub { color:#8992A4; }
+
+/* ---- light theme ---- */
+.gs-light .gs-plate { display:block;
+  background:linear-gradient(180deg,#4A1D82 0%,#2A0C52 46%,#1B0638 62%,#3A1468 100%);
+  box-shadow:0 12px 34px rgba(42,12,82,.4), inset 0 1px 0 rgba(214,164,255,.22); }
+.gs-light .gs-word { filter:drop-shadow(0 2px 2px rgba(10,16,25,.45)); }
+.gs-light .gs-sh1 { top:2px; color:#0A1017; opacity:.45; filter:blur(20px); }
+.gs-light .gs-sh2 { top:1px; color:#0A1017; opacity:.45; filter:blur(8px); }
+.gs-light .gs-fringe-b { color:#0F9BD1; }
+.gs-light .gs-t-bloom { stroke-width:9; opacity:.32; }
+.gs-light .gs-t-core { stroke:#FF1B57; filter:drop-shadow(0 0 3px rgba(255,46,99,.8)); }
+.gs-light .gs-sub { color:#5A6270; }
+
+/* ---- glitch ---- */
+@keyframes gsShift { 0%,86%,100% { transform:translate(0,0) } 88% { transform:translate(4px,-2px) } 92% { transform:translate(-4px,2px) } 96% { transform:translate(2px,1px) } }
+@keyframes gsSliceA { 0%,88%,100% { clip-path:inset(0 0 100% 0); transform:translate(0,0) } 89% { clip-path:inset(24% 0 58% 0); transform:translate(-11px,0) } 91% { clip-path:inset(0 0 100% 0); transform:translate(0,0) } 94% { clip-path:inset(64% 0 18% 0); transform:translate(8px,0) } 96% { clip-path:inset(0 0 100% 0); transform:translate(0,0) } }
+@keyframes gsSliceB { 0%,80%,100% { clip-path:inset(0 0 100% 0); transform:translate(0,0) } 82% { clip-path:inset(44% 0 40% 0); transform:translate(13px,0) } 84% { clip-path:inset(0 0 100% 0); transform:translate(0,0) } 97% { clip-path:inset(8% 0 76% 0); transform:translate(-7px,0) } 99% { clip-path:inset(0 0 100% 0); transform:translate(0,0) } }
+@keyframes gsFlicker { 0%,74%,100% { opacity:1 } 75% { opacity:.35 } 76% { opacity:1 } 90% { opacity:.55 } 91% { opacity:1 } }
+@keyframes gsNeonFlash { 0%,86%,100% { opacity:1 } 87% { opacity:.16 } 88% { opacity:1 } 90% { opacity:.4 } 91% { opacity:1 } 94% { opacity:.1 } 95% { opacity:1 } 96% { opacity:.62 } 97% { opacity:1 } }
+
+@media (prefers-reduced-motion:reduce) {
+  .gs-trophy, .gs-t-fil, .gs-fringe-a, .gs-fringe-b, .gs-slice-a, .gs-slice-b { animation:none; }
+  .gs-slice-a, .gs-slice-b { clip-path:inset(0 0 100% 0); }
+}

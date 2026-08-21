@@ -3,7 +3,7 @@ import { GlobalLeaderboardService, cardId } from './GlobalLeaderboardService.js'
 
 /**
  * Global Scoreboard pins (v2.52.0, Track A phase A4 —
- * tmp/global-scoreboard-a4-contract.md).
+ * docs/contracts/global-scoreboard-a4-contract.md).
  *
  * A pin is a per-viewer bookmark on a catalogue game. It drives the "My Pins"
  * rail, the per-card pin hotspot, and `sort=pinned` on the scoreboard.

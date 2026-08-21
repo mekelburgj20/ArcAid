@@ -4,7 +4,7 @@ import { logError, logInfo } from '../utils/logger.js';
 import type { MergeRecord } from '../types/index.js';
 
 /**
- * Anonymous-identity merge service (Sprint 11, plan §15 and tmp/sprint-02-merge-model.md).
+ * Anonymous-identity merge service (Sprint 11, plan §15 and docs/contracts/sprint-02-merge-model.md).
  *
  * Operates exclusively on rows where `submitted_by_user_id IS NULL AND
  * merged_from_anonymous_identity_id IS NULL` (rows the user hasn't already

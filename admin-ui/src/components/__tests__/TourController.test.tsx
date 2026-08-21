@@ -5,7 +5,7 @@ import TourController from '../TourController';
 import { ViewerAuthProvider } from '../../contexts/ViewerAuthContext';
 
 /**
- * v2.48.0 — first-login player tutorial (tmp/first-login-tutorial-contract.md).
+ * v2.48.0 — first-login player tutorial (docs/contracts/first-login-tutorial-contract.md).
  * TourController owns only the gating decision (fetch + bail conditions);
  * TourOverlay's own test file covers step navigation and the finish/skip
  * persistence writes.

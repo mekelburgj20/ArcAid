@@ -17,7 +17,7 @@ import { GameRoomService } from '../services/GameRoomService.js';
 import { RoomRosterService } from '../services/RoomRosterService.js';
 
 /**
- * v2.49.0 — room-tier bans (tmp/room-bans-contract.md, Workstream 1) + the
+ * v2.49.0 — room-tier bans (docs/contracts/room-bans-contract.md, Workstream 1) + the
  * admin-facing name-resolution follow-up (Workstream 2, AdminService slice).
  *
  * `ban-enforcement.test.ts` (v2.47.0) already covers the GLOBAL ban shape in
@@ -514,7 +514,7 @@ describe('ScoreReportService.listBans — scope filter + enrichment (v2.49.0)', 
 });
 
 /**
- * Fix round (tmp/room-bans-fixes.md) — 12-item adversarial review pass on
+ * Fix round (docs/contracts/room-bans-fixes.md) — 12-item adversarial review pass on
  * top of the room-bans contract. Each `describe` below is keyed to the
  * fix-round item number(s) it covers.
  */

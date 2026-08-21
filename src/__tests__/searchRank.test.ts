@@ -5,7 +5,7 @@ import { rankName, nameRankSqlCase, nameRankSqlParams } from '../utils/searchRan
 
 /**
  * Search-relevance work package (owner ask 2026-08-13). Pins the tier scheme
- * from `tmp/search-relevance-contract.md` against the owner's own "Strike"
+ * from `docs/contracts/search-relevance-contract.md` against the owner's own "Strike"
  * example set, for both the pure-JS ranker (Discord autocompletes) and the
  * SQL CASE fragment (backend search sites).
  */

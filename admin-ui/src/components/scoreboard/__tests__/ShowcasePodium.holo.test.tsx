@@ -7,7 +7,7 @@ import type { RankedEntry } from '../../ScoreboardComponents';
 
 /**
  * Holo Steps podium (owner design handoff 2026-08-13,
- * tmp/design_handoff_podium_restyle). Locks the structural spec:
+ * docs/design-sources/podium-restyle). Locks the structural spec:
  * three risers always render (floor, not ceiling), empty slots go unlit,
  * the scanline shimmer is GOLD-ONLY (owner rejected it on silver/bronze),
  * and the variant dispatch — holo-steps is the default for showcase rooms,

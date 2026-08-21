@@ -4,7 +4,7 @@ import TourOverlay from '../TourOverlay';
 import type { TourStep } from '../../lib/tourSteps';
 
 /**
- * v2.48.0 — first-login player tutorial (tmp/first-login-tutorial-contract.md).
+ * v2.48.0 — first-login player tutorial (docs/contracts/first-login-tutorial-contract.md).
  * TourOverlay owns step navigation AND the finish/skip persistence writes
  * (POST /me/tutorial-status vs. sessionStorage-only dismissal), so these
  * tests exercise it directly with real DOM anchors rather than going through

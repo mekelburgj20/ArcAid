@@ -12,7 +12,7 @@ import { getPortal } from '../lib/portal';
 import { api } from '../lib/api';
 
 /**
- * Room-admin Members page (v2.49.1, tmp/members-admin-move-contract.md).
+ * Room-admin Members page (v2.49.1, docs/contracts/members-admin-move-contract.md).
  *
  * v2.49.0 put Ban/Unban on the PUBLIC `/:slug/members` page behind a
  * cosmetic client-side admin check (`resolveViewerClaims`). Server gating on

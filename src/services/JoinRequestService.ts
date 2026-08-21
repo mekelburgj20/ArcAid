@@ -171,7 +171,7 @@ export class JoinRequestService {
      * approval is still a self-initiated join, just gated). Returns false if
      * the request doesn't exist, isn't pending, or isn't in this room.
      *
-     * v2.49.0 fix-round (tmp/room-bans-fixes.md #4) — throws a typed
+     * v2.49.0 fix-round (docs/contracts/room-bans-fixes.md #4) — throws a typed
      * `USER_BANNED` error (not a plain `false`) when the requester is
      * currently banned from this room. The room-ban route already denies any
      * pending request for the banned candidate set at ban-time (belt), but a

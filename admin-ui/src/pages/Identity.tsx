@@ -8,7 +8,7 @@ import LoadingState from '../components/LoadingState';
 import { useToast } from '../components/Toast';
 
 /**
- * Sprint 11 — Admin Identity Management (plan §15, tmp/sprint-02-merge-model.md).
+ * Sprint 11 — Admin Identity Management (plan §15, docs/contracts/sprint-02-merge-model.md).
  *
  * Two sections:
  *   1. Pending Claims — active anonymous identities in this room, with preview

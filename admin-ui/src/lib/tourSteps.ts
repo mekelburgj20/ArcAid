@@ -1,6 +1,6 @@
 /**
  * v2.48.0 — first-login player tutorial step config
- * (tmp/first-login-tutorial-contract.md). One exported array so the copy can
+ * (docs/contracts/first-login-tutorial-contract.md). One exported array so the copy can
  * be iterated in a single place (e.g. a later screenshot-loop tuning pass).
  *
  * Each `selector` matches a `data-tour="..."` attribute anchored in

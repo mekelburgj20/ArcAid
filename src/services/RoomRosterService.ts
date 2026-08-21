@@ -2,7 +2,7 @@ import { getDatabase } from '../database/database.js';
 import { RoomAccessService } from './RoomAccessService.js';
 
 /**
- * Room Members/Players page (v2.42.0, tmp/room-members-page-contract.md).
+ * Room Members/Players page (v2.42.0, docs/contracts/room-members-page-contract.md).
  *
  * Two disjoint data sources depending on the room's JOIN_POLICY — never
  * mixed, never unioned:
@@ -62,7 +62,7 @@ export class RoomRosterService {
             ? await this.getApprovalRoster(roomId)
             : await this.getOpenRoster(roomId);
 
-        // v2.49.0 fix-round (tmp/room-bans-fixes.md #7) — an active room ban
+        // v2.49.0 fix-round (docs/contracts/room-bans-fixes.md #7) — an active room ban
         // strips the target's `room_members` row, so 'approval' rooms
         // already drop them from the roster as a side effect. 'open' rooms
         // derive their roster from `score_history`, which a room-membership

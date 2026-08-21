@@ -222,7 +222,7 @@ describe('PublicLayout', () => {
     ));
   });
 
-  // v2.39.0 — approval rooms (tmp/approval-rooms-contract.md, D1/D4). The
+  // v2.39.0 — approval rooms (docs/contracts/approval-rooms-contract.md, D1/D4). The
   // portal's join_policy/viewer_status drive a hard content swap: the gate
   // screen renders instead of <Outlet/>, so ChildProbe never mounts.
   describe('approval-room view gate', () => {

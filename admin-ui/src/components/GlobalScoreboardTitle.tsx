@@ -5,7 +5,7 @@ import { useTheme } from './ThemeProvider';
  * GlobalScoreboardTitle — the "neon trophy + House Chrome wordmark" lockup
  * (v2.60.0).
  *
- * Port of `tmp/Arcaid Global Scoreboard- Redesign Directions/assets/scoreboard/`
+ * Port of `docs/design-sources/global-scoreboard/`
  * (global-scoreboard.css + the two markup snippets). The pack's CSS is the
  * spec; this file reproduces it verbatim apart from the four deliberate
  * deviations documented below. It follows `ArcaidLogoAnimated`'s pattern: a

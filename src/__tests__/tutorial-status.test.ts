@@ -7,7 +7,7 @@ import { PreferencesService } from '../services/PreferencesService.js';
 import { getDatabase } from '../database/database.js';
 
 /**
- * v2.48.0 — first-login player tutorial (tmp/first-login-tutorial-contract.md).
+ * v2.48.0 — first-login player tutorial (docs/contracts/first-login-tutorial-contract.md).
  * Covers migration 121's fresh-run idempotency, PreferencesService's typed
  * accessors, and the GET/POST /api/me/tutorial-status chokepoint.
  */

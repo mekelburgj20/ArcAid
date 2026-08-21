@@ -9,7 +9,7 @@ import { RoomMembershipService } from '../services/RoomMembershipService.js';
 import { AdminService } from '../services/AdminService.js';
 
 /**
- * Room Members/Players page (v2.42.0, tmp/room-members-page-contract.md).
+ * Room Members/Players page (v2.42.0, docs/contracts/room-members-page-contract.md).
  *
  * GET /:roomId/members is registered AFTER `roomVisibilityGate` in rooms.ts,
  * so it inherits the gate for free: 'approval' rooms 403 a non-member,

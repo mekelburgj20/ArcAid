@@ -229,7 +229,7 @@ export async function requireNotBanned(req: Request, res: Response, next: NextFu
 }
 
 /**
- * v2.49.0 fix-round (tmp/room-bans-fixes.md #1) — GLOBAL-only ban gate,
+ * v2.49.0 fix-round (docs/contracts/room-bans-fixes.md #1) — GLOBAL-only ban gate,
  * deliberately ignoring `req.params.roomId` even when present.
  *
  * `requireNotBanned` auto-reads `req.params.roomId` so every room-shaped

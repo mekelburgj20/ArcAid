@@ -346,7 +346,7 @@ function ChipPodium({ entries, theme, slug, hasMultiple, expandedPlayer, playerH
 }
 
 // ═══════════════════════════════════════════
-// Holo Steps (owner design handoff 2026-08-13 — tmp/design_handoff_podium_restyle)
+// Holo Steps (owner design handoff 2026-08-13 — docs/design-sources/podium-restyle)
 // ═══════════════════════════════════════════
 
 /** Metal color per rank — tokens, never literals (the light/coffee themes

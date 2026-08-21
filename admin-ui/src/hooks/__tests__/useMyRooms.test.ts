@@ -4,7 +4,7 @@ import { createElement, type ReactNode } from 'react';
 import { useMyRooms } from '../useMyRooms';
 import { ViewerAuthProvider } from '../../contexts/ViewerAuthContext';
 
-// v2.38.0 — join-leave contract (tmp/join-leave-contract.md). Pure logic
+// v2.38.0 — join-leave contract (docs/contracts/join-leave-contract.md). Pure logic
 // coverage for the hook shared between LandingPage's bookmark toggle and
 // PublicLayout's room-page affordance: guest no-ops, load, optimistic
 // join/leave with revert-on-failure.
@@ -154,7 +154,7 @@ describe('useMyRooms', () => {
     expect(result.current.isMember('room-1')).toBe(true);
   });
 
-  // v2.39.0 — approval rooms (tmp/approval-rooms-contract.md, D2/D4).
+  // v2.39.0 — approval rooms (docs/contracts/approval-rooms-contract.md, D2/D4).
   describe('requestJoin', () => {
     it('guest: no-op, returns null, no fetch', async () => {
       const fetchMock = vi.fn();

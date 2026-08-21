@@ -6,7 +6,7 @@ import { signToken } from '../api/auth.js';
 import { GameRoomSettingsService } from '../services/GameRoomSettingsService.js';
 import { RoomMembershipService } from '../services/RoomMembershipService.js';
 
-// v2.39.0 — approval-rooms join-request queue (tmp/approval-rooms-contract.md, D2).
+// v2.39.0 — approval-rooms join-request queue (docs/contracts/approval-rooms-contract.md, D2).
 
 async function createTestApp() {
     await setupTestDb();

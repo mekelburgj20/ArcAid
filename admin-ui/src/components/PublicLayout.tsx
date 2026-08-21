@@ -490,7 +490,7 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
           <RoomContext.Provider value={roomCtx}>
             {/* v2.48.0 — first-login player tutorial. Mounted only once the
                 RoomJoinGate has resolved, so a gated/suspended/loading room
-                never shows it. See tmp/first-login-tutorial-contract.md. */}
+                never shows it. See docs/contracts/first-login-tutorial-contract.md. */}
             <TourController />
             {/* v2.72.0 (Discord HQ) — "we couldn't DM you" / "set up
                 notifications" nudge. Renders nothing for guests, for users
