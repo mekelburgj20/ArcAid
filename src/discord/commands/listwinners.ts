@@ -3,19 +3,33 @@ import { Command } from './index.js';
 import { getDatabase } from '../../database/database.js';
 import { getTerminology } from '../../utils/terminology.js';
 import { logError } from '../../utils/logger.js';
-import { buildEnabledRoomSqlFilter } from '../../utils/discordRoomFilter.js';
+import {
+    resolveGuildReadScope,
+    buildGuildScopedRoomSqlFilter,
+    DISCORD_GUILD_NOT_LINKED_MESSAGE,
+} from '../../utils/discordRoomFilter.js';
 
 export const listwinners: Command = {
     data: new SlashCommandBuilder()
         .setName('list-winners')
         .setDescription('Displays recent tournament winners.'),
     async execute(interaction: ChatInputCommandInteraction) {
+        // v2.120.1 - guild-scoped read. Resolved BEFORE deferring so the
+        // not-linked notice can be ephemeral. `null` = this guild maps to
+        // no Arcaid room (or the interaction is a DM, which has no guild
+        // context at all) - show nothing rather than every room's data.
+        const scope = await resolveGuildReadScope(interaction.guildId);
+        if (!scope) {
+            await interaction.reply({ content: DISCORD_GUILD_NOT_LINKED_MESSAGE, ephemeral: true });
+            return;
+        }
+
         await interaction.deferReply();
         const db = await getDatabase();
         const term = getTerminology();
         
         try {
-            const { sql: enabledFilter, params } = await buildEnabledRoomSqlFilter('t.game_room_id');
+            const { sql: enabledFilter, params } = buildGuildScopedRoomSqlFilter('t.game_room_id', scope);
             // INNER JOIN — orphan games (no tournament, no room) don't belong
             // to any guild's view.
             const completedGames = await db.all(`

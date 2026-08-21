@@ -6,6 +6,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.120.1] — unreleased
+
+**Slash commands now see only the game rooms linked to the Discord server they're typed in.** Found minutes after the RTX Pinball server came online: `/list-active` there listed "Freeze Play: Medieval Madness" — a tournament from an unrelated room ("The Fridge"). The read commands were written cross-room: every Discord-enabled room, whichever server you invoked from. Invisible with one server; a two-way leak with two. Worse, the audit found `/run-cleanup` ran cleanup for **every active tournament in every room**, and `/nominate-picker` / `/pause-pick` acted on any tournament id without checking its room.
+
+### Fixed
+- New `resolveGuildReadScope(guildId)` (`src/utils/discordRoomFilter.ts`): the invoking server → rooms whose `DISCORD_GUILD_ID` is that server, minus the existing exclusions (Discord off, approval policy, suspended). Legacy single-tenant fallback: when nothing is explicitly linked and `process.env.DISCORD_GUILD_ID` is that server, rooms with no guild setting count as linked (the only case where NULL-tournament rows may show). No link (or a DM) → the command replies, ephemerally, "This Discord server isn't linked to an Arcaid game room yet…" and shows nothing. A linked server whose only room is excluded sees an honest empty list, not the not-linked notice.
+- Applied to `/list-active`, `/list-scores`, `/list-winners`, `/view-selection`, `/view-stats` (filter), and as a hard gate to `/run-cleanup` (only the linked rooms' tournaments are cleaned), `/nominate-picker` and `/pause-pick` (a foreign tournament id is refused before any of its configuration is disclosed).
+- Deliberately stricter than the write path's per-room env fallback in one corner (env guild AND an explicitly linked room on the same server): reads do not extend to settingless rooms there. Documented in the helper.
+
+### Known, queued for the next release
+- `/view-stats` headline numbers (`StatsService.getGameStats`) and `/my-stats` still aggregate across rooms; the tournament/game **autocomplete** lists on `/activate-game`, `/pick-game`, `/force-maintenance`, `/deactivate-game`, `/submit-score` still offer every room's names (execution is already room-gated, so this is name disclosure, not mutation); `/nominate-picker designate` has a pre-existing `UPDATE … LIMIT 1` that stock SQLite rejects.
+
+### Tests
+- `discord-read-guild-scope.test.ts` (36): scope resolution incl. the RTX/Fridge regression, DM, env fallback, exclusions inside a scope · SQL shapes · end-to-end per read command · `/run-cleanup` spy (only the linked room's tournament), `/nominate-picker` + `/pause-pick` foreign/own/DM. `ban-cascade-leaks.test.ts` fake interaction gained a guild. Suite 2076.
+
 ## [2.120.0] — unreleased
 
 **A room can now forbid Arcaid from ever deleting a game on its iScored board.** Prompted by rtx_pinball linking to the RTX group's own, pre-existing iScored room (not a mirror Arcaid owns): with the tournaments' cleanup rules at `immediate`/`scheduled`, the next rotation would have deleted the finished boards — scores and all — from that room. The owner asked to be "absolutely sure" that cannot happen.

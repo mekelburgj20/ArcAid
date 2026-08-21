@@ -5,6 +5,11 @@ import { logError } from '../../utils/logger.js';
 import { PickAwardGate, PICK_AWARD_DISABLED_REPLY } from '../../services/PickAwardGate.js';
 import { PickDispositionService, SelfNominationError } from '../../services/PickDispositionService.js';
 import { AuditService } from '../../services/AuditService.js';
+import {
+    resolveGuildReadScope,
+    isRoomInGuildScope,
+    DISCORD_FOREIGN_TOURNAMENT_MESSAGE,
+} from '../../utils/discordRoomFilter.js';
 
 async function resolveTournament(db: any, tournamentId: string) {
     return db.get('SELECT id, name, game_room_id FROM tournaments WHERE id = ?', tournamentId);
@@ -53,6 +58,18 @@ export const nominatepicker: Command = {
 
         try {
             const tournament = await resolveTournament(db, tournamentId);
+
+            // v2.120.1 - guild gate. `tournament-id` is a free-text option
+            // (no autocomplete), so pre-fix an admin in ANY guild could paste
+            // another room's tournament id and reassign its picker rights.
+            // Checked before the pick-award gate so a foreign tournament's
+            // configuration is never disclosed by the reply.
+            const scope = await resolveGuildReadScope(interaction.guildId);
+            if (!isRoomInGuildScope(tournament?.game_room_id ?? null, scope)) {
+                await interaction.editReply(DISCORD_FOREIGN_TOURNAMENT_MESSAGE);
+                return;
+            }
+
             const pickEnabled = await PickAwardGate.isEnabled(tournament?.game_room_id ?? null, tournamentId);
             if (!pickEnabled) {
                 await interaction.editReply(PICK_AWARD_DISABLED_REPLY);

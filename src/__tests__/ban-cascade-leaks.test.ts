@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { setupTestDb, createTestRoom, createTestTournament, createTestGame } from './helpers.js';
 import { getDatabase } from '../database/database.js';
 import { StatsService } from '../services/StatsService.js';
+import { GameRoomSettingsService } from '../services/GameRoomSettingsService.js';
 import { listwinners } from '../discord/commands/listwinners.js';
 
 /**
@@ -31,11 +32,18 @@ async function seedSubmission(gameId: string, opts: {
     return id;
 }
 
-function makeSimpleInteraction() {
+// v2.120.1: the read commands are guild-scoped, so a fake interaction now
+// needs a `guildId` linked to the seeded room (and a `reply` for the
+// not-linked path) — see discord-read-guild-scope.test.ts.
+const TEST_GUILD_ID = '2000000000000000001';
+
+function makeSimpleInteraction(guildId: string | null = TEST_GUILD_ID) {
     const replies: unknown[] = [];
     const interaction = {
+        guildId,
         deferReply: async () => {},
         editReply: async (payload: unknown) => { replies.push(payload); return payload; },
+        reply: async (payload: unknown) => { replies.push(payload); return payload; },
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any;
     return { interaction, replies };
@@ -46,6 +54,7 @@ describe('ban-cascade leaks — orphaned_at IS NULL (drift-audit fix #3)', () =>
 
     it('(a) /list-winners excludes an orphaned (banned) top score and shows the next legit one', async () => {
         const roomId = await createTestRoom('leak-listwinners');
+        await GameRoomSettingsService.set(roomId, 'DISCORD_GUILD_ID', TEST_GUILD_ID);
         const tId = await createTestTournament(roomId, { name: 'Leak Winners Tournament' });
         const gameId = await createTestGame(tId, {
             name: 'Leak Winners Game', status: 'COMPLETED', endDate: new Date().toISOString(),
@@ -63,6 +72,7 @@ describe('ban-cascade leaks — orphaned_at IS NULL (drift-audit fix #3)', () =>
 
     it('(a) /list-winners shows nothing for a game whose only score is orphaned', async () => {
         const roomId = await createTestRoom('leak-listwinners-only');
+        await GameRoomSettingsService.set(roomId, 'DISCORD_GUILD_ID', TEST_GUILD_ID);
         const tId = await createTestTournament(roomId, { name: 'Leak Winners Only Tournament' });
         const gameId = await createTestGame(tId, {
             name: 'Leak Winners Only Game', status: 'COMPLETED', endDate: new Date().toISOString(),
