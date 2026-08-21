@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.122.1] — unreleased
+
+**Background framing finally does what the slider says.** Owner, with screenshots of a wide (3:1) art-pack strip on a tall card: zooming out shrank the existing crop instead of revealing more of the picture; dragging up moved the image down; a zoom-only change on a card that already had art left Apply disabled.
+
+### Fixed
+- **Zoom is now "how big is the original image relative to the card"**: displayed size = cover size × zoom%, positioned by percentage (`useCoverFraming` measures the fill layer and the image once; pure `coverFramingStyle`). At ≥100% this is algebraically identical to the old transform-origin model (test re-derives the legacy geometry at 100/150/300 and asserts equality), so no stored framing changes; below 100% it reveals the source with honest bars on the short axis. Applied in all four card styles and the legacy StylePicker preview, so every surface (admin, public, kiosk) agrees.
+- **Drag follows the pointer** in both axes (`dragFramingPos`: Δpos% = Δpx / (card − displayed) × 100 — the sign flips correctly between overflow and letterbox, and an axis with no slack is a no-op). Measured: +80px right → image +80px right; +60px down at 50% → image +60px down.
+- **Apply enables on framing-only edits**, including cards whose background is plain catalogue art: new `PUT /:roomId/admin/games/:gameId/framing` (pinned cards included) and `PUT /:roomId/game_library/:name/framing` (`StyleCatalogueService.setLibraryFramingOnly`) write only the three framing columns; the editor routes there when nothing but framing changed. The "pick an art pack before applying" note is gone.
+- **Zoom floor 50 → 10** at all four clamp sites (slider step 1 — the useful values are single digits apart), and a **"Fit whole image"** button (`fitWholeImageZoom`: contain/cover ratio, snapped down, centred) that reads e.g. "16% · fits" — the 3:1 strip on a 1:2 card fits at 16%, which the old 50% floor could never reach. Disabled with a tooltip until the image is measured.
+
+### Tests
+- FE +34 (`bgFramingCover.test.ts` incl. legacy-equivalence, drag signs, fit formula; `LeaderboardCardEditor` dirty/Apply/Fit), BE +9 (`/framing` routes write only framing, clear on omitted, reject 9, library variant). Suites 990 / 2170. Shots `tmp/framing-fix-shots/` a–h on a synthetic three-band 1500×500 strip.
+
 ## [2.122.0] — unreleased
 
 **Exact-match iScored names now link themselves, and a rotation says when it skipped an unlinked leader.** First Daily Grind on the RTX board (2026-08-20 22:00 CDT): the top scorer and runner-up were both unlinked names, so the cascade (per the 2026-08-17 contract) stripped them and activated 4th place's queued game — correctly, but silently, and the runner-up had actually created his account an hour later by setting a display name that matched. Owner: "soggybacon should've auto linked because they are a match."

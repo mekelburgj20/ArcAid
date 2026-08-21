@@ -10,7 +10,7 @@ import ArcadePodium from './ArcadePodium';
 import { arcadeNeonKey } from './arcadeNeon';
 import { useScoreExpand } from './useScoreExpand';
 import { qrEdgeMetrics, DEFAULT_QR_OFFSET_PX } from '../../lib/scoreboardConfig';
-import { bgTransformStyle } from '../../lib/bgFraming';
+import { useCoverFraming } from './useCoverFraming';
 import { formatScore } from '../../lib/format';
 import { resolveRowClick, opensQuickView, QUICK_VIEW_HINT } from '../../lib/scoreGesture';
 import { tournamentChipLabel } from './tournamentChip';
@@ -208,6 +208,8 @@ export default function ArcadeCard({
   onOpenQuickView,
 }: ArcadeCardProps) {
   const { bgImage, styleHeaderUrl } = resolveImages(lb);
+  // v2.122.1 — the fill layer's framing (see useCoverFraming).
+  const bgLayer = useCoverFraming(cardBgFill ? bgImage : null, lb);
   const displayName = lb.displayName || lb.gameName;
   const { expandedPlayer, playerHistory, historyLoading, togglePlayer, hasMultiple } =
     useScoreExpand(roomId, lb.gameId, lb.gameName, lb.rankings.length);
@@ -311,7 +313,9 @@ export default function ArcadeCard({
             <div className="absolute inset-px z-0 overflow-hidden rounded-[8px]" aria-hidden="true">
               <div
                 className="absolute inset-0"
-                style={{ backgroundImage: `url(${bgImage})`, backgroundSize: 'cover', ...bgTransformStyle(lb) }}
+                ref={bgLayer.ref}
+                {...bgLayer.data}
+                style={{ backgroundImage: `url(${bgImage})`, ...bgLayer.style }}
               />
             </div>
             <div className="absolute inset-px z-0 rounded-[8px] bg-black/60" aria-hidden="true" />

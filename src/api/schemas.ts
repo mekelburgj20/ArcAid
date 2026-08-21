@@ -227,10 +227,11 @@ export const CreateLocalAdminSchema = z.object({
  * state, so an absent field means "unframed", never "leave as-is".
  */
 const BgFramingFields = {
-    // v2.119.0 (C2): floor 100 -> 50 (zoom-out). 49 is a client bug, not a
-    // value to silently round, so the schema rejects it; `normalizeFraming`
-    // clamps as defence in depth behind this.
-    bgZoom: z.number().min(50).max(300).nullable().optional(),
+    // v2.119.0 (C2): floor 100 -> 50 (zoom-out); v2.122.1: 50 -> 10, so "fit
+    // the whole image" is reachable for a wide strip on a tall card. 9 is a
+    // client bug, not a value to silently round, so the schema rejects it;
+    // `normalizeFraming` clamps as defence in depth behind this.
+    bgZoom: z.number().min(10).max(300).nullable().optional(),
     bgPosX: z.number().min(0).max(100).nullable().optional(),
     bgPosY: z.number().min(0).max(100).nullable().optional(),
 };
@@ -244,6 +245,17 @@ export const AssignStyleSchema = z.object({
 export const AssignImageSchema = z.object({
     styleId: z.string().min(1),
     imageType: z.enum(['logo', 'background', 'both']),
+    ...BgFramingFields,
+});
+
+/**
+ * v2.122.1 — framing ALONE, for `PUT .../games/:id/framing` and its library
+ * twin. The two schemas above can only carry framing alongside a style id,
+ * which made zoom/position unsaveable on a card whose background is plain
+ * catalogue art. Same field bounds, same "omitted means unframed" doctrine —
+ * the editor always sends the full triple.
+ */
+export const AssignFramingSchema = z.object({
     ...BgFramingFields,
 });
 

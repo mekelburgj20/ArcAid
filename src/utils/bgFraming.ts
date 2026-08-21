@@ -26,9 +26,11 @@ export const clampOrNull = (n: number | null | undefined, min: number, max: numb
  */
 export function normalizeFraming(framing?: BgFraming): { bgZoom: number | null; bgPosX: number | null; bgPosY: number | null } {
     return {
-        // v2.119.0 (C2): floor 100 -> 50. See admin-ui/src/lib/bgFraming.ts
-        // for why zooming out is allowed to expose the card behind the art.
-        bgZoom: clampOrNull(framing?.bgZoom, 50, 300),
+        // v2.119.0 (C2): floor 100 -> 50; v2.122.1: 50 -> 10. See
+        // admin-ui/src/lib/bgFraming.ts for why zooming out is allowed to
+        // expose the card behind the art, and why 50 was too shallow to reach
+        // "the whole picture" on a wide strip.
+        bgZoom: clampOrNull(framing?.bgZoom, 10, 300),
         bgPosX: clampOrNull(framing?.bgPosX, 0, 100),
         bgPosY: clampOrNull(framing?.bgPosY, 0, 100),
     };

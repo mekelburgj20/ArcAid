@@ -10,7 +10,7 @@ import GameInfoPopup from './GameInfoPopup';
 import { useScoreExpand } from './useScoreExpand';
 import { CircuitBoardBackground, GlowNodes, ScanlineOverlay, PodiumBackground } from './neonCircuitAssets';
 import { qrEdgeMetrics, DEFAULT_QR_OFFSET_PX } from '../../lib/scoreboardConfig';
-import { bgTransformStyle } from '../../lib/bgFraming';
+import { useCoverFraming } from './useCoverFraming';
 import { tournamentChipLabel } from './tournamentChip';
 
 interface ShowcaseCardProps {
@@ -78,6 +78,8 @@ export default function ShowcaseCard({
   onOpenQuickView,
 }: ShowcaseCardProps) {
   const { bgImage, styleHeaderUrl } = resolveImages(lb);
+  // v2.122.1 — the fill layer's framing (see useCoverFraming).
+  const bgLayer = useCoverFraming(cardBgFill ? bgImage : null, lb);
   const displayName = lb.displayName || lb.gameName;
   const { expandedPlayer, playerHistory, historyLoading, togglePlayer, hasMultiple } = useScoreExpand(roomId, lb.gameId, lb.gameName, lb.rankings.length);
 
@@ -169,12 +171,15 @@ export default function ShowcaseCard({
         {/* Card background fill — v2.0.3: accepts catalogue image fallback too. */}
         {cardBgFill && bgImage && (
           <>
-            <div style={{
-              position: 'absolute', inset: 0, zIndex: 0,
-              backgroundImage: `url(${bgImage})`,
-              backgroundSize: 'cover',
-              ...bgTransformStyle(lb),
-            }} />
+            <div
+              ref={bgLayer.ref}
+              {...bgLayer.data}
+              style={{
+                position: 'absolute', inset: 0, zIndex: 0,
+                backgroundImage: `url(${bgImage})`,
+                ...bgLayer.style,
+              }}
+            />
             <div style={{ position: 'absolute', inset: 0, zIndex: 0, background: 'rgba(0,0,0,0.55)' }} />
           </>
         )}

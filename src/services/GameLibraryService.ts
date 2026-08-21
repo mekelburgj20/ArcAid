@@ -32,8 +32,9 @@ export class GameLibraryService {
      */
     static async setRoomGameStyle(gameRoomId: string, gameName: string, catalogueStyleId: string | null, headerDisabled: boolean = false, framing?: BgFraming): Promise<boolean> {
         const db = await getDatabase();
-        // v2.119.0 (C2) — floor 100 -> 50, in step with `normalizeFraming`.
-        const zoom = clampOrNull(framing?.bgZoom, 50, 300);
+        // v2.119.0 (C2) — floor 100 -> 50; v2.122.1 -> 10. In step with
+        // `normalizeFraming`; the two must never drift.
+        const zoom = clampOrNull(framing?.bgZoom, 10, 300);
         const posX = clampOrNull(framing?.bgPosX, 0, 100);
         const posY = clampOrNull(framing?.bgPosY, 0, 100);
         const result = await db.run(

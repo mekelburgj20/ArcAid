@@ -8,7 +8,7 @@ import FitRowName from './FitRowName';
 import GameInfoPopup from './GameInfoPopup';
 import { useScoreExpand } from './useScoreExpand';
 import { qrEdgeMetrics, DEFAULT_QR_OFFSET_PX } from '../../lib/scoreboardConfig';
-import { bgTransformStyle } from '../../lib/bgFraming';
+import { useCoverFraming } from './useCoverFraming';
 import { formatScore } from '../../lib/format';
 import { resolveRowClick, opensQuickView, QUICK_VIEW_HINT } from '../../lib/scoreGesture';
 import { tournamentChipLabel } from './tournamentChip';
@@ -116,6 +116,9 @@ export default function MinimalCard({
     return effectiveBgId ? `/api/styles/images/backgrounds/${effectiveBgId}.png` : lb.imageUrl || null;
   })();
 
+  // v2.122.1 — the fill layer's framing (see useCoverFraming).
+  const bgLayer = useCoverFraming(bgImageUrl, lb);
+
   const showQr = qrMode !== 'disabled';
   const qrMetrics = qrEdgeMetrics(qrSize, showQr, qrPosition, qrOffsetPx);
 
@@ -144,11 +147,9 @@ export default function MinimalCard({
         <>
           <div
             className="absolute inset-0 z-0"
-            style={{
-              backgroundImage: `url(${bgImageUrl})`,
-              backgroundSize: 'cover',
-              ...bgTransformStyle(lb),
-            }}
+            ref={bgLayer.ref}
+            {...bgLayer.data}
+            style={{ backgroundImage: `url(${bgImageUrl})`, ...bgLayer.style }}
           />
           <div className="absolute inset-0 z-0 bg-black/55" />
         </>

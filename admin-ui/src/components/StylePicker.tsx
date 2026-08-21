@@ -4,9 +4,10 @@ import NeonButton from './NeonButton';
 import StyleUploadForm from './StyleUploadForm';
 import { api } from '../lib/api';
 import {
-  bgTransformStyle, resolveFraming, BG_ZOOM_MIN, BG_ZOOM_MAX, DEFAULT_BG_ZOOM, DEFAULT_BG_POS,
+  dragFramingPos, resolveFraming, BG_ZOOM_MIN, BG_ZOOM_MAX, DEFAULT_BG_ZOOM, DEFAULT_BG_POS,
   type BgFraming,
 } from '../lib/bgFraming';
+import { useCoverFraming } from './scoreboard/useCoverFraming';
 
 interface Style {
   id: string;
@@ -137,23 +138,35 @@ export default function StylePicker({
     : (fallbackBgUrl || null);
   const framingVisible = showFraming && !!framingBgUrl && imageType !== 'logo';
 
-  const clampPct = (n: number) => Math.min(100, Math.max(0, n));
+  /** The preview box is a card stand-in, so it frames by the SAME model the
+   *  cards use — otherwise the numbers mean two different pictures. */
+  const previewLayer = useCoverFraming(framingVisible ? framingBgUrl : null, { bgZoom: zoom, bgPosX: posX, bgPosY: posY });
 
   const beginDrag = (e: React.PointerEvent<HTMLDivElement>) => {
     previewRef.current?.setPointerCapture?.(e.pointerId);
     dragStart.current = { clientX: e.clientX, clientY: e.clientY, posX, posY };
   };
+  /**
+   * v2.122.1 — the picture follows the pointer on BOTH axes, at whatever zoom.
+   * v1 hard-coded the overflow sign (a subtraction), which ran backwards the
+   * moment the image was smaller than the box. `dragFramingPos` divides by the
+   * signed slack instead, so the sign is derived, not assumed — and the axis
+   * where the image exactly fits is a no-op rather than a jump.
+   */
   const onDrag = (e: React.PointerEvent<HTMLDivElement>) => {
     const start = dragStart.current;
     const box = previewRef.current;
     if (!start || !box) return;
-    const rect = box.getBoundingClientRect();
-    if (!rect.width || !rect.height) return;
-    // Subtraction, not addition: a HIGHER background-position percentage pulls
-    // the image left/up, so dragging right has to lower it for the image to
-    // follow the pointer.
-    setPosX(clampPct(start.posX - ((e.clientX - start.clientX) / rect.width) * 100));
-    setPosY(clampPct(start.posY - ((e.clientY - start.clientY) / rect.height) * 100));
+    const g = previewLayer.geometry;
+    const cardW = g?.cardW || box.offsetWidth;
+    const cardH = g?.cardH || box.offsetHeight;
+    if (!cardW || !cardH) return;
+    // Pre-measure fallback: assume the legacy overflowing-cover geometry, which
+    // is what the layer is still drawing until the image reports its size.
+    const dispW = g?.dispW ?? cardW * 2;
+    const dispH = g?.dispH ?? cardH * 2;
+    setPosX(dragFramingPos(start.posX, e.clientX - start.clientX, cardW, dispW));
+    setPosY(dragFramingPos(start.posY, e.clientY - start.clientY, cardH, dispH));
   };
   const endDrag = (e: React.PointerEvent<HTMLDivElement>) => {
     dragStart.current = null;
@@ -352,11 +365,9 @@ export default function StylePicker({
               >
                 <div
                   className="absolute inset-0"
-                  style={{
-                    backgroundImage: `url(${framingBgUrl})`,
-                    backgroundSize: 'cover',
-                    ...bgTransformStyle({ bgZoom: zoom, bgPosX: posX, bgPosY: posY }),
-                  }}
+                  ref={previewLayer.ref}
+                  {...previewLayer.data}
+                  style={{ backgroundImage: `url(${framingBgUrl})`, ...previewLayer.style }}
                 />
               </div>
               <div className="flex items-center gap-2 mt-2">
@@ -366,7 +377,7 @@ export default function StylePicker({
                   aria-label="Background zoom"
                   min={BG_ZOOM_MIN}
                   max={BG_ZOOM_MAX}
-                  step={5}
+                  step={1}
                   value={zoom}
                   onChange={e => setZoom(Number(e.target.value))}
                   className="flex-1 accent-neon-cyan cursor-pointer"

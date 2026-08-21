@@ -8,7 +8,7 @@ import FitRowName from './FitRowName';
 import GameInfoPopup from './GameInfoPopup';
 import { useScoreExpand } from './useScoreExpand';
 import { qrEdgeMetrics, DEFAULT_QR_OFFSET_PX } from '../../lib/scoreboardConfig';
-import { bgTransformStyle } from '../../lib/bgFraming';
+import { useCoverFraming } from './useCoverFraming';
 import { formatScore } from '../../lib/format';
 import { resolveRowClick, opensQuickView, QUICK_VIEW_HINT } from '../../lib/scoreGesture';
 import { tournamentChipLabel } from './tournamentChip';
@@ -82,6 +82,9 @@ export default function BannerCard({
   onOpenQuickView,
 }: BannerCardProps) {
   const { bgImage, styleHeaderUrl } = resolveImages(lb);
+  // v2.122.1 — the fill layer's framing. Hook, not a style helper: the model
+  // needs the image's intrinsic size and the layer's measured box.
+  const bgLayer = useCoverFraming(cardBgFill ? bgImage : null, lb);
   const displayName = lb.displayName || lb.gameName;
   // When cardBgFill is on, the separate image area is hidden so identifier isn't visible — always show title.
   // v2.115.0: art switched off is the same situation — no identifier renders,
@@ -163,12 +166,9 @@ export default function BannerCard({
       {cardBgFill && bgImage && (
         <div
           className="absolute inset-0 z-[0]"
-          style={{
-            backgroundImage: `url(${bgImage})`,
-            backgroundSize: 'cover',
-            backgroundRepeat: 'no-repeat',
-            ...bgTransformStyle(lb),
-          }}
+          ref={bgLayer.ref}
+          {...bgLayer.data}
+          style={{ backgroundImage: `url(${bgImage})`, ...bgLayer.style }}
         />
       )}
       {cardBgFill && bgImage && (
