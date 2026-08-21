@@ -5,7 +5,7 @@ import NeonCard from '../components/NeonCard';
 import NeonButton from '../components/NeonButton';
 import LoadingState from '../components/LoadingState';
 import AdminPickOnBehalf from '../components/AdminPickOnBehalf';
-import { AlertTriangle, Trash2, XCircle, RefreshCw, Play, Lock, EyeOff, Plus, Zap, Recycle } from 'lucide-react';
+import { AlertTriangle, Trash2, XCircle, RefreshCw, Play, Lock, EyeOff, Plus, Zap, Recycle, Link2Off } from 'lucide-react';
 
 interface GameState {
   id: string;
@@ -40,6 +40,22 @@ interface ReconcilePlan {
   keep: ReconcileEntry[];
   orphans: ReconcileEntry[];
   unmanaged: ReconcileEntry[];
+}
+
+// v2.123.2 — link check. Which of this room's iScored links still resolve to a
+// live entry on the board? A link that does not is silent until a score push
+// fails, so surface it here.
+interface LinkCheckEntry {
+  gameId: string;
+  name: string;
+  iscoredId: string;
+  status: string;
+  present: boolean;
+}
+
+interface LinkCheckResult {
+  games: LinkCheckEntry[];
+  missingCount: number;
 }
 
 type StatusFilter = 'ALL' | 'ACTIVE' | 'QUEUED' | 'COMPLETED' | 'ARCHIVED';
@@ -83,6 +99,12 @@ export default function GameStates() {
   // iScored reconcile modal state
   const [reconcile, setReconcile] = useState<{ loading: boolean; plan: ReconcilePlan | null; selected: Set<string>; running: boolean } | null>(null);
 
+  // Link check (v2.123.2): local game id -> is its iScored entry still there?
+  // Empty until the admin presses "Check iScored links" — the check costs a
+  // Playwright session, so it is never run on page load.
+  const [linkCheck, setLinkCheck] = useState<Record<string, boolean> | null>(null);
+  const [linkChecking, setLinkChecking] = useState(false);
+
   const fetchGames = async () => {
     try {
       // Always pull every status; filter chips operate client-side so the
@@ -116,6 +138,28 @@ export default function GameStates() {
   const showMsg = (text: string, type: 'success' | 'error') => {
     setMessage({ text, type });
     setTimeout(() => setMessage(null), 4000);
+  };
+
+  // --- iScored link check (v2.123.2) ---
+
+  const runLinkCheck = async () => {
+    setLinkChecking(true);
+    try {
+      const res = await api.get<LinkCheckResult>(`/rooms/${room.roomId}/admin/game-states/iscored-link-check`);
+      const map: Record<string, boolean> = {};
+      for (const g of res.games) map[g.gameId] = g.present;
+      setLinkCheck(map);
+      showMsg(
+        res.missingCount === 0
+          ? `All ${res.games.length} iScored link${res.games.length === 1 ? '' : 's'} are healthy`
+          : `${res.missingCount} game${res.missingCount === 1 ? '' : 's'} missing on iScored — use Re-create to repair`,
+        res.missingCount === 0 ? 'success' : 'error',
+      );
+    } catch (err: any) {
+      showMsg(err.message || 'Link check failed', 'error');
+    } finally {
+      setLinkChecking(false);
+    }
   };
 
   // --- iScored reconcile ---
@@ -259,6 +303,41 @@ export default function GameStates() {
     });
   };
 
+  // Repair a broken (or absent) iScored link. Replaces the old bare 'create'
+  // button: 'recreate' refuses to duplicate a game that IS still on iScored,
+  // and it puts the Arcaid scores back, which 'create' never did.
+  const recreateOnIScored = (game: GameState) => {
+    setConfirmAction({
+      title: `Re-create on iScored: ${game.name}`,
+      description:
+        `This creates a NEW entry for "${game.name}" on iScored and points Arcaid at it.\n\n`
+        + `• The game gets a new iScored ID (the old one${game.iscored_id ? ` — ${game.iscored_id} — ` : ' '}is gone).\n`
+        + `• Existing Arcaid scores are replayed as one best per player.\n`
+        + `• Score dates on iScored become now — the Arcaid dates are unchanged.\n\n`
+        + `If the game still exists on iScored this is refused, so it can never make a duplicate.`,
+      onConfirm: async () => {
+        setActionLoading(game.id);
+        try {
+          const res = await api.post<{ newId: string; scoresSubmitted: number; scoresRejected: number }>(
+            `/rooms/${room.roomId}/admin/game-states/${game.id}/sync-iscored`,
+            { action: 'recreate' },
+          );
+          showMsg(
+            `${game.name}: re-created on iScored (${res.newId}) — ${res.scoresSubmitted} score(s) replayed`
+            + (res.scoresRejected ? `, ${res.scoresRejected} rejected` : ''),
+            'success',
+          );
+          setLinkCheck(lc => (lc ? { ...lc, [game.id]: true } : lc));
+          await fetchGames();
+        } catch (err: any) {
+          showMsg(err.message || 'Failed', 'error');
+        } finally {
+          setActionLoading(null);
+        }
+      },
+    });
+  };
+
   const forceMaintenance = (tournamentId: string, name: string) => {
     setConfirmAction({
       title: `Force Maintenance: ${name}`,
@@ -324,6 +403,15 @@ export default function GameStates() {
               Clean {phantomCount} Phantom{phantomCount > 1 ? 's' : ''}
             </button>
           )}
+          <button
+            onClick={runLinkCheck}
+            disabled={linkChecking}
+            title="Check every iScored link in this room and flag games whose iScored entry is gone"
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded border border-neon-cyan/40 text-neon-cyan bg-neon-cyan/10 hover:bg-neon-cyan/20 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-wait"
+          >
+            <Link2Off size={14} />
+            {linkChecking ? 'Checking...' : 'Check iScored links'}
+          </button>
           <button
             onClick={openReconcile}
             title="Find games on iScored that Arcaid no longer tracks and delete them"
@@ -419,6 +507,9 @@ export default function GameStates() {
                   const badge = STATUS_BADGES[game.status] || STATUS_BADGES.COMPLETED;
                   const isPhantom = game.name === '[Pending Pick]';
                   const isLoading = actionLoading === game.id;
+                  // Only rows the check actually covered can be "missing":
+                  // an id absent from the map was never looked at.
+                  const linkMissing = !!game.iscored_id && linkCheck != null && linkCheck[game.id] === false;
 
                   return (
                     <tr
@@ -448,9 +539,16 @@ export default function GameStates() {
                       {/* iScored */}
                       <td className="py-2.5 px-2">
                         {game.iscored_id ? (
-                          <span className="text-xs text-neon-cyan font-mono">{game.iscored_id.slice(0, 8)}...</span>
+                          <span className={`text-xs font-mono ${linkMissing ? 'text-red-400 line-through' : 'text-neon-cyan'}`}>
+                            {game.iscored_id.slice(0, 8)}...
+                          </span>
                         ) : (
                           <span className="text-xs text-faint">none</span>
+                        )}
+                        {linkMissing && (
+                          <span className="ml-1.5 text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border bg-red-500/15 text-red-400 border-red-500/40 whitespace-nowrap">
+                            missing on iScored
+                          </span>
                         )}
                       </td>
 
@@ -499,8 +597,16 @@ export default function GameStates() {
                           {game.iscored_id && (
                             <ActionBtn icon={<EyeOff size={13} />} title="Hide on iScored" onClick={() => syncIScored(game, 'hide')} color="muted" />
                           )}
-                          {!game.iscored_id && !isPhantom && (
-                            <ActionBtn icon={<Plus size={13} />} title="Create on iScored" onClick={() => syncIScored(game, 'create')} color="cyan" />
+                          {/* Repair / create. Both go through 'recreate': it
+                              refuses to duplicate a game still on iScored and
+                              replays the Arcaid scores, which 'create' did not. */}
+                          {!isPhantom && (!game.iscored_id || linkMissing) && (
+                            <ActionBtn
+                              icon={<Plus size={13} />}
+                              title={linkMissing ? 'Re-create on iScored' : 'Create on iScored'}
+                              onClick={() => recreateOnIScored(game)}
+                              color={linkMissing ? 'amber' : 'cyan'}
+                            />
                           )}
 
                           {/* Delete */}
@@ -643,7 +749,9 @@ function ConfirmModal({ title, description, danger, options, onConfirm, onCancel
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-deep/80 backdrop-blur-sm" onClick={onCancel}>
       <div className="bg-surface border border-border rounded-lg shadow-2xl p-6 max-w-md w-full mx-4" onClick={e => e.stopPropagation()}>
         <h3 className="font-display font-bold text-primary mb-2">{title}</h3>
-        <p className="text-sm text-muted mb-4">{description}</p>
+        {/* whitespace-pre-line so a multi-line description (the re-create
+            explainer's bullet list) keeps its line breaks. */}
+        <p className="text-sm text-muted mb-4 whitespace-pre-line">{description}</p>
 
         {options && options.length > 0 && (
           <div className="space-y-2 mb-4">

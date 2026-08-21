@@ -92,11 +92,19 @@ export async function syncScoreToIScored(opts: {
         // locks the game on iScored while a submit is already in flight. That is
         // routine, the score is safely in Arcaid regardless, and it does not
         // deserve an ERROR that reads like a broken integration.
+        //
+        // A third cause wears the same six characters (rtx_pinball, 2026-08-21):
+        // the game no longer EXISTS on iScored — someone deleted the entry
+        // Arcaid is linked to — so every push for that ACTIVE game fails
+        // forever. Nothing in the message says so, so name the repair path.
         const message = err instanceof Error ? err.message : String(err);
         if (await gameRoundClosed(roomId, gameName)) {
             logWarn(`iScored sync for "${gameName}" by ${username} was rejected by iScored — the game is locked (round closed); the score still counts in Arcaid.`);
         } else {
-            logError(`iScored sync failed for "${gameName}" by ${username}: ${message} (check that Write access is enabled on the iScored gameroom)`, err);
+            const missingHint = /access denied/i.test(message)
+                ? ' — the game may no longer exist on iScored; use Game States → Check iScored links'
+                : '';
+            logError(`iScored sync failed for "${gameName}" by ${username}: ${message} (check that Write access is enabled on the iScored gameroom)${missingHint}`, err);
         }
     } finally {
         if (tempPhotoPath) try { fs.unlinkSync(tempPhotoPath); } catch {}

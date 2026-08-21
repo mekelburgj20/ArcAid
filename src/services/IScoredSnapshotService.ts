@@ -30,7 +30,9 @@ export type SnapshotReason =
     | 'delete-game'
     | 'unpin'
     | 'nightly'
-    | 'manual';
+    | 'manual'
+    /** Admin repair of a game whose iScored entry vanished (v2.123.2). */
+    | 'recreate';
 
 export interface SnapshotGame {
     id: string;
@@ -517,12 +519,7 @@ export class IScoredSnapshotService {
         const { getDatabase } = await import('../database/database.js');
         const db = await getDatabase();
 
-        const useApi = process.env.ISCORED_API_ENABLED !== 'false';
-        let api: { submitScore(gameId: string, name: string, score: number): Promise<unknown> } | null = null;
-        if (useApi) {
-            const { IScoredApiClient } = await import('../engine/IScoredApiClient.js');
-            api = new IScoredApiClient({ publicUrl: creds.publicUrl });
-        }
+        const sink = await resolveScoreSubmitter(client, creds);
 
         const results: RestoreGameResult[] = [];
         for (const game of plan.toCreate) {
@@ -553,16 +550,9 @@ export class IScoredSnapshotService {
                 // only AFTER the replay (same open-first shape as pinGameToScoreboard).
                 await client.setGameStatus(newId, { hidden: false, locked: false });
 
-                for (const s of game.scores) {
-                    try {
-                        if (api) await api.submitScore(newId, s.name, s.score);
-                        else await client.submitScore(newId, s.name, s.score);
-                        result.scoresSubmitted++;
-                    } catch (err) {
-                        result.scoresRejected++;
-                        logWarn(`Snapshot restore: score rejected (${s.name} / ${s.score}) on "${game.name}": ${err instanceof Error ? err.message : String(err)}`);
-                    }
-                }
+                const replay = await replayScoresToIScored(sink, newId, game.scores, `Snapshot restore / "${game.name}"`);
+                result.scoresSubmitted = replay.submitted;
+                result.scoresRejected = replay.rejected;
 
                 if (game.hidden || game.locked) {
                     await client.setGameStatus(newId, { hidden: game.hidden, locked: game.locked });
@@ -618,6 +608,54 @@ export class IScoredSnapshotService {
         const ms = Date.parse(`${m[1]}T${m[2]}:${m[3]}:${m[4]}.${m[5]}Z`);
         return Number.isNaN(ms) ? null : ms;
     }
+}
+
+/**
+ * Anything that can push one score at iScored. The API client and the
+ * Playwright client both satisfy it; `resolveScoreSubmitter` picks between
+ * them from `ISCORED_API_ENABLED`, exactly as every other submit path does.
+ */
+export interface IScoredScoreSubmitter {
+    submitScore(gameId: string, name: string, score: number): Promise<unknown>;
+}
+
+/** API client when enabled (fast, no browser), else the caller's session client. */
+export async function resolveScoreSubmitter(
+    client: IScoredScoreSubmitter,
+    creds: IScoredCreds,
+): Promise<IScoredScoreSubmitter> {
+    if (process.env.ISCORED_API_ENABLED === 'false') return client;
+    const { IScoredApiClient } = await import('../engine/IScoredApiClient.js');
+    return new IScoredApiClient({ publicUrl: creds.publicUrl });
+}
+
+/**
+ * Replay a set of per-player bests onto a freshly created iScored game.
+ *
+ * Shared by snapshot restore and the admin "re-create on iScored" repair —
+ * both recreate a game that iScored lost and then have to put the scores back.
+ * A rejection is COUNTED, never thrown: iScored refuses a score for reasons
+ * that must not strand the remaining players (a name it dislikes, a transient
+ * 500), and the repair is still worth completing without them.
+ */
+export async function replayScoresToIScored(
+    sink: IScoredScoreSubmitter,
+    gameIscoredId: string,
+    scores: Array<{ name: string; score: number }>,
+    label: string,
+): Promise<{ submitted: number; rejected: number }> {
+    let submitted = 0;
+    let rejected = 0;
+    for (const s of scores) {
+        try {
+            await sink.submitScore(gameIscoredId, s.name, s.score);
+            submitted++;
+        } catch (err) {
+            rejected++;
+            logWarn(`${label}: score rejected (${s.name} / ${s.score}): ${err instanceof Error ? err.message : String(err)}`);
+        }
+    }
+    return { submitted, rejected };
 }
 
 /** trim + lowercase + apostrophes removed — iScored strips apostrophes on save. */

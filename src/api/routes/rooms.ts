@@ -7063,6 +7063,43 @@ router.delete('/:roomId/admin/games/:gameId', requireAuth, requireRoomAccess('ro
     }
 });
 
+/** Tag a pinned (non-tournament) row gets on iScored — mirrors the pin route's default. */
+const PIN_DEFAULT_ISCORED_TAG = 'MG';
+
+/**
+ * The Arcaid-side per-player bests for one game, ready to replay onto a fresh
+ * iScored entry. `submissions` is the source of truth for best-per-player-per-
+ * game; `score_history` is the fallback for a game whose submissions rows were
+ * unlinked (`game_id = NULL`) or never written. iScored keeps one best per
+ * player and rejects anything lower, so only bests are worth pushing.
+ */
+async function arcaidBestsForGame(gameId: string): Promise<Array<{ name: string; score: number }>> {
+    const db = await getDatabase();
+    const clean = (rows: Array<{ name: string | null; score: number | null }>) =>
+        rows
+            .map(r => ({ name: String(r.name ?? '').trim(), score: Number(r.score ?? 0) }))
+            .filter(r => r.name.length > 0 && Number.isFinite(r.score));
+
+    const fromSubmissions = await db.all<{ name: string | null; score: number | null }[]>(
+        `SELECT iscored_username AS name, MAX(score) AS score
+         FROM submissions
+         WHERE game_id = ? AND iscored_username IS NOT NULL AND TRIM(iscored_username) <> ''
+         GROUP BY LOWER(iscored_username)`,
+        gameId,
+    );
+    const bests = clean(fromSubmissions || []);
+    if (bests.length > 0) return bests;
+
+    const fromHistory = await db.all<{ name: string | null; score: number | null }[]>(
+        `SELECT iscored_username AS name, MAX(score) AS score
+         FROM score_history
+         WHERE game_id = ? AND iscored_username IS NOT NULL AND TRIM(iscored_username) <> ''
+         GROUP BY LOWER(iscored_username)`,
+        gameId,
+    );
+    return clean(fromHistory || []);
+}
+
 // Sync a single game to iScored (granular operations)
 router.post('/:roomId/admin/game-states/:gameId/sync-iscored', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
     try {
@@ -7071,10 +7108,15 @@ router.post('/:roomId/admin/game-states/:gameId/sync-iscored', requireAuth, requ
         const parsed = SyncIScoredActionSchema.parse(req.body);
         const db = await getDatabase();
 
+        // LEFT JOIN + COALESCE (matching the game-states LIST route) so PINNED
+        // rows — tournament_id IS NULL, room carried on games.game_room_id — are
+        // reachable too. The old INNER JOIN 404'd them, which meant the one row
+        // type the repair action most needs to reach could not be reached.
         const game = await db.get(`
-            SELECT g.*, t.game_room_id
-            FROM games g JOIN tournaments t ON g.tournament_id = t.id
-            WHERE g.id = ? AND t.game_room_id = ?
+            SELECT g.*, t.type AS tournament_type
+            FROM games g
+            LEFT JOIN tournaments t ON g.tournament_id = t.id
+            WHERE g.id = ? AND COALESCE(t.game_room_id, g.game_room_id) = ?
         `, gameId, roomId);
         if (!game) return res.status(404).json({ error: 'Game not found in this room' });
 
@@ -7101,6 +7143,111 @@ router.post('/:roomId/admin/game-states/:gameId/sync-iscored', requireAuth, requ
         if (parsed.action === 'delete' && !(await iscoredDeletesAllowed(roomId))) {
             return res.status(409).json({ error: ISCORED_DELETES_DISABLED_MESSAGE });
         }
+
+        // ── 'recreate' — repair a game whose iScored entry vanished (v2.123.2).
+        //
+        // The rtx_pinball incident (2026-08-21): an admin deleted a DUPLICATE on
+        // iScored and took out the entry Arcaid was linked to. The local row
+        // stayed ACTIVE with a dead `iscored_id`, so every score push answered
+        // "Access Denied" and the page offered no way back — "Create on iScored"
+        // only rendered when the id was already NULL.
+        //
+        // This action creates a fresh entry, re-links `games.iscored_id`, and
+        // replays the Arcaid-side per-player bests onto it. It DELETES nothing,
+        // so the per-room delete kill-switch does not apply. Everything runs in
+        // ONE session so a cron fire can't interleave a dropdown-state flip.
+        if (parsed.action === 'recreate') {
+            const { IScoredSessionRegistry } = await import('../../engine/IScoredSessionRegistry.js');
+            const oldId: string | null = game.iscored_id ?? null;
+
+            type RecreateOutcome =
+                | { conflict: true }
+                | { conflict: false; newId: string; submitted: number; rejected: number };
+
+            const outcome = await IScoredSessionRegistry.getInstance().withSession(creds, async (client): Promise<RecreateOutcome> => {
+                const { IScoredSnapshotService, resolveScoreSubmitter, replayScoresToIScored } =
+                    await import('../../services/IScoredSnapshotService.js');
+                // Rollback net FIRST. This path creates rather than deletes, but
+                // it rewrites `games.iscored_id` and replays scores — a snapshot
+                // is what makes the board state before the repair recoverable.
+                await IScoredSnapshotService.captureBeforeMutation(client, creds, 'recreate', [roomId]);
+
+                // Never create a duplicate. If the id Arcaid holds is still on
+                // the board, the link is fine and there is nothing to repair.
+                // A NULL id needs no check — that is just a create.
+                if (oldId) {
+                    const onBoard = await client.getGamesOnIScored();
+                    if (onBoard.some((g: { id: string }) => String(g.id) === String(oldId))) {
+                        return { conflict: true };
+                    }
+                }
+
+                // Canonical 3-call create shape (same as activation and pin).
+                const newId = await client.createGame(game.name, game.style_id || undefined);
+                // Pinned rows carry no tournament type — they take the pin default tag.
+                const tag: string | null = game.tournament_id ? (game.tournament_type || null) : PIN_DEFAULT_ISCORED_TAG;
+                if (tag) {
+                    try {
+                        await client.setGameTags(newId, tag);
+                    } catch (tagErr) {
+                        logWarn(`iScored recreate: tag "${tag}" failed for "${game.name}" — continuing`, tagErr);
+                    }
+                }
+                // Scores go in while the game is OPEN: iScored rejects submissions
+                // to a locked game (same open-first shape as pin + snapshot restore).
+                await client.setGameStatus(newId, { locked: false, hidden: false });
+                await db.run('UPDATE games SET iscored_id = ? WHERE id = ?', newId, gameId);
+
+                const bests = await arcaidBestsForGame(gameId);
+                const sink = await resolveScoreSubmitter(client, creds);
+                const replay = await replayScoresToIScored(sink, newId, bests, `iScored recreate / "${game.name}"`);
+                return { conflict: false, newId, submitted: replay.submitted, rejected: replay.rejected };
+            });
+
+            if (outcome.conflict) {
+                return res.status(409).json({
+                    error: `This game still exists on iScored (id ${oldId}) — nothing to repair.`,
+                    iscoredId: oldId,
+                });
+            }
+
+            // Same fire-and-forget lineup reorder the activate route does.
+            const { TournamentEngine } = await import('../../engine/TournamentEngine.js');
+            TournamentEngine.getInstance().reorderIScoredLineup(roomId).catch(() => {});
+
+            const { LeaderboardService } = await import('../../services/LeaderboardService.js');
+            await LeaderboardService.invalidate(gameId);
+
+            const { RoomEventService } = await import('../../services/RoomEventService.js');
+            await RoomEventService.log(roomId, 'iscored_sync', {
+                gameName: game.name, action: 'recreate', oldId, newId: outcome.newId,
+            });
+
+            await AuditService.log({
+                actor: req.user!.discordId || req.user!.username || req.user!.localAdminId || 'admin',
+                action: 'game_state.iscored_recreate',
+                target_type: 'game',
+                target_id: gameId,
+                details: JSON.stringify({
+                    roomId, gameName: game.name,
+                    oldId, newId: outcome.newId,
+                    submitted: outcome.submitted, rejected: outcome.rejected,
+                }),
+                ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+                correlation_id: req.correlationId || '',
+            });
+
+            logInfo(`Admin iScored recreate: "${game.name}" ${oldId ?? '(none)'} → ${outcome.newId} (${outcome.submitted} score(s) replayed, ${outcome.rejected} rejected, room ${roomId})`);
+            return res.json({
+                success: true,
+                action: 'recreate',
+                newId: outcome.newId,
+                oldId,
+                scoresSubmitted: outcome.submitted,
+                scoresRejected: outcome.rejected,
+            });
+        }
+
         const { IScoredSessionRegistry } = await import('../../engine/IScoredSessionRegistry.js');
         await IScoredSessionRegistry.getInstance().withSession(creds, async (client) => {
             switch (parsed.action) {
@@ -7270,6 +7417,51 @@ router.get('/:roomId/admin/health', requireAuth, requireRoomAccess('roomId'), as
     } catch (error) {
         logError('API Error (GET admin/health):', error);
         res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// GET — iScored LINK CHECK (v2.123.2). The mirror image of reconcile: reconcile
+// asks "what is on iScored that Arcaid no longer tracks?", this asks "which of
+// Arcaid's links point at an entry that is GONE?". A missing entry is invisible
+// until a score push fails with "Access Denied", so give the admin a button that
+// names the broken rows before a player hits one. Read-only — one
+// getGamesOnIScored() inside one session, exactly like the reconcile GET.
+router.get('/:roomId/admin/game-states/iscored-link-check', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const { getIScoredCredsForRoom } = await import('../../utils/iscoredCreds.js');
+        const creds = await getIScoredCredsForRoom(roomId);
+        if (!creds) return res.status(400).json({ error: 'No iScored credentials configured for this room.' });
+
+        const db = await getDatabase();
+        // ACTIVE + COMPLETED only: ARCHIVED rows are post-cleanup anchors whose
+        // iScored entry is SUPPOSED to be gone, and QUEUED rows never had one.
+        const rows = await db.all<{ id: string; name: string; iscored_id: string; status: string }[]>(`
+            SELECT g.id, g.name, g.iscored_id, g.status
+            FROM games g
+            LEFT JOIN tournaments t ON g.tournament_id = t.id
+            WHERE COALESCE(t.game_room_id, g.game_room_id) = ?
+              AND g.iscored_id IS NOT NULL
+              AND g.status IN ('ACTIVE', 'COMPLETED')
+            ORDER BY CASE g.status WHEN 'ACTIVE' THEN 1 ELSE 2 END, g.start_date DESC
+        `, roomId);
+
+        const { IScoredSessionRegistry } = await import('../../engine/IScoredSessionRegistry.js');
+        const iscoredGames = await IScoredSessionRegistry.getInstance()
+            .withSession(creds, (client) => client.getGamesOnIScored());
+        const present = new Set(iscoredGames.map((g: { id: string }) => String(g.id)));
+
+        const games = rows.map(r => ({
+            gameId: r.id,
+            name: r.name,
+            iscoredId: r.iscored_id,
+            status: r.status,
+            present: present.has(String(r.iscored_id)),
+        }));
+        res.json({ games, missingCount: games.filter(g => !g.present).length });
+    } catch (error: any) {
+        logError('API Error (GET game-states/iscored-link-check):', error);
+        res.status(500).json({ error: error.message || 'Internal Server Error' });
     }
 });
 

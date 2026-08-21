@@ -6,6 +6,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.123.2] — unreleased
+
+**An admin can now repair a game whose iScored entry is gone.** rtx_pinball, 2026-08-21: two "Clown Deluxe" games existed on iScored; the admin deleted the one Arcaid was linked to, and every score push after that was refused with the same "Access Denied" iScored uses for everything. Game States offered no way out — "Create on iScored" only appears for id-less games, and nothing could re-point an existing link.
+
+### Added
+- **Game States → "Check iScored links"** (`GET /:roomId/admin/game-states/iscored-link-check`): one read of the board; ACTIVE/COMPLETED games whose stored id no longer exists get a red "missing on iScored" badge.
+- **"Re-create on iScored"** (`sync-iscored` action `recreate`): snapshot first (new reason `recreate`) → refuse with 409 if the stored id still exists on the board (can never make a duplicate) → create with the canonical 3-call shape (name + style, tournament tag — `MG` for pins —, unlocked/visible) → relink → **replay the game's Arcaid scores** (per-player bests from `submissions`, `score_history` fallback) onto the new entry → lineup reorder, cache invalidate, audit `game_state.iscored_recreate`. The id-less "Create on iScored" button now routes here too (the legacy `create` action stays for API compatibility). Shared replay loop `replayScoresToIScored` now backs both this and snapshot restore.
+- The sync-failure log for a live game now adds "the game may no longer exist on iScored; use Game States → Check iScored links" when iScored answers Access Denied.
+
+### Fixed
+- `sync-iscored` looked games up with an INNER JOIN on tournaments, so lock/unlock/hide never worked on pinned rows — LEFT JOIN + `COALESCE(t.game_room_id, g.game_room_id)` like the list route.
+
+### Tests
+- `iscored-recreate-repair.test.ts` (13), `GameStatesLinkRepair.test.tsx` (4). Suites 2275 / 1015.
+
 ## [2.123.0] — unreleased
 
 **Callouts are a managed, per-room feature now — and they can answer questions.** The Easter-egg bot replies lived in a `data/callouts.json` file read on every message and were gated by a single global env flag, so they fired in every server the bot could see (the per-room "callouts" toggle on the Settings page wrote a key nothing read). Discovered while tracing why callouts were firing on prod: they weren't — the owner's local dev container, auto-started after a reboot with the same bot token, was answering. Owner: "we need a per game room gate… and I want the list uploadable to the Global Admin Settings."
