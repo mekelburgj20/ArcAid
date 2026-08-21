@@ -26,7 +26,14 @@ import { compareByRank } from '../lib/searchRank';
 
 export interface PickableMember {
   userId: string;
+  /**
+   * Resolved server-side: global display name -> provider username -> the
+   * room's claimed name. Still nullable (a member with none of the three),
+   * which is why every render keeps its `|| userId` fallback.
+   */
   displayName: string | null;
+  /** Provider username, for disambiguating two members with the same label. */
+  username?: string | null;
   avatarHash: string | null;
   avatarUrl: string | null;
 }

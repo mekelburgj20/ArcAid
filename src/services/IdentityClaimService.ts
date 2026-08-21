@@ -31,6 +31,25 @@ import { logInfo, logWarn } from '../utils/logger.js';
 /** Owner ruling: at most three iScored aliases per account. */
 export const MAX_ALIASES = 3;
 
+/**
+ * The auto-match sources, as the human-readable reasons stored in
+ * `identity_claims.auto_matched_on`.
+ *
+ * Named constants (the strings are byte-identical to what shipped in v2.112.0)
+ * because `IdentityAutoLinkService` has to REASON about which source matched:
+ * a Google-only account has no Discord username, so its `user_profiles.username`
+ * is a Google display name — fine to accept when a human deliberately files a
+ * claim, but the background auto-linker only follows `displayName` /
+ * `googleEmail` for those accounts. Comparing against a literal there would put
+ * the same string in two files with nothing holding them together.
+ */
+export const MATCH_REASON = {
+    displayName: 'your Arcaid display name',
+    username: 'your account username',
+    googleEmail: 'your linked Google account',
+    alias: 'an iScored name you already hold',
+} as const;
+
 export type ClaimOutcome =
     | { result: 'auto_approved'; matchedOn: string }
     | { result: 'pending'; claimId: number }
@@ -80,18 +99,34 @@ export class IdentityClaimService {
             ...ids,
         );
         for (const p of profiles) {
-            add(p.display_name, 'your Arcaid display name');
-            add(p.username, 'your account username');
-            add(p.email_local_part, 'your linked Google account');
+            add(p.display_name, MATCH_REASON.displayName);
+            add(p.username, MATCH_REASON.username);
+            add(p.email_local_part, MATCH_REASON.googleEmail);
         }
 
         const aliases = await db.all(
             `SELECT iscored_username FROM user_mappings WHERE discord_user_id IN (${placeholders})`,
             ...ids,
         );
-        for (const a of aliases) add(a.iscored_username, 'an iScored name you already hold');
+        for (const a of aliases) add(a.iscored_username, MATCH_REASON.alias);
 
         return out;
+    }
+
+    /**
+     * The auto-approve predicate on its own: would `claim` auto-approve this
+     * name for this user, and on which source?
+     *
+     * `IdentityAutoLinkService` needs to know BEFORE calling `claim`, because a
+     * background trigger that guessed wrong would silently file a PENDING claim
+     * nobody asked for — noise in a mod queue that exists for genuine disputes.
+     * Sharing `normalizeForMatch` + `knownNamesFor` is the whole point: the
+     * auto-linker cannot drift from the claim rule it is supposed to be riding.
+     */
+    static async matchReasonFor(userId: string, requestedRaw: string): Promise<string | null> {
+        const requested = (requestedRaw ?? '').trim();
+        if (!requested) return null;
+        return (await this.knownNamesFor(userId)).get(normalizeForMatch(requested)) ?? null;
     }
 
     /** How many aliases this account (across all linked identities) already holds. */

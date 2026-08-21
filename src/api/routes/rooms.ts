@@ -5810,13 +5810,22 @@ router.get('/:roomId/admin/members', requireAuth, requireRoomAccess('roomId'), a
     try {
         const roomId = req.params.roomId as string;
         const db = await getDatabase();
+        // `up.display_name` alone is the USER-CHOSEN global name, which almost
+        // nobody sets — so the picker rendered raw Discord snowflakes for most
+        // of the roster (owner bug, 2026-08-20). Resolve the same way every
+        // other player-name surface does: global display name, then the provider
+        // username stored on every login, then the room's own claimed name.
+        // `username` ships alongside so the FE can disambiguate two members who
+        // resolve to the same label.
+        const memberLabel = `COALESCE(NULLIF(TRIM(up.display_name), ''), NULLIF(TRIM(up.username), ''), NULLIF(TRIM(rm.display_name), ''))`;
         const rows = await db.all(
             `SELECT rm.user_id AS userId, rm.joined_at AS joinedAt, rm.source AS source,
-                    up.display_name AS displayName, up.avatar_hash AS avatarHash, up.avatar_url AS avatarUrl
+                    ${memberLabel} AS displayName, up.username AS username,
+                    up.avatar_hash AS avatarHash, up.avatar_url AS avatarUrl
              FROM room_members rm
              LEFT JOIN user_profiles up ON up.discord_user_id = rm.user_id
              WHERE rm.room_id = ?
-             ORDER BY COALESCE(up.display_name, rm.user_id) COLLATE NOCASE ASC`,
+             ORDER BY COALESCE(${memberLabel}, rm.user_id) COLLATE NOCASE ASC`,
             roomId,
         );
         res.json(rows);

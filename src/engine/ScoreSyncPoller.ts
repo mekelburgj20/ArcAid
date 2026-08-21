@@ -8,6 +8,7 @@ import { trackBackground } from '../utils/backgroundTasks.js';
 import { UNKNOWN } from '../utils/scoreProvenance.js';
 import type { IScoredCreds } from '../utils/iscoredCreds.js';
 import { normalizeIScoredScoreResponse } from '../utils/iscoredScores.js';
+import { IdentityAutoLinkService } from '../services/IdentityAutoLinkService.js';
 
 // Tick cadence for the notification-file gate. The actual `getAllScores` call
 // is gated inside `IScoredNotificationGate.shouldSync` so most ticks are a
@@ -268,6 +269,14 @@ export class ScoreSyncPoller {
             const changedGameIds = new Set<string>();
             let anyAccountSucceeded = false;
 
+            // Per-CYCLE negative cache for the exact-match auto-linker: every
+            // unmapped iScored name this cycle has already looked at, whether or
+            // not it resolved to an account. Lives out here so two accounts that
+            // sync in the same cycle never re-query the same names, and so a
+            // board full of permanently-unclaimed names costs one lookup per
+            // cycle rather than one per score.
+            const autoLinkChecked = new Set<string>();
+
             for (const [accountKey, { creds, roomIds }] of accounts) {
                 if (!creds) continue;
                 try {
@@ -287,7 +296,7 @@ export class ScoreSyncPoller {
                     if (decision.run) {
                         logDebug(`ScoreSyncPoller[${creds.gameroomName}]: full sync (${decision.reason})`);
                         const { mappingMap, aliasMap } = await loadIdentityMaps();
-                        await this.pollOneAccount(db, creds, roomIds, mappingMap, aliasMap, changedGameIds);
+                        await this.pollOneAccount(db, creds, roomIds, mappingMap, aliasMap, changedGameIds, autoLinkChecked);
                         this.gate.markSynced(accountKey, notifValue);
                     } else {
                         logDebug(`ScoreSyncPoller[${creds.gameroomName}]: skip (${decision.reason})`);
@@ -379,6 +388,7 @@ export class ScoreSyncPoller {
         mappingMap: Map<string, string>,
         aliasMap: Map<string, string>,
         changedGameIds: Set<string>,
+        autoLinkChecked: Set<string> = new Set(),
     ): Promise<void> {
         const apiClient = new IScoredApiClient({ gameroomName: creds.gameroomName });
         const rawResponse = await apiClient.getAllScores();
@@ -393,6 +403,14 @@ export class ScoreSyncPoller {
         });
 
         if (roomIds.length === 0) return; // defensive; should not happen
+
+        // Exact-match auto-link, BEFORE the write loop, so a name that resolves
+        // to an account attributes THIS cycle's score rather than landing as
+        // `iscored:<name>` and waiting for the next sync (owner ruling,
+        // 2026-08-20). It mutates `mappingMap` in place — the same map the write
+        // loop reads two lines down, and the same one shared by every account
+        // that syncs in this cycle.
+        await this.autoLinkUnmappedNames(db, allScores, mappingMap, aliasMap, autoLinkChecked, roomIds);
 
         for (const gameData of allScores) {
             if (!gameData.GameID || !gameData.scores) continue;
@@ -533,6 +551,70 @@ export class ScoreSyncPoller {
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * Auto-link the iScored names in this payload that nobody has claimed but
+     * that exactly match an Arcaid account's username or display name.
+     *
+     * SHAPE, and why. One batched `user_profiles` lookup per cycle over the
+     * DISTINCT unmapped names seen — never a per-score query — with the
+     * cycle-wide `autoLinkChecked` set caching negatives so a board of
+     * permanently-unclaimed names costs nothing after the first look. Names that
+     * link are written straight into `mappingMap`, which is exactly what the
+     * write loop consults, so the very score that surfaced the name gets
+     * `submitted_by_user_id` on its first insert.
+     *
+     * Candidates are restricted to MEMBERS of the rooms this account serves —
+     * an iScored name on this board must not attach to an unrelated Arcaid user
+     * who happens to share the string. See `candidateOwnersForNames`.
+     *
+     * The decision itself is NOT made here: `IdentityAutoLinkService.autoLinkName`
+     * routes through `IdentityClaimService.claim`, so the alias cap, the
+     * one-name-one-account rule, the pending-claim guard and the audit row all
+     * come from P1. This method only decides WHICH names to offer it.
+     *
+     * Fully swallowed. A poll that failed because of an identity nicety would
+     * stop score sync for the whole account.
+     */
+    private async autoLinkUnmappedNames(
+        db: any,
+        allScores: Array<{ scores?: Array<{ name: string }> }>,
+        mappingMap: Map<string, string>,
+        aliasMap: Map<string, string>,
+        autoLinkChecked: Set<string>,
+        roomIds: string[],
+    ): Promise<void> {
+        try {
+            // Review-routing room for the audit row. An auto-approved claim needs
+            // no queue, so any room this account serves is honest context.
+            const roomId = roomIds[0] ?? null;
+            if (!(await IdentityAutoLinkService.isEnabled(roomId))) return;
+
+            const unmapped = new Map<string, string>();  // lower key -> stored casing
+            for (const gameData of allScores) {
+                for (const score of gameData.scores ?? []) {
+                    if (!score?.name) continue;
+                    const resolved = aliasMap.get(score.name.toLowerCase()) || score.name;
+                    const key = resolved.trim().toLowerCase();
+                    if (!key || mappingMap.has(key) || autoLinkChecked.has(key)) continue;
+                    unmapped.set(key, resolved.trim());
+                }
+            }
+            if (unmapped.size === 0) return;
+            for (const key of unmapped.keys()) autoLinkChecked.add(key);
+
+            const owners = await IdentityAutoLinkService.candidateOwnersForNames(db, Array.from(unmapped.keys()), roomIds);
+            for (const [key, userId] of owners) {
+                const name = unmapped.get(key)!;
+                if (await IdentityAutoLinkService.autoLinkName(userId, roomId, name)) {
+                    mappingMap.set(key, userId);
+                    logInfo(`ScoreSyncPoller: auto-linked "${name}" -> ${userId} (exact match on an Arcaid account name).`);
+                }
+            }
+        } catch (err) {
+            logWarn('ScoreSyncPoller: exact-match auto-link pass failed (sync continues):', err);
         }
     }
 }

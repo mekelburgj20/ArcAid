@@ -101,3 +101,59 @@ export async function resolveLeaderboardPlaces(
     }
     return out;
 }
+
+/**
+ * The leaders `resolveLeaderboardPlaces` SILENTLY DROPPED — iScored-only names
+ * that would have held a top-`maxPlaces` place if anyone could be reached at
+ * that name.
+ *
+ * Why this exists (prod incident, rtx_pinball Daily Grind, 2026-08-20 22:00
+ * CDT): StopNudgingMe took the board and DennisB was second, both unlinked, so
+ * the cascade stripped them, walked down to the first LINKED player, and
+ * activated their queued game. Nothing said so. The channel read as though the
+ * top scorer's own queue had fired — the announcement named StopNudgingMe and
+ * then named a game they had never queued.
+ *
+ * Deliberately a SEPARATE walk rather than a second return value on
+ * `resolveLeaderboardPlaces`: that function's shape is depended on by the
+ * cascade, the timeout re-entry and three test files, and this is a pure
+ * read used only for announcement copy.
+ *
+ * "Would have been in the top N" counts PLACES the same way the cascade does —
+ * one place per distinct identity — except that here an unattributed NAME also
+ * consumes a place (it really did finish ahead of everyone below it). Names are
+ * deduped case-insensitively, matching iScored's own case-insensitive identity.
+ */
+export async function resolveStrippedLeaders(
+    db: { all: (sql: string, ...params: any[]) => Promise<any[]>; get: (sql: string, ...params: any[]) => Promise<any> },
+    gameId: string,
+    maxPlaces: number,
+): Promise<Array<{ iscoredUsername: string; score: number }>> {
+    const rows = await db.all(
+        `SELECT iscored_username, discord_user_id, submitted_by_user_id, score FROM submissions
+         WHERE game_id = ? AND orphaned_at IS NULL ORDER BY score DESC LIMIT 200`,
+        gameId,
+    );
+    const out: Array<{ iscoredUsername: string; score: number }> = [];
+    const seenPlayers = new Set<string>();
+    const seenNames = new Set<string>();
+    let places = 0;
+    for (const row of rows) {
+        if (places >= maxPlaces) break;
+        const playerId = await resolveSubmissionPlayerId(db, row);
+        if (playerId) {
+            if (seenPlayers.has(playerId)) continue;
+            seenPlayers.add(playerId);
+            places++;
+            continue;
+        }
+        const name = String(row.iscored_username ?? '').trim();
+        if (!name) continue;
+        const key = name.toLowerCase();
+        if (seenNames.has(key)) continue;
+        seenNames.add(key);
+        places++;
+        out.push({ iscoredUsername: name, score: row.score });
+    }
+    return out;
+}

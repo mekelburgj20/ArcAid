@@ -22,3 +22,13 @@ export function roomPicksUrl(slug: string, tournamentName?: string | null): stri
     const base = `${publicBaseUrl()}/${slug}/picks`;
     return tournamentName ? `${base}?t=${tournamentUrlSlug(tournamentName)}` : base;
 }
+
+/**
+ * Account Settings — the surface that owns iScored-name claiming (P1). Used by
+ * rotation copy that has to tell an unlinked leader where to go; a room-scoped
+ * link would be wrong, because `user_mappings` is global and Account Settings
+ * is where the claim form lives.
+ */
+export function accountSettingsUrl(): string {
+    return `${publicBaseUrl()}/account/settings`;
+}
