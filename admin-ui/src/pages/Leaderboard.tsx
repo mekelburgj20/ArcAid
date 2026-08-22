@@ -29,6 +29,7 @@ import { applyCardEdits } from '../components/scoreboard/cardEditApply';
 import useIsWideViewport from '../lib/useIsWideViewport';
 import { getTournamentBorderColor } from '../components/ScoreboardComponents';
 import type { GameLeaderboard, RankingGroupData } from '../components/ScoreboardComponents';
+import { parseServerDate } from '../lib/format';
 
 interface Submission {
   id: string;
@@ -1335,7 +1336,7 @@ function ManageScoresModal({ lb, roomId, onClose, onDeleted }: {
                   </div>
                   <div className="flex items-center gap-3 flex-shrink-0">
                     <span className="font-display font-bold text-sm flex-shrink-0 whitespace-nowrap tabular-nums">{sub.score.toLocaleString()}</span>
-                    <span className="text-faint text-[10px] w-20 text-right">{new Date(sub.timestamp).toLocaleDateString()}</span>
+                    <span className="text-faint text-[10px] w-20 text-right">{parseServerDate(sub.timestamp)?.toLocaleDateString() ?? ''}</span>
                     <button
                       type="button"
                       onClick={() => setPendingConfirm({ kind: 'delete', sub })}

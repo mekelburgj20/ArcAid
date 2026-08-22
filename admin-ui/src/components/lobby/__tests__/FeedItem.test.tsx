@@ -119,3 +119,37 @@ describe('FeedItem — pick_prompt', () => {
     expect(screen.queryByText(/remaining before/)).not.toBeInTheDocument();
   });
 });
+
+// ---------------------------------------------------------------------------
+// The backend serves `lobby_feed_events.created_at` straight from SQLite's
+// `DEFAULT (datetime('now'))` as a bare "YYYY-MM-DD HH:MM:SS" string — UTC,
+// no `T`/`Z`. The native `Date` constructor parses that as LOCAL time, so for
+// a US viewer the row lands hours in the future and the relative-time label
+// reads "just now" no matter how old the event really is. This pins the fix:
+// a bare-form timestamp a few hours in the past must NOT render "just now".
+// ---------------------------------------------------------------------------
+describe('FeedItem — relative time parsing (bare SQLite timestamps)', () => {
+  it('does not say "just now" for a bare SQLite created_at 3 hours in the past', () => {
+    const now = Date.now();
+    const threeHoursAgoUtc = new Date(now - 3 * 60 * 60 * 1000);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    // Bare "YYYY-MM-DD HH:MM:SS" form, no T/Z — exactly what the DB emits.
+    const bareSqliteTimestamp =
+      `${threeHoursAgoUtc.getUTCFullYear()}-${pad(threeHoursAgoUtc.getUTCMonth() + 1)}-${pad(threeHoursAgoUtc.getUTCDate())} ` +
+      `${pad(threeHoursAgoUtc.getUTCHours())}:${pad(threeHoursAgoUtc.getUTCMinutes())}:${pad(threeHoursAgoUtc.getUTCSeconds())}`;
+
+    renderItem({
+      id: 3,
+      type: 'score_posted',
+      icon: null,
+      title: 'Justin submitted 1.2M on Fire Mountain',
+      subtitle: null,
+      game_name: 'Fire Mountain',
+      created_at: bareSqliteTimestamp,
+      metadata: {},
+    });
+
+    expect(screen.queryByText('just now')).not.toBeInTheDocument();
+    expect(screen.getByText('3h ago')).toBeInTheDocument();
+  });
+});

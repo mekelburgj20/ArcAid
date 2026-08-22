@@ -8,6 +8,7 @@ import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { decodeViewerClaims } from '../lib/viewerClaims';
 import { canDeleteRow, deleteScoreHistory, rowHistoryId } from '../lib/scoreDelete';
 import { useScoreExpand } from './scoreboard/useScoreExpand';
+import { parseServerDate } from '../lib/format';
 import ConfirmModal from './ConfirmModal';
 import ScorePhotoModal from './ScorePhotoModal';
 
@@ -377,7 +378,7 @@ export default function GameQuickView({ lb, slug, fromTab, highlightStat, roomId
                               {hPhotoUrl && (
                                 <Camera size={11} className="text-faint flex-shrink-0" aria-hidden />
                               )}
-                              <span className="text-faint flex-1">{new Date(h.created_at).toLocaleDateString()}</span>
+                              <span className="text-faint flex-1">{parseServerDate(h.created_at)?.toLocaleDateString() ?? ''}</span>
                               {canDeleteNested && (
                                 <button
                                   type="button"

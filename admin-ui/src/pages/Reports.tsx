@@ -7,6 +7,7 @@ import NeonButton from '../components/NeonButton';
 import ConfirmModal from '../components/ConfirmModal';
 import LoadingState from '../components/LoadingState';
 import { useToast } from '../components/Toast';
+import { parseServerDate, relativeTimeFrom } from '../lib/format';
 
 /**
  * S22 content moderation — super-admin Reports queue.
@@ -124,15 +125,7 @@ interface BanRow {
   lifted_by_username: string | null;
 }
 
-function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
-}
+const timeAgo = relativeTimeFrom;
 
 function reporterLabel(r: ContentReportRow): string {
   return r.reporter_display_name || r.reporter_username || r.reporter_user_id;
@@ -160,7 +153,7 @@ function targetCurrentIdentity(r: ContentReportRow): string | null {
 /** S22 Phase 2 (v2.44.0) — client-side status derivation for the Bans tab. */
 function banStatus(b: BanRow): 'active' | 'expired' | 'lifted' {
   if (b.lifted_at) return 'lifted';
-  if (b.expires_at && new Date(b.expires_at).getTime() <= Date.now()) return 'expired';
+  if (b.expires_at && (parseServerDate(b.expires_at)?.getTime() ?? 0) <= Date.now()) return 'expired';
   return 'active';
 }
 
@@ -634,7 +627,7 @@ export default function Reports() {
                         <p className="text-xs text-faint mt-0.5">
                           <span className="px-1.5 py-0.5 rounded bg-surface border border-border mr-1.5">{banScopeLabel(b)}</span>
                           Banned by {nameOrId(b.banned_by_display_name, b.banned_by_username, b.banned_by)} · {timeAgo(b.banned_at)}
-                          {b.expires_at ? ` · expires ${new Date(b.expires_at).toLocaleDateString()}` : ' · permanent'}
+                          {b.expires_at ? ` · expires ${parseServerDate(b.expires_at)?.toLocaleDateString() ?? ""}` : ' · permanent'}
                         </p>
                         {b.reason && <p className="text-sm text-muted mt-1">"{b.reason}"</p>}
                         {status === 'lifted' && (

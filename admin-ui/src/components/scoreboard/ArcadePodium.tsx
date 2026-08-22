@@ -6,7 +6,7 @@ import FitRowName from './FitRowName';
 import { ARCADE_RANK_TINTS } from './arcadeNeon';
 import type { ScoreHistoryEntry } from './useScoreExpand';
 import { resolveRowClick, opensQuickView, QUICK_VIEW_HINT } from '../../lib/scoreGesture';
-import { formatScore } from '../../lib/format';
+import { formatScore, parseServerDate } from '../../lib/format';
 
 /**
  * The Arcade card's podium — places 1-3, filled or open.
@@ -88,7 +88,7 @@ function ExpandedHistory({ playerHistory, historyLoading, onOpenQuickView }: {
               onClick={onOpenQuickView}
             >
               <span className="text-muted">{h.score.toLocaleString()}</span>
-              <span className="text-faint">{new Date(h.created_at).toLocaleDateString()}</span>
+              <span className="text-faint">{parseServerDate(h.created_at)?.toLocaleDateString() ?? ''}</span>
             </div>
           ))}
         </div>

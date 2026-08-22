@@ -9,7 +9,7 @@ import GameInfoPopup from './GameInfoPopup';
 import { useScoreExpand } from './useScoreExpand';
 import { qrEdgeMetrics, DEFAULT_QR_OFFSET_PX } from '../../lib/scoreboardConfig';
 import { useCoverFraming } from './useCoverFraming';
-import { formatScore } from '../../lib/format';
+import { formatScore, parseServerDate } from '../../lib/format';
 import { resolveRowClick, opensQuickView, QUICK_VIEW_HINT } from '../../lib/scoreGesture';
 import { tournamentChipLabel } from './tournamentChip';
 
@@ -352,7 +352,7 @@ export default function BannerCard({
                               onClick={onOpenQuickView}
                             >
                               <span className="text-muted">{h.score.toLocaleString()}</span>
-                              <span className="text-faint">{new Date(h.created_at).toLocaleDateString()}</span>
+                              <span className="text-faint">{parseServerDate(h.created_at)?.toLocaleDateString() ?? ''}</span>
                             </div>
                           ))}
                         </div>

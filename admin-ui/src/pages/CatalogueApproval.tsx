@@ -5,6 +5,7 @@ import { useToast } from '../components/Toast';
 import NeonCard from '../components/NeonCard';
 import NeonButton from '../components/NeonButton';
 import LoadingState from '../components/LoadingState';
+import { parseServerDate } from '../lib/format';
 
 /**
  * v2.5.0 — super-admin Catalogue Approval queue.
@@ -166,7 +167,7 @@ export default function CatalogueApproval() {
         <div className="space-y-3">
           {rows.map(row => {
             const isPending = pending.has(row.id);
-            const submittedDate = row.submitted_at ? new Date(row.submitted_at).toLocaleString() : '—';
+            const submittedDate = row.submitted_at ? (parseServerDate(row.submitted_at)?.toLocaleString() ?? '—') : '—';
             return (
               <NeonCard key={row.id}>
                 <div className="flex flex-col md:flex-row md:items-start gap-4">

@@ -6,6 +6,7 @@ import NeonCard from '../components/NeonCard';
 import NeonButton from '../components/NeonButton';
 import LoadingState from '../components/LoadingState';
 import { useToast } from '../components/Toast';
+import { relativeTimeFrom } from '../lib/format';
 
 /**
  * Identity claim review queue (identity arc P4, 2026-08-18). Mirrors
@@ -32,16 +33,6 @@ interface ClaimEntry {
   display_name: string | null;
   username: string | null;
   scores_in_room: number;
-}
-
-function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
 }
 
 export default function IdentityClaims() {
@@ -108,7 +99,7 @@ export default function IdentityClaims() {
                       : `${c.scores_in_room} score${c.scores_in_room === 1 ? '' : 's'} under that name in this room.`}
                   </p>
                   <p className="mt-0.5 text-xs text-faint flex items-center gap-1">
-                    <Clock size={11} /> {timeAgo(c.requested_at)}
+                    <Clock size={11} /> {relativeTimeFrom(c.requested_at)}
                   </p>
                 </div>
                 <div className="flex shrink-0 gap-2">

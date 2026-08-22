@@ -5,6 +5,7 @@ import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { useMyRooms } from '../hooks/useMyRooms';
 import { useToast } from '../components/Toast';
 import LoginButtons from '../components/LoginButtons';
+import { relativeTimeFrom } from '../lib/format';
 
 type RoomMemberSource = 'submission' | 'admin_invite' | 'claim' | 'backfill' | 'self_join';
 
@@ -26,19 +27,10 @@ const SOURCE_ICON: Record<RoomMemberSource, React.ReactNode> = {
 
 function formatRelativeTime(iso: string | null): string {
   if (!iso) return 'No activity yet';
-  const then = new Date(iso).getTime();
-  const diffMs = Date.now() - then;
-  if (Number.isNaN(diffMs) || diffMs < 0) return 'Just now';
-  const mins = Math.floor(diffMs / 60000);
-  if (mins < 1) return 'Just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  if (days < 30) return `${days}d ago`;
-  const months = Math.floor(days / 30);
-  if (months < 12) return `${months}mo ago`;
-  return `${Math.floor(months / 12)}y ago`;
+  const rel = relativeTimeFrom(iso);
+  if (!rel) return 'No activity yet';
+  // Preserve this page's capitalized "Just now" (start-of-sentence usage).
+  return rel === 'just now' ? 'Just now' : rel;
 }
 
 export default function MyRooms() {

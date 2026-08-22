@@ -6,6 +6,7 @@ import ScoreboardSurface from '../components/scoreboard/ScoreboardSurface';
 import { deriveCardProps, deriveScoreboardConfig } from '../lib/scoreboardConfig';
 import { getSocket } from '../lib/websocket';
 import { getPortal } from '../lib/portal';
+import { relativeTimeFrom } from '../lib/format';
 
 /**
  * v2.90.0 — kiosk migration onto the shared `ScoreboardSurface` (the same
@@ -143,15 +144,7 @@ export default function KioskScoreboard() {
   };
 
   const tickerItems = useMemo(() => feedEvents.map(e => {
-    const ago = (() => {
-      const s = Math.floor((Date.now() - new Date(e.created_at).getTime()) / 1000);
-      if (s < 60) return 'just now';
-      const m = Math.floor(s / 60);
-      if (m < 60) return `${m}m ago`;
-      const h = Math.floor(m / 60);
-      if (h < 24) return `${h}h ago`;
-      return `${Math.floor(h / 24)}d ago`;
-    })();
+    const ago = relativeTimeFrom(e.created_at);
     return { id: e.id, title: e.title, ago, Icon: TICKER_ICONS[e.type] || Target };
   }), [feedEvents]);
 

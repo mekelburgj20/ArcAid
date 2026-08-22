@@ -5,7 +5,7 @@ import FitRowName from './FitRowName';
 import PlayerNameLink from '../PlayerNameLink';
 import type { ScoreHistoryEntry } from './useScoreExpand';
 import { resolveRowClick, opensQuickView, QUICK_VIEW_HINT } from '../../lib/scoreGesture';
-import { formatScore } from '../../lib/format';
+import { formatScore, parseServerDate } from '../../lib/format';
 
 interface ScoreListProps {
   entries: RankedEntry[];
@@ -224,7 +224,7 @@ export default function ScoreList({
                         onClick={onOpenQuickView}
                       >
                         <span style={{ color: 'rgba(255,255,255,0.5)' }}>{h.score.toLocaleString()}</span>
-                        <span style={{ color: 'rgba(255,255,255,0.25)' }}>{new Date(h.created_at).toLocaleDateString()}</span>
+                        <span style={{ color: 'rgba(255,255,255,0.25)' }}>{parseServerDate(h.created_at)?.toLocaleDateString() ?? ''}</span>
                       </div>
                     ))}
                   </div>

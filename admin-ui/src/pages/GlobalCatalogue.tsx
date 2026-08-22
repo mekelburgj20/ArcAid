@@ -6,6 +6,7 @@ import LoadingState from '../components/LoadingState';
 import DataTable from '../components/DataTable';
 import RAGameSearch from '../components/RAGameSearch';
 import { Search, RefreshCw, ChevronDown, ChevronUp, Check, X, Trash2, ExternalLink, GitMerge, AlertTriangle, Layers, Flag } from 'lucide-react';
+import { parseServerDate } from '../lib/format';
 
 interface GlobalGame {
   id: string;
@@ -936,7 +937,7 @@ export default function GlobalCatalogue() {
                         <span title={item.reporter_discord_id}>
                           Reporter: {item.reporter_display_name || item.reporter_username || item.reporter_discord_id}
                         </span>
-                        <span>{new Date(item.created_at.replace(' ', 'T') + 'Z').toLocaleString()}</span>
+                        <span>{parseServerDate(item.created_at)?.toLocaleString() ?? ''}</span>
                         {item.ipdb_url && (
                           <a href={item.ipdb_url} target="_blank" rel="noopener noreferrer" className="text-neon-cyan hover:underline inline-flex items-center gap-1">
                             <ExternalLink size={10} /> IPDB

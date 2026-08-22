@@ -6,6 +6,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.126.2] — unreleased
+
+**Every "N ago" / date display in the UI now reads SQLite timestamps as UTC.** The Lobby feed (and 13 other relative-time sites) showed "just now" for everything: `created_at` columns default to SQLite `datetime('now')`, which serialises as `YYYY-MM-DD HH:MM:SS` with no zone marker, and browsers parse that bare form as LOCAL time — for a US viewer the instant lands hours in the future, the difference goes negative, and the "< 60 s" branch prints "just now".
+
+### Fixed
+- `parseServerDate` (`admin-ui/src/lib/format.ts`) treats a bare `YYYY-MM-DD[ T]HH:MM[:SS[.sss]]` string as UTC and leaves proper ISO alone; `relativeTimeFrom` is the single "N ago" formatter. All hand-rolled copies (FeedItem, ScoreboardTicker, KioskScoreboard, IdentityClaims, JoinRequests, Reports, LandingPage, RoomAdminMembers, RoomMembers, MyRooms, PublicStats, Tournaments) now delegate to it.
+- Absolute date displays of `created_at` / `verified_at` / `submitted_at` / `timestamp` / `expires_at` (GameDetail, GlobalCatalogue, CatalogueApproval, Leaderboard, GameQuickView, the scoreboard card score-history rows, ban expiry on the members pages) parse through the same helper — they showed the wrong hour before.
+- `PublicLayout`'s "new lobby activity" nav dot compared a bare feed timestamp against an ISO localStorage value; now parsed consistently.
+
+### Tests
+- 22 unit tests for the helpers (UTC parsing independent of host TZ, ISO pass-through, negative/boundary cases) + a FeedItem test asserting a 3-hour-old bare timestamp renders "3h ago".
+
+---
+
 ## [2.126.1] — unreleased
 
 **Picks page width rhythm.** The Mystery Award, "If I win…" and "Your Picks" cards now share one centered `max-w-5xl` column (the queue card was full-bleed, pushing its up/down/× controls to the far right of a wide screen); the "If I win…" card is wide enough for its helper text to sit on one line and its four disposition buttons are centered with padding. Screenshot-verified at 1600px and 1280px with mock data. The available-games table stays full width pending the Picks redesign queued in ROADMAP.

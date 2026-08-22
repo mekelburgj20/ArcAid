@@ -5,6 +5,7 @@ import { Trophy, Flame, Users, Gamepad2, Zap, Clock, History, X } from 'lucide-r
 import { useRoom } from '../contexts/RoomContext';
 import { STATS_RANGE_PRESETS, presetToRange, weekInputToRange, type StatsRangePreset } from '../lib/statsWindow';
 import { compareByRank } from '../lib/searchRank';
+import { relativeTimeFrom } from '../lib/format';
 
 interface PlayerSummary {
   discord_user_id: string;
@@ -50,17 +51,8 @@ function abbreviateScore(n: number): string {
 
 function formatRelative(iso: string | null): string {
   if (!iso) return '—';
-  const diff = Date.now() - new Date(iso).getTime();
-  if (Number.isNaN(diff) || diff < 0) return 'Just now';
-  const mins = Math.floor(diff / 60000);
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  if (days < 30) return `${days}d ago`;
-  const months = Math.floor(days / 30);
-  if (months < 12) return `${months}mo ago`;
-  return `${Math.floor(months / 12)}y ago`;
+  const rel = relativeTimeFrom(iso);
+  return rel || '—';
 }
 
 export default function PublicStats() {
