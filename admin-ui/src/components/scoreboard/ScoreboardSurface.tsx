@@ -259,9 +259,27 @@ export default function ScoreboardSurface({
   const cardWidth = useNewCards ? getCardWidth(newConfig.style) : legacyCardWidth;
   const isBanner = useNewCards && newConfig.style === 'banner';
 
-  // Effective layout: Banner always horizontal scroll; others respect setting
-  // Mobile always forces vertical via CSS
-  const effectiveLayout = isBanner ? 'scroll' : layout;
+  // v2.132.1 — EVERY style honours the Card Layout setting, Banner included.
+  // Until now Banner was hard-overridden to horizontal scroll here, so a room
+  // that picked Grid (or Vertical) in Display settings kept getting the rail
+  // (owner report, rtx_pinball, 2026-08-22). The override existed because
+  // BannerCard's own shell is a fixed 280px rail card, which would have sat
+  // ragged inside a wider grid track — solved instead by `slotFillClass`
+  // below, which lets the card fill its track the same way the <=640px
+  // mobile rules already make it fill the phone column.
+  // Mobile always forces vertical via CSS.
+  const effectiveLayout = layout;
+  // Banner's shell carries an inline `width: 280`; the grid/vertical branches
+  // hand it a track that can be wider, so reach through the layout item and
+  // let the card fill. Only Banner needs it — Showcase/Minimal/Arcade already
+  // size themselves with `maxWidth`, and the legacy GameCard is unchanged.
+  const slotFillClass = isBanner ? ' scoreboard-slot-fill' : '';
+  // Grid track floor. The other styles are drawn at 380px but shrink
+  // gracefully, so 0.7x packs more columns without squashing them. A filled
+  // Banner card can only STRETCH — below its designed 280 it would crush the
+  // score pills — so its floor is its own width. That also lands the column
+  // counts the design asks for: 4 at 1280, 2 at 768, 1 at 390.
+  const gridMinTrack = isBanner ? cardWidth : Math.round(cardWidth * 0.7);
 
   const trimmedSearch = (searchFilter || '').trim().toLowerCase();
   const visibleLeaderboards = leaderboards
@@ -488,6 +506,21 @@ export default function ScoreboardSurface({
           scrollbar-width: none;
         }
         .scoreboard-hscroll-nobar::-webkit-scrollbar { display: none; }
+        /* v2.132.1 — Banner in the Grid / Vertical layouts. BannerCard (and
+           the Banner-style RankingGroupCard) set an explicit width:280
+           inline on their own root, which a wrapper-only width can't reach,
+           so in a grid track wider than 280 the card sat ragged at the
+           track's left edge. Same mechanism the <=640px rules below use:
+           the layout item carries .scoreboard-slot-fill, and the CARD's
+           own .scoreboard-card-slot (a descendant, never the item itself)
+           is released to fill it. The card keeps height:100%, so grid rows
+           still stretch, and useCoverFraming re-measures the fill layer
+           through its ResizeObserver — the artwork covers whatever width
+           the track hands it, no 280 assumption anywhere. */
+        .scoreboard-slot-fill .scoreboard-card-slot {
+          width: 100% !important;
+          max-width: 100% !important;
+        }
         /* Mobile: scale + vertical mode */
         @media (max-width: 640px) {
           .scoreboard-mobile-scale { zoom: var(--mobile-scale, 1); }
@@ -659,18 +692,18 @@ export default function ScoreboardSurface({
               className={`scoreboard-grid-layout grid ${useNewCards ? '' : 'gap-3 sm:gap-5'} ${!useNewCards && gameColumns === '2' ? 'grid-cols-1 md:grid-cols-2' : ''}`}
               style={{
                 ...(useNewCards ? { gap: newConfig.cardSpacing } : {}),
-                ...(useNewCards || gameColumns !== '2' ? { gridTemplateColumns: `repeat(auto-fill, minmax(min(${Math.round(cardWidth * 0.7)}px, 100%), 1fr))` } : {}),
+                ...(useNewCards || gameColumns !== '2' ? { gridTemplateColumns: `repeat(auto-fill, minmax(min(${gridMinTrack}px, 100%), 1fr))` } : {}),
               }}
             >
               {visibleLeaderboards.map(lb => (
-                <div key={lb.gameId} className="relative group/card scoreboard-card-slot" style={{ ...(!useNewCards && headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : {}), overflow: 'visible', minWidth: 0, marginBottom: cardMarginBottom || undefined }}>
+                <div key={lb.gameId} className={`relative group/card scoreboard-card-slot${slotFillClass}`} style={{ ...(!useNewCards && headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : {}), overflow: 'visible', minWidth: 0, marginBottom: cardMarginBottom || undefined }}>
                   {/* v2.2.8: overlay Link removed — title is a Link inside CardRouter instead. */}
                   {submitButton(lb, 'corner')}
                   {renderSlotContent(lb)}
                 </div>
               ))}
               {inlineRankings && rankingGroups.map(({ group, rankings }) => (
-                <div key={`rank-${group.id}`} className="scoreboard-card-slot" style={{ overflow: 'visible', minWidth: 0, marginBottom: cardMarginBottom || undefined }}>
+                <div key={`rank-${group.id}`} className={`scoreboard-card-slot${slotFillClass}`} style={{ overflow: 'visible', minWidth: 0, marginBottom: cardMarginBottom || undefined }}>
                   {renderRankingSlot(group, rankings)}
                 </div>
               ))}
@@ -679,16 +712,16 @@ export default function ScoreboardSurface({
         ) : effectiveLayout === 'vertical' ? (
           /* Vertical scroll — single column centered */
           <div className="flex-1 min-w-0">
-            <div className="flex flex-col items-center" style={{ gap: useNewCards ? newConfig.cardSpacing : 20 }}>
+            <div className="scoreboard-vertical-layout flex flex-col items-center" style={{ gap: useNewCards ? newConfig.cardSpacing : 20 }}>
               {visibleLeaderboards.map(lb => (
-                <div key={lb.gameId} className="relative group/card scoreboard-card-slot" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, maxWidth: '100%', marginBottom: cardMarginBottom || undefined }}>
+                <div key={lb.gameId} className={`relative group/card scoreboard-card-slot${slotFillClass}`} style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, maxWidth: '100%', marginBottom: cardMarginBottom || undefined }}>
                   {/* v2.2.8: overlay Link removed — title is a Link inside CardRouter instead. */}
                   {submitButton(lb, 'corner')}
                   {renderSlotContent(lb)}
                 </div>
               ))}
               {inlineRankings && rankingGroups.map(({ group, rankings }) => (
-                <div key={`rank-${group.id}`} className="scoreboard-card-slot" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, maxWidth: '100%', marginBottom: cardMarginBottom || undefined }}>
+                <div key={`rank-${group.id}`} className={`scoreboard-card-slot${slotFillClass}`} style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, maxWidth: '100%', marginBottom: cardMarginBottom || undefined }}>
                   {renderRankingSlot(group, rankings)}
                 </div>
               ))}
