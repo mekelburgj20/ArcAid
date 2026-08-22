@@ -6,6 +6,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.125.2] — unreleased
+
+**Players who link their Discord AFTER their iScored scores synced now get their avatar + display name on every board.** Wyo and DennisB on rtx_pinball (2026-08-21) showed the generic avatar while Krobs (mapped before the sync) rendered fine.
+
+### Fixed
+- `ScoreSyncPoller` passed its synthetic `iscored:<name>` id straight into `ScoreHistoryService.log`, and `normalizeSubmitterUserId` let it through, so those `score_history` rows carried `submitted_by_user_id = 'iscored:Wyo'` (the poller's own `submissions` write already stripped it to NULL). Every profile resolver keys `user_profiles` on `submitted_by_user_id` first and only consults `user_mappings` when it is NULL — so the mapping auto-link wrote at login was never used. `normalizeSubmitterUserId` now returns null for any `iscored:*` value (the column can never hold a synthetic id again).
+- `PlayerProfileResolver` treats a synthetic `submitted_by_user_id` as absent (resolves through `user_mappings`) so cached leaderboard rows written before this fix render correctly without a cache purge.
+- Migration 157 normalises every existing synthetic `submitted_by_user_id` (37 `score_history` rows on prod, all rtx_pinball sync rows) to NULL; caches are cleared at boot so the repaired rows render immediately after deploy.
+
+### Known residue (ROADMAP, identity tidy-up)
+- A player linked after syncing still has their PRE-link sync rows partitioned as `iscored:<name>` and POST-link rows as their Discord id; if they beat their own pre-link score on the same game they appear twice on that board until a merge/re-attribution runs.
+
+---
+
 ## [2.125.1] — unreleased
 
 **Submit-moment rank now ranks inside the tournament window.** The "You are #N of M" card shown right after a web score submit (`SubmissionSheet`, from `ScoreRankService.computeRoomRank`) was computed against `community_scores` + `score_history` rows with `source='tournament'` only — iScored-synced rows (`source='sync'`) were never counted. On a board whose rivals all arrived via sync (rtx_pinball Monthly Grind / Jaws, 2026-08-21) the submitter was told "#1 of 1" while the card correctly showed #4 of 6.

@@ -73,6 +73,28 @@ export interface ResolvedProfile {
  * Costs at most two queries regardless of batch size, and zero when the batch
  * needs neither lookup.
  */
+/** `iscored:<name>` — the sync poller's synthetic "nobody owns this row" id. */
+function isSynthetic(id: string | null | undefined): boolean {
+    return !!id && id.toLowerCase().startsWith('iscored:');
+}
+
+/**
+ * The row's real owner id, or null. `submitted_by_user_id` wins, but a
+ * synthetic value there (rows written before v2.125.2 stored the poller's
+ * `iscored:*` id in this column; the cache still carries them) counts as
+ * absent — such a row is resolved through `user_mappings` like any other
+ * unowned sync row, so a player who links AFTER their scores synced still
+ * gets their name + avatar.
+ */
+function ownerId(row: ProfileIdentityKey): string | null {
+    const sub = row.submitted_by_user_id;
+    return sub && !isSynthetic(sub) ? sub : null;
+}
+
+function isSyntheticRow(row: ProfileIdentityKey): boolean {
+    return isSynthetic(row.discord_user_id) || isSynthetic(row.submitted_by_user_id);
+}
+
 export async function resolveProfiles(
     rows: ReadonlyArray<ProfileIdentityKey>,
 ): Promise<ResolvedProfile[]> {
@@ -86,9 +108,8 @@ export async function resolveProfiles(
     // just because the typed name collides with someone's alias.
     const aliasNeedles = new Set<string>();
     for (const row of rows) {
-        const raw = row.discord_user_id ?? '';
         const uname = row.iscored_username;
-        if (raw.startsWith('iscored:') && uname) aliasNeedles.add(uname.toLowerCase());
+        if (isSyntheticRow(row) && uname) aliasNeedles.add(uname.toLowerCase());
     }
     const mappedIdByAlias = new Map<string, string>();
     if (aliasNeedles.size > 0) {
@@ -110,13 +131,14 @@ export async function resolveProfiles(
     for (const row of rows) {
         const raw = row.discord_user_id ?? '';
         const uname = row.iscored_username;
-        const mapped = (raw.startsWith('iscored:') && uname)
+        const mapped = (isSyntheticRow(row) && uname)
             ? mappedIdByAlias.get(uname.toLowerCase()) ?? null
             : null;
-        const profileKey = row.submitted_by_user_id ?? mapped ?? null;
+        const owner = ownerId(row);
+        const profileKey = owner ?? mapped ?? null;
         if (profileKey) profileKeys.add(profileKey);
         perRow.push({
-            displayedId: row.submitted_by_user_id ?? mapped ?? raw,
+            displayedId: owner ?? mapped ?? raw,
             profileKey,
         });
     }

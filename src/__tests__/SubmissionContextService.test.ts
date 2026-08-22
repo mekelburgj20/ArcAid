@@ -6,6 +6,12 @@ import {
 
 describe('SubmissionContextService', () => {
     describe('normalizeSubmitterUserId', () => {
+        it('returns null for the sync poller iscored:* synthetic ids (v2.125.2)', () => {
+            expect(normalizeSubmitterUserId('iscored:Wyo')).toBeNull();
+            expect(normalizeSubmitterUserId('ISCORED:wyo')).toBeNull();
+            expect(normalizeSubmitterUserId('310966414196604928')).toBe('310966414196604928');
+        });
+
         it('returns null for anon sentinels', () => {
             expect(normalizeSubmitterUserId('ANON')).toBeNull();
             expect(normalizeSubmitterUserId('anon')).toBeNull();

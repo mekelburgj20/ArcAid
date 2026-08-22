@@ -2645,6 +2645,18 @@ async function doInitDatabase(): Promise<Database> {
                      OR LOWER(triggers) LIKE '%secret cow%')`,
             );
         } },
+        // v2.125.2: the sync poller passed its synthetic `iscored:<name>` id into
+        // ScoreHistoryService.log, so unowned sync rows carried it in
+        // submitted_by_user_id (the poller's own `submissions` write already
+        // stripped it to NULL). Every profile resolver keys user_profiles on that
+        // column first, so a player who linked AFTER syncing never got their
+        // avatar/name. NULL = "nobody owns this row" is the poller's convention.
+        // Caches are cleared at boot, so no cache purge is needed here.
+        { name: '157_null_synthetic_submitter_ids', sql: `
+            UPDATE score_history SET submitted_by_user_id = NULL WHERE submitted_by_user_id LIKE 'iscored:%';
+            UPDATE submissions SET submitted_by_user_id = NULL WHERE submitted_by_user_id LIKE 'iscored:%';
+            UPDATE community_scores SET submitted_by_user_id = NULL WHERE submitted_by_user_id LIKE 'iscored:%';
+        ` },
     ];
 
     for (const migration of migrations) {
