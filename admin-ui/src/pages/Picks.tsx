@@ -756,7 +756,7 @@ export default function Picks() {
           description bunched left with the Spin button stranded ~1200px away
           on the far right, an empty card in between. A centered inner cap
           keeps the control strip readable at any viewport width. */}
-      <div className="max-w-4xl mx-auto mb-6 rounded-lg border border-neon-green/30 bg-gradient-to-br from-neon-green/5 to-transparent p-4 sm:p-5">
+      <div className="max-w-5xl mx-auto mb-6 rounded-lg border border-neon-green/30 bg-gradient-to-br from-neon-green/5 to-transparent p-4 sm:p-5">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
           {/* 2-col grid rather than nested flex rows: the description spans
               both columns on phones (full-width, under the chip+title line)
@@ -793,13 +793,13 @@ export default function Picks() {
           and clears, while "Forfeit" and "Roll the dice" stand until changed.
           The copy below says so rather than claiming one rule for all three. */}
       {discordUser && selectedTournamentId && (
-        <div className="max-w-4xl mx-auto mb-6 rounded-lg border border-border bg-surface p-4 sm:p-5">
+        <div className="max-w-5xl mx-auto mb-6 rounded-lg border border-border bg-surface p-4 sm:p-5">
           <h2 className="font-display text-sm font-bold text-primary mb-1">If I win…</h2>
           <p className="text-xs text-muted mb-3">
             Default is picking from your own queue. Forfeit and Roll the dice stay set until you
             change them; giving your pick to someone applies to your next win only.
           </p>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap justify-center gap-2 px-2 sm:px-8 pt-1">
             <button
               onClick={clearDisposition}
               disabled={dispositionLoading || !disposition}
@@ -978,7 +978,7 @@ export default function Picks() {
 
       {/* Your Picks summary */}
       {discordUser && pickStatus && (pickStatus.pendingPicks.length > 0 || pickStatus.queuedGames.length > 0) && (
-        <div className="mb-4 bg-surface border border-border rounded-lg overflow-hidden">
+        <div className="max-w-5xl mx-auto mb-4 bg-surface border border-border rounded-lg overflow-hidden">
           <div className="px-4 py-2 border-b border-border/50 flex items-baseline justify-between gap-2">
             <h2 className="text-xs font-medium text-faint uppercase tracking-wider">Your Picks</h2>
             <span className="text-[10px] text-faint flex-shrink-0">
