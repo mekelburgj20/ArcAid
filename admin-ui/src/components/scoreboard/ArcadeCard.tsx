@@ -138,7 +138,7 @@ function ArcadeRow({ entry, slug, isViewer, canExpand, isExpanded, onToggle, onO
       title={showHint ? QUICK_VIEW_HINT : undefined}
     >
       <span className="flex w-[22px] shrink-0 items-center justify-center">
-        <span className="font-mono text-[13px] font-bold tabular-nums text-muted">#{entry.rank}</span>
+        <span className="sb-art-text font-mono text-[13px] font-bold tabular-nums text-muted">#{entry.rank}</span>
       </span>
       <PlayerAvatar
         username={playerName(entry)}
@@ -147,7 +147,7 @@ function ArcadeRow({ entry, slug, isViewer, canExpand, isExpanded, onToggle, onO
         avatarUrl={entry.avatar_url}
         size={26}
       />
-      <FitRowName origin="left" className={`min-w-0 flex-1 sb-row-name text-[16px] ${isViewer ? 'font-bold' : 'font-medium'}`}>
+      <FitRowName origin="left" className={`sb-art-text min-w-0 flex-1 sb-row-name text-[16px] ${isViewer ? 'font-bold' : 'font-medium'}`}>
         <PlayerNameLink
           slug={slug}
           entry={entry}
@@ -161,7 +161,7 @@ function ArcadeRow({ entry, slug, isViewer, canExpand, isExpanded, onToggle, onO
         </span>
       )}
       <span
-        className={`shrink-0 sb-row-score font-mono text-[16px] font-bold tabular-nums ${isViewer ? 'text-neon-cyan' : 'text-primary'}`}
+        className={`sb-art-text shrink-0 sb-row-score font-mono text-[16px] font-bold tabular-nums ${isViewer ? 'text-neon-cyan' : 'text-primary'}`}
         title={abbreviated.endsWith('T') ? entry.score.toLocaleString() : undefined}
       >
         {abbreviated}
@@ -252,11 +252,16 @@ export default function ArcadeCard({
   const showQr = qrMode !== 'disabled';
   const qrMetrics = qrEdgeMetrics(qrSize, showQr, qrPosition, qrOffsetPx);
   const lowerViewer = viewerUsername?.toLowerCase();
+  // v2.131.1 — with the fill on, the podium and tail sit on the artwork's black
+  // scrim instead of the card surface, so the card root becomes a dark-token
+  // island (see `.sb-on-art` in index.css). The title already draws from the
+  // fixed `--sb-art-*` palette and is unaffected either way.
+  const artFilled = !!(cardBgFill && bgImage);
 
   const title = (
     <>
       <span
-        className={`font-display font-bold leading-[1.08] [text-wrap:balance] ${getTitleStyleClass(gameTitleStyle)}`}
+        className={`sb-art-text font-display font-bold leading-[1.08] [text-wrap:balance] ${getTitleStyleClass(gameTitleStyle)}`}
         style={{
           fontSize: titleFontSize ? `${titleFontSize}px` : 22,
           overflowWrap: 'break-word',
@@ -295,7 +300,7 @@ export default function ArcadeCard({
       <div
         data-testid="arcade-card"
         data-neon={neonKey}
-        className="arc-card relative flex flex-1 flex-col rounded-[10px] bg-surface"
+        className={`arc-card relative flex flex-1 flex-col rounded-[10px] bg-surface${artFilled ? ' sb-theme-scope sb-on-art' : ''}`}
         style={{ minHeight: 'var(--sb-card-min-h)' }}
       >
         {/* Card background fill — the room's "immersive" toggle. Arcade already
@@ -418,7 +423,7 @@ export default function ArcadeCard({
             {/* Art off: the countdown joins the stack, since the art corner it
                 normally rides no longer exists. */}
             {!gameHeaderEnabled && showTimer && countdown && (
-              <span className="sb-fs-10 font-mono text-[10px] text-muted">{countdown}</span>
+              <span className="sb-art-text sb-fs-10 font-mono text-[10px] text-muted">{countdown}</span>
             )}
           </div>
 

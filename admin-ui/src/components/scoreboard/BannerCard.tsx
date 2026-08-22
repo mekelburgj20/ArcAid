@@ -85,6 +85,11 @@ export default function BannerCard({
   // v2.122.1 — the fill layer's framing. Hook, not a style helper: the model
   // needs the image's intrinsic size and the layer's measured box.
   const bgLayer = useCoverFraming(cardBgFill ? bgImage : null, lb);
+  // v2.131.1 — artwork fills the whole card, so its text sits on a fixed black
+  // scrim rather than on the card surface. The card root then becomes a
+  // dark-token island (`sb-theme-scope` + `sb-on-art`, index.css) — otherwise
+  // a light page theme paints near-black `text-primary` onto that scrim.
+  const artFilled = !!(cardBgFill && bgImage);
   const displayName = lb.displayName || lb.gameName;
   // When cardBgFill is on, the separate image area is hidden so identifier isn't visible — always show title.
   // v2.115.0: art switched off is the same situation — no identifier renders,
@@ -157,7 +162,7 @@ export default function BannerCard({
         </div>
       )}
     <div
-      className={`relative border-2 ${borderColor} rounded-lg overflow-hidden flex flex-col flex-1`}
+      className={`relative border-2 ${borderColor} rounded-lg overflow-hidden flex flex-col flex-1${artFilled ? ' sb-theme-scope sb-on-art' : ''}`}
     >
       {/* Background layer */}
       <div className="absolute inset-0 bg-surface" />
@@ -186,14 +191,14 @@ export default function BannerCard({
               to={titleLinkTo}
               onClick={titleLinkOnClick}
               data-tour="game-card-title"
-              className={`font-display font-bold leading-tight px-5 flex items-center justify-center gap-1 text-center no-underline text-primary hover:text-neon-cyan transition-colors ${getTitleStyleClass(gameTitleStyle)}`}
+              className={`sb-art-text font-display font-bold leading-tight px-5 flex items-center justify-center gap-1 text-center no-underline text-primary hover:text-neon-cyan transition-colors ${getTitleStyleClass(gameTitleStyle)}`}
               style={{ fontSize: titleFontSize ? `${titleFontSize}px` : '0.875rem', overflowWrap: 'break-word', wordBreak: 'break-word', minHeight: titleBoxMinHeight }}
             >
               <span style={titleClampStyle}>{displayName}</span>
               <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} roomId={roomId} gameName={lb.gameName} globalGameId={lb.globalGameId} size={13} />
             </Link>
           ) : (
-            <h3 className={`font-display font-bold leading-tight px-5 flex items-center justify-center gap-1 text-center ${getTitleStyleClass(gameTitleStyle)}`} style={{ fontSize: titleFontSize ? `${titleFontSize}px` : '0.875rem', overflowWrap: 'break-word', wordBreak: 'break-word', minHeight: titleBoxMinHeight }}>
+            <h3 className={`sb-art-text font-display font-bold leading-tight px-5 flex items-center justify-center gap-1 text-center ${getTitleStyleClass(gameTitleStyle)}`} style={{ fontSize: titleFontSize ? `${titleFontSize}px` : '0.875rem', overflowWrap: 'break-word', wordBreak: 'break-word', minHeight: titleBoxMinHeight }}>
               <span style={titleClampStyle}>{displayName}</span>
               <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} roomId={roomId} gameName={lb.gameName} globalGameId={lb.globalGameId} size={13} />
             </h3>
@@ -210,7 +215,7 @@ export default function BannerCard({
           </div>
         )}
         {(chipLabel || lb.gameStatus === 'COMPLETED' || lb.isPinned) && (
-          <p className={`text-[11px] sb-fs-11 uppercase tracking-wider ${hasIdentifierImage ? '' : 'mt-0.5'} text-muted flex items-center justify-center gap-1`}>
+          <p className={`sb-art-text text-[11px] sb-fs-11 uppercase tracking-wider ${hasIdentifierImage ? '' : 'mt-0.5'} text-muted flex items-center justify-center gap-1`}>
             {lb.isPinned ? (
               <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-sm bg-neon-cyan/10 text-neon-cyan/80 text-[10px] sb-fs-10 tracking-normal normal-case">
                 Pinned
@@ -224,7 +229,7 @@ export default function BannerCard({
           </p>
         )}
         {showTimer && countdown && (
-          <p className="text-[10px] sb-fs-10 text-faint mt-0.5">{countdown}</p>
+          <p className="sb-art-text text-[10px] sb-fs-10 text-faint mt-0.5">{countdown}</p>
         )}
       </div>
 
@@ -274,7 +279,7 @@ export default function BannerCard({
                     onClick={onRowClick}
                     title={showHint ? QUICK_VIEW_HINT : undefined}
                   >
-                    <span className={`w-6 text-right text-xs font-bold tabular-nums flex-shrink-0 ${rankColor}`}>
+                    <span className={`sb-art-text w-6 text-right text-xs font-bold tabular-nums flex-shrink-0 ${rankColor}`}>
                       {entry.rank}
                     </span>
                     {/* min-w-0: without it the pill's min-content (driven by the
@@ -301,7 +306,7 @@ export default function BannerCard({
                             avatarUrl={entry.avatar_url}
                             size={16}
                           />
-                          <FitRowName className="text-[11px] sb-row-name min-w-0">
+                          <FitRowName className="sb-art-text text-[11px] sb-row-name min-w-0">
                             <PlayerNameLink
                               slug={slug}
                               entry={entry}
@@ -316,7 +321,7 @@ export default function BannerCard({
                           )}
                         </div>
                         <span
-                          className={`text-xs sb-row-score font-bold tabular-nums whitespace-nowrap block ${scoreColor}`}
+                          className={`sb-art-text text-xs sb-row-score font-bold tabular-nums whitespace-nowrap block ${scoreColor}`}
                           title={formatScore(entry.score).endsWith('T') ? entry.score.toLocaleString() : undefined}
                         >
                           {formatScore(entry.score)}

@@ -119,6 +119,10 @@ export default function MinimalCard({
   // v2.122.1 — the fill layer's framing (see useCoverFraming).
   const bgLayer = useCoverFraming(bgImageUrl, lb);
 
+  // v2.131.1 — art fills the card, so the text sits on a fixed black scrim and
+  // the card root becomes a dark-token island (see `.sb-on-art` in index.css).
+  const artFilled = !!bgImageUrl;
+
   const showQr = qrMode !== 'disabled';
   const qrMetrics = qrEdgeMetrics(qrSize, showQr, qrPosition, qrOffsetPx);
 
@@ -140,7 +144,7 @@ export default function MinimalCard({
         </div>
       )}
     <div
-      className="bg-surface border border-border/40 rounded-lg overflow-hidden flex flex-col h-full relative"
+      className={`bg-surface border border-border/40 rounded-lg overflow-hidden flex flex-col h-full relative${artFilled ? ' sb-theme-scope sb-on-art' : ''}`}
     >
       {/* Card background fill */}
       {bgImageUrl && (
@@ -161,14 +165,14 @@ export default function MinimalCard({
             to={titleLinkTo}
             onClick={titleLinkOnClick}
             data-tour="game-card-title"
-            className={`font-display font-bold leading-tight flex items-center gap-1 no-underline text-primary hover:text-neon-cyan transition-colors ${getTitleStyleClass(gameTitleStyle)}`}
+            className={`sb-art-text font-display font-bold leading-tight flex items-center gap-1 no-underline text-primary hover:text-neon-cyan transition-colors ${getTitleStyleClass(gameTitleStyle)}`}
             style={{ fontSize: titleFontSize ? `${titleFontSize}px` : '1rem', overflowWrap: 'break-word', wordBreak: 'break-word', minHeight: titleBoxMinHeight }}
           >
             <span style={titleClampStyle}>{displayName}</span>
             <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} roomId={roomId} gameName={lb.gameName} globalGameId={lb.globalGameId} size={13} />
           </Link>
         ) : (
-          <h3 className={`font-display font-bold leading-tight text-primary flex items-center gap-1 ${getTitleStyleClass(gameTitleStyle)}`} style={{ fontSize: titleFontSize ? `${titleFontSize}px` : '1rem', overflowWrap: 'break-word', wordBreak: 'break-word', minHeight: titleBoxMinHeight }}>
+          <h3 className={`sb-art-text font-display font-bold leading-tight text-primary flex items-center gap-1 ${getTitleStyleClass(gameTitleStyle)}`} style={{ fontSize: titleFontSize ? `${titleFontSize}px` : '1rem', overflowWrap: 'break-word', wordBreak: 'break-word', minHeight: titleBoxMinHeight }}>
             <span style={titleClampStyle}>{displayName}</span>
             <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} roomId={roomId} gameName={lb.gameName} globalGameId={lb.globalGameId} size={13} />
           </h3>
@@ -179,7 +183,7 @@ export default function MinimalCard({
               Pinned
             </span>
           ) : chipLabel && (
-            <span className="text-[11px] uppercase tracking-wider text-muted">
+            <span className="sb-art-text text-[11px] uppercase tracking-wider text-muted">
               {chipLabel}
             </span>
           )}
@@ -187,7 +191,7 @@ export default function MinimalCard({
             <Lock size={14} strokeWidth={2.5} className="text-neon-amber flex-shrink-0" />
           )}
           {showTimer && countdown && (
-            <span className="text-[10px] text-faint">{countdown}</span>
+            <span className="sb-art-text text-[10px] text-faint">{countdown}</span>
           )}
         </div>
       </div>
@@ -222,7 +226,7 @@ export default function MinimalCard({
                     onClick={onRowClick}
                     title={showHint ? QUICK_VIEW_HINT : undefined}
                   >
-                    <span className={`w-5 text-right text-[11px] font-semibold tabular-nums ${rankColor}`}>
+                    <span className={`sb-art-text w-5 text-right text-[11px] font-semibold tabular-nums ${rankColor}`}>
                       {entry.rank}
                     </span>
                     <PlayerAvatar
@@ -234,7 +238,7 @@ export default function MinimalCard({
                     />
                     {/* v2.13.16: PlayerNameLink opens quick-view modal on
                         click; modifier-click falls through to full page. */}
-                    <FitRowName origin="left" className="flex-1 text-sm sb-row-name min-w-0">
+                    <FitRowName origin="left" className="sb-art-text flex-1 text-sm sb-row-name min-w-0">
                       <PlayerNameLink
                         slug={slug}
                         entry={entry}
@@ -248,7 +252,7 @@ export default function MinimalCard({
                       </span>
                     )}
                     <span
-                      className={`text-sm sb-row-score font-bold tabular-nums whitespace-nowrap ${isViewerRow ? 'text-neon-cyan' : 'text-primary'}`}
+                      className={`sb-art-text text-sm sb-row-score font-bold tabular-nums whitespace-nowrap ${isViewerRow ? 'text-neon-cyan' : 'text-primary'}`}
                       title={formatScore(entry.score).endsWith('T') ? entry.score.toLocaleString() : undefined}
                     >
                       {formatScore(entry.score)}

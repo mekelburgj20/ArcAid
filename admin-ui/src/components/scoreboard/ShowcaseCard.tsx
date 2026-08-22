@@ -80,6 +80,11 @@ export default function ShowcaseCard({
   const { bgImage, styleHeaderUrl } = resolveImages(lb);
   // v2.122.1 — the fill layer's framing (see useCoverFraming).
   const bgLayer = useCoverFraming(cardBgFill ? bgImage : null, lb);
+  // v2.131.1 — Showcase's own art-mode text already comes from the theme's
+  // FIXED palette (that is why it never had the light-theme bug), but the same
+  // root classes go on for consistency: any token-driven child inside an
+  // art-filled card resolves dark, like Banner/Minimal/Arcade. See index.css.
+  const artFilled = !!(cardBgFill && bgImage);
   const displayName = lb.displayName || lb.gameName;
   const { expandedPlayer, playerHistory, historyLoading, togglePlayer, hasMultiple } = useScoreExpand(roomId, lb.gameId, lb.gameName, lb.rankings.length);
 
@@ -153,7 +158,7 @@ export default function ShowcaseCard({
 
       {/* Card shell. S21 — scoreboard-card-slot: forces width:100% at <=640px
           (see BannerCard.tsx for the full rationale). */}
-      <div className="scoreboard-card-slot" style={{
+      <div className={`scoreboard-card-slot${artFilled ? ' sb-theme-scope sb-on-art' : ''}`} style={{
         width: 380,
         maxWidth: '100%',
         position: 'relative',
