@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.126.1] — unreleased
+
+**Picks page width rhythm.** The Mystery Award, "If I win…" and "Your Picks" cards now share one centered `max-w-5xl` column (the queue card was full-bleed, pushing its up/down/× controls to the far right of a wide screen); the "If I win…" card is wide enough for its helper text to sit on one line and its four disposition buttons are centered with padding. Screenshot-verified at 1600px and 1280px with mock data. The available-games table stays full width pending the Picks redesign queued in ROADMAP.
+
+---
+
 ## [2.126.0] — unreleased
 
 **Pick queues: 30 deep, gapless, and a cooled-down pick now WAITS instead of vanishing.** Owner spec, 2026-08-21: "if a table is in their queue and it is next to be used, and that table is currently in cooldown, I want it to remain on a hold in their queue until the game is no longer in cooldown. At that point, it should be the top of their queue." Until now every walker DELETEd such a row with a single log line, so a player who queued a table a week too early silently lost the pick and found out by watching someone else's game go active.
