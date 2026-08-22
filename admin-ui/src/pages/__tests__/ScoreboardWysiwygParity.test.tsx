@@ -263,18 +263,48 @@ describe('admin Leaderboard mirrors the public Scoreboard', () => {
     expect(seen).toEqual({ public: true, admin: false });
   });
 
-  it('applies the banner-forces-scroll rule on both pages', async () => {
-    // Banner overrides an explicit grid layout with horizontal scroll. Admin
-    // had no such rule, so a banner room rendered as a grid there.
-    const config = { SCOREBOARD_STYLE: 'banner', SCOREBOARD_LAYOUT: 'grid' };
-    for (const page of ['public', 'admin'] as const) {
-      stubFetch(config);
-      const view = renderPage(page);
+  /**
+   * v2.132.1 — Banner honours Card Layout, on both pages.
+   *
+   * Until this release Banner was hard-overridden to horizontal scroll in
+   * `ScoreboardSurface`, so a room that chose Grid in Display settings kept
+   * getting the rail (owner report, rtx_pinball, 2026-08-22). The three cases
+   * below lock the setting in: whatever layout the config names is the layout
+   * that renders, Banner included, and `scroll` — the default — still does.
+   */
+  const BANNER_LAYOUTS: Array<[layout: string, present: string, absent: string[]]> = [
+    ['grid', '.scoreboard-grid-layout', ['.scoreboard-hscroll-layout', '.scoreboard-vertical-layout']],
+    ['vertical', '.scoreboard-vertical-layout', ['.scoreboard-hscroll-layout', '.scoreboard-grid-layout']],
+    ['scroll', '.scoreboard-hscroll-layout', ['.scoreboard-grid-layout', '.scoreboard-vertical-layout']],
+  ];
+
+  for (const [layout, present, absent] of BANNER_LAYOUTS) {
+    it(`renders banner in the ${layout} layout on both pages`, async () => {
+      const config = { SCOREBOARD_STYLE: 'banner', SCOREBOARD_LAYOUT: layout };
+      for (const page of ['public', 'admin'] as const) {
+        stubFetch(config);
+        const view = renderPage(page);
+        await screen.findByTestId('card');
+        await waitFor(() => {
+          expect(view.container.querySelector(present)).toBeInTheDocument();
+        });
+        for (const sel of absent) {
+          expect(view.container.querySelector(sel)).toBeNull();
+        }
+        view.unmount();
+      }
+    });
+  }
+
+  it('lets a banner card fill its grid track, but leaves showcase alone', async () => {
+    // BannerCard's own root is a fixed `width: 280`, so without the fill
+    // class it sits ragged at the left edge of a wider grid track.
+    for (const [style, shouldFill] of [['banner', true], ['showcase', false]] as const) {
+      stubFetch({ SCOREBOARD_STYLE: style, SCOREBOARD_LAYOUT: 'grid' });
+      const view = renderPage('public');
       await screen.findByTestId('card');
-      await waitFor(() => {
-        expect(view.container.querySelector('.scoreboard-grid-layout')).toBeNull();
-        expect(view.container.querySelector('.scoreboard-hscroll-layout')).toBeInTheDocument();
-      });
+      const slot = view.container.querySelector('.scoreboard-grid-layout > div') as HTMLElement;
+      expect(slot.classList.contains('scoreboard-slot-fill')).toBe(shouldFill);
       view.unmount();
     }
   });

@@ -173,9 +173,13 @@ export default function KioskScoreboard() {
   const newConfig = deriveScoreboardConfig(config, roomName);
   const legacyProps = deriveCardProps(config, roomName);
   const useNewCards = !!config.SCOREBOARD_STYLE;
-  const isBanner = useNewCards && newConfig.style === 'banner';
+  // v2.132.1 — the surface no longer forces Banner to horizontal scroll, so
+  // neither does this shadow copy: every style now renders the room's chosen
+  // Card Layout here too. When that layout is grid/vertical there is no
+  // `.scoreboard-hscroll-layout` in the DOM and the attract-mode effect below
+  // simply no-ops — exactly how a Showcase+grid kiosk has always behaved.
   const layout = useNewCards ? newConfig.layout : legacyProps.layout;
-  const effectiveLayout = isBanner ? 'scroll' : layout;
+  const effectiveLayout = layout;
   const hideEmpty = useNewCards ? newConfig.hideEmpty : legacyProps.hideEmpty;
   const visibleCount = hideEmpty ? leaderboards.filter(lb => lb.rankings.length > 0).length : leaderboards.length;
 

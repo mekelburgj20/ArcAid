@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.132.1] — unreleased
+
+### Fixed
+- **Card Style "Banner" now honours Card Layout — Grid and Vertical both render.** Picking Banner + Grid in Display settings kept giving the horizontal rail (owner report on rtx_pinball, 2026-08-22). `ScoreboardSurface` hard-overrode `effectiveLayout` to `'scroll'` for Banner, a rule carried since the three-layout-modes feature: `BannerCard`'s own shell is a fixed 280px rail card, so it would have sat ragged at the left edge of a wider grid track. The override is gone and the raggedness is fixed properly — the grid/vertical layout item now carries `scoreboard-slot-fill`, which releases the card's inner `.scoreboard-card-slot` to `width: 100%` exactly the way the `<=640px` mobile rules already do, so the card stretches to its track and keeps its `height: 100%` row stretch. Artwork keeps covering it at any width: `useCoverFraming` measures the fill layer with a `ResizeObserver` and never assumed 280. Banner's grid track floor is its own 280px rather than the other styles' 0.7x (a filled Banner can stretch but not shrink below its designed width), which lands 4 columns at 1280, 2 at 768, 1 at 390, 6 at 1920. `'scroll'` — still Banner's default — renders byte-identically to before. The kiosk page renders the same surface, so a Banner+Grid room's kiosk now shows the grid too and its attract-mode auto-scroll no-ops, exactly as a Showcase+Grid kiosk always has.
+
+---
+
 ## [2.132.0] — unreleased
 
 **Display settings, and one theme that follows you.** Owner, 2026-08-22: "Not just 'Scoreboard display' — rename this to 'Display settings' and under that there's a section for scoreboard display but also a section for game room display settings where they can set the game room theme colors like the room admin has. Also, in the game room settings there are Theme options 'Public Theme' and 'Admin Theme'. I think these are redundant now."
