@@ -426,6 +426,47 @@
   --sb-title-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
 }
 
+/*
+ * .sb-on-art — an art-filled card is a DARK-TOKEN ISLAND.
+ *
+ * v2.131.1. Banner/Minimal/Arcade paint the game's artwork across the WHOLE
+ * card and drop a fixed black scrim (50-60%) over it, then set their text in
+ * PAGE-THEME tokens. Under the light theme `--color-primary` is oklch(21% …) —
+ * near-black ink on a near-black scrim, i.e. invisible (owner, 2026-08-22).
+ * The scrim is a constant, so the text over it has to be one too.
+ *
+ * The fix is not a sprinkle of `text-white`: the ROOT element of an art-filled
+ * card carries BOTH `sb-theme-scope` and `sb-on-art`. `.sb-theme-scope` (above)
+ * supplies the dark token values, so every `text-primary` / `text-muted` /
+ * `text-faint` / rank colour inside the card resolves the way it does on the
+ * dark theme no matter what <html> is wearing. This class adds the two things
+ * the token reset cannot: it re-anchors the INHERITED `color` (see below), and
+ * it gives `.sb-art-text` a legibility shadow for artwork with BRIGHT regions,
+ * where 50-60% of black still is not enough separation. The shadow values are
+ * ShowcaseCard's, which has always drawn its art-mode text from a fixed
+ * palette and therefore never had the bug.
+ *
+ * `sb-art-text` goes on the title, the tournament caption, the countdown, and
+ * each row's rank / player name / score — NOT on the inline expand panels,
+ * which already sit on their own `bg-deep/50` surface.
+ *
+ * ANY NEW CARD STYLE that paints artwork under a scrim must do the same.
+ */
+.sb-on-art {
+  /* `color` is INHERITED, and `body` resolves `var(--color-primary)` under the
+     PAGE's theme — restating the tokens on this element does not re-evaluate
+     an ancestor's declaration. Without this line the island's own text was
+     fixed but everything that merely INHERITS its colour (the player-name
+     links, whose `text-secondary` class is not a real token in this app)
+     stayed near-black on the scrim. Re-anchoring `color` inside the scope
+     resolves it to the DARK default, which is the point of the island. */
+  color: var(--color-primary);
+}
+
+.sb-on-art .sb-art-text {
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.85), 0 0 2px rgba(0, 0, 0, 0.6);
+}
+
 /* Light theme (daisyUI-inspired clean light) */
 .theme-light {
   color-scheme: light;

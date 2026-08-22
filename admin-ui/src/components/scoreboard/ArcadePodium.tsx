@@ -140,7 +140,7 @@ function PodiumRow({
         avatarUrl={entry.avatar_url}
         size={26}
       />
-      <FitRowName origin="left" className={`min-w-0 flex-1 sb-row-name text-[16px] ${isViewer ? 'font-bold' : 'font-medium'}`}>
+      <FitRowName origin="left" className={`sb-art-text min-w-0 flex-1 sb-row-name text-[16px] ${isViewer ? 'font-bold' : 'font-medium'}`}>
         <PlayerNameLink
           slug={slug}
           entry={entry}
@@ -154,7 +154,7 @@ function PodiumRow({
         </span>
       )}
       <span
-        className={`shrink-0 sb-row-score font-mono text-[16px] font-bold tabular-nums ${rank === 1 ? 'text-neon-amber' : isViewer ? 'text-neon-cyan' : 'text-primary'}`}
+        className={`sb-art-text shrink-0 sb-row-score font-mono text-[16px] font-bold tabular-nums ${rank === 1 ? 'text-neon-amber' : isViewer ? 'text-neon-cyan' : 'text-primary'}`}
         title={abbreviated.endsWith('T') ? entry.score.toLocaleString() : undefined}
       >
         {abbreviated}

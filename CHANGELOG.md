@@ -6,6 +6,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.131.1] — unreleased
+
+**You can read the score cards in light mode again.** Owner, 2026-08-22, right after the Appearance switch shipped: "Light mode in the game room looks terrible on the score cards. You cannot see the text on top of the game card backgrounds." The bug is older than the switch — any room on the Light theme with the immersive "card background fill" turned on had it — but one-click light mode is what made it easy to find.
+
+### Fixed
+- **An art-filled card is now a dark-token island.** With the fill on, Banner, Minimal and Arcade paint the game's artwork across the whole card and lay a FIXED black scrim (50–60%) over it, then set the title, the tournament chip, the countdown and every score row in page-theme colours. Under a light theme `--color-primary` is near-black — near-black ink on a near-black scrim, i.e. nothing. The card's root element now carries `sb-theme-scope sb-on-art` whenever (and only when) the artwork fills it: `sb-theme-scope` (the existing v2.86.0 reset) restates the dark token values for that subtree, and the new `sb-on-art` rule beside it in `index.css` re-anchors the inherited `color` — `body` resolves it under the page's theme, so a token reset alone left everything that merely inherits, notably the player-name links, still black. `ShowcaseCard` gets the same two classes: its own art-mode text always came from a fixed palette (which is why it looked fine), but its podium runner-up scores and tail rank numbers were token-driven and were invisible too.
+- **A legibility shadow for bright artwork.** `.sb-on-art .sb-art-text` adds the text-shadow ShowcaseCard has always used, applied to the title, the tournament caption, the countdown, and each row's rank / player name / score. The scrim is a single constant and cannot serve both a near-white backglass and a black one; the shadow is what carries the light-artwork case. The inline score-history panels are deliberately left out — they sit on their own `bg-deep/50` surface.
+- **The header-image variant is untouched.** With the fill OFF the art is a strip inside the card and the text sits on the card SURFACE, so it keeps following the page theme exactly as before — no classes, no shadow. Scrim opacities are unchanged throughout, and any NEW card style that paints artwork under a scrim has to opt into the same two classes.
+
 ## [2.131.0] — unreleased
 
 **Rate the table right after you played it.** Owner, 2026-08-22: "It's the perfect time to rate a game — right after you've just played it. Maybe also a comment box that adds the comment to the game info page." The post-submit success card now carries a compact "How was &lt;game&gt;?" block between the rank line and the Share/Done buttons. Both halves are optional, and neither can get between the player and Done.
