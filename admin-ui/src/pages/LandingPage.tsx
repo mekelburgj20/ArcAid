@@ -307,6 +307,17 @@ export default function LandingPage() {
 
 /* ─── Global Scoreboard Promo Section ─── */
 
+/**
+ * v2.128.0 (owner: "about 30% larger") — the ticker tile grew 220px → 286px.
+ * Everything inside it, the row gap, and the animation DURATION are scaled by
+ * the same factor so the artwork/type stay in proportion and the scroll SPEED
+ * (px/s) is unchanged: the row is 1.3× wider, so it needs 1.3× as long to
+ * travel its own half-width.
+ */
+const TICKER_SCALE = 1.3;
+/** Seconds of travel per score at the pre-v2.128.0 tile size. */
+const TICKER_SECONDS_PER_SCORE = 4;
+
 function ScoreboardPromo({ scores }: { scores: RecentScore[] }) {
   // Duplicate the list so the CSS animation loops seamlessly
   const doubled = useMemo(() => [...scores, ...scores], [scores]);
@@ -326,7 +337,7 @@ function ScoreboardPromo({ scores }: { scores: RecentScore[] }) {
           (see the negative-margin wrapper at the call site). */}
       <div style={{
         overflow: 'hidden',
-        padding: '4px 0 20px',
+        padding: '4px 0 24px',
         maskImage: 'linear-gradient(90deg, transparent 0%, black 5%, black 95%, transparent 100%)',
         WebkitMaskImage: 'linear-gradient(90deg, transparent 0%, black 5%, black 95%, transparent 100%)',
       }}>
@@ -334,9 +345,9 @@ function ScoreboardPromo({ scores }: { scores: RecentScore[] }) {
           <div
             style={{
               display: 'flex',
-              gap: 14,
+              gap: Math.round(14 * TICKER_SCALE),
               width: 'max-content',
-              animation: `ticker-scroll ${scores.length * 4}s linear infinite`,
+              animation: `ticker-scroll ${scores.length * TICKER_SECONDS_PER_SCORE * TICKER_SCALE}s linear infinite`,
             }}
           >
             {doubled.map((s, i) => (
@@ -418,8 +429,13 @@ function ScoreTickerCard({ score }: { score: RecentScore }) {
   return (
     <div data-testid="landing-ticker-card" style={{
       flexShrink: 0,
-      width: 220,
-      borderRadius: 14,
+      // v2.128.0: 220 → 286 (×1.3, see TICKER_SCALE). The 80vw cap only bites
+      // below ~357px wide (a 390px phone still gets the full 286) — it keeps
+      // the next tile peeking in on the narrowest handsets so the band still
+      // reads as a scrolling row rather than one clipped card.
+      width: Math.round(220 * TICKER_SCALE),
+      maxWidth: '80vw',
+      borderRadius: 18,
       overflow: 'hidden',
       background: 'var(--sb-ticker-card-bg)',
       border: '1px solid var(--sb-ticker-card-border)',
@@ -446,7 +462,7 @@ function ScoreTickerCard({ score }: { score: RecentScore }) {
     >
       {/* Game image */}
       <div style={{
-        height: 80,
+        height: Math.round(80 * TICKER_SCALE),
         background: 'var(--sb-ticker-art-bg)',
         position: 'relative',
         overflow: 'hidden',
@@ -472,21 +488,21 @@ function ScoreTickerCard({ score }: { score: RecentScore }) {
             justifyContent: 'center',
             background: `linear-gradient(135deg, hsl(${hue} var(--sb-ticker-art-sat) var(--sb-ticker-art-l1)), hsl(${hue} var(--sb-ticker-art-sat) var(--sb-ticker-art-l2)))`,
           }}>
-            <Gamepad2 size={28} style={{ color: 'var(--sb-ticker-art-icon)' }} />
+            <Gamepad2 size={36} style={{ color: 'var(--sb-ticker-art-icon)' }} />
           </div>
         )}
         {/* Score overlay */}
         <div style={{
           position: 'absolute',
-          bottom: 6,
-          right: 8,
+          bottom: 8,
+          right: 10,
           /* Reuses the Global Scoreboard's on-art pill token — this chip sits
              on arbitrary game artwork and has the same legibility problem. */
           background: 'var(--sb-pill-bg)',
           backdropFilter: 'blur(8px)',
-          borderRadius: 6,
-          padding: '2px 8px',
-          fontSize: 13,
+          borderRadius: 8,
+          padding: '3px 10px',
+          fontSize: 17,
           fontWeight: 700,
           color: 'var(--sb-ticker-score-fg)',
           fontFamily: "'DM Mono', monospace",
@@ -496,15 +512,15 @@ function ScoreTickerCard({ score }: { score: RecentScore }) {
       </div>
 
       {/* Info */}
-      <div style={{ padding: '10px 12px 12px' }}>
+      <div style={{ padding: '13px 16px 16px' }}>
         <div style={{
-          fontSize: 12,
+          fontSize: 16,
           fontWeight: 600,
           color: 'var(--color-primary)',
           whiteSpace: 'nowrap',
           overflow: 'hidden',
           textOverflow: 'ellipsis',
-          marginBottom: 6,
+          marginBottom: 8,
         }}>
           {gameName}
         </div>
@@ -513,7 +529,7 @@ function ScoreTickerCard({ score }: { score: RecentScore }) {
           alignItems: 'center',
           justifyContent: 'space-between',
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden' }}>
             {/* B1 (v2.56.0) — the local initials/hue-hash duplicate is gone;
                 this is the same avatar the scoreboards render, so anonymous
                 rows get the themed silhouette instead of a coloured letter. */}
@@ -522,10 +538,10 @@ function ScoreTickerCard({ score }: { score: RecentScore }) {
               discordUserId={score.discord_user_id}
               avatarHash={score.avatar_hash}
               avatarUrl={score.avatar_url}
-              size={18}
+              size={23}
             />
             <span style={{
-              fontSize: 11,
+              fontSize: 14,
               color: 'var(--color-muted)',
               whiteSpace: 'nowrap',
               overflow: 'hidden',
@@ -535,10 +551,10 @@ function ScoreTickerCard({ score }: { score: RecentScore }) {
             </span>
           </div>
           <span style={{
-            fontSize: 10,
+            fontSize: 13,
             color: 'var(--color-faint)',
             flexShrink: 0,
-            marginLeft: 6,
+            marginLeft: 8,
           }}>
             {timeAgo(score.submitted_at)}
           </span>

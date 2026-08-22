@@ -6,6 +6,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.128.0] — unreleased
+
+**Two Android score-entry bugs, both in the in-app keypad.** Owner field report: "Done submits before I can check anything", and placing the caret mid-score then typing jumps to the end. Plus the landing page's scrolling score tiles are ~30% larger.
+
+### Fixed
+- **Tapping the keypad's "Done" no longer presses "Submit Score" underneath it.** Cause: every key acted on `pointerdown` (v2.101.1), and Done's handler unmounts the keyboard on that same pointerdown — so the touch's `pointerup`/`click` landed on whatever the collapsing layout had slid under the finger, which in `SubmissionSheet` is the Submit button and the "Don't post this score to the global Arcaid scoreboard" checkbox. Done (and only Done) now acts on `pointerup` with `preventDefault()` on its pointerdown so no compatibility mouse/click event is synthesized; digits keep their pointerdown immediacy. `SubmissionSheet` additionally latches its submit handler for 350 ms after the keyboard closes, and Enter in the score field closes the keypad instead of ever reaching a submit.
+- **Typing or backspacing mid-score no longer jumps to the end.** Cause: on touch the score field is `type=text inputMode=none`, so the native caret really does move when the player taps inside the value — but the keypad only ever appended (`prev + key`) and trailing-deleted (`prev.slice(0, -1)`). The keypad now splices at the caret (replacing any selection) via the new `admin-ui/src/lib/caretEdit.ts`, and restores the caret in a layout effect after React commits. Where a browser won't report a selection (desktop's `type=number`) it falls back to the old append/trailing-delete behaviour verbatim.
+
+### Changed
+- **Landing-page score ticker tiles are ~1.3× larger** — tile 220 → 286 px wide, artwork, padding, type and row gap scaled to match, capped at 80vw so the narrowest handsets still see the next tile peek in. The marquee duration scales by the same factor (`scores.length × 4s` → `× 5.2s`), so the scroll speed is unchanged at 58.5 px/s.
+
 ## [2.127.1] — unreleased
 
 **The automatic avatar is now your Discord one.** Migration 151 shipped "Google when present" as the automatic rule, on the reasonable-sounding assumption that a Google-linked account without a picture would have a NULL URL. It never does: Google serves a generated letter tile for photo-less accounts, so "Google when present" was in practice "Google always" — and a player with a real Discord avatar and a photo-less Google account rendered the tile (ChalataLove on rtx_pinball, 2026-08-22; two of the five Google-linked prod users had already overridden to Discord by hand). A Discord `avatar_hash` is only non-NULL when the user actually chose an avatar, which makes it the honest signal of intent.

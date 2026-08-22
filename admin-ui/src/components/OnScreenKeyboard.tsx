@@ -1,4 +1,5 @@
 import { useState, memo } from 'react';
+import type { PointerEvent as ReactPointerEvent } from 'react';
 import { Delete, ArrowBigUp } from 'lucide-react';
 
 interface OnScreenKeyboardProps {
@@ -44,6 +45,35 @@ function key(handler: () => void) {
 }
 
 /**
+ * v2.128.0 (owner Android field report: "Done submits before I can check
+ * anything"). DONE is the ONE key that must act on pointer UP.
+ *
+ * Pressing Done closes the keyboard, so on the pointerdown timing above the
+ * keyboard unmounted mid-touch and the SAME touch's pointerup/click landed on
+ * whatever the collapsing layout had just slid under the finger — in
+ * `SubmissionSheet` that is the "Submit Score" button and the
+ * "Don't post this score to the global Arcaid scoreboard" checkbox row.
+ *
+ * The rule, in one line: **a key that changes what is under the finger acts
+ * on pointerup; every other key acts on pointerdown.** Digits keep their
+ * pointerdown immediacy (that is the whole point of the v2.101.1 fix above —
+ * they don't move anything). `preventDefault()` on Done's pointerdown stops
+ * the browser synthesising a compatibility mousedown/mouseup/click from the
+ * same touch, so nothing can leak through after the unmount either. Touch
+ * pointers are implicitly captured to their pointerdown target, so the
+ * pointerup still reaches this button even if the thumb slides — the slide
+ * problem that killed `onClick` does not apply here.
+ *
+ * Still NO `onClick` on any key: adding one alongside these double-fires.
+ */
+function doneKey(handler: () => void) {
+  return {
+    onPointerDown: (e: ReactPointerEvent<HTMLButtonElement>) => { e.preventDefault(); },
+    onPointerUp: handler,
+  };
+}
+
+/**
  * v2.101.1: keep the bottom key row clear of the iPhone home-indicator /
  * gesture zone — keys flush with the screen edge got mistaken for the
  * bottom-edge swipe, refreshing the page mid-entry (tester field report).
@@ -73,7 +103,7 @@ function OnScreenKeyboard({ mode, onKeyPress, onBackspace, onDone }: OnScreenKey
           ))}
           <button type="button" aria-label="Backspace" className={`${numKeyClass} text-neon-amber inline-flex items-center justify-center`} {...key(onBackspace)}><Delete size={20} /></button>
           <button type="button" className={numKeyClass} {...key(() => onKeyPress('0'))}>0</button>
-          <button type="button" className={`${numKeyClass} text-neon-cyan`} {...key(onDone)}>Done</button>
+          <button type="button" className={`${numKeyClass} text-neon-cyan`} {...doneKey(onDone)}>Done</button>
         </div>
       </div>
     );
@@ -129,7 +159,7 @@ function OnScreenKeyboard({ mode, onKeyPress, onBackspace, onDone }: OnScreenKey
         </button>
         <button type="button" aria-label="Backspace" className={`${keyClass} text-neon-amber px-4 inline-flex items-center justify-center`} {...key(onBackspace)}><Delete size={16} /></button>
         <button type="button" className={`${keyClass} flex-1 max-w-[200px]`} {...key(() => onKeyPress(' '))}>space</button>
-        <button type="button" className={`${keyClass} text-neon-cyan px-4`} {...key(onDone)}>Done</button>
+        <button type="button" className={`${keyClass} text-neon-cyan px-4`} {...doneKey(onDone)}>Done</button>
       </div>
     </div>
   );
