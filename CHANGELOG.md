@@ -6,6 +6,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.126.0] — unreleased
+
+**Pick queues: 30 deep, gapless, and a cooled-down pick now WAITS instead of vanishing.** Owner spec, 2026-08-21: "if a table is in their queue and it is next to be used, and that table is currently in cooldown, I want it to remain on a hold in their queue until the game is no longer in cooldown. At that point, it should be the top of their queue." Until now every walker DELETEd such a row with a single log line, so a player who queued a table a week too early silently lost the pick and found out by watching someone else's game go active.
+
+### Added
+- **Cooldown HOLD** (migration 158 adds `games.queue_held_at`). When the rotation reaches a queued pick that is inside its cooldown it stamps the row instead of deleting it: the pick stays QUEUED, keeps its place, and sorts AHEAD of its owner's unheld picks — so the moment the cooldown clears it is the next thing activated. Applies to both walkers (`TournamentEngine.nextEligibleQueuedFor` and the extra-slot fill loop in `runMaintenanceWork`); `queue_held_at` is cleared on promotion alongside `queue_order`.
+- **One ordering contract** (`src/utils/queueOrder.ts` — `queueOrderSql(alias?)` / `QUEUE_ORDER_SQL`, re-exported from `PickQueueService`): held picks first (oldest hold wins), then `queue_order ASC` (NULLs first, which is how `[Pending Pick]` placeholders keep their front position), then `rowid`. Every reader now imports it — `/pick-status`, `getPlayerQueue`, `/view-queue`, the admin on-behalf queue, `PickAlertService` and both engine walkers — so what a player sees is what the engine will do.
+- **`held` + `daysUntilAvailable`** on every queue row the API returns. Picks page and the admin on-behalf panel render an amber **"On hold — cooldown, Nd"** chip; `/view-queue` appends "— on hold (cooldown, Nd left)". Held rows stay deletable; their move up/down buttons are disabled (their position is governed by the hold), and `PUT /queue/reorder` applies the supplied order to UNHELD rows only, leaving holds untouched.
+- **`queueLow` notification** (7th type, opt-in, high-value + web-push tier, `/arcaid-notifications` + Account Settings). Fires only when the ENGINE spends one of your queued picks — rotation promotion, extra-slot fill, or `TimeoutManager.activateQueuedIntoSlot` — and the remaining queue is <= 3. Never on your own delete. Deduped via `queue_low_nudges` (migration 158): send on a first sighting, on any LOWER count than last reported, or after 7 days of silence.
+
+### Changed
+- **Queue cap 5 — 30** (`PICK_QUEUE_MAX`). The two hardcoded `5`s in `/pick-game` (the limit check and the "Queue: n/5" status line) now import the constant, and the cap ships to the FE as `queueMax` on `/pick-status` and on all three admin on-behalf queue responses, so the admin panel reads `(n/30)` from the server rather than a literal.
+- **`queue_order` is compacted on every removal and promotion** (`PickQueueService.compactQueue`, called from the player delete, the admin delete — both now inside a transaction with the DELETE — and all three engine consumption sites). Deleting position 2 of [1,2,3] used to leave [1,3] and the next add allocated from MAX+1.
+- **Pick alert (c) "ineligible" no longer means "about to be removed"**: `PickAlertService` docs and the Picks-page chip tooltip now say the pick goes on hold at the front of the queue and the next eligible game is used instead.
+- Cooldown-days arithmetic is shared (`cooldownDaysFromLastPlayed` / `cooldownDaysRemaining` in `PickQueueService`); the pick-rejection copy, the held-row copy and the batched `/game-availability` list all derive from it (the batched endpoint keeps its single query and calls the pure form).
+
+### Tests
+- `pick-queue-hold.test.ts` (new): walker holds a cooled-down head and returns the next pick; a held pick wins outright once its cooldown clears, even from behind a newer one; a re-walk does not re-stamp or delete; the extra-slot loop parks instead of deleting; `/pick-status` floats the held row to the top with `held: true` + `daysUntilAvailable` and reports `queueMax`; delete renumbers [1,2,3] minus the middle to [1,2]; reorder renumbers only the unheld rows and leaves the hold first.
+- `queue-low-nudge.test.ts` (new): quiet above the threshold, 4→3 sends, 3→2 sends again, 2→2 inside a week does not, a week later it does, empty queue says "is empty", winner-picks-off stays quiet, and `queueLow` is off by default with an explicit `false` declined by `notify()`.
+- `maintenance-stale-queue.test.ts` flipped from "is still removed" to "goes ON HOLD, never deleted" (both the maintenance and `nextEligibleQueuedFor` cases, cached leaderboard included). Cap tests moved onto `PICK_QUEUE_MAX` (30 rows — QUEUE_FULL; `/pick-game` status line reads `0/30`).
+
+---
+
 ## [2.125.2] — unreleased
 
 **Players who link their Discord AFTER their iScored scores synced now get their avatar + display name on every board.** Wyo and DennisB on rtx_pinball (2026-08-21) showed the generic avatar while Krobs (mapped before the sync) rendered fine.

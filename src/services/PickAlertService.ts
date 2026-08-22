@@ -1,6 +1,7 @@
 import { getDatabase } from '../database/database.js';
 import { PickAwardGate } from './PickAwardGate.js';
 import { TournamentEngine } from '../engine/TournamentEngine.js';
+import { queueOrderSql } from '../utils/queueOrder.js';
 
 /**
  * PickAlertService — computes the "you owe the pick flow some attention" signal
@@ -14,12 +15,15 @@ import { TournamentEngine } from '../engine/TournamentEngine.js';
  *                      players who don't engage with picks, and suppressed
  *                      while the player's OWN pick is the currently ACTIVE
  *                      game (v2.77.0 — see the inline note at the call site).
- *   (c) `ineligible` — the player's HEAD-of-queue pick would be skipped at
- *                      activation (cooldown). Always badges — this is the
- *                      silent failure the feature exists to surface: pre-badge,
- *                      the row was deleted during maintenance with only a log
- *                      line, and the player found out by seeing someone else's
- *                      game go active.
+ *   (c) `ineligible` — the player's HEAD-of-queue pick is inside its
+ *                      cooldown. As of v2.126.0 that pick is NOT dropped: the
+ *                      engine stamps `queue_held_at`, the row waits at the
+ *                      front of the queue, and the next eligible pick is used
+ *                      instead — so this alert means "parked until the
+ *                      cooldown clears", never "removed". It still badges,
+ *                      because the player's intended next game is not the one
+ *                      about to activate, and pre-badge they found that out by
+ *                      watching someone else's game go live.
  *
  * SCOPE CALL ON (b): "has pick standing" resolves to *has ever held a picker
  * row in this tournament* — `EXISTS(games WHERE tournament_id = ? AND
@@ -85,16 +89,16 @@ export class PickAlertService {
         if (!tournaments.length) return EMPTY;
 
         // Every QUEUED row this player owns across the room, in one pass —
-        // placeholders and named picks alike. Same ordering contract the
-        // rotation path consumes the queue with (`queue_order ASC, rowid ASC`,
-        // NULL-first) so "head of queue" here means the same row that would
-        // actually activate next.
+        // placeholders and named picks alike. Ordered through the SHARED
+        // `queueOrderSql` the rotation path consumes the queue with (held
+        // picks first, then `queue_order ASC` NULL-first) so "head of queue"
+        // here means the same row that would actually activate next.
         const queuedRows = await db.all(
             `SELECT g.id, g.name, g.tournament_id, g.queue_order
              FROM games g
              JOIN tournaments t ON g.tournament_id = t.id
              WHERE t.game_room_id = ? AND g.status = 'QUEUED' AND g.picker_discord_id = ?
-             ORDER BY g.queue_order ASC, g.rowid ASC`,
+             ORDER BY ${queueOrderSql('g')}`,
             roomId, discordId,
         );
 

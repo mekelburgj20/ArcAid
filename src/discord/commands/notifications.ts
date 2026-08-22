@@ -11,6 +11,7 @@ const PREF_LABELS: Record<NotificationType, string> = {
     rankDethroned: 'Rank Dethroned',
     friendScore: 'Friend Score',
     rotationReady: 'Rotation Ready',
+    queueLow: 'Queue Running Low',
 };
 
 export const notifications: Command = {
@@ -29,6 +30,7 @@ export const notifications: Command = {
                     { name: 'Toggle: Rank Dethroned', value: 'rankDethroned' },
                     { name: 'Toggle: Friend Score', value: 'friendScore' },
                     { name: 'Toggle: Rotation Ready', value: 'rotationReady' },
+                    { name: 'Toggle: Queue Running Low', value: 'queueLow' },
                     { name: 'Enable all', value: 'enable_all' },
                     { name: 'Disable all', value: 'disable_all' },
                     // v2.125.0 — Arcaid Chat Responses. Two explicit choices

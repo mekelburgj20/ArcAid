@@ -427,7 +427,7 @@ describe('Pick delegation — dynasty interaction', () => {
 describe('Pick delegation — queue eligibility', () => {
     beforeEach(async () => { await setupTestDb(); });
 
-    it('skips (and drops) a queued game that lost eligibility, using the next one', async () => {
+    it('HOLDS a queued game that lost eligibility and uses the next one (v2.126.0)', async () => {
         const { roomId, tournamentId } = await setup();
         const db = await getDatabase();
         const gameId = await createTestGame(tournamentId, { status: 'ACTIVE' });
@@ -447,7 +447,12 @@ describe('Pick delegation — queue eligibility', () => {
         const { outcome } = await runCascade(tournamentId, roomId, gameId);
 
         expect((outcome as any).game.name).toBe('Fresh Pick');
-        expect(await db.get('SELECT id FROM games WHERE id = ?', stale.id)).toBeUndefined();
+        // v2.126.0 — the cooled-down pick is parked, not deleted: it keeps its
+        // row, gains `queue_held_at`, and jumps the queue once eligible again.
+        const parked = await db.get('SELECT status, queue_held_at FROM games WHERE id = ?', stale.id);
+        expect(parked).toBeDefined();
+        expect(parked.status).toBe('QUEUED');
+        expect(parked.queue_held_at).toBeTruthy();
     });
 
     it('a [Pending Pick] placeholder is never treated as a queued pick', async () => {

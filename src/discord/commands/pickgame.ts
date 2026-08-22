@@ -16,6 +16,7 @@ import { trackBackground } from '../../utils/backgroundTasks.js';
 import { buildGameAutocompleteChoices, type AutocompleteTournament } from '../gameAutocomplete.js';
 import { resolveGuildReadScope, buildGuildScopedRoomSqlFilter } from '../../utils/discordRoomFilter.js';
 import { v4 as uuidv4 } from 'uuid';
+import { PICK_QUEUE_MAX } from '../../services/PickQueueService.js';
 // TODO(§8): gate /mystery-award when that command is authored (Q6 — out of scope for Sprint 5).
 
 /**
@@ -231,15 +232,15 @@ export const pickgame: Command = {
                     return;
                 }
 
-                // Check queue limit (max 5 per user per tournament)
+                // Check queue limit (PICK_QUEUE_MAX per user per tournament).
                 const queueCount = await db.get(
                     `SELECT COUNT(*) as count FROM games
                      WHERE tournament_id = ? AND status = 'QUEUED'
                        AND picker_discord_id = ? AND name != '[Pending Pick]'`,
                     tournament.id, userId
                 );
-                if ((queueCount?.count ?? 0) >= 5) {
-                    await interaction.editReply('Queue limit reached (max 5 games per tournament). Remove a queued game first.');
+                if ((queueCount?.count ?? 0) >= PICK_QUEUE_MAX) {
+                    await interaction.editReply(`Queue limit reached (max ${PICK_QUEUE_MAX} games per tournament). Remove a queued game first.`);
                     return;
                 }
 
@@ -514,7 +515,7 @@ export const pickgame: Command = {
                    AND picker_discord_id = ? AND name != '[Pending Pick]'`,
                 tournament.id, userId
             );
-            lines.push(`Queue: ${queueCount?.count ?? 0}/5 games queued.`);
+            lines.push(`Queue: ${queueCount?.count ?? 0}/${PICK_QUEUE_MAX} games queued.`);
 
             await interaction.editReply(lines.join('\n'));
 

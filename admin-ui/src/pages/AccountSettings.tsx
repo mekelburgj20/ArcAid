@@ -77,6 +77,7 @@ const NOTIF_TYPES: { key: string; label: string; helper: string }[] = [
   { key: 'rankDethroned', label: 'Rank Dethroned', helper: 'When someone knocks you off a #1 spot.' },
   { key: 'friendScore', label: 'Friend Score', helper: 'When a player you follow posts a new score.' },
   { key: 'rotationReady', label: 'Rotation Ready', helper: "When you're in the running and the next rotation is about an hour away." },
+  { key: 'queueLow', label: 'Queue Running Low', helper: 'When a rotation uses one of your queued picks and your queue is nearly empty.' },
 ];
 
 // PushManager.subscribe wants the VAPID public key as raw bytes, but the

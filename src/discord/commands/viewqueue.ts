@@ -3,6 +3,7 @@ import { Command } from './index.js';
 import { getDatabase } from '../../database/database.js';
 import { logError } from '../../utils/logger.js';
 import { roomPicksUrl } from '../../utils/publicLinks.js';
+import { queueOrderSql, cooldownDaysRemaining } from '../../services/PickQueueService.js';
 import {
     resolveGuildReadScope,
     buildGuildScopedRoomSqlFilter,
@@ -27,6 +28,7 @@ import {
 interface QueueRow {
     game_name: string;
     queue_order: number | null;
+    queue_held_at: string | null;
     tournament_id: string;
     tournament_name: string;
     tournament_type: string | null;
@@ -72,19 +74,20 @@ export const viewqueue: Command = {
         try {
             const { sql: scopeFilter, params } = buildGuildScopedRoomSqlFilter('t.game_room_id', scope);
 
-            // `queue_order ASC` puts NULLs first in SQLite, which is exactly
-            // the engine's own ordering: a repurposed `[Pending Pick]` row
-            // keeps `queue_order = NULL` so it sits at the front. Same ORDER
-            // BY as `TournamentEngine.nextEligibleQueuedFor`, with the
-            // tournament grouping in front of it.
+            // `queueOrderSql` IS the engine's ordering (held picks first,
+            // then `queue_order ASC` — NULLs first in SQLite, which is how a
+            // repurposed `[Pending Pick]` row keeps its place at the front).
+            // Shared with `TournamentEngine.nextEligibleQueuedFor` so this
+            // listing can never disagree with what actually activates; the
+            // tournament grouping sits in front of it.
             const rows = await db.all(`
-                SELECT g.name AS game_name, g.queue_order, t.id AS tournament_id,
+                SELECT g.name AS game_name, g.queue_order, g.queue_held_at, t.id AS tournament_id,
                        t.name AS tournament_name, t.type AS tournament_type
                 FROM games g
                 JOIN tournaments t ON g.tournament_id = t.id
                 WHERE g.status = 'QUEUED' AND g.name != '[Pending Pick]'
                   AND g.picker_discord_id = ? ${scopeFilter}
-                ORDER BY t.name COLLATE NOCASE ASC, g.queue_order ASC, g.rowid ASC
+                ORDER BY t.name COLLATE NOCASE ASC, ${queueOrderSql('g')}
             `, interaction.user.id, ...params) as QueueRow[];
 
             const links = await buildRoomLinks(scope);
@@ -107,7 +110,14 @@ export const viewqueue: Command = {
                     lines.push(`${lines.length > 0 ? '\n' : ''}**${row.tournament_name}**${tag}`);
                 }
                 position += 1;
-                lines.push(`${position}. ${row.game_name}`);
+                // A held pick is not broken and not going anywhere — say so,
+                // with the wait, so nobody deletes it thinking it is stuck.
+                let suffix = '';
+                if (row.queue_held_at) {
+                    const days = await cooldownDaysRemaining(row.tournament_id, row.game_name, { minDays: 1 });
+                    suffix = ` — on hold (cooldown, ${days}d left)`;
+                }
+                lines.push(`${position}. ${row.game_name}${suffix}`);
             }
 
             sections.push(lines.join('\n'));

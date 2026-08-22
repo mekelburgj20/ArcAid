@@ -45,6 +45,11 @@ interface QueuedRow {
   name: string;
   queue_order: number | null;
   tournament_id: string;
+  /** v2.126.0 — the engine reached this pick during its cooldown and parked
+   *  it at the front of the queue instead of dropping it. */
+  held?: boolean;
+  /** Days left on that cooldown; only sent for held rows. */
+  daysUntilAvailable?: number | null;
 }
 
 type Disposition = 'nominate' | 'forfeit' | 'auto';
@@ -74,6 +79,9 @@ export default function AdminPickOnBehalf({ roomId, tournaments }: Props) {
   const [queue, setQueue] = useState<QueuedRow[]>([]);
   const [queueing, setQueueing] = useState<string | null>(null);
   const [removeTarget, setRemoveTarget] = useState<QueuedRow | null>(null);
+  // The server owns the cap (PICK_QUEUE_MAX); 30 is only the pre-response
+  // placeholder so the header never renders 'n/undefined'.
+  const [queueMax, setQueueMax] = useState(30);
 
   const [disposition, setDisposition] = useState<DispositionState | null>(null);
   const [dispositionBusy, setDispositionBusy] = useState(false);
@@ -105,8 +113,11 @@ export default function AdminPickOnBehalf({ roomId, tournaments }: Props) {
 
   const refreshQueue = useCallback(() => {
     if (!tournamentId || !player) { setQueue([]); return; }
-    api.get<{ queue: QueuedRow[] }>(`/rooms/${roomId}/admin/tournaments/${tournamentId}/queue/${encodeURIComponent(player.userId)}`)
-      .then(data => setQueue(data.queue ?? []))
+    api.get<{ queue: QueuedRow[]; queueMax?: number }>(`/rooms/${roomId}/admin/tournaments/${tournamentId}/queue/${encodeURIComponent(player.userId)}`)
+      .then(data => {
+        setQueue(data.queue ?? []);
+        if (data.queueMax) setQueueMax(data.queueMax);
+      })
       .catch(() => setQueue([]));
   }, [roomId, tournamentId, player]);
 
@@ -144,11 +155,12 @@ export default function AdminPickOnBehalf({ roomId, tournaments }: Props) {
     if (!player || !tournamentId) return;
     setQueueing(gameName);
     try {
-      const res = await api.post<{ game: { name: string }; tournament: { name: string }; queue: QueuedRow[] }>(
+      const res = await api.post<{ game: { name: string }; tournament: { name: string }; queue: QueuedRow[]; queueMax?: number }>(
         `/rooms/${roomId}/admin/tournaments/${tournamentId}/queue`,
         { forUserId: player.userId, gameName },
       );
       setQueue(res.queue ?? []);
+      if (res.queueMax) setQueueMax(res.queueMax);
       setGameQuery('');
       toast(`Queued ${res.game.name} for ${playerLabel} in ${res.tournament.name}`, 'success');
     } catch (err) {
@@ -161,10 +173,11 @@ export default function AdminPickOnBehalf({ roomId, tournaments }: Props) {
   const handleRemove = async (row: QueuedRow) => {
     setRemoveTarget(null);
     try {
-      const res = await api.delete<{ queue?: QueuedRow[] }>(
+      const res = await api.delete<{ queue?: QueuedRow[]; queueMax?: number }>(
         `/rooms/${roomId}/admin/tournaments/${tournamentId}/queue/${row.id}`,
       );
       setQueue(res.queue ?? []);
+      if (res.queueMax) setQueueMax(res.queueMax);
       toast(`Removed ${row.name} from ${playerLabel}'s queue`, 'success');
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Failed to remove that game', 'error');
@@ -300,7 +313,7 @@ export default function AdminPickOnBehalf({ roomId, tournaments }: Props) {
           {/* --- Their current queue --- */}
           <div className="mb-6">
             <h4 className="font-display text-xs uppercase tracking-wider text-neon-cyan mb-2">
-              {playerLabel}&rsquo;s queue ({queue.length}/5)
+              {playerLabel}&rsquo;s queue ({queue.length}/{queueMax})
             </h4>
             {queue.length === 0 ? (
               <p className="text-faint text-xs">Nothing queued for this tournament.</p>
@@ -310,6 +323,15 @@ export default function AdminPickOnBehalf({ roomId, tournaments }: Props) {
                   <li key={row.id} className="flex items-center gap-2 px-3 py-1.5 rounded border border-border bg-raised">
                     <span className="text-xs text-faint w-5 flex-shrink-0">{i + 1}.</span>
                     <span className="text-sm text-primary truncate flex-1">{row.name}</span>
+                    {row.held && (
+                      <span
+                        data-testid={`on-behalf-hold-chip-${row.id}`}
+                        title="This pick is in cooldown. It keeps its place at the front of the queue and activates as soon as the cooldown ends."
+                        className="flex-shrink-0 whitespace-nowrap px-1.5 py-0.5 rounded text-[10px] font-medium border border-neon-amber/40 bg-neon-amber/10 text-neon-amber"
+                      >
+                        On hold &mdash; cooldown{row.daysUntilAvailable ? `, ${row.daysUntilAvailable}d` : ''}
+                      </span>
+                    )}
                     <button
                       type="button"
                       onClick={() => setRemoveTarget(row)}
