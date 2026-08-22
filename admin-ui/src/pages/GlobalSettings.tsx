@@ -4,7 +4,8 @@ import { useToast } from '../components/Toast';
 import NeonCard from '../components/NeonCard';
 import NeonButton from '../components/NeonButton';
 import LoadingState from '../components/LoadingState';
-import { THEMES, useTheme, type ThemeId } from '../components/ThemeProvider';
+import { THEMES, useTheme } from '../components/ThemeProvider';
+import ThemePicker from '../components/ThemePicker';
 import CalloutsCard from '../components/CalloutsCard';
 
 const GLOBAL_KEYS = [
@@ -88,7 +89,7 @@ export default function GlobalSettings() {
   const [superAdmins, setSuperAdmins] = useState<SuperAdmin[]>([]);
   const [newAdminId, setNewAdminId] = useState('');
   const [addingAdmin, setAddingAdmin] = useState(false);
-  const { adminTheme, setAdminTheme } = useTheme();
+  const { personalTheme, setPersonalTheme } = useTheme();
 
   useEffect(() => {
     Promise.all([
@@ -246,24 +247,26 @@ export default function GlobalSettings() {
               be removed in a future release.
             </p>
           </div>
+          {/* v2.132.0 — same picker, honest label. This was "Admin Theme";
+              it always wrote `/me/preferences.ui_theme`, and that value now
+              themes this person's room pages as well as their admin pages.
+              Kept HERE (rather than replaced by a link) because a super admin
+              may never open a public room page, and `ThemePicker` +
+              `setPersonalTheme` mean it is the same control and the same
+              write as the one in Display settings. */}
           <div>
-            <label className="text-xs text-faint block mb-1">Admin Theme</label>
-            <select
-              value={adminTheme}
-              onChange={e => {
-                const newTheme = e.target.value as ThemeId;
-                setAdminTheme(newTheme);
-                api.post('/me/preferences', { ui_theme: newTheme }).catch(() => {
-                  toast('Failed to save theme preference', 'error');
-                });
-              }}
+            <label className="text-xs text-faint block mb-1" htmlFor="my-theme">My theme</label>
+            <ThemePicker
+              id="my-theme"
+              value={personalTheme}
+              onChange={setPersonalTheme}
+              nullLabel="Use each room's default"
               className={inputClass}
-            >
-              {Object.entries(THEMES).map(([id, { label, description }]) => (
-                <option key={id} value={id}>{label} — {description}</option>
-              ))}
-            </select>
-            <p className="text-xs text-muted mt-1">Your admin theme. Only affects your session — other admins see their own preference.</p>
+            />
+            <p className="text-xs text-muted mt-1">
+              Your own theme, on every game room and these admin pages. Only affects your account —
+              other admins see their own. Also editable under Display settings in the user menu.
+            </p>
           </div>
         </div>
       </NeonCard>

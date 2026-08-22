@@ -24,8 +24,32 @@ const APPEARANCES: readonly string[] = ['dark', 'light', 'auto'];
 
 export type DeviceType = 'desktop' | 'mobile';
 
-/** Stored format: { desktop: {...}, mobile: {...} } */
-type DevicePrefs = { desktop: ScoreboardPrefs; mobile: ScoreboardPrefs };
+/**
+ * v2.132.0 — the viewer's "theme for this room only" overrides, keyed by
+ * `game_rooms.id`.
+ *
+ * Deliberately NOT per device. This used to live as a `UI_THEME` key inside
+ * the per-device scoreboard prefs, which meant the one control labelled
+ * "this room" was really "every room, on this device" — set it in room A on
+ * your phone and room B inherited it there but not on your laptop. It rides
+ * in the same `scoreboard_prefs` JSON column (no migration, no new table) as
+ * a THIRD top-level key beside `desktop`/`mobile`, so the per-device prefs
+ * are untouched by a room-theme write and vice versa.
+ */
+export type RoomThemes = Record<string, ThemeId>;
+
+/** Stored format: { desktop: {...}, mobile: {...}, roomThemes: {...} } */
+type DevicePrefs = { desktop: ScoreboardPrefs; mobile: ScoreboardPrefs; roomThemes: RoomThemes };
+
+const THEME_IDS: readonly string[] = [
+    'dark', 'light', 'retro', 'cyberpunk', 'ocean', 'sunset', 'minimal', 'invaders',
+    'coffee', 'backglass', 'crt-green', 'plasma', 'cabinet', 'silverball', 'wizard',
+    'playfield', 'marquee',
+];
+
+export function isThemeId(value: unknown): value is ThemeId {
+    return typeof value === 'string' && THEME_IDS.includes(value);
+}
 
 export class PreferencesService {
     static async getTheme(discordUserId: string): Promise<ThemeId | null> {
@@ -125,22 +149,95 @@ export class PreferencesService {
      * Handles migration from old flat format → nested { desktop, mobile }.
      */
     private static parseDevicePrefs(raw: string | null | undefined): DevicePrefs {
-        if (!raw) return { desktop: {}, mobile: {} };
+        if (!raw) return { desktop: {}, mobile: {}, roomThemes: {} };
         try {
             const parsed = JSON.parse(raw);
-            // New format: { desktop: {...}, mobile: {...} }
+            // New format: { desktop: {...}, mobile: {...}, roomThemes: {...} }
             if (parsed && typeof parsed === 'object' && ('desktop' in parsed || 'mobile' in parsed)) {
                 return {
                     desktop: parsed.desktop || {},
                     mobile: parsed.mobile || {},
+                    // v2.132.0. Absent on every blob written before this
+                    // release, and `setScoreboardPrefs` round-trips whatever
+                    // this returns — so the default MUST be `{}`, never
+                    // undefined, or a device-pref save would drop the room
+                    // themes on the floor.
+                    roomThemes: this.sanitizeRoomThemes(parsed.roomThemes),
                 };
             }
             // Old flat format: treat as desktop prefs, migrate
             if (parsed && typeof parsed === 'object') {
-                return { desktop: parsed, mobile: {} };
+                return { desktop: parsed, mobile: {}, roomThemes: {} };
             }
         } catch { /* fall through */ }
-        return { desktop: {}, mobile: {} };
+        return { desktop: {}, mobile: {}, roomThemes: {} };
+    }
+
+    /** Drops anything that isn't a `roomId -> ThemeId` pair. */
+    private static sanitizeRoomThemes(raw: unknown): RoomThemes {
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+        const out: RoomThemes = {};
+        for (const [roomId, theme] of Object.entries(raw as Record<string, unknown>)) {
+            if (roomId && isThemeId(theme)) out[roomId] = theme;
+        }
+        return out;
+    }
+
+    private static async persistDevicePrefs(discordUserId: string, devicePrefs: DevicePrefs): Promise<void> {
+        const db = await getDatabase();
+        await db.run(
+            `INSERT INTO user_preferences (discord_user_id, scoreboard_prefs) VALUES (?, ?)
+             ON CONFLICT(discord_user_id) DO UPDATE SET scoreboard_prefs = excluded.scoreboard_prefs`,
+            discordUserId, JSON.stringify(devicePrefs),
+        );
+    }
+
+    /**
+     * The user's per-room theme overrides.
+     *
+     * `migrateRoomId` performs the ONE-SHOT lift of the pre-v2.132 per-device
+     * `UI_THEME` override onto the room the viewer is currently looking at:
+     * that key was the only "this room" theme that ever existed, the viewer
+     * set it while standing in some room, and the room they are in now is the
+     * closest honest reading of which. It runs only when the room has no
+     * override yet, clears BOTH device copies so a second device can't lift a
+     * stale value onto a different room later, and is idempotent — after the
+     * first call there is nothing left to migrate.
+     */
+    static async getRoomThemes(discordUserId: string, migrateRoomId?: string): Promise<RoomThemes> {
+        const db = await getDatabase();
+        const row = await db.get(
+            'SELECT scoreboard_prefs FROM user_preferences WHERE discord_user_id = ?',
+            discordUserId,
+        );
+        const devicePrefs = this.parseDevicePrefs(row?.scoreboard_prefs);
+
+        const legacy = devicePrefs.desktop.UI_THEME ?? devicePrefs.mobile.UI_THEME;
+        const needsLift = !!migrateRoomId && !devicePrefs.roomThemes[migrateRoomId] && isThemeId(legacy);
+        const hasStaleKey = 'UI_THEME' in devicePrefs.desktop || 'UI_THEME' in devicePrefs.mobile;
+
+        if (needsLift || (migrateRoomId && hasStaleKey)) {
+            if (needsLift) devicePrefs.roomThemes[migrateRoomId!] = legacy as ThemeId;
+            delete devicePrefs.desktop.UI_THEME;
+            delete devicePrefs.mobile.UI_THEME;
+            await this.persistDevicePrefs(discordUserId, devicePrefs);
+        }
+
+        return devicePrefs.roomThemes;
+    }
+
+    /** Set (or, with `null`, clear) one room's theme override. */
+    static async setRoomTheme(discordUserId: string, roomId: string, theme: ThemeId | null): Promise<RoomThemes> {
+        const db = await getDatabase();
+        const row = await db.get(
+            'SELECT scoreboard_prefs FROM user_preferences WHERE discord_user_id = ?',
+            discordUserId,
+        );
+        const devicePrefs = this.parseDevicePrefs(row?.scoreboard_prefs);
+        if (theme) devicePrefs.roomThemes[roomId] = theme;
+        else delete devicePrefs.roomThemes[roomId];
+        await this.persistDevicePrefs(discordUserId, devicePrefs);
+        return devicePrefs.roomThemes;
     }
 
     /**
@@ -187,12 +284,10 @@ export class PreferencesService {
         }
         devicePrefs[target] = merged;
 
-        const json = JSON.stringify(devicePrefs);
-        await db.run(
-            `INSERT INTO user_preferences (discord_user_id, scoreboard_prefs) VALUES (?, ?)
-             ON CONFLICT(discord_user_id) DO UPDATE SET scoreboard_prefs = excluded.scoreboard_prefs`,
-            discordUserId, json
-        );
+        // v2.132.0: `devicePrefs` carries `roomThemes` through untouched, so a
+        // device-pref save (including Reset All, which posts null for every
+        // key) can never clear the viewer's per-room themes.
+        await this.persistDevicePrefs(discordUserId, devicePrefs);
         return merged;
     }
 }

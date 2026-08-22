@@ -4,8 +4,6 @@ import { Search } from 'lucide-react';
 import { getSocket } from '../lib/websocket';
 import { useRoom } from '../contexts/RoomContext';
 import { useViewerAuth, useViewerHeaders, usePlayerHeaders } from '../contexts/ViewerAuthContext';
-import { useTheme } from '../components/ThemeProvider';
-import type { ThemeId } from '../components/ThemeProvider';
 import type { GameLeaderboard, RankingGroupData } from '../components/ScoreboardComponents';
 import ScoreboardSurface from '../components/scoreboard/ScoreboardSurface';
 import type { LeaderboardWithViewer } from '../components/scoreboard/ScoreboardSurface';
@@ -14,7 +12,7 @@ import RoomScoresView from '../components/RoomScoresView';
 import GlobalScoresView from '../components/GlobalScoresView';
 import GameQuickView from '../components/GameQuickView';
 import SubmissionSheet from '../components/SubmissionSheet';
-import ScoreboardPreferencesModal from '../components/ScoreboardPreferencesModal';
+import { DISPLAY_SETTINGS_SAVED_EVENT } from '../components/DisplaySettingsHost';
 import { TAB_LABELS } from '../lib/scoresCopy';
 
 type ScoresTab = 'tournaments' | 'room' | 'global';
@@ -67,8 +65,6 @@ export default function Scoreboard() {
   // v2.13.12 — game quick-view modal triggered by title click on tournament cards.
   // RoomScoresView / GlobalScoresView own their own modal state for their tabs.
   const [quickViewLb, setQuickViewLb] = useState<GameLeaderboard | null>(null);
-  const [prefsOpen, setPrefsOpen] = useState(false);
-  const [roomConfig, setRoomConfig] = useState<Record<string, string>>({});
   const [tournamentSearch, setTournamentSearch] = useState('');
   const [searchParams, setSearchParams] = useSearchParams();
   // F2 — 3-tab unification: Tournaments | Room Scores | Global. Legacy
@@ -106,7 +102,6 @@ export default function Scoreboard() {
   // PLAYER token (Discord session), not the admin token (null for public viewers).
   const playerHeaders = usePlayerHeaders();
   const { discordUser, playerToken } = useViewerAuth();
-  const { setPublicTheme } = useTheme();
 
   const deviceType = window.innerWidth <= 640 ? 'mobile' : 'desktop';
 
@@ -118,9 +113,12 @@ export default function Scoreboard() {
       });
       if (prefsRes.ok) {
         const prefs = await prefsRes.json();
-        if (prefs.UI_THEME) {
-          setPublicTheme(prefs.UI_THEME as ThemeId);
-        }
+        // v2.132.0 — this page no longer touches theme resolution at all. It
+        // used to call `setPublicTheme(prefs.UI_THEME)`, which OVERWROTE the
+        // room default in the provider (unrecoverable, and it buried the
+        // personal theme). The per-room override moved out of these
+        // per-device prefs entirely and `ThemeProvider` owns it now; the
+        // legacy `UI_THEME` key that may still be in `prefs` is inert.
         setConfig({ ...cfg, ...prefs });
         return true;
       }
@@ -137,7 +135,6 @@ export default function Scoreboard() {
       try {
         const cfgRes = await fetch(`/api/rooms/${roomId}/scoreboard-config`, { headers: viewerHeaders });
         const cfg = cfgRes.ok ? await cfgRes.json() : {};
-        setRoomConfig(cfg || {});
         if (playerToken) {
           if (await applyUserPrefs(cfg || {}, playerToken)) return;
         }
@@ -146,12 +143,25 @@ export default function Scoreboard() {
     })();
   }, [roomId, playerToken]);
 
-  // Listen for prefs-open event from PublicLayout nav gear button
+  // v2.132.0 — the Display settings sheet itself is mounted app-wide by
+  // `DisplaySettingsHost` (so the user-menu item works on every page). This
+  // page no longer owns it; it only reacts to a save, re-merging the viewer's
+  // overrides over the room config exactly as the old `onSaved` callback did.
   useEffect(() => {
-    const handler = () => setPrefsOpen(true);
-    window.addEventListener('open-scoreboard-prefs', handler);
-    return () => window.removeEventListener('open-scoreboard-prefs', handler);
-  }, []);
+    if (!roomId || !playerToken) return;
+    const handler = () => {
+      (async () => {
+        try {
+          const cfgRes = await fetch(`/api/rooms/${roomId}/scoreboard-config`, { headers: viewerHeaders });
+          const cfg = cfgRes.ok ? await cfgRes.json() : {};
+          if (!(await applyUserPrefs(cfg || {}, playerToken))) setConfig(cfg || {});
+        } catch { /* ignore */ }
+      })();
+    };
+    window.addEventListener(DISPLAY_SETTINGS_SAVED_EVENT, handler);
+    return () => window.removeEventListener(DISPLAY_SETTINGS_SAVED_EVENT, handler);
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [roomId, playerToken]);
 
   const loadData = async () => {
     if (!roomId) return;
@@ -201,7 +211,6 @@ export default function Scoreboard() {
         try {
           const cfgRes = await fetch(`/api/rooms/${roomId}/scoreboard-config`, { headers: viewerHeaders });
           const cfg = cfgRes.ok ? await cfgRes.json() : {};
-          setRoomConfig(cfg || {});
           if (playerToken && await applyUserPrefs(cfg || {}, playerToken)) return;
           setConfig(cfg || {});
         } catch { /* ignore */ }
@@ -342,27 +351,6 @@ export default function Scoreboard() {
         />
       )}
 
-      {/* Player display preferences modal */}
-      {playerToken && (
-        <ScoreboardPreferencesModal
-          open={prefsOpen}
-          onClose={() => setPrefsOpen(false)}
-          playerToken={playerToken}
-          roomConfig={roomConfig}
-          onSaved={() => {
-            // Re-fetch config with updated prefs
-            if (!roomId) return;
-            (async () => {
-              const cfgRes = await fetch(`/api/rooms/${roomId}/scoreboard-config`, { headers: viewerHeaders });
-              const cfg = cfgRes.ok ? await cfgRes.json() : {};
-              setRoomConfig(cfg || {});
-              if (!(await applyUserPrefs(cfg || {}, playerToken))) {
-                setConfig(cfg || {});
-              }
-            })();
-          }}
-        />
-      )}
     </>
   );
 }

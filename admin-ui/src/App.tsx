@@ -2,6 +2,7 @@ import { lazy, Suspense, useState } from 'react';
 import { Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { ToastProvider } from './components/Toast';
 import { ThemeProvider } from './components/ThemeProvider';
+import DisplaySettingsHost from './components/DisplaySettingsHost';
 import { ViewerAuthProvider } from './contexts/ViewerAuthContext';
 import LoadingState from './components/LoadingState';
 import ChunkErrorBoundary from './components/ChunkErrorBoundary';
@@ -252,6 +253,10 @@ function AppWithTheme() {
   return (
     <ThemeProvider>
       <App />
+      {/* v2.132.0 — the Display settings sheet, mounted ONCE outside the
+          route table so the user-menu item that opens it works on every
+          page instead of only the room scoreboard. */}
+      <DisplaySettingsHost />
     </ThemeProvider>
   );
 }

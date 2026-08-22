@@ -4,7 +4,8 @@ import { Search, SlidersHorizontal } from 'lucide-react';
 import { api, getToken, getTokenDiscordId } from '../lib/api';
 import { useRoom } from '../contexts/RoomContext';
 import { useToast } from '../components/Toast';
-import { useTheme, THEMES, type ThemeId } from '../components/ThemeProvider';
+import { useTheme, type ThemeId } from '../components/ThemeProvider';
+import ThemePicker from '../components/ThemePicker';
 import NeonCard from '../components/NeonCard';
 import NeonButton from '../components/NeonButton';
 import ConfirmModal from '../components/ConfirmModal';
@@ -598,7 +599,7 @@ export default function Settings() {
   const room = useRoom();
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { publicTheme, setPublicTheme, adminTheme, setAdminTheme } = useTheme();
+  const { publicTheme, setPublicTheme } = useTheme();
   const [settings, setSettings] = useState<Record<string, string>>({});
   // Snapshot of the last-loaded/saved settings — the dirty baseline. State (not
   // a ref) so resetting it after save/load triggers a recompute of `isDirty`.
@@ -722,9 +723,11 @@ export default function Settings() {
         if (data.UI_THEME && data.UI_THEME !== publicTheme) {
           setPublicTheme(data.UI_THEME as ThemeId);
         }
-        if (data.ADMIN_THEME && data.ADMIN_THEME !== adminTheme) {
-          setAdminTheme(data.ADMIN_THEME as ThemeId);
-        }
+        // v2.132.0 — the legacy room-scoped `ADMIN_THEME` setting is no
+        // longer read here. It used to seed the provider's "admin theme",
+        // which IS the viewer's personal `/me/preferences.ui_theme`: a room
+        // setting silently rewriting a person's own account preference. The
+        // stored key is left alone (see DANGEROUS/hidden keys below).
         setLoading(false);
       })
       .catch(() => { toast('Failed to load settings', 'error'); setLoading(false); });
@@ -1286,47 +1289,32 @@ export default function Settings() {
         </div>
       </div>
 
+      {/* v2.132.0 — ONE room theme field.
+          The old pair was "Public Theme" + "Admin Theme", and the second was
+          never a room setting at all: it wrote the signed-in admin's OWN
+          `/me/preferences.ui_theme`, sitting in a page whose every other
+          control edits the room. That personal picker now lives where the
+          rest of a person's display choices live — the user menu's Display
+          settings (and Account settings) — and it applies to this admin's
+          view of the room's public pages too, so there is nothing left for a
+          room-scoped "admin theme" to mean. */}
       <NeonCard title="Theme" className="mb-4">
-        <div className="space-y-4">
-          {/* Public Theme */}
-          <div>
-            <label className="text-xs text-faint block mb-1">Public Theme</label>
-            <select
-              value={settings.UI_THEME || publicTheme}
-              onChange={e => {
-                const newTheme = e.target.value as ThemeId;
-                handleChange('UI_THEME', newTheme);
-                setPublicTheme(newTheme);
-              }}
-              className={inputClass}
-            >
-              {Object.entries(THEMES).map(([id, { label, description }]) => (
-                <option key={id} value={id}>{label} — {description}</option>
-              ))}
-            </select>
-            <p className="text-xs text-muted mt-1">Applied to the public leaderboard, kiosk, and all public-facing pages.</p>
-          </div>
-
-          {/* Admin Theme (per-admin, saved to your preferences) */}
-          <div>
-            <label className="text-xs text-faint block mb-1">Admin Theme</label>
-            <select
-              value={adminTheme}
-              onChange={e => {
-                const newTheme = e.target.value as ThemeId;
-                setAdminTheme(newTheme);
-                api.post('/me/preferences', { ui_theme: newTheme }).catch(() => {
-                  toast('Failed to save admin theme preference', 'error');
-                });
-              }}
-              className={inputClass}
-            >
-              {Object.entries(THEMES).map(([id, { label, description }]) => (
-                <option key={id} value={id}>{label} — {description}</option>
-              ))}
-            </select>
-            <p className="text-xs text-muted mt-1">Your admin theme. Only affects your session — other admins see their own preference.</p>
-          </div>
+        <div>
+          <label className="text-xs text-faint block mb-1" htmlFor="room-default-theme">Room default theme</label>
+          <ThemePicker
+            id="room-default-theme"
+            value={(settings.UI_THEME as ThemeId) || publicTheme}
+            onChange={t => {
+              const newTheme = (t ?? 'dark') as ThemeId;
+              handleChange('UI_THEME', newTheme);
+              setPublicTheme(newTheme);
+            }}
+            className={inputClass}
+          />
+          <p className="text-xs text-muted mt-1">
+            What visitors see unless they pick their own theme in Display settings. Applied to the
+            public leaderboard, kiosk, and all public-facing pages.
+          </p>
         </div>
       </NeonCard>
 

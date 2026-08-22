@@ -7,7 +7,7 @@ import { raSearchHandler, raImportHandler } from '../raCatalogueHandlers.js';
 import { validate } from '../validate.js';
 import { isAllowedImage } from '../uploadValidation.js';
 import { withUploadErrors } from '../uploadMiddleware.js';
-import { UpdatePreferencesSchema, PushSubscriptionSchema, PushUnsubscribeSchema, MAX_SCORE, PublicCreateRoomSchema, GlobalScoreSubmissionSchema } from '../schemas.js';
+import { UpdatePreferencesSchema, SetRoomThemeSchema, PushSubscriptionSchema, PushUnsubscribeSchema, MAX_SCORE, PublicCreateRoomSchema, GlobalScoreSubmissionSchema } from '../schemas.js';
 import { SettingsService } from '../../services/SettingsService.js';
 import { GameRoomService } from '../../services/GameRoomService.js';
 import { GlobalGameService } from '../../services/GlobalGameService.js';
@@ -153,6 +153,44 @@ router.post('/me/scoreboard-preferences', requireDiscordUser, async (req, res) =
         res.json(merged);
     } catch (error) {
         logError('API Error (POST /api/me/scoreboard-preferences):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Per-room theme overrides ("Theme for this room only", v2.132.0).
+// Keyed by game_rooms.id and NOT per device — see PreferencesService.RoomThemes.
+//
+// `?roomId=` opts into the one-shot lift of the pre-v2.132 per-device
+// `UI_THEME` override onto that room. It is a side effect on a GET, which is
+// deliberate and safe: it is idempotent (there is nothing left to lift on the
+// second call), it is the only moment we know which room the viewer meant,
+// and it keeps the room-page read to a single request.
+router.get('/me/room-themes', requireDiscordUser, async (req, res) => {
+    try {
+        const { PreferencesService } = await import('../../services/PreferencesService.js');
+        const roomId = typeof req.query.roomId === 'string' ? req.query.roomId : undefined;
+        const roomThemes = await PreferencesService.getRoomThemes(req.user!.discordId!, roomId);
+        res.json({ roomThemes });
+    } catch (error) {
+        logError('API Error (GET /api/me/room-themes):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.put('/me/room-themes/:roomId', requireDiscordUser, async (req, res) => {
+    try {
+        const validationResult = validate(SetRoomThemeSchema, req.body);
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+
+        const { PreferencesService } = await import('../../services/PreferencesService.js');
+        const roomThemes = await PreferencesService.setRoomTheme(
+            req.user!.discordId!,
+            req.params.roomId as string,
+            validationResult.data.theme,
+        );
+        res.json({ roomThemes });
+    } catch (error) {
+        logError('API Error (PUT /api/me/room-themes/:roomId):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
