@@ -23,6 +23,12 @@ const ANON_USER_SENTINELS = new Set(['ANON', 'SYSTEM', 'COMMUNITY', '']);
 export function normalizeSubmitterUserId(discordUserId?: string | null): string | null {
     if (!discordUserId) return null;
     if (ANON_USER_SENTINELS.has(discordUserId.toUpperCase())) return null;
+    // v2.125.2: `iscored:<name>` is the sync poller's synthetic "nobody owns this
+    // row" id. It must never land in submitted_by_user_id — every profile
+    // resolver keys on that column first and only falls back to user_mappings
+    // when it is NULL, so a synthetic value there hid the linked user's avatar
+    // and display name (Wyo / DennisB on rtx_pinball, 2026-08-21).
+    if (discordUserId.toLowerCase().startsWith('iscored:')) return null;
     return discordUserId;
 }
 
