@@ -56,7 +56,7 @@ export class ScoreHistoryService {
          * every interactive submit path leaves it unset.
          */
         skipTournamentLink?: boolean;
-    }) {
+    }): Promise<number | null> {
         const db = await getDatabase();
 
         // Dedup: skip if an identical (game, player, score, room) entry already exists
@@ -66,7 +66,9 @@ export class ScoreHistoryService {
              LIMIT 1`,
             params.gameRoomId, params.gameName, params.username, params.score
         );
-        if (existing) return;
+        // v2.125.1: returns the new row's id (null when deduped) so the submit
+        // path can exclude it from the "previous best" computation.
+        if (existing) return null;
 
         const submittedByUserId = normalizeSubmitterUserId(params.discordUserId);
         const submittedByAnonymousName =
@@ -94,7 +96,7 @@ export class ScoreHistoryService {
             submittedTournamentId = activeGame?.tournament_id ?? null;
         }
 
-        await db.run(
+        const inserted = await db.run(
             `INSERT INTO score_history (
                 game_name, game_room_id, game_id, iscored_username, discord_user_id, score, photo_url, source,
                 submitted_from_room_id, submitted_during_tournament_id, submitted_by_user_id,
@@ -112,6 +114,7 @@ export class ScoreHistoryService {
         // Sprint 6.5: any Discord-authenticated score establishes room membership.
         // addMember is sentinel-aware, so SYSTEM/ANON/etc. calls are no-ops.
         await RoomMembershipService.addMember(submittedByUserId, params.gameRoomId, 'submission');
+        return typeof inserted.lastID === 'number' ? inserted.lastID : null;
     }
 
     /**

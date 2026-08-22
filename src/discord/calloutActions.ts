@@ -237,7 +237,7 @@ async function renderTimeLeft(
         const label = `${roomPrefix(rooms, row.game_room_id)}**${row.tournament_name || 'Manual'}**`;
         const names = rows.map(r => r.game_name).join(', ');
         const { cron, timezone } = cadenceOf(row);
-        const next = cron ? getNextRunTime(cron, timezone) : null;
+        const next = cron ? getNextRunTime(cron, timezone, now) : null;
         if (!next) {
             lines.push(`${label} (${names}): no scheduled rotation — it runs until an admin changes it.`);
             continue;
