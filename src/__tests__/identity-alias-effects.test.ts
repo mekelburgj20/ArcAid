@@ -532,6 +532,43 @@ describe('UserProfileService.refreshStaleDiscordProfiles', () => {
         expect(seen).toEqual([USER, OTHER].sort());
     });
 
+    /**
+     * v2.127.1. Link-time hydration is non-fatal: if the Discord REST call is
+     * down when the alias is mapped, NO user_profiles row is ever created — and
+     * a sweep that reads only user_profiles can never retry it. The candidate
+     * set therefore also covers Discord ids known from user_mappings and
+     * room_members that have no profile row, treated as never-fetched.
+     */
+    it('also picks up mapped/member Discord ids that have NO user_profiles row', async () => {
+        const db = await getDatabase();
+        const roomId = await room();
+        await db.run(`INSERT INTO user_mappings (discord_user_id, iscored_username) VALUES (?, 'MappedOnly')`, USER);
+        await db.run(`INSERT INTO user_mappings (discord_user_id, iscored_username) VALUES ('google:sub-7', 'GoogleOnly')`);
+        await db.run(
+            `INSERT INTO room_members (user_id, room_id, joined_at, source) VALUES (?, ?, datetime('now'), 'self_join')`,
+            OTHER, roomId);
+
+        const res = await UserProfileService.refreshStaleDiscordProfiles({ staleDays: 7, limit: 50 });
+
+        expect(res.scanned).toBe(2);
+        expect(res.refreshed).toBe(2);
+        expect(fetchDiscordUser.mock.calls.map(c => c[0]).sort()).toEqual([USER, OTHER].sort());
+        // hydrateFromDiscord creates the row on upsert, so the sweep is self-closing.
+        const profiles = await db.all(`SELECT discord_user_id FROM user_profiles ORDER BY discord_user_id`);
+        expect(profiles.map((r: { discord_user_id: string }) => r.discord_user_id).sort()).toEqual([USER, OTHER].sort());
+    });
+
+    it('does not re-list an id that already has a fresh profile row', async () => {
+        const db = await getDatabase();
+        await db.run(`INSERT INTO user_mappings (discord_user_id, iscored_username) VALUES (?, 'MappedFresh')`, USER);
+        await db.run(
+            `INSERT INTO user_profiles (discord_user_id, avatar_fetched_at) VALUES (?, datetime('now'))`, USER);
+
+        expect(await UserProfileService.refreshStaleDiscordProfiles({ staleDays: 7, limit: 50 }))
+            .toEqual({ scanned: 0, refreshed: 0 });
+        expect(fetchDiscordUser).not.toHaveBeenCalled();
+    });
+
     it('honours the kill switch', async () => {
         const db = await getDatabase();
         await db.run(`INSERT INTO user_profiles (discord_user_id, avatar_fetched_at) VALUES (?, NULL)`, USER);

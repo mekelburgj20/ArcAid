@@ -324,7 +324,9 @@ export class UserProfileService {
 
     /**
      * Store the user's choice, then apply it. `null` restores automatic
-     * behavior (Google when present — what everyone got before 2026-08-17).
+     * behavior (Discord when the user has a real Discord avatar, else Google —
+     * see `resolveEffectiveAvatarProvider`; v2.127.1 reversed the original
+     * Google-first order).
      * Rejects a provider the user has no avatar for, so the picker cannot
      * leave them with a blank.
      */
@@ -429,6 +431,16 @@ export class UserProfileService {
      * small gap between REST calls so a large backlog cannot trip Discord's
      * rate limiter. Registered by `Scheduler` at 04:20 — after the 04:00
      * iScored snapshot sweep, so the two nightly jobs don't overlap.
+     *
+     * Candidates are the UNION of two populations (v2.127.1):
+     *   • `user_profiles` rows whose stamp is stale or NULL, and
+     *   • Discord ids known from `user_mappings` / `room_members` that have NO
+     *     `user_profiles` row at all.
+     * The second set exists because link-time hydration is non-fatal: if the
+     * Discord REST call fails (or hydration is switched off) when the alias is
+     * mapped, no row is ever created — and a sweep that only reads
+     * `user_profiles` can never retry it. They sort first, as never-fetched.
+     * `hydrateFromDiscord` creates the row on upsert, so nothing else changes.
      */
     static async refreshStaleDiscordProfiles(
         opts: { staleDays?: number; limit?: number } = {},
@@ -442,12 +454,26 @@ export class UserProfileService {
 
         const db = await getDatabase();
         const rows = await db.all(
-            `SELECT discord_user_id FROM user_profiles
-              WHERE discord_user_id GLOB '[0-9]*'
-                AND LENGTH(discord_user_id) BETWEEN 17 AND 20
-                AND (avatar_fetched_at IS NULL OR avatar_fetched_at < datetime('now', ?))
-              ORDER BY avatar_fetched_at IS NOT NULL, avatar_fetched_at
-              LIMIT ?`,
+            `SELECT discord_user_id, avatar_fetched_at FROM (
+                SELECT discord_user_id, avatar_fetched_at FROM user_profiles
+                  WHERE discord_user_id GLOB '[0-9]*'
+                    AND LENGTH(discord_user_id) BETWEEN 17 AND 20
+                    AND (avatar_fetched_at IS NULL OR avatar_fetched_at < datetime('now', ?))
+                UNION
+                SELECT um.discord_user_id, NULL AS avatar_fetched_at FROM user_mappings um
+                  WHERE um.discord_user_id GLOB '[0-9]*'
+                    AND LENGTH(um.discord_user_id) BETWEEN 17 AND 20
+                    AND NOT EXISTS (
+                        SELECT 1 FROM user_profiles p WHERE p.discord_user_id = um.discord_user_id)
+                UNION
+                SELECT rm.user_id, NULL AS avatar_fetched_at FROM room_members rm
+                  WHERE rm.user_id GLOB '[0-9]*'
+                    AND LENGTH(rm.user_id) BETWEEN 17 AND 20
+                    AND NOT EXISTS (
+                        SELECT 1 FROM user_profiles p WHERE p.discord_user_id = rm.user_id)
+             )
+             ORDER BY avatar_fetched_at IS NOT NULL, avatar_fetched_at
+             LIMIT ?`,
             `-${staleDays} days`, limit,
         ) as Array<{ discord_user_id: string }>;
 
@@ -517,9 +543,18 @@ export function resolveEffectiveAvatarProvider(
 ): 'discord' | 'google' | null {
     if (preference === 'discord' && discordAvatarHash) return 'discord';
     if (preference === 'google' && googleAvatarUrl) return 'google';
-    // Auto (and the degraded cases): Google when present — the pre-2026-08-17
-    // behavior, kept so nobody's avatar changes unless they ask for it.
-    if (googleAvatarUrl) return 'google';
+    // Auto (and the degraded cases): DISCORD first (v2.127.1). This reverses
+    // the original rule ("Google when present", carried over from pre-2026-08-17
+    // behavior so nobody's avatar changed unless they asked). Prod evidence
+    // 2026-08-22: a Google avatar URL is never NULL for a Google-linked account
+    // — Google serves a generated letter tile for photo-less accounts — so
+    // "Google when present" is really "Google always", and a user with a real
+    // Discord avatar rendered the letter tile (ChalataLove on rtx_pinball; 2 of
+    // the 5 Google-linked prod users had already overridden to Discord by hand).
+    // A Discord `avatar_hash` is only non-NULL when the user actually chose an
+    // avatar (NULL = Discord's own default), which makes it the honest signal of
+    // intent and therefore the better automatic winner.
     if (discordAvatarHash) return 'discord';
+    if (googleAvatarUrl) return 'google';
     return null;
 }

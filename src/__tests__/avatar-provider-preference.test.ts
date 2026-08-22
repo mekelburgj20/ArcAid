@@ -34,12 +34,36 @@ async function effectiveUrl(id: string): Promise<string | null> {
 }
 
 describe('resolveEffectiveAvatarProvider', () => {
-    it('defaults to Google when both exist and no preference is set (pre-2026-08-17 behavior)', () => {
-        expect(resolveEffectiveAvatarProvider(null, DISCORD_HASH, GOOGLE_URL)).toBe('google');
+    /**
+     * v2.127.1 reversed the automatic order. Google never returns a NULL
+     * picture URL — a photo-less Google account gets a generated letter tile —
+     * so the old "Google when present" rule was really "Google always", and a
+     * user with a real Discord avatar rendered the tile (ChalataLove on
+     * rtx_pinball, 2026-08-22). A Discord hash is only set when the user chose
+     * an avatar, which makes it the honest signal.
+     */
+    it('defaults to Discord when both exist and no preference is set (v2.127.1)', () => {
+        expect(resolveEffectiveAvatarProvider(null, DISCORD_HASH, GOOGLE_URL)).toBe('discord');
+    });
+
+    it('falls back to Google automatically when there is no Discord avatar', () => {
+        expect(resolveEffectiveAvatarProvider(null, null, GOOGLE_URL)).toBe('google');
+    });
+
+    it('uses Discord automatically when that is all the user has', () => {
+        expect(resolveEffectiveAvatarProvider(null, DISCORD_HASH, null)).toBe('discord');
+    });
+
+    it('returns null automatically when the user has neither', () => {
+        expect(resolveEffectiveAvatarProvider(null, null, null)).toBeNull();
     });
 
     it('honours an explicit Discord preference', () => {
         expect(resolveEffectiveAvatarProvider('discord', DISCORD_HASH, GOOGLE_URL)).toBe('discord');
+    });
+
+    it('honours an explicit Google preference against the new Discord-first default', () => {
+        expect(resolveEffectiveAvatarProvider('google', DISCORD_HASH, GOOGLE_URL)).toBe('google');
     });
 
     it('degrades rather than rendering nothing when the preferred provider has no avatar', () => {
@@ -76,12 +100,15 @@ describe('avatar preference — the effective column every reader sees', () => {
         expect(await effectiveUrl('U2')).toBe(GOOGLE_URL);
     });
 
-    it('null restores automatic behavior', async () => {
+    it('null restores automatic behavior — which is now Discord when they have one', async () => {
         await seedProfile('U3', { hash: DISCORD_HASH, google: GOOGLE_URL });
-        await UserProfileService.setAvatarPreference('U3', 'discord');
+        await UserProfileService.setAvatarPreference('U3', 'google');
         await UserProfileService.setAvatarPreference('U3', null);
 
-        expect(await effectiveUrl('U3')).toBe(GOOGLE_URL);
+        // Automatic = Discord (v2.127.1), so the effective url clears and
+        // readers fall through to the hash.
+        expect(await effectiveUrl('U3')).toBeNull();
+        expect((await UserProfileService.getAvatarOptions('U3')).effective).toBe('discord');
     });
 
     it('rejects a provider the user has no avatar for, leaving them unchanged', async () => {

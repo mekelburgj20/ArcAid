@@ -24,7 +24,7 @@ interface Profile {
   avatar_url: string | null;
   avatar_fetched_at: string | null;
   aliases: string[];
-  /** The user's stored choice; null = automatic (Google when present). */
+  /** The user's stored choice; null = automatic (Discord avatar when they have one, else Google). */
   avatar_preference: AvatarProvider | null;
   /** What actually renders — differs from the preference if that provider has nothing stored. */
   avatar_effective: AvatarProvider | null;
