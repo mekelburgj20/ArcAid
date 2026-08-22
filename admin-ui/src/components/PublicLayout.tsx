@@ -11,6 +11,7 @@ import { getTitleStyleClass } from './ScoreboardComponents';
 import { RoomContext } from '../contexts/RoomContext';
 import { setToken } from '../lib/api';
 import { decodeJwtPayload, isExpiredOrInvalid } from '../lib/adminSlotSeed';
+import { parseServerDate } from '../lib/format';
 import UserMenu from './UserMenu';
 import LoginButtons from './LoginButtons';
 import PendingSubmissionWatcher from './PendingSubmissionWatcher';
@@ -132,7 +133,8 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
       .then(events => {
         if (!events?.length) return;
         const lastSeen = localStorage.getItem(`lobby_last_seen_${slug}`);
-        if (!lastSeen || new Date(events[0].created_at) > new Date(lastSeen)) {
+        const latestEventAt = parseServerDate(events[0].created_at);
+        if (!lastSeen || (latestEventAt && latestEventAt > new Date(lastSeen))) {
           setLobbyHasNew(true);
         }
       })

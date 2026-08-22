@@ -11,7 +11,7 @@ import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { useRoom } from '../contexts/RoomContext';
 import { decodeViewerClaims, isRoomAdminFor } from '../lib/viewerClaims';
 import { canDeleteRow, deleteScoreHistory } from '../lib/scoreDelete';
-import { formatScore, scoreTitle } from '../lib/format';
+import { formatScore, scoreTitle, parseServerDate } from '../lib/format';
 import { Search, Trophy, TrendingUp, Target, Medal, Plus, Minus, Clock, Lightbulb, MessageCircle, Trash2, ChevronDown, ChevronUp, History, Download, Play, BookOpen, ExternalLink, Flag, BadgeCheck } from 'lucide-react';
 import ReportProblemModal from '../components/ReportProblemModal';
 import ReportContentModal from '../components/ReportContentModal';
@@ -967,7 +967,7 @@ export default function GameDetail() {
                               const activeEntries = playerHistory.filter(h => h.tournament_active === 1);
                               const otherEntries = playerHistory.filter(h => h.tournament_active !== 1);
                               const chron = [...playerHistory].sort(
-                                (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+                                (a, b) => (parseServerDate(a.created_at)?.getTime() ?? 0) - (parseServerDate(b.created_at)?.getTime() ?? 0)
                               );
                               const activeTournamentName = activeEntries[0]?.tournament_name || null;
                               // v-trophy-case: percentile within the game's full (unfiltered)
@@ -1206,7 +1206,7 @@ export default function GameDetail() {
                             >
                               {formatScore(h.score)}
                             </span>
-                            <span className="text-faint text-xs w-20 text-right flex-shrink-0">{new Date(h.created_at).toLocaleDateString()}</span>
+                            <span className="text-faint text-xs w-20 text-right flex-shrink-0">{parseServerDate(h.created_at)?.toLocaleDateString() ?? ''}</span>
                           </div>
                         </div>
                       ))}
@@ -1345,7 +1345,7 @@ export default function GameDetail() {
                         <span className="font-medium truncate min-w-0">{entry.display_name || entry.iscored_username}</span>
                         <span className="flex items-center gap-1 text-faint text-xs flex-shrink-0">
                           <Clock size={12} />
-                          {new Date(entry.created_at).toLocaleDateString()}
+                          {parseServerDate(entry.created_at)?.toLocaleDateString() ?? ''}
                         </span>
                       </div>
                       <span
@@ -1424,7 +1424,7 @@ export default function GameDetail() {
                       <div className="flex-1 min-w-0">
                         <p className="text-sm text-primary">{tip.body}</p>
                         <p className="text-xs text-faint mt-1">
-                          {tip.display_name} &middot; {new Date(tip.created_at).toLocaleDateString()}
+                          {tip.display_name} &middot; {parseServerDate(tip.created_at)?.toLocaleDateString() ?? ''}
                         </p>
                       </div>
                       <div className="flex items-center gap-1 flex-shrink-0">
@@ -1459,7 +1459,7 @@ export default function GameDetail() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
                           <span className="text-sm font-medium text-primary">{comment.display_name}</span>
-                          <span className="text-xs text-faint">{new Date(comment.created_at).toLocaleDateString()}</span>
+                          <span className="text-xs text-faint">{parseServerDate(comment.created_at)?.toLocaleDateString() ?? ''}</span>
                         </div>
                         <p className="text-sm text-muted">{comment.body}</p>
                       </div>
@@ -1614,7 +1614,7 @@ export default function GameDetail() {
                                 'bg-neon-green/10 text-neon-green'
                               }`}>{h.source}</span>
                             </div>
-                            <span className="text-faint text-xs">{new Date(h.created_at).toLocaleDateString()}</span>
+                            <span className="text-faint text-xs">{parseServerDate(h.created_at)?.toLocaleDateString() ?? ''}</span>
                           </div>
                         ))}
                       </div>
@@ -1897,7 +1897,7 @@ function ScoreHistoryRow({ h, canDelete, onDelete, canVerify, onToggleVerified, 
         {isVerified && (
           <span
             className="inline-flex items-center text-neon-green"
-            title={`Verified by an admin${h.verified_at ? ` on ${new Date(h.verified_at).toLocaleDateString()}` : ''}`}
+            title={`Verified by an admin${h.verified_at ? ` on ${parseServerDate(h.verified_at)?.toLocaleDateString() ?? ''}` : ''}`}
             aria-label="Verified score"
           >
             <BadgeCheck size={13} />
@@ -1910,7 +1910,7 @@ function ScoreHistoryRow({ h, canDelete, onDelete, canVerify, onToggleVerified, 
         )}
       </div>
       <div className="flex items-center gap-2">
-        <span className="text-faint text-xs whitespace-nowrap">{new Date(h.created_at).toLocaleDateString()}</span>
+        <span className="text-faint text-xs whitespace-nowrap">{parseServerDate(h.created_at)?.toLocaleDateString() ?? ''}</span>
         {canReport && onReport && (
           <button
             type="button"

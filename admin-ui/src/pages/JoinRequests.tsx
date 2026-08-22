@@ -7,6 +7,7 @@ import NeonButton from '../components/NeonButton';
 import LoadingState from '../components/LoadingState';
 import { useToast } from '../components/Toast';
 import { resolveAvatarUrl } from '../lib/avatar';
+import { relativeTimeFrom } from '../lib/format';
 
 /**
  * Approval-rooms (v2.39.0) — room-admin join-request queue. Mirrors
@@ -27,16 +28,6 @@ interface JoinRequestEntry {
   username: string | null;
   avatarUrl: string | null;
   avatarHash: string | null;
-}
-
-function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
 }
 
 function RequesterRow({ entry }: { entry: JoinRequestEntry }) {
@@ -131,7 +122,7 @@ export default function JoinRequests() {
               <div key={entry.id} className="flex items-center justify-between gap-4 bg-raised border border-border rounded px-4 py-3">
                 <RequesterRow entry={entry} />
                 <div className="flex items-center gap-3 flex-shrink-0">
-                  <span className="text-xs text-faint hidden sm:inline">{timeAgo(entry.requestedAt)}</span>
+                  <span className="text-xs text-faint hidden sm:inline">{relativeTimeFrom(entry.requestedAt)}</span>
                   <NeonButton
                     className="text-xs px-3 py-1.5"
                     onClick={() => handleApprove(entry)}
@@ -181,7 +172,7 @@ export default function JoinRequests() {
                   )}
                   {entry.resolvedAt && (
                     <span className="text-faint flex items-center gap-1">
-                      <Clock size={12} /> {timeAgo(entry.resolvedAt)}
+                      <Clock size={12} /> {relativeTimeFrom(entry.resolvedAt)}
                     </span>
                   )}
                 </div>

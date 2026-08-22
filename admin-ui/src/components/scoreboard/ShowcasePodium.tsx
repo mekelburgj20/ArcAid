@@ -6,7 +6,7 @@ import PlayerNameLink from '../PlayerNameLink';
 import type { ShowcaseThemeConfig } from '../../lib/scoreboardThemes';
 import type { ScoreHistoryEntry } from './useScoreExpand';
 import { TrophyIcon } from '../../assets/icons/ThemedIcons';
-import { formatScore } from '../../lib/format';
+import { formatScore, parseServerDate } from '../../lib/format';
 import { resolveRowClick, opensQuickView, QUICK_VIEW_HINT } from '../../lib/scoreGesture';
 
 interface ShowcasePodiumProps {
@@ -48,7 +48,7 @@ function ExpandedHistory({ playerHistory, historyLoading, theme, onOpenQuickView
               onClick={onOpenQuickView}
             >
               <span style={{ color: 'rgba(255,255,255,0.95)', fontFamily: theme.monoFontFamily, fontWeight: 600 }}>{h.score.toLocaleString()}</span>
-              <span style={{ color: 'rgba(255,255,255,0.65)' }}>{new Date(h.created_at).toLocaleDateString()}</span>
+              <span style={{ color: 'rgba(255,255,255,0.65)' }}>{parseServerDate(h.created_at)?.toLocaleDateString() ?? ''}</span>
             </div>
           ))}
         </div>

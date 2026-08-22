@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Users, Gamepad2, ChevronRight, Plus, Building2, BookmarkPlus, BookmarkCheck, Clock } from 'lucide-react';
 import LoadingState from '../components/LoadingState';
-import { formatCompactNumber } from '../lib/format';
+import { formatCompactNumber, relativeTimeFrom } from '../lib/format';
 import { PlayerAvatar } from '../components/ScoreboardComponents';
 import { useTheme } from '../components/ThemeProvider';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
@@ -73,17 +73,7 @@ function imageForScore(s: RecentScore): string | null {
  * (y 383) both sit above the motto's anchor (y ~405), same as dark.
  */
 
-function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  return `${days}d ago`;
-}
-
+const timeAgo = relativeTimeFrom;
 
 export default function LandingPage() {
   const { discordUser, loginWithDiscord, loginWithGoogle, logoutPlayer } = useViewerAuth();

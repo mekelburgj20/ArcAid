@@ -11,7 +11,7 @@ import { resolveRowClick, opensQuickView, QUICK_VIEW_HINT } from '../lib/scoreGe
 import { AnonymousAvatarIcon } from '../assets/icons/ThemedIcons';
 // ShowcaseThemeConfig imported via SHOWCASE_THEMES lookup in RankingGroupCard
 import { SHOWCASE_THEMES, DEFAULT_SHOWCASE_THEME } from '../lib/scoreboardThemes';
-import { formatScore } from '../lib/format';
+import { formatScore, parseServerDate } from '../lib/format';
 import { getTournamentColorHex } from '../lib/tournamentColors';
 import { resolveAvatarUrl } from '../lib/avatar';
 
@@ -842,7 +842,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
                                     </button>
                                   )}
                                 </div>
-                                <span className="text-faint">{new Date(h.created_at).toLocaleDateString()}</span>
+                                <span className="text-faint">{parseServerDate(h.created_at)?.toLocaleDateString() ?? ''}</span>
                               </div>
                             ))}
                           </div>

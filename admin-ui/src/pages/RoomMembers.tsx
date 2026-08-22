@@ -7,6 +7,7 @@ import LoadingState from '../components/LoadingState';
 import { useRoom } from '../contexts/RoomContext';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { getPortal } from '../lib/portal';
+import { parseServerDate, relativeTimeFrom } from '../lib/format';
 
 /**
  * Room Members/Players page (v2.42.0, docs/contracts/room-members-page-contract.md).
@@ -49,23 +50,10 @@ interface MemberEntry {
 }
 
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  return parseServerDate(iso)?.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) ?? '';
 }
 
-function formatRelative(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  if (Number.isNaN(diff) || diff < 0) return 'just now';
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  if (days < 30) return `${days}d ago`;
-  const months = Math.floor(days / 30);
-  if (months < 12) return `${months}mo ago`;
-  return `${Math.floor(months / 12)}y ago`;
-}
+const formatRelative = relativeTimeFrom;
 
 function MemberRow({ slug, mode, entry }: { slug: string; mode: 'approval' | 'open'; entry: MemberEntry }) {
   const secondary = mode === 'approval'
