@@ -78,7 +78,7 @@ export class CommunityScoreService {
         );
 
         // Also log to unified score history
-        await ScoreHistoryService.log({
+        const historyId = await ScoreHistoryService.log({
             gameName, gameRoomId, username: effectiveUsername,
             discordUserId, score, photoUrl,
             source: 'community',
@@ -144,6 +144,7 @@ export class CommunityScoreService {
                 partitionKey,
                 submittedScore: score,
                 excludeCommunityScoreId: result.lastID,
+                excludeHistoryId: historyId,
             });
         } catch {
             rank = null;

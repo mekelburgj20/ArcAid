@@ -6,6 +6,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.125.1] — unreleased
+
+**Submit-moment rank now ranks inside the tournament window.** The "You are #N of M" card shown right after a web score submit (`SubmissionSheet`, from `ScoreRankService.computeRoomRank`) was computed against `community_scores` + `score_history` rows with `source='tournament'` only — iScored-synced rows (`source='sync'`) were never counted. On a board whose rivals all arrived via sync (rtx_pinball Monthly Grind / Jaws, 2026-08-21) the submitter was told "#1 of 1" while the card correctly showed #4 of 6.
+
+### Fixed
+- `ScoreRankService.computeRoomRank` resolves the ACTIVE tournament for (room, game) with the same query `ScoreHistoryService.log` uses to stamp `submitted_during_tournament_id`, and when one exists ranks against `score_history` filtered by that window — all sources, canonical `COALESCE(submitted_by_user_id, 'iscored:' || LOWER(iscored_username))` partition — i.e. exactly the population `LeaderboardService.queryRankedRows` renders on the card. The submitted score is folded into the submitter's best so a resubmit deduped against an out-of-window row still ranks correctly. No active tournament → the previous freeplay union is unchanged (`tournamentId: null` forces it).
+- `ScoreHistoryService.log` returns the inserted `score_history.id` (null when deduped); `CommunityScoreService.submitScore` passes it as `excludeHistoryId` so "previous best" excludes the row just written.
+
+- `getNextRunTime(cron, tz, from?)` takes a reference instant; the `time_left` chat response passes its clock so "ends in" and "next rotation" derive from the same moment. The fixed-clock test went red every day between 22:00 and 24:00 UTC because the next fire was computed from the real clock.
+
+### Tests
+- `scoreRank.test.ts`: Jaws fixture (5 sync rows + 1 community row with `game_id NULL`, plus an out-of-window decoy) → #4 of 6 with the right gaps; second higher submit → #3 with `previousBest`; `tournamentId: null` keeps the legacy union; deduped out-of-window resubmit still ranks #2 of 2.
+
+---
+
 ## [2.125.0] — unreleased
 
 **Callouts become "Arcaid Chat Responses": categorised, per-room granular, channel-scoped, throttled, mutable — and they answer more questions.** Owner, after one day live: "I want to toggle certain aspects… someone doesn't want the snarky responses… an allowed-channels list… make cooldown configurable… something that describes exactly what it is." Plus the live bug that prompted it: the old room toggle only *staged* its change until the page's Save bar was pressed, so an "off" never reached the server and the bot kept replying.

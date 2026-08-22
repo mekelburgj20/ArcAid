@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ScoreRankService } from '../services/ScoreRankService.js';
 import { getDatabase } from '../database/database.js';
-import { setupTestDb, createTestRoom } from './helpers.js';
+import { setupTestDb, createTestRoom, createTestTournament, createTestGame } from './helpers.js';
 import crypto from 'crypto';
 
 /**
@@ -170,6 +170,110 @@ describe('ScoreRankService — canonical partition', () => {
         // previousBest excludes the just-inserted community row (3000) but the
         // tournament 9000 row remains in the partition.
         expect(res.previousBest).toBe(9000);
+    });
+
+    it('ROOM: ranks inside the ACTIVE tournament window against synced rows (rtx_pinball Jaws, 2026-08-21)', async () => {
+        // Regression: the submitter was told "#1 of 1" on a board whose five
+        // rivals all came from iScored sync (source='sync'), while the card
+        // (score_history by submitted_during_tournament_id) showed #4 of 6.
+        const db = await getDatabase();
+        const roomId = await createTestRoom('sr-window', 'SR Window');
+        const gameName = 'Jaws';
+        const tid = await createTestTournament(roomId, { name: 'Monthly Grind' });
+        const gameId = await createTestGame(tid, { name: gameName, status: 'ACTIVE' });
+
+        const synced: Array<[string, number]> = [
+            ['Beckles2024', 461_478_960], ['Jay', 265_209_500], ['Acskinner', 255_278_810],
+            ['asdfate', 120_000_000], ['BrickShotBobes', 90_000_000],
+        ];
+        for (const [name, score] of synced) {
+            await db.run(
+                `INSERT INTO score_history (
+                    game_name, game_room_id, game_id, iscored_username, discord_user_id, score, source,
+                    submitted_during_tournament_id, submitted_by_user_id
+                 ) VALUES (?, ?, ?, ?, 'SYSTEM', ?, 'sync', ?, ?)`,
+                gameName, roomId, gameId, name, score, tid, `iscored:${name.toLowerCase()}`,
+            );
+        }
+        // A stale out-of-window row for the same game must NOT count.
+        await db.run(
+            `INSERT INTO score_history (game_name, game_room_id, iscored_username, discord_user_id, score, source, submitted_by_user_id)
+             VALUES (?, ?, 'OldTimer', 'SYSTEM', 999_000_000_000, 'sync', 'iscored:oldtimer')`,
+            gameName, roomId,
+        );
+        // The owner's community submit: game_id NULL, discord-attributed.
+        const cId = await insertCommunityScore({ gameRoomId: roomId, gameName, iscoredUsername: 'mekelburgj', submittedByUserId: 'disc-owner', score: 211_347_030 });
+        const hist = await db.run(
+            `INSERT INTO score_history (
+                game_name, game_room_id, game_id, iscored_username, discord_user_id, score, source,
+                submitted_during_tournament_id, submitted_by_user_id
+             ) VALUES (?, ?, NULL, 'mekelburgj', 'disc-owner', ?, 'community', ?, 'disc-owner')`,
+            gameName, roomId, 211_347_030, tid,
+        );
+
+        const res = await ScoreRankService.computeRoomRank({
+            gameRoomId: roomId,
+            gameName,
+            partitionKey: 'disc-owner',
+            submittedScore: 211_347_030,
+            excludeCommunityScoreId: cId,
+            excludeHistoryId: hist.lastID as number,
+        });
+
+        expect(res.rank).toBe(4);
+        expect(res.totalPlayers).toBe(6);
+        expect(res.gapToNext).toBe(255_278_810 - 211_347_030);
+        expect(res.gapToFirst).toBe(461_478_960 - 211_347_030);
+        expect(res.previousBest).toBeNull();
+
+        // A second, higher submit from the same player: previousBest is the
+        // earlier window row, rank moves to #3.
+        const hist2 = await db.run(
+            `INSERT INTO score_history (
+                game_name, game_room_id, iscored_username, discord_user_id, score, source,
+                submitted_during_tournament_id, submitted_by_user_id
+             ) VALUES (?, ?, 'mekelburgj', 'disc-owner', ?, 'community', ?, 'disc-owner')`,
+            gameName, roomId, 260_000_000, tid,
+        );
+        const res2 = await ScoreRankService.computeRoomRank({
+            gameRoomId: roomId, gameName, partitionKey: 'disc-owner', submittedScore: 260_000_000,
+            excludeHistoryId: hist2.lastID as number,
+        });
+        expect(res2.rank).toBe(3);
+        expect(res2.totalPlayers).toBe(6);
+        expect(res2.previousBest).toBe(211_347_030);
+
+        // Explicit tournamentId: null forces the freeplay union (sync rows excluded).
+        const legacy = await ScoreRankService.computeRoomRank({
+            gameRoomId: roomId, gameName, partitionKey: 'disc-owner', submittedScore: 211_347_030, tournamentId: null,
+        });
+        expect(legacy.totalPlayers).toBe(1);
+    });
+
+    it('ROOM: tournament window — a deduped resubmit of an out-of-window score still ranks correctly', async () => {
+        const db = await getDatabase();
+        const roomId = await createTestRoom('sr-window-dedup', 'SR Window Dedup');
+        const gameName = 'Taxi';
+        const tid = await createTestTournament(roomId, { name: 'Daily Grind' });
+        await createTestGame(tid, { name: gameName, status: 'ACTIVE' });
+        await db.run(
+            `INSERT INTO score_history (game_name, game_room_id, iscored_username, discord_user_id, score, source, submitted_during_tournament_id, submitted_by_user_id)
+             VALUES (?, ?, 'Rival', 'SYSTEM', 5000, 'sync', ?, 'iscored:rival')`,
+            gameName, roomId, tid,
+        );
+        // The player's only row is from BEFORE the window (no tournament id);
+        // ScoreHistoryService.log would dedup an identical resubmit → no new row.
+        await db.run(
+            `INSERT INTO score_history (game_name, game_room_id, iscored_username, discord_user_id, score, source, submitted_by_user_id)
+             VALUES (?, ?, 'Me', 'disc-me', 3000, 'community', 'disc-me')`,
+            gameName, roomId,
+        );
+        const res = await ScoreRankService.computeRoomRank({
+            gameRoomId: roomId, gameName, partitionKey: 'disc-me', submittedScore: 3000, excludeHistoryId: null,
+        });
+        expect(res.rank).toBe(2);
+        expect(res.totalPlayers).toBe(2);
+        expect(res.gapToNext).toBe(2000);
     });
 
     it('GLOBAL: collapses two iScored aliases of one Discord user into ONE player', async () => {
