@@ -6,6 +6,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.131.0] — unreleased
+
+**Rate the table right after you played it.** Owner, 2026-08-22: "It's the perfect time to rate a game — right after you've just played it. Maybe also a comment box that adds the comment to the game info page." The post-submit success card now carries a compact "How was &lt;game&gt;?" block between the rank line and the Share/Done buttons. Both halves are optional, and neither can get between the player and Done.
+
+### Added
+- **Star rating on the success card.** Pre-filled with the player's existing rating; a tap saves immediately (optimistic, reverts with an inline message if the server refuses) and answers "Thanks!". A small `avg ★ N.N · M ratings` caption shows once anyone has rated. No new endpoints — a room submission (tournament or freeplay) reads and writes `GET`/`POST /api/rooms/:roomId/ratings/:gameName`, a Global Scoreboard submission `GET`/`POST /api/global/games/:id/rating`. Both go out as raw `fetch` with the player token plus the viewer's `x-user-id`, the v2.86.0 pattern `GameDetail` uses — deliberately not `lib/api.ts`, which attaches the ADMIN token.
+- **Optional comment, posted to the game page.** "Add a comment" expands a 500-char textarea in place (native keyboard — the on-screen keypad is numeric and belongs to the score field). Posting reuses `POST /api/rooms/:roomId/games/:gameName/comments` / `POST /api/global/games/:id/comments` with `type: 'comment'` and `display_name` set to the name the score actually landed under, so the comment and the score read as the same person. It collapses to "Posted — see it on the game page" with a link to the room or global game page. The comment carries the anon `arcaid-user-id` uuid, which is what author-only delete on the game page keys on.
+- **Graceful degrade, by construction.** The whole block is gated on a clean rating `GET`: a 401 (expired token, banned viewer) or a network blip simply doesn't render it. Both POSTs are fire-and-forget relative to the sheet — a mounted ref guards every continuation, so dismissing mid-request can't throw. The comment editor expands in place of the caption row rather than adding height, and the success card scrolls, so Done stays reachable at 390×844 even with an identity claim offer also showing.
+
 ## [2.130.0] — unreleased
 
 **One switch for light mode, on every page.** A light theme has existed since the beginning, but reaching it meant three unrelated controls: the sun/moon on the global pages set a per-visitor polarity for `/scoreboard` and the landing page only, admins picked a `ui_theme` for the admin shell, and a signed-in viewer could override one room's theme in that room's display settings. None of them was "put Arcaid in light mode". **Appearance** is that setting — Dark, Light or Auto, one preference, applied to room pages, admin pages and global pages alike (owner ask, 2026-08-22).

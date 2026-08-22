@@ -5,6 +5,7 @@ import { X, Camera, Trash2, Keyboard, AlertTriangle, LogIn, UserCheck, Trophy } 
 import NeonButton from './NeonButton';
 import OnScreenKeyboard from './OnScreenKeyboard';
 import ShareButton from './ShareButton';
+import StarRating from './StarRating';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import {
     enginesFromLegacyPlatforms,
@@ -141,6 +142,58 @@ function claimDismissKey(roomId: string, iscoredUsername: string): string {
 }
 
 /**
+ * v2.131.0 — "How was <game>?" on the success card.
+ *
+ * Rating + comment reuse the EXISTING game-page endpoints; nothing new was
+ * added server-side. Which pair fires is the same `global` vs. room split the
+ * card's share/leaderboard links already make:
+ *
+ *   room (tournament | freeplay)
+ *     GET/POST /api/rooms/:roomId/ratings/:gameName
+ *     POST     /api/rooms/:roomId/games/:gameName/comments
+ *   global
+ *     GET/POST /api/global/games/:id/rating
+ *     POST     /api/global/games/:id/comments
+ *
+ * The room rating GET is `optionalDiscordUser` and personalizes "your rating"
+ * off the Bearer identity, falling back to `x-user-id` — the v2.86.0 raw-fetch
+ * pattern `GameDetail` uses (deliberately NOT `lib/api.ts`, which attaches the
+ * ADMIN token and a different anon id). Comments additionally carry the anon
+ * `arcaid-user-id` uuid, which is what author-only delete keys on.
+ */
+interface GameRatingInfo {
+    avg_rating: number;
+    rating_count: number;
+    user_rating: number | null;
+}
+
+/** Coerce a ratings response into `GameRatingInfo`; null when unusable. */
+function parseRatingInfo(data: unknown): GameRatingInfo | null {
+    if (!data || typeof data !== 'object') return null;
+    const raw = data as Record<string, unknown>;
+    const userRating = Number(raw.user_rating);
+    return {
+        avg_rating: Number(raw.avg_rating) || 0,
+        rating_count: Number(raw.rating_count) || 0,
+        user_rating: Number.isFinite(userRating) && userRating > 0 ? userRating : null,
+    };
+}
+
+/** Anon uuid used for comment author-only delete — same key `GameDetail` reads. */
+function anonCommentUserId(): string {
+    const stored = localStorage.getItem('arcaid-user-id');
+    if (stored) return stored;
+    const id = typeof crypto?.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
+    localStorage.setItem('arcaid-user-id', id);
+    return id;
+}
+
+/** `GameCommentSchema` caps the body at 500 chars — mirrored on the textarea. */
+const COMMENT_MAX_LENGTH = 500;
+
+/**
  * v2.128.0 — belt-and-braces companion to the pointerup Done key in
  * `OnScreenKeyboard`. Any click that arrives within this window of the
  * keyboard closing is treated as spill-over from the touch that pressed Done
@@ -248,6 +301,25 @@ export default function SubmissionSheet({
     const [claimOffer, setClaimOffer] = useState<ClaimOffer | null>(null);
     const [claimBusy, setClaimBusy] = useState(false);
     const [claimMsg, setClaimMsg] = useState<{ ok: boolean; text: string } | null>(null);
+    /**
+     * v2.131.0 — rate + comment on the success card. `ratingInfo` stays null
+     * until the GET lands, and the whole block is gated on it: a 401 / network
+     * failure simply never renders it, so nothing can get between the player
+     * and Done.
+     */
+    const [ratingInfo, setRatingInfo] = useState<GameRatingInfo | null>(null);
+    const [ratingError, setRatingError] = useState<string | null>(null);
+    const [ratingThanks, setRatingThanks] = useState(false);
+    const [commentState, setCommentState] = useState<'closed' | 'open' | 'posted'>('closed');
+    const [commentText, setCommentText] = useState('');
+    const [commentPosting, setCommentPosting] = useState(false);
+    const [commentError, setCommentError] = useState<string | null>(null);
+    /**
+     * The name the score actually landed under (server-resolved, possibly
+     * auto-suffixed) — used as the comment's `display_name` so the comment and
+     * the score read as the same person on the game page.
+     */
+    const [submittedAs, setSubmittedAs] = useState<string | null>(null);
     const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
     const [activeField, setActiveField] = useState<'name' | 'score' | null>(null);
     const [showKeyboard, setShowKeyboard] = useState(false);
@@ -260,6 +332,13 @@ export default function SubmissionSheet({
     const keyboardClosedAt = useRef(0);
     /** Caret position to restore after React commits a keypad-driven edit (v2.128.0). */
     const pendingCaret = useRef<{ field: 'name' | 'score'; pos: number } | null>(null);
+    /**
+     * v2.131.0 — Done may fire mid-request (the rating/comment POSTs are
+     * fire-and-forget relative to the sheet's lifecycle), so every async
+     * continuation below checks this before touching state.
+     */
+    const mountedRef = useRef(true);
+    useEffect(() => () => { mountedRef.current = false; }, []);
 
     const isTouchDevice = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
 
@@ -468,6 +547,8 @@ export default function SubmissionSheet({
             const resolvedName = responseData?.displayName || playerName.trim();
             localStorage.setItem('arcaid-player-name', resolvedName);
             setPlayerName(resolvedName);
+            // v2.131.0: the success card's comment posts under this same name.
+            setSubmittedAs(resolvedName);
             // Remember the device so the next submission pre-selects it.
             localStorage.setItem(LAST_DEVICE_KEY, device);
             // S5: capture the submit-moment rank (best-effort; null when the BE
@@ -529,6 +610,119 @@ export default function SubmissionSheet({
             localStorage.setItem(claimDismissKey(claimRoomId, claimOffer.iscoredUsername), new Date().toISOString());
         }
         setClaimOffer(null);
+    };
+
+    // ─── v2.131.0 — rate + comment from the success card ───
+
+    /** Endpoint for the rating GET/POST — room vs. global, same split as the card's links. */
+    const ratingUrl = target.kind === 'global'
+        ? `/api/global/games/${target.globalGameId}/rating`
+        : `/api/rooms/${target.roomId}/ratings/${encodeURIComponent(target.gameName)}`;
+    /** Endpoint for the comment POST. */
+    const commentUrl = target.kind === 'global'
+        ? `/api/global/games/${target.globalGameId}/comments`
+        : `/api/rooms/${target.roomId}/games/${encodeURIComponent(target.gameName)}/comments`;
+    /** Where "see it on the game page" goes — null when the caller gave us no slug. */
+    const gamePagePath = target.kind === 'global'
+        ? `/games/${target.globalGameId}`
+        : roomSlug
+            ? `/${roomSlug}/games/${encodeURIComponent(target.gameName)}`
+            : null;
+
+    /**
+     * Viewer headers for the rating calls. The Bearer token is what the POST
+     * authorizes on and what the GET prefers for "your rating"; `x-user-id`
+     * (the viewer's discordId, NOT the anon uuid) is the tokenless fallback
+     * the room GET reads — see `GameDetail`'s v2.86.0 comment.
+     */
+    const viewerDiscordId = discordUser?.discordId ?? null;
+    const ratingHeaders = useCallback((json = false): Record<string, string> => {
+        const headers: Record<string, string> = {};
+        if (json) headers['Content-Type'] = 'application/json';
+        if (playerToken) headers.Authorization = `Bearer ${playerToken}`;
+        if (viewerDiscordId) headers['x-user-id'] = viewerDiscordId;
+        return headers;
+    }, [playerToken, viewerDiscordId]);
+
+    /**
+     * Pull the current rating once the success card appears. Anything other
+     * than a clean 200 leaves `ratingInfo` null, which hides the whole block —
+     * the deliberate degrade path (401, banned viewer, network blip).
+     */
+    useEffect(() => {
+        if (phase !== 'success') return;
+        const ac = new AbortController();
+        (async () => {
+            try {
+                const res = await fetch(ratingUrl, { headers: ratingHeaders(), signal: ac.signal });
+                if (!res.ok) return;
+                const data = await res.json().catch(() => null);
+                if (ac.signal.aborted || !mountedRef.current) return;
+                const parsed = parseRatingInfo(data);
+                if (parsed) setRatingInfo(parsed);
+            } catch { /* aborted or offline — block stays hidden */ }
+        })();
+        return () => ac.abort();
+    }, [phase, ratingUrl, ratingHeaders]);
+
+    /**
+     * Optimistic star tap: paint the new rating immediately, POST, then take
+     * the server's aggregate. A failure reverts and says so inline; the rating
+     * is never required and never blocks Done.
+     */
+    const rateGame = async (value: number) => {
+        if (!ratingInfo || !playerToken) return;
+        const previous = ratingInfo;
+        setRatingInfo({ ...previous, user_rating: value });
+        setRatingError(null);
+        setRatingThanks(false);
+        try {
+            const res = await fetch(ratingUrl, {
+                method: 'POST',
+                headers: ratingHeaders(true),
+                body: JSON.stringify({ rating: value }),
+            });
+            if (!res.ok) throw new Error('rejected');
+            const data = await res.json().catch(() => null);
+            if (!mountedRef.current) return;
+            setRatingInfo(parseRatingInfo(data) ?? { ...previous, user_rating: value });
+            setRatingThanks(true);
+        } catch {
+            if (!mountedRef.current) return;
+            setRatingInfo(previous);
+            setRatingError("Couldn't save that rating.");
+        }
+    };
+
+    /** Post the optional comment to the game page. Failures stay inline. */
+    const postComment = async () => {
+        const body = commentText.trim();
+        const name = (submittedAs ?? discordUser?.username ?? '').trim().slice(0, 50);
+        if (!body || !name || commentPosting) return;
+        setCommentPosting(true);
+        setCommentError(null);
+        try {
+            const headers = ratingHeaders(true);
+            // Author-only delete on the game page keys on the anon uuid.
+            headers['x-user-id'] = anonCommentUserId();
+            const res = await fetch(commentUrl, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({ display_name: name, type: 'comment', body }),
+            });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error((err as { error?: string }).error || 'Could not post that comment.');
+            }
+            if (!mountedRef.current) return;
+            setCommentText('');
+            setCommentState('posted');
+        } catch (err) {
+            if (!mountedRef.current) return;
+            setCommentError(err instanceof Error ? err.message : 'Could not post that comment.');
+        } finally {
+            if (mountedRef.current) setCommentPosting(false);
+        }
     };
 
     const handleSubmitClick = async () => {
@@ -688,7 +882,10 @@ export default function SubmissionSheet({
                         <p className="text-muted text-sm">Submitting your score as {discordUser?.username ?? 'you'}…</p>
                     </div>
                 ) : phase === 'success' ? (
-                    <div className="px-4 py-8 text-center space-y-4">
+                    /* v2.131.0: the rate/comment block can push this past a
+                       short viewport when a claim offer is also showing, so the
+                       success card scrolls rather than clipping Done. */
+                    <div className="px-4 py-6 text-center space-y-4 overflow-y-auto overscroll-contain">
                         {submitRank === null || submitRank.rank == null ? (
                             /* Best-effort fallback — BE returned null or an
                                all-null result (rank couldn't be computed).
@@ -756,6 +953,112 @@ export default function SubmissionSheet({
                                             Not me
                                         </button>
                                     </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* v2.131.0 — "the perfect time to rate a game is right
+                            after you've just played it" (owner, 2026-08-22).
+                            Both halves are optional and both degrade to nothing:
+                            the block only exists once the rating GET succeeds,
+                            and neither POST can hold up Done. The comment editor
+                            expands IN PLACE OF the caption row so the block's
+                            height barely moves and Done stays above the fold on
+                            a 390×844 screen. */}
+                        {ratingInfo && (
+                            <div className="text-left px-3 py-2.5 rounded-lg bg-raised/40 border border-border/60 space-y-2">
+                                <div className="flex items-center justify-between gap-3">
+                                    <p className="text-xs text-muted leading-snug break-words min-w-0">
+                                        How was <span className="text-primary font-medium">{target.gameName}</span>?
+                                    </p>
+                                    <div className="flex-shrink-0">
+                                        <StarRating
+                                            rating={ratingInfo.user_rating ?? 0}
+                                            onRate={rateGame}
+                                            size="md"
+                                        />
+                                    </div>
+                                </div>
+
+                                {commentState === 'closed' && (
+                                    <div className="flex items-center justify-between gap-2">
+                                        <p className="text-[11px] leading-tight min-w-0">
+                                            {ratingError ? (
+                                                <span className="text-neon-amber">{ratingError}</span>
+                                            ) : ratingThanks ? (
+                                                <span className="text-neon-green">Thanks!</span>
+                                            ) : ratingInfo.rating_count > 0 ? (
+                                                <span className="text-muted">
+                                                    avg ★ {ratingInfo.avg_rating.toFixed(1)} · {ratingInfo.rating_count}{' '}
+                                                    {ratingInfo.rating_count === 1 ? 'rating' : 'ratings'}
+                                                </span>
+                                            ) : null}
+                                        </p>
+                                        <button
+                                            type="button"
+                                            onClick={() => setCommentState('open')}
+                                            className="text-[11px] text-neon-cyan hover:underline flex-shrink-0 cursor-pointer"
+                                        >
+                                            Add a comment
+                                        </button>
+                                    </div>
+                                )}
+
+                                {commentState === 'open' && (
+                                    <div className="space-y-1.5">
+                                        {/* Native keyboard on purpose — the on-screen
+                                            keypad is numeric and belongs to the score
+                                            field only (v2.128.0). */}
+                                        <textarea
+                                            value={commentText}
+                                            onChange={e => setCommentText(e.target.value.slice(0, COMMENT_MAX_LENGTH))}
+                                            maxLength={COMMENT_MAX_LENGTH}
+                                            rows={3}
+                                            autoFocus
+                                            aria-label="Comment"
+                                            placeholder={`Anything to say about ${target.gameName}?`}
+                                            className="w-full px-2.5 py-2 bg-raised border border-border rounded text-primary placeholder-faint text-xs leading-relaxed focus:outline-none focus:border-neon-cyan transition-colors resize-none"
+                                        />
+                                        <div className="flex items-center justify-between gap-2">
+                                            <span className="text-[11px] text-faint flex-shrink-0">
+                                                {commentText.length}/{COMMENT_MAX_LENGTH}
+                                            </span>
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => { setCommentState('closed'); setCommentError(null); }}
+                                                    disabled={commentPosting}
+                                                    className="text-[11px] text-muted hover:text-primary transition-colors cursor-pointer"
+                                                >
+                                                    Cancel
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={postComment}
+                                                    disabled={commentPosting || !commentText.trim()}
+                                                    className="px-2.5 py-1 rounded border border-neon-cyan/40 text-neon-cyan text-[11px] hover:bg-neon-cyan/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                                                >
+                                                    {commentPosting ? 'Posting…' : 'Post comment'}
+                                                </button>
+                                            </div>
+                                        </div>
+                                        {commentError && (
+                                            <p className="text-[11px] text-neon-amber">{commentError}</p>
+                                        )}
+                                    </div>
+                                )}
+
+                                {commentState === 'posted' && (
+                                    <p className="text-[11px] text-neon-green">
+                                        Posted —{' '}
+                                        {gamePagePath ? (
+                                            <Link to={gamePagePath} onClick={onClose} className="text-neon-cyan hover:underline">
+                                                see it on the game page
+                                            </Link>
+                                        ) : (
+                                            <span className="text-muted">it's on the game page</span>
+                                        )}
+                                    </p>
                                 )}
                             </div>
                         )}
