@@ -6,6 +6,7 @@ import { getPortal } from '../lib/portal';
 import { RoomContext } from '../contexts/RoomContext';
 import LoadingState from './LoadingState';
 import UpdateNudgeBanner from './UpdateNudgeBanner';
+import GlobalThemeToggle from './GlobalThemeToggle';
 
 interface Room {
   id: string;
@@ -153,6 +154,9 @@ export default function RoomAdminLayout() {
           </button>
           <img src="/arcaid-logo-v2.png" alt="Arcaid" className="w-7 h-7" />
           <span className="font-pixel text-neon-cyan text-xs truncate">{room.name}</span>
+          {/* v2.130.0 — the site-wide light/dark switch reaches the admin
+              shells too. Pinned right so it never crowds the room name. */}
+          <GlobalThemeToggle className="ml-auto flex-shrink-0" />
         </div>
 
         {/* Sidebar overlay (mobile) */}
@@ -177,6 +181,7 @@ export default function RoomAdminLayout() {
               <h2 className="font-pixel text-neon-cyan text-xs truncate">{room.name}</h2>
               <span className="text-faint text-xs">Room Admin</span>
             </div>
+            <GlobalThemeToggle className="ml-auto flex-shrink-0" />
           </div>
           <nav className="flex-1 py-2 flex flex-col gap-0.5 overflow-y-auto">
             {navItems.map((item, i) => {

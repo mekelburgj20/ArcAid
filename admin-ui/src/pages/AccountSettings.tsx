@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Home, User as UserIcon, CheckCircle2, AlertCircle, AlertTriangle, Trash2, Link2, Unlink } from 'lucide-react';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import LoginButtons from '../components/LoginButtons';
+import AppearanceControl from '../components/AppearanceControl';
 import { resolveAvatarUrl } from '../lib/avatar';
 import { isGoogleUserId } from '../lib/identityProvider';
 import { buildPushErrorMessage } from '../lib/pushError';
@@ -762,6 +763,17 @@ export default function AccountSettings() {
         <p className="text-sm text-muted mb-6">
           Your display name appears on every leaderboard, announcement, and notification across Arcaid.
         </p>
+
+        {/* v2.130.0 — Appearance is deliberately the FIRST section and sits
+            OUTSIDE the `loading` gate: it is a local preference that applies
+            instantly, so it must not wait on the profile fetch. */}
+        <section className="mb-8">
+          <h2 className="text-sm font-medium mb-2">Appearance</h2>
+          <AppearanceControl />
+          <p className="text-xs text-faint mt-2">
+            Auto follows each room&rsquo;s theme and your device setting on global pages.
+          </p>
+        </section>
 
         {loading ? (
           <p className="text-sm text-muted">Loading…</p>

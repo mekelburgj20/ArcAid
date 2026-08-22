@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import ScoreboardPreferencesModal from '../ScoreboardPreferencesModal';
+import { ThemeProvider } from '../ThemeProvider';
 
 /**
  * Style-system revamp P3 — viewer preferences tiering.
@@ -73,14 +75,20 @@ function mockFetch() {
 async function renderModal(roomConfig: Record<string, string> = {}) {
   const onClose = vi.fn();
   const onSaved = vi.fn();
+  // v2.130.0: the sheet leads with the Appearance control (useTheme), so it
+  // needs a ThemeProvider — and ThemeProvider needs a router for useLocation.
   const utils = render(
-    <ScoreboardPreferencesModal
-      open
-      onClose={onClose}
-      playerToken="token-1"
-      roomConfig={roomConfig}
-      onSaved={onSaved}
-    />,
+    <MemoryRouter initialEntries={['/rooma']}>
+      <ThemeProvider>
+        <ScoreboardPreferencesModal
+          open
+          onClose={onClose}
+          playerToken="token-1"
+          roomConfig={roomConfig}
+          onSaved={onSaved}
+        />
+      </ThemeProvider>
+    </MemoryRouter>,
   );
   await waitFor(() => expect(screen.getByText('Card Style')).toBeInTheDocument());
   return { ...utils, onClose, onSaved };

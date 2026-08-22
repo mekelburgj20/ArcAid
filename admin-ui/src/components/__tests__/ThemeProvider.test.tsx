@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Routes, Route, useNavigate } from 'react-router-dom';
-import { ThemeProvider, useTheme } from '../ThemeProvider';
+import { ThemeProvider, useTheme, STORAGE_APPEARANCE_KEY } from '../ThemeProvider';
 
 // s20 — regression coverage for the ThemeProvider re-theme bug: `globalTheme`
 // used to read `window.location.pathname` directly, so navigating between
@@ -167,5 +167,185 @@ describe('ThemeProvider', () => {
 
     expect(document.documentElement.classList.contains('theme-cyberpunk')).toBe(true);
     expect(document.documentElement.classList.contains('theme-ocean')).toBe(false);
+  });
+});
+
+// ── v2.130.0: Appearance polarity override ─────────────────────────────────
+//
+// One preference, applied as the LAST step of resolution on every route
+// class. `auto` must reproduce pre-v2.130 behaviour byte for byte; light/dark
+// must beat the room's theme, the admin's theme, and the OS.
+
+/** Probe that renders the resolved appearance plus setter buttons. */
+function AppearanceHarness() {
+  const { appearance, setAppearance } = useTheme();
+  return (
+    <div>
+      <span data-testid="appearance">{appearance}</span>
+      <button onClick={() => setAppearance('light')}>set-light</button>
+      <button onClick={() => setAppearance('dark')}>set-dark</button>
+      <button onClick={() => setAppearance('auto')}>set-auto</button>
+    </div>
+  );
+}
+
+function renderAppearance(initialPath: string) {
+  return render(
+    <MemoryRouter initialEntries={[initialPath]}>
+      <ThemeProvider>
+        <AppearanceHarness />
+        <Routes>
+          <Route path="/admin/dashboard" element={<div>admin-page</div>} />
+          <Route path="/scoreboard" element={<div>global-page</div>} />
+          <Route path="/:slug" element={<div>public-page</div>} />
+        </Routes>
+      </ThemeProvider>
+    </MemoryRouter>,
+  );
+}
+
+const hasClass = (cls: string) => document.documentElement.classList.contains(cls);
+
+describe('ThemeProvider — appearance override (v2.130.0)', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    localStorage.clear();
+    document.documentElement.className = '';
+  });
+
+  it('room route + dark room theme + appearance=light -> theme-light', async () => {
+    stubPortalFetch();
+    localStorage.setItem('arcaid-theme-public-rooma', 'ocean');
+    localStorage.setItem(STORAGE_APPEARANCE_KEY, 'light');
+
+    renderAppearance('/rooma');
+
+    await waitFor(() => expect(hasClass('theme-light')).toBe(true));
+    expect(hasClass('theme-ocean')).toBe(false);
+  });
+
+  it('room route + LIGHT room theme + appearance=light keeps the room theme', async () => {
+    // Coffee is light-polarity, so the override has nothing to correct — the
+    // room keeps its own look rather than being flattened to theme-light.
+    stubPortalFetch();
+    localStorage.setItem('arcaid-theme-public-rooma', 'coffee');
+    localStorage.setItem(STORAGE_APPEARANCE_KEY, 'light');
+
+    renderAppearance('/rooma');
+
+    await waitFor(() => expect(hasClass('theme-coffee')).toBe(true));
+    expect(hasClass('theme-light')).toBe(false);
+  });
+
+  it('room route + light room theme + appearance=dark -> the no-class dark default', async () => {
+    stubPortalFetch();
+    localStorage.setItem('arcaid-theme-public-rooma', 'coffee');
+    localStorage.setItem(STORAGE_APPEARANCE_KEY, 'dark');
+
+    renderAppearance('/rooma');
+
+    await waitFor(() => expect(hasClass('theme-coffee')).toBe(false));
+    expect(hasClass('theme-light')).toBe(false);
+    expect(document.documentElement.className.trim()).toBe('');
+  });
+
+  it('appearance=auto leaves the room theme exactly as it was', async () => {
+    stubPortalFetch();
+    localStorage.setItem('arcaid-theme-public-rooma', 'ocean');
+    localStorage.setItem(STORAGE_APPEARANCE_KEY, 'auto');
+
+    renderAppearance('/rooma');
+
+    await waitFor(() => expect(hasClass('theme-ocean')).toBe(true));
+    expect(hasClass('theme-light')).toBe(false);
+  });
+
+  it('admin route: appearance=light beats the admin ui_theme', async () => {
+    stubPortalFetch();
+    localStorage.setItem('arcaid-theme-admin', 'retro');
+    localStorage.setItem(STORAGE_APPEARANCE_KEY, 'light');
+
+    renderAppearance('/admin/dashboard');
+
+    await waitFor(() => expect(hasClass('theme-light')).toBe(true));
+    expect(hasClass('theme-retro')).toBe(false);
+  });
+
+  it('global route: appearance=light wins over an OS dark preference', async () => {
+    stubPortalFetch();
+    vi.stubGlobal('matchMedia', vi.fn(() => ({
+      matches: false, media: '', onchange: null,
+      addEventListener: () => {}, removeEventListener: () => {},
+      addListener: () => {}, removeListener: () => {}, dispatchEvent: () => false,
+    })) as unknown as typeof window.matchMedia);
+    localStorage.setItem(STORAGE_APPEARANCE_KEY, 'light');
+
+    renderAppearance('/scoreboard');
+
+    await waitFor(() => expect(hasClass('theme-light')).toBe(true));
+  });
+
+  it('migrates the legacy arcaid-global-theme key into the appearance preference once', async () => {
+    stubPortalFetch();
+    // A visitor who used the v2.50.0 global-page toggle, now on a ROOM page:
+    // the old key was global-pages-only, the migrated preference is not.
+    localStorage.setItem('arcaid-global-theme', 'light');
+    localStorage.setItem('arcaid-theme-public-rooma', 'ocean');
+
+    renderAppearance('/rooma');
+
+    await waitFor(() => expect(screen.getByTestId('appearance').textContent).toBe('light'));
+    expect(localStorage.getItem(STORAGE_APPEARANCE_KEY)).toBe('light');
+    expect(hasClass('theme-light')).toBe(true);
+  });
+
+  it('the new key wins over the legacy key (migration is one-time)', async () => {
+    stubPortalFetch();
+    localStorage.setItem('arcaid-global-theme', 'light');
+    localStorage.setItem(STORAGE_APPEARANCE_KEY, 'auto');
+    localStorage.setItem('arcaid-theme-public-rooma', 'ocean');
+
+    renderAppearance('/rooma');
+
+    await waitFor(() => expect(hasClass('theme-ocean')).toBe(true));
+    expect(screen.getByTestId('appearance').textContent).toBe('auto');
+  });
+
+  it('setAppearance persists to localStorage and re-themes immediately', async () => {
+    stubPortalFetch();
+    localStorage.setItem('arcaid-theme-public-rooma', 'ocean');
+
+    renderAppearance('/rooma');
+    await waitFor(() => expect(hasClass('theme-ocean')).toBe(true));
+
+    fireEvent.click(screen.getByText('set-light'));
+
+    await waitFor(() => expect(hasClass('theme-light')).toBe(true));
+    expect(localStorage.getItem(STORAGE_APPEARANCE_KEY)).toBe('light');
+
+    // ...and going back to Auto restores the room's own theme.
+    fireEvent.click(screen.getByText('set-auto'));
+    await waitFor(() => expect(hasClass('theme-ocean')).toBe(true));
+    expect(localStorage.getItem(STORAGE_APPEARANCE_KEY)).toBe('auto');
+  });
+
+  it('hydrates the appearance from the server for a signed-in player', async () => {
+    // Player tokens live in their own localStorage key and are never sent by
+    // lib/api.ts — the provider must fetch /me/preferences with them directly.
+    localStorage.setItem('arcaid_player_token', 'player.jwt.token');
+    localStorage.setItem('arcaid-theme-public-rooma', 'ocean');
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url.startsWith('/api/me/preferences')) {
+        expect((init?.headers as Record<string, string>)?.Authorization).toBe('Bearer player.jwt.token');
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ ui_theme: null, appearance: 'light' }) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ id: 'rooma', roomId: 'rooma', slug: 'rooma', name: 'rooma', public_theme: null, ui_theme: null }) });
+    });
+    vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+
+    renderAppearance('/rooma');
+
+    await waitFor(() => expect(hasClass('theme-light')).toBe(true));
+    expect(localStorage.getItem(STORAGE_APPEARANCE_KEY)).toBe('light');
   });
 });

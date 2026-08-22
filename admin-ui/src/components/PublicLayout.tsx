@@ -13,6 +13,7 @@ import { setToken } from '../lib/api';
 import { decodeJwtPayload, isExpiredOrInvalid } from '../lib/adminSlotSeed';
 import { parseServerDate } from '../lib/format';
 import UserMenu from './UserMenu';
+import GlobalThemeToggle from './GlobalThemeToggle';
 import LoginButtons from './LoginButtons';
 import PendingSubmissionWatcher from './PendingSubmissionWatcher';
 import ScoreboardTicker from './ScoreboardTicker';
@@ -406,7 +407,12 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
               );
             })}
           </div>
-          <div className="flex items-center flex-shrink-0">
+          <div className="flex items-center flex-shrink-0 gap-1 sm:gap-2">
+            {/* v2.130.0 — the site-wide light/dark switch, in the room nav for
+                the same reason it is on the global pages: "every page" needs
+                the affordance. The 3-way form lives one click deeper, in the
+                display-settings sheet and account settings. */}
+            <GlobalThemeToggle />
             {/* Discord login / user menu */}
             {discordUser ? (
               <UserMenu

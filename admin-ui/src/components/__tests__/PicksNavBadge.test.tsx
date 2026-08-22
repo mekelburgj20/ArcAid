@@ -3,6 +3,7 @@ import { render, screen, waitFor, act } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import PublicLayout from '../PublicLayout';
 import { ViewerAuthProvider } from '../../contexts/ViewerAuthContext';
+import { ThemeProvider } from '../ThemeProvider';
 
 // ---------------------------------------------------------------------------
 // Picks nav badge.
@@ -87,16 +88,20 @@ function stubFetchSequenced(box: { status: number; body: object }) {
   return calls;
 }
 
+// v2.130.0: PublicLayout's nav now renders GlobalThemeToggle, which calls
+// useTheme() — so the layout has to be mounted inside a ThemeProvider here.
 function renderLayout(path = '/rtx_pinball/stats') {
   return render(
     <MemoryRouter initialEntries={[path]}>
-      <ViewerAuthProvider>
-        <Routes>
-          <Route path="/:slug" element={<PublicLayout />}>
-            <Route path="stats" element={<div>stats</div>} />
-          </Route>
-        </Routes>
-      </ViewerAuthProvider>
+      <ThemeProvider>
+        <ViewerAuthProvider>
+          <Routes>
+            <Route path="/:slug" element={<PublicLayout />}>
+              <Route path="stats" element={<div>stats</div>} />
+            </Route>
+          </Routes>
+        </ViewerAuthProvider>
+      </ThemeProvider>
     </MemoryRouter>,
   );
 }

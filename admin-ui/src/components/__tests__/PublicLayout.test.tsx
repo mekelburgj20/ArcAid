@@ -3,6 +3,7 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import PublicLayout from '../PublicLayout';
 import { ViewerAuthProvider } from '../../contexts/ViewerAuthContext';
+import { ThemeProvider } from '../ThemeProvider';
 import { useRoom } from '../../contexts/RoomContext';
 
 function b64url(obj: object): string {
@@ -58,16 +59,20 @@ function ChildProbe() {
   );
 }
 
+// v2.130.0: PublicLayout's nav now renders GlobalThemeToggle, which calls
+// useTheme() — so the layout has to be mounted inside a ThemeProvider here.
 function renderAt(path: string) {
   return render(
     <MemoryRouter initialEntries={[path]}>
-      <ViewerAuthProvider>
-        <Routes>
-          <Route path="/:slug" element={<PublicLayout />}>
-            <Route path="child" element={<ChildProbe />} />
-          </Route>
-        </Routes>
-      </ViewerAuthProvider>
+      <ThemeProvider>
+        <ViewerAuthProvider>
+          <Routes>
+            <Route path="/:slug" element={<PublicLayout />}>
+              <Route path="child" element={<ChildProbe />} />
+            </Route>
+          </Routes>
+        </ViewerAuthProvider>
+      </ThemeProvider>
     </MemoryRouter>,
   );
 }
@@ -388,15 +393,17 @@ describe('PublicLayout', () => {
 
       return render(
         <MemoryRouter initialEntries={[path]}>
-          <ViewerAuthProvider>
-            <Routes>
-              <Route path="/:slug" element={<PublicLayout />}>
-                <Route index element={<div />} />
-                <Route path="history" element={<div />} />
-                <Route path="players/:name" element={<div />} />
-              </Route>
-            </Routes>
-          </ViewerAuthProvider>
+          <ThemeProvider>
+            <ViewerAuthProvider>
+              <Routes>
+                <Route path="/:slug" element={<PublicLayout />}>
+                  <Route index element={<div />} />
+                  <Route path="history" element={<div />} />
+                  <Route path="players/:name" element={<div />} />
+                </Route>
+              </Routes>
+            </ViewerAuthProvider>
+          </ThemeProvider>
         </MemoryRouter>,
       );
     }
