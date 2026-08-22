@@ -96,7 +96,8 @@ router.get('/me/profile/check-display-name', requireAuth, requireDiscordUser, as
 /**
  * PATCH /api/users/me/avatar-preference
  * Body: `{ preference: 'discord' | 'google' | null }` — `null` restores the
- * automatic behavior (Google when present).
+ * automatic behavior (Discord when the user has a real Discord avatar, else
+ * Google — v2.127.1; it was Google-first until then).
  *
  * Exists because `PlayerAvatar` resolves `avatarUrl ?? avatarHash`, so a user
  * linked to both providers had their Discord avatar permanently buried by

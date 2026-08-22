@@ -2697,6 +2697,25 @@ async function doInitDatabase(): Promise<Database> {
             const { foldSyntheticRoomMembers } = await import('./migrations/foldSyntheticRoomMembers.js');
             await foldSyntheticRoomMembers(db);
         } },
+        // v2.127.1 — the AUTOMATIC avatar provider is now Discord-first.
+        //
+        // Migration 151 shipped "Google when present" as the auto rule. Prod
+        // evidence 2026-08-22: Google never returns a NULL picture URL — a
+        // photo-less Google account gets a generated letter tile — so the rule
+        // was really "Google always", and a user with a real Discord avatar saw
+        // the letter tile (ChalataLove on rtx_pinball). See
+        // resolveEffectiveAvatarProvider.
+        //
+        // Re-derive the EFFECTIVE column for the rows the new rule changes:
+        // no explicit preference + a real Discord hash. NULL avatar_url is how
+        // readers fall through to avatar_hash (applyAvatarPreference does the
+        // same thing on every write). Rows with an explicit preference are
+        // deliberately untouched — the user already decided.
+        // See src/database/migrations/avatarAutoPrefersDiscord.ts.
+        { name: '160_avatar_auto_prefers_discord', handler: async (db) => {
+            const { avatarAutoPrefersDiscord } = await import('./migrations/avatarAutoPrefersDiscord.js');
+            await avatarAutoPrefersDiscord(db);
+        } },
     ];
 
     for (const migration of migrations) {

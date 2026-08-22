@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.127.1] — unreleased
+
+**The automatic avatar is now your Discord one.** Migration 151 shipped "Google when present" as the automatic rule, on the reasonable-sounding assumption that a Google-linked account without a picture would have a NULL URL. It never does: Google serves a generated letter tile for photo-less accounts, so "Google when present" was in practice "Google always" — and a player with a real Discord avatar and a photo-less Google account rendered the tile (ChalataLove on rtx_pinball, 2026-08-22; two of the five Google-linked prod users had already overridden to Discord by hand). A Discord `avatar_hash` is only non-NULL when the user actually chose an avatar, which makes it the honest signal of intent.
+
+### Changed
+- **`resolveEffectiveAvatarProvider` automatic order is Discord-first** (`src/services/UserProfileService.ts`): explicit preference (including the degraded fallbacks) → Discord when the user has an `avatar_hash` → Google when they have a picture URL → nothing. An explicit choice is still absolute in both directions; only users who never touched the picker are affected.
+- **Migration `160_avatar_auto_prefers_discord`** re-derives the EFFECTIVE column for exactly those users: `avatar_url = NULL` where `avatar_preference IS NULL AND avatar_hash IS NOT NULL AND avatar_url IS NOT NULL` (NULL is how readers fall through to the hash — same thing `applyAvatarPreference` writes). Rows carrying an explicit preference are untouched. The changed-row count is logged.
+
+### Fixed
+- **The nightly hydration sweep now retries the profiles that were never created.** `UserProfileService.refreshStaleDiscordProfiles` selected candidates from `user_profiles` alone, so a Discord id whose link-time hydration failed (Discord REST down, or the kill switch off at the time) — and which therefore has no row at all — could never be picked up. The candidate query now UNIONs in Discord-snowflake ids from `user_mappings.discord_user_id` and `room_members.user_id` that have no `user_profiles` row, sorted first as never-fetched and still bounded by `limit`. `hydrateFromDiscord` creates the row on upsert, so the sweep closes its own gap.
+
+---
+
 ## [2.127.0] — unreleased
 
 **Linking an iScored name now tidies up after itself.** Until now every `user_mappings` writer — self-claim, auto-link, `/map-user`, the global-submit name claim, `submitscore`'s auto-map, admin merge — wrote the alias row and stopped. Three prod symptoms followed from that, all on rtx_pinball, all diagnosed 2026-08-21: the Members page showed a generic avatar for players who plainly had one, a player who beat their own pre-link score appeared TWICE on the same board, and anyone mapped by a bot command who never web-logged-in had no avatar or name anywhere. `IdentityAliasEffectsService` is the one place that knows what a link means; every writer calls it, and migration 159 clears the backlog.
