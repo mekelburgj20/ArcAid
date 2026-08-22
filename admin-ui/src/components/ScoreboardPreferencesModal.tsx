@@ -3,6 +3,7 @@ import { X, RotateCcw, Monitor, Smartphone, ChevronDown, ChevronRight } from 'lu
 import { useTheme, type ThemeId } from './ThemeProvider';
 import AppearanceControl from './AppearanceControl';
 import ThemePicker from './ThemePicker';
+import { saveRoomTheme } from '../lib/roomThemes';
 import type { ScoreboardStyle } from '../lib/scoreboardThemes';
 import { SHOWCASE_THEMES, DEFAULT_SHOWCASE_THEME } from '../lib/scoreboardThemes';
 import { TOGGLE_DEFAULT_ON } from '../lib/scoreboardConfig';
@@ -25,6 +26,12 @@ interface ScoreboardPreferencesModalProps {
    * fetched, so a Save there would wipe the viewer's whole override set.
    */
   roomScoped?: boolean;
+  /**
+   * v2.132.0 — `game_rooms.id` for the room on screen. The per-room theme
+   * override is keyed by it (NOT by device, and not by slug); without it the
+   * picker still repaints locally but cannot persist.
+   */
+  roomId?: string;
   /** Room name for the "This room" caption; falls back to generic copy. */
   roomName?: string;
 }
@@ -257,6 +264,7 @@ export default function ScoreboardPreferencesModal({
   roomConfig,
   onSaved,
   roomScoped = true,
+  roomId,
   roomName,
 }: ScoreboardPreferencesModalProps) {
   const [prefs, setPrefs] = useState<Record<string, string>>({});
@@ -264,7 +272,7 @@ export default function ScoreboardPreferencesModal({
   const [loaded, setLoaded] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [confirmResetAll, setConfirmResetAll] = useState(false);
-  const { appearance, personalTheme, setPersonalTheme, setRoomThemeOverride } = useTheme();
+  const { appearance, personalTheme, setPersonalTheme, roomThemeOverride, setRoomThemeOverride } = useTheme();
   const [device, setDevice] = useState<DeviceType>(window.innerWidth <= 640 ? 'mobile' : 'desktop');
 
   useEffect(() => {
@@ -280,17 +288,23 @@ export default function ScoreboardPreferencesModal({
     })
       .then(r => (r.ok ? r.json() : {}))
       .then((data: Record<string, string> | null) => {
-        const loadedPrefs = data || {};
-        setPrefs(loadedPrefs);
-        // Keep the applied theme in step with what the sheet is showing.
-        setRoomThemeOverride((loadedPrefs.UI_THEME as ThemeId) || null);
+        setPrefs(data || {});
         setLoaded(true);
       })
       .catch(() => setLoaded(true));
-    // `setRoomThemeOverride` is a stable-enough provider closure; adding it
-    // would re-fire this fetch on every ThemeProvider render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, playerToken, device, roomScoped]);
+
+  /**
+   * v2.132.0 — the per-room theme is NOT a scoreboard pref any more: it is
+   * keyed by room id in `scoreboard_prefs.roomThemes`, so it saves itself the
+   * moment it changes (like Appearance and My theme) rather than riding the
+   * Save button's per-device payload. `setRoomThemeOverride` repaints
+   * immediately; the PUT is best-effort on top.
+   */
+  const handleRoomThemeChange = (next: ThemeId | null) => {
+    setRoomThemeOverride(next);
+    if (roomId) void saveRoomTheme(roomId, next);
+  };
 
   const handleChange = (key: string, value: string) => {
     setPrefs(prev => ({ ...prev, [key]: value }));
@@ -315,8 +329,12 @@ export default function ScoreboardPreferencesModal({
       // Build the payload: explicitly set keys with values, clear removed keys by sending null
       const payload: Record<string, string | null> = {};
 
-      // Theme
-      payload['UI_THEME'] = source['UI_THEME'] ?? null;
+      // v2.132.0 — `UI_THEME` is posted as null unconditionally and is never
+      // read back. It is the retired per-device room-theme key: the override
+      // now lives in `scoreboard_prefs.roomThemes[roomId]` and saves itself
+      // on change. Posting null keeps sweeping the legacy key out of the
+      // per-device blob for anyone the server-side lift hasn't reached.
+      payload['UI_THEME'] = null;
       // Style + theme
       payload['SCOREBOARD_STYLE'] = source['SCOREBOARD_STYLE'] ?? null;
       payload['SCOREBOARD_THEME'] = source['SCOREBOARD_THEME'] ?? null;
@@ -348,10 +366,6 @@ export default function ScoreboardPreferencesModal({
         },
         body: JSON.stringify(payload),
       });
-      // v2.132.0 — the this-room override is a theme-resolution layer, so the
-      // provider has to learn about it here. Applied on SAVE, not on change,
-      // so Cancel still means cancel.
-      setRoomThemeOverride((source['UI_THEME'] as ThemeId) || null);
       onSaved();
       onClose();
     } catch {
@@ -371,6 +385,10 @@ export default function ScoreboardPreferencesModal({
   const handleResetAll = async () => {
     setConfirmResetAll(false);
     setPrefs({});
+    // v2.132.0 — the per-room theme saves itself, so it is not in the payload
+    // `handleSave` builds. "Go back to the room's defaults" plainly includes
+    // the theme, so clear it here too.
+    handleRoomThemeChange(null);
     await handleSave({});
   };
 
@@ -559,9 +577,13 @@ export default function ScoreboardPreferencesModal({
             <section>
             <h3 className="text-xs font-semibold text-muted uppercase tracking-wider mb-2">This room</h3>
             <div className="flex items-start justify-between gap-3 mb-3">
+              {/* The section now mixes scopes: the theme is per ROOM (every
+                  device), everything under it is per room AND per device.
+                  Say so here rather than letting the old "for your {device}
+                  view" line imply the theme is a device setting too. */}
               <p className="text-xs text-muted">
-                Override {roomName ? `${roomName}'s` : "the room's"} defaults for your {device} leaderboard
-                view. Reset a setting to use the room admin's default.
+                Your own settings for {roomName ?? 'this room'}. The theme applies on every device; the
+                scoreboard settings below are for {device}, and reset to the room admin's default.
               </p>
               {!confirmResetAll && (
                 <button
@@ -596,8 +618,34 @@ export default function ScoreboardPreferencesModal({
               </div>
             )}
 
-            {/* ── Card Style ───────────────────────────────────────── */}
+            {/* ── Theme for this room only (v2.132.0: was "UI Theme") ──
+                First in the section, and one of the three theme controls that
+                save the instant they change — it is stored per ROOM, not in
+                the per-device payload the Save button posts. */}
             <div className="py-2">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-sm font-medium text-primary">Theme for this room only</span>
+              </div>
+              <ThemePicker
+                value={roomThemeOverride}
+                onChange={handleRoomThemeChange}
+                nullLabel={personalTheme ? 'Use my theme' : 'Use the room default'}
+                aria-label="Theme for this room only"
+                data-testid="room-theme-picker"
+                className={selectClass}
+              />
+              <p className="text-xs text-muted mt-1">
+                Applies in {roomName ?? 'this room'} only, on every device. Beats “My theme” above
+                while you are here.
+                {appearance !== 'auto' && (
+                  <> Appearance is set to {appearance === 'light' ? 'Light' : 'Dark'}, so a theme only
+                  shows while Appearance is Auto.</>
+                )}
+              </p>
+            </div>
+
+            {/* ── Card Style ───────────────────────────────────────── */}
+            <div className="py-2 border-t border-border mt-2 pt-3">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-medium text-primary">Card Style</span>
                 <ResetBtn k="SCOREBOARD_STYLE" />
@@ -656,29 +704,6 @@ export default function ScoreboardPreferencesModal({
                 </div>
               </div>
             )}
-
-            {/* ── Theme for this room only (v2.132.0: was "UI Theme") ── */}
-            <div className="py-2">
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-sm font-medium text-primary">Theme for this room only</span>
-                <ResetBtn k="UI_THEME" />
-              </div>
-              <ThemePicker
-                value={(prefs['UI_THEME'] as ThemeId) || null}
-                onChange={t => handleChange('UI_THEME', t ?? '')}
-                nullLabel={personalTheme ? 'Use my theme' : 'Use the room default'}
-                aria-label="Theme for this room only"
-                data-testid="room-theme-picker"
-                className={selectClass}
-              />
-              <p className="text-xs text-muted mt-1">
-                Beats “My theme” above while you are in this room.
-                {appearance !== 'auto' && (
-                  <> Appearance is set to {appearance === 'light' ? 'Light' : 'Dark'}, so a theme only
-                  shows while Appearance is Auto.</>
-                )}
-              </p>
-            </div>
 
             {/* ── Card Layout ──────────────────────────────────────── */}
             <div className="border-t border-border pt-2 mt-2">

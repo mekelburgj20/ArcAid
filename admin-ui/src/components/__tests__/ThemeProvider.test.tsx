@@ -417,7 +417,7 @@ describe('ThemeProvider — resolution order (v2.132.0)', () => {
   it('room page: the this-room override beats the personal theme', async () => {
     stubPortalFetchWithServerTheme('ocean');
     localStorage.setItem('arcaid-theme-personal', 'retro');
-    localStorage.setItem('arcaid-theme-room-override', 'cyberpunk');
+    localStorage.setItem('arcaid-theme-room-res1', 'cyberpunk');
 
     renderResolution('/res1');
 
@@ -448,14 +448,14 @@ describe('ThemeProvider — resolution order (v2.132.0)', () => {
   it('clearing the override live falls back to the personal theme, then the room default', async () => {
     stubPortalFetchWithServerTheme('ocean');
     localStorage.setItem('arcaid-theme-personal', 'retro');
-    localStorage.setItem('arcaid-theme-room-override', 'cyberpunk');
+    localStorage.setItem('arcaid-theme-room-res4', 'cyberpunk');
 
     renderResolution('/res4');
     await waitFor(() => expect(hasClass('theme-cyberpunk')).toBe(true));
 
     fireEvent.click(screen.getByText('clear-override'));
     await waitFor(() => expect(hasClass('theme-retro')).toBe(true));
-    expect(localStorage.getItem('arcaid-theme-room-override')).toBeNull();
+    expect(localStorage.getItem('arcaid-theme-room-res4')).toBeNull();
 
     fireEvent.click(screen.getByText('clear-personal'));
     await waitFor(() => expect(hasClass('theme-ocean')).toBe(true));
@@ -469,7 +469,7 @@ describe('ThemeProvider — resolution order (v2.132.0)', () => {
     stubPortalFetchWithServerTheme('ocean');
     localStorage.setItem('arcaid-theme-personal', 'retro');
     // Neither of these may reach an admin page.
-    localStorage.setItem('arcaid-theme-room-override', 'cyberpunk');
+    localStorage.setItem('arcaid-theme-room-res5', 'cyberpunk');
     localStorage.setItem('arcaid-theme-public-res5', 'plasma');
 
     renderResolution('/admin/dashboard');
@@ -523,6 +523,59 @@ describe('ThemeProvider — resolution order (v2.132.0)', () => {
     expect(localStorage.getItem('arcaid-theme-personal')).toBe('retro');
     await waitFor(() => expect(posts.some(p => p.url.startsWith('/api/me/preferences'))).toBe(true));
     expect(posts.find(p => p.url.startsWith('/api/me/preferences'))!.body).toEqual({ ui_theme: 'retro' });
+  });
+
+  it('the this-room override is PER ROOM: room A\'s does not apply in room B', async () => {
+    // The bug this pins: pre-v2.132 the override lived in the per-DEVICE
+    // scoreboard prefs, so one "this room only" choice painted every room.
+    stubPortalFetchWithServerTheme('ocean');
+    localStorage.setItem('arcaid-theme-room-roomone', 'cyberpunk');
+
+    const { unmount } = renderResolution('/roomone');
+    await waitFor(() => expect(hasClass('theme-cyberpunk')).toBe(true));
+    unmount();
+    document.documentElement.className = '';
+
+    renderResolution('/roomtwo');
+    await waitFor(() => expect(hasClass('theme-ocean')).toBe(true));
+    expect(hasClass('theme-cyberpunk')).toBe(false);
+  });
+
+  it('navigating room A -> room B drops A\'s override immediately', async () => {
+    stubPortalFetch();
+    localStorage.setItem('arcaid-theme-room-rooma', 'cyberpunk');
+    localStorage.setItem('arcaid-theme-public-roomb', 'ocean');
+
+    renderHarness('/rooma');
+    await waitFor(() => expect(hasClass('theme-cyberpunk')).toBe(true));
+
+    fireEvent.click(screen.getByText('go-roomb'));
+
+    await waitFor(() => expect(hasClass('theme-ocean')).toBe(true));
+    expect(hasClass('theme-cyberpunk')).toBe(false);
+  });
+
+  it('the server map is authoritative: an override cleared elsewhere clears the mirror', async () => {
+    localStorage.setItem('arcaid_player_token', 'player.jwt.token');
+    localStorage.setItem('arcaid-theme-room-res9', 'cyberpunk');
+    const fetchMock = vi.fn((url: string) => {
+      if (url.startsWith('/api/me/room-themes')) {
+        // Signed in, and this viewer has no override for this room any more.
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ roomThemes: {} }) });
+      }
+      if (url.startsWith('/api/me/preferences')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ ui_theme: null, appearance: null }) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ id: 'res9', roomId: 'res9', slug: 'res9', name: 'res9', public_theme: 'ocean', ui_theme: 'ocean' }) });
+    });
+    vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+
+    renderResolution('/res9');
+
+    await waitFor(() => expect(hasClass('theme-ocean')).toBe(true));
+    expect(localStorage.getItem('arcaid-theme-room-res9')).toBeNull();
+    // The room id, not the slug, is what the server is asked about.
+    expect(fetchMock.mock.calls.some(c => String(c[0]) === '/api/me/room-themes?roomId=res9')).toBe(true);
   });
 
   it('a NULL server ui_theme clears the localStorage personal mirror', async () => {

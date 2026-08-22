@@ -4,8 +4,6 @@ import { Search } from 'lucide-react';
 import { getSocket } from '../lib/websocket';
 import { useRoom } from '../contexts/RoomContext';
 import { useViewerAuth, useViewerHeaders, usePlayerHeaders } from '../contexts/ViewerAuthContext';
-import { useTheme } from '../components/ThemeProvider';
-import type { ThemeId } from '../components/ThemeProvider';
 import type { GameLeaderboard, RankingGroupData } from '../components/ScoreboardComponents';
 import ScoreboardSurface from '../components/scoreboard/ScoreboardSurface';
 import type { LeaderboardWithViewer } from '../components/scoreboard/ScoreboardSurface';
@@ -104,7 +102,6 @@ export default function Scoreboard() {
   // PLAYER token (Discord session), not the admin token (null for public viewers).
   const playerHeaders = usePlayerHeaders();
   const { discordUser, playerToken } = useViewerAuth();
-  const { setRoomThemeOverride } = useTheme();
 
   const deviceType = window.innerWidth <= 640 ? 'mobile' : 'desktop';
 
@@ -116,13 +113,12 @@ export default function Scoreboard() {
       });
       if (prefsRes.ok) {
         const prefs = await prefsRes.json();
-        // v2.132.0 — this is the "this room only" layer of theme resolution,
-        // not the room's own theme. It used to call `setPublicTheme`, which
-        // OVERWROTE the room default in the provider: the viewer could never
-        // get back to it, and (post-v2.132) their personal theme could never
-        // be seen underneath it. Clearing the override when the pref is gone
-        // is just as important as setting it.
-        setRoomThemeOverride((prefs.UI_THEME as ThemeId) || null);
+        // v2.132.0 — this page no longer touches theme resolution at all. It
+        // used to call `setPublicTheme(prefs.UI_THEME)`, which OVERWROTE the
+        // room default in the provider (unrecoverable, and it buried the
+        // personal theme). The per-room override moved out of these
+        // per-device prefs entirely and `ThemeProvider` owns it now; the
+        // legacy `UI_THEME` key that may still be in `prefs` is inert.
         setConfig({ ...cfg, ...prefs });
         return true;
       }

@@ -137,6 +137,14 @@ export const UpdatePreferencesSchema = z.object({
     { message: 'Provide ui_theme and/or appearance' },
 );
 
+// v2.132.0 — PUT /api/me/room-themes/:roomId. `theme: null` clears the
+// override for that room; the field is REQUIRED (unlike the two above), since
+// this endpoint has exactly one thing to say and an absent field would be an
+// ambiguous no-op rather than a clear.
+export const SetRoomThemeSchema = z.object({
+    theme: z.enum(['dark', 'light', 'retro', 'cyberpunk', 'ocean', 'sunset', 'minimal', 'invaders', 'coffee', 'backglass', 'crt-green', 'plasma', 'cabinet', 'silverball', 'wizard', 'playfield', 'marquee']).nullable(),
+});
+
 // S15 web push — the browser PushSubscription shape (endpoint + the two
 // client-generated encryption keys). Push endpoints are always https URLs;
 // the keys are base64url (p256dh ≈ 87 chars, auth ≈ 22) — bounds + charset

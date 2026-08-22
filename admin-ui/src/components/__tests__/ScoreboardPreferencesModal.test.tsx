@@ -85,6 +85,7 @@ async function renderModal(roomConfig: Record<string, string> = {}) {
           onClose={onClose}
           playerToken="token-1"
           roomConfig={roomConfig}
+          roomId="room-1"
           onSaved={onSaved}
         />
       </ThemeProvider>
@@ -363,10 +364,43 @@ describe('ScoreboardPreferencesModal — Display settings sections', () => {
     expect(JSON.parse(posts[posts.length - 1][1]!.body as string)).toEqual({ ui_theme: null });
   });
 
-  it('still saves the this-room theme override through the scoreboard-prefs payload', async () => {
+  /**
+   * v2.132.0 — the room theme is keyed by ROOM ID, not by device, so it left
+   * the Save button's per-device payload entirely and PUTs itself on change.
+   */
+  it('saves the this-room theme to /me/room-themes/:roomId, not the device prefs', async () => {
+    localStorage.setItem('arcaid_player_token', 'player.jwt.token');
     await renderModal();
+
     fireEvent.change(screen.getByTestId('room-theme-picker'), { target: { value: 'plasma' } });
+
+    await waitFor(() => expect(
+      fetchMock.mock.calls.some(c => String(c[0]) === '/api/me/room-themes/room-1' && c[1]?.method === 'PUT'),
+    ).toBe(true));
+    const put = fetchMock.mock.calls.find(c => String(c[0]) === '/api/me/room-themes/room-1')!;
+    expect(JSON.parse(put[1]!.body as string)).toEqual({ theme: 'plasma' });
+  });
+
+  it('clearing the this-room theme PUTs null', async () => {
+    localStorage.setItem('arcaid_player_token', 'player.jwt.token');
+    await renderModal();
+
+    const picker = screen.getByTestId('room-theme-picker');
+    fireEvent.change(picker, { target: { value: 'plasma' } });
+    await waitFor(() => expect(fetchMock.mock.calls.some(c => String(c[0]) === '/api/me/room-themes/room-1')).toBe(true));
+    fireEvent.change(picker, { target: { value: '' } });
+
+    await waitFor(() => {
+      const puts = fetchMock.mock.calls.filter(c => String(c[0]) === '/api/me/room-themes/room-1');
+      expect(JSON.parse(puts[puts.length - 1][1]!.body as string)).toEqual({ theme: null });
+    });
+  });
+
+  it('the Save payload no longer carries a room theme — it posts UI_THEME null to sweep the legacy key', async () => {
+    await renderModal();
     const payload = await savedPayload();
-    expect(payload['UI_THEME']).toBe('plasma');
+    // The key is still enumerated (so the retired per-device value keeps
+    // getting deleted) but is never a value the sheet can set.
+    expect(payload['UI_THEME']).toBeNull();
   });
 });

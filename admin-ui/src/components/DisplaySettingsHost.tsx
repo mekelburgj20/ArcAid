@@ -31,6 +31,7 @@ export const DISPLAY_SETTINGS_SAVED_EVENT = 'display-settings-saved';
 
 interface RoomData {
   slug: string;
+  roomId: string;
   name: string;
   config: Record<string, string>;
 }
@@ -71,7 +72,7 @@ export default function DisplaySettingsHost() {
         if (cancelled || !portal?.roomId) return;
         const res = await fetch(`/api/rooms/${portal.roomId}/scoreboard-config`);
         const cfg = res.ok ? await res.json() : {};
-        if (!cancelled) setRoomData({ slug, name: portal.name, config: cfg || {} });
+        if (!cancelled) setRoomData({ slug, roomId: portal.roomId, name: portal.name, config: cfg || {} });
       } catch { /* the sheet renders fine with empty room defaults */ }
     })();
     return () => { cancelled = true; };
@@ -90,6 +91,7 @@ export default function DisplaySettingsHost() {
       playerToken={playerToken}
       roomConfig={forThisRoom?.config ?? EMPTY_CONFIG}
       roomScoped={!!slug}
+      roomId={forThisRoom?.roomId}
       roomName={forThisRoom?.name}
       onSaved={() => window.dispatchEvent(new Event(DISPLAY_SETTINGS_SAVED_EVENT))}
     />

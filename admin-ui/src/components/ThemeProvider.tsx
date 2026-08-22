@@ -7,8 +7,9 @@
  * they combine in this order (first non-null wins), by route class:
  *
  *   ROOM PUBLIC PAGE (`/:slug/*`)
- *     1. this-room override   — `scoreboard_prefs.UI_THEME` ("this room only",
- *                               set in Display settings → This room)
+ *     1. this-room override   — `scoreboard_prefs.roomThemes[roomId]` ("theme
+ *                               for this room only", set in Display settings
+ *                               → This room). Keyed by ROOM, not by device.
  *     2. personal theme       — `/me/preferences.ui_theme` ("my theme
  *                               everywhere"; NULL = "use each room's default")
  *     3. room default         — `game_room_settings.UI_THEME` (room admin's
@@ -27,23 +28,38 @@
  * Then, ALWAYS LAST on every route class: `resolveAppearance(base, appearance)`
  * — the viewer's Dark / Light / Auto switch (v2.130.0) has the final word.
  *
- * What changed in v2.132.0: the personal theme used to be the ADMIN theme (a
- * field misfiled under room settings, applying only to `/admin/*`). It now
- * outranks the room default on the room's PUBLIC pages too, which is what
- * makes one picker in Display settings enough — and is why the room settings
- * page no longer carries an "Admin Theme" field at all. Guests are unchanged:
- * no personal theme, so room default → appearance.
+ * What changed in v2.132.0:
+ *
+ *  - The personal theme used to be the ADMIN theme (a field misfiled under
+ *    room settings, applying only to `/admin/*`). It now outranks the room
+ *    default on the room's PUBLIC pages too, which is what makes one picker
+ *    in Display settings enough — and is why the room settings page no longer
+ *    carries an "Admin Theme" field at all. Guests are unchanged: no personal
+ *    theme, so room default → appearance.
+ *  - Layer 1 became genuinely per-ROOM. It was `scoreboard_prefs[device]
+ *    .UI_THEME`: one control labelled "this room" that actually applied to
+ *    EVERY room, on ONE device. It now lives in `scoreboard_prefs.roomThemes`,
+ *    a `roomId -> ThemeId` map beside (not inside) the per-device blobs, so
+ *    room A's choice cannot follow you into room B and does follow you onto
+ *    your other devices.
  *
  * No-flash: every layer is mirrored into localStorage and read synchronously
  * on first paint — `arcaid-theme-personal` (personal), `arcaid-theme-public-
- * <slug>` (room default), `arcaid-theme-room-override` (this-room override),
+ * <slug>` (room default), `arcaid-theme-room-<slug>` (this-room override),
  * `arcaid-appearance` (polarity). The server values overwrite them on hydrate.
+ *
+ * The override mirror is a SEPARATE per-slug key from the room-default mirror
+ * on purpose: `setPublicTheme` writes `arcaid-theme-public-<slug>` from the
+ * admin Settings page, so reusing it would turn "an admin changed the room's
+ * default" into "that admin now has a personal override in that room" — which
+ * would silently outrank their own personal theme there.
  */
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useLocation } from 'react-router-dom';
 import { api, isAuthenticated } from '../lib/api';
 import { getPortal } from '../lib/portal';
 import { isAdminPath, isGlobalPath, getRoomSlugForPath } from '../lib/routeClass';
+import { fetchRoomThemes } from '../lib/roomThemes';
 
 export type ThemeId = 'dark' | 'light' | 'retro' | 'cyberpunk' | 'ocean' | 'sunset' | 'minimal' | 'invaders' | 'coffee' | 'backglass' | 'crt-green' | 'plasma' | 'cabinet' | 'silverball' | 'wizard' | 'playfield' | 'marquee';
 
@@ -94,9 +110,10 @@ interface ThemeContextType {
   personalTheme: ThemeId | null;
   setPersonalTheme: (theme: ThemeId | null) => void;
   /**
-   * The "this room only" override (`scoreboard_prefs.UI_THEME`). Owned by the
-   * Display settings sheet / Scoreboard prefs fetch; mirrored to localStorage
-   * so it survives a reload without waiting on a fetch.
+   * The "theme for this room only" override for the room currently on screen
+   * (`scoreboard_prefs.roomThemes[roomId]`), or null off-room. The provider
+   * fetches it; the Display settings sheet writes it through
+   * `setRoomThemeOverride` after its own PUT.
    */
   roomThemeOverride: ThemeId | null;
   setRoomThemeOverride: (theme: ThemeId | null) => void;
@@ -126,8 +143,6 @@ const STORAGE_PUBLIC_KEY = 'arcaid-theme-public';
  * new key is the one that means "no personal theme" by being ABSENT.
  */
 export const STORAGE_PERSONAL_KEY = 'arcaid-theme-personal';
-/** v2.132.0 — mirror of `scoreboard_prefs.UI_THEME`, the this-room override. */
-export const STORAGE_ROOM_OVERRIDE_KEY = 'arcaid-theme-room-override';
 const STORAGE_ADMIN_KEY = 'arcaid-theme-admin';
 /**
  * v2.50.0 (A1) — the visitor's explicit light/dark choice for global pages.
@@ -138,6 +153,14 @@ export const STORAGE_GLOBAL_PAGE_KEY = 'arcaid-global-theme';
 /** v2.130.0 — the single Dark/Light/Auto preference, for every page class. */
 export const STORAGE_APPEARANCE_KEY = 'arcaid-appearance';
 const publicSlugKey = (slug: string) => `arcaid-theme-public-${slug}`;
+/**
+ * v2.132.0 — per-slug mirror of `scoreboard_prefs.roomThemes[roomId]`.
+ *
+ * Slug-keyed rather than id-keyed because the first paint has the URL and
+ * nothing else; the server map is id-keyed and reconciled on hydrate. See the
+ * model block at the top for why this is not the `publicSlugKey` value.
+ */
+const roomOverrideSlugKey = (slug: string) => `arcaid-theme-room-${slug}`;
 
 /**
  * The stored appearance, defaulting to 'auto'.
@@ -334,11 +357,34 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const stored = localStorage.getItem(STORAGE_PERSONAL_KEY) || localStorage.getItem(STORAGE_ADMIN_KEY);
     return (stored as ThemeId) || null;
   });
-  // v2.132.0 — the "this room only" override, mirrored from scoreboard prefs.
+  // v2.132.0 — this room's override, seeded per SLUG so room A's choice never
+  // paints in room B. Null off-room and for any room the viewer hasn't set.
   const [roomThemeOverrideState, setRoomThemeOverrideState] = useState<ThemeId | null>(() => {
-    const stored = localStorage.getItem(STORAGE_ROOM_OVERRIDE_KEY);
-    return (stored as ThemeId) || null;
+    const initialSlug = getRoomSlug(window.location.pathname);
+    if (!initialSlug) return null;
+    return (localStorage.getItem(roomOverrideSlugKey(initialSlug)) as ThemeId) || null;
   });
+
+  // The room on screen RIGHT NOW, for async callbacks. Read from the router
+  // (not `window.location`, which `MemoryRouter` never updates) so the guard
+  // below behaves the same in tests as in the app.
+  const currentRoomSlugRef = useRef<string | null>(roomSlug);
+  useEffect(() => { currentRoomSlugRef.current = roomSlug; }, [roomSlug]);
+
+  /**
+   * Record a room's override: mirror always, paint only if that room is still
+   * the one on screen. The hydrate that calls this is async, so the viewer
+   * may already have navigated to a different room by the time it resolves —
+   * writing the mirror for the room it belongs to is right either way, but
+   * painting it would be room A's theme on room B.
+   */
+  const applyRoomOverride = (slug: string, theme: ThemeId | null) => {
+    try {
+      if (theme) localStorage.setItem(roomOverrideSlugKey(slug), theme);
+      else localStorage.removeItem(roomOverrideSlugKey(slug));
+    } catch { /* private mode */ }
+    if (currentRoomSlugRef.current === slug) setRoomThemeOverrideState(theme);
+  };
 
   // ── Resolution (see the model block at the top of this file) ──────────────
   // Global pages are polarity-only. Admin pages take the personal theme. Room
@@ -390,7 +436,14 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   // value; the network hydrate may still overwrite it with the room's
   // configured theme once that resolves.
   useEffect(() => {
-    if (adminRoute || !roomSlug) return;
+    if (adminRoute || !roomSlug) {
+      // v2.132.0 — off-room the per-room override must go, even though the
+      // room DEFAULT deliberately lingers (it is the fallback for
+      // /account/settings & friends). Leaving it set would let room A's
+      // override paint over room B's theme for a frame on the way in.
+      setRoomThemeOverrideState(null);
+      return;
+    }
     // Resolution order: per-slug key -> legacy un-suffixed key -> default.
     // Always set (rather than only when something is found) so navigating
     // from a room WITH a saved theme to one WITHOUT doesn't keep showing the
@@ -399,6 +452,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       || localStorage.getItem(STORAGE_PUBLIC_KEY)
       || localStorage.getItem(STORAGE_GLOBAL_KEY);
     setPublicThemeState((stored as ThemeId) || 'dark');
+    setRoomThemeOverrideState((localStorage.getItem(roomOverrideSlugKey(roomSlug)) as ThemeId) || null);
   }, [adminRoute, roomSlug]);
 
   // Hydrate from API on mount and whenever the route's admin/public-slug
@@ -422,6 +476,17 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
             if (serverPublicTheme) {
               setPublicThemeState(serverPublicTheme as ThemeId);
               localStorage.setItem(STORAGE_PUBLIC_KEY, serverPublicTheme);
+            }
+            // v2.132.0 — this room's personal override. Needs the ROOM ID,
+            // which is why it waits on the portal. Passing `roomId` also opts
+            // into the server's one-shot lift of a pre-v2.132 per-device
+            // `UI_THEME` override onto this room (see PreferencesService).
+            // A null map means "not signed in / request failed" — the
+            // localStorage mirror stands. An EMPTY map is authoritative: it
+            // clears an override removed on another device.
+            if (portal.roomId) {
+              const map = await fetchRoomThemes(portal.roomId);
+              if (map) applyRoomOverride(roomSlug, map[portal.roomId] ?? null);
             }
           }
         }
@@ -506,18 +571,17 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   };
 
   /**
-   * v2.132.0 — the this-room override mirror. NOT persisted from here: it
-   * lives in `scoreboard_prefs.UI_THEME`, written by the Display settings
-   * sheet's own Save (which enumerates every scoreboard pref key). This
-   * setter exists so the applied theme tracks that value the instant it is
-   * loaded or saved, without waiting for a reload.
+   * v2.132.0 — the this-room override, for the room currently on screen.
+   *
+   * NOT persisted to the server from here: it lives in
+   * `scoreboard_prefs.roomThemes[roomId]`, and the Display settings sheet
+   * PUTs it (it is the side that knows the room ID). This setter exists so
+   * the applied theme and the per-slug mirror track that value immediately.
+   * Off-room it is a no-op — there is no room for the override to be "only".
    */
   const setRoomThemeOverride = (newTheme: ThemeId | null) => {
-    setRoomThemeOverrideState(newTheme);
-    try {
-      if (newTheme) localStorage.setItem(STORAGE_ROOM_OVERRIDE_KEY, newTheme);
-      else localStorage.removeItem(STORAGE_ROOM_OVERRIDE_KEY);
-    } catch { /* private mode */ }
+    if (!roomSlug) return;
+    applyRoomOverride(roomSlug, newTheme);
   };
 
   /** @deprecated v2.132.0 — alias kept for older call sites. */
