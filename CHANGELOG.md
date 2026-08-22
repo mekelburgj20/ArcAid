@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.131.2] — unreleased
+
+**De-emphasised text was effectively invisible.** Owner, 2026-08-22, on the Picks page in the default dark theme: the column headers ("STATUS", "LAST PLAYED", "ALL-TIME HIGH") and the de-emphasised cells ("Never", "--") could barely be read. They render in `--color-faint`, which was `oklch(45% 0.015 255)` — **2.37:1** on `--color-deep` and **2.26:1** on `--color-surface`. That is under WCAG AA (4.5:1) for body text and under even the 3:1 large-text floor. It was not a Picks-page problem: **every one of the 17 themes failed on `--color-faint`**, and three (`coffee`, `minimal`, `silverball`) failed on `--color-muted` too — 20 failing text tokens in all.
+
+### Fixed
+- **`--color-faint` and `--color-muted` retuned in all 17 themes** (`admin-ui/src/index.css`). Hue and chroma are kept per theme — only lightness moves (and chroma slightly on `coffee`'s faint, where the light backgrounds leave no lightness headroom). Default dark: `--color-faint` `oklch(45% 0.015 255)` → **`oklch(63% 0.015 255)`** (2.37:1 → **5.05:1** on deep, 2.26:1 → **4.80:1** on surface) and `--color-muted` `oklch(70% 0.02 255)` → **`oklch(74% 0.02 255)`** (6.62:1 → 7.66:1), lifted alongside faint so the two stay visibly different weights. The light-polarity themes move the other way: `.theme-light` faint `oklch(72% 0.008 260)` → `oklch(51% 0.008 260)` (2.06:1 → 4.78:1), `.theme-coffee` faint `oklch(72% 0.05 85)` → `oklch(48% 0.035 85)` and muted `oklch(55% 0.08 50)` → `oklch(44% 0.08 50)`.
+- **The bar, now met everywhere:** `--color-muted` ≥ 4.5:1 against `--color-deep`, `--color-surface` AND `--color-raised`; `--color-faint` ≥ 4.5:1 against `deep` and `surface` (faint carries real content — "Never", timestamps, captions — not decoration). Post-fix minimums across all 17 themes: **muted 4.92:1** (`coffee` on raised), **faint 4.53:1** (default dark on raised, which is not part of the bar; the lowest in-scope faint value is 4.61:1). Measured by `admin-ui/scripts/contrastAudit.cjs`, a dependency-free oklch→sRGB + WCAG walker over every theme block in `index.css`.
+- **`.sb-theme-scope` restated to match**, keeping `themeScopeParity.test.ts` green.
+- **Picks page call sites** (`admin-ui/src/pages/Picks.tsx`): the desktop table's column-header row and the mobile card's `Played`/`High Score`/`Winner` labels move `text-faint` → `text-muted` (they are navigation, not decoration), as do the `Never` / `--` / `In progress` cells. Every other page is fixed by the token change alone.
+
+### Known residue
+- Five accent tokens in `.theme-coffee` (`neon-magenta`, `neon-amber`, `neon-purple`, `neon-coral`, `neon-blue`) sit between 1.79:1 and 3.23:1 on that theme's pale surfaces. They are accents rather than body text and are out of scope for this hotfix; run `node admin-ui/scripts/contrastAudit.cjs --all` to see them.
+
 ## [2.131.1] — unreleased
 
 **You can read the score cards in light mode again.** Owner, 2026-08-22, right after the Appearance switch shipped: "Light mode in the game room looks terrible on the score cards. You cannot see the text on top of the game card backgrounds." The bug is older than the switch — any room on the Light theme with the immersive "card background fill" turned on had it — but one-click light mode is what made it easy to find.
