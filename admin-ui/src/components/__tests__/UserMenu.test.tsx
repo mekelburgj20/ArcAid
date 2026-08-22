@@ -47,4 +47,27 @@ describe('UserMenu', () => {
 
     expect(screen.queryByRole('menu')).toBeNull();
   });
+
+  // v2.132.0 — "Scoreboard display" became "Display settings" and lost its
+  // `showScoreboardPrefs` gate: the sheet is mounted app-wide now, so the
+  // item is offered on every page and hides its own room-only section.
+  it('shows a "Display settings" item unconditionally', () => {
+    renderMenu();
+    fireEvent.click(screen.getByLabelText('User menu'));
+
+    expect(screen.getByRole('menuitem', { name: /Display settings/ })).toBeInTheDocument();
+    expect(screen.queryByText('Scoreboard display')).toBeNull();
+  });
+
+  it('dispatches open-scoreboard-prefs and closes the menu', () => {
+    const onEvent = vi.fn();
+    window.addEventListener('open-scoreboard-prefs', onEvent);
+    renderMenu();
+    fireEvent.click(screen.getByLabelText('User menu'));
+    fireEvent.click(screen.getByRole('menuitem', { name: /Display settings/ }));
+
+    expect(onEvent).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('menu')).toBeNull();
+    window.removeEventListener('open-scoreboard-prefs', onEvent);
+  });
 });

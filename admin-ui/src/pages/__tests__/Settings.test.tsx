@@ -960,3 +960,41 @@ describe('Settings page — Arcaid Chat Responses (per-room opt-in)', () => {
     expect(screen.queryByText('ENABLE_CALLOUTS')).not.toBeInTheDocument();
   });
 });
+
+/**
+ * v2.132.0 — the Theme card is ONE field. "Admin Theme" was never a room
+ * setting: it wrote the signed-in admin's `/me/preferences.ui_theme` from a
+ * page whose every other control edits the room. It moved to Display settings
+ * / Account settings, so this page must no longer write that endpoint at all.
+ */
+describe('Settings page — Room default theme (v2.132.0)', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    localStorage.clear();
+    document.documentElement.className = '';
+    window.HTMLElement.prototype.scrollIntoView = vi.fn();
+  });
+
+  it('renders a single "Room default theme" field and no "Admin Theme"', async () => {
+    stubFetch({ UI_THEME: 'plasma' });
+    renderSettings();
+    await waitForLoaded();
+
+    expect(screen.getByText('Room default theme')).toBeInTheDocument();
+    expect(screen.queryByText('Admin Theme')).toBeNull();
+    expect(screen.queryByText('Public Theme')).toBeNull();
+    expect((document.getElementById('room-default-theme') as HTMLSelectElement).value).toBe('plasma');
+  });
+
+  it('stages UI_THEME on the room settings save and never posts /me/preferences', async () => {
+    const fetchMock = stubFetch({ UI_THEME: 'plasma' });
+    renderSettings();
+    await waitForLoaded();
+
+    fireEvent.change(document.getElementById('room-default-theme')!, { target: { value: 'ocean' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save All Changes/ }));
+
+    await waitFor(() => expect(lastSavePayload(fetchMock)?.UI_THEME).toBe('ocean'));
+    expect(fetchMock.mock.calls.some((c: FetchArgs) => String(c[0]).includes('/me/preferences'))).toBe(false);
+  });
+});

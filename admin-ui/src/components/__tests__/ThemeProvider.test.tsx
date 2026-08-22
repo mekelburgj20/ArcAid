@@ -104,17 +104,39 @@ describe('ThemeProvider', () => {
     document.documentElement.className = '';
   });
 
+  // v2.132.0 rewrite: this used to assert that a personal ("admin") theme is
+  // DROPPED on entering a public room page. It no longer is — the personal
+  // theme outranks the room default everywhere. The re-theme-on-navigation
+  // regression this test exists for is now covered with a room that has its
+  // own theme and a viewer who has none.
   it('re-themes on navigation: admin -> public swaps the documentElement class', async () => {
     stubPortalFetch();
-    localStorage.setItem('arcaid-theme-admin', 'retro');
+    localStorage.setItem('arcaid-theme-public-rooma', 'ocean');
 
     renderHarness('/admin/dashboard');
 
+    // Admin route, no personal theme -> the no-class dark default.
+    await waitFor(() => expect(document.documentElement.className.trim()).toBe(''));
+
+    fireEvent.click(screen.getByText('go-rooma'));
+
+    await waitFor(() => expect(document.documentElement.classList.contains('theme-ocean')).toBe(true));
+  });
+
+  it('carries the personal theme from an admin page onto a room page (v2.132.0)', async () => {
+    stubPortalFetch();
+    localStorage.setItem('arcaid-theme-personal', 'retro');
+    localStorage.setItem('arcaid-theme-public-rooma', 'ocean');
+
+    renderHarness('/admin/dashboard');
     await waitFor(() => expect(document.documentElement.classList.contains('theme-retro')).toBe(true));
 
     fireEvent.click(screen.getByText('go-rooma'));
 
-    await waitFor(() => expect(document.documentElement.classList.contains('theme-retro')).toBe(false));
+    // The room's own 'ocean' loses to the viewer's own theme.
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(document.documentElement.classList.contains('theme-retro')).toBe(true);
+    expect(document.documentElement.classList.contains('theme-ocean')).toBe(false);
   });
 
   it('per-slug isolation: room A keeps its saved theme, room B (no saved theme) does not inherit it', async () => {
@@ -347,5 +369,179 @@ describe('ThemeProvider — appearance override (v2.130.0)', () => {
 
     await waitFor(() => expect(hasClass('theme-light')).toBe(true));
     expect(localStorage.getItem(STORAGE_APPEARANCE_KEY)).toBe('light');
+  });
+});
+
+// ── v2.132.0: the one theme model ──────────────────────────────────────────
+//
+// Room public page: this-room override -> personal theme -> room default ->
+// dark. Admin page: personal theme -> dark. Appearance still applies LAST on
+// every branch. See the model block at the top of ThemeProvider.tsx.
+
+/** Probe exposing both new setters plus the resolved layers. */
+function ResolutionHarness() {
+  const { personalTheme, setPersonalTheme, roomThemeOverride, setRoomThemeOverride } = useTheme();
+  return (
+    <div>
+      <span data-testid="personal">{personalTheme ?? 'none'}</span>
+      <span data-testid="override">{roomThemeOverride ?? 'none'}</span>
+      <button onClick={() => setPersonalTheme('retro')}>set-personal-retro</button>
+      <button onClick={() => setPersonalTheme(null)}>clear-personal</button>
+      <button onClick={() => setRoomThemeOverride('cyberpunk')}>set-override-cyberpunk</button>
+      <button onClick={() => setRoomThemeOverride(null)}>clear-override</button>
+    </div>
+  );
+}
+
+function renderResolution(initialPath: string) {
+  return render(
+    <MemoryRouter initialEntries={[initialPath]}>
+      <ThemeProvider>
+        <ResolutionHarness />
+        <Routes>
+          <Route path="/admin/dashboard" element={<div>admin-page</div>} />
+          <Route path="/:slug" element={<div>public-page</div>} />
+        </Routes>
+      </ThemeProvider>
+    </MemoryRouter>,
+  );
+}
+
+describe('ThemeProvider — resolution order (v2.132.0)', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    localStorage.clear();
+    document.documentElement.className = '';
+  });
+
+  it('room page: the this-room override beats the personal theme', async () => {
+    stubPortalFetchWithServerTheme('ocean');
+    localStorage.setItem('arcaid-theme-personal', 'retro');
+    localStorage.setItem('arcaid-theme-room-override', 'cyberpunk');
+
+    renderResolution('/res1');
+
+    await waitFor(() => expect(hasClass('theme-cyberpunk')).toBe(true));
+    expect(hasClass('theme-retro')).toBe(false);
+    expect(hasClass('theme-ocean')).toBe(false);
+  });
+
+  it('room page: the personal theme beats the room default', async () => {
+    stubPortalFetchWithServerTheme('ocean');
+    localStorage.setItem('arcaid-theme-personal', 'retro');
+
+    renderResolution('/res2');
+
+    await waitFor(() => expect(hasClass('theme-retro')).toBe(true));
+    expect(hasClass('theme-ocean')).toBe(false);
+  });
+
+  it('room page: a NULL personal theme falls through to the room default', async () => {
+    stubPortalFetchWithServerTheme('ocean');
+
+    renderResolution('/res3');
+
+    await waitFor(() => expect(hasClass('theme-ocean')).toBe(true));
+    expect(screen.getByTestId('personal').textContent).toBe('none');
+  });
+
+  it('clearing the override live falls back to the personal theme, then the room default', async () => {
+    stubPortalFetchWithServerTheme('ocean');
+    localStorage.setItem('arcaid-theme-personal', 'retro');
+    localStorage.setItem('arcaid-theme-room-override', 'cyberpunk');
+
+    renderResolution('/res4');
+    await waitFor(() => expect(hasClass('theme-cyberpunk')).toBe(true));
+
+    fireEvent.click(screen.getByText('clear-override'));
+    await waitFor(() => expect(hasClass('theme-retro')).toBe(true));
+    expect(localStorage.getItem('arcaid-theme-room-override')).toBeNull();
+
+    fireEvent.click(screen.getByText('clear-personal'));
+    await waitFor(() => expect(hasClass('theme-ocean')).toBe(true));
+    expect(localStorage.getItem('arcaid-theme-personal')).toBeNull();
+    // The legacy mirror is cleared with it — a stale value there would
+    // resurrect the theme on the next boot.
+    expect(localStorage.getItem('arcaid-theme-admin')).toBeNull();
+  });
+
+  it('admin page: the personal theme applies, and nothing else does', async () => {
+    stubPortalFetchWithServerTheme('ocean');
+    localStorage.setItem('arcaid-theme-personal', 'retro');
+    // Neither of these may reach an admin page.
+    localStorage.setItem('arcaid-theme-room-override', 'cyberpunk');
+    localStorage.setItem('arcaid-theme-public-res5', 'plasma');
+
+    renderResolution('/admin/dashboard');
+
+    await waitFor(() => expect(hasClass('theme-retro')).toBe(true));
+    expect(hasClass('theme-cyberpunk')).toBe(false);
+    expect(hasClass('theme-plasma')).toBe(false);
+  });
+
+  it('admin page: no personal theme -> the no-class dark default', async () => {
+    stubPortalFetch();
+
+    renderResolution('/admin/dashboard');
+
+    await waitFor(() => expect(screen.getByTestId('personal').textContent).toBe('none'));
+    expect(document.documentElement.className.trim()).toBe('');
+  });
+
+  it('appearance is still the LAST step, over the personal theme', async () => {
+    stubPortalFetchWithServerTheme('ocean');
+    localStorage.setItem('arcaid-theme-personal', 'retro');
+    localStorage.setItem(STORAGE_APPEARANCE_KEY, 'light');
+
+    renderResolution('/res6');
+
+    await waitFor(() => expect(hasClass('theme-light')).toBe(true));
+    expect(hasClass('theme-retro')).toBe(false);
+  });
+
+  it('setPersonalTheme mirrors to localStorage and POSTs ui_theme', async () => {
+    localStorage.setItem('arcaid_player_token', 'player.jwt.token');
+    const posts: Array<{ url: string; body: unknown }> = [];
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') {
+        posts.push({ url, body: JSON.parse(init.body as string) });
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true }) });
+      }
+      if (url.startsWith('/api/me/preferences')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ ui_theme: null, appearance: null }) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ id: 'rooma', roomId: 'rooma', slug: 'rooma', name: 'rooma', public_theme: null, ui_theme: null }) });
+    });
+    vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+
+    renderResolution('/res7');
+    await waitFor(() => expect(screen.getByTestId('personal').textContent).toBe('none'));
+
+    fireEvent.click(screen.getByText('set-personal-retro'));
+
+    await waitFor(() => expect(hasClass('theme-retro')).toBe(true));
+    expect(localStorage.getItem('arcaid-theme-personal')).toBe('retro');
+    await waitFor(() => expect(posts.some(p => p.url.startsWith('/api/me/preferences'))).toBe(true));
+    expect(posts.find(p => p.url.startsWith('/api/me/preferences'))!.body).toEqual({ ui_theme: 'retro' });
+  });
+
+  it('a NULL server ui_theme clears the localStorage personal mirror', async () => {
+    // The server is authoritative in BOTH directions: NULL means "use each
+    // room's default", which is a real choice, not the absence of one.
+    localStorage.setItem('arcaid_player_token', 'player.jwt.token');
+    localStorage.setItem('arcaid-theme-personal', 'retro');
+    const fetchMock = vi.fn((url: string) => {
+      if (url.startsWith('/api/me/preferences')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ ui_theme: null, appearance: null }) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ id: 'res8', roomId: 'res8', slug: 'res8', name: 'res8', public_theme: 'ocean', ui_theme: 'ocean' }) });
+    });
+    vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+
+    renderResolution('/res8');
+
+    await waitFor(() => expect(screen.getByTestId('personal').textContent).toBe('none'));
+    expect(localStorage.getItem('arcaid-theme-personal')).toBeNull();
+    await waitFor(() => expect(hasClass('theme-ocean')).toBe(true));
   });
 });

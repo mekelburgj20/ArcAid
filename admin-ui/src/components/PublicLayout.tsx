@@ -418,7 +418,6 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
               <UserMenu
                 user={discordUser}
                 slug={slug}
-                showScoreboardPrefs={isScoreboard}
                 hasAdminToken={hasAdminToken}
                 onLogout={logoutPlayer}
                 roomMembership={resolvedRoomId ? {

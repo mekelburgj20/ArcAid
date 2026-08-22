@@ -4,6 +4,8 @@ import { ArrowLeft, Home, User as UserIcon, CheckCircle2, AlertCircle, AlertTria
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import LoginButtons from '../components/LoginButtons';
 import AppearanceControl from '../components/AppearanceControl';
+import ThemePicker from '../components/ThemePicker';
+import { useTheme } from '../components/ThemeProvider';
 import { resolveAvatarUrl } from '../lib/avatar';
 import { isGoogleUserId } from '../lib/identityProvider';
 import { buildPushErrorMessage } from '../lib/pushError';
@@ -94,6 +96,7 @@ function urlBase64ToUint8Array(base64String: string) {
 
 export default function AccountSettings() {
   const { discordUser, playerToken, loginWithDiscord, loginWithGoogle, logoutPlayer, setViewerAvatar } = useViewerAuth();
+  const { personalTheme, setPersonalTheme } = useTheme();
   const navigate = useNavigate();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [draft, setDraft] = useState('');
@@ -772,6 +775,28 @@ export default function AccountSettings() {
           <AppearanceControl />
           <p className="text-xs text-faint mt-2">
             Auto follows each room&rsquo;s theme and your device setting on global pages.
+          </p>
+        </section>
+
+        {/* v2.132.0 — the personal theme, reachable without being inside a
+            game room. Same component and same write as the Display settings
+            sheet's "My theme"; deliberately SECOND, because Appearance above
+            still has the last word on light vs dark. Outside the `loading`
+            gate for the same reason Appearance is: it applies instantly and
+            must not wait on the profile fetch. */}
+        <section className="mb-8">
+          <h2 className="text-sm font-medium mb-2">My theme</h2>
+          <ThemePicker
+            value={personalTheme}
+            onChange={setPersonalTheme}
+            nullLabel={"Use each room's default"}
+            aria-label="My theme"
+            data-testid="personal-theme-picker"
+            className="w-full max-w-sm px-3 py-2 bg-raised border border-border rounded text-primary text-sm"
+          />
+          <p className="text-xs text-faint mt-2">
+            Applies to every game room and your admin pages. Appearance (above) still wins on
+            light/dark.
           </p>
         </section>
 

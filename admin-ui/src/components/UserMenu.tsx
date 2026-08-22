@@ -21,7 +21,12 @@ interface RoomMembershipProps {
 
 interface UserMenuProps {
   user: DiscordUser;
-  /** When true, show the "Scoreboard display" preference trigger. */
+  /**
+   * @deprecated v2.132.0 — "Display settings" is now unconditional. The sheet
+   * used to be mounted by the Scoreboard page alone, so the trigger had to be
+   * hidden everywhere else; `DisplaySettingsHost` mounts it app-wide and the
+   * sheet hides its own room-specific section off-room. Ignored.
+   */
   showScoreboardPrefs?: boolean;
   /** When true, show the "Room admin" link pointing at /:slug/admin. */
   hasAdminToken?: boolean;
@@ -31,7 +36,7 @@ interface UserMenuProps {
   onLogout: () => void;
 }
 
-export default function UserMenu({ user, showScoreboardPrefs, hasAdminToken, slug, roomMembership, onLogout }: UserMenuProps) {
+export default function UserMenu({ user, hasAdminToken, slug, roomMembership, onLogout }: UserMenuProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -248,18 +253,16 @@ export default function UserMenu({ user, showScoreboardPrefs, hasAdminToken, slu
                 Link Discord account
               </Link>
             )}
-            {showScoreboardPrefs && (
-              <button
-                role="menuitem"
-                tabIndex={-1}
-                type="button"
-                onClick={openPrefs}
-                className={menuItemClass}
-              >
-                <Settings2 size={14} />
-                Scoreboard display
-              </button>
-            )}
+            <button
+              role="menuitem"
+              tabIndex={-1}
+              type="button"
+              onClick={openPrefs}
+              className={menuItemClass}
+            >
+              <Settings2 size={14} />
+              Display settings
+            </button>
             {hasAdminToken && slug && (
               <Link
                 role="menuitem"

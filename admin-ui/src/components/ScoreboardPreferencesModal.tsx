@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { X, RotateCcw, Monitor, Smartphone, ChevronDown, ChevronRight } from 'lucide-react';
-import { THEMES, useTheme } from './ThemeProvider';
+import { useTheme, type ThemeId } from './ThemeProvider';
 import AppearanceControl from './AppearanceControl';
+import ThemePicker from './ThemePicker';
 import type { ScoreboardStyle } from '../lib/scoreboardThemes';
 import { SHOWCASE_THEMES, DEFAULT_SHOWCASE_THEME } from '../lib/scoreboardThemes';
 import { TOGGLE_DEFAULT_ON } from '../lib/scoreboardConfig';
@@ -14,6 +15,18 @@ interface ScoreboardPreferencesModalProps {
   roomConfig: Record<string, string>;
   /** Called after prefs are saved so scoreboard re-fetches */
   onSaved: () => void;
+  /**
+   * v2.132.0 — false on non-room pages (global scoreboard, /friends, the
+   * landing page…), where the whole "This room" section is hidden.
+   *
+   * It also disables Save, and that is load-bearing rather than cosmetic:
+   * `handleSave` enumerates EVERY scoreboard pref key and posts the unset
+   * ones as `null`, which the backend deletes. Off-room the prefs were never
+   * fetched, so a Save there would wipe the viewer's whole override set.
+   */
+  roomScoped?: boolean;
+  /** Room name for the "This room" caption; falls back to generic copy. */
+  roomName?: string;
 }
 
 type DeviceType = 'desktop' | 'mobile';
@@ -243,26 +256,41 @@ export default function ScoreboardPreferencesModal({
   playerToken,
   roomConfig,
   onSaved,
+  roomScoped = true,
+  roomName,
 }: ScoreboardPreferencesModalProps) {
   const [prefs, setPrefs] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [confirmResetAll, setConfirmResetAll] = useState(false);
-  const { appearance } = useTheme();
+  const { appearance, personalTheme, setPersonalTheme, setRoomThemeOverride } = useTheme();
   const [device, setDevice] = useState<DeviceType>(window.innerWidth <= 640 ? 'mobile' : 'desktop');
 
   useEffect(() => {
     if (!open || !playerToken) return;
+    // Off-room there is no "This room" section to fill, and posting from an
+    // unloaded state would clear the stored overrides — so don't fetch and
+    // don't offer Save (see `roomScoped` on the props).
+    if (!roomScoped) { setPrefs({}); setLoaded(true); return; }
     setLoaded(false);
     setConfirmResetAll(false);
     fetch(`/api/me/scoreboard-preferences?device=${device}`, {
       headers: { Authorization: `Bearer ${playerToken}` },
     })
       .then(r => (r.ok ? r.json() : {}))
-      .then(data => { setPrefs(data || {}); setLoaded(true); })
+      .then((data: Record<string, string> | null) => {
+        const loadedPrefs = data || {};
+        setPrefs(loadedPrefs);
+        // Keep the applied theme in step with what the sheet is showing.
+        setRoomThemeOverride((loadedPrefs.UI_THEME as ThemeId) || null);
+        setLoaded(true);
+      })
       .catch(() => setLoaded(true));
-  }, [open, playerToken, device]);
+    // `setRoomThemeOverride` is a stable-enough provider closure; adding it
+    // would re-fire this fetch on every ThemeProvider render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, playerToken, device, roomScoped]);
 
   const handleChange = (key: string, value: string) => {
     setPrefs(prev => ({ ...prev, [key]: value }));
@@ -320,6 +348,10 @@ export default function ScoreboardPreferencesModal({
         },
         body: JSON.stringify(payload),
       });
+      // v2.132.0 — the this-room override is a theme-resolution layer, so the
+      // provider has to learn about it here. Applied on SAVE, not on change,
+      // so Cancel still means cancel.
+      setRoomThemeOverride((source['UI_THEME'] as ThemeId) || null);
       onSaved();
       onClose();
     } catch {
@@ -447,10 +479,11 @@ export default function ScoreboardPreferencesModal({
       >
         {/* Header with device toggle */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-          <h2 className="text-lg font-display font-bold text-primary">Display Preferences</h2>
+          <h2 className="text-lg font-display font-bold text-primary">Display settings</h2>
           <div className="flex items-center gap-2">
-            {/* Device toggle */}
-            <div className="flex items-center bg-raised border border-border rounded-lg p-0.5">
+            {/* Device toggle — scoreboard prefs are stored per device, so it
+                only means anything while the "This room" section is shown. */}
+            <div className={`flex items-center bg-raised border border-border rounded-lg p-0.5 ${roomScoped ? '' : 'hidden'}`}>
               <button
                 onClick={() => setDevice('desktop')}
                 className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
@@ -482,9 +515,53 @@ export default function ScoreboardPreferencesModal({
           <div className="px-5 py-8 text-center text-muted text-sm">Loading...</div>
         ) : (
           <div className="px-5 py-4 space-y-1">
+            {/* ══ 1. Appearance (v2.130.0) ═══════════════════════════════
+                Site-wide, NOT a scoreboard override: it lives in the viewer's
+                own preferences (localStorage + /me/preferences), so it is
+                saved the instant it is clicked and is untouched by Save /
+                Reset All below. First because it outranks every setting under
+                it — both theme pickers included. */}
+            <section className="pb-3 border-b border-border mb-3">
+              <h3 className="text-xs font-semibold text-muted uppercase tracking-wider mb-2">Appearance</h3>
+              <AppearanceControl />
+              <p className="text-xs text-muted mt-2">
+                Applies everywhere on Arcaid, on this and every other page. Auto follows each room's theme
+                and your device setting on global pages.
+              </p>
+            </section>
+
+            {/* ══ 2. My theme (v2.132.0) ═════════════════════════════════
+                The personal theme — one picker for every game room AND the
+                admin pages, replacing the old "Admin Theme" field that lived
+                (misfiled) in room settings. Saved instantly through
+                `setPersonalTheme`, like Appearance above; the Save button
+                below belongs to the scoreboard prefs only. */}
+            <section className="pb-3 border-b border-border mb-3">
+              <h3 className="text-xs font-semibold text-muted uppercase tracking-wider mb-2">My theme</h3>
+              <ThemePicker
+                value={personalTheme}
+                onChange={setPersonalTheme}
+                nullLabel="Use each room's default"
+                aria-label="My theme"
+                data-testid="personal-theme-picker"
+                className={selectClass}
+              />
+              <p className="text-xs text-muted mt-2">
+                Applies to every game room and your admin pages. Appearance (above) still wins on
+                light/dark.
+              </p>
+            </section>
+
+            {/* ══ 3. This room ═══════════════════════════════════════════
+                Everything below is a per-device override of THIS room's
+                scoreboard defaults, saved together by the Save button. */}
+            {roomScoped && (
+            <section>
+            <h3 className="text-xs font-semibold text-muted uppercase tracking-wider mb-2">This room</h3>
             <div className="flex items-start justify-between gap-3 mb-3">
               <p className="text-xs text-muted">
-                Override room defaults for your {device} leaderboard view. Reset a setting to use the room admin's default.
+                Override {roomName ? `${roomName}'s` : "the room's"} defaults for your {device} leaderboard
+                view. Reset a setting to use the room admin's default.
               </p>
               {!confirmResetAll && (
                 <button
@@ -518,23 +595,6 @@ export default function ScoreboardPreferencesModal({
                 </div>
               </div>
             )}
-
-            {/* ── Appearance (v2.130.0) ────────────────────────────────
-                Site-wide, NOT a scoreboard override: it lives in the viewer's
-                own preferences (localStorage + /me/preferences), so it is
-                saved the instant it is clicked and is untouched by Save /
-                Reset All below. Placed at the top because it outranks every
-                setting under it — including the UI Theme picker. */}
-            <div className="py-2 border-b border-border mb-2">
-              <div className="flex items-center justify-between gap-3 mb-2">
-                <span className="text-sm font-medium text-primary">Appearance</span>
-              </div>
-              <AppearanceControl />
-              <p className="text-xs text-muted mt-2">
-                Applies everywhere on Arcaid, on this and every other page. Auto follows each room's theme
-                and your device setting on global pages.
-              </p>
-            </div>
 
             {/* ── Card Style ───────────────────────────────────────── */}
             <div className="py-2">
@@ -597,28 +657,27 @@ export default function ScoreboardPreferencesModal({
               </div>
             )}
 
-            {/* ── UI Theme ─────────────────────────────────────────── */}
+            {/* ── Theme for this room only (v2.132.0: was "UI Theme") ── */}
             <div className="py-2">
               <div className="flex items-center justify-between mb-1">
-                <span className="text-sm font-medium text-primary">UI Theme</span>
+                <span className="text-sm font-medium text-primary">Theme for this room only</span>
                 <ResetBtn k="UI_THEME" />
               </div>
-              <select
-                value={getEffective('UI_THEME') || 'dark'}
-                onChange={e => handleChange('UI_THEME', e.target.value)}
+              <ThemePicker
+                value={(prefs['UI_THEME'] as ThemeId) || null}
+                onChange={t => handleChange('UI_THEME', t ?? '')}
+                nullLabel={personalTheme ? 'Use my theme' : 'Use the room default'}
+                aria-label="Theme for this room only"
+                data-testid="room-theme-picker"
                 className={selectClass}
-              >
-                <option value="">Room default</option>
-                {Object.entries(THEMES).map(([id, { label }]) => (
-                  <option key={id} value={id}>{label}</option>
-                ))}
-              </select>
-              {appearance !== 'auto' && (
-                <p className="text-xs text-muted mt-1">
-                  Appearance is set to {appearance === 'light' ? 'Light' : 'Dark'}, so this theme only
-                  shows while Appearance is Auto.
-                </p>
-              )}
+              />
+              <p className="text-xs text-muted mt-1">
+                Beats “My theme” above while you are in this room.
+                {appearance !== 'auto' && (
+                  <> Appearance is set to {appearance === 'light' ? 'Light' : 'Dark'}, so a theme only
+                  shows while Appearance is Auto.</>
+                )}
+              </p>
             </div>
 
             {/* ── Card Layout ──────────────────────────────────────── */}
@@ -674,24 +733,37 @@ export default function ScoreboardPreferencesModal({
                 </div>
               )}
             </div>
+            </section>
+            )}
+
+            {!roomScoped && (
+              <p className="text-xs text-faint">
+                Open a game room to change its scoreboard layout, card style and per-room theme.
+              </p>
+            )}
           </div>
         )}
 
-        {/* Footer */}
+        {/* Footer. Appearance and My theme save themselves the moment they are
+            clicked, so off-room there is nothing for a Save button to do —
+            and pressing one would clear the scoreboard prefs (see
+            `roomScoped`). Close is then the only action. */}
         <div className="px-5 py-4 border-t border-border flex justify-end gap-3">
           <button
             onClick={onClose}
             className="px-4 py-2 text-sm text-muted hover:text-primary rounded border border-border cursor-pointer"
           >
-            Cancel
+            {roomScoped ? 'Cancel' : 'Close'}
           </button>
-          <button
-            onClick={() => handleSave()}
-            disabled={saving}
-            className="px-4 py-2 text-sm bg-neon-cyan text-deep font-medium rounded hover:bg-neon-cyan/80 disabled:opacity-50 cursor-pointer"
-          >
-            {saving ? 'Saving...' : 'Save Preferences'}
-          </button>
+          {roomScoped && (
+            <button
+              onClick={() => handleSave()}
+              disabled={saving}
+              className="px-4 py-2 text-sm bg-neon-cyan text-deep font-medium rounded hover:bg-neon-cyan/80 disabled:opacity-50 cursor-pointer"
+            >
+              {saving ? 'Saving...' : 'Save Preferences'}
+            </button>
+          )}
         </div>
       </div>
     </div>

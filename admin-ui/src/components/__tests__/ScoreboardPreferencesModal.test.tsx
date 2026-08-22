@@ -123,7 +123,7 @@ describe('ScoreboardPreferencesModal — P3 tiering', () => {
   it('renders exactly the four top-level controls', async () => {
     await renderModal();
     expect(screen.getByText('Card Style')).toBeInTheDocument();
-    expect(screen.getByText('UI Theme')).toBeInTheDocument();
+    expect(screen.getByText('Theme for this room only')).toBeInTheDocument();
     expect(screen.getByText('Card Layout')).toBeInTheDocument();
     expect(screen.getByText('Zoom')).toBeInTheDocument();
     // Card Style + UI Theme + Card Layout tiles/selects only — no showcase
@@ -269,5 +269,104 @@ describe('ScoreboardPreferencesModal — Reset All', () => {
     fireEvent.click(screen.getByText('Reset everything'));
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
     expect(onClose).toHaveBeenCalled();
+  });
+});
+
+/**
+ * v2.132.0 — "Scoreboard display" became "Display settings": three labelled
+ * sections (Appearance / My theme / This room), the last of which is hidden
+ * off-room. The scoreboard-pref half above is untouched by the re-grouping;
+ * these tests pin the new frame around it.
+ */
+describe('ScoreboardPreferencesModal — Display settings sections', () => {
+  beforeEach(() => {
+    mockFetch();
+    localStorage.clear();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    localStorage.clear();
+  });
+
+  function renderOffRoom() {
+    return render(
+      <MemoryRouter initialEntries={['/scoreboard']}>
+        <ThemeProvider>
+          <ScoreboardPreferencesModal
+            open
+            onClose={vi.fn()}
+            playerToken="token-1"
+            roomConfig={{}}
+            onSaved={vi.fn()}
+            roomScoped={false}
+          />
+        </ThemeProvider>
+      </MemoryRouter>,
+    );
+  }
+
+  it('is titled "Display settings" and renders all three sections on a room page', async () => {
+    await renderModal();
+    expect(screen.getByText('Display settings')).toBeInTheDocument();
+    expect(screen.getByText('Appearance')).toBeInTheDocument();
+    expect(screen.getByText('My theme')).toBeInTheDocument();
+    expect(screen.getByText('This room')).toBeInTheDocument();
+  });
+
+  it('hides the "This room" section (and Save) off-room, keeping the first two', async () => {
+    renderOffRoom();
+    await waitFor(() => expect(screen.getByText('My theme')).toBeInTheDocument());
+
+    expect(screen.getByText('Appearance')).toBeInTheDocument();
+    expect(screen.queryByText('This room')).toBeNull();
+    expect(screen.queryByText('Card Style')).toBeNull();
+    expect(screen.queryByText('Theme for this room only')).toBeNull();
+    // Save would post null for every scoreboard key and wipe the overrides.
+    expect(screen.queryByText('Save Preferences')).toBeNull();
+    expect(screen.getByText('Close')).toBeInTheDocument();
+  });
+
+  it('does not fetch scoreboard preferences off-room', async () => {
+    renderOffRoom();
+    await waitFor(() => expect(screen.getByText('My theme')).toBeInTheDocument());
+    expect(fetchMock.mock.calls.some(c => String(c[0]).includes('/api/me/scoreboard-preferences'))).toBe(false);
+  });
+
+  it('saving "My theme" POSTs { ui_theme } to /me/preferences, on its own', async () => {
+    localStorage.setItem('arcaid_player_token', 'player.jwt.token');
+    await renderModal();
+
+    fireEvent.change(screen.getByTestId('personal-theme-picker'), { target: { value: 'retro' } });
+
+    await waitFor(() => expect(
+      fetchMock.mock.calls.some(c => String(c[0]).startsWith('/api/me/preferences') && c[1]?.method === 'POST'),
+    ).toBe(true));
+    const post = fetchMock.mock.calls.find(c => String(c[0]).startsWith('/api/me/preferences') && c[1]?.method === 'POST')!;
+    expect(JSON.parse(post[1]!.body as string)).toEqual({ ui_theme: 'retro' });
+    // Instant save — it must NOT wait for, or ride along with, the
+    // scoreboard-prefs Save button.
+    expect(fetchMock.mock.calls.some(c => String(c[0]).includes('/api/me/scoreboard-preferences') && c[1]?.method === 'POST')).toBe(false);
+  });
+
+  it('"Use each room\'s default" clears the personal theme', async () => {
+    localStorage.setItem('arcaid_player_token', 'player.jwt.token');
+    await renderModal();
+
+    const picker = screen.getByTestId('personal-theme-picker');
+    fireEvent.change(picker, { target: { value: 'retro' } });
+    await waitFor(() => expect(localStorage.getItem('arcaid-theme-personal')).toBe('retro'));
+
+    fireEvent.change(picker, { target: { value: '' } });
+
+    await waitFor(() => expect(localStorage.getItem('arcaid-theme-personal')).toBeNull());
+    const posts = fetchMock.mock.calls.filter(c => String(c[0]).startsWith('/api/me/preferences') && c[1]?.method === 'POST');
+    expect(JSON.parse(posts[posts.length - 1][1]!.body as string)).toEqual({ ui_theme: null });
+  });
+
+  it('still saves the this-room theme override through the scoreboard-prefs payload', async () => {
+    await renderModal();
+    fireEvent.change(screen.getByTestId('room-theme-picker'), { target: { value: 'plasma' } });
+    const payload = await savedPayload();
+    expect(payload['UI_THEME']).toBe('plasma');
   });
 });
