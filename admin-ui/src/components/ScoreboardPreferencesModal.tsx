@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { X, RotateCcw, Monitor, Smartphone, ChevronDown, ChevronRight } from 'lucide-react';
-import { THEMES } from './ThemeProvider';
+import { THEMES, useTheme } from './ThemeProvider';
+import AppearanceControl from './AppearanceControl';
 import type { ScoreboardStyle } from '../lib/scoreboardThemes';
 import { SHOWCASE_THEMES, DEFAULT_SHOWCASE_THEME } from '../lib/scoreboardThemes';
 import { TOGGLE_DEFAULT_ON } from '../lib/scoreboardConfig';
@@ -248,6 +249,7 @@ export default function ScoreboardPreferencesModal({
   const [loaded, setLoaded] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [confirmResetAll, setConfirmResetAll] = useState(false);
+  const { appearance } = useTheme();
   const [device, setDevice] = useState<DeviceType>(window.innerWidth <= 640 ? 'mobile' : 'desktop');
 
   useEffect(() => {
@@ -517,6 +519,23 @@ export default function ScoreboardPreferencesModal({
               </div>
             )}
 
+            {/* ── Appearance (v2.130.0) ────────────────────────────────
+                Site-wide, NOT a scoreboard override: it lives in the viewer's
+                own preferences (localStorage + /me/preferences), so it is
+                saved the instant it is clicked and is untouched by Save /
+                Reset All below. Placed at the top because it outranks every
+                setting under it — including the UI Theme picker. */}
+            <div className="py-2 border-b border-border mb-2">
+              <div className="flex items-center justify-between gap-3 mb-2">
+                <span className="text-sm font-medium text-primary">Appearance</span>
+              </div>
+              <AppearanceControl />
+              <p className="text-xs text-muted mt-2">
+                Applies everywhere on Arcaid, on this and every other page. Auto follows each room's theme
+                and your device setting on global pages.
+              </p>
+            </div>
+
             {/* ── Card Style ───────────────────────────────────────── */}
             <div className="py-2">
               <div className="flex items-center justify-between mb-2">
@@ -594,6 +613,12 @@ export default function ScoreboardPreferencesModal({
                   <option key={id} value={id}>{label}</option>
                 ))}
               </select>
+              {appearance !== 'auto' && (
+                <p className="text-xs text-muted mt-1">
+                  Appearance is set to {appearance === 'light' ? 'Light' : 'Dark'}, so this theme only
+                  shows while Appearance is Auto.
+                </p>
+              )}
             </div>
 
             {/* ── Card Layout ──────────────────────────────────────── */}

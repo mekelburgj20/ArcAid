@@ -6,6 +6,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.130.0] — unreleased
+
+**One switch for light mode, on every page.** A light theme has existed since the beginning, but reaching it meant three unrelated controls: the sun/moon on the global pages set a per-visitor polarity for `/scoreboard` and the landing page only, admins picked a `ui_theme` for the admin shell, and a signed-in viewer could override one room's theme in that room's display settings. None of them was "put Arcaid in light mode". **Appearance** is that setting — Dark, Light or Auto, one preference, applied to room pages, admin pages and global pages alike (owner ask, 2026-08-22).
+
+### Added
+- **Appearance preference (`dark` | `light` | `auto`, default `auto`).** `auto` is the previous behaviour verbatim — room pages show the room's theme, global pages follow `prefers-color-scheme`, admin pages the admin's `ui_theme`. `light`/`dark` is a **polarity override applied as the LAST step of theme resolution** on every route class: a resolved theme that already renders at the requested polarity is kept (a room on Coffee stays on ITS light theme under Appearance = Light), one that does not is swapped for the canonical `light` / `dark` theme.
+- **`THEME_POLARITY`** in `admin-ui/src/components/ThemeProvider.tsx`, beside `ALL_THEME_CLASSES` — every `ThemeId` classified `light` or `dark`, transcribed from `color-scheme` in `index.css`. Exactly two themes are light-polarity: `light` and `coffee`. (`minimal` is a *dark* monochrome theme despite the name.) `appearancePolarity.test.ts` fails if a theme is added to `THEMES` without being classified.
+- **Where the control lives** — a Dark/Light/Auto segmented control (`AppearanceControl`) as the first section of **Account settings** and at the top of the public **display-settings** sheet, plus the compact sun/moon `GlobalThemeToggle` in the landing-page header, the global scoreboard header, the **public room nav**, and both **admin shells** (sidebar + mobile top bar). Every mount drives the same `useTheme().setAppearance`.
+- **Storage.** `localStorage['arcaid-appearance']` is read synchronously on first render (no flash, and the only store a guest gets). Signed-in users also persist server-side via `/api/me/preferences`, which now works for **player tokens** as well as admin tokens — `ThemeProvider` fetches with whichever the browser holds, since `lib/api.ts` only ever sends the admin one. The server value wins on hydrate and is mirrored back into localStorage.
+- **One-time migration of the legacy key.** A visitor who had used the v2.50.0 global-pages sun/moon (`arcaid-global-theme`) has that choice lifted into the new preference on first read, and the old key is never read again.
+
+### Changed
+- **`GlobalThemeToggle` drives the site-wide preference** instead of its own global-pages-only key. Same look, same position; from `auto` a click commits to the opposite of the polarity currently on screen.
+- **`POST /api/me/preferences` takes `ui_theme` and `appearance` as independently optional fields** (a body carrying neither is rejected) and writes only what was sent, so the Appearance control and the admin theme select can never clobber each other.
+- **`PreferencesService.setTheme(userId, null)` NULLs the column instead of DELETEing the row.** The row also carries `appearance`, `scoreboard_prefs`, `notification_prefs` and `tutorial_seen_at` — dropping all of them because someone reset their admin theme was collateral damage that co-locating `appearance` would have made visible.
+
+### Database
+- **Migration 161 `161_user_preferences_appearance`** — `ALTER TABLE user_preferences ADD COLUMN appearance TEXT`. Nullable; NULL means `auto`, which is what every existing row gets, so the release is a no-op for anyone who never touches the setting.
+
+---
+
 ## [2.128.0] — unreleased
 
 **Two Android score-entry bugs, both in the in-app keypad.** Owner field report: "Done submits before I can check anything", and placing the caret mid-score then typing jumps to the end. Plus the landing page's scrolling score tiles are ~30% larger.

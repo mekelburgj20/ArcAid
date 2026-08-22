@@ -2716,6 +2716,16 @@ async function doInitDatabase(): Promise<Database> {
             const { avatarAutoPrefersDiscord } = await import('./migrations/avatarAutoPrefersDiscord.js');
             await avatarAutoPrefersDiscord(db);
         } },
+        // v2.130.0 — viewer-level Dark/Light/Auto appearance preference. NULL
+        // (the default for every existing row) means 'auto', i.e. exactly
+        // today's behaviour: room pages show the room's theme, global pages
+        // follow the OS, admin pages the admin's own ui_theme. Deliberately a
+        // dedicated nullable column next to ui_theme rather than a key inside
+        // the notification_prefs/scoreboard_prefs JSON blobs — it is read on
+        // every page load and hydrated before anything else.
+        { name: '161_user_preferences_appearance', sql: `
+            ALTER TABLE user_preferences ADD COLUMN appearance TEXT
+        ` },
     ];
 
     for (const migration of migrations) {

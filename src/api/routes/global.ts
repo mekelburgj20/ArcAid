@@ -114,7 +114,13 @@ router.post('/me/preferences', requireAuth, async (req, res) => {
 
         const userId = req.user!.discordId || req.user!.localAdminId || 'admin-password';
         const { PreferencesService } = await import('../../services/PreferencesService.js');
-        await PreferencesService.setTheme(userId, validationResult.data.ui_theme);
+        // v2.130.0 — write only what was sent. `ui_theme` and `appearance` are
+        // independently optional (schema rejects a body carrying neither), so
+        // the Appearance control never has to round-trip, and possibly clobber,
+        // the admin's theme choice and vice versa.
+        const { ui_theme, appearance } = validationResult.data;
+        if (ui_theme !== undefined) await PreferencesService.setTheme(userId, ui_theme);
+        if (appearance !== undefined) await PreferencesService.setAppearance(userId, appearance);
         res.json({ success: true });
     } catch (error) {
         logError('API Error (POST /api/me/preferences):', error);

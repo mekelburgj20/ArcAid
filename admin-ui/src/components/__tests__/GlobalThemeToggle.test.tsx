@@ -2,16 +2,21 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import GlobalThemeToggle from '../GlobalThemeToggle';
-import { ThemeProvider, STORAGE_GLOBAL_PAGE_KEY } from '../ThemeProvider';
+import { ThemeProvider, STORAGE_APPEARANCE_KEY } from '../ThemeProvider';
 
 // v2.50.0 (A1) — global pages (/, /scoreboard, /catalogue, /games/*) stopped
 // rendering the admin-set GLOBAL_PAGE_THEME and now follow the visitor:
-//   1. localStorage['arcaid-global-theme'] (explicit choice)
+//   1. the Appearance preference (localStorage['arcaid-appearance'])
 //   2. prefers-color-scheme
 //   3. dark
 // These tests pin that precedence plus the "once you've chosen, the OS can't
 // override you" rule — the easy regression is re-attaching the media listener
 // unconditionally, which would let an OS flip stomp the visitor's choice.
+//
+// v2.130.0 — the toggle stopped writing its own global-pages-only key and now
+// drives the ONE site-wide Appearance preference, so the assertions below moved
+// from `arcaid-global-theme` to `arcaid-appearance`. The observable behaviour
+// on a global page is unchanged, which is the point of keeping this suite.
 
 /** jsdom ships no usable matchMedia; install a controllable one. */
 function stubMatchMedia(prefersLight: boolean) {
@@ -83,7 +88,7 @@ describe('GlobalThemeToggle / global-page polarity', () => {
   it('an explicit stored choice wins over the OS preference', async () => {
     // OS says light; the visitor previously picked dark. Dark must win.
     stubMatchMedia(true);
-    localStorage.setItem(STORAGE_GLOBAL_PAGE_KEY, 'dark');
+    localStorage.setItem(STORAGE_APPEARANCE_KEY, 'dark');
 
     renderToggle();
 
@@ -100,7 +105,7 @@ describe('GlobalThemeToggle / global-page polarity', () => {
     fireEvent.click(screen.getByLabelText('Switch to light mode'));
 
     await waitFor(() => expect(isLightApplied()).toBe(true));
-    expect(localStorage.getItem(STORAGE_GLOBAL_PAGE_KEY)).toBe('light');
+    expect(localStorage.getItem(STORAGE_APPEARANCE_KEY)).toBe('light');
     expect(screen.getByLabelText('Switch to dark mode')).toBeInTheDocument();
   });
 
@@ -129,6 +134,6 @@ describe('GlobalThemeToggle / global-page polarity', () => {
 
     await waitFor(() => expect(isLightApplied()).toBe(true));
     // Still no stored choice — the page is merely mirroring the OS.
-    expect(localStorage.getItem(STORAGE_GLOBAL_PAGE_KEY)).toBeNull();
+    expect(localStorage.getItem(STORAGE_APPEARANCE_KEY)).toBeNull();
   });
 });

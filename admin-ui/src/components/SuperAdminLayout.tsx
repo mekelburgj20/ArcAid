@@ -4,6 +4,7 @@ import { Home, Settings as SettingsIcon, LogOut, HardDrive, Activity, Menu, X, D
 import { api, isAuthenticated, getTokenRole, setToken } from '../lib/api';
 import LoadingState from './LoadingState';
 import UpdateNudgeBanner from './UpdateNudgeBanner';
+import GlobalThemeToggle from './GlobalThemeToggle';
 
 export default function SuperAdminLayout() {
   const location = useLocation();
@@ -90,6 +91,8 @@ export default function SuperAdminLayout() {
         <Link to="/" className="flex items-center no-underline">
           <img src="/arcaid-logo-wide-v2.png" alt="Arcaid" className="h-9 w-auto" />
         </Link>
+        {/* v2.130.0 — site-wide light/dark switch, admin shells included. */}
+        <GlobalThemeToggle className="ml-auto flex-shrink-0" />
       </div>
 
       {/* Sidebar overlay (mobile) */}
@@ -114,6 +117,7 @@ export default function SuperAdminLayout() {
             <img src="/arcaid-logo-wide-v2.png" alt="Arcaid" className="h-14 w-auto" />
           </Link>
           <span className="text-faint text-xs">Super Admin</span>
+          <GlobalThemeToggle className="ml-auto flex-shrink-0" />
         </div>
         <nav className="flex-1 py-2 flex flex-col gap-0.5 overflow-y-auto">
           {navItems.map(item => {

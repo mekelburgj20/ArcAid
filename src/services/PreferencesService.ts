@@ -10,6 +10,18 @@ export type ThemeId = 'dark' | 'light' | 'retro' | 'cyberpunk' | 'ocean' | 'suns
  */
 export type ScoreboardPrefs = Record<string, string>;
 
+/**
+ * v2.130.0 — viewer-level light/dark polarity override, orthogonal to
+ * `ui_theme`. `'auto'` (stored as NULL) is the historical behaviour: room
+ * pages render the room's theme, global pages follow prefers-color-scheme,
+ * admin pages the admin's `ui_theme`. `'light'`/`'dark'` force that polarity
+ * on EVERY page as the last step of theme resolution (see the frontend's
+ * `THEME_POLARITY` in admin-ui/src/components/ThemeProvider.tsx).
+ */
+export type Appearance = 'dark' | 'light' | 'auto';
+
+const APPEARANCES: readonly string[] = ['dark', 'light', 'auto'];
+
 export type DeviceType = 'desktop' | 'mobile';
 
 /** Stored format: { desktop: {...}, mobile: {...} } */
@@ -30,7 +42,15 @@ export class PreferencesService {
     static async setTheme(discordUserId: string, theme: ThemeId | null): Promise<void> {
         const db = await getDatabase();
         if (!theme) {
-            await db.run('DELETE FROM user_preferences WHERE discord_user_id = ?', discordUserId);
+            // v2.130.0: clearing the theme NULLs the one column, it no longer
+            // DELETEs the row. The row also carries `appearance`,
+            // `scoreboard_prefs`, `notification_prefs` and `tutorial_seen_at`
+            // — dropping all of those because a user reset their admin theme
+            // is collateral damage nobody asked for.
+            await db.run(
+                'UPDATE user_preferences SET ui_theme = NULL WHERE discord_user_id = ?',
+                discordUserId
+            );
         } else {
             await db.run(
                 `INSERT INTO user_preferences (discord_user_id, ui_theme) VALUES (?, ?)
@@ -40,9 +60,37 @@ export class PreferencesService {
         }
     }
 
-    static async getAll(discordUserId: string): Promise<{ ui_theme: ThemeId | null }> {
+    /** Stored appearance, or null when the user has never chosen (= 'auto'). */
+    static async getAppearance(discordUserId: string): Promise<Appearance | null> {
+        const db = await getDatabase();
+        const row = await db.get(
+            'SELECT appearance FROM user_preferences WHERE discord_user_id = ?',
+            discordUserId
+        );
+        const value = row?.appearance;
+        if (!value || !APPEARANCES.includes(value)) return null;
+        return value as Appearance;
+    }
+
+    /**
+     * Persists the appearance override. `'auto'` and `null` both store NULL —
+     * "follow each surface's own theme" is the absence of an override, so
+     * there is no third state to distinguish.
+     */
+    static async setAppearance(discordUserId: string, appearance: Appearance | null): Promise<void> {
+        const db = await getDatabase();
+        const stored = !appearance || appearance === 'auto' ? null : appearance;
+        await db.run(
+            `INSERT INTO user_preferences (discord_user_id, appearance) VALUES (?, ?)
+             ON CONFLICT(discord_user_id) DO UPDATE SET appearance = excluded.appearance`,
+            discordUserId, stored
+        );
+    }
+
+    static async getAll(discordUserId: string): Promise<{ ui_theme: ThemeId | null; appearance: Appearance | null }> {
         const theme = await this.getTheme(discordUserId);
-        return { ui_theme: theme };
+        const appearance = await this.getAppearance(discordUserId);
+        return { ui_theme: theme, appearance };
     }
 
     /**

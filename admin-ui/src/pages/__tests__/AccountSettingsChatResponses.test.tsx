@@ -3,6 +3,7 @@ import { render, screen, waitFor, fireEvent, within } from '@testing-library/rea
 import { MemoryRouter } from 'react-router-dom';
 import AccountSettings from '../AccountSettings';
 import { ViewerAuthProvider } from '../../contexts/ViewerAuthContext';
+import { ThemeProvider } from '../../components/ThemeProvider';
 
 /**
  * v2.125.0 — the "Arcaid chat responses to my messages" switch on Account
@@ -67,12 +68,16 @@ function stubFetch(prefs: Record<string, unknown>) {
   return { fetchMock, puts };
 }
 
+// v2.130.0: the page's first section is the Appearance control, which calls
+// useTheme() — hence the ThemeProvider (and the router it needs) here.
 function renderPage() {
   return render(
     <MemoryRouter initialEntries={['/account/settings']}>
-      <ViewerAuthProvider>
-        <AccountSettings />
-      </ViewerAuthProvider>
+      <ThemeProvider>
+        <ViewerAuthProvider>
+          <AccountSettings />
+        </ViewerAuthProvider>
+      </ThemeProvider>
     </MemoryRouter>,
   );
 }

@@ -126,9 +126,16 @@ export const CreateRankingGroupSchema = z.object({
 
 export const UpdateRankingGroupSchema = CreateRankingGroupSchema.omit({ id: true });
 
+// v2.130.0 — both fields are optional so the two writers (the admin theme
+// select, and the Appearance control) can each post only what they changed.
+// `.refine` keeps a bare `{}` (which would be a silent no-op write) out.
 export const UpdatePreferencesSchema = z.object({
-    ui_theme: z.enum(['dark', 'light', 'retro', 'cyberpunk', 'ocean', 'sunset', 'minimal', 'invaders', 'coffee', 'backglass', 'crt-green', 'plasma', 'cabinet', 'silverball', 'wizard', 'playfield', 'marquee']).nullable(),
-});
+    ui_theme: z.enum(['dark', 'light', 'retro', 'cyberpunk', 'ocean', 'sunset', 'minimal', 'invaders', 'coffee', 'backglass', 'crt-green', 'plasma', 'cabinet', 'silverball', 'wizard', 'playfield', 'marquee']).nullable().optional(),
+    appearance: z.enum(['dark', 'light', 'auto']).nullable().optional(),
+}).refine(
+    body => body.ui_theme !== undefined || body.appearance !== undefined,
+    { message: 'Provide ui_theme and/or appearance' },
+);
 
 // S15 web push — the browser PushSubscription shape (endpoint + the two
 // client-generated encryption keys). Push endpoints are always https URLs;
