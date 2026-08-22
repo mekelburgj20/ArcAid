@@ -36,8 +36,8 @@
 
   /* Text */
   --color-primary: oklch(97.807% 0.029 256.847);
-  --color-muted: oklch(70% 0.02 255);
-  --color-faint: oklch(45% 0.015 255);
+  --color-muted: oklch(74% 0.02 255);
+  --color-faint: oklch(63% 0.015 255);
 
   /* Podium medal metals (A1, v2.50.0). Gold reuses --color-neon-amber, which
      is already theme-aware; silver and bronze had no existing equivalent.
@@ -328,10 +328,10 @@
   --color-border-glow: oklch(58% 0.233 277.117);
   --color-brand-delta: #ff2e63;
   --color-deep: oklch(21.15% 0.012 254.09);
-  --color-faint: oklch(45% 0.015 255);
+  --color-faint: oklch(63% 0.015 255);
   --color-medal-bronze: #cd7f32;
   --color-medal-silver: #c0c0c0;
-  --color-muted: oklch(70% 0.02 255);
+  --color-muted: oklch(74% 0.02 255);
   --color-neon-amber: oklch(82% 0.189 84.429);
   --color-neon-blue: oklch(74% 0.16 232.661);
   --color-neon-coral: oklch(71% 0.194 13.428);
@@ -491,8 +491,8 @@
   --color-neon-coral: oklch(55% 0.194 13.428);
   --color-neon-blue: oklch(50% 0.16 232.661);
   --color-primary: oklch(21% 0.006 285.885);
-  --color-muted: oklch(45% 0.01 260);
-  --color-faint: oklch(72% 0.008 260);
+  --color-muted: oklch(42% 0.01 260);
+  --color-faint: oklch(51% 0.008 260);
 }
 
 /* Retro theme (green-on-black CRT terminal) */
@@ -511,7 +511,7 @@
   --color-neon-blue: oklch(80% 0.25 140);
   --color-primary: oklch(88% 0.15 140);
   --color-muted: oklch(68% 0.1 140);
-  --color-faint: oklch(40% 0.06 140);
+  --color-faint: oklch(58% 0.06 140);
 }
 
 /* Cyberpunk theme (hot pink/yellow on deep purple) */
@@ -530,7 +530,7 @@
   --color-neon-blue: oklch(65% 0.2 270);
   --color-primary: oklch(95% 0.02 310);
   --color-muted: oklch(70% 0.04 310);
-  --color-faint: oklch(45% 0.03 310);
+  --color-faint: oklch(60% 0.03 310);
 }
 
 /* Ocean theme (cool teal on deep navy) */
@@ -548,8 +548,8 @@
   --color-neon-coral: oklch(70% 0.16 25);
   --color-neon-blue: oklch(70% 0.14 235);
   --color-primary: oklch(95% 0.015 220);
-  --color-muted: oklch(68% 0.025 225);
-  --color-faint: oklch(42% 0.02 230);
+  --color-muted: oklch(71% 0.025 225);
+  --color-faint: oklch(61% 0.02 230);
 }
 
 /* Sunset theme (warm orange/amber on dark brown) */
@@ -567,8 +567,8 @@
   --color-neon-coral: oklch(72% 0.2 30);
   --color-neon-blue: oklch(65% 0.12 230);
   --color-primary: oklch(93% 0.02 60);
-  --color-muted: oklch(68% 0.03 55);
-  --color-faint: oklch(42% 0.02 50);
+  --color-muted: oklch(71% 0.03 55);
+  --color-faint: oklch(61% 0.02 50);
 }
 
 /* Space Invaders theme (classic arcade black with bright alien colors) */
@@ -586,8 +586,8 @@
   --color-neon-coral: oklch(65% 0.22 25);
   --color-neon-blue: oklch(68% 0.18 250);
   --color-primary: oklch(95% 0.01 140);
-  --color-muted: oklch(65% 0.06 140);
-  --color-faint: oklch(38% 0.04 140);
+  --color-muted: oklch(68% 0.06 140);
+  --color-faint: oklch(58% 0.04 140);
 }
 
 /* Coffee theme (warm cream/brown light theme, daisyUI retro-inspired) */
@@ -608,8 +608,8 @@
   --color-neon-coral: oklch(70% 0.191 22.2);
   --color-neon-blue: oklch(58% 0.158 242);
   --color-primary: oklch(41% 0.112 45.9);
-  --color-muted: oklch(55% 0.08 50);
-  --color-faint: oklch(72% 0.05 85);
+  --color-muted: oklch(44% 0.08 50);
+  --color-faint: oklch(48% 0.035 85);
 }
 
 /*
@@ -821,8 +821,8 @@
   --color-neon-coral: oklch(65% 0.05 15);
   --color-neon-blue: oklch(70% 0.1 232);
   --color-primary: oklch(90% 0 0);
-  --color-muted: oklch(60% 0 0);
-  --color-faint: oklch(38% 0 0);
+  --color-muted: oklch(71% 0 0);
+  --color-faint: oklch(60% 0 0);
 }
 
 /* Backglass theme (warm amber/orange — 1970s-80s pinball backglass translite) */
@@ -840,8 +840,8 @@
   --color-neon-coral: oklch(70% 0.22 25);
   --color-neon-blue: oklch(60% 0.12 230);
   --color-primary: oklch(90% 0.04 65);
-  --color-muted: oklch(65% 0.05 60);
-  --color-faint: oklch(40% 0.03 50);
+  --color-muted: oklch(69% 0.05 60);
+  --color-faint: oklch(59% 0.03 50);
 }
 
 /* CRT Green theme (phosphor green monochrome CRT monitor) */
@@ -859,8 +859,8 @@
   --color-neon-coral: oklch(75% 0.22 140);
   --color-neon-blue: oklch(78% 0.25 140);
   --color-primary: oklch(85% 0.2 140);
-  --color-muted: oklch(62% 0.12 140);
-  --color-faint: oklch(35% 0.06 140);
+  --color-muted: oklch(67% 0.12 140);
+  --color-faint: oklch(57% 0.06 140);
 }
 
 /* Plasma theme (hot pink + electric blue on dark purple-black) */
@@ -878,8 +878,8 @@
   --color-neon-coral: oklch(68% 0.25 15);
   --color-neon-blue: oklch(70% 0.22 250);
   --color-primary: oklch(93% 0.03 310);
-  --color-muted: oklch(68% 0.05 310);
-  --color-faint: oklch(42% 0.04 310);
+  --color-muted: oklch(69% 0.05 310);
+  --color-faint: oklch(59% 0.04 310);
 }
 
 /* Cabinet theme (classic black arcade cabinet — primary colors on black) */
@@ -897,8 +897,8 @@
   --color-neon-coral: oklch(65% 0.24 25);
   --color-neon-blue: oklch(68% 0.18 245);
   --color-primary: oklch(95% 0 0);
-  --color-muted: oklch(65% 0.01 60);
-  --color-faint: oklch(38% 0 0);
+  --color-muted: oklch(68% 0.01 60);
+  --color-faint: oklch(58% 0 0);
 }
 
 /* Silverball theme (gunmetal/steel gray — chrome pinball machine aesthetic) */
@@ -916,8 +916,8 @@
   --color-neon-coral: oklch(65% 0.1 20);
   --color-neon-blue: oklch(65% 0.06 240);
   --color-primary: oklch(88% 0.01 260);
-  --color-muted: oklch(62% 0.01 260);
-  --color-faint: oklch(42% 0.008 260);
+  --color-muted: oklch(72% 0.01 260);
+  --color-faint: oklch(62% 0.008 260);
 }
 
 /* Wizard theme (deep indigo — mystical/fantasy pinball) */
@@ -935,8 +935,8 @@
   --color-neon-coral: oklch(65% 0.18 20);
   --color-neon-blue: oklch(62% 0.18 260);
   --color-primary: oklch(90% 0.02 280);
-  --color-muted: oklch(65% 0.04 280);
-  --color-faint: oklch(40% 0.03 280);
+  --color-muted: oklch(70% 0.04 280);
+  --color-faint: oklch(60% 0.03 280);
 }
 
 /* Playfield theme (dark green felt — pinball playing surface) */
@@ -954,8 +954,8 @@
   --color-neon-coral: oklch(70% 0.2 25);
   --color-neon-blue: oklch(65% 0.14 235);
   --color-primary: oklch(92% 0.02 100);
-  --color-muted: oklch(65% 0.04 140);
-  --color-faint: oklch(40% 0.03 150);
+  --color-muted: oklch(70% 0.04 140);
+  --color-faint: oklch(60% 0.03 150);
 }
 
 /* Marquee theme (bright white text with glow — illuminated arcade marquee) */
@@ -974,7 +974,7 @@
   --color-neon-blue: oklch(72% 0.16 240);
   --color-primary: oklch(97% 0.005 260);
   --color-muted: oklch(70% 0.01 260);
-  --color-faint: oklch(42% 0.005 260);
+  --color-faint: oklch(58% 0.005 260);
 }
 
 /* Base resets */

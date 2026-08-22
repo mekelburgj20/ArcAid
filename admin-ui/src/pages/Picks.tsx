@@ -1183,7 +1183,7 @@ export default function Picks() {
         // original single panel with row dividers.
         <div className="flex flex-col gap-3 sm:block sm:gap-0 sm:bg-surface sm:border sm:border-border sm:rounded-lg sm:overflow-hidden">
           {/* Header */}
-          <div className={`hidden sm:grid gap-2 px-4 py-2 border-b border-border/50 text-[10px] text-faint uppercase tracking-wider ${
+          <div className={`hidden sm:grid gap-2 px-4 py-2 border-b border-border/50 text-[10px] text-muted uppercase tracking-wider ${
             discordUser ? 'grid-cols-[1fr_100px_110px_140px_120px_60px]' : 'grid-cols-[1fr_100px_110px_140px_120px]'
           }`}>
             <span>Game</span>
@@ -1244,7 +1244,7 @@ export default function Picks() {
                       <span>{new Date(game.lastPlayedDate).toLocaleDateString()}</span>
                     </>
                   ) : (
-                    <span className="text-faint">Never</span>
+                    <span className="text-muted">Never</span>
                   )}
                 </div>
                 <div className="text-right text-xs">
@@ -1257,7 +1257,7 @@ export default function Picks() {
                       )}
                     </div>
                   ) : (
-                    <span className="text-faint">--</span>
+                    <span className="text-muted">--</span>
                   )}
                 </div>
                 <div className="text-right text-xs">
@@ -1267,7 +1267,7 @@ export default function Picks() {
                       <span className="text-primary truncate">{game.winnerName}</span>
                     </div>
                   ) : (
-                    <span className="text-faint">{game.lastPlayedDate ? (game.lastStatus === 'ACTIVE' ? 'In progress' : '--') : '--'}</span>
+                    <span className="text-muted">{game.lastPlayedDate ? (game.lastStatus === 'ACTIVE' ? 'In progress' : '--') : '--'}</span>
                   )}
                 </div>
                 {discordUser && (
@@ -1281,7 +1281,7 @@ export default function Picks() {
                         Pick
                       </button>
                     ) : (
-                      <span className="text-faint text-[10px]">--</span>
+                      <span className="text-muted text-[10px]">--</span>
                     )}
                   </div>
                 )}
@@ -1324,15 +1324,15 @@ export default function Picks() {
                 </div>
                 <div className="grid grid-cols-3 gap-x-3 gap-y-1 text-[11px]">
                   <div>
-                    <span className="text-faint">Played</span>
+                    <span className="text-muted">Played</span>
                     <p className="text-muted">{game.lastPlayedDate ? new Date(game.lastPlayedDate).toLocaleDateString() : 'Never'}</p>
                   </div>
                   <div>
-                    <span className="text-faint">High Score</span>
+                    <span className="text-muted">High Score</span>
                     <p className="text-primary whitespace-nowrap tabular-nums">{game.allTimeHigh != null ? game.allTimeHigh.toLocaleString() : '--'}</p>
                   </div>
                   <div>
-                    <span className="text-faint">Winner</span>
+                    <span className="text-muted">Winner</span>
                     <p className="text-primary truncate">{game.winnerName || '--'}</p>
                   </div>
                 </div>
