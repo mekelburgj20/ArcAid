@@ -2407,12 +2407,20 @@ router.post('/global/scores', globalSubmitLimiter, requireDiscordUser, requireNo
             if (clash) {
                 logInfo(`global submit: alias '${iscoredUsername}' already held by ${clash.discord_user_id}; skipping claim for ${req.user!.discordId}`);
             } else {
-                await db.run(
+                const inserted = await db.run(
                     `INSERT INTO user_mappings (discord_user_id, iscored_username)
                      VALUES (?, ?)
                      ON CONFLICT(iscored_username) DO NOTHING`,
                     req.user!.discordId, iscoredUsername
                 );
+                // v2.127.0 — every user_mappings writer runs the alias-link
+                // effects (fold synthetic memberships, re-attribute unowned
+                // synced rows, hydrate the profile). Gated on `changes`:
+                // DO NOTHING makes a repeat submit a no-op.
+                if (inserted?.changes) {
+                    const { IdentityAliasEffectsService } = await import('../../services/IdentityAliasEffectsService.js');
+                    await IdentityAliasEffectsService.onAliasLinked(req.user!.discordId, iscoredUsername);
+                }
             }
         }
 

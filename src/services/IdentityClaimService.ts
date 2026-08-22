@@ -1,5 +1,6 @@
 import { getDatabase } from '../database/database.js';
 import { IdentityLinkService } from './IdentityLinkService.js';
+import { IdentityAliasEffectsService } from './IdentityAliasEffectsService.js';
 import { logInfo, logWarn } from '../utils/logger.js';
 
 /**
@@ -186,12 +187,17 @@ export class IdentityClaimService {
             // Auto-approve. ON CONFLICT DO NOTHING mirrors every other
             // user_mappings writer — the UNIQUE(iscored_username) index is the
             // real guard against a race between two claimants.
-            await db.run(
+            const inserted = await db.run(
                 `INSERT INTO user_mappings (discord_user_id, iscored_username, created_at)
                  VALUES (?, ?, datetime('now'))
                  ON CONFLICT(iscored_username) DO NOTHING`,
                 userId, requested,
             );
+            // v2.127.0 — the alias just became this account's, so the synthetic
+            // membership rows and the unowned synced scores under that name are
+            // now theirs too. Gated on `changes` because DO NOTHING makes a
+            // re-claim a silent no-op and the effects must not re-run for it.
+            if (inserted?.changes) await applyAliasLinked(userId, requested);
             await db.run(
                 `INSERT INTO identity_claims
                     (game_room_id, claimant_user_id, iscored_username, status, auto_matched_on, resolved_at, resolved_by)
@@ -371,12 +377,13 @@ export class IdentityClaimService {
             throw new ClaimError('TOO_MANY_ALIASES', 'That player already holds the maximum number of iScored names.');
         }
 
-        await db.run(
+        const inserted = await db.run(
             `INSERT INTO user_mappings (discord_user_id, iscored_username, created_at)
              VALUES (?, ?, datetime('now'))
              ON CONFLICT(iscored_username) DO NOTHING`,
             claim.claimant_user_id, claim.iscored_username,
         );
+        if (inserted?.changes) await applyAliasLinked(claim.claimant_user_id, claim.iscored_username);
         await db.run(
             `UPDATE identity_claims SET status = 'approved', resolved_at = datetime('now'), resolved_by = ?
               WHERE id = ?`,
@@ -405,15 +412,38 @@ export class IdentityClaimService {
         const ids = Array.from(await IdentityLinkService.expandCandidates(userId));
         if (ids.length === 0) return false;
         const placeholders = ids.map(() => '?').join(', ');
+        // Read the holder BEFORE the delete: on a linked Discord<->Google pair
+        // the alias may sit on either id, and the re-anonymize pass has to undo
+        // attribution under the id that actually owned the rows.
+        const held = await db.get<{ discord_user_id: string }>(
+            `SELECT discord_user_id FROM user_mappings
+              WHERE LOWER(iscored_username) = LOWER(?) AND discord_user_id IN (${placeholders})`,
+            iscoredUsername, ...ids,
+        );
         const res = await db.run(
             `DELETE FROM user_mappings
               WHERE LOWER(iscored_username) = LOWER(?) AND discord_user_id IN (${placeholders})`,
             iscoredUsername, ...ids,
         );
         if (res.changes) {
+            // v2.127.0 — releasing the alias returns its synced rows to the
+            // unowned state the link took them out of (the exact undo of
+            // `onAliasLinked`'s re-attribution; membership is left alone).
+            await IdentityAliasEffectsService.onAliasUnlinked(
+                held?.discord_user_id ?? userId, iscoredUsername,
+            );
             logWarn(`Identity alias released: ${userId} gave up "${iscoredUsername}"`);
             return true;
         }
         return false;
     }
+}
+
+/**
+ * v2.127.0 — the side-effects of an alias becoming linked, in one call so both
+ * claim paths (auto-approve and mod-approve) behave identically. See
+ * `IdentityAliasEffectsService`.
+ */
+async function applyAliasLinked(userId: string, iscoredUsername: string): Promise<void> {
+    await IdentityAliasEffectsService.onAliasLinked(userId, iscoredUsername);
 }

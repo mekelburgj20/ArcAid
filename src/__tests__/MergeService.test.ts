@@ -174,6 +174,59 @@ describe('MergeService.reverseMerge — undo forward attribution', () => {
         expect((postMergeRow as any).submitted_by_anonymous_name).toBe('reverseTest');
         expect((postMergeRow as any).discord_user_id).toBe('iscored:reverseTest');
     });
+
+    it('undoes the sync rows recordMerge re-attributed via onAliasLinked (v2.127.0)', async () => {
+        // The merge now runs IdentityAliasEffectsService.onAliasLinked after it
+        // commits, so unowned SYNCED rows under the nickname get attributed
+        // beyond the snapshot. Those rows match reverseMerge's re-anonymize
+        // predicate (`submitted_by_user_id = target AND merged_from IS NULL`),
+        // so a reversal must still return the identity to exactly where it was.
+        const roomId = await createTestRoom();
+        const identityId = await AnonymousIdentityService.upsert({ roomId, guildId: null, serverNickname: 'SyncedGuy' });
+        await seedAnonRow({ roomId, nickname: 'SyncedGuy', score: 100 });
+
+        const db = await getDatabase();
+        // A pre-existing SYNCED row nobody owns, the poller's exact shape, in a
+        // DIFFERENT room. previewMerge is room-scoped so its snapshot can never
+        // contain this row; the alias, being global, makes it the new holder's.
+        const otherRoomId = await createTestRoom('merge-other-room', 'Other Room');
+        const synced = await db.run(
+            `INSERT INTO score_history
+                (game_name, game_room_id, iscored_username, discord_user_id, score, source,
+                 submitted_from_room_id, submitted_by_user_id, submitted_by_anonymous_name)
+             VALUES ('WHO dunnit', ?, 'SyncedGuy', 'iscored:SyncedGuy', 9000, 'sync', ?, NULL, 'SyncedGuy')`,
+            otherRoomId, otherRoomId,
+        );
+        const syncedId = synced.lastID as number;
+
+        const p = await preview(roomId, identityId, 'discord-SY');
+        const merge = await MergeService.recordMerge({
+            roomId,
+            anonymousIdentityId: identityId,
+            targetDiscordUserId: 'discord-SY',
+            adminDiscordUserId: 'admin-1',
+            previewHash: p.previewHash,
+        });
+
+        // onAliasLinked attributed it — it is NOT in the merge snapshot.
+        const attributed = await db.get(
+            `SELECT submitted_by_user_id, discord_user_id FROM score_history WHERE id = ?`, syncedId);
+        expect((attributed as any).submitted_by_user_id).toBe('discord-SY');
+        const snapshot = JSON.parse(
+            ((await db.get(`SELECT score_ids_snapshot FROM merge_records WHERE id = ?`, merge.mergeId)) as any)
+                .score_ids_snapshot,
+        );
+        expect(snapshot.score_history ?? []).not.toContain(syncedId);
+
+        await MergeService.reverseMerge({ mergeId: merge.mergeId, reversalAdminId: 'admin-1' });
+
+        const returned = await db.get(
+            `SELECT submitted_by_user_id, discord_user_id, submitted_by_anonymous_name
+               FROM score_history WHERE id = ?`, syncedId);
+        expect((returned as any).submitted_by_user_id).toBeNull();
+        expect((returned as any).discord_user_id).toBe('iscored:SyncedGuy');
+        expect((returned as any).submitted_by_anonymous_name).toBe('SyncedGuy');
+    });
 });
 
 describe('MergeService.previewMerge — tournament freeze regression (v2.7.x)', () => {

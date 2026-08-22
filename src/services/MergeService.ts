@@ -93,19 +93,17 @@ function hashPreview(identityId: number, targetUserId: string, rows: RowRef, fro
     return crypto.createHash('sha256').update(payload).digest('hex').slice(0, 16);
 }
 
+/**
+ * v2.127.0 — was a private Leaderboard + GlobalLeaderboard pair here; now the
+ * shared `invalidateIdentityCaches` in `IdentityAliasEffectsService`, so the
+ * merge path and the alias-link path can never drift on which caches an
+ * identity re-partition invalidates. The set also gained `RankingService`:
+ * ranking's watermark is over counts and sums (ADR 0013), which re-attribution
+ * does not change, so without an explicit purge it serves the stale partition.
+ */
 async function invalidateCaches(): Promise<void> {
-    try {
-        const { LeaderboardService } = await import('./LeaderboardService.js');
-        LeaderboardService.invalidateAll();
-    } catch (err) {
-        logError('MergeService: LeaderboardService.invalidateAll failed', err);
-    }
-    try {
-        const { GlobalLeaderboardService } = await import('./GlobalLeaderboardService.js');
-        GlobalLeaderboardService.invalidateAll();
-    } catch (err) {
-        logError('MergeService: GlobalLeaderboardService.invalidateAll failed', err);
-    }
+    const { invalidateIdentityCaches } = await import('./IdentityAliasEffectsService.js');
+    await invalidateIdentityCaches();
 }
 
 export class MergeService {
@@ -463,21 +461,28 @@ export class MergeService {
             throw err;
         }
 
-        // Best-effort avatar refresh. Network call kept OUTSIDE the txn so a
-        // slow/failing Discord lookup never holds SQLite or fails the merge.
+        // v2.127.0 — the forward-attribution alias just became live, so run the
+        // shared alias-link effects: fold any synthetic `iscored:<nick>`
+        // room_members rows onto the target, re-attribute the unowned SYNCED
+        // rows under that name, and hydrate the profile.
+        //
+        // The rows this merge itself just moved already carry
+        // `submitted_by_user_id`, so (b)'s `IS NULL` predicate skips them; the
+        // extra rows it DOES attribute match `reverseMerge`'s re-anonymize
+        // block (`submitted_by_user_id = target AND merged_from IS NULL`), so a
+        // reversal still undoes everything this merge caused.
+        //
+        // Hydration replaces the old inline `fetchAvatarHash` block: same one
+        // REST call, but it also creates the profile row when the target has
+        // never logged in, fills the username fallback, and re-derives
+        // `avatar_url` through `applyAvatarPreference` — which the inline
+        // version never did (migration 151), so a merged-in Discord avatar
+        // could silently lose to a stale preference.
         try {
-            const { fetchAvatarHash } = await import('../utils/discord.js');
-            const avatarHash = await fetchAvatarHash(input.targetDiscordUserId);
-            if (avatarHash) {
-                await db.run(
-                    `UPDATE user_profiles
-                     SET avatar_hash = ?, avatar_fetched_at = datetime('now'), updated_at = datetime('now')
-                     WHERE discord_user_id = ?`,
-                    avatarHash, input.targetDiscordUserId,
-                );
-            }
+            const { IdentityAliasEffectsService } = await import('./IdentityAliasEffectsService.js');
+            await IdentityAliasEffectsService.onAliasLinked(input.targetDiscordUserId, fresh.anonymousNickname);
         } catch (err) {
-            logError('MergeService.recordMerge: avatar fetch failed (non-fatal)', err);
+            logError('MergeService.recordMerge: alias-link effects failed (non-fatal)', err);
         }
 
         await invalidateCaches();

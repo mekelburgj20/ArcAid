@@ -6,6 +6,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.127.0] — unreleased
+
+**Linking an iScored name now tidies up after itself.** Until now every `user_mappings` writer — self-claim, auto-link, `/map-user`, the global-submit name claim, `submitscore`'s auto-map, admin merge — wrote the alias row and stopped. Three prod symptoms followed from that, all on rtx_pinball, all diagnosed 2026-08-21: the Members page showed a generic avatar for players who plainly had one, a player who beat their own pre-link score appeared TWICE on the same board, and anyone mapped by a bot command who never web-logged-in had no avatar or name anywhere. `IdentityAliasEffectsService` is the one place that knows what a link means; every writer calls it, and migration 159 clears the backlog.
+
+### Added
+- **`src/services/IdentityAliasEffectsService.ts`** — `onAliasLinked(userId, iscoredName)` folds the synthetic `iscored:<Name>` `room_members` rows onto the real account (keeping the earlier `joined_at` and adopting the per-room display name when the real row has none), re-attributes the SYNCED score rows nobody owns in `score_history` + `submissions` across ALL rooms, and hydrates the profile. `onAliasUnlinked` is the exact undo of the re-attribution — and only that: the membership stays, because it is legitimately theirs. Wired into `IdentityClaimService.claim`/`approve`/`releaseAlias`, `/map-user`, the global-submit claim, `submitscore`'s auto-map and `MergeService.recordMerge`, each gated on the insert actually inserting (they all carry `ON CONFLICT DO NOTHING`).
+- **Freeze gate**, mirroring `MergeService.previewMerge`: rows inside a COMPLETED tournament (`tournaments.is_active = 0`) are never re-attributed. A finished competition's result table does not get rewritten under the winners' feet. `community_scores` and `global_scores` are never touched — sync writes neither (ADR 0016 P2).
+- **`UserProfileService.hydrateFromDiscord(userId, { force })`** — one REST call (`fetchDiscordUser`, new in `src/utils/discord.ts`; `fetchAvatarHash` now delegates to it) fills `avatar_hash` + `avatar_fetched_at` + the `username` fallback and re-derives `avatar_url` through `applyAvatarPreference`. `avatar_fetched_at` is stamped even for a user with no avatar, `username` is filled ONLY when NULL (the OAuth login path stays authoritative), `display_name` is never touched, and a profile fetched inside 24h is skipped unless forced. Google ids are skipped — there is no Discord user behind them.
+- **Nightly profile refresh** — `UserProfileService.refreshStaleDiscordProfiles({ staleDays: 7, limit: 200 })`, registered in `Scheduler` at `20 4 * * *` (20 minutes behind the iScored snapshot sweep). Discord snowflakes only, never-fetched rows first, ~250 ms between REST calls. Kill switch `PROFILE_HYDRATION_ENABLED` (env or global setting; absent = on, literal `'false'` = off) gates both it and every inline hydration.
+
+### Fixed
+- **Members page default avatars.** The synthetic `iscored:*` rows had no `user_profiles` row to resolve, so the page rendered the generic avatar next to a real member who had a perfectly good one on their real row.
+- **A player appearing twice on one board after linking.** Pre-link synced rows stayed `submitted_by_user_id IS NULL, discord_user_id = 'iscored:<name>'` forever and `LeaderboardService` partitions by `COALESCE(submitted_by_user_id, 'iscored:'||LOWER(iscored_username))`, so the pre-link and post-link scores never collapsed into one row.
+- **Mapped users who never logged in had no avatar or name.** `/map-user` and admin merge could link someone who has never opened the web app; the OAuth login path was the only thing that had ever written `user_profiles`. `MergeService.recordMerge`'s inline `fetchAvatarHash` block is replaced by the hydration call — same one REST call, but it also creates the row, fills the username fallback, and re-derives `avatar_url` (migration 151), which the inline version never did.
+- **Stale ranking cards after a re-attribution.** The shared `invalidateIdentityCaches` (extracted from `MergeService`, now used by both) adds `RankingService.invalidateAll()`: ranking's self-invalidating watermark is over counts and sums (ADR 0013), which re-attribution does not change, so the stale partition would otherwise be served indefinitely.
+
+### Changed
+- **`RoomMembershipService.isRealUserId`** additionally rejects ids starting with `iscored:` (case-insensitive). Belt-and-braces on top of v2.125.2's `normalizeSubmitterUserId` fix — no future writer can recreate a synthetic member.
+
+### Database
+- **Migration 159 `159_fold_synthetic_room_members`** (`src/database/migrations/foldSyntheticRoomMembers.ts`). One-shot, idempotent: folds every synthetic `room_members` row whose name is linked onto the real account, DELETEs the ones whose name nobody has linked (an unlinked board name is not a member — no account, can't view an approval room, and the poller no longer creates these), then backfills the re-attribution for every existing mapping under the same freeze gate. This is what gives Wyo's and DennisB's 37 rows — NULLed by migration 157 with nothing to put back — their owner.
+
+### Tests
+- `identity-alias-effects.test.ts` (29 cases): the fold in both branches, cross-room re-attribution, the freeze gate, the rows that must be skipped (already owned, merge-owned, non-sync, `community_scores`/`global_scores`), the unlink undo, all three claim paths, hydration semantics + the 24h skip + the kill switch, the nightly sweep's selection, and the `isRealUserId` guard.
+- `migration-159-fold-synthetic-members.test.ts`: the migration replayed over prod-shaped legacy rows, plus idempotency.
+- `MergeService.test.ts`: a case proving `reverseMerge` undoes the cross-room sync rows `onAliasLinked` attributes after a merge.
+
+---
+
 ## [2.126.2] — unreleased
 
 **Every "N ago" / date display in the UI now reads SQLite timestamps as UTC.** The Lobby feed (and 13 other relative-time sites) showed "just now" for everything: `created_at` columns default to SQLite `datetime('now')`, which serialises as `YYYY-MM-DD HH:MM:SS` with no zone marker, and browsers parse that bare form as LOCAL time — for a US viewer the instant lands hours in the future, the difference goes negative, and the "< 60 s" branch prints "just now".

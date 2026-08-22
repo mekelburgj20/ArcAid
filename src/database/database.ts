@@ -2687,6 +2687,16 @@ async function doInitDatabase(): Promise<Database> {
                 )
             `);
         } },
+        // v2.127.0 — identity tidy-up. Folds the synthetic `iscored:*` rows out
+        // of room_members (onto the real account where the alias is linked,
+        // deleted where it is not) and finishes what 157 started by giving the
+        // NULLed sync rows their owner back. Ongoing prevention lives in
+        // IdentityAliasEffectsService; this is the one-shot for the backlog.
+        // See src/database/migrations/foldSyntheticRoomMembers.ts.
+        { name: '159_fold_synthetic_room_members', handler: async (db) => {
+            const { foldSyntheticRoomMembers } = await import('./migrations/foldSyntheticRoomMembers.js');
+            await foldSyntheticRoomMembers(db);
+        } },
     ];
 
     for (const migration of migrations) {

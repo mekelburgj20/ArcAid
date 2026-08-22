@@ -3,6 +3,7 @@ import { Command } from './index.js';
 import { getDatabase } from '../../database/database.js';
 import { logInfo, logError } from '../../utils/logger.js';
 import { BanService } from '../../services/BanService.js';
+import { IdentityAliasEffectsService } from '../../services/IdentityAliasEffectsService.js';
 
 export const mapuser: Command = {
     data: new SlashCommandBuilder()
@@ -58,15 +59,31 @@ export const mapuser: Command = {
                 });
                 return;
             }
-            await db.run(
+            const inserted = await db.run(
                 `INSERT INTO user_mappings (discord_user_id, iscored_username)
                  VALUES (?, ?)
                  ON CONFLICT(iscored_username) DO NOTHING`,
                 targetUser.id, iscoredName
             );
 
+            // v2.127.0 — a bot-command mapping now runs the same tidy-up a web
+            // claim does: fold the synthetic `iscored:*` membership rows onto
+            // the real account, re-attribute the unowned synced scores, and
+            // hydrate a `user_profiles` row (this command was the ONE path that
+            // could link someone who has never web-logged-in, which is exactly
+            // how BrickShotBobes ended up with no avatar anywhere).
+            let effects = { membersFolded: 0, rowsAttributed: 0 };
+            if (inserted?.changes) {
+                effects = await IdentityAliasEffectsService.onAliasLinked(targetUser.id, iscoredName);
+            }
+
             logInfo(`User mapped: ${iscoredName} -> ${targetUser.tag}`);
-            await interaction.reply(`Added iScored alias **${iscoredName}** for <@${targetUser.id}>.`);
+            const tidied: string[] = [];
+            if (effects.rowsAttributed > 0) tidied.push(`Re-attributed ${effects.rowsAttributed} synced score${effects.rowsAttributed === 1 ? '' : 's'}.`);
+            if (effects.membersFolded > 0) tidied.push(`Merged ${effects.membersFolded} placeholder membership row${effects.membersFolded === 1 ? '' : 's'}.`);
+            await interaction.reply(
+                [`Added iScored alias **${iscoredName}** for <@${targetUser.id}>.`, ...tidied].join(' ')
+            );
         } catch (error) {
             logError('Error mapping user:', error);
             await interaction.reply({ content: 'An error occurred while mapping the user.', ephemeral: true });
