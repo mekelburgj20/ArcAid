@@ -37,7 +37,7 @@ function stubFetch(prefs: Record<string, unknown>) {
   const puts: Record<string, unknown>[] = [];
   const settings = {
     prefs,
-    types: ['tournamentWin', 'turnToPick', 'tournamentStarting', 'rankDethroned', 'friendScore', 'rotationReady'],
+    types: ['tournamentWin', 'turnToPick', 'tournamentStarting', 'rankDethroned', 'friendScore', 'rotationReady', 'queueLow'],
     webPushTypes: ['turnToPick'],
     discord: { available: true, reachable: true, via: null, viaRoomName: null, gatewayReady: true, connectAvailable: false, inviteUrl: null },
   };

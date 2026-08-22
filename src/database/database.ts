@@ -2657,6 +2657,36 @@ async function doInitDatabase(): Promise<Database> {
             UPDATE submissions SET submitted_by_user_id = NULL WHERE submitted_by_user_id LIKE 'iscored:%';
             UPDATE community_scores SET submitted_by_user_id = NULL WHERE submitted_by_user_id LIKE 'iscored:%';
         ` },
+        // v2.126.0 — pick-queue hold model + the queue-low nudge.
+        //
+        // `games.queue_held_at` replaces the old delete-on-ineligible rule: a
+        // queued pick that hits its cooldown when the engine reaches it is
+        // STAMPED rather than removed, and the stamp both (a) marks it as
+        // waiting and (b) sorts it ahead of the player's unheld picks so it
+        // activates the moment the cooldown clears (owner spec 2026-08-21).
+        // NULL = not held, which is every pre-existing row — no backfill.
+        //
+        // `queue_low_nudges` is the dedupe ledger for the `queueLow`
+        // notification, same shape of idea as `rotation_nudges`: no FK (it is
+        // an audit trail that outlives its tournament, like `maintenance_runs`)
+        // and one row per (user, tournament) carrying the last count we told
+        // them about, so a queue that keeps shrinking keeps nudging while a
+        // flat one goes quiet for a week.
+        { name: '158_queue_hold_and_low_nudges', handler: async (db) => {
+            const columns = (await db.all(`PRAGMA table_info(games)`)) as Array<{ name: string }>;
+            if (!columns.some(c => c.name === 'queue_held_at')) {
+                await db.exec(`ALTER TABLE games ADD COLUMN queue_held_at TEXT`);
+            }
+            await db.exec(`
+                CREATE TABLE IF NOT EXISTS queue_low_nudges (
+                    user_id TEXT NOT NULL,
+                    tournament_id TEXT NOT NULL,
+                    last_count INTEGER NOT NULL,
+                    sent_at TEXT NOT NULL,
+                    PRIMARY KEY (user_id, tournament_id)
+                )
+            `);
+        } },
     ];
 
     for (const migration of migrations) {

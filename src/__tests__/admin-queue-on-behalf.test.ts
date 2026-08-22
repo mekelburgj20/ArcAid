@@ -6,6 +6,7 @@ import { setupTestDb, createTestRoom, createTestTournament, createTestGame } fro
 import { getDatabase } from '../database/database.js';
 import { signToken } from '../api/auth.js';
 import { PickAwardGate } from '../services/PickAwardGate.js';
+import { PICK_QUEUE_MAX } from '../services/PickQueueService.js';
 
 // ---------------------------------------------------------------------------
 // Admin queue-on-behalf (v2.121.0).
@@ -14,7 +15,7 @@ import { PickAwardGate } from '../services/PickAwardGate.js';
 // — an admin relays that into the player's OWN queue. The endpoint must not be
 // a softer door than the player's own `POST /:roomId/pick-game`: it runs the
 // identical `PickQueueService` pipeline, so cooldown / platform rules / the
-// max-5 cap all still apply, and the row is attributed to the TARGET player
+// PICK_QUEUE_MAX cap all still apply, and the row is attributed to the TARGET player
 // (`games.picker_discord_id`), never the admin.
 // ---------------------------------------------------------------------------
 
@@ -107,11 +108,11 @@ describe('POST /:roomId/admin/tournaments/:tournamentId/queue', () => {
         expect(JSON.parse(audit.details)).toMatchObject({ forUserId: PLAYER, gameName: 'Attack From Mars' });
     });
 
-    it('rejects once the player already holds five queued games (the shared cap)', async () => {
+    it('rejects once the player already holds PICK_QUEUE_MAX queued games (the shared cap)', async () => {
         const app = await createTestApp();
         const { roomId, tournamentId } = await seedRoomAndTournament('qob-cap');
         const db = await getDatabase();
-        for (let i = 1; i <= 5; i++) {
+        for (let i = 1; i <= PICK_QUEUE_MAX; i++) {
             await db.run(
                 `INSERT INTO games (id, tournament_id, name, status, picker_discord_id, queue_order)
                  VALUES (?, ?, ?, 'QUEUED', ?, ?)`,

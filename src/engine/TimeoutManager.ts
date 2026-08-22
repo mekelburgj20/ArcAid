@@ -448,6 +448,23 @@ export class TimeoutManager {
         await db.run('DELETE FROM games WHERE id = ?', queuedRow.id);
         logInfo(`   -> Activated queued game "${queuedRow.name}" into slot ${slot.id}.`);
 
+        // The engine just consumed one of this player's picks (v2.126.0): close
+        // the hole it left in their 1..N sequence, and nudge them if the queue
+        // is running low. Both are courtesies — neither may fail the timeout
+        // path, which is why they are individually caught.
+        if (slot.tournamentId && queuedRow.picker_discord_id) {
+            try {
+                const { compactQueue } = await import('../services/PickQueueService.js');
+                await compactQueue(slot.tournamentId, queuedRow.picker_discord_id);
+            } catch (err) {
+                logError('   -> Failed to compact the queue after activation (continuing):', err);
+            }
+            try {
+                const { QueueLowNudgeService } = await import('../services/QueueLowNudgeService.js');
+                void QueueLowNudgeService.maybeNudge(queuedRow.picker_discord_id, slot.tournamentId).catch(() => {});
+            } catch { /* never surfaces */ }
+        }
+
         const channelId = await this.getChannelId(slot.tournamentId);
         if (channelId) {
             const color = getTournamentColor(info.type);

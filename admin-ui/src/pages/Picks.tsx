@@ -129,11 +129,19 @@ interface QueuedGame {
   tournament_id: string;
   tournament_name: string;
   queue_order: number;
+  /** v2.126.0 — the rotation reached this pick during its cooldown and parked
+   *  it at the FRONT of the queue rather than dropping it. Its position is
+   *  governed by the hold, so the move buttons are disabled while it lasts. */
+  held?: boolean;
+  /** Days left on that cooldown; only sent for held rows. */
+  daysUntilAvailable?: number | null;
 }
 
 interface PickStatusData {
   pendingPicks: PendingPick[];
   queuedGames: QueuedGame[];
+  /** Server-owned queue cap (PICK_QUEUE_MAX). */
+  queueMax?: number;
   tournaments: Array<{ id: string; name: string; type: string; mode: string; max_active_games: number; platform_rules: string }>;
 }
 
@@ -566,6 +574,10 @@ export default function Picks() {
     const games = [...pickStatus.queuedGames];
     const swapIndex = direction === 'up' ? index - 1 : index + 1;
     if (swapIndex < 0 || swapIndex >= games.length) return;
+    // A held pick's place is decided by the hold, not by `queue_order` — it
+    // can neither be moved nor be displaced. The buttons already reflect this;
+    // the guard makes it true regardless of how the click arrived.
+    if (games[index]?.held || games[swapIndex]?.held) return;
     [games[index], games[swapIndex]] = [games[swapIndex], games[index]];
     // Optimistic update
     setPickStatus({ ...pickStatus, queuedGames: games });
@@ -967,8 +979,11 @@ export default function Picks() {
       {/* Your Picks summary */}
       {discordUser && pickStatus && (pickStatus.pendingPicks.length > 0 || pickStatus.queuedGames.length > 0) && (
         <div className="mb-4 bg-surface border border-border rounded-lg overflow-hidden">
-          <div className="px-4 py-2 border-b border-border/50">
+          <div className="px-4 py-2 border-b border-border/50 flex items-baseline justify-between gap-2">
             <h2 className="text-xs font-medium text-faint uppercase tracking-wider">Your Picks</h2>
+            <span className="text-[10px] text-faint flex-shrink-0">
+              up to {pickStatus.queueMax ?? 30} per tournament
+            </span>
           </div>
           <div className="divide-y divide-border/20">
             {pickStatus.pendingPicks.map(p => (
@@ -1000,16 +1015,24 @@ export default function Picks() {
                     tournament-then-game reading order on a single line. */}
                 <div className="flex flex-wrap sm:flex-nowrap items-center gap-x-2 gap-y-0.5 min-w-0 flex-1">
                   <span className="text-[10px] text-faint w-4 text-center flex-shrink-0">{idx + 1}</span>
-                  <Clock size={14} className={`flex-shrink-0 ${inelig ? 'text-neon-amber' : 'text-neon-cyan'}`} />
-                  {inelig && (
+                  <Clock size={14} className={`flex-shrink-0 ${inelig || q.held ? 'text-neon-amber' : 'text-neon-cyan'}`} />
+                  {q.held ? (
+                    <span
+                      data-testid={`picks-hold-chip-${q.id}`}
+                      title="This pick is in cooldown. It keeps its place at the front of your queue and activates as soon as the cooldown ends — the next eligible game runs meanwhile."
+                      className="flex-shrink-0 whitespace-nowrap px-1.5 py-0.5 rounded text-[10px] font-medium border border-neon-amber/40 bg-neon-amber/10 text-neon-amber"
+                    >
+                      On hold &mdash; cooldown{q.daysUntilAvailable ? `, ${q.daysUntilAvailable}d` : ''}
+                    </span>
+                  ) : inelig ? (
                     <span
                       data-testid={`picks-cooldown-chip-${q.id}`}
-                      title="This pick is on cooldown and would be skipped at the next rotation."
+                      title="This pick is on cooldown. At the next rotation it goes on hold at the front of your queue and the next eligible game is used instead."
                       className="flex-shrink-0 whitespace-nowrap px-1.5 py-0.5 rounded text-[10px] font-medium border border-neon-amber/40 bg-neon-amber/10 text-neon-amber"
                     >
                       On cooldown
                     </span>
-                  )}
+                  ) : null}
                   <span className="order-last sm:order-none w-full sm:w-auto pl-6 sm:pl-0 text-xs text-muted truncate min-w-0 sm:max-w-[40%]">
                     {q.tournament_name}
                   </span>
@@ -1018,7 +1041,7 @@ export default function Picks() {
                 <div className="flex items-center gap-0.5 flex-shrink-0">
                   <button
                     onClick={() => handleMoveQueued(idx, 'up')}
-                    disabled={idx === 0}
+                    disabled={idx === 0 || !!q.held || !!pickStatus.queuedGames[idx - 1]?.held}
                     className="p-1 text-muted hover:text-neon-cyan disabled:opacity-20 disabled:cursor-not-allowed transition-colors cursor-pointer"
                     title="Move up"
                   >
@@ -1026,7 +1049,7 @@ export default function Picks() {
                   </button>
                   <button
                     onClick={() => handleMoveQueued(idx, 'down')}
-                    disabled={idx === pickStatus.queuedGames.length - 1}
+                    disabled={idx === pickStatus.queuedGames.length - 1 || !!q.held || !!pickStatus.queuedGames[idx + 1]?.held}
                     className="p-1 text-muted hover:text-neon-cyan disabled:opacity-20 disabled:cursor-not-allowed transition-colors cursor-pointer"
                     title="Move down"
                   >

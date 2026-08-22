@@ -149,7 +149,7 @@ describe('/pick-game consolidation — bare invoke (status)', () => {
         await pickgame.execute(interaction);
         const text = JSON.stringify(replies[replies.length - 1]);
         expect(text).toMatch(/use my queue/i);
-        expect(text).toMatch(/0\/5/);
+        expect(text).toMatch(/0\/30/);
     });
 
     it('reports a stored forfeit disposition', async () => {

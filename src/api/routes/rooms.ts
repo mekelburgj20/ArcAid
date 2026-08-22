@@ -57,7 +57,8 @@ import {
 import { deleteScorePhotoFiles } from '../../utils/scorePhotoCleanup.js';
 import {
     checkPickQueueEligibility, findActiveTwin, getPlayerQueue, queueGameOnBehalf,
-    notifyQueuedOnBehalf,
+    PICK_QUEUE_MAX, compactQueue, cooldownDaysFromLastPlayed, cooldownDaysRemaining,
+    notifyQueuedOnBehalf, queueOrderSql,
 } from '../../services/PickQueueService.js';
 import { catalogueTypeMatchesTournamentMode } from '../../utils/tournamentMode.js';
 import { trackBackground } from '../../utils/backgroundTasks.js';
@@ -761,10 +762,13 @@ router.get('/:roomId/game-availability/:tournamentId', async (req, res) => {
             };
 
             if (recent) {
-                const playedDate = new Date(recent.playedDate);
-                const availableDate = new Date(playedDate);
-                availableDate.setDate(availableDate.getDate() + eligibilityDays);
-                const daysUntilAvailable = Math.max(0, Math.ceil((availableDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+                // Shared arithmetic (v2.126.0) with the pick-rejection and
+                // held-queue-row copy. The last-played dates are already
+                // resolved in ONE batched query above, so this stays pure —
+                // calling the per-game query form here would be N queries.
+                const daysUntilAvailable = cooldownDaysFromLastPlayed(
+                    recent.playedDate, eligibilityDays, { minDays: 0, now: now.getTime() },
+                );
 
                 return {
                     name: lg.name,
@@ -840,15 +844,28 @@ router.get('/:roomId/pick-status', requireDiscordUser, async (req, res) => {
             ORDER BY g.picker_designated_at ASC, g.rowid ASC
         `, roomId, discordId);
 
-        // Named queued games picked by this user
-        const queuedGames = await db.all(`
-            SELECT g.id, g.name as game_name, g.tournament_id, t.name as tournament_name, g.queue_order
+        // Named queued games picked by this user.
+        //
+        // v2.126.0 — ordered by the SHARED queue contract (held picks first),
+        // so the list the player reads is the list the engine will consume.
+        // `held` + `daysUntilAvailable` let the page say WHY a row sits at the
+        // top; days are resolved only for held rows (see getPlayerQueue).
+        const queuedRows = await db.all(`
+            SELECT g.id, g.name as game_name, g.tournament_id, t.name as tournament_name,
+                   g.queue_order, g.queue_held_at
             FROM games g
             JOIN tournaments t ON g.tournament_id = t.id
             WHERE t.game_room_id = ? AND g.status = 'QUEUED'
               AND g.name != '[Pending Pick]' AND g.picker_discord_id = ?
-            ORDER BY g.queue_order ASC, g.rowid ASC
+            ORDER BY ${queueOrderSql('g')}
         `, roomId, discordId);
+        const queuedGames = await Promise.all(queuedRows.map(async (row: any) => ({
+            ...row,
+            held: !!row.queue_held_at,
+            daysUntilAvailable: row.queue_held_at
+                ? await cooldownDaysRemaining(row.tournament_id, row.game_name, { minDays: 1 })
+                : null,
+        })));
 
         // Also get tournaments for this room so the UI knows what's available
         const tournaments = await db.all(
@@ -861,7 +878,7 @@ router.get('/:roomId/pick-status', requireDiscordUser, async (req, res) => {
         const { PickAwardGate } = await import('../../services/PickAwardGate.js');
         const pickAwardEnabled = await PickAwardGate.isEnabled(roomId);
 
-        res.json({ pendingPicks, queuedGames, tournaments, pickAwardEnabled });
+        res.json({ pendingPicks, queuedGames, tournaments, pickAwardEnabled, queueMax: PICK_QUEUE_MAX });
     } catch (error) {
         logError('API Error (GET rooms/:roomId/pick-status):', error);
         res.status(500).json({ error: 'Internal Server Error' });
@@ -1008,7 +1025,7 @@ router.delete('/:roomId/queue/:gameId', requireDiscordUser, requireNotBanned, as
         const discordId = req.user!.discordId!;
 
         const game = await db.get(
-            `SELECT g.id, g.picker_discord_id, t.game_room_id
+            `SELECT g.id, g.picker_discord_id, g.tournament_id, t.game_room_id
              FROM games g JOIN tournaments t ON g.tournament_id = t.id
              WHERE g.id = ? AND g.status = 'QUEUED' AND g.name != '[Pending Pick]'`,
             gameId
@@ -1017,7 +1034,19 @@ router.delete('/:roomId/queue/:gameId', requireDiscordUser, requireNotBanned, as
         if (game.game_room_id !== roomId) return res.status(403).json({ error: 'Game does not belong to this room' });
         if (game.picker_discord_id !== discordId) return res.status(403).json({ error: 'You can only remove your own queued games' });
 
-        await db.run('DELETE FROM games WHERE id = ?', gameId);
+        // v2.126.0 — delete + renumber in ONE transaction. Pre-fix the delete
+        // left a hole (1,3,4) and the next add allocated from MAX+1, so a
+        // player's stored positions drifted further from the 1..N the UI shows
+        // on every edit.
+        await db.exec('BEGIN TRANSACTION');
+        try {
+            await db.run('DELETE FROM games WHERE id = ?', gameId);
+            await compactQueue(game.tournament_id, discordId);
+            await db.exec('COMMIT');
+        } catch (err) {
+            await db.exec('ROLLBACK').catch(() => {});
+            throw err;
+        }
         logInfo(`Queue delete: ${req.user!.username} removed queued game ${gameId}`);
         res.json({ success: true });
     } catch (error) {
@@ -1037,11 +1066,19 @@ router.put('/:roomId/queue/reorder', requireDiscordUser, requireNotBanned, async
         const discordId = req.user!.discordId!;
         const { gameIds } = validationResult.data;
 
-        // Verify all games belong to this user in this room
+        // Verify all games belong to this user in this room.
+        //
+        // v2.126.0 — HELD rows are verified but not renumbered. A hold means
+        // "the engine reached this pick, it was in cooldown, and it now waits
+        // at the front until it clears"; its position is governed by the hold,
+        // not by `queue_order`, and the FE disables its move buttons. Applying
+        // the payload's index to it would silently rewrite a sequence the
+        // player cannot actually see or control.
         const touchedTournaments = new Set<string>();
+        const reorderable: string[] = [];
         for (const gameId of gameIds) {
             const game = await db.get(
-                `SELECT g.id, g.picker_discord_id, g.tournament_id, t.game_room_id
+                `SELECT g.id, g.picker_discord_id, g.tournament_id, g.queue_held_at, t.game_room_id
                  FROM games g JOIN tournaments t ON g.tournament_id = t.id
                  WHERE g.id = ? AND g.status = 'QUEUED' AND g.name != '[Pending Pick]'`,
                 gameId
@@ -1050,6 +1087,7 @@ router.put('/:roomId/queue/reorder', requireDiscordUser, requireNotBanned, async
                 return res.status(403).json({ error: 'Invalid game in reorder list' });
             }
             touchedTournaments.add(game.tournament_id);
+            if (!game.queue_held_at) reorderable.push(gameId);
         }
 
         // Renumber 1..N inside THIS PLAYER's queue for each affected tournament.
@@ -1064,19 +1102,19 @@ router.put('/:roomId/queue/reorder', requireDiscordUser, requireNotBanned, async
         // the player's own queue.
         await db.exec('BEGIN TRANSACTION');
         try {
-            for (let i = 0; i < gameIds.length; i++) {
-                await db.run('UPDATE games SET queue_order = ? WHERE id = ?', i + 1, gameIds[i]);
+            for (let i = 0; i < reorderable.length; i++) {
+                await db.run('UPDATE games SET queue_order = ? WHERE id = ?', i + 1, reorderable[i]);
             }
             for (const tournamentId of touchedTournaments) {
                 const leftovers = await db.all(
                     `SELECT id FROM games
                      WHERE tournament_id = ? AND status = 'QUEUED' AND name != '[Pending Pick]'
-                       AND picker_discord_id = ?
+                       AND picker_discord_id = ? AND queue_held_at IS NULL
                        AND id NOT IN (${gameIds.map(() => '?').join(',')})
                      ORDER BY queue_order ASC, rowid ASC`,
                     tournamentId, discordId, ...gameIds
                 );
-                let next = gameIds.length + 1;
+                let next = reorderable.length + 1;
                 for (const row of leftovers) {
                     await db.run('UPDATE games SET queue_order = ? WHERE id = ?', next++, row.id);
                 }
@@ -1087,7 +1125,7 @@ router.put('/:roomId/queue/reorder', requireDiscordUser, requireNotBanned, async
             throw err;
         }
 
-        logInfo(`Queue reorder: ${req.user!.username} reordered ${gameIds.length} queued games`);
+        logInfo(`Queue reorder: ${req.user!.username} reordered ${reorderable.length} queued games (${gameIds.length - reorderable.length} on hold, left in place)`);
         res.json({ success: true });
     } catch (error) {
         logError('API Error (PUT rooms/:roomId/queue/reorder):', error);
@@ -1565,7 +1603,7 @@ router.post('/:roomId/admin/tournaments/:tournamentId/queue', requireAuth, requi
         })).catch(() => {});
 
         logInfo(`Admin queue-on-behalf: ${req.user!.username} queued ${result.game.name} for ${forUserId} in ${result.tournament.name}`);
-        res.json({ game: result.game, tournament: result.tournament, queue: result.queue });
+        res.json({ game: result.game, tournament: result.tournament, queue: result.queue, queueMax: PICK_QUEUE_MAX });
     } catch (error) {
         logError('API Error (POST rooms/:roomId/admin/tournaments/:tournamentId/queue):', error);
         res.status(500).json({ error: 'Internal Server Error' });
@@ -1593,7 +1631,17 @@ router.delete('/:roomId/admin/tournaments/:tournamentId/queue/:gameId', requireA
         if (game.game_room_id !== roomId) return res.status(403).json({ error: 'Game does not belong to this room' });
         if (game.tournament_id !== tournamentId) return res.status(404).json({ error: 'Queued game not found in this tournament' });
 
-        await db.run('DELETE FROM games WHERE id = ?', gameId);
+        // Delete + renumber in one transaction (v2.126.0) — same contract as
+        // the player's own delete above.
+        await db.exec('BEGIN TRANSACTION');
+        try {
+            await db.run('DELETE FROM games WHERE id = ?', gameId);
+            await compactQueue(tournamentId, game.picker_discord_id);
+            await db.exec('COMMIT');
+        } catch (err) {
+            await db.exec('ROLLBACK').catch(() => {});
+            throw err;
+        }
 
         await AuditService.log({
             actor: req.user!.discordId || req.user!.username || 'admin',
@@ -1606,7 +1654,7 @@ router.delete('/:roomId/admin/tournaments/:tournamentId/queue/:gameId', requireA
         });
 
         logInfo(`Admin queue removal: ${req.user!.username} removed queued game ${gameId} (${game.name})`);
-        res.json({ success: true, queue: await getPlayerQueue(tournamentId, game.picker_discord_id) });
+        res.json({ success: true, queue: await getPlayerQueue(tournamentId, game.picker_discord_id), queueMax: PICK_QUEUE_MAX });
     } catch (error) {
         logError('API Error (DELETE rooms/:roomId/admin/tournaments/:tournamentId/queue/:gameId):', error);
         res.status(500).json({ error: 'Internal Server Error' });
@@ -1625,7 +1673,7 @@ router.get('/:roomId/admin/tournaments/:tournamentId/queue/:forUserId', requireA
         const tournament = await db.get('SELECT id FROM tournaments WHERE id = ? AND game_room_id = ?', tournamentId, roomId);
         if (!tournament) return res.status(404).json({ error: 'Tournament not found in this room' });
 
-        res.json({ queue: await getPlayerQueue(tournamentId, forUserId) });
+        res.json({ queue: await getPlayerQueue(tournamentId, forUserId), queueMax: PICK_QUEUE_MAX });
     } catch (error) {
         logError('API Error (GET rooms/:roomId/admin/tournaments/:tournamentId/queue/:forUserId):', error);
         res.status(500).json({ error: 'Internal Server Error' });

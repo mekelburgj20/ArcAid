@@ -77,7 +77,7 @@ async function seedRecentlyPlayed(tournamentId: string, name: string) {
 
 async function gameRow(id: string) {
     const db = await getDatabase();
-    return db.get('SELECT id, name, status, queue_order FROM games WHERE id = ?', id);
+    return db.get('SELECT id, name, status, queue_order, queue_held_at FROM games WHERE id = ?', id);
 }
 
 describe('Maintenance — stale queued-row snapshot (prod incident 2026-08-20)', () => {
@@ -135,7 +135,7 @@ describe('Maintenance — stale queued-row snapshot (prod incident 2026-08-20)',
         expect(row.status).toBe('QUEUED');
     });
 
-    it('a genuinely ineligible queued row is still removed, even with a cached leaderboard', async () => {
+    it('a genuinely ineligible queued row goes ON HOLD, never deleted (v2.126.0)', async () => {
         const db = await getDatabase();
         // No ACTIVE games: the run goes straight to the extra-slot fill loop.
         const { tournamentId } = await setupTournament({ maxActive: 1 });
@@ -145,19 +145,22 @@ describe('Maintenance — stale queued-row snapshot (prod incident 2026-08-20)',
         await seedRecentlyPlayed(tournamentId, 'Recently Played');
         await seedLeaderboardCache(stale.id);
 
-        // The cache row must not make the removal throw (part 3).
         await expect(engine.runMaintenance(tournamentId)).resolves.toBeUndefined();
 
-        expect(await gameRow(stale.id)).toBeUndefined();
-        expect(await db.get('SELECT game_id FROM leaderboard_cache WHERE game_id = ?', stale.id)).toBeUndefined();
+        const row = await gameRow(stale.id);
+        expect(row).toBeDefined();
+        expect(row.status).toBe('QUEUED');
+        expect(row.queue_held_at).toBeTruthy();
+        // Nothing was deleted, so the cached leaderboard is untouched too.
+        expect(await db.get('SELECT game_id FROM leaderboard_cache WHERE game_id = ?', stale.id)).toBeDefined();
     });
 
 });
 
-describe('nextEligibleQueuedFor — defensive removal (2026-08-20)', () => {
+describe('nextEligibleQueuedFor — hold, never remove (v2.126.0)', () => {
     beforeEach(async () => { await setupTestDb(); });
 
-    it('drops an ineligible queued row that has a cached leaderboard, without throwing', async () => {
+    it('holds an ineligible queued row that has a cached leaderboard, and returns the next one', async () => {
         const db = await getDatabase();
         const roomId = await createTestRoom(`neq-${++roomCounter}`, 'NEQ Room');
         const tournamentId = await createTestTournament(roomId, { name: 'NEQ' });
@@ -171,7 +174,9 @@ describe('nextEligibleQueuedFor — defensive removal (2026-08-20)', () => {
         const next = await engine.nextEligibleQueuedFor(tournamentId, 'PLAYER_A');
 
         expect(next?.id).toBe(fresh.id);
-        expect(await gameRow(stale.id)).toBeUndefined();
-        expect(await db.get('SELECT game_id FROM leaderboard_cache WHERE game_id = ?', stale.id)).toBeUndefined();
+        const held = await gameRow(stale.id);
+        expect(held.status).toBe('QUEUED');
+        expect(held.queue_held_at).toBeTruthy();
+        expect(await db.get('SELECT game_id FROM leaderboard_cache WHERE game_id = ?', stale.id)).toBeDefined();
     });
 });

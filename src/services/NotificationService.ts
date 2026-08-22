@@ -19,11 +19,16 @@ export interface NotificationPrefs {
      *  ready, rotation is coming up". Under the NOTIFY_HIGH_VALUE_DEFAULT_ON
      *  umbrella (see HIGH_VALUE_TYPES below) since it's time-sensitive. */
     rotationReady: boolean;
+    /** Pick-queue running low (v2.126.0) - "the engine just spent one of
+     *  your queued picks and you're nearly out". High-value for the same
+     *  reason rotationReady is: it is the only warning before a player
+     *  silently stops getting the game they wanted. */
+    queueLow: boolean;
 }
 
 export type NotificationType = keyof NotificationPrefs;
 
-/** The six per-type opt-in keys — the ONLY keys external writers may set. */
+/** The seven per-type opt-in keys — the ONLY keys external writers may set. */
 export const PREF_TYPE_KEYS: readonly NotificationType[] = [
     'tournamentWin',
     'turnToPick',
@@ -31,6 +36,7 @@ export const PREF_TYPE_KEYS: readonly NotificationType[] = [
     'rankDethroned',
     'friendScore',
     'rotationReady',
+    'queueLow',
 ];
 
 /**
@@ -47,6 +53,11 @@ const HIGH_VALUE_TYPES: ReadonlySet<NotificationType> = new Set<NotificationType
     'rankDethroned',
     'tournamentWin',
     'rotationReady',
+    // v2.126.0 - the queue-low nudge is the pick flow's other silent
+    // failure (rotationReady covers "nothing queued at rotation time",
+    // this covers "nearly nothing queued at all"), so it rides the same
+    // tier.
+    'queueLow',
 ]);
 
 type NotifClass = 'high' | 'chatty';
@@ -78,6 +89,9 @@ export const WEB_PUSH_TYPES: ReadonlySet<NotificationType> = new Set<Notificatio
     // within an hour of the slot rotating, same "worth waking up your phone
     // for" reasoning as turnToPick.
     'rotationReady',
+    // v2.126.0 - the queue-low nudge is actionable in the same window:
+    // top the queue up before the next rotation spends the last pick.
+    'queueLow',
 ]);
 
 /** Notification-tray titles per push-eligible type; body carries the detail. */
@@ -86,6 +100,7 @@ const PUSH_TITLES: Partial<Record<NotificationType, string>> = {
     rankDethroned: '\u{1F451} You’ve been dethroned!',
     turnToPick: '\u{1F3AE} Your turn to pick!',
     rotationReady: '\u{23F0} Rotation soon — get your pick ready!',
+    queueLow: '\u{1F4CB} Your pick queue is running low',
 };
 
 /**
@@ -384,6 +399,7 @@ export class NotificationService {
             rankDethroned: false,
             friendScore: false,
             rotationReady: false,
+            queueLow: false,
         };
         try {
             const db = await getDatabase();
