@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { X, Camera, Trash2, Keyboard, AlertTriangle, LogIn, UserCheck, Trophy } from 'lucide-react';
 import NeonButton from './NeonButton';
@@ -20,6 +21,7 @@ import {
 } from '../lib/allowedProvenance';
 import type { SubmitRank } from '../lib/api';
 import { formatScore } from '../lib/format';
+import { deleteAtCaret, insertAtCaret, readCaret } from '../lib/caretEdit';
 import { normalizePhotoFile } from '../lib/photoNormalize';
 
 /**
@@ -138,6 +140,17 @@ function claimDismissKey(roomId: string, iscoredUsername: string): string {
     return `arcaid_claim_offer_dismissed:${roomId}:${iscoredUsername.toLowerCase()}`;
 }
 
+/**
+ * v2.128.0 — belt-and-braces companion to the pointerup Done key in
+ * `OnScreenKeyboard`. Any click that arrives within this window of the
+ * keyboard closing is treated as spill-over from the touch that pressed Done
+ * (a late synthetic click, a browser that fires compatibility events despite
+ * the preventDefault, a stray tap on the button that just slid under the
+ * finger) and is ignored by the submit handler. ~350ms is the same order as
+ * the iOS double-tap-to-zoom delay the keyboard already fights.
+ */
+const KEYBOARD_CLOSE_LATCH_MS = 350;
+
 export default function SubmissionSheet({
     target,
     onClose,
@@ -243,6 +256,10 @@ export default function SubmissionSheet({
     const scoreRef = useRef<HTMLInputElement>(null);
     const backdropMouseDown = useRef(false);
     const draftCommittedRef = useRef(false);
+    /** Timestamp of the last on-screen-keyboard close — see KEYBOARD_CLOSE_LATCH_MS. */
+    const keyboardClosedAt = useRef(0);
+    /** Caret position to restore after React commits a keypad-driven edit (v2.128.0). */
+    const pendingCaret = useRef<{ field: 'name' | 'score'; pos: number } | null>(null);
 
     const isTouchDevice = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
 
@@ -515,6 +532,12 @@ export default function SubmissionSheet({
     };
 
     const handleSubmitClick = async () => {
+        // v2.128.0 latch (owner Android field report): the on-screen keyboard
+        // sits directly over this button, so the touch that closes it must
+        // never be able to submit. `OnScreenKeyboard`'s Done already waits for
+        // pointerup + suppresses compatibility mouse events; this is the
+        // second gate for anything that still slips through.
+        if (Date.now() - keyboardClosedAt.current < KEYBOARD_CLOSE_LATCH_MS) return;
         const scoreNum = parseInt(score, 10);
         if (isNaN(scoreNum) || scoreNum < 0) return;
         if (photoRequired(target) && !photoFile) return;
@@ -537,24 +560,88 @@ export default function SubmissionSheet({
         // digits. preventScroll keeps the caret in the field without letting
         // iOS "helpfully" scroll anything into view (the field is already
         // visible — the tap that produced this keypress was inside the sheet).
+        //
+        // v2.128.0 (owner Android field report): the keypad SPLICES at the
+        // native caret instead of appending. On touch the score field is
+        // `type=text inputMode=none`, so tapping mid-value really does move
+        // the caret — the old `prev + key` ignored it and the digit "jumped
+        // to the end". `readCaret` returns null where the browser won't
+        // report a selection (desktop's `type=number`), which falls back to
+        // the append behaviour verbatim.
         if (activeField === 'name') {
-            setPlayerName(prev => prev + key);
-            nameRef.current?.focus({ preventScroll: true });
+            const el = nameRef.current;
+            const edit = insertAtCaret(playerName, readCaret(el), key);
+            setPlayerName(edit.next);
+            if (edit.caret !== null) pendingCaret.current = { field: 'name', pos: edit.caret };
+            el?.focus({ preventScroll: true });
         } else if (activeField === 'score') {
-            if (/\d/.test(key)) setScore(prev => prev + key);
-            scoreRef.current?.focus({ preventScroll: true });
+            const el = scoreRef.current;
+            if (/\d/.test(key)) {
+                const edit = insertAtCaret(score, readCaret(el), key);
+                setScore(edit.next);
+                if (edit.caret !== null) pendingCaret.current = { field: 'score', pos: edit.caret };
+            }
+            el?.focus({ preventScroll: true });
         }
-    }, [activeField]);
+    }, [activeField, playerName, score]);
 
     const handleBackspace = useCallback(() => {
-        if (activeField === 'name') setPlayerName(prev => prev.slice(0, -1));
-        else if (activeField === 'score') setScore(prev => prev.slice(0, -1));
-    }, [activeField]);
+        if (activeField === 'name') {
+            const edit = deleteAtCaret(playerName, readCaret(nameRef.current));
+            setPlayerName(edit.next);
+            if (edit.caret !== null) pendingCaret.current = { field: 'name', pos: edit.caret };
+        } else if (activeField === 'score') {
+            const edit = deleteAtCaret(score, readCaret(scoreRef.current));
+            setScore(edit.next);
+            if (edit.caret !== null) pendingCaret.current = { field: 'score', pos: edit.caret };
+        }
+    }, [activeField, playerName, score]);
+
+    /**
+     * Restores the caret after a keypad-driven edit commits. It has to run
+     * AFTER React writes the new value to the DOM (writing `input.value`
+     * collapses the caret to the end), which is exactly what a layout effect
+     * guarantees — a plain effect would let the browser paint the wrong caret
+     * for a frame. No dependency array on purpose: the ref is consumed
+     * whenever it is set, on whichever render carries the new value.
+     */
+    useLayoutEffect(() => {
+        const pending = pendingCaret.current;
+        if (!pending) return;
+        pendingCaret.current = null;
+        const el = pending.field === 'name' ? nameRef.current : scoreRef.current;
+        if (!el) return;
+        const pos = Math.max(0, Math.min(pending.pos, el.value.length));
+        try {
+            el.setSelectionRange(pos, pos);
+        } catch {
+            // Selection APIs are unavailable on some input types — harmless.
+        }
+    });
 
     const handleDone = useCallback(() => {
+        // Arm the submit latch BEFORE the keyboard unmounts (see
+        // KEYBOARD_CLOSE_LATCH_MS and handleSubmitClick).
+        keyboardClosedAt.current = Date.now();
         setActiveField(null);
         setShowKeyboard(false);
     }, []);
+
+    /**
+     * v2.128.0: Enter inside the score field must never submit. There is no
+     * <form> here today, so nothing does — but an IME/hardware Enter on a
+     * phone with a Bluetooth keyboard is the classic way that comes back the
+     * moment someone wraps this in one. Enter closes the on-screen keyboard
+     * and blurs instead, which is what the key means here.
+     */
+    const handleScoreKeyDown = useCallback((e: ReactKeyboardEvent<HTMLInputElement>) => {
+        if (e.key !== 'Enter') return;
+        e.preventDefault();
+        if (showKeyboard) {
+            handleDone();
+            e.currentTarget.blur();
+        }
+    }, [showKeyboard, handleDone]);
 
     const needsPhoto = photoRequired(target);
     const cooldown = isCooldownLocked(target);
@@ -841,6 +928,7 @@ export default function SubmissionSheet({
                                         inputMode={isTouchDevice ? 'none' : 'numeric'}
                                         value={score}
                                         onChange={e => setScore(isTouchDevice ? e.target.value.replace(/\D/g, '') : e.target.value)}
+                                        onKeyDown={handleScoreKeyDown}
                                         onFocus={() => { setActiveField('score'); if (isTouchDevice) setShowKeyboard(true); }}
                                         placeholder="0"
                                         min="0"
