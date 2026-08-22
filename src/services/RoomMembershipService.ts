@@ -17,8 +17,14 @@ export interface RoomForUser {
 
 const SENTINEL_USER_IDS = new Set(['SYSTEM', 'COMMUNITY', 'ANON', '']);
 
-function isRealUserId(userId: string | null | undefined): userId is string {
-    return !!userId && !SENTINEL_USER_IDS.has(userId);
+export function isRealUserId(userId: string | null | undefined): userId is string {
+    if (!userId || SENTINEL_USER_IDS.has(userId)) return false;
+    // `iscored:<name>` is the sync poller's synthetic "nobody owns this row" id,
+    // not an account — v2.125.2 stopped it reaching here (normalizeSubmitterUserId
+    // returns null for it) and v2.127.0 folded away the rows it had already left
+    // behind. This is the belt-and-braces so no future writer can recreate them.
+    if (userId.toLowerCase().startsWith('iscored:')) return false;
+    return true;
 }
 
 export class RoomMembershipService {

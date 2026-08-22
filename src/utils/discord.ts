@@ -198,25 +198,60 @@ export async function sendChannelEmbed(channelId: string, embed: EmbedBuilder): 
     }
 }
 
+export interface DiscordUserFetch {
+    username: string;
+    globalName: string | null;
+    avatar: string | null;
+}
+
 /**
- * Best-effort fetch of a Discord user's current avatar hash. Returns null on
- * any failure (user left guild, bot lacks intent, REST error). Caller decides
- * whether the failure is fatal — for caching it usually isn't.
+ * One uncached `GET /users/:id` — the whole user object a profile hydration
+ * needs (v2.127.0). `fetchAvatarHash` and `fetchDiscordUserInfo` each fetch the
+ * same endpoint for one field apiece; `UserProfileService.hydrateFromDiscord`
+ * wants both the avatar and the name, and paying two REST calls for one row
+ * would double the rate-limit cost of the nightly refresh sweep.
+ *
+ * Deliberately uncached (unlike `fetchDiscordUserInfo`): hydration is already
+ * gated on a 24h `avatar_fetched_at` stamp, and the nightly sweep exists
+ * precisely to get FRESH values.
+ *
+ * Returns null for non-Discord ids (`google:<sub>` has no Discord user), for a
+ * missing bot token, and on any REST failure.
  */
-export async function fetchAvatarHash(discordUserId: string): Promise<string | null> {
-    // Non-snowflake ids (e.g. `google:<sub>`) have no Discord user to fetch —
-    // skip the doomed REST call entirely.
+export async function fetchDiscordUser(discordUserId: string): Promise<DiscordUserFetch | null> {
     if (!isDiscordUserId(discordUserId)) return null;
     const token = process.env.DISCORD_BOT_TOKEN;
     if (!token) return null;
     try {
         const rest = new REST({ version: '10' }).setToken(token);
-        const user = await rest.get(Routes.user(discordUserId)) as { avatar?: string | null };
-        return user.avatar ?? null;
+        const user = await rest.get(Routes.user(discordUserId)) as {
+            username?: string; global_name?: string | null; avatar?: string | null;
+        };
+        if (!user?.username) return null;
+        return {
+            username: user.username,
+            globalName: user.global_name ?? null,
+            avatar: user.avatar ?? null,
+        };
     } catch (err) {
-        logError(`fetchAvatarHash: failed to fetch user ${discordUserId}:`, err);
+        logError(`fetchDiscordUser: failed to fetch user ${discordUserId}:`, err);
         return null;
     }
+}
+
+/**
+ * Best-effort fetch of a Discord user's current avatar hash. Returns null on
+ * any failure (user left guild, bot lacks intent, REST error). Caller decides
+ * whether the failure is fatal — for caching it usually isn't.
+ *
+ * Thin wrapper over `fetchDiscordUser` since v2.127.0 — same single REST call,
+ * one field of it. Kept as its own export because several callers only ever
+ * want the hash.
+ */
+export async function fetchAvatarHash(discordUserId: string): Promise<string | null> {
+    // Non-snowflake ids (e.g. `google:<sub>`) have no Discord user to fetch —
+    // skip the doomed REST call entirely.
+    return (await fetchDiscordUser(discordUserId))?.avatar ?? null;
 }
 
 export interface DiscordUserInfo {

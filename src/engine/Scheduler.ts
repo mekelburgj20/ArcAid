@@ -104,6 +104,34 @@ export class Scheduler {
 
         // Nightly iScored room snapshots (4 AM)
         this.startIScoredSnapshotCron();
+
+        // Nightly Discord profile refresh (4:20 AM)
+        this.startProfileHydrationCron();
+    }
+
+    /**
+     * Nightly Discord profile refresh (v2.127.0).
+     *
+     * 04:20 in BOT_TIMEZONE — 20 minutes behind the iScored snapshot sweep so
+     * the two nightly jobs never contend. Re-fetches the `user_profiles` rows
+     * whose `avatar_fetched_at` has gone stale (or was never stamped), so an
+     * avatar change or a Discord rename eventually reaches Arcaid even for
+     * users who never log into the web app. Gated by
+     * `PROFILE_HYDRATION_ENABLED` inside the service; defaults ON.
+     */
+    private startProfileHydrationCron(): void {
+        const timezone = process.env.BOT_TIMEZONE || 'America/Chicago';
+        const task = cron.schedule('20 4 * * *', async () => {
+            try {
+                const { UserProfileService } = await import('../services/UserProfileService.js');
+                await UserProfileService.refreshStaleDiscordProfiles({});
+            } catch (error) {
+                logError('Nightly profile hydration error:', error);
+            }
+        }, { timezone });
+
+        this.tasks.set('__profile_hydration__', task);
+        logInfo('Profile hydration cron scheduled (daily at 4:20 AM).');
     }
 
     /**

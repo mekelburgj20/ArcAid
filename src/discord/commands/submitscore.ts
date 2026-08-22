@@ -342,12 +342,19 @@ export const submitscore: Command = {
                     // Auto-map using Discord display name as iScored username
                     const member = await interaction.guild?.members.fetch(interaction.user.id).catch(() => null);
                     username = member?.displayName || interaction.user.displayName;
-                    await db.run(
+                    const inserted = await db.run(
                         `INSERT INTO user_mappings (discord_user_id, iscored_username)
                          VALUES (?, ?)
                          ON CONFLICT(iscored_username) DO NOTHING`,
                         interaction.user.id, username
                     );
+                    // v2.127.0 — same alias-link effects every other
+                    // user_mappings writer runs. Gated on `changes` so the
+                    // DO NOTHING case (name already held) stays a no-op.
+                    if (inserted?.changes) {
+                        const { IdentityAliasEffectsService } = await import('../../services/IdentityAliasEffectsService.js');
+                        await IdentityAliasEffectsService.onAliasLinked(interaction.user.id, username);
+                    }
                     logInfo(`Auto-mapped user: ${username} -> ${interaction.user.tag}`);
                 }
             }

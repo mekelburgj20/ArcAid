@@ -1,6 +1,6 @@
 import { getDatabase } from '../database/database.js';
 import { logError, logInfo } from '../utils/logger.js';
-import { assertNameAllowed } from '../utils/contentBlocklist.js';
+import { assertNameAllowed, sanitizeProviderUsername } from '../utils/contentBlocklist.js';
 
 /**
  * Per-Discord-user global profile. Owns the user-chosen display name and the
@@ -347,6 +347,138 @@ export class UserProfileService {
         );
         await this.applyAvatarPreference(discordUserId);
         return { preference, effective: resolveEffectiveAvatarProvider(preference, discordAvatarHash, googleAvatarUrl) };
+    }
+
+    /**
+     * Fill a `user_profiles` row from Discord's own user object (v2.127.0).
+     *
+     * WHY. Until now the OAuth login path in `src/api/routes/auth.ts` was the
+     * ONLY thing that hydrated `user_profiles`. A player mapped by `/map-user`
+     * or by an admin merge who never web-logged-in therefore had no row at all,
+     * so every avatar and every name for them fell back to a bare snowflake
+     * (BrickShotBobes on rtx_pinball, 2026-08-21).
+     *
+     * Rules, in order:
+     *   • non-Discord ids are skipped — a `google:<sub>` account has no Discord
+     *     user behind it and the REST call would be wasted,
+     *   • a profile fetched inside 24h is left alone unless `force`,
+     *   • ONE REST call (`fetchDiscordUser`) supplies both fields,
+     *   • `avatar_fetched_at` is stamped even when the user has NO avatar, so
+     *     an avatarless account isn't re-fetched by every nightly sweep,
+     *   • `username` is filled ONLY when the stored one is NULL. The login path
+     *     is last-write-wins and stays authoritative for anyone who logs in;
+     *     this is the fallback for people who never do.
+     *   • `display_name` is NEVER touched — that is the user's own choice.
+     *
+     * Returns true when a row was written. Never throws: every caller is on a
+     * path (a claim, a merge, a cron) that must not fail for a cosmetic reason.
+     */
+    static async hydrateFromDiscord(userId: string, opts: { force?: boolean } = {}): Promise<boolean> {
+        try {
+            if (!userId) return false;
+            const { isDiscordUserId } = await import('../utils/identityProvider.js');
+            if (!isDiscordUserId(userId)) return false;
+            if (!(await isProfileHydrationEnabled())) return false;
+
+            const db = await getDatabase();
+            if (!opts.force) {
+                const existing = await db.get<{ avatar_fetched_at: string | null }>(
+                    `SELECT avatar_fetched_at FROM user_profiles WHERE discord_user_id = ?`,
+                    userId,
+                );
+                if (existing?.avatar_fetched_at) {
+                    const fresh = await db.get<{ fresh: number }>(
+                        `SELECT (? > datetime('now', '-24 hours')) AS fresh`,
+                        existing.avatar_fetched_at,
+                    );
+                    if (fresh?.fresh) return false;
+                }
+            }
+
+            const { fetchDiscordUser } = await import('../utils/discord.js');
+            const user = await fetchDiscordUser(userId);
+            if (!user) return false;
+
+            const storedUsername = sanitizeProviderUsername(user.globalName ?? user.username);
+            await db.run(
+                `INSERT INTO user_profiles (discord_user_id, avatar_hash, avatar_fetched_at, username)
+                 VALUES (?, ?, datetime('now'), ?)
+                 ON CONFLICT(discord_user_id) DO UPDATE SET
+                    avatar_hash = excluded.avatar_hash,
+                    avatar_fetched_at = excluded.avatar_fetched_at,
+                    username = COALESCE(user_profiles.username, excluded.username),
+                    updated_at = datetime('now')`,
+                userId, user.avatar, storedUsername,
+            );
+            // Migration 151 — a first-ever Discord avatar can flip which provider
+            // is effective, so re-derive rather than assume. (The merge path
+            // forgot this for years; that is the bug this call closes.)
+            await this.applyAvatarPreference(userId);
+            return true;
+        } catch (err) {
+            logError('UserProfileService.hydrateFromDiscord failed (non-fatal)', err);
+            return false;
+        }
+    }
+
+    /**
+     * Nightly sweep: re-fetch the Discord profiles that have gone stale.
+     *
+     * Discord snowflakes only, NULL stamps first (a profile that has NEVER been
+     * fetched is the one actually rendering a blank avatar), sequential with a
+     * small gap between REST calls so a large backlog cannot trip Discord's
+     * rate limiter. Registered by `Scheduler` at 04:20 — after the 04:00
+     * iScored snapshot sweep, so the two nightly jobs don't overlap.
+     */
+    static async refreshStaleDiscordProfiles(
+        opts: { staleDays?: number; limit?: number } = {},
+    ): Promise<{ scanned: number; refreshed: number }> {
+        const staleDays = opts.staleDays ?? 7;
+        const limit = opts.limit ?? 200;
+        if (!(await isProfileHydrationEnabled())) {
+            logInfo('Profile hydration sweep skipped (PROFILE_HYDRATION_ENABLED=false).');
+            return { scanned: 0, refreshed: 0 };
+        }
+
+        const db = await getDatabase();
+        const rows = await db.all(
+            `SELECT discord_user_id FROM user_profiles
+              WHERE discord_user_id GLOB '[0-9]*'
+                AND LENGTH(discord_user_id) BETWEEN 17 AND 20
+                AND (avatar_fetched_at IS NULL OR avatar_fetched_at < datetime('now', ?))
+              ORDER BY avatar_fetched_at IS NOT NULL, avatar_fetched_at
+              LIMIT ?`,
+            `-${staleDays} days`, limit,
+        ) as Array<{ discord_user_id: string }>;
+
+        let refreshed = 0;
+        for (const row of rows) {
+            if (await this.hydrateFromDiscord(row.discord_user_id, { force: true })) refreshed++;
+            await new Promise(resolve => setTimeout(resolve, REFRESH_GAP_MS));
+        }
+        logInfo(`Profile hydration sweep: ${refreshed}/${rows.length} stale Discord profile(s) refreshed.`);
+        return { scanned: rows.length, refreshed };
+    }
+}
+
+/** Gap between REST calls in the nightly sweep — polite, not rate-limit-bound. */
+const REFRESH_GAP_MS = 250;
+
+/**
+ * `PROFILE_HYDRATION_ENABLED` kill switch, same convention as
+ * `IDENTITY_AUTO_LINK_EXACT` and `ISCORED_SNAPSHOTS_ENABLED`: absent means ON,
+ * only the literal string 'false' turns it off, and an unreadable settings
+ * table never decides policy.
+ */
+export const PROFILE_HYDRATION_SETTING = 'PROFILE_HYDRATION_ENABLED';
+
+async function isProfileHydrationEnabled(): Promise<boolean> {
+    if (process.env[PROFILE_HYDRATION_SETTING] === 'false') return false;
+    try {
+        const { SettingsService } = await import('./SettingsService.js');
+        return (await SettingsService.get(PROFILE_HYDRATION_SETTING)) !== 'false';
+    } catch {
+        return true;
     }
 }
 
