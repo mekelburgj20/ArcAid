@@ -386,6 +386,8 @@ function ResolutionHarness() {
       <span data-testid="personal">{personalTheme ?? 'none'}</span>
       <span data-testid="override">{roomThemeOverride ?? 'none'}</span>
       <button onClick={() => setPersonalTheme('retro')}>set-personal-retro</button>
+      <button onClick={() => setPersonalTheme('speegle')}>set-personal-speegle</button>
+      <button onClick={() => setRoomThemeOverride('paper')}>set-override-paper</button>
       <button onClick={() => setPersonalTheme(null)}>clear-personal</button>
       <button onClick={() => setRoomThemeOverride('synthwave')}>set-override-synthwave</button>
       <button onClick={() => setRoomThemeOverride(null)}>clear-override</button>
@@ -596,5 +598,54 @@ describe('ThemeProvider — resolution order (v2.132.0)', () => {
     await waitFor(() => expect(screen.getByTestId('personal').textContent).toBe('none'));
     expect(localStorage.getItem('arcaid-theme-personal')).toBeNull();
     await waitFor(() => expect(hasClass('theme-midnight')).toBe(true));
+  });
+
+  // ── v2.134.1: an explicit pick unlocks a conflicting explicit appearance ──
+  // Regression: every user the v2.130.0 migration seeded had appearance=dark,
+  // so picking any light theme silently rendered canonical `dark` (owner hit
+  // it with Speegle the day the light themes shipped).
+
+  it('picking a light personal theme under appearance=dark flips appearance to auto and RENDERS the pick', async () => {
+    stubPortalFetch();
+    localStorage.setItem(STORAGE_APPEARANCE_KEY, 'dark');
+
+    renderResolution('/resA');
+    fireEvent.click(screen.getByText('set-personal-speegle'));
+
+    await waitFor(() => expect(hasClass('theme-speegle')).toBe(true));
+    expect(localStorage.getItem(STORAGE_APPEARANCE_KEY)).toBe('auto');
+  });
+
+  it('picking a light this-room override under appearance=dark does the same', async () => {
+    stubPortalFetch();
+    localStorage.setItem(STORAGE_APPEARANCE_KEY, 'dark');
+
+    renderResolution('/resB');
+    fireEvent.click(screen.getByText('set-override-paper'));
+
+    await waitFor(() => expect(hasClass('theme-paper')).toBe(true));
+    expect(localStorage.getItem(STORAGE_APPEARANCE_KEY)).toBe('auto');
+  });
+
+  it('a pick MATCHING the explicit appearance leaves it untouched', async () => {
+    stubPortalFetch();
+    localStorage.setItem(STORAGE_APPEARANCE_KEY, 'dark');
+
+    renderResolution('/resC');
+    fireEvent.click(screen.getByText('set-personal-retro'));
+
+    await waitFor(() => expect(hasClass('theme-retro')).toBe(true));
+    expect(localStorage.getItem(STORAGE_APPEARANCE_KEY)).toBe('dark');
+  });
+
+  it('clearing the personal theme never touches appearance', async () => {
+    stubPortalFetch();
+    localStorage.setItem(STORAGE_APPEARANCE_KEY, 'light');
+
+    renderResolution('/resD');
+    fireEvent.click(screen.getByText('clear-personal'));
+
+    await waitFor(() => expect(screen.getByTestId('personal').textContent).toBe('none'));
+    expect(localStorage.getItem(STORAGE_APPEARANCE_KEY)).toBe('light');
   });
 });

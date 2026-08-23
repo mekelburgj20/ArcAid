@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.134.1] — unreleased
+
+### Fixed
+- **Picking a light theme now actually shows it, even with Appearance set to Dark.** Appearance (Dark/Light/Auto) is the last resolution step, and every user the v2.130.0 migration seeded had "dark" — so selecting Light/Arctic/Paper/Speegle silently rendered the canonical dark theme, all four indistinguishable (owner report 2026-08-23). An explicit theme pick in "My theme" or "This room" whose polarity conflicts with an explicit Appearance now flips Appearance to Auto in the same action; picks matching the appearance, clears, and admin room-DEFAULT picks leave it untouched. Four regression tests.
+
 ## [2.134.0] — unreleased
 
 ### Added
