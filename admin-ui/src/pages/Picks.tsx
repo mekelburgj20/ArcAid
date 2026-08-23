@@ -1253,7 +1253,7 @@ export default function Picks() {
                       <Star size={12} className="text-neon-amber flex-shrink-0" />
                       <span className="text-primary font-medium flex-shrink-0 whitespace-nowrap tabular-nums">{game.allTimeHigh.toLocaleString()}</span>
                       {game.allTimeHighPlayer && (
-                        <span className="text-muted hidden lg:inline truncate min-w-0">({game.allTimeHighPlayer})</span>
+                        <span className="text-muted hidden lg:inline break-words min-w-0">({game.allTimeHighPlayer})</span>
                       )}
                     </div>
                   ) : (
@@ -1264,7 +1264,7 @@ export default function Picks() {
                   {game.winnerName ? (
                     <div className="flex items-center justify-end gap-1">
                       <Trophy size={12} className="text-neon-amber flex-shrink-0" />
-                      <span className="text-primary truncate">{game.winnerName}</span>
+                      <span className="text-primary break-words min-w-0">{game.winnerName}</span>
                     </div>
                   ) : (
                     <span className="text-muted">{game.lastPlayedDate ? (game.lastStatus === 'ACTIVE' ? 'In progress' : '--') : '--'}</span>
@@ -1333,7 +1333,7 @@ export default function Picks() {
                   </div>
                   <div>
                     <span className="text-muted">Winner</span>
-                    <p className="text-primary truncate">{game.winnerName || '--'}</p>
+                    <p className="text-primary break-words min-w-0">{game.winnerName || '--'}</p>
                   </div>
                 </div>
                 {/* Centered on the card's bottom edge — it's the card's one

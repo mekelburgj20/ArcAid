@@ -14,6 +14,7 @@ interface GameState {
   iscored_id: string | null;
   picker_discord_id: string | null;
   picker_type: string | null;
+  picker_name: string | null;
   picker_designated_at: string | null;
   reminder_count: number;
   won_game_id: string | null;
@@ -555,9 +556,14 @@ export default function GameStates() {
                       {/* Picker */}
                       <td className="py-2.5 px-2">
                         {game.picker_discord_id ? (
-                          <div className="flex items-center gap-1">
-                            <span className="text-xs text-neon-amber">{game.picker_type}</span>
-                            <span className="text-[10px] text-faint">({game.reminder_count}r)</span>
+                          <div className="flex items-center gap-1 min-w-0">
+                            <span className="text-xs text-primary break-words min-w-0" title={game.picker_discord_id}>
+                              {game.picker_name || game.picker_discord_id}
+                            </span>
+                            {game.picker_type && (
+                              <span className="text-[10px] text-neon-amber uppercase tracking-wider whitespace-nowrap">{game.picker_type}</span>
+                            )}
+                            <span className="text-[10px] text-faint whitespace-nowrap" title="Pick reminders sent">({game.reminder_count}r)</span>
                           </div>
                         ) : (
                           <span className="text-faint text-xs">--</span>

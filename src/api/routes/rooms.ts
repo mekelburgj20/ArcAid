@@ -718,6 +718,13 @@ router.get('/:roomId/game-availability/:tournamentId', async (req, res) => {
         }
 
         // Build a map of game name → most recent play info (case-insensitive, also match variants)
+        //
+        // The cooldown clock (`playedDate`/`status`) comes from the MOST RECENT
+        // non-queued row of any status — an ACTIVE round counts. The "last
+        // winner" does NOT: a round that is still running has a leader, not a
+        // winner (v2.133.2 — Medieval Madness showed its current top scorer as
+        // "Last winner" while the round was live), so winner fields are taken
+        // from the most recent FINISHED row, and stay null until one exists.
         const recentMap = new Map<string, { playedDate: string; endDate: string | null; status: string; winnerName: string | null; winnerScore: number | null }>();
         for (const g of recentGames) {
             // Use base name (strip variant suffix for matching)
@@ -725,14 +732,21 @@ router.get('/:roomId/game-availability/:tournamentId', async (req, res) => {
                 ? g.name // keep full name for map
                 : g.name;
             const key = baseName.toLowerCase();
-            if (!recentMap.has(key)) {
+            const finished = g.status === 'COMPLETED' || g.status === 'ARCHIVED';
+            const existing = recentMap.get(key);
+            if (!existing) {
                 recentMap.set(key, {
                     playedDate: g.start_date,
                     endDate: g.end_date,
                     status: g.status,
-                    winnerName: g.winner_name,
-                    winnerScore: g.winner_score,
+                    winnerName: finished ? g.winner_name : null,
+                    winnerScore: finished ? g.winner_score : null,
                 });
+            } else if (existing.winnerName == null && finished) {
+                // Rows arrive newest-first: the first finished run after a live
+                // one supplies the winner the live row couldn't.
+                existing.winnerName = g.winner_name;
+                existing.winnerScore = g.winner_score;
             }
         }
 
@@ -6793,6 +6807,11 @@ router.get('/:roomId/admin/game-states', requireAuth, requireRoomAccess('roomId'
         // appear. Scope by COALESCE(tournament.game_room_id, games.game_room_id)
         // since tournament-linked rows get their room via the tournament and
         // pinned rows carry it directly (migration 073).
+        // picker_name (v2.133.2): the page used to render only `picker_type`
+        // (blank for web picks) + the reminder count, so every queued row read
+        // as an anonymous "(0r)". Same order as `resolveSubmitName`: this
+        // room's claimed name → global display name → Discord username; the
+        // FE falls back to the raw id.
         let query = `
             SELECT g.id, g.name, g.status, g.iscored_id, g.picker_discord_id,
                    g.picker_type, g.picker_designated_at, g.reminder_count,
@@ -6801,12 +6820,15 @@ router.get('/:roomId/admin/game-states', requireAuth, requireRoomAccess('roomId'
                    COALESCE(t.name, '(pinned)') as tournament_name,
                    COALESCE(t.type, '') as tournament_type,
                    t.id as tournament_id,
-                   CASE WHEN g.tournament_id IS NULL THEN 1 ELSE 0 END as is_pinned
+                   CASE WHEN g.tournament_id IS NULL THEN 1 ELSE 0 END as is_pinned,
+                   COALESCE(rm.display_name, up.display_name, up.username) as picker_name
             FROM games g
             LEFT JOIN tournaments t ON g.tournament_id = t.id
+            LEFT JOIN room_members rm ON rm.user_id = g.picker_discord_id AND rm.room_id = ?
+            LEFT JOIN user_profiles up ON up.discord_user_id = g.picker_discord_id
             WHERE COALESCE(t.game_room_id, g.game_room_id) = ?
         `;
-        const params: any[] = [roomId];
+        const params: any[] = [roomId, roomId];
 
         if (statusFilter) {
             query += ` AND g.status IN (${statusFilter.map(() => '?').join(',')})`;

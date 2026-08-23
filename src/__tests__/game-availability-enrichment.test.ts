@@ -355,4 +355,60 @@ describe('the enriched availability row', () => {
         expect(body.tournament.mode).toBe('pinball');
         expect(body.eligibilityDays).toBe(120);
     });
+
+    it('does not report the leader of a LIVE round as the last winner (v2.133.2)', async () => {
+        // Medieval Madness, 2026-08-23: the round was ACTIVE, DirtySocks held
+        // the top score so far, and the Picks page called him "Last winner".
+        // The cooldown clock must still count the live round.
+        const roomId = await createTestRoom(`ga-live-${++seq}`);
+        await seedCatalogue('Live Table', { platforms: ['vpx'] });
+        await seedCatalogue('Rerun Table', { platforms: ['vpx'] });
+        const tournamentId = await seedTournament(roomId, {});
+        const db = await getDatabase();
+        const now = Date.now();
+        const liveStart = new Date(now - 6 * 60 * 60 * 1000).toISOString();
+        const oldStart = new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString();
+
+        // Only run is live → no winner yet, but in cooldown.
+        await db.run(
+            `INSERT INTO games (id, tournament_id, name, status, start_date, end_date, game_room_id)
+             VALUES ('g-live', ?, 'Live Table', 'ACTIVE', ?, NULL, ?)`,
+            tournamentId, liveStart, roomId,
+        );
+        await db.run(
+            `INSERT INTO submissions (id, game_id, discord_user_id, iscored_username, score, timestamp)
+             VALUES ('g-live-leader', 'g-live', 'SYSTEM', 'Leader', 76010260, ?)`,
+            liveStart,
+        );
+        // Live rerun of a game with an earlier finished run → that run's winner.
+        await db.run(
+            `INSERT INTO games (id, tournament_id, name, status, start_date, end_date, game_room_id)
+             VALUES ('g-rerun-old', ?, 'Rerun Table', 'COMPLETED', ?, ?, ?),
+                    ('g-rerun-live', ?, 'Rerun Table', 'ACTIVE', ?, NULL, ?)`,
+            tournamentId, oldStart, oldStart, roomId,
+            tournamentId, liveStart, roomId,
+        );
+        await db.run(
+            `INSERT INTO submissions (id, game_id, discord_user_id, iscored_username, score, timestamp)
+             VALUES ('g-rerun-old-champ', 'g-rerun-old', 'SYSTEM', 'OldChamp', 1000, ?),
+                    ('g-rerun-live-leader', 'g-rerun-live', 'SYSTEM', 'NewLeader', 9000, ?)`,
+            oldStart, liveStart,
+        );
+
+        const body = await availability(roomId, tournamentId);
+        const byName = new Map(body.games.map((g: any) => [g.name, g]));
+
+        const live = byName.get('Live Table') as any;
+        expect(live.available).toBe(false);
+        expect(live.lastStatus).toBe('ACTIVE');
+        expect(live.winnerName).toBeNull();
+        expect(live.winnerScore).toBeNull();
+        expect(live.allTimeHighPlayer).toBe('Leader'); // the high score is still real
+
+        const rerun = byName.get('Rerun Table') as any;
+        expect(rerun.lastStatus).toBe('ACTIVE');
+        expect(rerun.lastPlayedDate).toBe(liveStart);
+        expect(rerun.winnerName).toBe('OldChamp');
+        expect(rerun.winnerScore).toBe(1000);
+    });
 });

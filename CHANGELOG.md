@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.133.2] — unreleased
+
+### Fixed
+- **Picks page "Last winner" no longer names the leader of a round that is still running.** The availability list took its winner from the most recent non-queued run of the game — including an ACTIVE one — so Medieval Madness showed DirtySocks (top score so far) as "Last winner" mid-round (owner report 2026-08-23). The winner now comes from the most recent FINISHED run (COMPLETED/ARCHIVED); the cooldown clock still counts the live round. A game whose only run is the live one shows "In progress".
+- **Admin Game States: the Picker column shows WHO queued the pick.** It rendered only `picker_type` (blank for web picks) plus the reminder count, so every queued row read as an anonymous `(0r)`. `GET /:roomId/admin/game-states` now ships `picker_name` (this room's claimed name → global display name → Discord username; raw id as last resort), and the cell shows it with the type as a small tag.
+- **Picks page player names wrap instead of ellipsizing** (`(DirtyS…)` beside the all-time high).
+
 ## [2.133.1] — unreleased
 
 ### Fixed
