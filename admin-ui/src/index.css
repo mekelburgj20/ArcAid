@@ -580,10 +580,33 @@
   --color-faint: oklch(50% 0.03 55);
 }
 
+/* Speegle theme (LIGHT — LEGO yellow page, pale-yellow cards, LEGO blue ink + accents) */
+.theme-speegle {
+  color-scheme: light;
+  --color-deep: #ffd500;
+  --color-surface: #fff6c4;
+  --color-raised: #ffe985;
+  /* Light polarity — same contrast reasoning as `.theme-light`; every ink and
+     accent is a dark LEGO blue / red / green so it clears AA on the yellow page. */
+  --color-brand-delta: #b3170c;
+  --color-border: #d9b300;
+  --color-border-glow: oklch(45% 0.19 258);
+  --color-neon-cyan: oklch(44% 0.14 232);
+  --color-neon-magenta: oklch(46% 0.2 28);
+  --color-neon-green: oklch(44% 0.13 150);
+  --color-neon-amber: oklch(46% 0.14 55);
+  --color-neon-purple: oklch(43% 0.2 295);
+  --color-neon-coral: oklch(47% 0.18 32);
+  --color-neon-blue: oklch(45% 0.19 258);
+  --color-primary: oklch(32% 0.17 262);
+  --color-muted: oklch(41% 0.16 258);
+  --color-faint: oklch(43% 0.11 255);
+}
+
 /*
  * Light-polarity overrides for the medal + scoreboard-surface tokens (A1,
- * v2.50.0). Exactly three theme blocks set `color-scheme: light` —
- * `.theme-light`, `.theme-arctic` and `.theme-paper` — and they are the whole
+ * v2.50.0). Exactly four theme blocks set `color-scheme: light` —
+ * `.theme-light`, `.theme-arctic`, `.theme-paper` and `.theme-speegle` — and they are the whole
  * selector list here. Every other theme is dark-surfaced and keeps the dark
  * defaults; `.theme-graphite` is a DARK neutral despite reading "quiet".
  *
@@ -596,7 +619,8 @@
  */
 .theme-light,
 .theme-arctic,
-.theme-paper {
+.theme-paper,
+.theme-speegle {
   --color-medal-silver: oklch(48% 0.025 255);
   --color-medal-bronze: oklch(47% 0.105 52);
 
@@ -1018,6 +1042,7 @@ select option {
 .theme-light .scanlines::after,
 .theme-arctic .scanlines::after,
 .theme-paper .scanlines::after,
+.theme-speegle .scanlines::after,
 .theme-graphite .scanlines::after,
 .theme-nordic .scanlines::after,
 .theme-contrast .scanlines::after {
@@ -1278,7 +1303,11 @@ select option {
 .theme-paper .glow-cyan,
 .theme-paper .glow-green,
 .theme-paper .glow-magenta,
-.theme-paper .glow-amber {
+.theme-paper .glow-amber,
+.theme-speegle .glow-cyan,
+.theme-speegle .glow-green,
+.theme-speegle .glow-magenta,
+.theme-speegle .glow-amber {
   box-shadow: 0 0 4px rgba(0, 0, 0, 0.08);
 }
 

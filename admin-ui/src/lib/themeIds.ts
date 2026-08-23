@@ -29,6 +29,7 @@ export const THEME_IDS = [
     'light',
     'arctic',
     'paper',
+    'speegle',
 ] as const;
 
 export type ThemeId = typeof THEME_IDS[number];

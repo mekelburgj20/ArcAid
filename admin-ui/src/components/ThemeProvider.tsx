@@ -92,6 +92,7 @@ export const THEMES: Record<ThemeId, { label: string; description: string }> = {
   light: { label: 'Light', description: 'Pale grey page, white cards, dark text, deep neon' },
   arctic: { label: 'Arctic', description: 'Cool blue-white light theme with navy text' },
   paper: { label: 'Paper', description: 'Warm off-white light theme, ink text, copper' },
+  speegle: { label: 'Speegle', description: 'LEGO yellow page, pale-yellow cards, LEGO blue text' },
 };
 
 /** v2.50.0 (A1) — global pages are light/dark only, never a named theme. */
@@ -307,6 +308,7 @@ export const THEME_POLARITY: Record<ThemeId, GlobalPagePolarity> = {
   light: 'light',
   arctic: 'light',
   paper: 'light',
+  speegle: 'light',
 };
 
 /**

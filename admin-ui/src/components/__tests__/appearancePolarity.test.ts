@@ -22,11 +22,11 @@ describe('THEME_POLARITY', () => {
         expect(Object.keys(THEME_POLARITY).sort()).toEqual([...themeIds].sort());
     });
 
-    it('marks exactly the three `color-scheme: light` themes as light', () => {
+    it('marks exactly the four `color-scheme: light` themes as light', () => {
         const light = (Object.keys(THEME_POLARITY) as ThemeId[])
             .filter(id => THEME_POLARITY[id] === 'light')
             .sort();
-        expect(light).toEqual(['arctic', 'light', 'paper']);
+        expect(light).toEqual(['arctic', 'light', 'paper', 'speegle']);
     });
 
     it('keeps the pale-SOUNDING dark themes dark', () => {
