@@ -184,6 +184,15 @@ Load-bearing technical and product decisions are tracked in [`docs/decisions/`](
 
 ## Future
 
+### One-time cooldown override — player request → admin approve/deny (owner-designed 2026-08-23, queued behind the phone review)
+
+**Verified baseline:** the v2.126 hold model already does the skip-and-re-queue cycle the owner wants (`TournamentEngine.nextEligibleQueuedFor` stamps `queue_held_at`, `QUEUE_ORDER_SQL` sorts held first, the held pick activates at the player's next turn once eligible). **Gap:** `PickQueueService.queueGame` REJECTS a game that is already in cooldown (`COOLDOWN`), so holds only arise when a game went into cooldown after being queued.
+
+- **Player:** allow queueing an in-cooldown game — it enters already held (top of queue, "N days"); the rejection becomes **Queue and wait** / **Queue + request override**. New opt-in notification `pickHeld` ("your top pick X is on hold, N days left — request override?") with a **Request override** button (Discord DM button + the held row on Picks). Max 1 pending per held row, 2 per player per tournament.
+- **Admin:** request → announce-channel post with admin-role mention + **Approve / Deny** buttons (role-gated, pick-prompt embed pattern) + opt-in `overrideRequest` DM + an admin-site queue/badge like Identity Claims. First admin to act wins. Admins may also grant directly from Game States with no request.
+- **Grant semantics:** Approve sets `games.cooldown_override_granted_at` on the QUEUED row; the walker treats it as eligible; **consumed on activation** (one-time). Takes effect at the player's NEXT turn (immediately only if they hold an open pick slot right now) — never swaps a live round. Deny leaves the row held. Requests expire when the cooldown clears naturally or after 7 days.
+- **Plumbing:** `cooldown_override_requests` table (room, tournament, queued game, requester, days_remaining_at_request, status pending/approved/denied/expired, resolved_by/at) + one `games` column; `CooldownOverrideService`; routes request/list/resolve; Discord button handler; Picks UI; admin queue UI; `pickHeld` + `overrideRequest` notification types (PREF_TYPE_KEYS / labels / AccountSettings per CLAUDE.md); per-tournament `COOLDOWN_OVERRIDES_ENABLED`; audit rows; tests. ~1.5–2 days.
+
 ### Share-to-Arcaid: submit a score from a photo the player already took (owner-asked 2026-08-14, pre-GA target)
 
 **Goal.** Take a score photo with the phone camera → hand it to Arcaid in one gesture → land in the score-submission flow with the photo already attached.
