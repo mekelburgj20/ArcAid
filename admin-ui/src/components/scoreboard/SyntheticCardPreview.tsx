@@ -3,6 +3,7 @@ import ScoreCardGrid from '../ScoreCardGrid';
 import type { GameLeaderboard, RankedEntry } from '../ScoreboardComponents';
 import { api } from '../../lib/api';
 import { getPortal } from '../../lib/portal';
+import { normalizeThemeId } from '../../lib/themeIds';
 import { deriveScoreboardConfig, deriveCardProps, getCardWidth } from '../../lib/scoreboardConfig';
 import type { CardStyleDraft } from './cardEditSession';
 
@@ -150,7 +151,7 @@ export default function SyntheticCardPreview({
     if (!slug) return;
     let cancelled = false;
     getPortal(slug)
-      .then(p => { if (!cancelled) setRoomTheme(p.public_theme || p.ui_theme || 'dark'); })
+      .then(p => { if (!cancelled) setRoomTheme(normalizeThemeId(p.public_theme || p.ui_theme) || 'dark'); })
       .catch(() => { if (!cancelled) setRoomTheme('dark'); });
     return () => { cancelled = true; };
   }, [slug]);

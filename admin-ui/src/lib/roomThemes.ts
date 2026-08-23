@@ -1,4 +1,4 @@
-import type { ThemeId } from '../components/ThemeProvider';
+import type { ThemeId } from './themeIds';
 
 /**
  * Client for the per-room "Theme for this room only" overrides (v2.132.0).

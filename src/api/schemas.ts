@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { containsBlockedTerm } from '../utils/contentBlocklist.js';
 import { normalizeTournamentRulesInput } from '../utils/platformRules.js';
+import { THEME_IDS } from '../utils/themeIds.js';
 import {
     CALLOUT_ACTIONS, CALLOUT_CATEGORIES, CalloutAction, CalloutCategory,
 } from '../utils/callouts.js';
@@ -126,11 +127,23 @@ export const CreateRankingGroupSchema = z.object({
 
 export const UpdateRankingGroupSchema = CreateRankingGroupSchema.omit({ id: true });
 
+/**
+ * The ONE theme enum for the API boundary (v2.133.0).
+ *
+ * Built from `THEME_IDS`, not hand-listed: the two schemas below used to carry
+ * their own copies of a 17-id literal list, so a theme added or retired in one
+ * place silently 400'd (or silently accepted a dead id) in the other. A RETIRED
+ * id is deliberately rejected rather than folded — writes always store a live
+ * id, and the read-time `normalizeThemeId` shim covers everything already in
+ * the database (migration 162 rewrote the stored rows).
+ */
+const themeIdSchema = z.enum(THEME_IDS);
+
 // v2.130.0 — both fields are optional so the two writers (the admin theme
 // select, and the Appearance control) can each post only what they changed.
 // `.refine` keeps a bare `{}` (which would be a silent no-op write) out.
 export const UpdatePreferencesSchema = z.object({
-    ui_theme: z.enum(['dark', 'light', 'retro', 'cyberpunk', 'ocean', 'sunset', 'minimal', 'invaders', 'coffee', 'backglass', 'crt-green', 'plasma', 'cabinet', 'silverball', 'wizard', 'playfield', 'marquee']).nullable().optional(),
+    ui_theme: themeIdSchema.nullable().optional(),
     appearance: z.enum(['dark', 'light', 'auto']).nullable().optional(),
 }).refine(
     body => body.ui_theme !== undefined || body.appearance !== undefined,
@@ -142,7 +155,7 @@ export const UpdatePreferencesSchema = z.object({
 // this endpoint has exactly one thing to say and an absent field would be an
 // ambiguous no-op rather than a clear.
 export const SetRoomThemeSchema = z.object({
-    theme: z.enum(['dark', 'light', 'retro', 'cyberpunk', 'ocean', 'sunset', 'minimal', 'invaders', 'coffee', 'backglass', 'crt-green', 'plasma', 'cabinet', 'silverball', 'wizard', 'playfield', 'marquee']).nullable(),
+    theme: themeIdSchema.nullable(),
 });
 
 // S15 web push — the browser PushSubscription shape (endpoint + the two

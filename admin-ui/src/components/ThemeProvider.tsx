@@ -60,27 +60,38 @@ import { api, isAuthenticated } from '../lib/api';
 import { getPortal } from '../lib/portal';
 import { isAdminPath, isGlobalPath, getRoomSlugForPath } from '../lib/routeClass';
 import { fetchRoomThemes } from '../lib/roomThemes';
+// v2.133.0 — the id list, the legacy fold and the `ThemeId` type live in
+// `lib/themeIds.ts` (mirrored byte-identically in `src/utils/themeIds.ts` on
+// the backend). Deliberately NOT re-exported from here: this file is a
+// component module, and re-exports cost it fast refresh.
+import { THEME_IDS, normalizeThemeId, type ThemeId } from '../lib/themeIds';
 
-export type ThemeId = 'dark' | 'light' | 'retro' | 'cyberpunk' | 'ocean' | 'sunset' | 'minimal' | 'invaders' | 'coffee' | 'backglass' | 'crt-green' | 'plasma' | 'cabinet' | 'silverball' | 'wizard' | 'playfield' | 'marquee';
-
+/**
+ * The picker list (v2.133.0). Order is DARKS first, LIGHTS last — the same
+ * order as `THEME_IDS` in `lib/themeIds.ts`, which this object is keyed by.
+ *
+ * Every description states what the theme RENDERS: background tone, ink,
+ * accent colours. No metaphors — the previous set had a "Playfield" theme
+ * described as "dark green felt pinball playing surface", which is a pool
+ * table, and a "Minimal" that was neither minimal nor light. Check any new
+ * entry against its `.theme-<id>` block in index.css before writing the copy.
+ */
 export const THEMES: Record<ThemeId, { label: string; description: string }> = {
-  dark: { label: 'Dark', description: 'Deep indigo dark theme with accent colors' },
-  light: { label: 'Light', description: 'Clean light theme for daytime use' },
-  retro: { label: 'Retro', description: 'Green-on-black CRT terminal aesthetic' },
-  cyberpunk: { label: 'Cyberpunk', description: 'Hot pink and yellow on deep purple' },
-  ocean: { label: 'Ocean', description: 'Cool teal tones on deep navy' },
-  sunset: { label: 'Sunset', description: 'Warm orange and amber on dark brown' },
-  minimal: { label: 'Minimal', description: 'Monochrome with a single accent color' },
-  invaders: { label: 'Space Invaders', description: 'Classic arcade black with alien silhouettes' },
-  coffee: { label: 'Coffee', description: 'Warm cream and brown light theme' },
-  backglass: { label: 'Backglass', description: 'Warm amber pinball backglass translite feel' },
-  'crt-green': { label: 'CRT Green', description: 'Phosphor green monochrome CRT monitor' },
-  plasma: { label: 'Plasma', description: 'Hot pink and electric blue plasma ball energy' },
-  cabinet: { label: 'Cabinet', description: 'Classic black arcade cabinet with primary colors' },
-  silverball: { label: 'Silverball', description: 'Chrome and steel pinball machine aesthetic' },
-  wizard: { label: 'Wizard', description: 'Mystical indigo fantasy pinball atmosphere' },
-  playfield: { label: 'Playfield', description: 'Dark green felt pinball playing surface' },
-  marquee: { label: 'Marquee', description: 'Illuminated arcade marquee with bright glow' },
+  dark: { label: 'Arcaid default', description: 'Dark navy slate, white text, cyan + magenta neon' },
+  midnight: { label: 'Midnight', description: 'Deep navy, crisp white text, electric blue + amber' },
+  graphite: { label: 'Graphite', description: 'Neutral charcoal with a single teal accent' },
+  nordic: { label: 'Nordic', description: 'Muted blue-grey, soft pastel accents, low glare' },
+  plasma: { label: 'Plasma', description: 'Purple-black with hot pink and electric blue' },
+  synthwave: { label: 'Synthwave', description: 'Violet-black, hot pink + cyan neon, horizon glow' },
+  ember: { label: 'Ember', description: 'Warm charcoal with orange and amber accents' },
+  forest: { label: 'Forest', description: 'Deep green-black with mint and gold accents' },
+  backglass: { label: 'Backglass', description: 'Warm brown-black with amber glow and gold accents' },
+  retro: { label: 'Retro terminal', description: 'Black with green phosphor text and glow' },
+  silverball: { label: 'Silverball', description: 'Gunmetal greys with chrome edges and cool accents' },
+  contrast: { label: 'High contrast', description: 'Pure black, white text, no glow — top legibility' },
+  light: { label: 'Light', description: 'Pale grey page, white cards, dark text, deep neon' },
+  arctic: { label: 'Arctic', description: 'Cool blue-white light theme with navy text' },
+  paper: { label: 'Paper', description: 'Warm off-white light theme, ink text, copper' },
 };
 
 /** v2.50.0 (A1) — global pages are light/dark only, never a named theme. */
@@ -260,44 +271,49 @@ function readOsPolarity(): GlobalPagePolarity {
 // same reserved-segment list, one definition.
 const getRoomSlug = getRoomSlugForPath;
 
-const ALL_THEME_CLASSES = ['theme-light', 'theme-retro', 'theme-cyberpunk', 'theme-ocean', 'theme-sunset', 'theme-minimal', 'theme-invaders', 'theme-coffee', 'theme-backglass', 'theme-crt-green', 'theme-plasma', 'theme-cabinet', 'theme-silverball', 'theme-wizard', 'theme-playfield', 'theme-marquee'];
+/**
+ * Every class `applyThemeClass` may have to strip. Derived from `THEME_IDS`
+ * rather than hand-listed (the hand-list had already drifted once), minus
+ * `dark`, which is the no-class default. Module-private: the ONE thing that
+ * must not drift is that it covers every theme, and deriving it from the same
+ * list the picker uses makes that true by construction rather than by test.
+ */
+const ALL_THEME_CLASSES = THEME_IDS.filter(id => id !== 'dark').map(id => `theme-${id}`);
 
 /**
  * v2.130.0 — which polarity each theme actually renders at.
  *
- * The source of truth is `color-scheme` in admin-ui/src/index.css: exactly two
- * theme blocks declare `color-scheme: light` (`.theme-light`, `.theme-coffee`)
- * and `html` declares `color-scheme: dark` for everything else. Note the trap:
- * `.theme-minimal` is a DARK monochrome theme despite the name (its
- * `--color-deep` is oklch(14%)), and `.theme-silverball`/`.theme-marquee`
- * read "bright" but are dark-surfaced too. Add a theme to `THEMES` and
- * `appearancePolarity.test.ts` fails until it is classified here.
+ * The source of truth is `color-scheme` in admin-ui/src/index.css: exactly
+ * three theme blocks declare `color-scheme: light` (`.theme-light`,
+ * `.theme-arctic`, `.theme-paper`) and `html` declares `color-scheme: dark`
+ * for everything else. Note the traps: `graphite` and `silverball` are
+ * neutral/pale-sounding but dark-surfaced, and `contrast` is pure black.
+ * Add a theme to `THEMES` and `appearancePolarity.test.ts` fails until it is
+ * classified here.
  */
 export const THEME_POLARITY: Record<ThemeId, GlobalPagePolarity> = {
   dark: 'dark',
-  light: 'light',
-  retro: 'dark',
-  cyberpunk: 'dark',
-  ocean: 'dark',
-  sunset: 'dark',
-  minimal: 'dark',
-  invaders: 'dark',
-  coffee: 'light',
-  backglass: 'dark',
-  'crt-green': 'dark',
+  midnight: 'dark',
+  graphite: 'dark',
+  nordic: 'dark',
   plasma: 'dark',
-  cabinet: 'dark',
+  synthwave: 'dark',
+  ember: 'dark',
+  forest: 'dark',
+  backglass: 'dark',
+  retro: 'dark',
   silverball: 'dark',
-  wizard: 'dark',
-  playfield: 'dark',
-  marquee: 'dark',
+  contrast: 'dark',
+  light: 'light',
+  arctic: 'light',
+  paper: 'light',
 };
 
 /**
  * The LAST step of theme resolution (v2.130.0), shared by every route class.
  *
  * `auto` changes nothing. Otherwise the resolved theme is kept when it already
- * renders at the requested polarity — a room already on `coffee` stays on ITS
+ * renders at the requested polarity — a room already on `paper` stays on ITS
  * light theme under appearance=light rather than being flattened to the
  * generic `light` — and is swapped for the canonical theme of that polarity
  * when it does not.
@@ -348,21 +364,23 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const stored = (initialSlug && localStorage.getItem(publicSlugKey(initialSlug)))
       || localStorage.getItem(STORAGE_PUBLIC_KEY)
       || localStorage.getItem(STORAGE_GLOBAL_KEY);
-    return (stored as ThemeId) || 'dark';
+    // v2.133.0 — a mirror written before the theme cull can name a retired
+    // theme; `normalizeThemeId` maps it forward so no dead class is painted.
+    return normalizeThemeId(stored) || 'dark';
   });
   // v2.132.0 — the viewer's own theme, or null for "use each room's default".
   // Seeded from the legacy admin-theme key (same value, older name); ABSENCE
   // is meaningful here, so there is no 'dark' fallback at this layer.
   const [personalThemeState, setPersonalThemeState] = useState<ThemeId | null>(() => {
     const stored = localStorage.getItem(STORAGE_PERSONAL_KEY) || localStorage.getItem(STORAGE_ADMIN_KEY);
-    return (stored as ThemeId) || null;
+    return normalizeThemeId(stored);
   });
   // v2.132.0 — this room's override, seeded per SLUG so room A's choice never
   // paints in room B. Null off-room and for any room the viewer hasn't set.
   const [roomThemeOverrideState, setRoomThemeOverrideState] = useState<ThemeId | null>(() => {
     const initialSlug = getRoomSlug(window.location.pathname);
     if (!initialSlug) return null;
-    return (localStorage.getItem(roomOverrideSlugKey(initialSlug)) as ThemeId) || null;
+    return normalizeThemeId(localStorage.getItem(roomOverrideSlugKey(initialSlug)));
   });
 
   // The room on screen RIGHT NOW, for async callbacks. Read from the router
@@ -451,8 +469,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const stored = localStorage.getItem(publicSlugKey(roomSlug))
       || localStorage.getItem(STORAGE_PUBLIC_KEY)
       || localStorage.getItem(STORAGE_GLOBAL_KEY);
-    setPublicThemeState((stored as ThemeId) || 'dark');
-    setRoomThemeOverrideState((localStorage.getItem(roomOverrideSlugKey(roomSlug)) as ThemeId) || null);
+    setPublicThemeState(normalizeThemeId(stored) || 'dark');
+    setRoomThemeOverrideState(normalizeThemeId(localStorage.getItem(roomOverrideSlugKey(roomSlug))));
   }, [adminRoute, roomSlug]);
 
   // Hydrate from API on mount and whenever the route's admin/public-slug
@@ -472,9 +490,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
           // Room pages use room-specific theme
           const portal = await getPortal(roomSlug).catch(() => null);
           if (portal) {
-            const serverPublicTheme = portal.public_theme || portal.ui_theme;
+            const serverPublicTheme = normalizeThemeId(portal.public_theme || portal.ui_theme);
             if (serverPublicTheme) {
-              setPublicThemeState(serverPublicTheme as ThemeId);
+              setPublicThemeState(serverPublicTheme);
               localStorage.setItem(STORAGE_PUBLIC_KEY, serverPublicTheme);
             }
             // v2.132.0 — this room's personal override. Needs the ROOM ID,
@@ -486,7 +504,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
             // clears an override removed on another device.
             if (portal.roomId) {
               const map = await fetchRoomThemes(portal.roomId);
-              if (map) applyRoomOverride(roomSlug, map[portal.roomId] ?? null);
+              if (map) applyRoomOverride(roomSlug, normalizeThemeId(map[portal.roomId]));
             }
           }
         }
@@ -501,10 +519,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         // the absence of one.
         const prefs = await fetchUserPreferences();
         if (prefs) {
-          if (prefs.ui_theme) {
-            if (prefs.ui_theme !== personalThemeState) setPersonalThemeState(prefs.ui_theme);
-            localStorage.setItem(STORAGE_PERSONAL_KEY, prefs.ui_theme);
-            localStorage.setItem(STORAGE_ADMIN_KEY, prefs.ui_theme);
+          const serverPersonal = normalizeThemeId(prefs.ui_theme);
+          if (serverPersonal) {
+            if (serverPersonal !== personalThemeState) setPersonalThemeState(serverPersonal);
+            localStorage.setItem(STORAGE_PERSONAL_KEY, serverPersonal);
+            localStorage.setItem(STORAGE_ADMIN_KEY, serverPersonal);
           } else {
             if (personalThemeState !== null) setPersonalThemeState(null);
             localStorage.removeItem(STORAGE_PERSONAL_KEY);

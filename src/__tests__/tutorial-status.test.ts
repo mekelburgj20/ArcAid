@@ -53,10 +53,10 @@ describe('PreferencesService tutorial methods', () => {
     });
 
     it('does not disturb an existing ui_theme row for the same user', async () => {
-        await PreferencesService.setTheme('discord-pref-4', 'ocean');
+        await PreferencesService.setTheme('discord-pref-4', 'midnight');
         await PreferencesService.markTutorialSeen('discord-pref-4');
         const theme = await PreferencesService.getTheme('discord-pref-4');
-        expect(theme).toBe('ocean');
+        expect(theme).toBe('midnight');
     });
 });
 

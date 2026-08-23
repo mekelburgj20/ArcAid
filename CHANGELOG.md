@@ -6,6 +6,45 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.133.0] — unreleased
+
+**The room themes were bad, and several of them were lying.** Owner, 2026-08-22: "The room themes are so bad and incorrect. 'Playfield' says 'Dark green felt pinball playing surface' — that's pool, not pinball. Do a pass: remove the horrible themes, add really great ones that cover a variety of user preference, and make the names/descriptions modernized and accurate." Seventeen themes went in, fifteen came out: eleven retired, nine added, and every surviving label and description rewritten to state what the theme actually renders — background tone, ink, accent colours — rather than a metaphor for it.
+
+### Added
+- **Nine new themes**, each a full token block in `admin-ui/src/index.css`, all clearing the v2.131.2 contrast bar: **Midnight** (deep navy, crisp white ink, electric blue + amber), **Graphite** (neutral charcoal, one restrained teal accent), **Nordic** (the Nord palette — muted blue-grey, soft pastels, no glare), **Synthwave** (violet-black, hot pink + cyan, with a fixed horizon gradient behind the page), **Ember** (warm charcoal, orange/amber, a faint warm text bloom), **Forest** (deep green-black, mint + gold), **High contrast** (pure black, white ink, every decorative bloom and the scanline veil switched off — the accessibility option), and two LIGHT themes: **Arctic** (cool blue-white page, navy ink) and **Paper** (warm off-white, ink text, copper accents).
+- **`admin-ui/src/lib/themeIds.ts` ≡ `src/utils/themeIds.ts`** — one dependency-free module, mirrored byte-identically below its header on both sides and locked by `src/__tests__/themeIds-parity.test.ts` (same contract as the `scoreProvenance.ts` pair). It owns `THEME_IDS` (the picker order), the `ThemeId` type, `LEGACY_THEME_MAP`, `isThemeId` and `normalizeThemeId`. The picker list, the class stripper, the API's Zod enum and the migration are now four views of that one table instead of four hand-written literals.
+- **`normalizeThemeId` is applied at every READ of a stored theme id** — the four localStorage mirrors, `/me/preferences.ui_theme`, the portal's `public_theme`/`ui_theme`, the `roomThemes` map, and the room's `UI_THEME` on the Settings page. localStorage cannot be migrated, so without this a viewer whose browser still says `cyberpunk` would get a `.theme-cyberpunk` class that no stylesheet defines: the page paints the default dark and their choice is silently gone. `PreferencesService.setTheme`/`setRoomTheme` normalize on WRITE as well.
+- **Migration 162 `162_theme_overhaul`** (`src/database/migrations/themeOverhaul.ts`) folds every stored id forward through the same `LEGACY_THEME_MAP`, across all three storage sites: `game_room_settings` key `UI_THEME`, `user_preferences.ui_theme`, and both the `roomThemes` map and any pre-v2.132 `desktop`/`mobile.UI_THEME` residue inside `user_preferences.scoreboard_prefs`. Idempotent, logs per-site counts, leaves unparseable blobs alone.
+
+### Changed
+- **Every label and description now describes the rendered palette.** The old copy was written from theme NAMES and had drifted from the CSS: "Playfield — Dark green felt pinball playing surface" (a pool table; the theme is green-on-black), "Minimal — Monochrome with a single accent color" (a dark theme filed under a name that reads light), "Space Invaders — Classic arcade black with alien silhouettes". `appearancePolarity.test.ts` now caps descriptions at 60 characters so they cannot grow back into paragraphs that truncate in the `<select>`.
+- **Picker order is deliberate: darks first, lights last** — `dark, midnight, graphite, nordic, plasma, synthwave, ember, forest, backglass, retro, silverball, contrast, light, arctic, paper`.
+- **Silverball's accents were retuned.** The greys are untouched; the seven accent tokens sat at chroma 0.06–0.12 and were indistinguishable from one another on a card. Same hues, chroma raised to roughly the dark default, so a magenta row and a cyan row read as different colours again.
+- **`THEME_POLARITY` now marks three light themes** (`light`, `arctic`, `paper`) — the `.theme-light, .theme-coffee` selector list in `index.css` became `.theme-light, .theme-arctic, .theme-paper`, and the scanline-veil and glow-soften rules follow it.
+- **The `--sb-art-*` tokens are pinned to their dark values inside `.sb-on-art`.** An art-filled card has been a dark-token island since v2.131.1, but the only thing holding the art scrim dark there was `.sb-theme-scope`, whose property list is GENERATED from "whatever some theme overrides". The day no light theme overrode `--sb-art-scrim-top`, the generator would drop it and the island would inherit the page's white veil while still setting white ink on top of it. The pairing is now stated where it belongs.
+- **`UpdatePreferencesSchema.ui_theme` and `SetRoomThemeSchema.theme` share one `z.enum(THEME_IDS)`.** Both carried their own copy of a 17-id literal list, so a theme added or retired in one silently 400'd in the other. Retired ids are rejected at the write boundary on purpose: writes always store a live id, and the read-time shim covers everything already stored.
+
+### Removed
+- **Eleven themes**, and every CSS rule belonging to them — token blocks plus the per-theme extras (`.theme-invaders`'s SVG background pattern, `.theme-crt-green`'s phosphor glow and scanlines, `.theme-coffee`'s input styling, `.theme-minimal`'s glow suppression, `.theme-marquee`'s white bloom, `.theme-playfield`'s scanline removal).
+
+  | Retired | Now renders as | Why |
+  |---|---|---|
+  | `coffee` | `paper` | the warm off-white light theme, redrawn |
+  | `crt-green` | `retro` | both were the phosphor-green terminal |
+  | `marquee` | `dark` | a white-glow near-black; the default is the same idea |
+  | `cabinet` | `dark` | primary accents on black, less crudely |
+  | `ocean` | `midnight` | cool blues on deep navy |
+  | `invaders` | `forest` | green-accented black |
+  | `playfield` | `forest` | the "green felt" theme was green-on-black anyway |
+  | `wizard` | `plasma` | purple-violet with magenta accents |
+  | `cyberpunk` | `synthwave` | hot pink on violet-black, done properly |
+  | `sunset` | `ember` | warm orange/amber on a dark warm ground |
+  | `minimal` | `graphite` | neutral monochrome with one cool accent |
+
+### Verification
+- `node admin-ui/scripts/contrastAudit.cjs --all` — 15 themes, **0 text-token failures, 0 neon failures**. The bar is unchanged from v2.131.2: `--color-muted` ≥ 4.5:1 on deep/surface/raised, `--color-faint` ≥ 4.5:1 on deep/surface, accents ≥ 3:1.
+- The v2.131.2 "known residue" (five `.theme-coffee` accents between 1.79:1 and 3.23:1) is **closed** — that theme is gone, and its replacement `paper` passes at every token.
+
 ## [2.132.1] — unreleased
 
 ### Fixed

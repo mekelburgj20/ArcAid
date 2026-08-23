@@ -4,7 +4,8 @@ import { Search, SlidersHorizontal } from 'lucide-react';
 import { api, getToken, getTokenDiscordId } from '../lib/api';
 import { useRoom } from '../contexts/RoomContext';
 import { useToast } from '../components/Toast';
-import { useTheme, type ThemeId } from '../components/ThemeProvider';
+import { useTheme } from '../components/ThemeProvider';
+import { normalizeThemeId, type ThemeId } from '../lib/themeIds';
 import ThemePicker from '../components/ThemePicker';
 import NeonCard from '../components/NeonCard';
 import NeonButton from '../components/NeonButton';
@@ -720,8 +721,11 @@ export default function Settings() {
         setSettings(data);
         setBaseline({ ...data });
         // Sync global theme from settings
-        if (data.UI_THEME && data.UI_THEME !== publicTheme) {
-          setPublicTheme(data.UI_THEME as ThemeId);
+        // v2.133.0 — a room saved before the theme cull can still hold a
+        // retired id; normalize so the page paints a theme that exists.
+        const storedRoomTheme = normalizeThemeId(data.UI_THEME);
+        if (storedRoomTheme && storedRoomTheme !== publicTheme) {
+          setPublicTheme(storedRoomTheme);
         }
         // v2.132.0 — the legacy room-scoped `ADMIN_THEME` setting is no
         // longer read here. It used to seed the provider's "admin theme",
@@ -1303,7 +1307,7 @@ export default function Settings() {
           <label className="text-xs text-faint block mb-1" htmlFor="room-default-theme">Room default theme</label>
           <ThemePicker
             id="room-default-theme"
-            value={(settings.UI_THEME as ThemeId) || publicTheme}
+            value={normalizeThemeId(settings.UI_THEME) || publicTheme}
             onChange={t => {
               const newTheme = (t ?? 'dark') as ThemeId;
               handleChange('UI_THEME', newTheme);

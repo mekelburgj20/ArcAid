@@ -51,9 +51,9 @@ describe('AppearanceControl', () => {
     });
 
     it('picking Light applies the light theme and persists the choice', async () => {
-        localStorage.setItem('arcaid-theme-public-rooma', 'ocean');
+        localStorage.setItem('arcaid-theme-public-rooma', 'midnight');
         renderControl();
-        await waitFor(() => expect(hasClass('theme-ocean')).toBe(true));
+        await waitFor(() => expect(hasClass('theme-midnight')).toBe(true));
 
         fireEvent.click(screen.getByTestId('appearance-light'));
 
@@ -63,18 +63,18 @@ describe('AppearanceControl', () => {
     });
 
     it('picking Auto hands the page back to the room theme', async () => {
-        // Coffee is the room's LIGHT theme, so appearance=dark genuinely
-        // overrides it — with a dark room theme like ocean the override is a
+        // Paper is the room's LIGHT theme, so appearance=dark genuinely
+        // overrides it — with a dark room theme like midnight the override is a
         // no-op and this would assert nothing.
-        localStorage.setItem('arcaid-theme-public-rooma', 'coffee');
+        localStorage.setItem('arcaid-theme-public-rooma', 'paper');
         localStorage.setItem(STORAGE_APPEARANCE_KEY, 'dark');
         renderControl();
         await waitFor(() => expect(screen.getByTestId('appearance-dark')).toHaveAttribute('aria-checked', 'true'));
-        expect(hasClass('theme-coffee')).toBe(false);
+        expect(hasClass('theme-paper')).toBe(false);
 
         fireEvent.click(screen.getByTestId('appearance-auto'));
 
-        await waitFor(() => expect(hasClass('theme-coffee')).toBe(true));
+        await waitFor(() => expect(hasClass('theme-paper')).toBe(true));
         expect(localStorage.getItem(STORAGE_APPEARANCE_KEY)).toBe('auto');
     });
 
