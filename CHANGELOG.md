@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.133.1] — unreleased
+
+### Fixed
+- **The "A new version of Arcaid is available — tap to refresh" toast is opaque.** It painted a 10% cyan tint over whatever happened to be behind it (`bg-neon-cyan/10`), so on a busy page the text was barely readable (owner report 2026-08-23). It now sits on the theme's solid `--color-surface` with the same cyan border and a stronger shadow.
+
 ## [2.133.0] — unreleased
 
 **The room themes were bad, and several of them were lying.** Owner, 2026-08-22: "The room themes are so bad and incorrect. 'Playfield' says 'Dark green felt pinball playing surface' — that's pool, not pinball. Do a pass: remove the horrible themes, add really great ones that cover a variety of user preference, and make the names/descriptions modernized and accurate." Seventeen themes went in, fifteen came out: eleven retired, nine added, and every surviving label and description rewritten to state what the theme actually renders — background tone, ink, accent colours — rather than a metaphor for it.

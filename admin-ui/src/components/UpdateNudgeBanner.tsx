@@ -21,8 +21,12 @@ export default function UpdateNudgeBanner() {
   const { show, dismiss, refresh } = useUpdateNudge();
   if (!show) return null;
 
+  // v2.133.1 — OPAQUE surface. The original `bg-neon-cyan/10` was a 10% tint
+  // over whatever sat behind the toast, so over a busy admin page the text was
+  // barely readable (owner, 2026-08-23). `bg-surface` is the theme's solid
+  // card colour, so it reads in every theme.
   return (
-    <div className="fixed bottom-4 left-4 z-50 max-w-xs px-4 py-3 rounded border border-neon-cyan/50 bg-neon-cyan/10 shadow-lg flex items-start gap-2">
+    <div className="fixed bottom-4 left-4 z-50 max-w-xs px-4 py-3 rounded border border-neon-cyan/60 bg-surface shadow-xl shadow-black/40 flex items-start gap-2">
       <RefreshCw size={14} className="mt-0.5 shrink-0 text-neon-cyan" />
       <button
         type="button"
