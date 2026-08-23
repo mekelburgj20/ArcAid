@@ -577,7 +577,26 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
    * would read back as a truthy-ish stored value on the next boot). The
    * server write is fire-and-forget on top, exactly like `setAppearance`.
    */
+  /**
+   * v2.134.1 — an explicit theme pick beats a stale polarity lock. Every user
+   * with a stored appearance had 'dark' (the v2.130.0 migration seeded it from
+   * the old global-page sun/moon toggle), which silently swapped any light
+   * theme they picked for canonical `dark` — the owner hit it the day the
+   * light themes shipped. If the viewer's explicit Dark/Light appearance would
+   * swap AWAY the theme they just picked, flip appearance to 'auto' in the
+   * same action so the pick actually renders. Room-DEFAULT pickers (an admin
+   * choosing for other people, via `setPublicTheme`) are deliberately not
+   * covered — that choice says nothing about the admin's own appearance.
+   */
+  const unlockAppearanceFor = (picked: ThemeId | null) => {
+    if (!picked) return;
+    if (appearance !== 'auto' && THEME_POLARITY[picked] !== appearance) {
+      setAppearance('auto');
+    }
+  };
+
   const setPersonalTheme = (newTheme: ThemeId | null) => {
+    unlockAppearanceFor(newTheme);
     setPersonalThemeState(newTheme);
     try {
       if (newTheme) {
@@ -602,6 +621,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
    */
   const setRoomThemeOverride = (newTheme: ThemeId | null) => {
     if (!roomSlug) return;
+    unlockAppearanceFor(newTheme); // same explicit-pick rule as setPersonalTheme
     applyRoomOverride(roomSlug, newTheme);
   };
 
