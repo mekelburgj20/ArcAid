@@ -193,9 +193,9 @@ function darkBlock(): string {
   return INDEX_CSS.slice(start, end);
 }
 
-/** The `.theme-light, .theme-arctic, .theme-paper { ... }` override block. */
+/** The `.theme-light, .theme-arctic, .theme-paper, .theme-speegle { ... }` override block. */
 function lightBlock(): string {
-  const start = INDEX_CSS.indexOf('.theme-light,\n.theme-arctic,\n.theme-paper {');
+  const start = INDEX_CSS.indexOf('.theme-light,\n.theme-arctic,\n.theme-paper,\n.theme-speegle {');
   const end = INDEX_CSS.indexOf('\n}', start);
   return INDEX_CSS.slice(start, end);
 }

@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.134.0] — unreleased
+
+### Added
+- **"Speegle" theme** (owner-asked 2026-08-23, LEGO-themed): a LIGHT-polarity theme — LEGO yellow page (`#ffd500`), pale-yellow cards, LEGO blue ink and accents, LEGO red for the brand delta/magenta slot. Every text + accent token clears AA on all three surfaces (`contrastAudit.cjs --all`: weakest is 5.03:1). Registered in `THEME_IDS` (FE ≡ BE), `THEMES`, `THEME_POLARITY` (light), and all three light-polarity selector lists in `index.css` (medal/scrim overrides, no scanlines, no glow). 16 themes total.
+
 ## [2.133.3] — unreleased
 
 ### Fixed

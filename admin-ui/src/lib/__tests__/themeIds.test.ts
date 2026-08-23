@@ -18,10 +18,10 @@ const CSS_PATH = [
 ].find(existsSync)!;
 
 describe('THEME_IDS', () => {
-    it('is the 15 shipped themes, darks first and lights last', () => {
-        expect(THEME_IDS).toHaveLength(15);
+    it('is the 16 shipped themes, darks first and lights last', () => {
+        expect(THEME_IDS).toHaveLength(16);
         expect(THEME_IDS[0]).toBe('dark');
-        expect(THEME_IDS.slice(-3)).toEqual(['light', 'arctic', 'paper']);
+        expect(THEME_IDS.slice(-4)).toEqual(['light', 'arctic', 'paper', 'speegle']);
     });
 
     it('has no duplicates', () => {
