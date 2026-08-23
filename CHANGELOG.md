@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.133.3] — unreleased
+
+### Fixed
+- **Picks page: player names beside the all-time high / last winner stay on one line.** v2.133.2 swapped the ellipsis for wrapping, which broke "(DirtySocks)" across two lines inside the fixed 140px column (owner, 2026-08-23). The All-Time High and Last Winner columns are now `minmax(200px,auto)` / `minmax(140px,auto)` so they grow to fit the name, and the name is `nowrap`.
+
 ## [2.133.2] — unreleased
 
 ### Fixed

@@ -1184,7 +1184,7 @@ export default function Picks() {
         <div className="flex flex-col gap-3 sm:block sm:gap-0 sm:bg-surface sm:border sm:border-border sm:rounded-lg sm:overflow-hidden">
           {/* Header */}
           <div className={`hidden sm:grid gap-2 px-4 py-2 border-b border-border/50 text-[10px] text-muted uppercase tracking-wider ${
-            discordUser ? 'grid-cols-[1fr_100px_110px_140px_120px_60px]' : 'grid-cols-[1fr_100px_110px_140px_120px]'
+            discordUser ? 'grid-cols-[1fr_100px_110px_minmax(200px,auto)_minmax(140px,auto)_60px]' : 'grid-cols-[1fr_100px_110px_minmax(200px,auto)_minmax(140px,auto)]'
           }`}>
             <span>Game</span>
             <span className="text-center">Status</span>
@@ -1200,7 +1200,7 @@ export default function Picks() {
             >
               {/* Desktop row */}
               <div className={`hidden sm:grid gap-2 px-4 py-3 items-center ${
-                discordUser ? 'grid-cols-[1fr_100px_110px_140px_120px_60px]' : 'grid-cols-[1fr_100px_110px_140px_120px]'
+                discordUser ? 'grid-cols-[1fr_100px_110px_minmax(200px,auto)_minmax(140px,auto)_60px]' : 'grid-cols-[1fr_100px_110px_minmax(200px,auto)_minmax(140px,auto)]'
               }`}>
                 {/* Title never ellipsizes — it wraps. Manufacturer/year and the
                     platform chips sit under it as quiet identity context. */}
@@ -1253,7 +1253,7 @@ export default function Picks() {
                       <Star size={12} className="text-neon-amber flex-shrink-0" />
                       <span className="text-primary font-medium flex-shrink-0 whitespace-nowrap tabular-nums">{game.allTimeHigh.toLocaleString()}</span>
                       {game.allTimeHighPlayer && (
-                        <span className="text-muted hidden lg:inline break-words min-w-0">({game.allTimeHighPlayer})</span>
+                        <span className="text-muted hidden lg:inline whitespace-nowrap">({game.allTimeHighPlayer})</span>
                       )}
                     </div>
                   ) : (
@@ -1264,7 +1264,7 @@ export default function Picks() {
                   {game.winnerName ? (
                     <div className="flex items-center justify-end gap-1">
                       <Trophy size={12} className="text-neon-amber flex-shrink-0" />
-                      <span className="text-primary break-words min-w-0">{game.winnerName}</span>
+                      <span className="text-primary whitespace-nowrap">{game.winnerName}</span>
                     </div>
                   ) : (
                     <span className="text-muted">{game.lastPlayedDate ? (game.lastStatus === 'ACTIVE' ? 'In progress' : '--') : '--'}</span>
