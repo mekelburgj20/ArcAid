@@ -56,7 +56,7 @@
   /* Scoreboard surfaces (A1, v2.50.0) — `--sb-` rather than `--color-` because
      these are composited overlays (scrims, tints, shadows), not palette
      entries, and their alpha/base flip with polarity. Light overrides live in
-     the `.theme-light, .theme-coffee` block below. The Global Scoreboard card
+     the `.theme-light, .theme-arctic, .theme-paper` block below. The Global Scoreboard card
      consumes these exclusively: no literal rgba() belongs in that TSX. */
   --sb-art-scrim: linear-gradient(180deg, rgba(0, 0, 0, 0.05) 40%, rgba(16, 18, 26, 0.95) 100%);
   --sb-hero-scrim: linear-gradient(90deg, rgba(16, 18, 26, 0.95) 10%, rgba(16, 18, 26, 0.5) 55%, transparent 100%);
@@ -324,6 +324,7 @@
   text-shadow: none;
   background-image: none;
   background-repeat: repeat;
+  background-attachment: scroll;
   --color-border: oklch(35% 0.02 255);
   --color-border-glow: oklch(58% 0.233 277.117);
   --color-brand-delta: #ff2e63;
@@ -463,6 +464,27 @@
   color: var(--color-primary);
 }
 
+/*
+ * v2.133.0 — the art tokens are pinned to their DARK values on the island.
+ *
+ * `.sb-theme-scope` (above) already restates them, but that block is
+ * GENERATED from "whatever some theme overrides" — the day no light theme
+ * overrides `--sb-art-scrim-top` any more, the generator drops it and the
+ * island silently inherits the page's white veil while `.sb-on-art` keeps
+ * setting white ink on top of it. The island is a fixed black scrim by
+ * construction, so state the pairing here rather than inferring it.
+ */
+.sb-on-art {
+  --sb-art-scrim: linear-gradient(180deg, rgba(0, 0, 0, 0.05) 40%, rgba(16, 18, 26, 0.95) 100%);
+  --sb-art-scrim-top: linear-gradient(180deg, rgba(4, 6, 12, 0.92) 0%, rgba(4, 6, 12, 0.80) 30%, rgba(4, 6, 12, 0.52) 58%, rgba(4, 6, 12, 0.20) 82%, transparent 100%);
+  --sb-art-title: oklch(100% 0 0);
+  --sb-art-title-shadow: 0 1px 2px rgba(0, 0, 0, 0.95), 0 2px 12px rgba(0, 0, 0, 0.8);
+  --sb-art-meta: rgba(255, 255, 255, 0.62);
+  --sb-art-meta-strong: rgba(255, 255, 255, 0.82);
+  --sb-art-btn-bg: rgba(0, 0, 0, 0.55);
+  --sb-art-btn-border: rgba(255, 255, 255, 0.15);
+}
+
 .sb-on-art .sb-art-text {
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.85), 0 0 2px rgba(0, 0, 0, 0.6);
 }
@@ -514,119 +536,67 @@
   --color-faint: oklch(58% 0.06 140);
 }
 
-/* Cyberpunk theme (hot pink/yellow on deep purple) */
-.theme-cyberpunk {
-  --color-deep: oklch(15% 0.04 310);
-  --color-surface: oklch(18% 0.05 310);
-  --color-raised: oklch(22% 0.06 310);
-  --color-border: oklch(32% 0.08 310);
-  --color-border-glow: oklch(70% 0.25 350);
-  --color-neon-cyan: oklch(85% 0.2 95);
-  --color-neon-magenta: oklch(70% 0.28 350);
-  --color-neon-green: oklch(80% 0.22 140);
-  --color-neon-amber: oklch(85% 0.2 95);
-  --color-neon-purple: oklch(60% 0.28 310);
-  --color-neon-coral: oklch(70% 0.25 15);
-  --color-neon-blue: oklch(65% 0.2 270);
-  --color-primary: oklch(95% 0.02 310);
-  --color-muted: oklch(70% 0.04 310);
-  --color-faint: oklch(60% 0.03 310);
-}
-
-/* Ocean theme (cool teal on deep navy) */
-.theme-ocean {
-  --color-deep: oklch(16% 0.02 230);
-  --color-surface: oklch(19% 0.025 230);
-  --color-raised: oklch(23% 0.03 230);
-  --color-border: oklch(32% 0.04 230);
-  --color-border-glow: oklch(65% 0.15 195);
-  --color-neon-cyan: oklch(75% 0.15 195);
-  --color-neon-magenta: oklch(65% 0.2 340);
-  --color-neon-green: oklch(75% 0.15 170);
-  --color-neon-amber: oklch(80% 0.15 85);
-  --color-neon-purple: oklch(60% 0.18 275);
-  --color-neon-coral: oklch(70% 0.16 25);
-  --color-neon-blue: oklch(70% 0.14 235);
-  --color-primary: oklch(95% 0.015 220);
-  --color-muted: oklch(71% 0.025 225);
-  --color-faint: oklch(61% 0.02 230);
-}
-
-/* Sunset theme (warm orange/amber on dark brown) */
-.theme-sunset {
-  --color-deep: oklch(16% 0.02 50);
-  --color-surface: oklch(20% 0.025 50);
-  --color-raised: oklch(24% 0.03 50);
-  --color-border: oklch(34% 0.04 50);
-  --color-border-glow: oklch(72% 0.18 55);
-  --color-neon-cyan: oklch(75% 0.16 55);
-  --color-neon-magenta: oklch(65% 0.22 15);
-  --color-neon-green: oklch(75% 0.17 120);
-  --color-neon-amber: oklch(82% 0.19 70);
-  --color-neon-purple: oklch(58% 0.18 310);
-  --color-neon-coral: oklch(72% 0.2 30);
-  --color-neon-blue: oklch(65% 0.12 230);
-  --color-primary: oklch(93% 0.02 60);
-  --color-muted: oklch(71% 0.03 55);
-  --color-faint: oklch(61% 0.02 50);
-}
-
-/* Space Invaders theme (classic arcade black with bright alien colors) */
-.theme-invaders {
-  --color-deep: oklch(5% 0 0);
-  --color-surface: oklch(10% 0 0);
-  --color-raised: oklch(14% 0 0);
-  --color-border: oklch(25% 0.04 140);
-  --color-border-glow: oklch(75% 0.25 140);
-  --color-neon-cyan: oklch(80% 0.18 195);
-  --color-neon-magenta: oklch(68% 0.26 350);
-  --color-neon-green: oklch(82% 0.28 140);
-  --color-neon-amber: oklch(85% 0.2 95);
-  --color-neon-purple: oklch(60% 0.25 300);
-  --color-neon-coral: oklch(65% 0.22 25);
-  --color-neon-blue: oklch(68% 0.18 250);
-  --color-primary: oklch(95% 0.01 140);
-  --color-muted: oklch(68% 0.06 140);
-  --color-faint: oklch(58% 0.04 140);
-}
-
-/* Coffee theme (warm cream/brown light theme, daisyUI retro-inspired) */
-.theme-coffee {
+/* Arctic theme (LIGHT — cool blue-white page, navy ink, blue accents) */
+.theme-arctic {
   color-scheme: light;
+  --color-deep: #e4edf7;
+  --color-surface: oklch(100% 0 0);
+  --color-raised: #f4f8fd;
   /* Light polarity — same contrast reasoning as `.theme-light`. */
-  --color-brand-delta: #d10f47;
-  --color-deep: oklch(91.6% 0.034 90.5);
-  --color-surface: oklch(88.3% 0.049 91.8);
-  --color-raised: oklch(84.1% 0.065 90.9);
-  --color-border: oklch(72% 0.06 85);
-  --color-border-glow: oklch(68% 0.162 75.8);
-  --color-neon-cyan: oklch(51% 0.096 186.4);
-  --color-neon-magenta: oklch(70% 0.191 22.2);
-  --color-neon-green: oklch(51% 0.096 186.4);
-  --color-neon-amber: oklch(68% 0.162 75.8);
-  --color-neon-purple: oklch(58% 0.158 242);
-  --color-neon-coral: oklch(70% 0.191 22.2);
-  --color-neon-blue: oklch(58% 0.158 242);
-  --color-primary: oklch(41% 0.112 45.9);
-  --color-muted: oklch(44% 0.08 50);
-  --color-faint: oklch(48% 0.035 85);
+  --color-brand-delta: #c10d42;
+  --color-border: #c2d3e6;
+  --color-border-glow: oklch(48% 0.17 252);
+  --color-neon-cyan: oklch(47% 0.11 218);
+  --color-neon-magenta: oklch(48% 0.2 350);
+  --color-neon-green: oklch(46% 0.13 160);
+  --color-neon-amber: oklch(50% 0.12 65);
+  --color-neon-purple: oklch(45% 0.2 288);
+  --color-neon-coral: oklch(48% 0.17 25);
+  --color-neon-blue: oklch(45% 0.18 252);
+  --color-primary: oklch(26% 0.045 255);
+  --color-muted: oklch(41% 0.035 250);
+  --color-faint: oklch(50% 0.03 250);
+}
+
+/* Paper theme (LIGHT — warm off-white page, ink text, copper accents) */
+.theme-paper {
+  color-scheme: light;
+  --color-deep: #ece2cf;
+  --color-surface: #fbf5e9;
+  --color-raised: #f4ecdb;
+  /* Light polarity — same contrast reasoning as `.theme-light`. */
+  --color-brand-delta: #b8123f;
+  --color-border: #d3c3a6;
+  --color-border-glow: oklch(50% 0.12 55);
+  --color-neon-cyan: oklch(46% 0.09 205);
+  --color-neon-magenta: oklch(46% 0.18 12);
+  --color-neon-green: oklch(45% 0.11 150);
+  --color-neon-amber: oklch(48% 0.12 62);
+  --color-neon-purple: oklch(44% 0.16 300);
+  --color-neon-coral: oklch(48% 0.15 38);
+  --color-neon-blue: oklch(44% 0.14 250);
+  --color-primary: oklch(28% 0.028 58);
+  --color-muted: oklch(42% 0.032 55);
+  --color-faint: oklch(50% 0.03 55);
 }
 
 /*
  * Light-polarity overrides for the medal + scoreboard-surface tokens (A1,
- * v2.50.0). Only `.theme-light` and `.theme-coffee` set `color-scheme: light`
- * — `.theme-minimal` is a *dark* monochrome theme (deep = oklch(14%)) despite
- * the name, so it deliberately keeps the dark defaults.
+ * v2.50.0). Exactly three theme blocks set `color-scheme: light` —
+ * `.theme-light`, `.theme-arctic` and `.theme-paper` — and they are the whole
+ * selector list here. Every other theme is dark-surfaced and keeps the dark
+ * defaults; `.theme-graphite` is a DARK neutral despite reading "quiet".
  *
  * Contrast, computed against each theme's --color-surface (white for
- * .theme-light, oklch(88.3% .049 91.8) for .theme-coffee):
- *   silver oklch(48% .025 255)  -> 6.53:1 on white, 4.60:1 on coffee
- *   bronze oklch(47% .105 52)   -> 7.09:1 on white, 5.00:1 on coffee
+ * .theme-light and .theme-arctic, #fbf5e9 for .theme-paper):
+ *   silver oklch(48% .025 255)  -> 6.53:1 on white, 5.98:1 on paper
+ *   bronze oklch(47% .105 52)   -> 7.09:1 on white, 6.49:1 on paper
  * The dark defaults (#c0c0c0 / #cd7f32) score 1.82:1 / 3.14:1 on white, which
  * is why they cannot simply be reused.
  */
 .theme-light,
-.theme-coffee {
+.theme-arctic,
+.theme-paper {
   --color-medal-silver: oklch(48% 0.025 255);
   --color-medal-bronze: oklch(47% 0.105 52);
 
@@ -806,23 +776,137 @@
   --sb-ticker-cta-fg: #ffffff;
 }
 
-/* Minimal theme (monochrome + single cyan accent) */
-.theme-minimal {
-  --color-deep: oklch(14% 0 0);
-  --color-surface: oklch(18% 0 0);
-  --color-raised: oklch(22% 0 0);
-  --color-border: oklch(32% 0 0);
-  --color-border-glow: oklch(60% 0.1 232);
-  --color-neon-cyan: oklch(70% 0.1 232);
-  --color-neon-magenta: oklch(60% 0.05 0);
-  --color-neon-green: oklch(70% 0.1 232);
-  --color-neon-amber: oklch(75% 0.08 85);
-  --color-neon-purple: oklch(55% 0.05 270);
-  --color-neon-coral: oklch(65% 0.05 15);
-  --color-neon-blue: oklch(70% 0.1 232);
-  --color-primary: oklch(90% 0 0);
-  --color-muted: oklch(71% 0 0);
-  --color-faint: oklch(60% 0 0);
+/* Midnight theme (deep navy, crisp white ink, electric blue + amber) */
+.theme-midnight {
+  --color-deep: oklch(16% 0.035 262);
+  --color-surface: oklch(20% 0.038 262);
+  --color-raised: oklch(24.5% 0.04 262);
+  --color-border: oklch(36% 0.045 262);
+  --color-border-glow: oklch(72% 0.15 248);
+  --color-neon-cyan: oklch(80% 0.12 215);
+  --color-neon-magenta: oklch(72% 0.19 340);
+  --color-neon-green: oklch(80% 0.15 165);
+  --color-neon-amber: oklch(85% 0.16 82);
+  --color-neon-purple: oklch(70% 0.18 285);
+  --color-neon-coral: oklch(74% 0.17 25);
+  --color-neon-blue: oklch(74% 0.16 250);
+  --color-primary: oklch(98% 0.008 250);
+  --color-muted: oklch(76% 0.025 252);
+  --color-faint: oklch(63% 0.03 252);
+}
+
+/* Graphite theme (neutral charcoal, one restrained teal accent) */
+.theme-graphite {
+  --color-deep: oklch(18% 0 0);
+  --color-surface: oklch(22% 0 0);
+  --color-raised: oklch(26.5% 0 0);
+  --color-border: oklch(37% 0 0);
+  --color-border-glow: oklch(72% 0.09 195);
+  --color-neon-cyan: oklch(78% 0.1 195);
+  --color-neon-magenta: oklch(70% 0.03 350);
+  --color-neon-green: oklch(78% 0.1 195);
+  --color-neon-amber: oklch(82% 0.05 85);
+  --color-neon-purple: oklch(70% 0.03 285);
+  --color-neon-coral: oklch(72% 0.03 25);
+  --color-neon-blue: oklch(78% 0.1 195);
+  --color-primary: oklch(97% 0 0);
+  --color-muted: oklch(76% 0 0);
+  --color-faint: oklch(63% 0 0);
+}
+
+/* Synthwave theme (violet-black, hot pink + cyan neon, horizon glow) */
+.theme-synthwave {
+  --color-deep: oklch(11% 0.045 300);
+  --color-surface: oklch(15% 0.05 302);
+  --color-raised: oklch(19% 0.055 302);
+  --color-border: oklch(30% 0.07 302);
+  --color-border-glow: oklch(72% 0.26 348);
+  --color-neon-cyan: oklch(84% 0.15 195);
+  --color-neon-magenta: oklch(74% 0.24 348);
+  --color-neon-green: oklch(82% 0.17 160);
+  --color-neon-amber: oklch(86% 0.16 85);
+  --color-neon-purple: oklch(68% 0.23 300);
+  --color-neon-coral: oklch(74% 0.21 15);
+  --color-neon-blue: oklch(76% 0.17 240);
+  --color-primary: oklch(97% 0.02 310);
+  --color-muted: oklch(78% 0.04 305);
+  --color-faint: oklch(62% 0.055 305);
+}
+
+/* Ember theme (warm charcoal, orange + amber accents) */
+.theme-ember {
+  --color-deep: oklch(15% 0.018 50);
+  --color-surface: oklch(19% 0.022 48);
+  --color-raised: oklch(23% 0.026 48);
+  --color-border: oklch(34% 0.035 48);
+  --color-border-glow: oklch(76% 0.17 60);
+  --color-neon-cyan: oklch(80% 0.11 210);
+  --color-neon-magenta: oklch(70% 0.2 20);
+  --color-neon-green: oklch(80% 0.14 140);
+  --color-neon-amber: oklch(86% 0.17 72);
+  --color-neon-purple: oklch(70% 0.15 300);
+  --color-neon-coral: oklch(74% 0.19 32);
+  --color-neon-blue: oklch(74% 0.13 245);
+  --color-primary: oklch(97% 0.012 70);
+  --color-muted: oklch(77% 0.03 62);
+  --color-faint: oklch(63% 0.04 55);
+}
+
+/* Forest theme (deep green-black, mint + gold accents) */
+.theme-forest {
+  --color-deep: oklch(14% 0.03 158);
+  --color-surface: oklch(18% 0.034 158);
+  --color-raised: oklch(22% 0.038 158);
+  --color-border: oklch(33% 0.05 158);
+  --color-border-glow: oklch(80% 0.15 165);
+  --color-neon-cyan: oklch(82% 0.12 190);
+  --color-neon-magenta: oklch(72% 0.18 350);
+  --color-neon-green: oklch(84% 0.15 165);
+  --color-neon-amber: oklch(86% 0.15 88);
+  --color-neon-purple: oklch(70% 0.15 300);
+  --color-neon-coral: oklch(76% 0.16 30);
+  --color-neon-blue: oklch(76% 0.13 235);
+  --color-primary: oklch(96% 0.015 160);
+  --color-muted: oklch(77% 0.035 160);
+  --color-faint: oklch(63% 0.045 160);
+}
+
+/* Nordic theme (muted blue-grey Nord palette, soft pastel accents) */
+.theme-nordic {
+  --color-deep: #2e3440;
+  --color-surface: #3b4252;
+  --color-raised: #434c5e;
+  --color-border: #4c566a;
+  --color-border-glow: #88c0d0;
+  --color-neon-cyan: #8fbcbb;
+  --color-neon-magenta: #cf8fc7;
+  --color-neon-green: #a3be8c;
+  --color-neon-amber: #ebcb8b;
+  --color-neon-purple: #b7a3d8;
+  --color-neon-coral: #e0868f;
+  --color-neon-blue: #88c0d0;
+  --color-primary: #eceff4;
+  --color-muted: #cdd5e2;
+  --color-faint: #abb6c8;
+}
+
+/* High contrast theme (pure black, white ink, no glow — accessibility) */
+.theme-contrast {
+  --color-deep: #000000;
+  --color-surface: #111111;
+  --color-raised: #1c1c1c;
+  --color-border: #595959;
+  --color-border-glow: #ffffff;
+  --color-neon-cyan: #2ad4f0;
+  --color-neon-magenta: #ff74ad;
+  --color-neon-green: #35e07f;
+  --color-neon-amber: #fbc02d;
+  --color-neon-purple: #ae93ff;
+  --color-neon-coral: #ff8b6b;
+  --color-neon-blue: #6cb0fb;
+  --color-primary: #ffffff;
+  --color-muted: #d6d6d6;
+  --color-faint: #a8a8a8;
 }
 
 /* Backglass theme (warm amber/orange — 1970s-80s pinball backglass translite) */
@@ -844,25 +928,6 @@
   --color-faint: oklch(59% 0.03 50);
 }
 
-/* CRT Green theme (phosphor green monochrome CRT monitor) */
-.theme-crt-green {
-  --color-deep: oklch(5% 0 0);
-  --color-surface: oklch(8% 0.01 140);
-  --color-raised: oklch(12% 0.02 140);
-  --color-border: oklch(25% 0.06 140);
-  --color-border-glow: oklch(78% 0.28 140);
-  --color-neon-cyan: oklch(80% 0.25 140);
-  --color-neon-magenta: oklch(70% 0.2 140);
-  --color-neon-green: oklch(85% 0.3 140);
-  --color-neon-amber: oklch(82% 0.26 140);
-  --color-neon-purple: oklch(68% 0.2 140);
-  --color-neon-coral: oklch(75% 0.22 140);
-  --color-neon-blue: oklch(78% 0.25 140);
-  --color-primary: oklch(85% 0.2 140);
-  --color-muted: oklch(67% 0.12 140);
-  --color-faint: oklch(57% 0.06 140);
-}
-
 /* Plasma theme (hot pink + electric blue on dark purple-black) */
 .theme-plasma {
   --color-deep: oklch(10% 0.04 310);
@@ -882,99 +947,27 @@
   --color-faint: oklch(59% 0.04 310);
 }
 
-/* Cabinet theme (classic black arcade cabinet — primary colors on black) */
-.theme-cabinet {
-  --color-deep: oklch(6% 0 0);
-  --color-surface: oklch(10% 0 0);
-  --color-raised: oklch(15% 0 0);
-  --color-border: oklch(25% 0.02 60);
-  --color-border-glow: oklch(80% 0.2 90);
-  --color-neon-cyan: oklch(72% 0.16 230);
-  --color-neon-magenta: oklch(62% 0.26 15);
-  --color-neon-green: oklch(78% 0.22 140);
-  --color-neon-amber: oklch(85% 0.22 90);
-  --color-neon-purple: oklch(55% 0.2 290);
-  --color-neon-coral: oklch(65% 0.24 25);
-  --color-neon-blue: oklch(68% 0.18 245);
-  --color-primary: oklch(95% 0 0);
-  --color-muted: oklch(68% 0.01 60);
-  --color-faint: oklch(58% 0 0);
-}
-
-/* Silverball theme (gunmetal/steel gray — chrome pinball machine aesthetic) */
+/* Silverball theme (gunmetal/steel — chrome pinball machine aesthetic).
+   v2.133.0: the greys are unchanged; the ACCENTS were near-monochrome
+   (chroma 0.06-0.12) and the seven of them were indistinguishable from one
+   another on a card. Same hues, chroma raised to roughly the dark default,
+   so a magenta row and a cyan row read as different colours again. */
 .theme-silverball {
   --color-deep: oklch(18% 0.005 260);
   --color-surface: oklch(22% 0.008 260);
   --color-raised: oklch(27% 0.01 260);
   --color-border: oklch(40% 0.015 260);
-  --color-border-glow: oklch(65% 0.03 260);
-  --color-neon-cyan: oklch(70% 0.08 230);
-  --color-neon-magenta: oklch(60% 0.12 350);
-  --color-neon-green: oklch(68% 0.08 160);
-  --color-neon-amber: oklch(80% 0.16 80);
-  --color-neon-purple: oklch(55% 0.08 280);
-  --color-neon-coral: oklch(65% 0.1 20);
-  --color-neon-blue: oklch(65% 0.06 240);
+  --color-border-glow: oklch(72% 0.05 250);
+  --color-neon-cyan: oklch(76% 0.13 230);
+  --color-neon-magenta: oklch(68% 0.19 350);
+  --color-neon-green: oklch(76% 0.14 160);
+  --color-neon-amber: oklch(83% 0.17 80);
+  --color-neon-purple: oklch(68% 0.16 280);
+  --color-neon-coral: oklch(74% 0.17 20);
+  --color-neon-blue: oklch(72% 0.13 240);
   --color-primary: oklch(88% 0.01 260);
   --color-muted: oklch(72% 0.01 260);
   --color-faint: oklch(62% 0.008 260);
-}
-
-/* Wizard theme (deep indigo — mystical/fantasy pinball) */
-.theme-wizard {
-  --color-deep: oklch(12% 0.04 280);
-  --color-surface: oklch(16% 0.05 280);
-  --color-raised: oklch(20% 0.06 280);
-  --color-border: oklch(30% 0.08 280);
-  --color-border-glow: oklch(60% 0.2 280);
-  --color-neon-cyan: oklch(68% 0.14 195);
-  --color-neon-magenta: oklch(62% 0.22 340);
-  --color-neon-green: oklch(72% 0.16 160);
-  --color-neon-amber: oklch(80% 0.18 80);
-  --color-neon-purple: oklch(60% 0.25 280);
-  --color-neon-coral: oklch(65% 0.18 20);
-  --color-neon-blue: oklch(62% 0.18 260);
-  --color-primary: oklch(90% 0.02 280);
-  --color-muted: oklch(70% 0.04 280);
-  --color-faint: oklch(60% 0.03 280);
-}
-
-/* Playfield theme (dark green felt — pinball playing surface) */
-.theme-playfield {
-  --color-deep: oklch(14% 0.03 150);
-  --color-surface: oklch(18% 0.04 150);
-  --color-raised: oklch(22% 0.05 150);
-  --color-border: oklch(32% 0.06 150);
-  --color-border-glow: oklch(65% 0.15 80);
-  --color-neon-cyan: oklch(75% 0.14 195);
-  --color-neon-magenta: oklch(65% 0.22 15);
-  --color-neon-green: oklch(78% 0.2 150);
-  --color-neon-amber: oklch(82% 0.2 80);
-  --color-neon-purple: oklch(55% 0.18 290);
-  --color-neon-coral: oklch(70% 0.2 25);
-  --color-neon-blue: oklch(65% 0.14 235);
-  --color-primary: oklch(92% 0.02 100);
-  --color-muted: oklch(70% 0.04 140);
-  --color-faint: oklch(60% 0.03 150);
-}
-
-/* Marquee theme (bright white text with glow — illuminated arcade marquee) */
-.theme-marquee {
-  --color-deep: oklch(8% 0 0);
-  --color-surface: oklch(12% 0 0);
-  --color-raised: oklch(16% 0.005 260);
-  --color-border: oklch(28% 0.01 260);
-  --color-border-glow: oklch(85% 0.02 260);
-  --color-neon-cyan: oklch(80% 0.15 200);
-  --color-neon-magenta: oklch(70% 0.24 345);
-  --color-neon-green: oklch(80% 0.2 145);
-  --color-neon-amber: oklch(85% 0.18 85);
-  --color-neon-purple: oklch(62% 0.22 285);
-  --color-neon-coral: oklch(72% 0.2 20);
-  --color-neon-blue: oklch(72% 0.16 240);
-  --color-primary: oklch(97% 0.005 260);
-  --color-muted: oklch(70% 0.01 260);
-  --color-faint: oklch(58% 0.005 260);
 }
 
 /* Base resets */
@@ -983,7 +976,8 @@
 }
 
 /* s20: color-scheme default lives on <html> (not body) so the per-theme
-   `.theme-light`/`.theme-coffee` overrides above actually take effect —
+   `.theme-light`/`.theme-arctic`/`.theme-paper` overrides above actually
+   take effect —
    color-scheme is inherited, and an explicit value on body would otherwise
    always win over html's for every descendant regardless of theme class. */
 html {
@@ -1020,7 +1014,13 @@ select option {
   z-index: 9999;
 }
 
-.theme-light .scanlines::after {
+/* Light + flat themes: no CRT veil. */
+.theme-light .scanlines::after,
+.theme-arctic .scanlines::after,
+.theme-paper .scanlines::after,
+.theme-graphite .scanlines::after,
+.theme-nordic .scanlines::after,
+.theme-contrast .scanlines::after {
   background: none;
 }
 
@@ -1055,89 +1055,43 @@ select option {
   box-shadow: 0 0 6px oklch(70% 0.2 140 / 0.3);
 }
 
-/* Space Invaders theme: alien silhouettes as background pattern */
-.theme-invaders body,
-.theme-invaders {
-  background-image:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60' viewBox='0 0 60 60'%3E%3Cpath d='M10 8h2v2h-2zM14 8h2v2h-2zM8 10h2v2h-2zM10 10h6v2h-6zM16 10h2v2h-2zM6 12h12v2h-12zM6 14h2v2h-2zM10 14h4v2h-4zM16 14h2v2h-2zM6 16h2v2h-2zM16 16h2v2h-2zM8 18h2v2h-2zM14 18h2v2h-2z' fill='rgba(130,255,130,0.04)'/%3E%3Cpath d='M38 38h2v2h-2zM44 38h2v2h-2zM36 40h2v2h-2zM38 40h8v2h-8zM46 40h2v2h-2zM34 42h14v2h-14zM34 44h2v2h-2zM38 44h6v2h-6zM46 44h2v2h-2zM34 46h2v2h-2zM46 46h2v2h-2zM36 48h2v2h-2zM44 48h2v2h-2z' fill='rgba(255,100,255,0.04)'/%3E%3C/svg%3E");
-  background-repeat: repeat;
-}
-
-/* Space Invaders: stronger scanlines for arcade feel */
-.theme-invaders .scanlines::after {
-  background: repeating-linear-gradient(
-    0deg,
-    transparent,
-    transparent 1px,
-    rgba(0, 0, 0, 0.2) 1px,
-    rgba(0, 0, 0, 0.2) 3px
-  );
-}
-
-/* Coffee theme: no scanlines, warm input styling */
-.theme-coffee .scanlines::after {
-  background: none;
-}
-
-.theme-coffee input,
-.theme-coffee select,
-.theme-coffee textarea {
-  border-color: oklch(72% 0.06 85);
-  color: oklch(41% 0.112 45.9);
-}
-
-.theme-coffee input:focus,
-.theme-coffee select:focus,
-.theme-coffee textarea:focus {
-  border-color: oklch(68% 0.162 75.8);
-  box-shadow: 0 0 4px oklch(68% 0.162 75.8 / 0.3);
-}
-
-/* Minimal theme: no scanlines, no glow */
-.theme-minimal .scanlines::after {
-  background: none;
-}
-
-.theme-minimal .glow-cyan,
-.theme-minimal .glow-green,
-.theme-minimal .glow-magenta,
-.theme-minimal .glow-amber {
-  box-shadow: 0 0 1px rgba(255, 255, 255, 0.1);
-}
-
-/* CRT Green theme: strong phosphor scanlines + text glow */
-.theme-crt-green .scanlines::after {
-  background: repeating-linear-gradient(
-    0deg,
-    transparent,
-    transparent 1px,
-    rgba(0, 0, 0, 0.2) 1px,
-    rgba(0, 0, 0, 0.2) 3px
-  );
-}
-
-.theme-crt-green {
-  text-shadow: 0 0 6px oklch(75% 0.25 140 / 0.5);
-}
-
 /* Backglass theme: warm amber text glow */
 .theme-backglass {
   text-shadow: 0 0 3px oklch(75% 0.15 65 / 0.3);
 }
 
-/* Marquee theme: bright white text glow */
-.theme-marquee {
-  text-shadow: 0 0 8px oklch(90% 0.01 260 / 0.4);
-}
-
-/* Playfield theme: no scanlines (clean felt look) */
-.theme-playfield .scanlines::after {
-  background: none;
-}
-
 /* Silverball theme: no scanlines, subtle metallic sheen */
 .theme-silverball .scanlines::after {
   background: none;
+}
+
+/* Ember theme: faint warm bloom, half the strength of Backglass's. */
+.theme-ember {
+  text-shadow: 0 0 3px oklch(76% 0.15 62 / 0.18);
+}
+
+/* Synthwave theme: the horizon behind the page. Set on <html> AND body —
+   body carries an opaque bg-deep, so html alone would never show. */
+.theme-synthwave body,
+.theme-synthwave {
+  background-image:
+    radial-gradient(120% 70% at 50% 108%, oklch(58% 0.22 330 / 0.30) 0%, transparent 62%),
+    linear-gradient(180deg, oklch(20% 0.10 285 / 0.55) 0%, transparent 46%);
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+}
+
+/* High contrast theme: every decorative bloom off. */
+.theme-contrast .glow-cyan,
+.theme-contrast .glow-green,
+.theme-contrast .glow-magenta,
+.theme-contrast .glow-amber {
+  box-shadow: 0 0 0 1px #ffffff;
+}
+
+.theme-contrast {
+  text-shadow: none;
+  background-image: none;
 }
 
 /* Neon glow utilities */
@@ -1312,11 +1266,19 @@ select option {
   text-shadow: 0 0 20px var(--color-neon-cyan);
 }
 
-/* Soften glow on light theme */
+/* Soften glow on the light-polarity themes */
 .theme-light .glow-cyan,
 .theme-light .glow-green,
 .theme-light .glow-magenta,
-.theme-light .glow-amber {
+.theme-light .glow-amber,
+.theme-arctic .glow-cyan,
+.theme-arctic .glow-green,
+.theme-arctic .glow-magenta,
+.theme-arctic .glow-amber,
+.theme-paper .glow-cyan,
+.theme-paper .glow-green,
+.theme-paper .glow-magenta,
+.theme-paper .glow-amber {
   box-shadow: 0 0 4px rgba(0, 0, 0, 0.08);
 }
 

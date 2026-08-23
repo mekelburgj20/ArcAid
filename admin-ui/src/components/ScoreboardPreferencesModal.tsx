@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { X, RotateCcw, Monitor, Smartphone, ChevronDown, ChevronRight } from 'lucide-react';
-import { useTheme, type ThemeId } from './ThemeProvider';
+import { useTheme } from './ThemeProvider';
+import type { ThemeId } from '../lib/themeIds';
 import AppearanceControl from './AppearanceControl';
 import ThemePicker from './ThemePicker';
 import { saveRoomTheme } from '../lib/roomThemes';

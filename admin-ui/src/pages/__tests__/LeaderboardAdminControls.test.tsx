@@ -197,7 +197,7 @@ describe('Leaderboard admin card controls (legacy card path)', () => {
     const fetchMock = vi.fn((url: string) => {
       const j = (body: unknown) => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) });
       if (url.includes('/scoreboard-config')) return j({});
-      if (url.includes('/portal')) return j({ id: ROOM_ID, roomId: ROOM_ID, slug: 'themed-room', name: 'Themed', public_theme: 'cyberpunk' });
+      if (url.includes('/portal')) return j({ id: ROOM_ID, roomId: ROOM_ID, slug: 'themed-room', name: 'Themed', public_theme: 'synthwave' });
       if (url.includes('/rankings')) return j([]);
       if (url.includes('/leaderboard')) return j(LEADERBOARDS);
       return j([]);
@@ -216,7 +216,7 @@ describe('Leaderboard admin card controls (legacy card path)', () => {
 
     await screen.findByTestId('admin-card-controls');
     await waitFor(() => {
-      expect(container.querySelector('.sb-theme-scope.theme-cyberpunk')).toBeInTheDocument();
+      expect(container.querySelector('.sb-theme-scope.theme-synthwave')).toBeInTheDocument();
     });
   });
 

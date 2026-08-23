@@ -149,7 +149,7 @@ describe('.sb-theme-scope stays in parity with the @theme defaults', () => {
     const text = readFileSync(CSS_PATH, 'utf8');
     const scopeAt = text.indexOf('.sb-theme-scope {');
     expect(scopeAt).toBeGreaterThan(-1);
-    for (const cls of ['.theme-light', '.theme-retro', '.theme-cyberpunk', '.theme-coffee', '.theme-minimal']) {
+    for (const cls of ['.theme-light', '.theme-retro', '.theme-synthwave', '.theme-paper', '.theme-graphite', '.theme-contrast']) {
       expect(text.indexOf(`${cls} {`), `${cls} must come after .sb-theme-scope`).toBeGreaterThan(scopeAt);
     }
   });

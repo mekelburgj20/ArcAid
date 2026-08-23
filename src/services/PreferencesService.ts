@@ -1,6 +1,12 @@
 import { getDatabase } from '../database/database.js';
+import { isThemeId, normalizeThemeId, type ThemeId } from '../utils/themeIds.js';
 
-export type ThemeId = 'dark' | 'light' | 'retro' | 'cyberpunk' | 'ocean' | 'sunset' | 'minimal' | 'invaders' | 'coffee' | 'backglass' | 'crt-green' | 'plasma' | 'cabinet' | 'silverball' | 'wizard' | 'playfield' | 'marquee';
+// v2.133.0 — the id list, the legacy fold and the type all live in
+// `src/utils/themeIds.ts` (mirrored byte-identically in
+// `admin-ui/src/lib/themeIds.ts`, locked by `themeIds-parity.test.ts`). These
+// re-exports keep the existing `PreferencesService` import sites compiling.
+export { isThemeId, normalizeThemeId };
+export type { ThemeId };
 
 /**
  * Scoreboard display preferences that users can override. Keys match room
@@ -41,16 +47,6 @@ export type RoomThemes = Record<string, ThemeId>;
 /** Stored format: { desktop: {...}, mobile: {...}, roomThemes: {...} } */
 type DevicePrefs = { desktop: ScoreboardPrefs; mobile: ScoreboardPrefs; roomThemes: RoomThemes };
 
-const THEME_IDS: readonly string[] = [
-    'dark', 'light', 'retro', 'cyberpunk', 'ocean', 'sunset', 'minimal', 'invaders',
-    'coffee', 'backglass', 'crt-green', 'plasma', 'cabinet', 'silverball', 'wizard',
-    'playfield', 'marquee',
-];
-
-export function isThemeId(value: unknown): value is ThemeId {
-    return typeof value === 'string' && THEME_IDS.includes(value);
-}
-
 export class PreferencesService {
     static async getTheme(discordUserId: string): Promise<ThemeId | null> {
         const db = await getDatabase();
@@ -60,10 +56,17 @@ export class PreferencesService {
         );
         const theme = row?.ui_theme;
         if (!theme) return null;
-        return (theme === 'arcade' ? 'dark' : theme) as ThemeId;
+        // 'arcade' is a pre-multi-theme value that never had a class; every
+        // other retired id folds through LEGACY_THEME_MAP (v2.133.0). An
+        // unrecognised value reads as NULL, i.e. "use each room's default",
+        // which is the safe reading of a theme that no longer exists.
+        if (theme === 'arcade') return 'dark';
+        return normalizeThemeId(theme);
     }
 
-    static async setTheme(discordUserId: string, theme: ThemeId | null): Promise<void> {
+    /** Writes are normalized too, so a retired id can never enter the column. */
+    static async setTheme(discordUserId: string, themeInput: ThemeId | null): Promise<void> {
+        const theme = themeInput === null ? null : normalizeThemeId(themeInput);
         const db = await getDatabase();
         if (!theme) {
             // v2.130.0: clearing the theme NULLs the one column, it no longer
@@ -178,7 +181,8 @@ export class PreferencesService {
         if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
         const out: RoomThemes = {};
         for (const [roomId, theme] of Object.entries(raw as Record<string, unknown>)) {
-            if (roomId && isThemeId(theme)) out[roomId] = theme;
+            const normalized = normalizeThemeId(theme);
+            if (roomId && normalized) out[roomId] = normalized;
         }
         return out;
     }
@@ -212,12 +216,14 @@ export class PreferencesService {
         );
         const devicePrefs = this.parseDevicePrefs(row?.scoreboard_prefs);
 
-        const legacy = devicePrefs.desktop.UI_THEME ?? devicePrefs.mobile.UI_THEME;
-        const needsLift = !!migrateRoomId && !devicePrefs.roomThemes[migrateRoomId] && isThemeId(legacy);
+        // v2.133.0 — the lifted legacy value goes through the same fold as
+        // everything else; a device that stored 'cyberpunk' lifts to Synthwave.
+        const legacy = normalizeThemeId(devicePrefs.desktop.UI_THEME ?? devicePrefs.mobile.UI_THEME);
+        const needsLift = !!migrateRoomId && !devicePrefs.roomThemes[migrateRoomId] && !!legacy;
         const hasStaleKey = 'UI_THEME' in devicePrefs.desktop || 'UI_THEME' in devicePrefs.mobile;
 
         if (needsLift || (migrateRoomId && hasStaleKey)) {
-            if (needsLift) devicePrefs.roomThemes[migrateRoomId!] = legacy as ThemeId;
+            if (needsLift) devicePrefs.roomThemes[migrateRoomId!] = legacy!;
             delete devicePrefs.desktop.UI_THEME;
             delete devicePrefs.mobile.UI_THEME;
             await this.persistDevicePrefs(discordUserId, devicePrefs);
@@ -227,7 +233,8 @@ export class PreferencesService {
     }
 
     /** Set (or, with `null`, clear) one room's theme override. */
-    static async setRoomTheme(discordUserId: string, roomId: string, theme: ThemeId | null): Promise<RoomThemes> {
+    static async setRoomTheme(discordUserId: string, roomId: string, themeInput: ThemeId | null): Promise<RoomThemes> {
+        const theme = themeInput === null ? null : normalizeThemeId(themeInput);
         const db = await getDatabase();
         const row = await db.get(
             'SELECT scoreboard_prefs FROM user_preferences WHERE discord_user_id = ?',

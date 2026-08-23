@@ -2726,6 +2726,18 @@ async function doInitDatabase(): Promise<Database> {
         { name: '161_user_preferences_appearance', sql: `
             ALTER TABLE user_preferences ADD COLUMN appearance TEXT
         ` },
+        // v2.133.0 — the theme overhaul. Eleven themes were removed and every
+        // one of their theme classes deleted from index.css, so a stored id
+        // naming one is a class that no longer exists: the page silently
+        // paints the default dark and the choice is lost with no error. This
+        // folds every stored id forward through the SAME `LEGACY_THEME_MAP`
+        // the runtime shim uses (src/utils/themeIds.ts, mirrored on the FE),
+        // across room defaults, personal themes and the roomThemes map inside
+        // scoreboard_prefs. Idempotent.
+        { name: '162_theme_overhaul', handler: async (db) => {
+            const { themeOverhaul } = await import('./migrations/themeOverhaul.js');
+            await themeOverhaul(db);
+        } },
     ];
 
     for (const migration of migrations) {

@@ -1,4 +1,5 @@
-import { THEMES, type ThemeId } from './ThemeProvider';
+import { THEMES } from './ThemeProvider';
+import type { ThemeId } from '../lib/themeIds';
 
 /**
  * The one theme `<select>` (v2.132.0).

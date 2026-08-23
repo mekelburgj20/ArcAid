@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Lock, Trash2, Pencil, StickyNote, ExternalLink, SlidersHorizontal, X, GripHorizontal, ListOrdered } from 'lucide-react';
 import { api } from '../lib/api';
 import { getPortal } from '../lib/portal';
+import { normalizeThemeId } from '../lib/themeIds';
 import { useRoom } from '../contexts/RoomContext';
 import { useToast } from '../components/Toast';
 import { getSocket } from '../lib/websocket';
@@ -245,7 +246,7 @@ export default function Leaderboard() {
     if (!room.roomSlug) return;
     let cancelled = false;
     getPortal(room.roomSlug)
-      .then(p => { if (!cancelled) setRoomTheme(p.public_theme || p.ui_theme || 'dark'); })
+      .then(p => { if (!cancelled) setRoomTheme(normalizeThemeId(p.public_theme || p.ui_theme) || 'dark'); })
       .catch(() => { if (!cancelled) setRoomTheme('dark'); });
     return () => { cancelled = true; };
   }, [room.roomSlug]);

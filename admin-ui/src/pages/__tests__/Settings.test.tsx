@@ -991,10 +991,10 @@ describe('Settings page — Room default theme (v2.132.0)', () => {
     renderSettings();
     await waitForLoaded();
 
-    fireEvent.change(document.getElementById('room-default-theme')!, { target: { value: 'ocean' } });
+    fireEvent.change(document.getElementById('room-default-theme')!, { target: { value: 'midnight' } });
     fireEvent.click(screen.getByRole('button', { name: /Save All Changes/ }));
 
-    await waitFor(() => expect(lastSavePayload(fetchMock)?.UI_THEME).toBe('ocean'));
+    await waitFor(() => expect(lastSavePayload(fetchMock)?.UI_THEME).toBe('midnight'));
     expect(fetchMock.mock.calls.some((c: FetchArgs) => String(c[0]).includes('/me/preferences'))).toBe(false);
   });
 });

@@ -60,26 +60,26 @@ describe('PreferencesService room themes', () => {
         expect(map['room-a']).toBe('plasma');
         expect(map['room-b']).toBeUndefined();
 
-        await PreferencesService.setRoomTheme('rt-2', 'room-b', 'ocean');
+        await PreferencesService.setRoomTheme('rt-2', 'room-b', 'midnight');
         const both = await PreferencesService.getRoomThemes('rt-2');
-        expect(both).toEqual({ 'room-a': 'plasma', 'room-b': 'ocean' });
+        expect(both).toEqual({ 'room-a': 'plasma', 'room-b': 'midnight' });
     });
 
     it('is NOT per device: one write, visible whatever device asks', async () => {
-        await PreferencesService.setRoomTheme('rt-3', 'room-a', 'coffee');
+        await PreferencesService.setRoomTheme('rt-3', 'room-a', 'paper');
         // The device blobs are where the pre-v2.132 override lived. Nothing
         // about a room theme may end up in either of them.
         const blob = await rawBlob('rt-3');
-        expect(blob.roomThemes).toEqual({ 'room-a': 'coffee' });
+        expect(blob.roomThemes).toEqual({ 'room-a': 'paper' });
         expect(blob.desktop).toEqual({});
         expect(blob.mobile).toEqual({});
     });
 
     it('clears with null without disturbing the other rooms', async () => {
         await PreferencesService.setRoomTheme('rt-4', 'room-a', 'plasma');
-        await PreferencesService.setRoomTheme('rt-4', 'room-b', 'ocean');
+        await PreferencesService.setRoomTheme('rt-4', 'room-b', 'midnight');
         await PreferencesService.setRoomTheme('rt-4', 'room-a', null);
-        expect(await PreferencesService.getRoomThemes('rt-4')).toEqual({ 'room-b': 'ocean' });
+        expect(await PreferencesService.getRoomThemes('rt-4')).toEqual({ 'room-b': 'midnight' });
     });
 
     it('saving per-device prefs carries the room themes through untouched', async () => {
@@ -106,9 +106,9 @@ describe('PreferencesService room themes', () => {
         const db = await getDatabase();
         await db.run(
             'INSERT INTO user_preferences (discord_user_id, scoreboard_prefs) VALUES (?, ?)',
-            'rt-7', JSON.stringify({ desktop: {}, mobile: {}, roomThemes: { 'room-a': 'sepia', 'room-b': 'ocean', '': 'plasma' } }),
+            'rt-7', JSON.stringify({ desktop: {}, mobile: {}, roomThemes: { 'room-a': 'sepia', 'room-b': 'midnight', '': 'plasma' } }),
         );
-        expect(await PreferencesService.getRoomThemes('rt-7')).toEqual({ 'room-b': 'ocean' });
+        expect(await PreferencesService.getRoomThemes('rt-7')).toEqual({ 'room-b': 'midnight' });
     });
 });
 
@@ -150,13 +150,13 @@ describe('PreferencesService legacy UI_THEME lift', () => {
     });
 
     it('lifts a mobile-only legacy override too', async () => {
-        await seedLegacy('rt-lift-3', { desktop: {}, mobile: { UI_THEME: 'coffee' } });
-        expect(await PreferencesService.getRoomThemes('rt-lift-3', 'room-a')).toEqual({ 'room-a': 'coffee' });
+        await seedLegacy('rt-lift-3', { desktop: {}, mobile: { UI_THEME: 'paper' } });
+        expect(await PreferencesService.getRoomThemes('rt-lift-3', 'room-a')).toEqual({ 'room-a': 'paper' });
     });
 
     it('never overwrites an override the room already has', async () => {
-        await seedLegacy('rt-lift-4', { desktop: { UI_THEME: 'plasma' }, mobile: {}, roomThemes: { 'room-a': 'ocean' } });
-        expect(await PreferencesService.getRoomThemes('rt-lift-4', 'room-a')).toEqual({ 'room-a': 'ocean' });
+        await seedLegacy('rt-lift-4', { desktop: { UI_THEME: 'plasma' }, mobile: {}, roomThemes: { 'room-a': 'midnight' } });
+        expect(await PreferencesService.getRoomThemes('rt-lift-4', 'room-a')).toEqual({ 'room-a': 'midnight' });
     });
 
     it('does nothing at all without a roomId — there is no room to lift onto', async () => {
