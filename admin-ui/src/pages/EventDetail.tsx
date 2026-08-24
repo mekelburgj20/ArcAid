@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ChevronLeft } from 'lucide-react';
 import { formatScore, scoreTitle } from '../lib/format';
 import ShareButton from '../components/ShareButton';
 import { useOptionalRoom } from '../contexts/RoomContext';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
-import { api } from '../lib/api';
+import { api, ApiError } from '../lib/api';
 
 /**
  * `/:slug/events/:id` — the public face of a Live Event (v2.135.0, ADR 0017).
@@ -50,6 +50,8 @@ interface RoundBoard {
 interface StandingRow {
     rank: number;
     identity_key: string;
+    /** Resolved submitter id — used to tell the winner from everyone else. */
+    discord_user_id: string;
     iscored_username: string;
     display_name: string | null;
     roundScores: Array<number | null>;
@@ -149,8 +151,12 @@ export default function EventDetail({ throwdownCode }: EventDetailProps = {}) {
     const { id } = useParams<{ id: string }>();
     const { discordUser, loginWithDiscord } = useViewerAuth();
     const isThrowdown = !!throwdownCode;
+    const navigate = useNavigate();
     const [scoreDraft, setScoreDraft] = useState('');
     const [submitting, setSubmitting] = useState(false);
+    const [nextGame, setNextGame] = useState('');
+    const [starting, setStarting] = useState(false);
+    const [notice, setNotice] = useState('');
     const [data, setData] = useState<EventPayload | null>(null);
     const [loading, setLoading] = useState(true);
     const [notFound, setNotFound] = useState(false);
@@ -222,6 +228,39 @@ export default function EventDetail({ throwdownCode }: EventDetailProps = {}) {
             setError((err as Error)?.message || 'Could not submit that score.');
         } finally {
             setSubmitting(false);
+        }
+    };
+
+    /**
+     * Start the follow-up Throwdown.
+     *
+     * `rematchOf` makes it FIRST-CLICK-WINS server-side: if someone already
+     * started the rematch, the API answers 409 with THEIR code, and the right
+     * behaviour is to send this player to that one rather than show an error —
+     * two rematches of the same challenge would split the field in half.
+     */
+    const startFollowUp = async (gameName: string) => {
+        if (!data || !gameName.trim()) return;
+        setStarting(true);
+        setError('');
+        setNotice('');
+        try {
+            const res = await api.post<{ code: string }>('/throwdowns', {
+                gameName: gameName.trim(),
+                durationMinutes: 60,
+                rematchOf: data.event.id,
+            });
+            navigate(`/throwdown/${res.code}`);
+        } catch (err) {
+            const body = err instanceof ApiError ? err.body as { code?: string; existingCode?: string } : null;
+            if (body?.code === 'REMATCH_EXISTS' && body.existingCode) {
+                setNotice('Someone already started the rematch — taking you there.');
+                navigate(`/throwdown/${body.existingCode}`);
+                return;
+            }
+            setError((err as Error)?.message || 'Could not start that.');
+        } finally {
+            setStarting(false);
         }
     };
 
@@ -389,6 +428,52 @@ export default function EventDetail({ throwdownCode }: EventDetailProps = {}) {
                     {error && <p className="text-xs text-neon-magenta mt-2">{error}</p>}
                 </section>
             )}
+
+            {/* What happens next, once a Throwdown is over. The winner picks a
+                NEW game (that is the point of a challenge back); everyone else
+                gets a one-click rematch on the same one. */}
+            {isThrowdown && event.state === 'finished' && discordUser && (() => {
+                const champion = standings?.standings[0];
+                const viewerWon = !!champion && champion.discord_user_id === discordUser.discordId;
+                const played = standings?.standings.some(r => r.discord_user_id === discordUser.discordId);
+                if (!played) return null;
+                return (
+                    <section className="mb-6 p-4 rounded border border-border bg-surface">
+                        {viewerWon ? (
+                            <div className="flex items-end gap-3 flex-wrap">
+                                <div className="flex-1 min-w-[10rem]">
+                                    <p className="text-sm text-primary mb-1.5">You won. Challenge them back —</p>
+                                    <input
+                                        type="text" value={nextGame}
+                                        onChange={e => setNextGame(e.target.value)}
+                                        onKeyDown={e => { if (e.key === 'Enter') void startFollowUp(nextGame); }}
+                                        placeholder="pick a different game"
+                                        className="w-full px-3 py-2 bg-raised border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan transition-colors"
+                                    />
+                                </div>
+                                <button
+                                    type="button" onClick={() => startFollowUp(nextGame)}
+                                    disabled={starting || !nextGame.trim()}
+                                    className="px-4 py-2 rounded border border-neon-cyan bg-neon-cyan/15 text-neon-cyan text-sm hover:bg-neon-cyan/25 transition-colors disabled:opacity-50"
+                                >{starting ? 'Starting…' : 'Challenge back'}</button>
+                            </div>
+                        ) : (
+                            <div className="flex items-center gap-3 flex-wrap">
+                                <p className="text-sm text-primary">
+                                    {champion ? `${name(champion)} took it.` : 'That one is over.'} Want another go?
+                                </p>
+                                <button
+                                    type="button" onClick={() => startFollowUp(event.name)}
+                                    disabled={starting}
+                                    className="ml-auto px-4 py-2 rounded border border-neon-cyan bg-neon-cyan/15 text-neon-cyan text-sm hover:bg-neon-cyan/25 transition-colors disabled:opacity-50"
+                                >{starting ? 'Starting…' : 'Rematch'}</button>
+                            </div>
+                        )}
+                        {notice && <p className="text-xs text-neon-cyan mt-2">{notice}</p>}
+                        {error && <p className="text-xs text-neon-magenta mt-2">{error}</p>}
+                    </section>
+                );
+            })()}
 
             {/* Standings */}
             {/* With one round the standings ARE the round board — same players,

@@ -9,6 +9,7 @@ import { useTheme } from '../components/ThemeProvider';
 import { resolveAvatarUrl } from '../lib/avatar';
 import { isGoogleUserId } from '../lib/identityProvider';
 import { buildPushErrorMessage } from '../lib/pushError';
+import ThrowdownsSection from '../components/ThrowdownsSection';
 
 type AvatarProvider = 'discord' | 'google';
 
@@ -923,6 +924,8 @@ export default function AccountSettings() {
                 )}
               </div>
             </section>
+
+            <ThrowdownsSection />
 
             <section>
               <h2 className="text-sm font-medium mb-2">Linked iScored aliases</h2>

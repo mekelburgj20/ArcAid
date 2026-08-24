@@ -114,7 +114,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
       const retryRes = await fetch(`${BASE}${path}`, { ...options, headers });
       if (!retryRes.ok) {
         const error = await retryRes.json().catch(() => ({ error: 'Request failed' }));
-        throw new Error(error.error || `HTTP ${retryRes.status}`);
+        throw new ApiError(error.error || `HTTP ${retryRes.status}`, retryRes.status, error);
       }
       return retryRes.json();
     }
@@ -133,9 +133,35 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
   if (!res.ok) {
     const error = await res.json().catch(() => ({ error: 'Request failed' }));
-    throw new Error(error.error || `HTTP ${res.status}`);
+    throw new ApiError(error.error || `HTTP ${res.status}`, res.status, error);
   }
   return res.json();
+}
+
+/**
+ * An HTTP failure that keeps the server's PARSED BODY, not just its message.
+ *
+ * `request` used to flatten every non-OK response to `new Error(error.error)`,
+ * which discarded structured fields the caller needed — the tournament-delete
+ * blocker list worked around it with a raw fetch, and a Throwdown rematch needs
+ * the `existingCode` a 409 carries so it can send the player to the challenge
+ * that already exists instead of showing them an error.
+ *
+ * Purely additive: `message` is unchanged, so every existing `catch` that reads
+ * `err.message` behaves exactly as before.
+ */
+export class ApiError extends Error {
+    // Written longhand rather than as constructor parameter properties —
+    // admin-ui compiles with `erasableSyntaxOnly`, which forbids those.
+    status: number;
+    body: Record<string, unknown>;
+
+    constructor(message: string, status: number, body: Record<string, unknown>) {
+        super(message);
+        this.name = 'ApiError';
+        this.status = status;
+        this.body = body;
+    }
 }
 
 export const api = {

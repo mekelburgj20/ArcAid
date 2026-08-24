@@ -154,6 +154,18 @@ Endpoints: `POST /admin/catalogue/sync-steam-pinball`, `POST /admin/catalogue/sy
 - `min_elapsed_sec` produces a HOST-FACING BADGE, never a rejection — Arcaid sees submit time, not play time. Don't let anything turn it into enforcement.
 - `applyLibraryDefaults` (`src/utils/gameLibraryDefaults.ts`) is shared by `TournamentEngine.activateGame` and the event round start; a creator that skips it renders an unstyled card.
 
+## Throwdowns — room-less events (v2.136.0, ADR 0018)
+
+A **Throwdown** is a player-created challenge with no game room: a `format='event'` tournament with `game_room_id IS NULL`, `checkin_required = 0` and ONE round, addressed by `tournaments.throwdown_code` at `/throwdown/:code`. It is the SAME object as a hosted Tournament Event, so the round clock, the boards, the standings, the frozen result and the public page are all reused — there is no parallel implementation, and adding one would be the mistake this design exists to avoid.
+
+- **`score_history.game_room_id` is NULLABLE as of migration 164** — that one column was the entire cost of going room-less (`tournaments`/`games`/`submissions` already tolerated a null room). **Any new query that groups or filters by room must decide what a NULL room means** rather than assume every score has one. `ScoreHistoryService.log` takes `gameRoomId: string | null` and skips the room-membership write when null.
+- **A Throwdown writes `score_history` ONLY** — never `community_scores`, whose room column is still NOT NULL. That is safe because `score_history` is already the physical union every read path uses and `EventResultService` reads by `submitted_during_tournament_id` alone.
+- **`checkThrowdownSubmission`** in `EventSubmissionGate` is the room-less sibling of `checkEventSubmission`, keyed on the tournament id instead of `(room, game name)`. Both resolve the window through ONE shared `evaluateWindow` — two copies of "is it open yet" would drift on the buzzer. A room-scoped event is deliberately NOT reachable through the room-less path (it would skip check-in).
+- **Deliberately absent:** global-scoreboard fan-out (room-keyed by construction; a product call, not an implementation detail), iScored sync, room name claims, check-in, and notifications (the link IS the notification).
+- **First-click-wins rematch** is enforced by the UNIQUE index on `rematch_of_tournament_id`, not by the service's pre-flight — that check exists so the second clicker is handed the existing link rather than an error.
+- Codes avoid `0`/`O`/`1`/`I`/`l` — read aloud on streams, retyped from phones.
+- **Personal rooms were REJECTED** (ADR 0018 records why): they eat the flat public slug namespace, make the share link read as somebody's room URL, and give every room-scoped feature an "except personal rooms" caveat. Do not revive that idea.
+
 ## Platform stratification
 
 `platform` is required at the API boundary on `submissions`/`score_history`/`community_scores`/`global_scores` (column nullable in SQL for legacy rows).

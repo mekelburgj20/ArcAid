@@ -49,3 +49,4 @@ You do **not** need an ADR for routine bug fixes, code style preferences, or any
 | 0015 | [Multi-IdP identity linking: bidirectional Google<->Discord, snowflake-is-canonical, no un-merge](0015-multi-idp-identity-linking.md) | accepted | 2026-07-27 |
 | 0016 | [Engine + device score provenance (supersedes 0006, partially 0009)](0016-engine-device-score-provenance.md) | accepted | 2026-07-30 |
 | 0017 | [Live Event tournament format: rounds are `games` rows, `SCHEDULED` status, read-time aggregation](0017-live-event-tournament-format.md) | accepted | 2026-08-24 |
+| 0018 | [Throwdowns are room-less: one nullable column, not a personal room](0018-throwdowns-are-room-less.md) | accepted | 2026-08-24 |
