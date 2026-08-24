@@ -164,7 +164,9 @@ casual gear-up and nothing more. Do not oversell either.
 - A new submit path is a new gate call site. A submit path that skips the gate silently makes every
   window in the room advisory.
 - Any new `games.status` consumer must decide explicitly what it does with `SCHEDULED`.
-- The ROADMAP's room-less "private tournaments / challenge back" spec layers on top of this as *an event
-  in a hidden room*; this design deliberately does not preclude it.
+- The player-created "challenge" flow (link-shared, no room from the creator's point of view) is **the same
+  object with `checkin_required = 0` and one round**, living in **one lazily-provisioned personal room per
+  USER** — not one room per challenge, which would hit the 3-owned-rooms creation cap and need cleanup.
+  Merged into this design 2026-08-24; to be recorded properly in ADR 0018 when that flow is built.
 - `applyLibraryDefaults` was extracted from `TournamentEngine.activateGame` so rounds and rotation games
   get identical catalogue styling. Both creators must call it; a round that skips it renders unstyled.

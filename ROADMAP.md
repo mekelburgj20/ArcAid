@@ -363,21 +363,17 @@ Now that anyone can create a public room (v2.33.0) and pick their own room name/
 
 Accountability foundation already shipped: room creation requires login, is capped (3/user), rate-limited, and kill-switchable (v2.33.0) — identity friction is the strongest deterrent.
 
-### Private tournaments — player-to-player challenges without a game room (user-asked 2026-08-07, needs a design session; multi-day arc)
+### Events & Challenges — ONE plan (owner-merged 2026-08-24; P1 SHIPPED)
 
-Owner's spec, captured verbatim-in-substance:
+**Master plan: `tmp/live-event-tournament-plan.md`. Design: ADR 0017. AtGames feasibility (COMPLETE): `tmp/atgames-research/FINDINGS-0a..0e.md`.**
 
-- **Creation is a couple of clicks**: pick Game, Device/Engine config, tournament duration/period (+ anything else relevant). No game room required — "Let's see who can beat me on Medieval Madness."
-- **Output = a shareable link** the creator sends via Discord/messaging/etc. The link preview should include a picture of the table/game (OG image). The tournament is stored on the creator's profile under "Private Tournaments."
-- **Challenge back**: after a winner is decided, the winner gets a "Challenge back" affordance — pick a (new) game, and Arcaid notifies ALL participants of the previous tournament; the winner gets a shareable link too.
-- **Rematch**: at game end, every NON-winner gets a 'Rematch' option — same game, invites all previous participants. First-click-wins semantics: if player X already initiated a rematch, later clickers are told X already started one and are handed X's link (no duplicate rematch tournaments).
+The room-scoped "Live Event" arc and the room-less "player-to-player private tournaments" spec were two plans for one product; merged 2026-08-24 on the owner's call. **One object** — a `format='event'` tournament: time-boxed, N≥1 rounds, each a `games` row with a wall-clock window, submissions gated on the server clock, standings frozen at the end. **Two creation surfaces:** a **host flow** (room admin, full rounds editor, check-in roster — the RTX stream-night use case, where "gearing up" is prevented/exposed) and a **challenge flow** (any player, two clicks, no room required from their side — "let's see who can beat me on Medieval Madness", shareable link with an OG table-art preview, challenge-back and rematch). Everything below the creation surface is shared: round clock, submission gate, boards, standings, event page, link preview, notifications.
 
-Design questions for the session (not decisions):
-- **Data model**: room-less tournaments (new nullable `game_room_id` semantics on tournaments — heavy, the engine assumes rooms everywhere) vs. auto-created hidden personal "rooms" (reuses ALL existing machinery: unlisted rooms shipped v2.80.0, tournament engine, leaderboards; needs creation-cap/cleanup thinking) vs. a new lightweight `private_tournaments` table + dedicated boards. The hidden-room route likely cheapest to pilot but decide deliberately.
-- **Identity**: post-login-mandate everyone's authenticated — participants = logged-in users who opened the link and submitted. Participation set = who scored (or who accepted?).
-- **Link + OG preview**: ogMeta machinery exists (`src/api/ogMeta.ts`, UA-gated bot injection) — needs a new route pattern for private-tournament links with the game image.
-- **Notifications** ("Arcaid manages the notification"): channel cascade — Discord DM when reachable (`DiscordReachabilityService`), web push (`/me/push-subscriptions` exists), else in-app. Rematch/challenge-back fan-out needs opt-out thinking (NotificationService prefs are default-off today).
-- **Abuse/caps**: creation caps + rate limits (mirror the room-creation caps from v2.33.0); blocklist on any free-text.
+The merge unlock: a room-less challenge lives in **one personal room per USER**, lazily provisioned and reused forever (`ROOM_KIND='personal'`, unlisted via the v2.80.0 `ROOM_LISTED` flag) — not one room per challenge, which would hit the 3-owned-rooms cap and need cleanup. The creator never sees or configures a room. **`POST /api/rooms`'s cap query must exclude personal rooms in the same change**, or a player is locked out of real room creation after three challenges.
+
+Phases: **P1 engine ✅ SHIPPED** (migration 163, `SCHEDULED` status, `EventService`/`EventSubmissionGate`/`EventResultService`/`EventScheduler`, ADR 0017, 29 tests — dark launch, gate not yet called) · **P2** wire the gate into the four submit paths + routes · **P3** host creation UI · **P4** event page + OG link preview + Discord · **P5** challenge flow (personal rooms, quick-create, challenge-back, rematch) · **P6** docs/tests · **P7** AtGames private-tournament API sync · **P8** AtGames on-device Witness (launch-time capture; runtime proven on hardware).
+
+Merging the plans does NOT merge the releases: P2–P4 ship the host flow first, P5 adds the challenge surface on the same rails.
 
 ### Admin Leaderboard: controls + WYSIWYG — ✅ SHIPPED v2.85.0 (2026-08-08)
 
