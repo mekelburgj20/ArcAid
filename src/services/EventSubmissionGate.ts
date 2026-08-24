@@ -146,27 +146,8 @@ export async function checkEventSubmission(params: {
         round = candidates[0]!;
     }
 
-    const nowMs = now.getTime();
-    const startMs = Date.parse(round.scheduled_start_at);
-    const endMs = Date.parse(round.scheduled_end_at);
-    const graceMs = eventEndGraceSec(round) * 1000;
-
-    if (nowMs < startMs) {
-        const minutes = Math.max(1, Math.ceil((startMs - nowMs) / 60000));
-        return {
-            ok: false,
-            code: 'EVENT_NOT_STARTED',
-            message: `Round ${round.round_no} of "${round.tournament_name}" hasn't started yet — it opens in about ${minutes} minute${minutes === 1 ? '' : 's'}.`,
-        };
-    }
-
-    if (nowMs > endMs + graceMs) {
-        return {
-            ok: false,
-            code: 'EVENT_ROUND_ENDED',
-            message: `Round ${round.round_no} of "${round.tournament_name}" is closed. Scores after the buzzer don't count.`,
-        };
-    }
+    const windowDenial = evaluateWindow(round, now);
+    if (windowDenial) return windowDenial;
 
     if (round.checkin_required === 1) {
         const participant = await EventService.isParticipant(round.tournament_id, userId);
@@ -197,6 +178,98 @@ export async function checkEventSubmission(params: {
             }
         }
     }
+
+    return {
+        ok: true,
+        event: {
+            tournamentId: round.tournament_id,
+            tournamentName: round.tournament_name,
+            gameId: round.game_id,
+            gameName: round.game_name,
+            roundNo: round.round_no,
+            scheduledStartAt: round.scheduled_start_at,
+            scheduledEndAt: round.scheduled_end_at,
+        },
+    };
+}
+
+/**
+ * The window rule, in ONE place.
+ *
+ * Both entry points below must agree exactly on when a score is inside a round —
+ * a hosted Tournament Event and a room-less Throwdown are the same object, and
+ * two copies of "is it open yet" would eventually disagree about the buzzer.
+ *
+ * @returns a denial, or null when `now` is inside the round's window plus its grace.
+ */
+function evaluateWindow(
+    round: { round_no: number; tournament_name: string; scheduled_start_at: string; scheduled_end_at: string; end_grace_sec: number | null },
+    now: Date,
+    /** Throwdowns are a single round, so naming one reads oddly. */
+    label?: string,
+): EventGateResult | null {
+    const nowMs = now.getTime();
+    const startMs = Date.parse(round.scheduled_start_at);
+    const endMs = Date.parse(round.scheduled_end_at);
+    const graceMs = eventEndGraceSec(round) * 1000;
+    const what = label ?? `Round ${round.round_no} of "${round.tournament_name}"`;
+
+    if (nowMs < startMs) {
+        const minutes = Math.max(1, Math.ceil((startMs - nowMs) / 60000));
+        return {
+            ok: false,
+            code: 'EVENT_NOT_STARTED',
+            message: `${what} hasn't started yet — it opens in about ${minutes} minute${minutes === 1 ? '' : 's'}.`,
+        };
+    }
+    if (nowMs > endMs + graceMs) {
+        return {
+            ok: false,
+            code: 'EVENT_ROUND_ENDED',
+            message: `${what} is closed. Scores after the buzzer don't count.`,
+        };
+    }
+    return null;
+}
+
+/**
+ * The room-less sibling of `checkEventSubmission` (v2.136.0, ADR 0018).
+ *
+ * A Throwdown has no room, so it cannot be resolved by `(room, game name)` the
+ * way a hosted event is — it is addressed by its own id, which the submit route
+ * already knows because the player got there through the Throwdown's link.
+ *
+ * There is no check-in branch: a Throwdown's participants are whoever opened the
+ * link and scored. Everything else — the window, the grace, the shape of the
+ * result — is identical, via the shared `evaluateWindow` above.
+ */
+export async function checkThrowdownSubmission(params: {
+    tournamentId: string;
+    userId: string;
+    now?: Date;
+}): Promise<EventGateResult> {
+    const { tournamentId } = params;
+    if (!tournamentId) return PASS;
+
+    const db = await getDatabase();
+    const round = await db.get<RoundCandidate & { game_room_id: string | null }>(
+        `SELECT g.id AS game_id, g.name AS game_name, g.status, g.round_no,
+                g.scheduled_start_at, g.scheduled_end_at,
+                t.id AS tournament_id, t.name AS tournament_name,
+                t.checkin_required, t.end_grace_sec, t.game_room_id
+           FROM games g
+           JOIN tournaments t ON t.id = g.tournament_id
+          WHERE t.id = ? AND t.format = 'event' AND g.round_no IS NOT NULL
+          ORDER BY g.round_no ASC LIMIT 1`,
+        tournamentId,
+    );
+    // Not a Throwdown at all (or gone) — say so rather than silently accepting.
+    if (!round || round.game_room_id !== null) {
+        return { ok: false, code: 'EVENT_ROUND_ENDED', message: 'That Throwdown no longer exists.' };
+    }
+
+    const denial = evaluateWindow(round, params.now ?? new Date(), `This Throwdown`);
+    if (denial) return denial;
 
     return {
         ok: true,
