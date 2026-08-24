@@ -82,8 +82,8 @@ export function formatRelative(iso: string | null | undefined, now: number = Dat
   const past = diff < 0;
   const mins = Math.round(Math.abs(diff) / 60000);
   if (mins < 1) return past ? 'just now' : 'now';
-  const body = mins < 60
-    ? `${mins}m`
-    : `${Math.floor(mins / 60)}h ${mins % 60}m`;
+  const hours = Math.floor(mins / 60);
+  const rest = mins % 60;
+  const body = mins < 60 ? `${mins}m` : rest === 0 ? `${hours}h` : `${hours}h ${rest}m`;
   return past ? `${body} ago` : `in ${body}`;
 }

@@ -101,9 +101,26 @@ export default function EventSettingsFields({ state, onChange, roomId, lockedRou
         [state.rounds, state.checkinOpensLocal],
     );
 
+    /**
+     * A brand-new form must not open shouting. Every round starts empty, so
+     * validating on mount painted three red "Pick a game for this round" boxes
+     * before the admin had typed anything — which reads as "you did something
+     * wrong" at the exact moment they have not.
+     *
+     * A round's error is therefore shown once that round has been EDITED. The
+     * validation itself is unchanged and still complete; this only governs when
+     * it is surfaced. The save button gates on the real result either way, so a
+     * never-touched empty round still cannot be saved.
+     */
+    const [touched, setTouched] = useState<Set<number>>(new Set());
+    const markTouched = (roundNo: number) =>
+        setTouched(prev => (prev.has(roundNo) ? prev : new Set(prev).add(roundNo)));
+    const errorFor = (roundNo: number) => (touched.has(roundNo) ? errors[roundNo] : undefined);
+
     const isLocked = (roundNo: number) => lockedRounds.includes(roundNo);
 
     const updateRound = (roundNo: number, patch: Partial<RoundDraft>) => {
+        markTouched(roundNo);
         onChange({
             ...state,
             rounds: state.rounds.map(r => {
@@ -241,7 +258,7 @@ export default function EventSettingsFields({ state, onChange, roomId, lockedRou
                 <div className="space-y-2">
                     {state.rounds.map(round => {
                         const locked = isLocked(round.roundNo);
-                        const error = errors[round.roundNo];
+                        const error = errorFor(round.roundNo);
                         return (
                             <div
                                 key={round.roundNo}

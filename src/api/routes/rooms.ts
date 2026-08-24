@@ -4283,7 +4283,21 @@ router.get('/:roomId/events/:id/participants', requireAuth, requireRoomAccess('r
     try {
         const event = await resolveRoomEvent(req.params.roomId as string, req.params.id as string);
         if (!event) return res.status(404).json({ error: 'Event not found' });
-        res.json(await EventService.listParticipants(event.id));
+        const participants = await EventService.listParticipants(event.id);
+
+        // Resolve names at READ time, the same doctrine every leaderboard uses.
+        // A check-in roster of raw Discord snowflakes is unusable to the host
+        // running the night — they know "Wyo", not 184627390012.
+        const { resolveProfiles } = await import('../../services/PlayerProfileResolver.js');
+        const profiles = await resolveProfiles(
+            participants.map(p => ({ submitted_by_user_id: p.user_id, discord_user_id: p.user_id })),
+        );
+        res.json(participants.map((p, i) => ({
+            ...p,
+            display_name: profiles[i]?.display_name ?? null,
+            avatar_hash: profiles[i]?.avatar_hash ?? null,
+            avatar_url: profiles[i]?.avatar_url ?? null,
+        })));
     } catch (error) {
         logError('API Error (GET rooms/:roomId/events/:id/participants):', error);
         res.status(500).json({ error: 'Internal Server Error' });

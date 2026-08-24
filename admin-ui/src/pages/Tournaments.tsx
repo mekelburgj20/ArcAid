@@ -15,6 +15,7 @@ import TournamentFormFields, {
 } from '../components/TournamentForm';
 import { toPayload, tournamentToFormState, lockedRoundNumbers, type Tournament } from '../lib/tournamentFormPayload';
 import { deriveEventState, eventStateLabel, currentOrNextRound, formatRelative } from '../lib/eventDisplay';
+import { hasRoundErrors } from '../lib/eventTime';
 import EventRoundsPanel from '../components/EventRoundsPanel';
 import { relativeTimeFrom } from '../lib/format';
 
@@ -616,6 +617,9 @@ export default function Tournaments() {
             !createForm.state.name.trim()
             || !createForm.state.tag.trim()
             || getPlatformRuleConflicts(createForm.state.platformRules).length > 0
+            // A misconfigured round can only be rejected server-side, so gate
+            // here rather than letting the admin discover it on save.
+            || (createForm.state.format === 'event' && hasRoundErrors(createForm.state.event))
           }
         >
           Create Tournament
@@ -804,6 +808,7 @@ export default function Tournaments() {
                   || !editForm.state.name.trim()
                   || !editForm.state.tag.trim()
                   || getPlatformRuleConflicts(editForm.state.platformRules).length > 0
+                  || (editForm.state.format === 'event' && hasRoundErrors(editForm.state.event))
                 }
               >
                 {editSaving ? 'Saving...' : 'Save Changes'}

@@ -182,3 +182,8 @@ export const defaultEventState: EventFormState = {
     rounds: [{ roundNo: 1, gameName: '', startLocal: '', durationMin: 30 }],
     sameGameForAllRounds: false,
 };
+
+/** True when any round is misconfigured — the save button gates on this. */
+export function hasRoundErrors(event: EventFormState): boolean {
+    return Object.keys(validateRoundDrafts(event.rounds, event.checkinOpensLocal)).length > 0;
+}

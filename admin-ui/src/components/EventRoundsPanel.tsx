@@ -24,6 +24,8 @@ interface ParticipantRow {
     checked_in_at: string;
     source: 'checkin' | 'qualifier' | 'admin';
     added_by: string | null;
+    /** Resolved server-side at read time — null for an id with no profile yet. */
+    display_name: string | null;
 }
 
 interface EventRoundsPanelProps {
@@ -175,7 +177,14 @@ export default function EventRoundsPanel({ roomId, tournament, onClose, onChange
                     {!loading && participants.length === 0 && <p className="text-sm text-faint">Nobody has checked in yet.</p>}
                     {participants.map(p => (
                         <div key={p.user_id} className="flex items-center gap-2 text-sm py-1">
-                            <span className="font-mono text-xs text-muted flex-1 truncate">{p.user_id}</span>
+                            {/* Name when we have one, id when we do not — an
+                                unresolved id is still the only handle the admin
+                                can act on, so it is never hidden entirely. */}
+                            <span className="flex-1 truncate">
+                                {p.display_name
+                                    ? <span className="text-primary">{p.display_name}</span>
+                                    : <span className="font-mono text-xs text-muted">{p.user_id}</span>}
+                            </span>
                             {p.source === 'admin' && (
                                 <span className="text-xs px-2 py-0.5 rounded bg-neon-amber/15 text-neon-amber border border-neon-amber/40">added</span>
                             )}
