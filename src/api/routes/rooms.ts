@@ -77,6 +77,7 @@ import { TournamentScoresService } from '../../services/TournamentScoresService.
 import { ScoreProvenanceService } from '../../services/ScoreProvenanceService.js';
 import { AuditService } from '../../services/AuditService.js';
 import { checkEventSubmission } from '../../services/EventSubmissionGate.js';
+import { EventService, EventConfigError } from '../../services/EventService.js';
 
 const router = Router({ mergeParams: true });
 
@@ -4064,6 +4065,17 @@ router.post('/:roomId/settings', requireAuth, requireRoomAccess('roomId'), requi
 router.get('/:roomId/tournaments', async (req, res) => {
     try {
         const rows = await TournamentService.getAll(req.params.roomId as string);
+        // v2.135.0: event rows carry their rounds inline so the admin list can
+        // render state without an N+1 fetch per tournament. Rotation rows are
+        // returned exactly as before - no `rounds` key at all, so nothing that
+        // consumes this endpoint today sees a change.
+        const events = rows.filter((r: any) => r.format === 'event');
+        if (events.length > 0) {
+            const byId = new Map(await Promise.all(
+                events.map(async (r: any) => [r.id, await EventService.getRounds(r.id)] as const),
+            ));
+            for (const row of events) (row as any).rounds = byId.get(row.id) ?? [];
+        }
         res.json(rows);
     } catch (error) {
         logError('API Error (GET rooms/:roomId/tournaments):', error);
@@ -4077,6 +4089,26 @@ router.post('/:roomId/tournaments', requireAuth, requireRoomAccess('roomId'), re
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
         const data = { ...validationResult.data, game_room_id: req.params.roomId as string };
         await TournamentService.create(data);
+
+        // v2.135.0 (ADR 0017) — an event's rounds and window config live in
+        // EventService, which also FLIPS `format` to 'event'. Ordering matters:
+        // the tournament row must exist before rounds can reference it.
+        //
+        // If the round config is rejected, the half-made rotation tournament is
+        // rolled back by hand — it was never what the admin asked for, and
+        // leaving it behind would put a cron-less, round-less row in their list.
+        if (data.format === 'event') {
+            try {
+                await EventService.createOrUpdateEvent(data.id, data.event!);
+            } catch (err) {
+                await TournamentService.delete(data.id).catch(() => {});
+                if (err instanceof EventConfigError) {
+                    return res.status(400).json({ error: err.message, code: err.code });
+                }
+                throw err;
+            }
+        }
+
         const { Scheduler } = await import('../../engine/Scheduler.js');
         await Scheduler.getInstance().reload();
         res.json({ success: true });
@@ -4092,11 +4124,260 @@ router.put('/:roomId/tournaments/:id', requireAuth, requireRoomAccess('roomId'),
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
         const data = { ...validationResult.data, game_room_id: req.params.roomId as string };
         await TournamentService.update(req.params.id as string, data);
+
+        // Unlike POST there is nothing to roll back — the tournament already
+        // existed, so a rejected round edit simply leaves it as it was.
+        // `ROUND_LOCKED` (editing a round that has already started or finished)
+        // is a 409, not a 400: the request was well-formed, the state refused it.
+        if (data.format === 'event') {
+            try {
+                await EventService.createOrUpdateEvent(req.params.id as string, data.event!);
+            } catch (err) {
+                if (err instanceof EventConfigError) {
+                    return res.status(err.code === 'ROUND_LOCKED' ? 409 : 400).json({ error: err.message, code: err.code });
+                }
+                throw err;
+            }
+        }
+
         const { Scheduler } = await import('../../engine/Scheduler.js');
         await Scheduler.getInstance().reload();
         res.json({ success: true });
     } catch (error) {
         logError('API Error (PUT rooms/:roomId/tournaments/:id):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// ============================================================================
+// Live Events (v2.135.0, ADR 0017)
+//
+// `/events/:id` is the PUBLIC surface - the page a player lands on from a
+// scoreboard card or a shared link. The admin surfaces (participants, start
+// now / end now) sit behind requireAuth + requireRoomAccess.
+//
+// Every one of these 404s when the tournament is not an event in THIS room, so
+// the routes cannot be used to probe tournament ids across rooms.
+// ============================================================================
+
+/** Resolve an event that genuinely belongs to this room, else null. */
+async function resolveRoomEvent(roomId: string, tournamentId: string) {
+    const event = await EventService.getEvent(tournamentId);
+    if (!event || event.game_room_id !== roomId) return null;
+    return event;
+}
+
+router.get('/:roomId/events/:id', roomVisibilityGate, optionalDiscordUser, async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const event = await resolveRoomEvent(roomId, req.params.id as string);
+        if (!event) return res.status(404).json({ error: 'Event not found' });
+
+        const now = new Date();
+        const rounds = await EventService.getRounds(event.id);
+        const state = EventService.deriveState(event, rounds, now);
+
+        const { EventResultService } = await import('../../services/EventResultService.js');
+        const boards = await EventResultService.getBoards(event.id);
+        const standings = await EventResultService.computeStandings(event.id);
+
+        const viewerId = req.user?.discordId ?? null;
+        const participant = viewerId ? await EventService.isParticipant(event.id, viewerId) : null;
+        const firstRoundStart = rounds[0]?.scheduled_start_at ?? null;
+
+        // Check-in opens at `checkin_opens_at` (or immediately when unset) and
+        // closes when round 1 starts - there is deliberately no separate close
+        // column; an admin adding a straggler is the documented late path.
+        const checkinOpen = state === 'checkin'
+            || (state === 'upcoming' && !event.checkin_opens_at);
+
+        res.json({
+            event: {
+                id: event.id,
+                name: event.name,
+                state,
+                aggregateMethod: event.aggregate_method,
+                minElapsedSec: event.min_elapsed_sec,
+                endGraceSec: event.end_grace_sec,
+                startDate: event.start_date,
+                endDate: event.end_date,
+                finishedAt: event.event_finished_at,
+            },
+            now: now.toISOString(),
+            checkin: {
+                opensAt: event.checkin_opens_at,
+                closesAt: firstRoundStart,
+                required: event.checkin_required === 1,
+                count: await EventService.participantCount(event.id),
+                viewerCheckedIn: !!participant,
+            },
+            rounds: boards ?? [],
+            standings: standings ?? null,
+            viewer: {
+                canCheckIn: !!viewerId && checkinOpen && !participant,
+                reason: !viewerId ? 'LOGIN_REQUIRED'
+                    : participant ? 'ALREADY_CHECKED_IN'
+                    : checkinOpen ? null
+                    : 'CHECKIN_CLOSED',
+            },
+        });
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/events/:id):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.post('/:roomId/events/:id/checkin', writeLimiter, roomVisibilityGate, requireDiscordUser, requireNotBanned, async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const event = await resolveRoomEvent(roomId, req.params.id as string);
+        if (!event) return res.status(404).json({ error: 'Event not found' });
+        if (event.event_finished_at) return res.status(409).json({ error: 'This event has finished.', code: 'CHECKIN_CLOSED' });
+
+        const rounds = await EventService.getRounds(event.id);
+        const firstStart = rounds[0]?.scheduled_start_at;
+        const now = Date.now();
+
+        if (event.checkin_opens_at && now < Date.parse(event.checkin_opens_at)) {
+            return res.status(409).json({ error: 'Check-in has not opened yet.', code: 'CHECKIN_NOT_OPEN' });
+        }
+        // The hard close. `EventSubmissionGate` re-checks the stamp at submit
+        // time as defense in depth, so a race here cannot buy anyone a place.
+        if (firstStart && now >= Date.parse(firstStart)) {
+            return res.status(409).json({
+                error: 'Check-in closed when round 1 started. Ask an admin to add you.',
+                code: 'CHECKIN_CLOSED',
+            });
+        }
+
+        const participant = await EventService.checkIn(event.id, req.user!.discordId!);
+        res.status(201).json({ success: true, participant });
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/events/:id/checkin):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.delete('/:roomId/events/:id/checkin', roomVisibilityGate, requireDiscordUser, async (req, res) => {
+    try {
+        const event = await resolveRoomEvent(req.params.roomId as string, req.params.id as string);
+        if (!event) return res.status(404).json({ error: 'Event not found' });
+
+        const rounds = await EventService.getRounds(event.id);
+        const firstStart = rounds[0]?.scheduled_start_at;
+        // Withdrawing after the event is under way would silently delete the
+        // player from standings they already have scores in.
+        if (firstStart && Date.now() >= Date.parse(firstStart)) {
+            return res.status(409).json({ error: 'The event has already started.', code: 'EVENT_STARTED' });
+        }
+
+        const removed = await EventService.withdraw(event.id, req.user!.discordId!);
+        res.json({ success: true, removed });
+    } catch (error) {
+        logError('API Error (DELETE rooms/:roomId/events/:id/checkin):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.get('/:roomId/events/:id/participants', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const event = await resolveRoomEvent(req.params.roomId as string, req.params.id as string);
+        if (!event) return res.status(404).json({ error: 'Event not found' });
+        res.json(await EventService.listParticipants(event.id));
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/events/:id/participants):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.post('/:roomId/events/:id/participants', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const event = await resolveRoomEvent(req.params.roomId as string, req.params.id as string);
+        if (!event) return res.status(404).json({ error: 'Event not found' });
+        const userId = typeof req.body?.userId === 'string' ? req.body.userId.trim() : '';
+        if (!userId) return res.status(400).json({ error: 'userId is required' });
+
+        // source='admin' deliberately bypasses the late-check-in guard - this
+        // IS the straggler mechanism that lets "check-in closes at round 1"
+        // stay strict without being cruel.
+        const actor = req.user!.discordId || req.user!.username || req.user!.localAdminId || 'admin';
+        const participant = await EventService.checkIn(event.id, userId, 'admin', actor);
+        res.status(201).json({ success: true, participant });
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/events/:id/participants):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.delete('/:roomId/events/:id/participants/:userId', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const event = await resolveRoomEvent(req.params.roomId as string, req.params.id as string);
+        if (!event) return res.status(404).json({ error: 'Event not found' });
+        const removed = await EventService.withdraw(event.id, req.params.userId as string);
+        res.json({ success: true, removed });
+    } catch (error) {
+        logError('API Error (DELETE rooms/:roomId/events/:id/participants/:userId):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
+ * Admin "start now" / "end now".
+ *
+ * Both REWRITE THE SCHEDULE and then drive one scheduler tick, rather than
+ * flipping `games.status` directly. That keeps a single engine path: the tick
+ * owns iScored board creation, cache invalidation, announcements and the
+ * event-finished transition, so none of it has to be duplicated here. It also
+ * keeps the round window honest - the elapsed figure every score is judged by
+ * is measured from the times stored on the row.
+ */
+router.post('/:roomId/events/:id/rounds/:roundNo/:action', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const action = req.params.action as string;
+        if (action !== 'start-now' && action !== 'end-now') {
+            return res.status(404).json({ error: 'Unknown action' });
+        }
+        const event = await resolveRoomEvent(req.params.roomId as string, req.params.id as string);
+        if (!event) return res.status(404).json({ error: 'Event not found' });
+
+        const roundNo = Number(req.params.roundNo);
+        const rounds = await EventService.getRounds(event.id);
+        const round = rounds.find(r => r.round_no === roundNo);
+        if (!round) return res.status(404).json({ error: 'Round not found' });
+
+        const db = await getDatabase();
+        const now = new Date();
+
+        if (action === 'start-now') {
+            if (round.status !== 'SCHEDULED') {
+                return res.status(409).json({ error: `Round ${roundNo} has already started.`, code: 'ROUND_NOT_SCHEDULED' });
+            }
+            // Pull the start back to now, keeping the round LENGTH intact so a
+            // "25-minute round" is still 25 minutes when started early.
+            const lengthMs = Date.parse(round.scheduled_end_at) - Date.parse(round.scheduled_start_at);
+            await db.run(
+                'UPDATE games SET scheduled_start_at = ?, scheduled_end_at = ? WHERE id = ? AND status = ?',
+                now.toISOString(), new Date(now.getTime() + lengthMs).toISOString(), round.id, 'SCHEDULED',
+            );
+        } else {
+            if (round.status !== 'ACTIVE') {
+                return res.status(409).json({ error: `Round ${roundNo} is not running.`, code: 'ROUND_NOT_ACTIVE' });
+            }
+            // End in the past by the full grace, so THIS tick closes it instead
+            // of leaving it open for another grace period.
+            const graceMs = (event.end_grace_sec ?? 60) * 1000;
+            await db.run(
+                'UPDATE games SET scheduled_end_at = ? WHERE id = ? AND status = ?',
+                new Date(now.getTime() - graceMs - 1000).toISOString(), round.id, 'ACTIVE',
+            );
+        }
+
+        const { EventScheduler } = await import('../../engine/EventScheduler.js');
+        await EventScheduler.getInstance().tick(now);
+
+        res.json({ success: true, rounds: await EventService.getRounds(event.id) });
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/events/:id/rounds/:roundNo/:action):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
@@ -4143,8 +4424,10 @@ router.delete('/:roomId/tournaments/:id', requireAuth, requireRoomAccess('roomId
         // the blockers; S7 adds an auto-deactivate option in the confirm modal.
         const db = await getDatabase();
         const blockers = await db.all(
+            // v2.135.0: SCHEDULED joins the blocker list — a pre-created event
+            // round is exactly the kind of live row this guard exists to protect.
             `SELECT id, name, status FROM games
-             WHERE tournament_id = ? AND status IN ('ACTIVE', 'QUEUED')`,
+             WHERE tournament_id = ? AND status IN ('ACTIVE', 'QUEUED', 'SCHEDULED')`,
             req.params.id as string
         );
         if (blockers.length > 0) {
