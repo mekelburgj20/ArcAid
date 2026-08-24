@@ -184,6 +184,21 @@ Load-bearing technical and product decisions are tracked in [`docs/decisions/`](
 
 ## Future
 
+### Streaming integrations — Discord + Twitch (owner side-thought 2026-08-24, PARKED — not scoped)
+
+Filed, not designed. The natural hook is the Events & Challenges arc above: a live round already has a
+start, an end, a countdown, a board and a result, which is exactly the shape a stream overlay wants.
+Sketch of what to investigate when this comes up for real:
+- **Twitch**: a browser-source overlay URL (`/:slug/events/:id/overlay`) rendering the live board +
+  countdown with a transparent background — no Twitch API needed, works in OBS today, cheapest possible
+  first step. Beyond that: Twitch EventSub for go-live detection, chat bot posting the standings, channel
+  points to enter a Flip Off.
+- **Discord**: richer than today's announce embeds — a live-updating message edited as scores land, an
+  Activity/embedded app, or scheduled-event creation from an Event's window so it lands in the server's
+  Events tab with RSVP.
+- **Prereq check**: the RTX use case is stream-night driven, so ask them what they actually run today
+  (OBS scenes? a bot?) before building anything.
+
 ### One-time cooldown override — player request → admin approve/deny (owner-designed 2026-08-23, queued behind the phone review)
 
 **Verified baseline:** the v2.126 hold model already does the skip-and-re-queue cycle the owner wants (`TournamentEngine.nextEligibleQueuedFor` stamps `queue_held_at`, `QUEUE_ORDER_SQL` sorts held first, the held pick activates at the player's next turn once eligible). **Gap:** `PickQueueService.queueGame` REJECTS a game that is already in cooldown (`COOLDOWN`), so holds only arise when a game went into cooldown after being queued.
@@ -363,21 +378,22 @@ Now that anyone can create a public room (v2.33.0) and pick their own room name/
 
 Accountability foundation already shipped: room creation requires login, is capped (3/user), rate-limited, and kill-switchable (v2.33.0) — identity friction is the strongest deterrent.
 
-### Private tournaments — player-to-player challenges without a game room (user-asked 2026-08-07, needs a design session; multi-day arc)
+### Tournament Events & Throwdowns — ONE plan (owner-merged 2026-08-24; P1 SHIPPED)
 
-Owner's spec, captured verbatim-in-substance:
+**Master plan: `tmp/live-event-tournament-plan.md`. Design: ADR 0017. AtGames feasibility (COMPLETE): `tmp/atgames-research/FINDINGS-0a..0e.md`.**
 
-- **Creation is a couple of clicks**: pick Game, Device/Engine config, tournament duration/period (+ anything else relevant). No game room required — "Let's see who can beat me on Medieval Madness."
-- **Output = a shareable link** the creator sends via Discord/messaging/etc. The link preview should include a picture of the table/game (OG image). The tournament is stored on the creator's profile under "Private Tournaments."
-- **Challenge back**: after a winner is decided, the winner gets a "Challenge back" affordance — pick a (new) game, and Arcaid notifies ALL participants of the previous tournament; the winner gets a shareable link too.
-- **Rematch**: at game end, every NON-winner gets a 'Rematch' option — same game, invites all previous participants. First-click-wins semantics: if player X already initiated a rematch, later clickers are told X already started one and are handed X's link (no duplicate rematch tournaments).
+The room-scoped "Live Event" arc and the room-less "player-to-player private tournaments" spec were two plans for one product; merged 2026-08-24. **One engine** — a `format='event'` tournament: time-boxed, N>=1 rounds, each a `games` row with a wall-clock window, submissions gated on the server clock, standings frozen at the end. **Two products on top of it**, deliberately distinct because two mental models beat one form with a mode switch:
 
-Design questions for the session (not decisions):
-- **Data model**: room-less tournaments (new nullable `game_room_id` semantics on tournaments — heavy, the engine assumes rooms everywhere) vs. auto-created hidden personal "rooms" (reuses ALL existing machinery: unlisted rooms shipped v2.80.0, tournament engine, leaderboards; needs creation-cap/cleanup thinking) vs. a new lightweight `private_tournaments` table + dedicated boards. The hidden-room route likely cheapest to pilot but decide deliberately.
-- **Identity**: post-login-mandate everyone's authenticated — participants = logged-in users who opened the link and submitted. Participation set = who scored (or who accepted?).
-- **Link + OG preview**: ogMeta machinery exists (`src/api/ogMeta.ts`, UA-gated bot injection) — needs a new route pattern for private-tournament links with the game image.
-- **Notifications** ("Arcaid manages the notification"): channel cascade — Discord DM when reachable (`DiscordReachabilityService`), web push (`/me/push-subscriptions` exists), else in-app. Rematch/challenge-back fan-out needs opt-out thinking (NotificationService prefs are default-off today).
-- **Abuse/caps**: creation caps + rate limits (mirror the room-creation caps from v2.33.0); blocklist on any free-text.
+- **Tournament Event** — room admin hosts it. Rounds editor, check-in roster, aggregate method, Discord announce. The RTX stream-night case, where "gearing up" (grinding a score before the window opens, submitting at open) is prevented or exposed.
+- **Throwdown** — any player, two questions (game + duration), no room involved at all. Output is a shareable `/throwdown/:code` link with an OG table-art preview. Winner gets Challenge-back, everyone else gets Rematch (first-click-wins). *Working title "Flip Off" was dropped: pinball-native, but its dominant English reading is the obscene gesture — bad next to the blocklist/moderation work and on a stream.*
+
+**Throwdowns are genuinely room-less.** An earlier "one personal room per user" design was rejected: personal rooms eat the flat public slug namespace, make the share link read as somebody's room URL, and give every room-scoped feature an "except personal rooms" caveat that compounds forever. Schema check says room-less is cheap: `tournaments.game_room_id`, `games.game_room_id` and `submissions` already tolerate it — **the only blocker is `score_history.game_room_id` being `NOT NULL` + FK**. One SQLite table rebuild (migration 164, the 066/077/095 class, back up first). It only gets more expensive as the table grows, so it is pre-GA work or never.
+
+**Owner calls 2026-08-24:** global-scoreboard fan-out becomes a per-player Account Settings preference resolved SERVER-side (an explicit per-submission choice wins; the preference fills in when absent — which is the only thing that can speak for the player in Discord `/submit-score`, which has no checkbox). Notifications stay default-off and **v1 ships with none** — for a Throwdown the link IS the notification, which removes the "mass DM at 3am" risk by not building the thing that causes it. Fan-out for rematch/challenge-back stays opt-in; the real fix when wanted is quiet hours, blocked on Arcaid storing no per-user timezone anywhere.
+
+Phases: **P1 engine ✅ SHIPPED** (migration 163, `SCHEDULED` status, `EventService`/`EventSubmissionGate`/`EventResultService`/`EventScheduler`, ADR 0017, 29 tests — dark launch, gate not yet called) · **P2** wire the gate into the four submit paths + routes · **P3** host creation UI · **P4** event page + OG link preview + Discord · **P5** Throwdowns (migration 164, quick-create, room-less gate entry, challenge-back/rematch) · **P5b** global-scoreboard preference (independent, slot anywhere) · **P6** docs/tests · **P7** AtGames private-tournament API sync · **P8** AtGames on-device Witness.
+
+Merging the plans does NOT merge the releases: P2-P4 ship Tournament Events first, P5 adds Throwdowns on rails already proven in production.
 
 ### Admin Leaderboard: controls + WYSIWYG — ✅ SHIPPED v2.85.0 (2026-08-08)
 

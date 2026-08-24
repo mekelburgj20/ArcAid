@@ -2738,6 +2738,15 @@ async function doInitDatabase(): Promise<Database> {
             const { themeOverhaul } = await import('./migrations/themeOverhaul.js');
             await themeOverhaul(db);
         } },
+        // v2.135.0 — Live Event tournament format (ADR 0017). Time-boxed,
+        // check-in-gated, multi-round tournaments living alongside the perpetual
+        // cron-rotated ones. Rounds are `games` rows with the new SCHEDULED
+        // status; `tournament_participants` is the check-in roster. See
+        // src/database/migrations/liveEventFormat.ts for the full rationale.
+        { name: '163_live_event_format', handler: async (db) => {
+            const { liveEventFormat } = await import('./migrations/liveEventFormat.js');
+            await liveEventFormat(db);
+        } },
     ];
 
     for (const migration of migrations) {

@@ -34,6 +34,19 @@ export class CommunityScoreService {
             /** v2.53.0 (ADR 0016) — split provenance; defaults to 'unknown', never NULL. */
             engine?: string | null;
             device?: string | null;
+            /**
+             * v2.135.0 (ADR 0017) — the Live Event round this score belongs to,
+             * as resolved by `EventSubmissionGate`. Set ONLY on an accepted event
+             * submission.
+             *
+             * Both are needed and neither is derivable here: `ScoreHistoryService.log`
+             * auto-resolves a tournament by (room, game name, status ACTIVE), which
+             * cannot tell two rounds of the SAME table apart. Stamping `game_id`
+             * explicitly is the only thing that keeps round 1 and round 2 of
+             * "Medieval Madness" as separate boards.
+             */
+            eventTournamentId?: string | null;
+            eventGameId?: string | null;
         }
     ) {
         const db = await getDatabase();
@@ -84,6 +97,8 @@ export class CommunityScoreService {
             source: 'community',
             platform: options?.platform ?? null,
             engine, device,
+            gameId: options?.eventGameId ?? undefined,
+            tournamentId: options?.eventTournamentId ?? undefined,
         });
 
         // Fire-and-forget lobby feed event (tracked so tests can drain it —

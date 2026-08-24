@@ -59,7 +59,7 @@ interface LinkCheckResult {
   missingCount: number;
 }
 
-type StatusFilter = 'ALL' | 'ACTIVE' | 'QUEUED' | 'COMPLETED' | 'ARCHIVED';
+type StatusFilter = 'ALL' | 'ACTIVE' | 'SCHEDULED' | 'QUEUED' | 'COMPLETED' | 'ARCHIVED';
 
 // ALL is "currently meaningful states" — explicitly excludes ARCHIVED
 // (post-cleanup historical anchors). ARCHIVED has its own chip so the page
@@ -67,6 +67,9 @@ type StatusFilter = 'ALL' | 'ACTIVE' | 'QUEUED' | 'COMPLETED' | 'ARCHIVED';
 
 const STATUS_BADGES: Record<string, { color: string }> = {
   ACTIVE:    { color: 'bg-neon-green/20 text-neon-green border-neon-green/30' },
+  // v2.135.0 (ADR 0017) — a pre-created Live Event round. Distinct from QUEUED:
+  // it is not in anyone's pick queue and the engine, not a player, opens it.
+  SCHEDULED: { color: 'bg-neon-cyan/20 text-neon-cyan border-neon-cyan/30' },
   QUEUED:    { color: 'bg-neon-amber/20 text-neon-amber border-neon-amber/30' },
   COMPLETED: { color: 'bg-muted/20 text-muted border-border' },
   ARCHIVED:  { color: 'bg-faint/15 text-faint border-faint/30' },
@@ -440,7 +443,7 @@ export default function GameStates() {
 
       {/* Filter bar */}
       <div className="flex gap-2 mb-4 flex-wrap">
-        {(['ALL', 'ACTIVE', 'QUEUED', 'COMPLETED', 'ARCHIVED'] as StatusFilter[]).map(f => {
+        {(['ALL', 'ACTIVE', 'SCHEDULED', 'QUEUED', 'COMPLETED', 'ARCHIVED'] as StatusFilter[]).map(f => {
           const count = f === 'ALL'
             ? games.filter(g => g.status !== 'ARCHIVED').length
             : games.filter(g => g.status === f).length;
@@ -580,12 +583,21 @@ export default function GameStates() {
                       {/* Actions */}
                       <td className="py-2.5 px-2">
                         <div className="flex items-center justify-end gap-1 flex-wrap">
-                          {/* Status transitions */}
-                          {game.status !== 'ACTIVE' && !isPhantom && (
+                          {/* Status transitions.
+                              A SCHEDULED row is a Live Event round, and forcing
+                              it ACTIVE here would open a round whose WINDOW has
+                              not started — the submission gate would then refuse
+                              every score posted to it, which looks like the app
+                              is broken. Rounds are started from the event's own
+                              Rounds panel, which moves the window with them. */}
+                          {game.status !== 'ACTIVE' && game.status !== 'SCHEDULED' && !isPhantom && (
                             <ActionBtn icon={<Play size={13} />} title="Force Active" onClick={() => changeStatus(game, 'ACTIVE')} color="green" />
                           )}
                           {game.status === 'ACTIVE' && (
                             <ActionBtn icon={<Lock size={13} />} title="Force Complete" onClick={() => changeStatus(game, 'COMPLETED')} color="muted" />
+                          )}
+                          {game.status === 'SCHEDULED' && (
+                            <span className="text-xs text-faint mr-1" title="Live Event round — start or end it from the tournament's Rounds panel.">event round</span>
                           )}
 
                           {/* Picker */}

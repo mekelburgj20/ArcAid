@@ -13,7 +13,10 @@ import TournamentFormFields, {
   useTournamentForm,
   getPlatformRuleConflicts,
 } from '../components/TournamentForm';
-import { toPayload, tournamentToFormState, type Tournament } from '../lib/tournamentFormPayload';
+import { toPayload, tournamentToFormState, lockedRoundNumbers, type Tournament } from '../lib/tournamentFormPayload';
+import { deriveEventState, eventStateLabel, currentOrNextRound, formatRelative } from '../lib/eventDisplay';
+import { hasRoundErrors } from '../lib/eventTime';
+import EventRoundsPanel from '../components/EventRoundsPanel';
 import { relativeTimeFrom } from '../lib/format';
 
 export type { Tournament };
@@ -99,6 +102,8 @@ export default function Tournaments() {
   const [loading, setLoading] = useState(true);
   const [deleteTarget, setDeleteTarget] = useState<Tournament | null>(null);
   const [editTarget, setEditTarget] = useState<Tournament | null>(null);
+  /** v2.135.0 — the run-an-event panel (rounds + check-in roster). */
+  const [roundsTarget, setRoundsTarget] = useState<Tournament | null>(null);
   const [platforms, setPlatforms] = useState<string[]>([]);
   const [activeGames, setActiveGames] = useState<ActiveGame[]>([]);
   const [retainedCompleted, setRetainedCompleted] = useState<RetainedCompletedGame[]>([]);
@@ -307,8 +312,12 @@ export default function Tournaments() {
       createForm.reset();
       toast('Tournament created', 'success');
       fetchTournaments();
-    } catch {
-      toast('Failed to create tournament', 'error');
+    } catch (err) {
+      // An event save can fail for a reason the admin can actually act on
+      // (rounds overlap, check-in after round 1, the game is live in a rotation
+      // tournament). `api.ts` surfaces the server's `error` string as the
+      // Error message, so show it rather than a generic failure.
+      toast((err as Error)?.message || 'Failed to create tournament', 'error');
     }
   };
 
@@ -382,8 +391,8 @@ export default function Tournaments() {
       toast('Tournament updated', 'success');
       setEditTarget(null);
       fetchTournaments();
-    } catch {
-      toast('Failed to update tournament', 'error');
+    } catch (err) {
+      toast((err as Error)?.message || 'Failed to update tournament', 'error');
     } finally {
       setEditSaving(false);
     }
@@ -405,14 +414,28 @@ export default function Tournaments() {
         </div>
         <DataTable<Tournament>
           columns={[
-            { key: 'name', header: 'Name', render: t => (
-              <span>
-                <span className={t.is_active === 0 ? 'font-medium opacity-50' : 'font-medium'}>{t.name}</span>
-                {t.is_active === 0 && (
-                  <span className="ml-2 text-xs px-2 py-0.5 rounded bg-border/30 text-muted border border-border opacity-60">Paused</span>
-                )}
-              </span>
-            )},
+            { key: 'name', header: 'Name', render: t => {
+              const state = deriveEventState(t);
+              const chip = state ? eventStateLabel(state, t) : null;
+              const tone = chip?.tone === 'live' ? 'bg-neon-magenta/15 text-neon-magenta border-neon-magenta/40'
+                : chip?.tone === 'soon' ? 'bg-neon-cyan/15 text-neon-cyan border-neon-cyan/40'
+                : chip?.tone === 'done' ? 'bg-border/30 text-muted border-border'
+                : 'bg-neon-amber/15 text-neon-amber border-neon-amber/40';
+              return (
+                <span>
+                  <span className={t.is_active === 0 && !chip ? 'font-medium opacity-50' : 'font-medium'}>{t.name}</span>
+                  {/* An event is `is_active = 0` once it FINISHES, which is not
+                      the same thing as an admin pausing it. Showing "Paused"
+                      there would read as a mistake the admin needs to fix. */}
+                  {t.is_active === 0 && !chip && (
+                    <span className="ml-2 text-xs px-2 py-0.5 rounded bg-border/30 text-muted border border-border opacity-60">Paused</span>
+                  )}
+                  {chip && (
+                    <span className={`ml-2 text-xs px-2 py-0.5 rounded border ${tone}`}>{chip.text}</span>
+                  )}
+                </span>
+              );
+            }},
             { key: 'type', header: 'Tag', render: t => <TournamentBadge type={t.type} /> },
             { key: 'mode', header: 'Mode', render: t => (
               <span className={`text-xs px-2 py-0.5 rounded ${t.mode === 'pinball' ? 'bg-neon-amber/15 text-neon-amber' : 'bg-neon-cyan/15 text-neon-cyan'}`}>
@@ -423,11 +446,27 @@ export default function Tournaments() {
               <span className="text-sm text-muted font-mono">{t.display_order ?? 0}</span>
             )},
             { key: 'max_active_games', header: 'Slots', render: t => (
-              <span className="text-sm text-muted font-mono">{t.max_active_games ?? 1}</span>
+              <span className="text-sm text-muted font-mono">
+                {t.format === 'event' ? `${t.rounds?.length ?? 0}R` : (t.max_active_games ?? 1)}
+              </span>
             )},
-            { key: 'cadence', header: 'Schedule', render: t => (
-              <span className="text-sm text-neon-amber">{formatCadenceDisplay(t.cadence)}</span>
-            )},
+            { key: 'cadence', header: 'Schedule', render: t => {
+              if (t.format !== 'event') {
+                return <span className="text-sm text-neon-amber">{formatCadenceDisplay(t.cadence)}</span>;
+              }
+              // An event has no cron to display — `formatCadenceDisplay` would
+              // render an empty or nonsense schedule. Show the round that
+              // matters instead.
+              const round = currentOrNextRound(t);
+              if (!round) return <span className="text-xs text-muted">All rounds done</span>;
+              const live = Date.now() >= Date.parse(round.scheduled_start_at);
+              return (
+                <span className="text-sm text-neon-amber" title={round.name}>
+                  R{round.round_no} {live ? 'ends' : 'starts'}{' '}
+                  {formatRelative(live ? round.scheduled_end_at : round.scheduled_start_at)}
+                </span>
+              );
+            }},
             { key: 'lastRun', header: 'Last run', render: t => {
               const info = runInfo[t.id];
               if (!info?.lastRun) return <span className="text-faint text-xs">—</span>;
@@ -441,6 +480,9 @@ export default function Tournaments() {
               );
             }},
             { key: 'nextFire', header: 'Next fire', render: t => {
+              // Events do not fire maintenance at all — their clock is the
+              // per-minute EventScheduler, already shown in the Schedule column.
+              if (t.format === 'event') return <span className="text-faint text-xs">—</span>;
               if (t.is_active === 0) return <span className="text-faint text-xs">paused</span>;
               const info = runInfo[t.id];
               if (!info?.nextFireAt) return <span className="text-faint text-xs">—</span>;
@@ -450,9 +492,16 @@ export default function Tournaments() {
             }},
             { key: 'actions', header: '', render: t => (
               <div className="flex gap-2 justify-end">
-                <NeonButton variant="ghost" onClick={() => handlePauseToggle(t)} disabled={pausingId === t.id} className="text-xs px-2 py-1">
-                  {pausingId === t.id ? '...' : (t.is_active === 0 ? 'Resume' : 'Pause')}
-                </NeonButton>
+                {/* Pause/Resume drives the maintenance cron, which an event does
+                    not have — and resuming a FINISHED event would unfreeze its
+                    result. Events get Rounds instead. */}
+                {t.format === 'event' ? (
+                  <NeonButton variant="ghost" onClick={() => setRoundsTarget(t)} className="text-xs px-2 py-1">Rounds</NeonButton>
+                ) : (
+                  <NeonButton variant="ghost" onClick={() => handlePauseToggle(t)} disabled={pausingId === t.id} className="text-xs px-2 py-1">
+                    {pausingId === t.id ? '...' : (t.is_active === 0 ? 'Resume' : 'Pause')}
+                  </NeonButton>
+                )}
                 <NeonButton variant="ghost" onClick={() => openEdit(t)} className="text-xs px-2 py-1">Edit</NeonButton>
                 <NeonButton variant="danger" onClick={() => { setDeleteTarget(t); setDeleteBlockers([]); setAutoDeactivate(false); }} className="text-xs px-2 py-1">Delete</NeonButton>
               </div>
@@ -560,6 +609,7 @@ export default function Tournaments() {
           state={createForm.state}
           set={createForm.set}
           platforms={platforms}
+          roomId={room.roomId}
         />
         <NeonButton
           onClick={handleCreate}
@@ -567,6 +617,9 @@ export default function Tournaments() {
             !createForm.state.name.trim()
             || !createForm.state.tag.trim()
             || getPlatformRuleConflicts(createForm.state.platformRules).length > 0
+            // A misconfigured round can only be rejected server-side, so gate
+            // here rather than letting the admin discover it on save.
+            || (createForm.state.format === 'event' && hasRoundErrors(createForm.state.event))
           }
         >
           Create Tournament
@@ -723,6 +776,17 @@ export default function Tournaments() {
         </div>
       )}
 
+      {/* Run-an-event panel (v2.135.0) */}
+      {roundsTarget && (
+        <EventRoundsPanel
+          roomId={room.roomId}
+          tournament={roundsTarget}
+          onClose={() => setRoundsTarget(null)}
+          onChanged={fetchTournaments}
+          toast={toast}
+        />
+      )}
+
       {/* Edit Modal */}
       {editTarget && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
@@ -732,6 +796,8 @@ export default function Tournaments() {
               state={editForm.state}
               set={editForm.set}
               platforms={platforms}
+              roomId={room.roomId}
+              lockedRounds={lockedRoundNumbers(editTarget)}
             />
             <div className="flex gap-3 justify-end">
               <NeonButton variant="ghost" onClick={() => setEditTarget(null)} disabled={editSaving}>Cancel</NeonButton>
@@ -742,6 +808,7 @@ export default function Tournaments() {
                   || !editForm.state.name.trim()
                   || !editForm.state.tag.trim()
                   || getPlatformRuleConflicts(editForm.state.platformRules).length > 0
+                  || (editForm.state.format === 'event' && hasRoundErrors(editForm.state.event))
                 }
               >
                 {editSaving ? 'Saving...' : 'Save Changes'}

@@ -52,18 +52,74 @@ const platformRulesSchema = z.preprocess(
     }),
 ).default(emptyPlatformRules);
 
-export const CreateTournamentSchema = z.object({
-    id: z.string().uuid(),
+/**
+ * Live Event configuration (v2.135.0, ADR 0017).
+ *
+ * Required when `format === 'event'`, forbidden otherwise — enforced by the
+ * `superRefine` on the tournament schema below, because Zod cannot express
+ * "this field is required depending on that field's value" declaratively.
+ *
+ * Round WINDOWS are validated here only for shape (parseable, end after start).
+ * Ordering, overlap and the check-in-before-round-1 rule live in
+ * `EventService.validateRounds`, which is the single source of truth for them —
+ * the Discord and admin "start now" paths reach that validation without passing
+ * through Zod at all, so duplicating the rules here would let the two drift.
+ */
+const isoDateTime = z.string().refine(
+    (v) => !Number.isNaN(Date.parse(v)),
+    'Must be an ISO-8601 date-time',
+);
+
+const eventRoundSchema = z.object({
+    roundNo: z.number().int().min(1).max(12),
+    gameName: z.string().min(1).max(200),
+    scheduledStartAt: isoDateTime,
+    scheduledEndAt: isoDateTime,
+});
+
+export const EventConfigSchema = z.object({
+    rounds: z.array(eventRoundSchema).min(1, 'An event needs at least one round').max(12),
+    checkinOpensAt: isoDateTime.nullish(),
+    checkinRequired: z.boolean().default(true),
+    aggregateMethod: z.enum(['best', 'average', 'sum']).default('best'),
+    /**
+     * Display-only gear-up threshold. Capped at 24h: it is compared against
+     * elapsed-since-round-start, so anything longer than a round can last would
+     * flag every score in it.
+     */
+    minElapsedSec: z.number().int().min(0).max(86400).nullish(),
+    /** Late-submit grace. 0 = hard buzzer; 600 is already a very generous host. */
+    endGraceSec: z.number().int().min(0).max(600).default(60),
+});
+
+/**
+ * Everything except `id`. Create adds it; Update does not have one. Both then
+ * apply `tournamentFormatRefine`, so the two can never disagree about which
+ * format/cadence combinations are legal.
+ */
+const TournamentBaseSchema = z.object({
     name: z.string().min(1, 'Name required').max(100).refine(noBlockedTerm, blockedTermMessage),
     type: z.string().min(1).max(50),
     mode: z.enum(['pinball', 'videogame']).default('pinball'),
+    /**
+     * v2.135.0 — 'rotation' is every tournament that existed before the Live
+     * Event format. 'event' is time-boxed and registers NO cron.
+     */
+    format: z.enum(['rotation', 'event']).default('rotation'),
     cadence: z.object({
-        cron: cronSchema,
-        autoRotate: z.boolean(),
-        autoLock: z.boolean(),
+        /**
+         * OPTIONAL as of v2.135.0, and required for `format: 'rotation'` by the
+         * superRefine below. An event's cadence is `{timezone}` only — a cron
+         * would hand it to `Scheduler.scheduleTournament`, and `runMaintenance`
+         * would rotate the rounds out from under their own schedule.
+         */
+        cron: cronSchema.optional(),
+        autoRotate: z.boolean().optional().default(true),
+        autoLock: z.boolean().optional().default(true),
         timezone: z.string().optional(),
         announcementChannel: z.string().optional(),
     }),
+    event: EventConfigSchema.optional(),
     platform_rules: platformRulesSchema,
     guild_id: z.string().optional().default(''),
     discord_channel_id: discordIdSchema.optional().or(z.literal('')).default(''),
@@ -87,7 +143,38 @@ export const CreateTournamentSchema = z.object({
     ]).default({ mode: 'retain', count: 0 }),
 });
 
-export const UpdateTournamentSchema = CreateTournamentSchema.omit({ id: true });
+/**
+ * The two formats have mutually exclusive scheduling. Rejecting the wrong
+ * combination here means neither `TournamentService` nor `EventService` has to
+ * guess what a cron-carrying event or a round-less rotation meant.
+ */
+const tournamentFormatRefine = (
+    value: z.infer<typeof TournamentBaseSchema>,
+    ctx: z.RefinementCtx,
+) => {
+    if (value.format === 'event') {
+        if (!value.event) {
+            ctx.addIssue({ code: 'custom', path: ['event'], message: 'An event tournament needs an `event` configuration with at least one round.' });
+        }
+        if (value.cadence?.cron) {
+            ctx.addIssue({ code: 'custom', path: ['cadence', 'cron'], message: 'An event tournament must not have a cron — its rounds carry their own schedule.' });
+        }
+    } else {
+        if (!value.cadence?.cron) {
+            ctx.addIssue({ code: 'custom', path: ['cadence', 'cron'], message: 'A rotation tournament needs a cron schedule.' });
+        }
+        if (value.event) {
+            ctx.addIssue({ code: 'custom', path: ['event'], message: '`event` configuration is only valid when format is "event".' });
+        }
+    }
+};
+
+export const CreateTournamentSchema = TournamentBaseSchema
+    .extend({ id: z.string().uuid() })
+    .superRefine(tournamentFormatRefine);
+
+export const UpdateTournamentSchema = TournamentBaseSchema
+    .superRefine(tournamentFormatRefine);
 
 // S7 — focused pause/resume toggle. Flips tournaments.is_active without
 // round-tripping the full tournament config (so the FE pause toggle can't

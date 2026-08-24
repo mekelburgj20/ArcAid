@@ -7,6 +7,7 @@ import { TimeoutManager } from './TimeoutManager.js';
 import { RoomEventService } from '../services/RoomEventService.js';
 import { VpsImportService } from '../services/VpsImportService.js';
 import { getNextRunTime } from '../utils/cronUtils.js';
+import { EventScheduler } from './EventScheduler.js';
 
 export class Scheduler {
     private static instance: Scheduler;
@@ -77,6 +78,9 @@ export class Scheduler {
 
         // Run the timeout checker every minute to handle winner/runner-up pick windows
         this.startTimeoutChecker();
+
+        // Live Event clock — check-in opens, rounds start/end, standings freeze
+        this.startEventScheduler();
 
         // Daily cleanup of old room events (3 AM)
         this.startRoomEventCleanup();
@@ -281,6 +285,30 @@ export class Scheduler {
 
         this.tasks.set('__timeout_checker__', task);
         logInfo('Timeout checker started (every minute).');
+    }
+
+    /**
+     * Live Event clock (v2.135.0, ADR 0017) — opens check-in, starts and closes
+     * rounds, freezes the final standings.
+     *
+     * Per-minute, like the timeout checker, and for the same reason: it is the
+     * finest granularity a cron gives, and an event window that opens up to 60s
+     * late is acceptable where a missed one is not. `EventScheduler.tick` is
+     * stateless and reentrancy-guarded, so re-registering it on every
+     * `reload()` costs nothing.
+     */
+    private startEventScheduler(): void {
+        const timezone = process.env.BOT_TIMEZONE || 'America/Chicago';
+        const task = cron.schedule('* * * * *', async () => {
+            try {
+                await EventScheduler.getInstance().tick();
+            } catch (error) {
+                logError('Event scheduler error:', error);
+            }
+        }, { timezone });
+
+        this.tasks.set('__event_scheduler__', task);
+        logInfo('Live Event scheduler started (every minute).');
     }
 
     /**

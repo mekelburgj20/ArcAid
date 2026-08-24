@@ -46,9 +46,38 @@ export interface Tournament {
     eligibilityDays: number;
     winnerPickWindowMin: number;
     runnerupPickWindowMin: number;
+    /**
+     * v2.135.0 (ADR 0017) — 'rotation' is every tournament that existed before
+     * the Live Event format: a perpetual cron-rotated slot machine with no
+     * start or end. 'event' is time-boxed: N scheduled rounds, an optional
+     * check-in roster, and a frozen result. The two share this table and every
+     * read path; only the scheduling and submission-gating differ.
+     */
+    format?: TournamentFormat;
+    /** Events only. ISO UTC — MIN(round start) / MAX(round end). */
+    startDate?: string | null;
+    endDate?: string | null;
+    checkinOpensAt?: string | null;
+    checkinRequired?: boolean;
+    aggregateMethod?: EventAggregateMethod;
+    /** Display-only gear-up threshold; see migration 163. */
+    minElapsedSec?: number | null;
+    endGraceSec?: number;
+    eventFinishedAt?: string | null;
 }
 
-export type GameStatus = 'QUEUED' | 'ACTIVE' | 'COMPLETED' | 'ARCHIVED';
+export type TournamentFormat = 'rotation' | 'event';
+
+export type EventAggregateMethod = 'best' | 'average' | 'sum';
+
+/**
+ * 'SCHEDULED' (v2.135.0) is a pre-created Live Event round: it exists so the
+ * roster, the board and the admin UI can show a round before it opens, and it
+ * flips to ACTIVE at `scheduled_start_at`. It is deliberately NOT 'QUEUED' —
+ * the pick queue, TimeoutManager and the queue_order backfill all act on
+ * 'QUEUED' rows and must never see a round.
+ */
+export type GameStatus = 'QUEUED' | 'SCHEDULED' | 'ACTIVE' | 'COMPLETED' | 'ARCHIVED';
 
 export interface Game {
     id: string;
@@ -65,6 +94,10 @@ export interface Game {
     startDate?: Date;
     endDate?: Date;
     queueOrder?: number;
+    /** Non-NULL == this games row is a Live Event round (v2.135.0). */
+    roundNo?: number;
+    scheduledStartAt?: string;
+    scheduledEndAt?: string;
 }
 
 export interface SubmissionContext {

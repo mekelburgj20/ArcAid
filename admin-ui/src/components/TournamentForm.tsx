@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import ScheduleBuilder from './ScheduleBuilder';
+import EventSettingsFields from './EventSettingsFields';
+import { defaultEventState, type EventFormState } from '../lib/eventTime';
 import { InfoTip } from './Tooltip';
 import {
   CANONICAL_DEVICES,
@@ -41,10 +43,24 @@ export interface CleanupRule {
   timezone?: string;
 }
 
+export type TournamentFormat = 'rotation' | 'event';
+
 export interface TournamentFormState {
   name: string;
   tag: string;
   mode: string;
+  /**
+   * v2.135.0 (ADR 0017). 'rotation' is every tournament that existed before the
+   * Live Event format — a perpetual cron-rotated slot machine. 'event' is
+   * time-boxed: N scheduled rounds, an optional check-in roster, a frozen
+   * result, and NO cron at all.
+   *
+   * The two formats' scheduling is mutually exclusive, so flipping this swaps
+   * whole sections of the form rather than adding fields to it.
+   */
+  format: TournamentFormat;
+  /** Only meaningful when `format === 'event'`. */
+  event: EventFormState;
   channel: string;
   displayOrder: number;
   maxActiveGames: number;
@@ -76,6 +92,8 @@ export const defaultFormState: TournamentFormState = {
   name: '',
   tag: '',
   mode: 'pinball',
+  format: 'rotation',
+  event: { ...defaultEventState, rounds: [...defaultEventState.rounds] },
   channel: '',
   displayOrder: 0,
   maxActiveGames: 1,
@@ -497,14 +515,48 @@ interface TournamentFormFieldsProps {
    * this stays the input even though the rules no longer are.
    */
   platforms: string[];
+  /** Room id — the round editor's game-name autocomplete needs it. */
+  roomId?: string;
+  /**
+   * Round numbers already ACTIVE or COMPLETED, rendered read-only. The server
+   * refuses to change them (`ROUND_LOCKED`); showing them as editable would
+   * invite a save that can only fail.
+   */
+  lockedRounds?: number[];
 }
 
-export default function TournamentFormFields({ state, set, platforms }: TournamentFormFieldsProps) {
+export default function TournamentFormFields({ state, set, platforms, roomId, lockedRounds }: TournamentFormFieldsProps) {
   const inputClass = "w-full px-3 py-2 bg-raised border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan transition-colors";
   const selectClass = `${inputClass} cursor-pointer`;
 
+  const isEvent = state.format === 'event';
+
   return (
     <>
+      <div className="mb-4">
+        <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">
+          Format <InfoTip text="Rotation runs forever: one game at a time, rotating on a schedule, the winner picking next. Event is a single night: rounds with exact start and end times, an optional check-in list, and a final result. Scores outside a round's window are refused." />
+        </label>
+        <div className="inline-flex rounded border border-border overflow-hidden">
+          {(['rotation', 'event'] as const).map(fmt => (
+            <button
+              key={fmt}
+              type="button"
+              onClick={() => set('format', fmt)}
+              className={`px-4 py-2 text-sm transition-colors cursor-pointer ${
+                state.format === fmt
+                  ? 'bg-neon-cyan/20 text-neon-cyan'
+                  : 'bg-raised text-muted hover:text-primary'
+              }`}
+            >{fmt === 'rotation' ? 'Rotation' : 'Event'}</button>
+          ))}
+        </div>
+        <p className="text-xs text-faint mt-1.5">
+          {isEvent
+            ? 'Time-boxed rounds on the server clock. Scores before a round opens or after it closes are refused.'
+            : 'Runs continuously — the winner picks the next game and the schedule rotates it.'}
+        </p>
+      </div>
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
         <div>
           <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">
@@ -541,13 +593,29 @@ export default function TournamentFormFields({ state, set, platforms }: Tourname
           </label>
           <NumberStepper value={state.displayOrder} onChange={v => set('displayOrder', v)} min={0} />
         </div>
-        <div>
-          <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5 whitespace-nowrap">
-            Active Slots <InfoTip text="How many games can be active simultaneously. Each slot rotates independently with its own winner picking the next game." />
-          </label>
-          <NumberStepper value={state.maxActiveGames} onChange={v => set('maxActiveGames', v)} min={1} />
-        </div>
+        {!isEvent && (
+          <div>
+            <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5 whitespace-nowrap">
+              Active Slots <InfoTip text="How many games can be active simultaneously. Each slot rotates independently with its own winner picking the next game." />
+            </label>
+            <NumberStepper value={state.maxActiveGames} onChange={v => set('maxActiveGames', v)} min={1} />
+          </div>
+        )}
       </div>
+
+      {/* An event's rounds ARE its schedule and its rotation, so the rotation,
+          schedule and cleanup controls below are not merely irrelevant here —
+          showing them would imply a second, competing clock. */}
+      {isEvent && (
+        <EventSettingsFields
+          state={state.event}
+          onChange={e => set('event', e)}
+          roomId={roomId}
+          lockedRounds={lockedRounds}
+        />
+      )}
+
+      {!isEvent && (
       <div className="mb-4">
         <label className="block text-xs font-display uppercase tracking-wider text-muted mb-2">
           Game Rotation <InfoTip text="Controls how games are selected after a game completes." />
@@ -602,24 +670,29 @@ export default function TournamentFormFields({ state, set, platforms }: Tourname
           </div>
         </div>
       </div>
+      )}
       <div className="mb-4">
         <label className="block text-xs font-display uppercase tracking-wider text-muted mb-2">
           Platform Rules <InfoTip text="Two independent controls. Engines are what produced the score (VPX, FX, a real machine); devices are the hardware it ran on (PC, AtGames cabinet, VR headset). 'Must be available on' decides which games can be picked; 'Not allowed on' blocks score submissions. Both sets of rules apply together." />
         </label>
         <PlatformRulesEditor platforms={platforms} rules={state.platformRules} onChange={r => set('platformRules', r)} />
       </div>
-      <div className="mb-4">
-        <label className="block text-xs font-display uppercase tracking-wider text-muted mb-2">
-          Schedule <InfoTip text="When maintenance runs: locks the current game, scrapes scores, picks the next game, and announces results." />
-        </label>
-        <ScheduleBuilder value={state.schedule} onChange={s => set('schedule', s)} />
-      </div>
-      <div className="mb-4">
-        <label className="block text-xs font-display uppercase tracking-wider text-muted mb-2">
-          Completed Game Cleanup <InfoTip text="Controls when finished games are hidden on iScored. 'Immediate' hides on rotation. 'Keep last N' retains recent games. 'Scheduled' hides all completed games on a cron schedule (e.g. weekly)." />
-        </label>
-        <CleanupRuleEditor value={state.cleanupRule} onChange={r => set('cleanupRule', r)} />
-      </div>
+      {!isEvent && (
+        <>
+          <div className="mb-4">
+            <label className="block text-xs font-display uppercase tracking-wider text-muted mb-2">
+              Schedule <InfoTip text="When maintenance runs: locks the current game, scrapes scores, picks the next game, and announces results." />
+            </label>
+            <ScheduleBuilder value={state.schedule} onChange={s => set('schedule', s)} />
+          </div>
+          <div className="mb-4">
+            <label className="block text-xs font-display uppercase tracking-wider text-muted mb-2">
+              Completed Game Cleanup <InfoTip text="Controls when finished games are hidden on iScored. 'Immediate' hides on rotation. 'Keep last N' retains recent games. 'Scheduled' hides all completed games on a cron schedule (e.g. weekly)." />
+            </label>
+            <CleanupRuleEditor value={state.cleanupRule} onChange={r => set('cleanupRule', r)} />
+          </div>
+        </>
+      )}
     </>
   );
 }

@@ -253,7 +253,9 @@ export const submitscore: Command = {
                 }
                 return;
             }
-            const game = resolved.game;
+            // `let`, not `const`: the Live Event gate below may re-point this
+            // at the round that actually owns the window (v2.135.0).
+            let game = resolved.game;
 
             // Drift-audit fix: resolveActiveSubmitGame's name lookup isn't
             // guild-scoped either (see its doc comment), so a game whose room
@@ -284,6 +286,34 @@ export const submitscore: Command = {
                 if (roomBanCheck.banned) {
                     await interaction.editReply('This account is banned.');
                     return;
+                }
+            }
+
+            // v2.135.0 (ADR 0017) — Live Event window enforcement. Placed after
+            // the room is known (the gate is room-scoped) and before ANY write.
+            //
+            // It also CORRECTS the resolved game: `resolveActiveSubmitGame`
+            // matches by name with no ordering, so when an event round and a
+            // rotation game share a table name the two could disagree about
+            // which competition this score belongs to. The gate's precedence
+            // rule is authoritative, so its round wins and the row is re-read to
+            // pick up the right `iscored_id` for the sync below.
+            if (game.game_room_id) {
+                const { checkEventSubmission } = await import('../../services/EventSubmissionGate.js');
+                const gate = await checkEventSubmission({
+                    roomId: game.game_room_id, gameName, userId: interaction.user.id,
+                });
+                if (!gate.ok) {
+                    await interaction.editReply(gate.message!);
+                    return;
+                }
+                if (gate.event && gate.event.gameId !== game.id) {
+                    const eventRow = await db.get<ResolvedSubmitGame>(`
+                        SELECT g.id, g.iscored_id, g.tournament_id, t.game_room_id
+                        FROM games g JOIN tournaments t ON g.tournament_id = t.id
+                        WHERE g.id = ?
+                    `, gate.event.gameId);
+                    if (eventRow) game = eventRow;
                 }
             }
 

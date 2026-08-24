@@ -12,7 +12,8 @@ const DAYS_OF_WEEK = [
   { label: 'Sat', value: 6 },
 ];
 
-const TIMEZONES = [
+/** Shared with the Live Event round editor so both surfaces offer one list. */
+export const TIMEZONES = [
   'America/New_York',
   'America/Chicago',
   'America/Denver',

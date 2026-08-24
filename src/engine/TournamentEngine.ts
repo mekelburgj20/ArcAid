@@ -28,6 +28,7 @@ import { accountSettingsUrl } from '../utils/publicLinks.js';
 import { resolvePick, MAX_PLACES } from './pickResolution.js';
 import { tournamentUrlSlug } from '../utils/tournamentSlug.js';
 import { QUEUE_ORDER_SQL } from '../utils/queueOrder.js';
+import { applyLibraryDefaults } from '../utils/gameLibraryDefaults.js';
 
 /**
  * v2.103.0 — thrown by `activateGame` when the tournament already has an
@@ -184,37 +185,10 @@ export class TournamentEngine {
             game.id, game.tournamentId, game.name, game.iscoredId, game.styleId, game.status, game.startDate?.toISOString(), tournament?.game_room_id ?? null
         );
 
-        // Auto-apply default catalogue style and display_name from room's game library (if set)
-        if (tournament?.game_room_id) {
-            const libraryEntry = await db.get(
-                `SELECT catalogue_style_id, logo_style_id, bg_style_id, style_header_disabled,
-                        bg_zoom, bg_pos_x, bg_pos_y
-                 FROM game_room_game_library
-                 WHERE game_room_id = ? AND game_name = ? AND (catalogue_style_id IS NOT NULL OR logo_style_id IS NOT NULL OR bg_style_id IS NOT NULL)`,
-                tournament.game_room_id, gameName
-            );
-            if (libraryEntry) {
-                // v2.115.0: the background framing travels with the style, so a
-                // saved library default keeps its framing across rotations.
-                await db.run(
-                    `UPDATE games SET catalogue_style_id = ?, logo_style_id = ?, bg_style_id = ?, style_header_disabled = ?,
-                        bg_zoom = ?, bg_pos_x = ?, bg_pos_y = ? WHERE id = ?`,
-                    libraryEntry.catalogue_style_id, libraryEntry.logo_style_id, libraryEntry.bg_style_id, libraryEntry.style_header_disabled,
-                    libraryEntry.bg_zoom ?? null, libraryEntry.bg_pos_x ?? null, libraryEntry.bg_pos_y ?? null,
-                    game.id
-                );
-            }
-            // Apply display_name and external_url from the catalogue.
-            const libGame = await db.get(
-                `SELECT display_name, external_url FROM global_games
-                 WHERE LOWER(name) = LOWER(?) AND status = 'approved' LIMIT 1`,
-                gameName
-            );
-            if (libGame?.display_name || libGame?.external_url) {
-                await db.run('UPDATE games SET display_name = COALESCE(?, display_name), external_url = COALESCE(?, external_url) WHERE id = ?',
-                    libGame.display_name || null, libGame.external_url || null, game.id);
-            }
-        }
+        // Auto-apply default catalogue style and display_name from room's game
+        // library (if set). v2.135.0: extracted to a shared helper so the Live
+        // Event scheduler's round activation applies the identical overlay.
+        await applyLibraryDefaults(db, tournament?.game_room_id, game.id, gameName);
 
         return game;
     }
