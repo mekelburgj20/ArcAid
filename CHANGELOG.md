@@ -6,6 +6,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.135.0] — Live Event tournament format
+
+Time-boxed, check-in-gated, multi-round tournaments alongside the existing perpetual cron-rotated ones. Built for the RTX stream-night case: exact server-clock windows so "gearing up" — grinding a score before the window opens and submitting the instant it starts — is prevented, and what cannot be prevented is at least exposed. Design in [ADR 0017](docs/decisions/0017-live-event-tournament-format.md).
+
+### Added
+- **Event format.** `tournaments.format` is `'rotation'` (everything before this) or `'event'`. An event has 1–12 rounds, each its own `games` row with a wall-clock window and the new `SCHEDULED` status. An admin flips a Format switch in the tournament form and edits rounds as start + duration.
+- **Server-clock enforcement.** `EventSubmissionGate` runs before any write on all four submit paths (`/submit-score`, `/freeplay-score`, `/community-scores`, Discord `/submit-score`). Scores before a round opens or after it closes plus its per-event grace are refused with a clear 409. Rotation tournaments pass straight through, unchanged.
+- **`EventScheduler`** — a per-minute tick that opens check-in, starts and closes rounds, and freezes the standings. Stateless and at-least-once safe: guarded status flips plus idempotency stamps, so a restart mid-tick cannot double-announce or double-flip.
+- **Check-in roster.** Optional and on by default; closes when round 1 starts. Players check in from the event page or `/check-in` in Discord; an admin can add a straggler afterwards, which is the sanctioned override.
+- **Public event page** at `/:slug/events/:id` — live countdown, per-round boards with elapsed-since-round-start, standings with per-round columns, and an OG link preview using round 1's table art.
+- **Run-an-event admin panel** — per-round Start now / End now and the check-in roster with add/remove.
+- **Gear-up badge.** `min_elapsed_sec` flags a score that arrived implausibly soon after a round opened. A host-facing hint, never an automatic rejection: Arcaid sees submission time, not play time.
+
+### Fixed
+- **`ScoreHistoryService.log`'s dedup could swallow a legitimate score.** Keyed room-wide on `(room, game, player, score)`, so a player posting an identical score in two rounds of the same table had the second silently dropped — and appeared to have missed that round. Now scoped to the round when a `gameId` is supplied; rotation callers keep the original behaviour.
+- **Discord `/submit-score` could disagree with the gate** when an event round and a rotation game shared a table name; the gate's precedence is now authoritative there.
+
+### Notes
+- Migration 163 is `ALTER TABLE ADD COLUMN` only — O(1) in SQLite, no table scan and no lock, and the new table and partial index are empty at deploy.
+- 63 new backend tests and 24 new admin-ui tests; rotation regression is asserted explicitly at every phase.
+
 ## [2.134.1] — unreleased
 
 ### Fixed
