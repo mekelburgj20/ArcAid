@@ -60,10 +60,19 @@ export function isPreviewBot(userAgent: string | undefined): boolean {
 }
 
 export interface ShareRoute {
-    kind: 'game' | 'player';
+    kind: 'game' | 'player' | 'event';
     slug: string;
     name: string;
 }
+
+const SHARE_SECTIONS: Record<string, ShareRoute['kind']> = {
+    games: 'game',
+    players: 'player',
+    // v2.135.0 (ADR 0017) — a Live Event page is the thing a host actually
+    // shares ("we start at 8"), so it needs an unfurl at least as much as a
+    // game does. In P5 the same builder serves a Throwdown link.
+    events: 'event',
+};
 
 /** Parse a request path into a shareable route, or null if it isn't one. */
 export function parseShareRoute(pathname: string): ShareRoute | null {
@@ -71,7 +80,7 @@ export function parseShareRoute(pathname: string): ShareRoute | null {
     if (segments.length !== 3) return null;
     const [rawSlug, section, rawName] = segments;
     if (!rawSlug || !rawName) return null;
-    if (section !== 'games' && section !== 'players') return null;
+    if (!section || !(section in SHARE_SECTIONS)) return null;
     let slug: string;
     let name: string;
     try {
@@ -81,7 +90,7 @@ export function parseShareRoute(pathname: string): ShareRoute | null {
         return null; // malformed percent-encoding
     }
     if (!slug.trim() || !name.trim()) return null;
-    return { kind: section === 'games' ? 'game' : 'player', slug, name };
+    return { kind: SHARE_SECTIONS[section]!, slug, name };
 }
 
 function escapeHtml(value: string): string {
@@ -187,7 +196,8 @@ export async function maybeBuildOgShell(req: Request, frontendPath: string): Pro
 
         const db = await getDatabase();
         const origin = `${req.protocol}://${host}`;
-        const canonicalUrl = `${origin}/${encodeURIComponent(room.slug)}/${route.kind === 'game' ? 'games' : 'players'}/${encodeURIComponent(route.name)}`;
+        const section = route.kind === 'game' ? 'games' : route.kind === 'player' ? 'players' : 'events';
+        const canonicalUrl = `${origin}/${encodeURIComponent(room.slug)}/${section}/${encodeURIComponent(route.name)}`;
 
         let title: string;
         let description: string;
@@ -210,6 +220,52 @@ export async function maybeBuildOgShell(req: Request, frontendPath: string): Pro
             title = `${gameName} · ${room.name}`;
             description = `Leaderboard and top scores for ${gameName} at ${room.name} on Arcaid.`;
             image = normalizeImageUrl(art?.local_image_path || art?.image_url);
+        } else if (route.kind === 'event') {
+            // `route.name` is the tournament id here. A miss returns null so the
+            // crawler gets the generic shell — never a preview asserting an
+            // event that does not exist in this room.
+            const event = await db.get<{
+                name: string; start_date: string | null; checkin_required: number; event_finished_at: string | null;
+            }>(
+                `SELECT name, start_date, checkin_required, event_finished_at
+                   FROM tournaments WHERE id = ? AND game_room_id = ? AND format = 'event'`,
+                route.name, room.id,
+            );
+            if (!event) return null;
+
+            // Round 1's table is the event's face — it is the game people will
+            // actually be playing when they follow the link.
+            const firstRound = await db.get<{ name: string }>(
+                `SELECT name FROM games WHERE tournament_id = ? AND round_no IS NOT NULL
+                  ORDER BY round_no ASC LIMIT 1`,
+                route.name,
+            );
+            const roundCount = await db.get<{ n: number }>(
+                'SELECT COUNT(*) AS n FROM games WHERE tournament_id = ? AND round_no IS NOT NULL',
+                route.name,
+            );
+
+            if (firstRound?.name) {
+                const art = await db.get<{ image_url: string | null; local_image_path: string | null }>(
+                    `SELECT image_url, local_image_path FROM global_games
+                      WHERE LOWER(name) = LOWER(?) AND status = 'approved'
+                        AND (local_image_path IS NOT NULL OR image_url IS NOT NULL)
+                      ORDER BY created_at ASC LIMIT 1`,
+                    firstRound.name,
+                );
+                image = normalizeImageUrl(art?.local_image_path || art?.image_url);
+            }
+
+            const rounds = roundCount?.n ?? 0;
+            const roundText = rounds === 1 ? '1 round' : `${rounds} rounds`;
+            title = `${event.name} · ${room.name}`;
+            description = event.event_finished_at
+                ? `Final standings for ${event.name} at ${room.name} on Arcaid.`
+                : [
+                    `${roundText}`,
+                    firstRound?.name ? `starting on ${firstRound.name}` : null,
+                    event.checkin_required === 1 ? 'Check in before round 1 to play.' : null,
+                ].filter(Boolean).join(' — ') + ` ${room.name} on Arcaid.`;
         } else {
             // Display resolution rule: display_name ?? iscored_username.
             const profile = await db.get<{ display_name: string | null }>(
