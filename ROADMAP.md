@@ -184,6 +184,21 @@ Load-bearing technical and product decisions are tracked in [`docs/decisions/`](
 
 ## Future
 
+### Streaming integrations — Discord + Twitch (owner side-thought 2026-08-24, PARKED — not scoped)
+
+Filed, not designed. The natural hook is the Events & Challenges arc above: a live round already has a
+start, an end, a countdown, a board and a result, which is exactly the shape a stream overlay wants.
+Sketch of what to investigate when this comes up for real:
+- **Twitch**: a browser-source overlay URL (`/:slug/events/:id/overlay`) rendering the live board +
+  countdown with a transparent background — no Twitch API needed, works in OBS today, cheapest possible
+  first step. Beyond that: Twitch EventSub for go-live detection, chat bot posting the standings, channel
+  points to enter a Flip Off.
+- **Discord**: richer than today's announce embeds — a live-updating message edited as scores land, an
+  Activity/embedded app, or scheduled-event creation from an Event's window so it lands in the server's
+  Events tab with RSVP.
+- **Prereq check**: the RTX use case is stream-night driven, so ask them what they actually run today
+  (OBS scenes? a bot?) before building anything.
+
 ### One-time cooldown override — player request → admin approve/deny (owner-designed 2026-08-23, queued behind the phone review)
 
 **Verified baseline:** the v2.126 hold model already does the skip-and-re-queue cycle the owner wants (`TournamentEngine.nextEligibleQueuedFor` stamps `queue_held_at`, `QUEUE_ORDER_SQL` sorts held first, the held pick activates at the player's next turn once eligible). **Gap:** `PickQueueService.queueGame` REJECTS a game that is already in cooldown (`COOLDOWN`), so holds only arise when a game went into cooldown after being queued.
