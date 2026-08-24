@@ -61,6 +61,7 @@ import PublicStats from './pages/PublicStats';
 import PublicHistory from './pages/PublicHistory';
 import TournamentDetail from './pages/TournamentDetail';
 import EventDetail from './pages/EventDetail';
+import ThrowdownDetail from './pages/ThrowdownDetail';
 import RankingsFullStandings from './pages/RankingsFullStandings';
 import ComparePlayers from './pages/ComparePlayers';
 import MyRooms from './pages/MyRooms';
@@ -224,6 +225,10 @@ function App() {
 
         {/* QR code score submission (standalone, with viewer auth for Discord prepopulation) */}
         <Route path="/:slug/submit/:gameId" element={<ViewerAuthProvider><ScoreSubmit /></ViewerAuthProvider>} />
+
+        {/* v2.136.0 (ADR 0018) — a Throwdown has no room, so its route sits
+            outside the /:slug group. The code is the whole address. */}
+        <Route path="/throwdown/:code" element={<ViewerAuthProvider><ThrowdownDetail /></ViewerAuthProvider>} />
 
         {/* Public room routes */}
         <Route path="/:slug" element={<ViewerAuthProvider><PublicLayout /></ViewerAuthProvider>}>

@@ -24,7 +24,13 @@ export class ScoreHistoryService {
      */
     static async log(params: {
         gameName: string;
-        gameRoomId: string;
+        /**
+         * NULL for a Throwdown (v2.136.0, ADR 0018) — a room-less challenge has
+         * no game room. Every other caller passes a room, and the column stayed
+         * NOT NULL until migration 164 precisely so this could never happen by
+         * accident; it is now deliberate and narrow.
+         */
+        gameRoomId: string | null;
         gameId?: string;
         username: string;
         discordUserId?: string;
@@ -122,7 +128,11 @@ export class ScoreHistoryService {
 
         // Sprint 6.5: any Discord-authenticated score establishes room membership.
         // addMember is sentinel-aware, so SYSTEM/ANON/etc. calls are no-ops.
-        await RoomMembershipService.addMember(submittedByUserId, params.gameRoomId, 'submission');
+        // Skipped entirely for a room-less Throwdown — there is no room to join,
+        // and passing null here would write a membership row pointing nowhere.
+        if (params.gameRoomId) {
+            await RoomMembershipService.addMember(submittedByUserId, params.gameRoomId, 'submission');
+        }
         return typeof inserted.lastID === 'number' ? inserted.lastID : null;
     }
 

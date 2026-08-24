@@ -179,7 +179,11 @@ async function doInitDatabase(): Promise<Database> {
         CREATE TABLE IF NOT EXISTS score_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             game_name TEXT NOT NULL,
-            game_room_id TEXT NOT NULL,
+            -- NULLABLE as of v2.136.0 (ADR 0018): a Throwdown is a room-less
+            -- challenge, so its scores have no game room. Room-scoped rows are
+            -- unaffected and keep the FK cascade below — SQLite does not
+            -- enforce a foreign key on a NULL value.
+            game_room_id TEXT,
             game_id TEXT,
             iscored_username TEXT NOT NULL,
             discord_user_id TEXT DEFAULT 'SYSTEM',
@@ -2746,6 +2750,48 @@ async function doInitDatabase(): Promise<Database> {
         { name: '163_live_event_format', handler: async (db) => {
             const { liveEventFormat } = await import('./migrations/liveEventFormat.js');
             await liveEventFormat(db);
+        } },
+        // v2.136.0 (ADR 0018) — Throwdowns are room-less, and this one column
+        // is the entire cost. A create-copy-drop-rename on the hottest table in
+        // the app: a HANDLER on purpose, so a failure halts startup instead of
+        // being swallowed by the `sql:` try/catch. See the migration file.
+        { name: '164_score_history_room_nullable', handler: async (db) => {
+            const { scoreHistoryRoomNullable } = await import('./migrations/scoreHistoryRoomNullable.js');
+            await scoreHistoryRoomNullable(db);
+        } },
+        // v2.136.0 (ADR 0018) — Throwdown columns. A Throwdown IS a
+        // `format='event'` tournament with `game_room_id IS NULL`, so it needs
+        // no table of its own; these three columns are the whole difference.
+        { name: '165_throwdown_columns', handler: async (db) => {
+            const existing = (await db.all(`PRAGMA table_info(tournaments)`)) as Array<{ name: string }>;
+            const have = new Set(existing.map(c => c.name));
+            // Short URL-safe code — the whole address of a Throwdown
+            // (`/throwdown/:code`). Never reuses a room slug namespace.
+            if (!have.has('throwdown_code')) {
+                await db.exec(`ALTER TABLE tournaments ADD COLUMN throwdown_code TEXT`);
+            }
+            // First-click-wins rematch: the UNIQUE index below is what makes a
+            // second clicker collide instead of creating a duplicate rematch.
+            if (!have.has('rematch_of_tournament_id')) {
+                await db.exec(`ALTER TABLE tournaments ADD COLUMN rematch_of_tournament_id TEXT`);
+            }
+            // Who made it — a room-less tournament has no room admin to infer
+            // an owner from, and the creator's profile lists their Throwdowns.
+            if (!have.has('created_by_user_id')) {
+                await db.exec(`ALTER TABLE tournaments ADD COLUMN created_by_user_id TEXT`);
+            }
+            await db.exec(`
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_tournaments_throwdown_code
+                    ON tournaments(throwdown_code) WHERE throwdown_code IS NOT NULL
+            `);
+            await db.exec(`
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_tournaments_rematch_of
+                    ON tournaments(rematch_of_tournament_id) WHERE rematch_of_tournament_id IS NOT NULL
+            `);
+            await db.exec(`
+                CREATE INDEX IF NOT EXISTS idx_tournaments_created_by
+                    ON tournaments(created_by_user_id) WHERE created_by_user_id IS NOT NULL
+            `);
         } },
     ];
 

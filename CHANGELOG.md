@@ -6,6 +6,53 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.136.0] — Throwdowns
+
+Player-created, room-less challenges: pick a game, pick a duration, get a shareable link. "Let's see who can beat me on Medieval Madness." Design in [ADR 0018](docs/decisions/0018-throwdowns-are-room-less.md).
+
+A Throwdown is the SAME object as a hosted Tournament Event — a `format='event'` tournament with `game_room_id IS NULL`, `checkin_required = 0` and one round — so the round clock, submission gate, boards, standings and public page are all reused unchanged. There is no parallel board code and no new table.
+
+### Added
+- **`POST /api/throwdowns`** — create one. Two questions: game and duration. Rate-limited, blocklisted, capped between 5 minutes and 7 days.
+- **`/throwdown/:code`** — the public page, rendered by the same component as a hosted event. Open to anyone: the link IS the access control. A short code (no `0`/`O`/`1`/`I`/`l`, because these get read aloud on streams and retyped from phone screens).
+- **One-field scoring.** A hosted event uses the room's submission sheet; a Throwdown has no room, so posting a score is a single input.
+- **Challenge back / rematch.** After it finishes, the winner picks a new game and everyone else gets a one-click rematch on the same one. First-click-wins: a second clicker is handed the existing rematch's link rather than creating a duplicate that would split the field.
+- **"My Throwdowns"** on Account Settings, backed by `GET /api/me/throwdowns`.
+
+### Changed
+- `score_history.game_room_id` is **nullable** (migration 164). This was the entire cost of going room-less — `tournaments`, `games` and `submissions` already tolerated a null room. Any new query grouping or filtering by room must now decide what a NULL room means.
+- `ScoreHistoryService.log` takes `gameRoomId: string | null` and skips the room-membership write when null.
+- `api.ts` throws `ApiError`, which keeps the server's parsed body alongside the message. Purely additive — existing `catch` blocks reading `err.message` are unaffected — and it removes the need for the raw-fetch workaround the tournament-delete path uses to read a structured 409.
+- A single-round event no longer shows a standings table above its round board: with one round the two are the same data twice.
+
+### Fixed
+- Migration 164 restores the AUTOINCREMENT high-water mark after the rebuild. `DROP TABLE` deletes the table's `sqlite_sequence` row, so the new table would resume from `MAX(id)` and **reuse the ids of deleted rows** — and `score_history.id` addresses the per-row score-delete endpoint, so a stale request would have deleted a different score.
+
+### Notes
+- Throwdown scores deliberately do **not** fan out to the Global Scoreboard: the fan-out is room-keyed by construction, and whether a casual challenge belongs on the site-wide board is a product call. Room events are unaffected.
+- No notifications in v1 — the link is the mechanism, which removes the "mass DM at 3am" risk by not building the thing that causes it.
+
+## [2.135.0] — Live Event tournament format
+
+Time-boxed, check-in-gated, multi-round tournaments alongside the existing perpetual cron-rotated ones. Built for the RTX stream-night case: exact server-clock windows so "gearing up" — grinding a score before the window opens and submitting the instant it starts — is prevented, and what cannot be prevented is at least exposed. Design in [ADR 0017](docs/decisions/0017-live-event-tournament-format.md).
+
+### Added
+- **Event format.** `tournaments.format` is `'rotation'` (everything before this) or `'event'`. An event has 1–12 rounds, each its own `games` row with a wall-clock window and the new `SCHEDULED` status. An admin flips a Format switch in the tournament form and edits rounds as start + duration.
+- **Server-clock enforcement.** `EventSubmissionGate` runs before any write on all four submit paths (`/submit-score`, `/freeplay-score`, `/community-scores`, Discord `/submit-score`). Scores before a round opens or after it closes plus its per-event grace are refused with a clear 409. Rotation tournaments pass straight through, unchanged.
+- **`EventScheduler`** — a per-minute tick that opens check-in, starts and closes rounds, and freezes the standings. Stateless and at-least-once safe: guarded status flips plus idempotency stamps, so a restart mid-tick cannot double-announce or double-flip.
+- **Check-in roster.** Optional and on by default; closes when round 1 starts. Players check in from the event page or `/check-in` in Discord; an admin can add a straggler afterwards, which is the sanctioned override.
+- **Public event page** at `/:slug/events/:id` — live countdown, per-round boards with elapsed-since-round-start, standings with per-round columns, and an OG link preview using round 1's table art.
+- **Run-an-event admin panel** — per-round Start now / End now and the check-in roster with add/remove.
+- **Gear-up badge.** `min_elapsed_sec` flags a score that arrived implausibly soon after a round opened. A host-facing hint, never an automatic rejection: Arcaid sees submission time, not play time.
+
+### Fixed
+- **`ScoreHistoryService.log`'s dedup could swallow a legitimate score.** Keyed room-wide on `(room, game, player, score)`, so a player posting an identical score in two rounds of the same table had the second silently dropped — and appeared to have missed that round. Now scoped to the round when a `gameId` is supplied; rotation callers keep the original behaviour.
+- **Discord `/submit-score` could disagree with the gate** when an event round and a rotation game shared a table name; the gate's precedence is now authoritative there.
+
+### Notes
+- Migration 163 is `ALTER TABLE ADD COLUMN` only — O(1) in SQLite, no table scan and no lock, and the new table and partial index are empty at deploy.
+- 63 new backend tests and 24 new admin-ui tests; rotation regression is asserted explicitly at every phase.
+
 ## [2.134.1] — unreleased
 
 ### Fixed
