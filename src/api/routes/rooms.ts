@@ -76,6 +76,7 @@ import { RoomScoresService } from '../../services/RoomScoresService.js';
 import { TournamentScoresService } from '../../services/TournamentScoresService.js';
 import { ScoreProvenanceService } from '../../services/ScoreProvenanceService.js';
 import { AuditService } from '../../services/AuditService.js';
+import { checkEventSubmission } from '../../services/EventSubmissionGate.js';
 
 const router = Router({ mergeParams: true });
 
@@ -2321,10 +2322,22 @@ router.post('/:roomId/community-scores/:gameName', writeLimiter, requireDiscordU
         if (!provenance.ok) return res.status(400).json({ error: provenance.error });
         const { engine, device, platform } = provenance;
 
+        // v2.135.0 (ADR 0017) — Live Event window enforcement. Runs BEFORE any
+        // write (before the photo is persisted, before CommunityScoreService)
+        // so a refused submission leaves nothing behind. Returns ok with no
+        // `event` for any game that is not an event round, in which case
+        // everything below behaves exactly as it did pre-v2.135.0.
+        const gate = await checkEventSubmission({ roomId, gameName: gameName, userId: req.user!.discordId! });
+        if (!gate.ok) return res.status(409).json({ error: gate.message, code: gate.code });
+
         // Security: attribution derives from the verified token, never the
         // request body — the request body doesn't even carry a discord_user_id
         // field (see CommunityScoreSchema).
-        const result = await CommunityScoreService.submitScore(roomId, gameName, resolvedName.username, score, req.user!.discordId, photo_url, { platform, engine, device });
+        const result = await CommunityScoreService.submitScore(roomId, gameName, resolvedName.username, score, req.user!.discordId, photo_url, {
+            platform, engine, device,
+            eventTournamentId: gate.event?.tournamentId,
+            eventGameId: gate.event?.gameId,
+        });
 
         // v2.2.2: sync to iScored when this matches an ACTIVE tournament game.
         // photo_url is a pre-existing URL (not an upload), so no persistentPhotoPath
@@ -2385,6 +2398,14 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, requireDiscordUser,
         if (!provenance.ok) return res.status(400).json({ error: provenance.error });
         const { engine, device, platform } = provenance;
 
+        // v2.135.0 (ADR 0017) — Live Event window enforcement. Runs BEFORE any
+        // write (before the photo is persisted, before CommunityScoreService)
+        // so a refused submission leaves nothing behind. Returns ok with no
+        // `event` for any game that is not an event round, in which case
+        // everything below behaves exactly as it did pre-v2.135.0.
+        const gate = await checkEventSubmission({ roomId, gameName: gameName, userId: req.user!.discordId! });
+        if (!gate.ok) return res.status(409).json({ error: gate.message, code: gate.code });
+
         // Check if photo is required
         const requirePhoto = await GameRoomSettingsService.get(roomId, 'REQUIRE_SCORE_PHOTO');
         if (requirePhoto === 'true' && !req.file) {
@@ -2417,7 +2438,11 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, requireDiscordUser,
         // the resolved displayName (possibly suffixed e.g. "Bob_2").
         const { CommunityScoreService } = await import('../../services/CommunityScoreService.js');
         const result = await CommunityScoreService.submitScore(
-            roomId, gameName, resolvedName.username, score, req.user!.discordId, photoUrl, { excludeFromGlobal, platform, engine, device }
+            roomId, gameName, resolvedName.username, score, req.user!.discordId, photoUrl, {
+                excludeFromGlobal, platform, engine, device,
+                eventTournamentId: gate.event?.tournamentId,
+                eventGameId: gate.event?.gameId,
+            }
         );
         const effectiveUsername = result.displayName;
 
@@ -2437,7 +2462,14 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, requireDiscordUser,
         // leaderboard looked right (they read score_history, whose tournament
         // auto-resolve is ACTIVE-only). Same bug class as the WHO-dunnit
         // duplicate-DM incident; same fix shape as ScoreSyncPoller's ORDER BY.
-        const activeGame = await db.get(`
+        //
+        // v2.135.0 (ADR 0017): on an accepted EVENT submission the round is
+        // already resolved, and the name lookup must not run — it would pick an
+        // arbitrary row when two rounds share a table, and could land the score
+        // on a COMPLETED round. Rotation keeps the query verbatim.
+        const activeGame = gate.event
+            ? { id: gate.event.gameId, tournament_id: gate.event.tournamentId }
+            : await db.get(`
             SELECT g.id, g.tournament_id FROM games g
             JOIN tournaments t ON t.id = g.tournament_id
             WHERE LOWER(g.name) = LOWER(?) AND t.game_room_id = ?
@@ -2558,6 +2590,15 @@ router.post('/:roomId/freeplay-score', writeLimiter, requireDiscordUser, require
         if (!provenance.ok) return res.status(400).json({ error: provenance.error });
         const { engine, device, platform } = provenance;
 
+        // v2.135.0 (ADR 0017) — Live Event window enforcement, on the CANONICAL
+        // catalogue name (freeplay resolves the game by id, but event rounds are
+        // matched by name like every other submit path). Before the photo is
+        // written to disk, so a refused submission leaves no orphan file.
+        const gate = await checkEventSubmission({
+            roomId, gameName: globalGame.name, userId: req.user!.discordId!,
+        });
+        if (!gate.ok) return res.status(409).json({ error: gate.message, code: gate.code });
+
         // Persist photo
         const ext = (req.file.mimetype === 'image/png' || req.file.mimetype === 'image/apng') ? 'png' : req.file.mimetype === 'image/webp' ? 'webp' : 'jpg';
         const filename = `${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
@@ -2579,7 +2620,11 @@ router.post('/:roomId/freeplay-score', writeLimiter, requireDiscordUser, require
             score,
             req.user!.discordId,
             photoUrl,
-            { excludeFromGlobal, platform, engine, device }
+            {
+                excludeFromGlobal, platform, engine, device,
+                eventTournamentId: gate.event?.tournamentId,
+                eventGameId: gate.event?.gameId,
+            }
         );
 
         // v2.2.0: use the resolved displayName (possibly suffixed) for activity
@@ -2601,7 +2646,11 @@ router.post('/:roomId/freeplay-score', writeLimiter, requireDiscordUser, require
         // reflects the score. Matches the behavior of /submit-score — the path
         // a user takes to submit shouldn't change whether the score counts
         // toward the active tournament.
-        const activeGame = await db.get(`
+        // v2.135.0 (ADR 0017): see the /submit-score site — an accepted event
+        // submission targets the resolved round, never the name lookup.
+        const activeGame = gate.event
+            ? { id: gate.event.gameId, tournament_id: gate.event.tournamentId }
+            : await db.get(`
             SELECT g.id, g.tournament_id FROM games g
             JOIN tournaments t ON t.id = g.tournament_id
             WHERE LOWER(g.name) = LOWER(?) AND t.game_room_id = ?
