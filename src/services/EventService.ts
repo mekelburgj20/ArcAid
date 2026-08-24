@@ -91,6 +91,10 @@ export interface EventTournamentRow {
     event_finished_at: string | null;
     event_result: string | null;
     discord_channel_id: string | null;
+    /** v2.136.0 (ADR 0018) — non-null identifies a room-less Throwdown. */
+    throwdown_code?: string | null;
+    rematch_of_tournament_id?: string | null;
+    created_by_user_id?: string | null;
 }
 
 export type EventState =

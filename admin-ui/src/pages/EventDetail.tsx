@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { ChevronLeft } from 'lucide-react';
 import { formatScore, scoreTitle } from '../lib/format';
 import ShareButton from '../components/ShareButton';
-import { useRoom } from '../contexts/RoomContext';
+import { useOptionalRoom } from '../contexts/RoomContext';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { api } from '../lib/api';
 
@@ -14,9 +14,15 @@ import { api } from '../lib/api';
  * a Discord announcement, and it answers the three questions they have, in
  * order: *is it on yet*, *am I in*, and *where do I stand*.
  *
- * It is also the surface P5's Throwdowns reuse — a room-less challenge renders
- * this same component against a room-less event — so nothing here may assume
- * the room context beyond what the API already returns.
+ * It renders BOTH shapes of event (v2.136.0, ADR 0018):
+ *
+ *   - a **hosted Tournament Event** at `/:slug/events/:id`, inside a room; and
+ *   - a **Throwdown** at `/throwdown/:code`, which has no room at all.
+ *
+ * That is why the room context is read optionally and every room-specific
+ * affordance is conditional. Keeping one component was the point of making a
+ * Throwdown the same object as an event — a second copy of the boards, the
+ * standings and the countdown would drift within a release.
  */
 
 interface ScoreRow {
@@ -83,7 +89,17 @@ interface EventPayload {
     viewer: {
         canCheckIn: boolean;
         reason: 'LOGIN_REQUIRED' | 'ALREADY_CHECKED_IN' | 'CHECKIN_CLOSED' | null;
+        /** Throwdowns only: the viewer may post a score right now. */
+        canSubmit?: boolean;
     };
+}
+
+interface EventDetailProps {
+    /**
+     * Present = render as a Throwdown, reading `/api/throwdowns/:code` instead
+     * of the room-scoped event endpoint. Absent = hosted event in a room.
+     */
+    throwdownCode?: string;
 }
 
 const name = (r: { display_name: string | null; iscored_username: string }) =>
@@ -125,10 +141,16 @@ const STATE_CHIP: Record<EventPayload['event']['state'], { label: string; classN
     cancelled: { label: 'CANCELLED', className: 'bg-border/40 text-muted border-border' },
 };
 
-export default function EventDetail() {
-    const { roomSlug, roomId } = useRoom();
+export default function EventDetail({ throwdownCode }: EventDetailProps = {}) {
+    // A Throwdown has no room, so this must not be the throwing `useRoom()`.
+    const room = useOptionalRoom();
+    const roomSlug = room?.roomSlug;
+    const roomId = room?.roomId;
     const { id } = useParams<{ id: string }>();
     const { discordUser, loginWithDiscord } = useViewerAuth();
+    const isThrowdown = !!throwdownCode;
+    const [scoreDraft, setScoreDraft] = useState('');
+    const [submitting, setSubmitting] = useState(false);
     const [data, setData] = useState<EventPayload | null>(null);
     const [loading, setLoading] = useState(true);
     const [notFound, setNotFound] = useState(false);
@@ -137,15 +159,18 @@ export default function EventDetail() {
     const pollRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
 
     const load = useCallback(async () => {
-        if (!roomId || !id) return;
+        const path = throwdownCode
+            ? `/throwdowns/${encodeURIComponent(throwdownCode)}`
+            : (roomId && id ? `/rooms/${roomId}/events/${id}` : null);
+        if (!path) return;
         try {
-            setData(await api.get<EventPayload>(`/rooms/${roomId}/events/${id}`));
+            setData(await api.get<EventPayload>(path));
         } catch {
             setNotFound(true);
         } finally {
             setLoading(false);
         }
-    }, [roomId, id]);
+    }, [roomId, id, throwdownCode]);
 
     useEffect(() => { void load(); }, [load]);
 
@@ -183,13 +208,30 @@ export default function EventDetail() {
         }
     };
 
+    /** Post a score straight into a Throwdown — there is no room submit sheet. */
+    const submitScore = async () => {
+        const value = Number(scoreDraft.replace(/[^0-9]/g, ''));
+        if (!throwdownCode || !Number.isFinite(value) || value <= 0) return;
+        setSubmitting(true);
+        setError('');
+        try {
+            await api.post(`/throwdowns/${encodeURIComponent(throwdownCode)}/scores`, { score: value });
+            setScoreDraft('');
+            await load();
+        } catch (err) {
+            setError((err as Error)?.message || 'Could not submit that score.');
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
     const backLink = (
         <Link
-            to={`/${roomSlug}`}
+            to={roomSlug ? `/${roomSlug}` : '/scoreboard'}
             className="inline-flex items-center gap-1 text-sm text-muted hover:text-neon-cyan transition-colors no-underline"
         >
             <ChevronLeft size={16} />
-            Scoreboard
+            {roomSlug ? 'Scoreboard' : 'Arcaid'}
         </Link>
     );
 
@@ -208,7 +250,11 @@ export default function EventDetail() {
         return (
             <main className="max-w-4xl mx-auto px-4 sm:px-6 py-6">
                 {backLink}
-                <p className="text-muted text-center py-12">Event not found.</p>
+                <p className="text-muted text-center py-12">
+                    {isThrowdown
+                        ? 'That Throwdown link is not valid — it may have been mistyped.'
+                        : 'Event not found.'}
+                </p>
             </main>
         );
     }
@@ -231,8 +277,10 @@ export default function EventDetail() {
                     </span>
                     <ShareButton
                         title={event.name}
-                        text={`${event.name} on Arcaid`}
-                        path={`/${roomSlug}/events/${event.id}`}
+                        text={isThrowdown
+                            ? `Beat me on ${event.name} — Arcaid Throwdown`
+                            : `${event.name} on Arcaid`}
+                        path={isThrowdown ? `/throwdown/${throwdownCode}` : `/${roomSlug}/events/${event.id}`}
                         className="ml-auto"
                         showLabel={false}
                     />
@@ -240,9 +288,16 @@ export default function EventDetail() {
 
                 {liveRound && countdown && (
                     <p className="text-sm text-muted mt-2">
+                        {/* A single-round event (every Throwdown) needs no round
+                            number, and its title is already the game — saying
+                            "Round 1 of 1 on Medieval Madness" under a heading
+                            reading "Medieval Madness" is pure noise. */}
+                        {totalRounds > 1 && (
+                            <>Round {liveRound.roundNo} of {totalRounds} on <span className="text-primary">{liveRound.gameName}</span>{' '}</>
+                        )}
                         {liveRound.status === 'ACTIVE'
-                            ? <>Round {liveRound.roundNo} of {totalRounds} on <span className="text-primary">{liveRound.gameName}</span> — <span className="text-neon-magenta font-mono">{countdown}</span> left</>
-                            : <>Round {liveRound.roundNo} of {totalRounds} on <span className="text-primary">{liveRound.gameName}</span> starts in <span className="text-neon-cyan font-mono">{countdown}</span></>}
+                            ? <>{totalRounds > 1 ? '— ' : ''}<span className="text-neon-magenta font-mono">{countdown}</span> left</>
+                            : <>{totalRounds > 1 ? 'starts in ' : 'Starts in '}<span className="text-neon-cyan font-mono">{countdown}</span></>}
                     </p>
                 )}
                 {event.state === 'finished' && (
@@ -296,8 +351,50 @@ export default function EventDetail() {
                 </section>
             )}
 
+            {/* Throwdown scoring. A hosted event uses the room's submission sheet
+                (photo rules, platform pickers, iScored sync); a Throwdown has
+                none of that machinery, so posting a score is one field. */}
+            {isThrowdown && event.state !== 'finished' && (
+                <section className="mb-6 p-4 rounded border border-border bg-surface">
+                    {data.viewer.canSubmit ? (
+                        <div className="flex items-end gap-3 flex-wrap">
+                            <div className="flex-1 min-w-[10rem]">
+                                <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">
+                                    Your score
+                                </label>
+                                <input
+                                    type="text" inputMode="numeric" value={scoreDraft}
+                                    onChange={e => setScoreDraft(e.target.value)}
+                                    onKeyDown={e => { if (e.key === 'Enter') void submitScore(); }}
+                                    placeholder="e.g. 184220450"
+                                    className="w-full px-3 py-2 bg-raised border border-border rounded text-primary placeholder-faint text-sm font-mono focus:outline-none focus:border-neon-cyan transition-colors"
+                                />
+                            </div>
+                            <button
+                                type="button" onClick={submitScore}
+                                disabled={submitting || !scoreDraft.trim()}
+                                className="px-4 py-2 rounded border border-neon-cyan bg-neon-cyan/15 text-neon-cyan text-sm hover:bg-neon-cyan/25 transition-colors disabled:opacity-50"
+                            >{submitting ? 'Posting…' : 'Post score'}</button>
+                        </div>
+                    ) : (
+                        <div className="flex items-center gap-3 flex-wrap">
+                            <p className="text-sm text-primary">Log in to post a score.</p>
+                            <button
+                                type="button"
+                                onClick={() => loginWithDiscord('__global__', `/throwdown/${throwdownCode}`)}
+                                className="ml-auto px-4 py-2 rounded border border-neon-cyan bg-neon-cyan/15 text-neon-cyan text-sm hover:bg-neon-cyan/25 transition-colors"
+                            >Log in</button>
+                        </div>
+                    )}
+                    {error && <p className="text-xs text-neon-magenta mt-2">{error}</p>}
+                </section>
+            )}
+
             {/* Standings */}
-            {standings && standings.standings.length > 0 && (
+            {/* With one round the standings ARE the round board — same players,
+                same order, same numbers in two tables. Only show them once a
+                second round makes the aggregate say something new. */}
+            {standings && standings.standings.length > 0 && standings.roundNumbers.length > 1 && (
                 <section className="mb-6">
                     <h2 className="font-display text-sm font-bold uppercase tracking-wider text-muted mb-2">Standings</h2>
                     <div className="overflow-x-auto rounded border border-border">

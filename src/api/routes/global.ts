@@ -7,7 +7,7 @@ import { raSearchHandler, raImportHandler } from '../raCatalogueHandlers.js';
 import { validate } from '../validate.js';
 import { isAllowedImage } from '../uploadValidation.js';
 import { withUploadErrors } from '../uploadMiddleware.js';
-import { UpdatePreferencesSchema, SetRoomThemeSchema, PushSubscriptionSchema, PushUnsubscribeSchema, MAX_SCORE, PublicCreateRoomSchema, GlobalScoreSubmissionSchema } from '../schemas.js';
+import { UpdatePreferencesSchema, SetRoomThemeSchema, PushSubscriptionSchema, PushUnsubscribeSchema, MAX_SCORE, PublicCreateRoomSchema, GlobalScoreSubmissionSchema, CreateThrowdownSchema, ThrowdownScoreSchema } from '../schemas.js';
 import { SettingsService } from '../../services/SettingsService.js';
 import { GameRoomService } from '../../services/GameRoomService.js';
 import { GlobalGameService } from '../../services/GlobalGameService.js';
@@ -1635,6 +1635,174 @@ router.post('/rooms', requireDiscordUser, requireNotBanned, roomCreateLimiter, a
         res.json({ success: true, room: { id: room.id, slug: room.slug, name: room.name } });
     } catch (error) {
         logError('API Error (POST /api/rooms):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// ============================================================================
+// Throwdowns (v2.136.0, ADR 0018)
+//
+// Player-created, room-less challenges. These live on the GLOBAL router
+// precisely because they have no room to be scoped by — `/api/rooms/:roomId/...`
+// has nowhere to put them.
+//
+// A Throwdown is a `format='event'` tournament with `game_room_id IS NULL`, so
+// everything below delegates to the same event machinery a hosted Tournament
+// Event uses. Nothing here reimplements boards, standings or the window rule.
+// ============================================================================
+
+/**
+ * POST /api/throwdowns — create one. Two questions: game and duration.
+ *
+ * Rate-limited like other authenticated writes. The blocklist applies to the
+ * game name because it is free text that ends up in a shareable link preview.
+ */
+router.post('/throwdowns', writeLimiter, requireDiscordUser, requireNotBannedGlobal, async (req, res) => {
+    try {
+        const validationResult = validate(CreateThrowdownSchema, req.body);
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+        const { gameName, durationMinutes, engine, device, rematchOf } = validationResult.data;
+
+        const { ThrowdownService, ThrowdownError } = await import('../../services/ThrowdownService.js');
+        try {
+            const throwdown = await ThrowdownService.create(req.user!.discordId!, {
+                gameName, durationMinutes, engine, device, rematchOf,
+            });
+            res.status(201).json({ success: true, ...throwdown, url: `/throwdown/${throwdown.code}` });
+        } catch (err) {
+            if (err instanceof ThrowdownError) {
+                // REMATCH_EXISTS is not really a failure — someone beat this
+                // player to it, and the useful response is the link they should
+                // be joining instead. 409 + the existing code.
+                return res.status(err.code === 'REMATCH_EXISTS' ? 409 : 400).json({
+                    error: err.message,
+                    code: err.code,
+                    ...(err.existingCode ? { existingCode: err.existingCode, url: `/throwdown/${err.existingCode}` } : {}),
+                });
+            }
+            throw err;
+        }
+    } catch (error) {
+        logError('API Error (POST /api/throwdowns):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
+ * GET /api/throwdowns/:code — the public read, shaped like
+ * `GET /api/rooms/:roomId/events/:id` so the SAME front-end component renders
+ * both. Deliberately open: the link IS the access control.
+ */
+router.get('/throwdowns/:code', optionalDiscordUser, async (req, res) => {
+    try {
+        const { ThrowdownService } = await import('../../services/ThrowdownService.js');
+        const event = await ThrowdownService.getByCode(req.params.code as string);
+        if (!event) return res.status(404).json({ error: 'Throwdown not found' });
+
+        const { EventService } = await import('../../services/EventService.js');
+        const { EventResultService } = await import('../../services/EventResultService.js');
+
+        const now = new Date();
+        const rounds = await EventService.getRounds(event.id);
+        const boards = await EventResultService.getBoards(event.id);
+        const standings = await EventResultService.computeStandings(event.id);
+
+        res.json({
+            event: {
+                id: event.id,
+                name: event.name,
+                state: EventService.deriveState(event, rounds, now),
+                aggregateMethod: event.aggregate_method,
+                minElapsedSec: event.min_elapsed_sec,
+                endGraceSec: event.end_grace_sec,
+                startDate: event.start_date,
+                endDate: event.end_date,
+                finishedAt: event.event_finished_at,
+                throwdownCode: event.throwdown_code,
+            },
+            now: now.toISOString(),
+            // A Throwdown has no roster; the shape is kept so the shared
+            // component does not need a second code path.
+            checkin: { opensAt: null, closesAt: null, required: false, count: 0, viewerCheckedIn: false },
+            rounds: boards ?? [],
+            standings: standings ?? null,
+            viewer: {
+                canCheckIn: false,
+                reason: req.user?.discordId ? null : 'LOGIN_REQUIRED',
+                canSubmit: !!req.user?.discordId,
+            },
+        });
+    } catch (error) {
+        logError('API Error (GET /api/throwdowns/:code):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
+ * POST /api/throwdowns/:code/scores — submit into a Throwdown.
+ *
+ * The window is enforced by `checkThrowdownSubmission`, the room-less sibling of
+ * the gate every room submit path uses; both resolve the window through one
+ * shared helper so they cannot disagree about the buzzer.
+ */
+router.post('/throwdowns/:code/scores', globalSubmitLimiter, requireDiscordUser, requireNotBannedGlobal, async (req, res) => {
+    try {
+        const validationResult = validate(ThrowdownScoreSchema, req.body);
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+        const { score, engine, device } = validationResult.data;
+
+        const { ThrowdownService } = await import('../../services/ThrowdownService.js');
+        const event = await ThrowdownService.getByCode(req.params.code as string);
+        if (!event) return res.status(404).json({ error: 'Throwdown not found' });
+
+        const { checkThrowdownSubmission } = await import('../../services/EventSubmissionGate.js');
+        const gate = await checkThrowdownSubmission({
+            tournamentId: event.id, userId: req.user!.discordId!,
+        });
+        if (!gate.ok || !gate.event) {
+            return res.status(409).json({ error: gate.message, code: gate.code });
+        }
+
+        // Display name comes from the player's global profile — there is no room
+        // to run a first-claim-wins name check against.
+        const { UserProfileService } = await import('../../services/UserProfileService.js');
+        const displayName = await UserProfileService.getDisplayName(req.user!.discordId!);
+        const username = displayName || req.user!.username || 'Player';
+
+        const { ThrowdownScoreService } = await import('../../services/ThrowdownScoreService.js');
+        const result = await ThrowdownScoreService.submit({
+            tournamentId: event.id,
+            gameId: gate.event.gameId,
+            gameName: gate.event.gameName,
+            userId: req.user!.discordId!,
+            username,
+            score,
+            engine, device,
+        });
+
+        res.status(201).json({ success: true, ...result, displayName: username });
+    } catch (error) {
+        logError('API Error (POST /api/throwdowns/:code/scores):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/** GET /api/me/throwdowns — the creator's own list, for their profile. */
+router.get('/me/throwdowns', requireDiscordUser, async (req, res) => {
+    try {
+        const { ThrowdownService } = await import('../../services/ThrowdownService.js');
+        const rows = await ThrowdownService.listForCreator(req.user!.discordId!);
+        res.json(rows.map(t => ({
+            id: t.id,
+            name: t.name,
+            code: t.throwdown_code,
+            startDate: t.start_date,
+            endDate: t.end_date,
+            finishedAt: t.event_finished_at,
+            url: `/throwdown/${t.throwdown_code}`,
+        })));
+    } catch (error) {
+        logError('API Error (GET /api/me/throwdowns):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

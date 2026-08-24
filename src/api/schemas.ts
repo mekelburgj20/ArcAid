@@ -401,6 +401,29 @@ export const StyleUploadSchema = z.object({
 export const MAX_SCORE = 1_000_000_000_000_000;
 
 /**
+ * Throwdown creation (v2.136.0, ADR 0018) — the two-question form.
+ *
+ * `gameName` runs through the blocklist because it is free text that lands in a
+ * shareable link's preview, which is the widest audience any user-typed string
+ * in Arcaid reaches.
+ */
+export const CreateThrowdownSchema = z.object({
+    gameName: z.string().min(1, 'Pick a game').max(200).refine(noBlockedTerm, blockedTermMessage),
+    durationMinutes: z.number().int().min(5).max(7 * 24 * 60),
+    engine: z.string().max(60).optional(),
+    device: z.string().max(60).optional(),
+    /** Set when this is the rematch of a finished Throwdown. */
+    rematchOf: z.string().uuid().optional(),
+});
+
+export const ThrowdownScoreSchema = z.object({
+    score: z.number().int().positive().max(MAX_SCORE),
+    engine: z.string().max(60).optional(),
+    device: z.string().max(60).optional(),
+});
+
+
+/**
  * v2.53.0 (ADR 0016) — engine + device score provenance, required on every web
  * submission path. Spread into all four submit schemas so the shape can never
  * diverge between them.
