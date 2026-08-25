@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api } from '../lib/api';
+import { playerApi } from '../lib/playerApi';
+import { useViewerAuth } from '../contexts/ViewerAuthContext';
 
 /**
  * "My Throwdowns" — the creator's own challenges (v2.136.0, ADR 0018).
@@ -45,10 +46,13 @@ function when(row: ThrowdownRow): string {
 }
 
 export default function ThrowdownsSection() {
+    // PLAYER client — `api.*` would 401 and redirect to /superadmin.
+    const { playerToken } = useViewerAuth();
     const [rows, setRows] = useState<ThrowdownRow[] | null>(null);
 
     useEffect(() => {
-        api.get<ThrowdownRow[]>('/me/throwdowns')
+        if (!playerToken) return;
+        playerApi.get<ThrowdownRow[]>('/me/throwdowns', { token: playerToken })
             // Shape-checked, not just error-checked. This section is one optional
             // block on a page full of important settings, and rendering
             // `rows.map` against a non-array response would white-screen the
@@ -56,7 +60,7 @@ export default function ThrowdownsSection() {
             // is being displayed.
             .then(data => setRows(Array.isArray(data) ? data : []))
             .catch(() => setRows([]));
-    }, []);
+    }, [playerToken]);
 
     // Nothing to say to someone who has never started one — an empty box with
     // an explanation would just be clutter on a settings page.

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { api } from '../lib/api';
+import { playerApi } from '../lib/playerApi';
+import { useViewerAuth } from '../contexts/ViewerAuthContext';
 
 /**
  * "Share my scores to the Global Scoreboard" (v2.137.0).
@@ -19,17 +20,22 @@ import { api } from '../lib/api';
  * one particular score.
  */
 export default function GlobalSharingSection() {
+    // The PLAYER client, not `api.*` — see lib/playerApi.ts. Using the admin
+    // client here 401'd and bounced players to /superadmin from their own
+    // Account Settings page (live incident, 2026-08-25).
+    const { playerToken } = useViewerAuth();
     const [share, setShare] = useState<boolean | null>(null);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
 
     useEffect(() => {
-        api.get<{ share_to_global?: boolean }>('/me/preferences')
+        if (!playerToken) return;
+        playerApi.get<{ share_to_global?: boolean }>('/me/preferences', { token: playerToken })
             .then(p => setShare(p?.share_to_global !== false))
             // Show the default rather than an empty box: this control is
             // informational until the player touches it.
             .catch(() => setShare(true));
-    }, []);
+    }, [playerToken]);
 
     const toggle = async (next: boolean) => {
         const previous = share;
@@ -37,7 +43,7 @@ export default function GlobalSharingSection() {
         setSaving(true);
         setError('');
         try {
-            await api.post('/me/preferences', { share_to_global: next });
+            await playerApi.post('/me/preferences', { share_to_global: next }, { token: playerToken });
         } catch (err) {
             // Roll back so the switch never shows a state the server rejected.
             setShare(previous ?? true);

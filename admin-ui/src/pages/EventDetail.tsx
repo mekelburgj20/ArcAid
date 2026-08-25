@@ -5,7 +5,8 @@ import { formatScore, scoreTitle } from '../lib/format';
 import ShareButton from '../components/ShareButton';
 import { useOptionalRoom } from '../contexts/RoomContext';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
-import { api, ApiError } from '../lib/api';
+import { ApiError } from '../lib/api';
+import { playerApi } from '../lib/playerApi';
 
 /**
  * `/:slug/events/:id` — the public face of a Live Event (v2.135.0, ADR 0017).
@@ -149,7 +150,10 @@ export default function EventDetail({ throwdownCode }: EventDetailProps = {}) {
     const roomSlug = room?.roomSlug;
     const roomId = room?.roomId;
     const { id } = useParams<{ id: string }>();
-    const { discordUser, loginWithDiscord } = useViewerAuth();
+    // PLAYER client throughout: `api.*` is the admin one, and its 401 handler
+    // navigates to /superadmin — nonsense for a player, and the cause of the
+    // 2026-08-25 incident. See lib/playerApi.ts.
+    const { discordUser, playerToken, loginWithDiscord } = useViewerAuth();
     const isThrowdown = !!throwdownCode;
     const navigate = useNavigate();
     const [scoreDraft, setScoreDraft] = useState('');
@@ -170,13 +174,15 @@ export default function EventDetail({ throwdownCode }: EventDetailProps = {}) {
             : (roomId && id ? `/rooms/${roomId}/events/${id}` : null);
         if (!path) return;
         try {
-            setData(await api.get<EventPayload>(path));
+            // Readable signed-out — the token is passed when present so the
+            // viewer's own check-in state comes back.
+            setData(await playerApi.get<EventPayload>(path, { token: playerToken }));
         } catch {
             setNotFound(true);
         } finally {
             setLoading(false);
         }
-    }, [roomId, id, throwdownCode]);
+    }, [roomId, id, throwdownCode, playerToken]);
 
     useEffect(() => { void load(); }, [load]);
 
@@ -203,7 +209,7 @@ export default function EventDetail({ throwdownCode }: EventDetailProps = {}) {
         setCheckingIn(true);
         setError('');
         try {
-            await api.post(`/rooms/${roomId}/events/${id}/checkin`, {});
+            await playerApi.post(`/rooms/${roomId}/events/${id}/checkin`, {}, { token: playerToken });
             await load();
         } catch (err) {
             // The server's message is the useful one here ("Check-in closed when
@@ -221,7 +227,7 @@ export default function EventDetail({ throwdownCode }: EventDetailProps = {}) {
         setSubmitting(true);
         setError('');
         try {
-            await api.post(`/throwdowns/${encodeURIComponent(throwdownCode)}/scores`, { score: value });
+            await playerApi.post(`/throwdowns/${encodeURIComponent(throwdownCode)}/scores`, { score: value }, { token: playerToken });
             setScoreDraft('');
             await load();
         } catch (err) {
@@ -245,11 +251,11 @@ export default function EventDetail({ throwdownCode }: EventDetailProps = {}) {
         setError('');
         setNotice('');
         try {
-            const res = await api.post<{ code: string }>('/throwdowns', {
+            const res = await playerApi.post<{ code: string }>('/throwdowns', {
                 gameName: gameName.trim(),
                 durationMinutes: 60,
                 rematchOf: data.event.id,
-            });
+            }, { token: playerToken });
             navigate(`/throwdown/${res.code}`);
         } catch (err) {
             const body = err instanceof ApiError ? err.body as { code?: string; existingCode?: string } : null;

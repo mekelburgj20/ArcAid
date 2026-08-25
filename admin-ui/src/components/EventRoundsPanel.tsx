@@ -12,6 +12,11 @@ import type { EventRoundRow, Tournament } from '../lib/tournamentFormPayload';
  * to schedule. Everything else about an event is configured in the tournament
  * form; this is the during-the-night view.
  *
+ * Uses `api.*` deliberately: this panel is a ROOM-ADMIN surface reached from
+ * /:slug/admin/tournaments, where the admin token is the right credential and
+ * the admin client's 401 -> /:slug/login redirect is the right behaviour.
+ * Player-facing surfaces must use `lib/playerApi.ts` instead.
+ *
  * "Start now" / "End now" do NOT flip a status directly — they call the server,
  * which rewrites the round's schedule and drives one scheduler tick. That keeps
  * board creation, announcements, cache invalidation and the event-finished

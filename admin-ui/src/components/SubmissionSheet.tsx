@@ -20,7 +20,8 @@ import {
     allowedEngines,
     parseSubmitPlatformsResponse,
 } from '../lib/allowedProvenance';
-import { api, type SubmitRank } from '../lib/api';
+import { type SubmitRank } from '../lib/api';
+import { playerApi } from '../lib/playerApi';
 import { formatScore } from '../lib/format';
 import { deleteAtCaret, insertAtCaret, readCaret } from '../lib/caretEdit';
 import { normalizePhotoFile } from '../lib/photoNormalize';
@@ -255,12 +256,15 @@ export default function SubmissionSheet({
     const [submittablePlatforms, setSubmittablePlatforms] = useState<string[] | null>(null);
 
     useEffect(() => {
-        // Best-effort: a failure just leaves the default (share), which is the
-        // pre-v2.137.0 behaviour.
-        api.get<{ share_to_global?: boolean }>('/me/preferences')
+        // MUST use the player client. `api.*` is the ADMIN client: it sends a
+        // token a player does not have and, on the resulting 401, navigates to
+        // /superadmin — which is what broke the "+" button for logged-in
+        // players in v2.137.0. A failure here just leaves the default (share).
+        if (!playerToken) return;
+        playerApi.get<{ share_to_global?: boolean }>('/me/preferences', { token: playerToken })
             .then(p => { if (p?.share_to_global === false) setExcludeFromGlobal(true); })
             .catch(() => { /* keep the default */ });
-    }, []);
+    }, [playerToken]);
     /**
      * Full pre-rule platform set for the game (catalogue ∪ room tags). Used
      * only to disambiguate the single-platform chip's caption: "only platform

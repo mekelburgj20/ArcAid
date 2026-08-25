@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.137.1] — Fix: logged-in players bounced to the super-admin login
+
+### Fixed
+- **Pressing "+" on a game card, or opening Account Settings, sent a signed-in player to the super-admin login page** — and back around in a loop (reported by @Buke, 2026-08-25).
+
+  `lib/api.ts` is the ADMIN client: it sends `arcaid_token` and, on a 401 it cannot refresh, it NAVIGATES — to `/:slug/login` inside an admin route, and otherwise to `/superadmin`. A signed-in player holds `arcaid_player_token`, which that client knows nothing about, so three player-facing surfaces added in v2.136.0/v2.137.0 sent their requests with no `Authorization` header at all, got a 401, matched no admin slug, and dumped the player on an operator login screen.
+
+  Affected: the submission sheet (the "+"), and the "Global Scoreboard" and "My Throwdowns" sections of Account Settings. `EventDetail`/`ThrowdownDetail` had the same defect and are fixed too, before anyone hit them.
+
+- New `lib/playerApi.ts` — the client for player-authenticated calls. It sends the viewer's token and **never navigates on a failure**: a player-facing 401 means "sign in for this action", and the surface shows a login affordance in place. Redirecting a player to an operator login is never the answer.
+
+- A **structural guard test** now fails the build if a player surface calls `api.get/post/put/delete`. The convention existed only as folklore in the surrounding code, which is exactly how this got through.
+
 ## [2.137.0] — Global Scoreboard opt-out
 
 A per-player setting for whether room scores reach the Global Scoreboard. On by default, which is what everyone already had.
