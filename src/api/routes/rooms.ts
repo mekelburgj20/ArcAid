@@ -1850,6 +1850,11 @@ router.post('/:roomId/admin/tournaments/:tournamentId/atgames-links', requireAut
 
             if (result.rowsAttributed > 0) {
                 try {
+                    // Re-attribution can touch rows across every round at once,
+                    // so there is no single game to name. Every listener treats
+                    // this event as "refetch the room" and ignores the payload
+                    // (verified across Scoreboard/Kiosk/Leaderboard) — the empty
+                    // gameId satisfies the signature, it is not a lost value.
                     const { emitLeaderboardUpdated } = await import('../websocket.js');
                     emitLeaderboardUpdated(roomId, { gameId: '' });
                 } catch { /* socket optional */ }
