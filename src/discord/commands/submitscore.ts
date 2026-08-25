@@ -22,6 +22,7 @@ import {
 import fs from 'fs/promises';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
+import { PreferencesService } from '../../services/PreferencesService.js';
 
 export interface ResolvedSubmitGame {
     id: string;
@@ -229,7 +230,14 @@ export const submitscore: Command = {
         let username = interaction.options.getString('username');
         let engine = interaction.options.getString('engine') || undefined;
         let device = interaction.options.getString('device') || undefined;
-        const excludeGlobal = interaction.options.getBoolean('exclude_global') || false;
+        // v2.137.0 — Discord has no checkbox on this command unless the player
+        // sets the option, so an unset option means "use my account preference".
+        // This is precisely why the preference is resolved server-side: a
+        // client-side default would apply on the web and be ignored here.
+        const excludeGlobalOption = interaction.options.getBoolean('exclude_global');
+        const excludeGlobal = await PreferencesService.resolveExcludeFromGlobal(
+            interaction.user.id, excludeGlobalOption ?? undefined,
+        );
 
         // Validate score is a positive integer
         if (score <= 0) {

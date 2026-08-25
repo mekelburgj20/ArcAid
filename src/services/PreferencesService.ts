@@ -114,10 +114,57 @@ export class PreferencesService {
         );
     }
 
-    static async getAll(discordUserId: string): Promise<{ ui_theme: ThemeId | null; appearance: Appearance | null }> {
+    /**
+     * Whether this player's room scores fan out to the Global Scoreboard
+     * (v2.137.0).
+     *
+     * `true` is the default and is today's behaviour for everyone — the column
+     * is NULL until somebody opts out, so no migration had to guess at intent.
+     *
+     * The reason this is resolved SERVER-side rather than by defaulting a
+     * checkbox: **Discord `/submit-score` has no checkbox**. The preference is
+     * the only thing that can speak for the player there, so a client-only
+     * default would silently apply on the web and be ignored in Discord.
+     */
+    static async getShareToGlobal(discordUserId: string): Promise<boolean> {
+        const db = await getDatabase();
+        const row = await db.get(
+            'SELECT share_to_global FROM user_preferences WHERE discord_user_id = ?',
+            discordUserId,
+        );
+        return row?.share_to_global !== 0;
+    }
+
+    static async setShareToGlobal(discordUserId: string, share: boolean): Promise<void> {
+        const db = await getDatabase();
+        await db.run(
+            `INSERT INTO user_preferences (discord_user_id, share_to_global) VALUES (?, ?)
+             ON CONFLICT(discord_user_id) DO UPDATE SET share_to_global = excluded.share_to_global`,
+            discordUserId, share ? 1 : 0,
+        );
+    }
+
+    /**
+     * The value to use for THIS submission.
+     *
+     * An explicit per-submission choice always wins — a player who unticks the
+     * box on one score means it for that score. The stored preference fills in
+     * only when the request said nothing, which is every Discord submit and any
+     * client that predates the checkbox.
+     */
+    static async resolveExcludeFromGlobal(
+        discordUserId: string | undefined,
+        explicit: boolean | undefined,
+    ): Promise<boolean> {
+        if (explicit !== undefined) return explicit;
+        if (!discordUserId) return false;
+        return !(await PreferencesService.getShareToGlobal(discordUserId));
+    }
+
+    static async getAll(discordUserId: string): Promise<{ ui_theme: ThemeId | null; appearance: Appearance | null; share_to_global: boolean }> {
         const theme = await this.getTheme(discordUserId);
         const appearance = await this.getAppearance(discordUserId);
-        return { ui_theme: theme, appearance };
+        return { ui_theme: theme, appearance, share_to_global: await this.getShareToGlobal(discordUserId) };
     }
 
     /**

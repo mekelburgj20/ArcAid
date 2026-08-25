@@ -118,9 +118,10 @@ router.post('/me/preferences', requireAuth, async (req, res) => {
         // independently optional (schema rejects a body carrying neither), so
         // the Appearance control never has to round-trip, and possibly clobber,
         // the admin's theme choice and vice versa.
-        const { ui_theme, appearance } = validationResult.data;
+        const { ui_theme, appearance, share_to_global } = validationResult.data;
         if (ui_theme !== undefined) await PreferencesService.setTheme(userId, ui_theme);
         if (appearance !== undefined) await PreferencesService.setAppearance(userId, appearance);
+        if (share_to_global !== undefined) await PreferencesService.setShareToGlobal(userId, share_to_global);
         res.json({ success: true });
     } catch (error) {
         logError('API Error (POST /api/me/preferences):', error);
