@@ -350,9 +350,14 @@ describe('Settings page — ROOM_LISTED, JOIN_POLICY, AUTO_APPROVE_GUILD_MEMBERS
       const input = screen.getByPlaceholderText('●●●●●●●● (stored — leave blank to keep, type to replace)') as HTMLInputElement;
       expect(input.value).toBe('');
       expect(input.type).toBe('password');
-      expect(screen.getByRole('button', { name: 'Remove' })).toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: 'Show' })).not.toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: 'Hide' })).not.toBeInTheDocument();
+      // Scoped to THIS field's row on purpose. The claim is about a MASKED
+      // secret; an unmasked secret field elsewhere on the page (an empty
+      // AtGames password, v2.139.0) correctly renders its own Show toggle, and
+      // a document-wide query would read that as a failure here.
+      const row = within(input.parentElement!);
+      expect(row.getByRole('button', { name: 'Remove' })).toBeInTheDocument();
+      expect(row.queryByRole('button', { name: 'Show' })).not.toBeInTheDocument();
+      expect(row.queryByRole('button', { name: 'Hide' })).not.toBeInTheDocument();
     });
 
     it('KNOWN BEHAVIOR (not a bug, guarded server-side): saving without touching a masked field round-trips the literal mask:<KEY> sentinel', async () => {

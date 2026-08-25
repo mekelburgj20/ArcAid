@@ -6,6 +6,7 @@ Guidance for Claude Code working in this ArcAid repository.
 
 - **Run via Docker.** `docker compose up -d --build` for dev/test/prod. Never suggest `npm run dev` for running the app — `npm run build` and `npm run dev` exist for CI/build verification only.
 - **Always build before committing.** `docker compose build` from repo root, plus `cd admin-ui && npm run build` if UI changed. Never push to `main` without a clean build.
+- **A UI change means running the ADMIN-UI TEST SUITE too** — `cd admin-ui && npx vitest run` — not just its build and lint. CI runs it; a build-clean UI edit can still fail it. The trap that proves the point (2026-08-25): adding a second encrypted settings field made a document-wide `queryByRole('button', {name: 'Show'})` in `Settings.test.tsx` match the NEW field's reveal toggle, failing an assertion about the iScored one. Build passed, lint passed, CI went red.
 - Don't ask permission for `cd`, `git`, or basic file navigation — execute directly.
 - **"Resume" ritual:** read `SPRINT_STATUS.md` → read `ROADMAP.md` → `git branch --show-current` → `npm run build` (and admin-ui build if relevant) → present a status summary → continue last session's work.
 - For **history**, read `CHANGELOG.md`. For **architectural decisions**, read `docs/decisions/`. For **current work**, read `SPRINT_STATUS.md`. Do not duplicate them here.
