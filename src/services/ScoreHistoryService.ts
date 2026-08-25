@@ -20,6 +20,40 @@ export interface DeletableScoreRow {
 
 export class ScoreHistoryService {
     /**
+     * Would `log` swallow this row as a duplicate?
+     *
+     * Extracted from `log` in v2.139.0 so the AtGames sync's DRY RUN can report
+     * "already had this one" using the EXACT rule the real write uses. Two
+     * copies of this predicate would drift, and a dry run that disagrees with
+     * the run it is previewing is worse than no dry run at all.
+     *
+     * v2.135.0 (ADR 0017): when a `gameId` is supplied the dedup is scoped to
+     * THAT row. A Live Event can feature the same table in two rounds, and a
+     * player who posts an identical score in both is not submitting a
+     * duplicate — round 2 would otherwise be silently swallowed and the
+     * standings would show them as having missed it. Callers without a gameId
+     * (every rotation path) keep the original room-wide behaviour.
+     */
+    static async isDuplicate(params: {
+        gameName: string;
+        gameRoomId: string | null;
+        gameId?: string;
+        username: string;
+        score: number;
+    }): Promise<boolean> {
+        const db = await getDatabase();
+        const existing = await db.get(
+            `SELECT id FROM score_history
+             WHERE game_room_id = ? AND LOWER(game_name) = LOWER(?) AND LOWER(iscored_username) = LOWER(?) AND score = ?
+               AND (? IS NULL OR game_id IS ?)
+             LIMIT 1`,
+            params.gameRoomId, params.gameName, params.username, params.score,
+            params.gameId ?? null, params.gameId ?? null,
+        );
+        return !!existing;
+    }
+
+    /**
      * Log a score entry to history. Called alongside every score submission.
      */
     static async log(params: {
@@ -73,25 +107,9 @@ export class ScoreHistoryService {
     }): Promise<number | null> {
         const db = await getDatabase();
 
-        // Dedup: skip if an identical (game, player, score, room) entry already exists.
-        //
-        // v2.135.0 (ADR 0017): when a `gameId` is supplied the dedup is scoped to
-        // THAT row. A Live Event can feature the same table in two rounds, and a
-        // player who posts an identical score in both is not submitting a
-        // duplicate — round 2 would otherwise be silently swallowed and the
-        // standings would show them as having missed it. Callers without a
-        // gameId (every rotation path) keep the original room-wide behaviour.
-        const existing = await db.get(
-            `SELECT id FROM score_history
-             WHERE game_room_id = ? AND LOWER(game_name) = LOWER(?) AND LOWER(iscored_username) = LOWER(?) AND score = ?
-               AND (? IS NULL OR game_id IS ?)
-             LIMIT 1`,
-            params.gameRoomId, params.gameName, params.username, params.score,
-            params.gameId ?? null, params.gameId ?? null,
-        );
         // v2.125.1: returns the new row's id (null when deduped) so the submit
         // path can exclude it from the "previous best" computation.
-        if (existing) return null;
+        if (await ScoreHistoryService.isDuplicate(params)) return null;
 
         const submittedByUserId = normalizeSubmitterUserId(params.discordUserId);
         const submittedByAnonymousName =

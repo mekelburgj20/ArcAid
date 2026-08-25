@@ -12,6 +12,7 @@ import { resolveAtGamesCredsFromSettings } from '../utils/atgamesCreds.js';
 import {
     AtGamesEventSyncService, AtGamesSyncError, parseAtGamesTimestamp,
 } from '../services/AtGamesEventSyncService.js';
+import { AtGamesIdentityService, AtGamesLinkError } from '../services/AtGamesIdentityService.js';
 import { normalizeSubmitterUserId } from '../services/SubmissionContextService.js';
 import { ENCRYPTED_SETTING_KEYS } from '../utils/secrets.js';
 
@@ -440,6 +441,240 @@ describe('AtGamesEventSyncService — ingest', () => {
         const err = await AtGamesEventSyncService.syncTournament(crypto.randomUUID()).catch(e => e);
         expect(err).toBeInstanceOf(AtGamesSyncError);
         expect(err.code).toBe('NOT_FOUND');
+    });
+});
+
+describe('AtGamesEventSyncService — dry run', () => {
+    let roomId: string;
+    let tournamentId: string;
+    let roundOneId: string;
+    const base = Date.parse('2026-09-01T20:00:00.000Z');
+    const ATGAMES_GAME_ID = 50334;
+    const atgamesTime = (ms: number) => new Date(ms).toISOString().replace('T', ' ').replace('Z', '').slice(0, 19) + '.0';
+
+    beforeEach(async () => {
+        await setupTestDb();
+        roomId = await createTestRoom();
+        const db = await getDatabase();
+        await db.run(
+            `INSERT OR REPLACE INTO game_room_settings (game_room_id, key, value) VALUES (?, 'ISCORED_ENABLED', 'false')`,
+            roomId,
+        );
+        for (const [key, value] of [['ATGAMES_EMAIL', 'owner@example.com'], ['ATGAMES_PASSWORD', 'pw'], ['ATGAMES_DEVICE_FP', 'fp']]) {
+            await db.run(
+                `INSERT OR REPLACE INTO game_room_settings (game_room_id, key, value) VALUES (?, ?, ?)`,
+                roomId, key, value,
+            );
+        }
+        await db.run(
+            `INSERT INTO global_games (id, name, normalized_name, type, atgames_id, status, platforms, features)
+             VALUES (?, 'Attack from Mars', ?, 'pinball', ?, 'approved', '["atgames_native"]', '[]')`,
+            crypto.randomUUID(), normalizeGameName('Attack from Mars'), ATGAMES_GAME_ID,
+        );
+        tournamentId = crypto.randomUUID();
+        await db.run(
+            `INSERT INTO tournaments (id, name, type, mode, cadence, is_active, game_room_id, format, end_grace_sec, atgames_tournament_id)
+             VALUES (?, 'Stream Night', 'DG', 'pinball', '{"timezone":"UTC"}', 1, ?, 'event', 60, '1170')`,
+            tournamentId, roomId,
+        );
+        roundOneId = crypto.randomUUID();
+        await db.run(
+            `INSERT INTO games (id, tournament_id, name, status, game_room_id, round_no, scheduled_start_at, scheduled_end_at)
+             VALUES (?, ?, 'Attack from Mars', 'SCHEDULED', ?, 1, ?, ?)`,
+            roundOneId, tournamentId, roomId,
+            new Date(base).toISOString(), new Date(base + 20 * MINUTE).toISOString(),
+        );
+
+        vi.spyOn(AtGamesPrivateClient.prototype, 'getPrivateTournament').mockResolvedValue({
+            id: 1170, name: 'Stream Night',
+            games: [{
+                game_id: ATGAMES_GAME_ID,
+                rankings: [
+                    { account: 11, user_name: 'Wyo', game_id: ATGAMES_GAME_ID, score: '1200000', created_at: atgamesTime(base + 5 * MINUTE) },
+                    { account: 12, user_name: 'Late', game_id: ATGAMES_GAME_ID, score: '900000', created_at: atgamesTime(base + 40 * MINUTE) },
+                ],
+            }],
+        } as AtGamesPrivateTournamentDetail);
+    });
+
+    afterEach(() => vi.restoreAllMocks());
+
+    it('writes nothing and reports what it would have done', async () => {
+        const preview = await AtGamesEventSyncService.syncTournament(tournamentId, { dryRun: true });
+
+        expect(preview.dryRun).toBe(true);
+        expect(preview.ingested).toBe(1);
+        expect(preview.outOfWindow).toBe(1);
+        // Nothing to refresh — a preview must never claim it changed anything.
+        expect(preview.affectedGameIds).toEqual([]);
+
+        const db = await getDatabase();
+        const count = await db.get<{ n: number }>(
+            'SELECT COUNT(*) AS n FROM score_history WHERE submitted_during_tournament_id = ?', tournamentId,
+        );
+        expect(count?.n).toBe(0);
+    });
+
+    it('explains every score, including the ones that did not count', async () => {
+        const preview = await AtGamesEventSyncService.syncTournament(tournamentId, { dryRun: true });
+
+        const byName = Object.fromEntries(preview.rows.map(r => [r.userName, r]));
+        expect(byName.Wyo).toMatchObject({ decision: 'ingested', roundNo: 1, roundName: 'Attack from Mars' });
+        expect(byName.Late).toMatchObject({ decision: 'out_of_window', roundNo: null });
+        // The timestamp is echoed back normalised, so a host can see the moment
+        // AtGames recorded rather than having to trust the verdict.
+        expect(byName.Wyo?.atIso).toBe(new Date(base + 5 * MINUTE).toISOString());
+    });
+
+    it('agrees with the real run it is previewing', async () => {
+        const preview = await AtGamesEventSyncService.syncTournament(tournamentId, { dryRun: true });
+        const real = await AtGamesEventSyncService.syncTournament(tournamentId);
+
+        expect(real.ingested).toBe(preview.ingested);
+        expect(real.outOfWindow).toBe(preview.outOfWindow);
+
+        // And a preview AFTER the write reports the duplicate, through the same
+        // predicate the write uses — this is what keeps the two from drifting.
+        const second = await AtGamesEventSyncService.syncTournament(tournamentId, { dryRun: true });
+        expect(second.ingested).toBe(0);
+        expect(second.duplicates).toBe(1);
+    });
+});
+
+describe('AtGamesIdentityService — who is who', () => {
+    let roomId: string;
+    let tournamentId: string;
+    let roundId: string;
+    const USER = '123456789012345678';
+
+    async function ingest(username: string, account: number, score: number) {
+        const db = await getDatabase();
+        await db.run(
+            `INSERT INTO score_history (game_name, game_room_id, game_id, iscored_username, discord_user_id,
+                                        score, source, submitted_during_tournament_id, submitted_by_user_id)
+             VALUES ('Attack from Mars', ?, ?, ?, ?, ?, 'atgames', ?, NULL)`,
+            roomId, roundId, username, `atgames:${account}`, score, tournamentId,
+        );
+    }
+
+    beforeEach(async () => {
+        await setupTestDb();
+        roomId = await createTestRoom();
+        const db = await getDatabase();
+        tournamentId = crypto.randomUUID();
+        roundId = crypto.randomUUID();
+        await db.run(
+            `INSERT INTO tournaments (id, name, type, mode, cadence, is_active, game_room_id, format)
+             VALUES (?, 'Stream Night', 'DG', 'pinball', '{"timezone":"UTC"}', 1, ?, 'event')`,
+            tournamentId, roomId,
+        );
+        await db.run(
+            `INSERT INTO games (id, tournament_id, name, status, game_room_id, round_no)
+             VALUES (?, ?, 'Attack from Mars', 'SCHEDULED', ?, 1)`,
+            roundId, tournamentId, roomId,
+        );
+    });
+
+    it('lists the unclaimed AtGames accounts on the board', async () => {
+        await ingest('Wyo', 11, 1000);
+        await ingest('Wyo', 11, 2000);
+        await ingest('Stranger', 99, 500);
+
+        const accounts = await AtGamesIdentityService.listAccountsForTournament(tournamentId);
+
+        expect(accounts).toHaveLength(2);
+        expect(accounts[0]).toMatchObject({ atgamesAccountId: 11, userName: 'Wyo', scoreCount: 2, linkedUserId: null });
+        expect(accounts[1]).toMatchObject({ atgamesAccountId: 99, linkedUserId: null });
+    });
+
+    it('claims the past scores when an account is linked', async () => {
+        await ingest('Wyo', 11, 1000);
+        await ingest('Wyo', 11, 2000);
+        await ingest('Stranger', 99, 500);
+
+        const res = await AtGamesIdentityService.linkAccount(11, USER);
+
+        expect(res.rowsAttributed).toBe(2);
+        const db = await getDatabase();
+        const mine = await db.all<Array<{ score: number }>>(
+            'SELECT score FROM score_history WHERE submitted_by_user_id = ? ORDER BY score', USER,
+        );
+        expect(mine.map(r => r.score)).toEqual([1000, 2000]);
+        // Somebody else's account is untouched.
+        const stranger = await db.get<{ submitted_by_user_id: string | null }>(
+            `SELECT submitted_by_user_id FROM score_history WHERE iscored_username = 'Stranger'`,
+        );
+        expect(stranger?.submitted_by_user_id).toBeNull();
+    });
+
+    it('shows the account as claimed afterwards', async () => {
+        await ingest('Wyo', 11, 1000);
+        await AtGamesIdentityService.linkAccount(11, USER);
+
+        const accounts = await AtGamesIdentityService.listAccountsForTournament(tournamentId);
+        expect(accounts).toHaveLength(1);
+        expect(accounts[0]).toMatchObject({ atgamesAccountId: 11, linkedUserId: USER, scoreCount: 1 });
+    });
+
+    it('refuses to re-point a link onto a different player', async () => {
+        await ingest('Wyo', 11, 1000);
+        await AtGamesIdentityService.linkAccount(11, USER);
+
+        // Last-write-wins here is how one player quietly inherits another's history.
+        const err = await AtGamesIdentityService.linkAccount(11, '999999999999999999').catch(e => e);
+        expect(err).toBeInstanceOf(AtGamesLinkError);
+        expect(err.code).toBe('LINK_CONFLICT');
+    });
+
+    it('re-running the same link is a safe repair, not an error', async () => {
+        await ingest('Wyo', 11, 1000);
+        await AtGamesIdentityService.linkAccount(11, USER);
+        await ingest('Wyo', 11, 3000);
+
+        const again = await AtGamesIdentityService.linkAccount(11, USER);
+        expect(again.rowsAttributed).toBe(1);
+    });
+
+    it('leaves a finished event alone — standings are history', async () => {
+        await ingest('Wyo', 11, 1000);
+        const db = await getDatabase();
+        await db.run('UPDATE tournaments SET is_active = 0 WHERE id = ?', tournamentId);
+
+        const res = await AtGamesIdentityService.linkAccount(11, USER);
+
+        expect(res.rowsAttributed).toBe(0);
+        const row = await db.get<{ submitted_by_user_id: string | null }>(
+            'SELECT submitted_by_user_id FROM score_history WHERE submitted_during_tournament_id = ?', tournamentId,
+        );
+        expect(row?.submitted_by_user_id).toBeNull();
+    });
+
+    it('unlinking returns only the AtGames scores to anonymous', async () => {
+        await ingest('Wyo', 11, 1000);
+        const db = await getDatabase();
+        // A score the player submitted themselves — never touched by an unlink.
+        await db.run(
+            `INSERT INTO score_history (game_name, game_room_id, iscored_username, discord_user_id, score,
+                                        source, submitted_during_tournament_id, submitted_by_user_id)
+             VALUES ('Attack from Mars', ?, 'Wyo', ?, 4242, 'tournament', ?, ?)`,
+            roomId, USER, tournamentId, USER,
+        );
+        await AtGamesIdentityService.linkAccount(11, USER);
+
+        const res = await AtGamesIdentityService.unlinkAccount(11);
+
+        expect(res.rowsReanonymized).toBe(1);
+        const own = await db.get<{ submitted_by_user_id: string | null }>(
+            'SELECT submitted_by_user_id FROM score_history WHERE score = 4242',
+        );
+        expect(own?.submitted_by_user_id).toBe(USER);
+        const link = await db.get('SELECT 1 FROM user_identity_links WHERE provider_user_id = ?', 'atgames:11');
+        expect(link).toBeUndefined();
+    });
+
+    it('rejects an account id that is not one', async () => {
+        await expect(AtGamesIdentityService.linkAccount('not-a-number', USER))
+            .rejects.toMatchObject({ code: 'BAD_ACCOUNT_ID' });
     });
 });
 

@@ -6,6 +6,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.139.0] — AtGames event score sync: the host's controls (P7, part 2)
+
+Part 1 built the machinery. This is the part you can actually press.
+
+### Added
+- **AtGames credentials on the room Settings page** — email and password, under a new "AtGames" card, gated by an **AtGames Score Sync** toggle. The password is stored encrypted and never shown again after saving. The device fingerprint the API needs is minted once by the server and deliberately never surfaced as an editable field.
+- **An AtGames section on the event's run-the-night panel** (Tournaments → the event → the rounds panel): paste the AtGames tournament id, then **Preview** or **Pull scores**.
+- **Preview (dry run)** — the same fetch, the same window matching and the **same duplicate rule** as a real pull, stopping short of writing anything. It lists every score with a plain-English verdict: *counted*, *already had it*, *outside the round window*, *that game is not in this event*, or *AtGames sent a time we couldn't read*. "Why isn't my score there?" is the question this feature generates most, and a count alone cannot answer it.
+- **"Who is who"** — the AtGames accounts appearing in the event, each with a member picker. Linking one claims **the scores already ingested under it**, not just future ones. Unlinking returns only those AtGames scores to anonymous — a player's own web or Discord submissions are never touched.
+- `GET /:roomId/admin/tournaments/:tournamentId/atgames-accounts`, `POST …/atgames-links`, `DELETE …/atgames-links/:atgamesAccountId`, and `dryRun` on the existing sync endpoint.
+
+### Changed
+- **`ScoreHistoryService.isDuplicate` extracted from `log`.** The dry run and the real write now share one predicate rather than each carrying a copy — a preview that disagrees with the run it is previewing would be worse than no preview at all.
+
+### Rules this ships with
+- **A link is deliberate, never inferred.** Arcaid still refuses to name-match an AtGames handle onto a local player: two similar handles would end up owning each other's scores, silently and permanently. A human says who is who, once.
+- **Re-pointing a link is refused, not silently applied** (HTTP 409). Last-write-wins on an identity link is exactly how one player inherits another's history. Re-running the *same* link is allowed and is the repair path after more scores arrive.
+- **Finished events are frozen.** Re-attribution skips rows belonging to a concluded tournament, matching `MergeService` and `IdentityAliasEffectsService` — linking an account today must not rewrite who won last week.
+- **A room admin can only link to a member of their own room.** The link itself is global (`user_identity_links`), so this bound is what keeps a room admin from attaching an AtGames account to a stranger — the same asymmetry, and the same fix, as the iScored identity-claim approval.
+
+### Still true, and still the limit
+AtGames records the moment a player **exits** a table. Confirmed on hardware 2026-08-25: **AtGames does not filter gear-up** — a game started before the window opens and exited inside it is accepted onto their board. So nothing here, and nothing in their API, can tell you how long a score was played. The `min_elapsed_sec` badge remains a prompt to look, never a rejection, and P8's on-device witness remains the only mechanism that could change that.
+
 ## [2.138.0] — AtGames event score sync (P7, part 1)
 
 A Live Event round can now source its scores from an AtGames private tournament instead of asking every player to re-type their score into their phone. The cabinet posts to AtGames; Arcaid reads AtGames.
