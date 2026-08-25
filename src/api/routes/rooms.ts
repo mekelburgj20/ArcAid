@@ -1708,6 +1708,11 @@ router.get('/:roomId/admin/tournaments/:tournamentId/queue/:forUserId', requireA
 // `atgamesTournamentId` in the body links the two tournaments (and is stored),
 // so a host never has to touch the DB to attach one. Passing it again with a
 // different id re-points the link.
+//
+// `dryRun: true` (v2.139.0) previews instead: the same fetch, the same window
+// matching and the SAME duplicate rule, stopping short of the INSERT. It is the
+// honest way to answer "why isn't my score there?" before writing anything, and
+// the first thing a host should press when setting this up.
 router.post('/:roomId/admin/tournaments/:tournamentId/atgames-sync', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
     try {
         const db = await getDatabase();
@@ -1738,9 +1743,11 @@ router.post('/:roomId/admin/tournaments/:tournamentId/atgames-sync', requireAuth
         const { AtGamesEventSyncService, AtGamesSyncError } = await import('../../services/AtGamesEventSyncService.js');
         const { AtGamesAuthError } = await import('../../services/AtGamesPrivateClient.js');
         try {
-            const result = await AtGamesEventSyncService.syncTournament(tournamentId);
+            const dryRun = req.body?.dryRun === true;
+            const result = await AtGamesEventSyncService.syncTournament(tournamentId, { dryRun });
 
-            await AuditService.log({
+            // A dry run changed nothing, so it is not an auditable action.
+            if (!dryRun) await AuditService.log({
                 actor: req.user!.discordId || req.user!.username || 'admin',
                 action: 'tournament.atgames_sync',
                 target_type: 'tournament',
@@ -1771,6 +1778,130 @@ router.post('/:roomId/admin/tournaments/:tournamentId/atgames-sync', requireAuth
         }
     } catch (error) {
         logError('API Error (POST rooms/:roomId/admin/tournaments/:tournamentId/atgames-sync):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// The AtGames accounts that appear in this event's scores, and who each one is.
+//
+// Arcaid refuses to guess which local player an AtGames handle belongs to, so
+// every ingested score starts anonymous. This is the list a host works through
+// to say who is who; it reads the ingested rows, not AtGames, so it works with
+// no network call and after the fact.
+router.get('/:roomId/admin/tournaments/:tournamentId/atgames-accounts', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const db = await getDatabase();
+        const roomId = req.params.roomId as string;
+        const tournamentId = req.params.tournamentId as string;
+
+        const tournament = await db.get(
+            'SELECT id FROM tournaments WHERE id = ? AND game_room_id = ?', tournamentId, roomId,
+        );
+        if (!tournament) return res.status(404).json({ error: 'Tournament not found in this room' });
+
+        const { AtGamesIdentityService } = await import('../../services/AtGamesIdentityService.js');
+        res.json(await AtGamesIdentityService.listAccountsForTournament(tournamentId));
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/admin/tournaments/:tournamentId/atgames-accounts):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Attach an AtGames account to an Arcaid player, and claim its past scores.
+//
+// A link is GLOBAL (`user_identity_links` is not room-scoped) while the actor
+// here is a ROOM admin — the same asymmetry the iScored identity-claim approval
+// already has. It is bounded the same way: the target must be a member of THIS
+// room, so a room admin can only ever attach an AtGames account to somebody who
+// is already in front of them.
+router.post('/:roomId/admin/tournaments/:tournamentId/atgames-links', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const db = await getDatabase();
+        const roomId = req.params.roomId as string;
+        const tournamentId = req.params.tournamentId as string;
+
+        const tournament = await db.get(
+            'SELECT id FROM tournaments WHERE id = ? AND game_room_id = ?', tournamentId, roomId,
+        );
+        if (!tournament) return res.status(404).json({ error: 'Tournament not found in this room' });
+
+        const atgamesAccountId = req.body?.atgamesAccountId;
+        const userId = typeof req.body?.userId === 'string' ? req.body.userId.trim() : '';
+        if (!userId) return res.status(400).json({ error: 'userId is required' });
+
+        const { RoomMembershipService } = await import('../../services/RoomMembershipService.js');
+        if (!(await RoomMembershipService.isMember(userId, roomId))) {
+            return res.status(400).json({ error: 'That player is not a member of this room' });
+        }
+
+        const { AtGamesIdentityService, AtGamesLinkError } = await import('../../services/AtGamesIdentityService.js');
+        try {
+            const result = await AtGamesIdentityService.linkAccount(atgamesAccountId, userId);
+
+            await AuditService.log({
+                actor: req.user!.discordId || req.user!.username || 'admin',
+                action: 'identity.atgames_link',
+                target_type: 'user',
+                target_id: userId,
+                details: JSON.stringify({ atgamesAccountId, tournamentId, ...result }),
+                ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+                correlation_id: req.correlationId || '',
+            });
+
+            if (result.rowsAttributed > 0) {
+                try {
+                    const { emitLeaderboardUpdated } = await import('../websocket.js');
+                    emitLeaderboardUpdated(roomId, { gameId: '' });
+                } catch { /* socket optional */ }
+            }
+            return res.json({ success: true, ...result });
+        } catch (err) {
+            if (err instanceof AtGamesLinkError) {
+                return res.status(err.code === 'LINK_CONFLICT' ? 409 : 400).json({ error: err.message, code: err.code });
+            }
+            throw err;
+        }
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/admin/tournaments/:tournamentId/atgames-links):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Detach an AtGames account. Its AtGames scores go back to anonymous; nothing
+// the player submitted themselves is touched.
+router.delete('/:roomId/admin/tournaments/:tournamentId/atgames-links/:atgamesAccountId', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const db = await getDatabase();
+        const roomId = req.params.roomId as string;
+        const tournamentId = req.params.tournamentId as string;
+
+        const tournament = await db.get(
+            'SELECT id FROM tournaments WHERE id = ? AND game_room_id = ?', tournamentId, roomId,
+        );
+        if (!tournament) return res.status(404).json({ error: 'Tournament not found in this room' });
+
+        const { AtGamesIdentityService, AtGamesLinkError } = await import('../../services/AtGamesIdentityService.js');
+        try {
+            const result = await AtGamesIdentityService.unlinkAccount(req.params.atgamesAccountId as string);
+
+            await AuditService.log({
+                actor: req.user!.discordId || req.user!.username || 'admin',
+                action: 'identity.atgames_unlink',
+                target_type: 'user',
+                target_id: String(req.params.atgamesAccountId),
+                details: JSON.stringify({ tournamentId, ...result }),
+                ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+                correlation_id: req.correlationId || '',
+            });
+            return res.json({ success: true, ...result });
+        } catch (err) {
+            if (err instanceof AtGamesLinkError) {
+                return res.status(400).json({ error: err.message, code: err.code });
+            }
+            throw err;
+        }
+    } catch (error) {
+        logError('API Error (DELETE rooms/:roomId/admin/tournaments/:tournamentId/atgames-links/:atgamesAccountId):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

@@ -45,6 +45,8 @@ export interface Tournament {
   min_elapsed_sec?: number | null;
   end_grace_sec?: number | null;
   event_finished_at?: string | null;
+  /** P7 — the AtGames private tournament this event reads its scores from. */
+  atgames_tournament_id?: string | null;
   /** Embedded by `GET /:roomId/tournaments` for event rows only. */
   rounds?: EventRoundRow[];
 }

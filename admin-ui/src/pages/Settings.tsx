@@ -248,7 +248,7 @@ interface PendingInvite {
   created_at: string;
 }
 
-const SENSITIVE_KEYS = ['ISCORED_PASSWORD', 'ADMIN_PASSWORD_HASH'];
+const SENSITIVE_KEYS = ['ISCORED_PASSWORD', 'ADMIN_PASSWORD_HASH', 'ATGAMES_PASSWORD'];
 const ENC_MASK_PREFIX = 'mask:';
 const isMaskedSecret = (v: string | undefined | null): boolean =>
   typeof v === 'string' && v.startsWith(ENC_MASK_PREFIX);
@@ -277,6 +277,7 @@ const isFlagOn = (settings: Record<string, string>, key: string): boolean => set
 const INTEGRATION_GATE_KEYS: Record<string, string> = {
   Discord: 'DISCORD_ENABLED',
   iScored: 'ISCORED_ENABLED',
+  AtGames: 'ATGAMES_ENABLED',
 };
 
 /**
@@ -310,6 +311,9 @@ const CATEGORIES: Record<string, string[]> = {
   'Game Room': ['GAME_ROOM_NAME', 'GAME_ROOM_SLUG'],
   'Discord': ['DISCORD_GUILD_ID', 'DISCORD_ADMIN_ROLE_ID', 'DISCORD_ANNOUNCEMENT_CHANNEL_ID', 'DISCORD_INVITE_URL'],
   'iScored': ['ISCORED_USERNAME', 'ISCORED_PASSWORD', 'ISCORED_PUBLIC_URL'],
+  // P7 (v2.139.0) — the room owner's OWN AtGames account, used to read that
+  // account's private tournaments. Players never supply credentials here.
+  'AtGames': ['ATGAMES_EMAIL', 'ATGAMES_PASSWORD'],
 };
 
 // Style-system revamp P0 (item 10): REQUIRE_SCORE_PHOTO is submission policy,
@@ -353,6 +357,11 @@ const ISCORED_TOGGLES: Record<string, { label: string; description: string; defa
 
 // Remaining feature toggles (Discord/iScored/submissions)
 const TOGGLE_SETTINGS: Record<string, { label: string; description: string; defaultOn?: boolean }> = {
+  'ATGAMES_ENABLED': {
+    label: 'AtGames Score Sync',
+    description: "Read scores for this room's Live Events straight off an AtGames private tournament, so players on a cabinet don't have to re-type anything. Does nothing until the AtGames email and password below are filled in. AtGames records the moment a player EXITS a table, so a score proves it landed inside the round window — never how long it was played.",
+    defaultOn: true,
+  },
   'ISCORED_ENABLED': {
     label: 'iScored Integration',
     description: 'Bridge to an external iScored board (legacy). Scores sync in by name only — they can\'t be verified, and anyone with access to your iScored board can post under any name. Synced scores appear in this room only, never on the Global Scoreboard. Toggle off to fully disconnect this room from iScored without touching credentials.',
@@ -485,6 +494,9 @@ const SETTING_LABELS: Record<string, { label: string; description: string }> = {
   ISCORED_USERNAME: { label: 'iScored Username', description: 'Login email or username for your room\'s iScored.info account.' },
   ISCORED_PASSWORD: { label: 'iScored Password', description: 'Password for the iScored account. Used for automated game creation and score scraping.' },
   ISCORED_PUBLIC_URL: { label: 'iScored Public URL', description: 'Public leaderboard URL for score scraping (e.g. https://iscored.info/your_account).' },
+  // AtGames
+  ATGAMES_EMAIL: { label: 'AtGames Email', description: "Login email for the AtGames account that OWNS the private tournaments this room reads. Yours, not a player's — nobody else has to share credentials." },
+  ATGAMES_PASSWORD: { label: 'AtGames Password', description: 'Password for that AtGames account. Stored encrypted, never shown again after saving, and only ever sent to AtGames.' },
   // Scoreboard
   SCOREBOARD_MAX_SCORES: { label: 'Scores Per Card', description: 'Maximum number of scores displayed per game card on the public leaderboard. Default: 5.' },
   SCOREBOARD_ZOOM: { label: 'Zoom Level (%)', description: 'Scale the leaderboard for high-res monitors or TV displays. Range: 50-200. Default: 100.' },
@@ -929,6 +941,10 @@ export default function Settings() {
     // here so it never leaks into the raw "Other" card.
     ...Object.keys(ISCORED_TOGGLES),
     ...Object.keys(TOGGLE_SETTINGS),
+    // Minted once by the server and reused forever (AtGames expects a stable
+    // device fingerprint). Claimed here so it never surfaces as a raw text
+    // input in "Other" — an admin editing it would look like a new device.
+    'ATGAMES_DEVICE_FP',
     // v2.39.0 — rendered as its own 2-option select, not a boolean toggle.
     JOIN_POLICY_KEY,
     // v2.80.0 — rendered as a conditional toggle beside JOIN_POLICY.

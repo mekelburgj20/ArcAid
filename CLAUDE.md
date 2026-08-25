@@ -166,7 +166,7 @@ A **Throwdown** is a player-created challenge with no game room: a `format='even
 - Codes avoid `0`/`O`/`1`/`I`/`l` — read aloud on streams, retyped from phones.
 - **Personal rooms were REJECTED** (ADR 0018 records why): they eat the flat public slug namespace, make the share link read as somebody's room URL, and give every room-scoped feature an "except personal rooms" caveat. Do not revive that idea.
 
-## AtGames event score sync (v2.138.0, P7)
+## AtGames event score sync (v2.138.0 / v2.139.0, P7)
 
 An event round can source its scores from an **AtGames private tournament** instead of phone re-entry: the cabinet posts to AtGames, `AtGamesEventSyncService` reads AtGames. Separate from `AtGamesApiClient` (public catalogue, no auth) — the authenticated half is `AtGamesPrivateClient`.
 
@@ -177,7 +177,9 @@ An event round can source its scores from an **AtGames private tournament** inst
 - **Rounds match on (catalogue game, window)**, joined via `global_games.atgames_id` — the payoff for the importer chasing AtGames' stable game id. Same table in two rounds resolves by timestamp; an unmatched AtGames game is counted and named, never guessed at.
 - **Identity is a link, never a name match.** `atgames:<account id>` → `user_identity_links`. Unlinked scores still land (complete board) with `submitted_by_user_id = NULL` and the synthetic id in `discord_user_id` — `normalizeSubmitterUserId` rejects `atgames:*` alongside `iscored:*` for the v2.125.2 reason. Ingest is idempotent (the `ScoreHistoryService.log` dedup), so a host may press sync repeatedly.
 - **Deliberately absent:** Global Scoreboard fan-out (matches `'sync'`; a product call), automatic polling on the round clock, admin UI, and any AtGames-side write (no tournament creation). `'atgames'` is also NOT whitelisted in the per-row score-delete endpoint — with no tombstone table the next sync would resurrect the row (the iScored equivalent is `deleted_score_suppressions`).
-- **Exit-to-submit means `created_at` is when the player LEFT the table.** This proves a score landed inside the window and nothing else; play duration stays unknowable until P8's on-device witness. Never describe it as more.
+- **Exit-to-submit means `created_at` is when the player LEFT the table.** This proves a score landed inside the window and nothing else; play duration stays unknowable until P8's on-device witness. Never describe it as more. **AtGames does NOT filter gear-up** (owner-tested on hardware 2026-08-25: a game started before the window and exited inside it is accepted onto their board), so nothing upstream helps either.
+- **v2.139.0 added the host controls:** credentials on the room Settings page (`ATGAMES_ENABLED` toggle + the two cred fields; `ATGAMES_DEVICE_FP` is claimed by `managedKeys` so it never renders as an editable input), and an AtGames section in `EventRoundsPanel` — id field, **Preview**, **Pull scores**, a per-score verdict list, and the "Who is who" account linker. **The dry run and the real write share ONE dedup predicate** (`ScoreHistoryService.isDuplicate`, extracted from `log`) — never re-implement it, or the preview will disagree with the run it previews.
+- **`AtGamesIdentityService` owns the link.** `atgames:<id>` → `user_identity_links` (no new table — an AtGames account is a provider identity nobody logs in with). `linkAccount` claims already-ingested rows behind the SAME freeze gate `MergeService.previewMerge` uses (skip rows in an `is_active = 0` tournament), refuses a re-point with `LINK_CONFLICT` rather than last-write-wins, is idempotent for the same target, and invalidates identity caches only when rows actually moved. `unlinkAccount` re-anonymises `source='atgames'` rows ONLY. The room-admin route bounds a global write by requiring the target to be a member of that room — same asymmetry as iScored claim approval.
 
 ## Platform stratification
 

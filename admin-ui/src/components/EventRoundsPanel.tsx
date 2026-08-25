@@ -24,6 +24,51 @@ import type { EventRoundRow, Tournament } from '../lib/tournamentFormPayload';
  * score's elapsed time is measured from the stored start).
  */
 
+/** One score's outcome from a sync (or a preview of one). */
+interface SyncRow {
+    atgamesAccount: number;
+    userName: string;
+    score: number;
+    atIso: string | null;
+    decision: 'ingested' | 'duplicate' | 'out_of_window' | 'unmatched_game' | 'bad_timestamp';
+    roundNo: number | null;
+    roundName: string | null;
+    linkedUserId: string | null;
+}
+
+interface SyncResult {
+    ingested: number;
+    duplicates: number;
+    outOfWindow: number;
+    unmatchedGame: number;
+    unlinkedAccounts: number;
+    unmatchedGameIds: number[];
+    dryRun: boolean;
+    rows: SyncRow[];
+}
+
+interface AtGamesAccount {
+    atgamesAccountId: number;
+    userName: string;
+    scoreCount: number;
+    linkedUserId: string | null;
+    linkedDisplayName: string | null;
+}
+
+interface MemberOption {
+    userId: string;
+    displayName: string;
+}
+
+/** Plain-English reason a score is or isn't on the board. */
+const DECISION_LABEL: Record<SyncRow['decision'], string> = {
+    ingested: 'counted',
+    duplicate: 'already had it',
+    out_of_window: 'outside the round window',
+    unmatched_game: 'that game is not in this event',
+    bad_timestamp: "AtGames sent a time we couldn't read",
+};
+
 interface ParticipantRow {
     user_id: string;
     checked_in_at: string;
@@ -47,15 +92,26 @@ export default function EventRoundsPanel({ roomId, tournament, onClose, onChange
     const [busy, setBusy] = useState<string | null>(null);
     const [addUserId, setAddUserId] = useState('');
     const [loading, setLoading] = useState(true);
+    const [atgamesId, setAtgamesId] = useState(tournament.atgames_tournament_id ?? '');
+    const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
+    const [accounts, setAccounts] = useState<AtGamesAccount[]>([]);
+    const [members, setMembers] = useState<MemberOption[]>([]);
+    const [linkChoice, setLinkChoice] = useState<Record<number, string>>({});
 
     const refresh = useCallback(async () => {
         try {
-            const [list, people] = await Promise.all([
+            const [list, people, atgamesAccounts, roomMembers] = await Promise.all([
                 api.get<Tournament[]>(`/rooms/${roomId}/tournaments`),
                 api.get<ParticipantRow[]>(`/rooms/${roomId}/events/${tournament.id}/participants`),
+                // Both are best-effort: a room with no AtGames scores yet is the
+                // normal case, and neither should be able to break the panel.
+                api.get<AtGamesAccount[]>(`/rooms/${roomId}/admin/tournaments/${tournament.id}/atgames-accounts`).catch(() => []),
+                api.get<MemberOption[]>(`/rooms/${roomId}/members`).catch(() => []),
             ]);
             setRounds(list.find(t => t.id === tournament.id)?.rounds ?? []);
             setParticipants(people);
+            setAccounts(atgamesAccounts ?? []);
+            setMembers(roomMembers ?? []);
         } catch (err) {
             toast((err as Error)?.message || 'Could not load event details', 'error');
         } finally {
@@ -104,6 +160,58 @@ export default function EventRoundsPanel({ roomId, tournament, onClose, onChange
             await refresh();
         } catch (err) {
             toast((err as Error)?.message || 'Could not remove player', 'error');
+        } finally {
+            setBusy(null);
+        }
+    };
+
+    const runSync = async (dryRun: boolean) => {
+        setBusy(dryRun ? 'preview' : 'sync');
+        try {
+            const result = await api.post<SyncResult>(
+                `/rooms/${roomId}/admin/tournaments/${tournament.id}/atgames-sync`,
+                { atgamesTournamentId: atgamesId.trim() || undefined, dryRun },
+            );
+            setSyncResult(result);
+            if (!dryRun) {
+                await refresh();
+                onChanged();
+                toast(`${result.ingested} score${result.ingested === 1 ? '' : 's'} pulled in`, 'success');
+            }
+        } catch (err) {
+            toast((err as Error)?.message || 'AtGames sync failed', 'error');
+        } finally {
+            setBusy(null);
+        }
+    };
+
+    const linkAccount = async (atgamesAccountId: number) => {
+        const userId = linkChoice[atgamesAccountId];
+        if (!userId) return;
+        setBusy(`link-${atgamesAccountId}`);
+        try {
+            const res = await api.post<{ rowsAttributed: number }>(
+                `/rooms/${roomId}/admin/tournaments/${tournament.id}/atgames-links`,
+                { atgamesAccountId, userId },
+            );
+            await refresh();
+            onChanged();
+            toast(`Linked — ${res.rowsAttributed} score${res.rowsAttributed === 1 ? '' : 's'} now count for them`, 'success');
+        } catch (err) {
+            toast((err as Error)?.message || 'Could not link that account', 'error');
+        } finally {
+            setBusy(null);
+        }
+    };
+
+    const unlinkAccount = async (atgamesAccountId: number) => {
+        setBusy(`link-${atgamesAccountId}`);
+        try {
+            await api.delete(`/rooms/${roomId}/admin/tournaments/${tournament.id}/atgames-links/${atgamesAccountId}`);
+            await refresh();
+            onChanged();
+        } catch (err) {
+            toast((err as Error)?.message || 'Could not unlink that account', 'error');
         } finally {
             setBusy(null);
         }
@@ -217,6 +325,119 @@ export default function EventRoundsPanel({ roomId, tournament, onClose, onChange
                 <p className="text-xs text-faint mt-1.5">
                     Adding a player by hand works even after check-in has closed — that is what it is for.
                 </p>
+
+                {/* P7 — pull scores off an AtGames private tournament. Manual by
+                    design for now: the host presses it, and pressing it twice is
+                    harmless because the ingest drops duplicates. */}
+                <h3 className="font-display text-xs font-bold uppercase tracking-wider text-muted mt-6 mb-2">AtGames scores</h3>
+                <p className="text-xs text-faint mb-2">
+                    Reads scores straight off an AtGames private tournament, so players on a cabinet
+                    don't have to type anything in. Paste the number from the end of the tournament's
+                    address on atgames.net. Preview first — it shows what would happen and changes nothing.
+                </p>
+                <div className="flex gap-2 items-center flex-wrap">
+                    <input
+                        type="text" placeholder="AtGames tournament id" value={atgamesId}
+                        onChange={e => setAtgamesId(e.target.value)}
+                        className="flex-1 min-w-[10rem] px-3 py-2 bg-raised border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan transition-colors font-mono"
+                    />
+                    <NeonButton
+                        variant="ghost" className="text-xs px-3 py-2"
+                        disabled={!atgamesId.trim() || busy === 'preview'}
+                        onClick={() => runSync(true)}
+                    >Preview</NeonButton>
+                    <NeonButton
+                        variant="secondary" className="text-xs px-3 py-2"
+                        disabled={!atgamesId.trim() || busy === 'sync'}
+                        onClick={() => runSync(false)}
+                    >Pull scores</NeonButton>
+                </div>
+
+                {syncResult && (
+                    <div className="mt-3 p-3 rounded border border-border bg-raised">
+                        <p className="text-sm text-primary mb-1">
+                            {syncResult.dryRun ? 'Preview — nothing was saved. ' : ''}
+                            {syncResult.ingested} counted, {syncResult.duplicates} already had,{' '}
+                            {syncResult.outOfWindow} outside a round window, {syncResult.unmatchedGame} not in this event.
+                        </p>
+                        {syncResult.unlinkedAccounts > 0 && (
+                            <p className="text-xs text-neon-amber mb-1">
+                                {syncResult.unlinkedAccounts} score{syncResult.unlinkedAccounts === 1 ? '' : 's'} came
+                                from an AtGames account nobody has claimed yet — say who they are below and their
+                                scores will count for them.
+                            </p>
+                        )}
+                        {syncResult.rows.length > 0 && (
+                            <div className="mt-2 space-y-1 max-h-56 overflow-y-auto">
+                                {syncResult.rows.map((row, i) => (
+                                    <div key={`${row.atgamesAccount}-${i}`} className="flex items-baseline gap-2 text-xs flex-wrap">
+                                        <span className="text-primary font-medium min-w-[6rem]">{row.userName}</span>
+                                        <span className="text-muted font-mono">{row.score.toLocaleString()}</span>
+                                        <span className="text-faint">
+                                            {row.roundNo ? `R${row.roundNo} ${row.roundName ?? ''}` : '—'}
+                                        </span>
+                                        <span className={row.decision === 'ingested' ? 'text-neon-cyan ml-auto' : 'text-faint ml-auto'}>
+                                            {DECISION_LABEL[row.decision]}
+                                        </span>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {accounts.length > 0 && (
+                    <div className="mt-3">
+                        <h3 className="font-display text-xs font-bold uppercase tracking-wider text-muted mb-1">Who is who</h3>
+                        <p className="text-xs text-faint mb-2">
+                            Arcaid never guesses which player an AtGames name belongs to — two similar handles
+                            would end up owning each other's scores. Say who each one is once, and their past
+                            and future scores in this event count for them.
+                        </p>
+                        <div className="space-y-2">
+                            {accounts.map(acc => (
+                                <div key={acc.atgamesAccountId} className="flex items-center gap-2 flex-wrap p-2 rounded border border-border bg-raised">
+                                    <span className="text-sm text-primary flex-1 min-w-[7rem] truncate">
+                                        {acc.userName}
+                                        <span className="text-faint text-xs ml-2">
+                                            {acc.scoreCount} score{acc.scoreCount === 1 ? '' : 's'}
+                                        </span>
+                                    </span>
+                                    {acc.linkedUserId ? (
+                                        <>
+                                            <span className="text-xs px-2 py-0.5 rounded bg-neon-cyan/15 text-neon-cyan border border-neon-cyan/40">
+                                                {acc.linkedDisplayName || acc.linkedUserId}
+                                            </span>
+                                            <button
+                                                type="button" onClick={() => unlinkAccount(acc.atgamesAccountId)}
+                                                disabled={busy === `link-${acc.atgamesAccountId}`}
+                                                className="px-2 py-0.5 text-xs rounded border border-border text-muted hover:text-neon-magenta hover:border-neon-magenta transition-colors"
+                                            >Unlink</button>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <select
+                                                value={linkChoice[acc.atgamesAccountId] ?? ''}
+                                                onChange={e => setLinkChoice(prev => ({ ...prev, [acc.atgamesAccountId]: e.target.value }))}
+                                                className="px-2 py-1 bg-surface border border-border rounded text-primary text-xs focus:outline-none focus:border-neon-cyan"
+                                            >
+                                                <option value="">Who is this?</option>
+                                                {members.map(m => (
+                                                    <option key={m.userId} value={m.userId}>{m.displayName}</option>
+                                                ))}
+                                            </select>
+                                            <NeonButton
+                                                variant="ghost" className="text-xs px-2 py-1"
+                                                disabled={!linkChoice[acc.atgamesAccountId] || busy === `link-${acc.atgamesAccountId}`}
+                                                onClick={() => linkAccount(acc.atgamesAccountId)}
+                                            >Link</NeonButton>
+                                        </>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );

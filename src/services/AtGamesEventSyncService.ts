@@ -67,6 +67,27 @@ export interface AtGamesSyncResult {
     unmatchedGameIds: number[];
     /** Arcaid round ids that gained at least one score — what to refresh. */
     affectedGameIds: string[];
+    /** True when nothing was written — this was a preview. */
+    dryRun: boolean;
+    /**
+     * Per-score outcome, for a host who wants to know WHY a score is missing.
+     * "It didn't show up" is the question this feature will generate most, and
+     * a count alone cannot answer it.
+     */
+    rows: AtGamesSyncRow[];
+}
+
+export interface AtGamesSyncRow {
+    atgamesAccount: number;
+    userName: string;
+    score: number;
+    /** AtGames' own timestamp, normalised to ISO UTC; null if unparseable. */
+    atIso: string | null;
+    decision: 'ingested' | 'duplicate' | 'out_of_window' | 'unmatched_game' | 'bad_timestamp';
+    roundNo: number | null;
+    roundName: string | null;
+    /** The Arcaid account this landed under, or null when the AtGames account is unlinked. */
+    linkedUserId: string | null;
 }
 
 interface TournamentRow {
@@ -80,6 +101,7 @@ interface TournamentRow {
 interface RoundRow {
     id: string;
     name: string;
+    round_no: number | null;
     scheduled_start_at: string | null;
     scheduled_end_at: string | null;
 }
@@ -133,7 +155,11 @@ export class AtGamesEventSyncService {
      * things a room admin can fix, so they must surface rather than be logged
      * and swallowed.
      */
-    static async syncTournament(tournamentId: string): Promise<AtGamesSyncResult> {
+    static async syncTournament(
+        tournamentId: string,
+        opts?: { dryRun?: boolean },
+    ): Promise<AtGamesSyncResult> {
+        const dryRun = opts?.dryRun === true;
         const db = await getDatabase();
 
         const tournament = await db.get<TournamentRow>(
@@ -172,7 +198,7 @@ export class AtGamesEventSyncService {
         const rankings = AtGamesPrivateClient.flattenRankings(detail);
 
         const rounds = await db.all<RoundRow[]>(
-            `SELECT id, name, scheduled_start_at, scheduled_end_at
+            `SELECT id, name, round_no, scheduled_start_at, scheduled_end_at
              FROM games
              WHERE tournament_id = ? AND round_no IS NOT NULL
              ORDER BY round_no ASC`,
@@ -188,6 +214,7 @@ export class AtGamesEventSyncService {
         const result: AtGamesSyncResult = {
             ingested: 0, duplicates: 0, outOfWindow: 0,
             unmatchedGame: 0, unlinkedAccounts: 0, unmatchedGameIds: [], affectedGameIds: [],
+            dryRun, rows: [],
         };
         const affected = new Set<string>();
         const unmatched = new Set<number>();
@@ -196,17 +223,37 @@ export class AtGamesEventSyncService {
         const canonicalByAccount = new Map<number, string | null>();
 
         for (const row of rankings) {
+            const score = typeof row.score === 'number' ? row.score : Number(row.score);
+            const at = parseAtGamesTimestamp(row.created_at);
+            const record = (
+                decision: AtGamesSyncRow['decision'],
+                round: RoundRow | null,
+                linkedUserId: string | null,
+            ) => {
+                result.rows.push({
+                    atgamesAccount: row.account,
+                    userName: row.user_name,
+                    score,
+                    atIso: at == null ? null : new Date(at).toISOString(),
+                    decision,
+                    roundNo: round?.round_no ?? null,
+                    roundName: round?.name ?? null,
+                    linkedUserId,
+                });
+            };
+
             const candidates = roundsByGameId.get(row.game_id);
             if (!candidates || candidates.length === 0) {
                 result.unmatchedGame++;
                 unmatched.add(row.game_id);
+                record('unmatched_game', null, null);
                 continue;
             }
 
-            const at = parseAtGamesTimestamp(row.created_at);
             if (at == null) {
                 logWarn(`AtGames sync: unparseable timestamp "${row.created_at}" on game ${row.game_id} — skipping`);
                 result.outOfWindow++;
+                record('bad_timestamp', null, null);
                 continue;
             }
 
@@ -218,6 +265,7 @@ export class AtGamesEventSyncService {
             });
             if (!round) {
                 result.outOfWindow++;
+                record('out_of_window', null, null);
                 continue;
             }
 
@@ -229,15 +277,25 @@ export class AtGamesEventSyncService {
             const canonical = canonicalByAccount.get(row.account) ?? null;
             if (!canonical) result.unlinkedAccounts++;
 
-            const written = await this.writeScore(row, round, tournament, canonical);
-            if (written) { result.ingested++; affected.add(round.id); }
-            else result.duplicates++;
+            // A dry run answers the same question the real run does, through
+            // the SAME dedup predicate — it just stops short of the INSERT.
+            const isNew = dryRun
+                ? !(await ScoreHistoryService.isDuplicate({
+                    gameName: round.name, gameRoomId: tournament.game_room_id,
+                    gameId: round.id, username: row.user_name, score,
+                }))
+                : await this.writeScore(row, round, tournament, canonical);
+
+            if (isNew) { result.ingested++; affected.add(round.id); record('ingested', round, canonical); }
+            else { result.duplicates++; record('duplicate', round, canonical); }
         }
 
         result.unmatchedGameIds = [...unmatched];
-        result.affectedGameIds = [...affected];
+        // A dry run must never claim it changed anything — the caller emits a
+        // leaderboard refresh off this list.
+        result.affectedGameIds = dryRun ? [] : [...affected];
         logInfo(
-            `AtGames sync: tournament ${tournamentId} <- AtGames ${tournament.atgames_tournament_id} — ` +
+            `AtGames sync${dryRun ? ' (DRY RUN)' : ''}: tournament ${tournamentId} <- AtGames ${tournament.atgames_tournament_id} — ` +
             `${result.ingested} new, ${result.duplicates} already had, ${result.outOfWindow} out of window, ` +
             `${result.unmatchedGame} with no matching round, ${result.unlinkedAccounts} from unlinked accounts`,
         );
