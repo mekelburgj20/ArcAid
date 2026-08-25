@@ -29,6 +29,12 @@ export function normalizeSubmitterUserId(discordUserId?: string | null): string 
     // when it is NULL, so a synthetic value there hid the linked user's avatar
     // and display name (Wyo / DennisB on rtx_pinball, 2026-08-21).
     if (discordUserId.toLowerCase().startsWith('iscored:')) return null;
+    // P7: `atgames:<account id>` is the same shape of synthetic id for scores
+    // pulled from an AtGames private tournament — a marker of "AtGames account
+    // N, not yet linked to anyone here". It must be kept out of
+    // `submitted_by_user_id` for exactly the reason above; the row keeps it in
+    // `discord_user_id` so a later identity link can find and re-attribute it.
+    if (discordUserId.toLowerCase().startsWith('atgames:')) return null;
     return discordUserId;
 }
 

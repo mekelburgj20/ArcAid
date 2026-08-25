@@ -189,7 +189,7 @@ async function doInitDatabase(): Promise<Database> {
             discord_user_id TEXT DEFAULT 'SYSTEM',
             score INTEGER NOT NULL,
             photo_url TEXT,
-            source TEXT NOT NULL DEFAULT 'tournament' CHECK(source IN ('tournament', 'community', 'sync')),
+            source TEXT NOT NULL DEFAULT 'tournament' CHECK(source IN ('tournament', 'community', 'sync', 'atgames')),
             created_at TEXT DEFAULT (datetime('now')),
             FOREIGN KEY (game_room_id) REFERENCES game_rooms (id) ON DELETE CASCADE
         );
@@ -2798,6 +2798,35 @@ async function doInitDatabase(): Promise<Database> {
             await db.exec(`
                 CREATE INDEX IF NOT EXISTS idx_tournaments_created_by
                     ON tournaments(created_by_user_id) WHERE created_by_user_id IS NOT NULL
+            `);
+        } },
+        // P7 — AtGames event score sync. A fourth `score_history.source`, which
+        // on the biggest table in the DB means a create-copy-drop-rename. A
+        // HANDLER on purpose (a swallowed failure here would lose scores); see
+        // the migration file for why none of the three existing sources fit.
+        { name: '167_score_history_source_atgames', handler: async (db) => {
+            const { scoreHistorySourceAtgames } = await import('./migrations/scoreHistorySourceAtgames.js');
+            await scoreHistorySourceAtgames(db);
+        } },
+        // P7 — which AtGames private tournament (if any) an Arcaid tournament
+        // draws its scores from. Two columns rather than a table: the link is
+        // 1:1 with the tournament and carries no history of its own. The
+        // invitation code is stored so the host can show players how to join
+        // from their cabinet without a second round trip to AtGames.
+        { name: '168_tournaments_atgames_link', handler: async (db) => {
+            const existing = (await db.all(`PRAGMA table_info(tournaments)`)) as Array<{ name: string }>;
+            const have = new Set(existing.map(c => c.name));
+            if (!have.has('atgames_tournament_id')) {
+                await db.exec(`ALTER TABLE tournaments ADD COLUMN atgames_tournament_id TEXT`);
+            }
+            if (!have.has('atgames_invite_code')) {
+                await db.exec(`ALTER TABLE tournaments ADD COLUMN atgames_invite_code TEXT`);
+            }
+            // Partial index: the poller's question is "which tournaments are
+            // AtGames-linked", and all but a handful of rows are NULL.
+            await db.exec(`
+                CREATE INDEX IF NOT EXISTS idx_tournaments_atgames
+                    ON tournaments(atgames_tournament_id) WHERE atgames_tournament_id IS NOT NULL
             `);
         } },
     ];

@@ -1697,6 +1697,84 @@ router.get('/:roomId/admin/tournaments/:tournamentId/queue/:forUserId', requireA
     }
 });
 
+// P7 — pull an AtGames private tournament's scores into this event.
+//
+// On-demand only for now: the host presses it, and it is safe to press again
+// mid-round because the ingest dedups. Automating it on the round clock is the
+// next step; shipping the manual pull first means the whole path (credentials,
+// token, window matching, identity) is provable by a room admin without waiting
+// for a round to run.
+//
+// `atgamesTournamentId` in the body links the two tournaments (and is stored),
+// so a host never has to touch the DB to attach one. Passing it again with a
+// different id re-points the link.
+router.post('/:roomId/admin/tournaments/:tournamentId/atgames-sync', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const db = await getDatabase();
+        const roomId = req.params.roomId as string;
+        const tournamentId = req.params.tournamentId as string;
+
+        const tournament = await db.get(
+            'SELECT id, format FROM tournaments WHERE id = ? AND game_room_id = ?',
+            tournamentId, roomId,
+        );
+        if (!tournament) return res.status(404).json({ error: 'Tournament not found in this room' });
+        if (tournament.format !== 'event') {
+            // Rounds are what a score is matched into. A rotation tournament
+            // has no windows to match against, so there is nothing coherent to
+            // do here rather than a silently empty result.
+            return res.status(400).json({ error: 'AtGames sync only applies to Live Event tournaments' });
+        }
+
+        const requested = req.body?.atgamesTournamentId;
+        if (requested !== undefined && requested !== null && String(requested).trim() !== '') {
+            const value = String(requested).trim();
+            if (!/^[A-Za-z0-9_-]{1,64}$/.test(value)) {
+                return res.status(400).json({ error: 'Invalid AtGames tournament id' });
+            }
+            await db.run('UPDATE tournaments SET atgames_tournament_id = ? WHERE id = ?', value, tournamentId);
+        }
+
+        const { AtGamesEventSyncService, AtGamesSyncError } = await import('../../services/AtGamesEventSyncService.js');
+        const { AtGamesAuthError } = await import('../../services/AtGamesPrivateClient.js');
+        try {
+            const result = await AtGamesEventSyncService.syncTournament(tournamentId);
+
+            await AuditService.log({
+                actor: req.user!.discordId || req.user!.username || 'admin',
+                action: 'tournament.atgames_sync',
+                target_type: 'tournament',
+                target_id: tournamentId,
+                details: JSON.stringify(result),
+                ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+                correlation_id: req.correlationId || '',
+            });
+
+            if (result.affectedGameIds.length > 0) {
+                try {
+                    const { emitLeaderboardUpdated } = await import('../websocket.js');
+                    for (const gameId of result.affectedGameIds) emitLeaderboardUpdated(roomId, { gameId });
+                } catch { /* socket optional */ }
+            }
+            return res.json({ success: true, ...result });
+        } catch (err) {
+            // Both of these are things a room admin can fix (wrong id, missing
+            // or rejected credentials), so they get a 4xx with the reason
+            // rather than a generic 500.
+            if (err instanceof AtGamesSyncError) {
+                return res.status(err.code === 'NOT_FOUND' ? 404 : 400).json({ error: err.message, code: err.code });
+            }
+            if (err instanceof AtGamesAuthError) {
+                return res.status(502).json({ error: err.message, code: 'ATGAMES_AUTH' });
+            }
+            throw err;
+        }
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/admin/tournaments/:tournamentId/atgames-sync):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 
 // v2.9x — shared query-param reader for the two filterable stats endpoints
 // below (enhanced/players, games-activity), so their `type`/`from`/`to`
