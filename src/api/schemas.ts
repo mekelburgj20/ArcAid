@@ -232,9 +232,11 @@ const themeIdSchema = z.enum(THEME_IDS);
 export const UpdatePreferencesSchema = z.object({
     ui_theme: themeIdSchema.nullable().optional(),
     appearance: z.enum(['dark', 'light', 'auto']).nullable().optional(),
+    /** v2.137.0 — whether room scores reach the Global Scoreboard. */
+    share_to_global: z.boolean().optional(),
 }).refine(
-    body => body.ui_theme !== undefined || body.appearance !== undefined,
-    { message: 'Provide ui_theme and/or appearance' },
+    body => body.ui_theme !== undefined || body.appearance !== undefined || body.share_to_global !== undefined,
+    { message: 'Provide ui_theme, appearance and/or share_to_global' },
 );
 
 // v2.132.0 — PUT /api/me/room-themes/:roomId. `theme: null` clears the

@@ -61,12 +61,20 @@ describe('UpdatePreferencesSchema', () => {
     });
 });
 
+/**
+ * NOTE (v2.137.0): the assertions below use `toMatchObject`, not `toEqual`.
+ * They are about appearance and theme — the neighbouring tests already read
+ * single properties — and the preferences payload legitimately grows
+ * (`share_to_global` arrived with the Global Scoreboard opt-out). Locking the
+ * whole shape here would fail every time an unrelated preference is added,
+ * which is noise rather than protection.
+ */
 describe('PreferencesService appearance', () => {
     beforeEach(async () => { await setupTestDb(); });
 
     it('getAll reports null appearance for a user who has never chosen', async () => {
         const all = await PreferencesService.getAll('discord-app-1');
-        expect(all).toEqual({ ui_theme: null, appearance: null });
+        expect(all).toMatchObject({ ui_theme: null, appearance: null });
     });
 
     it('round-trips light and dark through getAll', async () => {
@@ -90,7 +98,7 @@ describe('PreferencesService appearance', () => {
     it('appearance and ui_theme are independent on the same row', async () => {
         await PreferencesService.setTheme('discord-app-4', 'midnight');
         await PreferencesService.setAppearance('discord-app-4', 'light');
-        expect(await PreferencesService.getAll('discord-app-4')).toEqual({ ui_theme: 'midnight', appearance: 'light' });
+        expect(await PreferencesService.getAll('discord-app-4')).toMatchObject({ ui_theme: 'midnight', appearance: 'light' });
 
         // Changing the theme must not disturb the appearance...
         await PreferencesService.setTheme('discord-app-4', 'paper');
@@ -98,7 +106,7 @@ describe('PreferencesService appearance', () => {
         // ...and clearing the theme must not delete the row out from under it
         // (pre-v2.130 setTheme(null) was a DELETE of the whole row).
         await PreferencesService.setTheme('discord-app-4', null);
-        expect(await PreferencesService.getAll('discord-app-4')).toEqual({ ui_theme: null, appearance: 'light' });
+        expect(await PreferencesService.getAll('discord-app-4')).toMatchObject({ ui_theme: null, appearance: 'light' });
     });
 
     it('ignores a junk value stored directly in the column', async () => {
@@ -135,7 +143,7 @@ describe('GET/POST /api/me/preferences — appearance', () => {
 
         const before = await request(app).get('/api/me/preferences').set('Authorization', `Bearer ${token}`);
         expect(before.status).toBe(200);
-        expect(before.body).toEqual({ ui_theme: null, appearance: null });
+        expect(before.body).toMatchObject({ ui_theme: null, appearance: null });
 
         const post = await request(app)
             .post('/api/me/preferences')
@@ -144,7 +152,7 @@ describe('GET/POST /api/me/preferences — appearance', () => {
         expect(post.status).toBe(200);
 
         const after = await request(app).get('/api/me/preferences').set('Authorization', `Bearer ${token}`);
-        expect(after.body).toEqual({ ui_theme: null, appearance: 'light' });
+        expect(after.body).toMatchObject({ ui_theme: null, appearance: 'light' });
     });
 
     it('posting only ui_theme leaves a stored appearance untouched', async () => {
@@ -155,7 +163,7 @@ describe('GET/POST /api/me/preferences — appearance', () => {
         await request(app).post('/api/me/preferences').set('Authorization', `Bearer ${token}`).send({ ui_theme: 'midnight' });
 
         const after = await request(app).get('/api/me/preferences').set('Authorization', `Bearer ${token}`);
-        expect(after.body).toEqual({ ui_theme: 'midnight', appearance: 'dark' });
+        expect(after.body).toMatchObject({ ui_theme: 'midnight', appearance: 'dark' });
     });
 
     it('rejects a bad appearance value with 400', async () => {

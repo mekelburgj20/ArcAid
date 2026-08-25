@@ -20,7 +20,7 @@ import {
     allowedEngines,
     parseSubmitPlatformsResponse,
 } from '../lib/allowedProvenance';
-import type { SubmitRank } from '../lib/api';
+import { api, type SubmitRank } from '../lib/api';
 import { formatScore } from '../lib/format';
 import { deleteAtCaret, insertAtCaret, readCaret } from '../lib/caretEdit';
 import { normalizePhotoFile } from '../lib/photoNormalize';
@@ -241,11 +241,26 @@ export default function SubmissionSheet({
     /** Set when a selected photo can't be used (unsupported format that also
      *  failed client-side re-encode — see `lib/photoNormalize.ts`). */
     const [photoError, setPhotoError] = useState<string | null>(null);
+    /**
+     * v2.137.0 — seeded from the player's account preference so the box shows
+     * what will actually happen, and ALWAYS sent explicitly (see the submit
+     * handler). Without the explicit send, a player who had opted out globally
+     * could never share a single score: unchecking the box would omit the field
+     * and the server would fall back to their opt-out.
+     */
     const [excludeFromGlobal, setExcludeFromGlobal] = useState(false);
     // v2.5.0: per-score platform stratification. `null` until the resolver
     // endpoint replies. `[]` means the resolver returned no submittable
     // platforms (game has no platforms or active tournament excluded all).
     const [submittablePlatforms, setSubmittablePlatforms] = useState<string[] | null>(null);
+
+    useEffect(() => {
+        // Best-effort: a failure just leaves the default (share), which is the
+        // pre-v2.137.0 behaviour.
+        api.get<{ share_to_global?: boolean }>('/me/preferences')
+            .then(p => { if (p?.share_to_global === false) setExcludeFromGlobal(true); })
+            .catch(() => { /* keep the default */ });
+    }, []);
     /**
      * Full pre-rule platform set for the game (catalogue ∪ room tags). Used
      * only to disambiguate the single-platform chip's caption: "only platform
@@ -519,11 +534,11 @@ export default function SubmissionSheet({
             // schemas make `username` optional for exactly this, and the global
             // schema doesn't declare the field at all.
             if (target.kind === 'tournament') {
-                if (excludeFromGlobal) formData.append('excludeGlobal', 'true');
+                formData.append('excludeGlobal', excludeFromGlobal ? 'true' : 'false');
                 url = `/api/rooms/${target.roomId}/submit-score/${encodeURIComponent(target.gameName)}`;
             } else if (target.kind === 'freeplay') {
                 formData.append('globalGameId', target.globalGameId);
-                if (excludeFromGlobal) formData.append('excludeGlobal', 'true');
+                formData.append('excludeGlobal', excludeFromGlobal ? 'true' : 'false');
                 url = `/api/rooms/${target.roomId}/freeplay-score`;
             } else {
                 formData.append('globalGameId', target.globalGameId);

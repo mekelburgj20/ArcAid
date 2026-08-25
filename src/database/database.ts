@@ -2762,6 +2762,13 @@ async function doInitDatabase(): Promise<Database> {
         // v2.136.0 (ADR 0018) — Throwdown columns. A Throwdown IS a
         // `format='event'` tournament with `game_room_id IS NULL`, so it needs
         // no table of its own; these three columns are the whole difference.
+        // v2.137.0 — per-player Global Scoreboard opt-out. NULL = the default
+        // (fan out), which is today's behaviour for every existing user; only
+        // an explicit 0 suppresses. Resolved SERVER-side at submit time,
+        // because Discord /submit-score has no checkbox to carry the choice.
+        { name: '166_user_preferences_global_scoreboard', sql: `
+            ALTER TABLE user_preferences ADD COLUMN share_to_global INTEGER
+        ` },
         { name: '165_throwdown_columns', handler: async (db) => {
             const existing = (await db.all(`PRAGMA table_info(tournaments)`)) as Array<{ name: string }>;
             const have = new Set(existing.map(c => c.name));

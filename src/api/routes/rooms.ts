@@ -78,6 +78,7 @@ import { ScoreProvenanceService } from '../../services/ScoreProvenanceService.js
 import { AuditService } from '../../services/AuditService.js';
 import { checkEventSubmission } from '../../services/EventSubmissionGate.js';
 import { EventService, EventConfigError } from '../../services/EventService.js';
+import { PreferencesService } from '../../services/PreferencesService.js';
 
 const router = Router({ mergeParams: true });
 
@@ -2334,7 +2335,19 @@ router.post('/:roomId/community-scores/:gameName', writeLimiter, requireDiscordU
         // Security: attribution derives from the verified token, never the
         // request body — the request body doesn't even carry a discord_user_id
         // field (see CommunityScoreSchema).
+        // v2.137.0 — this path never carried an exclude flag at all, so it fanned
+        // out to the Global Scoreboard regardless of what the player wanted.
+        // Now that an account preference exists it has to be honoured here too,
+        // or turning sharing off would work on two of the three web paths.
+        const excludeFromGlobal = await PreferencesService.resolveExcludeFromGlobal(
+            req.user!.discordId,
+            req.body?.excludeGlobal === undefined
+                ? undefined
+                : (req.body.excludeGlobal === 'true' || req.body.excludeGlobal === true),
+        );
+
         const result = await CommunityScoreService.submitScore(roomId, gameName, resolvedName.username, score, req.user!.discordId, photo_url, {
+            excludeFromGlobal,
             platform, engine, device,
             eventTournamentId: gate.event?.tournamentId,
             eventGameId: gate.event?.gameId,
@@ -2381,7 +2394,15 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, requireDiscordUser,
         const roomId = req.params.roomId as string;
         const gameName = decodeURIComponent(req.params.gameName as string);
         const { score } = validationResult.data;
-        const excludeFromGlobal = req.body.excludeGlobal === 'true' || req.body.excludeGlobal === true;
+        // v2.137.0 — an explicit choice wins; the account preference fills in
+        // when the request says nothing (older clients, and anything without a
+        // checkbox to offer).
+        const explicitExclude = req.body.excludeGlobal === undefined
+            ? undefined
+            : (req.body.excludeGlobal === 'true' || req.body.excludeGlobal === true);
+        const excludeFromGlobal = await PreferencesService.resolveExcludeFromGlobal(
+            req.user!.discordId, explicitExclude,
+        );
 
         // v2.54.0 username lock — see the community-scores handler above.
         // requireDiscordUser guarantees an authed submitter, so the posted
@@ -2550,7 +2571,10 @@ router.post('/:roomId/freeplay-score', writeLimiter, requireDiscordUser, require
         // `platform` field).
         const validationResult = validate(FreeplayScoreSchema, req.body);
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
-        const { globalGameId, score, excludeGlobal: excludeFromGlobal } = validationResult.data;
+        const { globalGameId, score, excludeGlobal: explicitExcludeGlobal } = validationResult.data;
+        const excludeFromGlobal = await PreferencesService.resolveExcludeFromGlobal(
+            req.user!.discordId, explicitExcludeGlobal,
+        );
 
         // v2.54.0 username lock — see the community-scores handler above.
         // requireDiscordUser guarantees an authed submitter, so the posted

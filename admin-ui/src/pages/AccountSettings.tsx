@@ -10,6 +10,7 @@ import { resolveAvatarUrl } from '../lib/avatar';
 import { isGoogleUserId } from '../lib/identityProvider';
 import { buildPushErrorMessage } from '../lib/pushError';
 import ThrowdownsSection from '../components/ThrowdownsSection';
+import GlobalSharingSection from '../components/GlobalSharingSection';
 
 type AvatarProvider = 'discord' | 'google';
 
@@ -924,6 +925,8 @@ export default function AccountSettings() {
                 )}
               </div>
             </section>
+
+            <GlobalSharingSection />
 
             <ThrowdownsSection />
 

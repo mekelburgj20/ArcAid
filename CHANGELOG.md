@@ -6,6 +6,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.137.0] — Global Scoreboard opt-out
+
+A per-player setting for whether room scores reach the Global Scoreboard. On by default, which is what everyone already had.
+
+### Added
+- **"Share my scores to the Global Scoreboard"** on Account Settings. Off means your room scores stay in the room they were posted in — including scores submitted from Discord.
+- `share_to_global` on `GET`/`POST /api/me/preferences` (migration 166, nullable — NULL means share, so nothing had to guess at intent for existing players).
+
+### Changed
+- **The preference is resolved SERVER-side**, not by defaulting a checkbox. `/submit-score`, `/freeplay-score`, `/community-scores` and Discord `/submit-score` all route through `PreferencesService.resolveExcludeFromGlobal`: an explicit per-submission choice wins, and the stored preference fills in only when the request said nothing. This is the whole design — **Discord `/submit-score` has no checkbox**, so a client-side default would apply on the web and be silently ignored there.
+- The submit sheet seeds its box from the preference and now **always** sends the value. Previously it appended the field only when checked, so an opted-out player could never share one particular score.
+
+### Fixed
+- **`/community-scores` never carried the exclude flag at all** and fanned out to the Global Scoreboard unconditionally. Invisible while no preference existed to contradict it; with one, turning sharing off would have worked on two of the three web paths and silently failed on the third.
+
 ## [2.136.0] — Throwdowns
 
 Player-created, room-less challenges: pick a game, pick a duration, get a shareable link. "Let's see who can beat me on Medieval Madness." Design in [ADR 0018](docs/decisions/0018-throwdowns-are-room-less.md).
