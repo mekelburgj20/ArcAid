@@ -6,6 +6,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.138.0] — AtGames event score sync (P7, part 1)
+
+A Live Event round can now source its scores from an AtGames private tournament instead of asking every player to re-type their score into their phone. The cabinet posts to AtGames; Arcaid reads AtGames.
+
+### Added
+- **`AtGamesPrivateClient`** — the authenticated half of the AtGames API, separate from the public catalogue client. Signs in with a room owner's AtGames account, presents the token as `Authorization: Bearer` alongside the stable `fp` device header, and re-logs-in exactly once on a 401 (tokens last about a week). The AtGames account id comes straight out of the JWT payload, so no extra lookup is needed to key an identity. The password and the token are never logged; the email is masked.
+- **`AtGamesEventSyncService`** — pulls a linked private tournament's `rankings[]` into the event's rounds. `POST /api/rooms/:roomId/admin/tournaments/:tournamentId/atgames-sync` runs it on demand (body: `atgamesTournamentId` to attach or re-point the link).
+- **Per-room AtGames credentials** in `game_room_settings`: `ATGAMES_ENABLED`, `ATGAMES_EMAIL`, `ATGAMES_PASSWORD` (on the ADR 0003 encryption allowlist), `ATGAMES_DEVICE_FP` (minted once and reused — a fresh fingerprint per boot would look like a new device to AtGames). Partial configuration is treated as OFF and warned about, exactly as iScored is. There is deliberately **no env fallback**: a server-wide AtGames account would sign every room in as one person.
+- Migration **167** widens `score_history.source` to a fourth value, `'atgames'` — a `score_history` table rebuild, tested the same way migration 164 was. Migration **168** adds `tournaments.atgames_tournament_id` / `atgames_invite_code`.
+
+### Rules this ships with
+- **The window is enforced on the server, against AtGames' own timestamp.** A score whose `created_at` falls outside its round's window plus the event's grace is dropped, not stored — through the same `eventEndGraceSec` helper the submit gate and the round-closing scheduler use, so the three can never disagree about the buzzer.
+- **Rounds are matched by (catalogue game, window)**, joined through `global_games.atgames_id` — which is exactly why the AtGames importer chases AtGames' stable game id. An event that runs the same table twice puts each score in the round its timestamp falls in. An AtGames game matching no round is counted and named in the response, never guessed at.
+- **Identity is a link, never a name match.** `atgames:<account id>` resolves through `user_identity_links`. An unlinked account's score still lands, so the host sees a complete board, but carries `submitted_by_user_id = NULL` and the synthetic id in `discord_user_id` — the same shape the iScored poller uses, and the same reason: a later link can find and re-attribute those rows. `normalizeSubmitterUserId` now rejects `atgames:*` alongside `iscored:*`.
+- **Re-running is free.** The ingest dedups, so a host can press sync repeatedly through a round.
+- **No Global Scoreboard fan-out**, matching `'sync'`. A product call, recorded here so it is not mistaken for an oversight later.
+
+### Not yet
+The round clock does not run this by itself, there is no admin UI, and nothing yet creates the AtGames-side link between a player's AtGames account and their Arcaid one. Manual sync first, on purpose: it makes the whole path — credentials, token, window matching, identity — provable by a room admin without waiting for a round to run.
+
+### Honest limits
+AtGames is exit-to-submit: `created_at` is the moment the player left the table, not when they started. This proves a score landed inside the window and nothing more. Play duration remains unknowable from the API — that gap is what P8's on-device witness exists to close.
+
 ## [2.137.2] — Fix: pending identity claims unreachable in open rooms
 
 ### Fixed

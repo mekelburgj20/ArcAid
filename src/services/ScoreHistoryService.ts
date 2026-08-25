@@ -36,7 +36,15 @@ export class ScoreHistoryService {
         discordUserId?: string;
         score: number;
         photoUrl?: string;
-        source: 'tournament' | 'community' | 'sync';
+        /**
+         * P7: `'atgames'` is a score Arcaid pulled from an AtGames private
+         * tournament. It is deliberately its own value — not `'tournament'`
+         * (Arcaid never saw the submit), not `'sync'` (that means iScored, and
+         * forces unknown provenance per ADR 0016 P2 while these rows know their
+         * cabinet), not `'community'` (these count for standings). Widening the
+         * column's CHECK cost a rebuild; see migration 167.
+         */
+        source: 'tournament' | 'community' | 'sync' | 'atgames';
         tournamentId?: string | null;
         anonymousName?: string | null;
         /**

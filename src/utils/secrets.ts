@@ -68,6 +68,12 @@ export const ENCRYPTED_SETTING_KEYS: ReadonlySet<string> = new Set<string>([
     // same mechanism every other key above already relies on — so adding the
     // key here is the entire fix; no bespoke one-off migration needed.
     'DISCORD_CLIENT_SECRET',
+    // Per-room AtGames account password (P7 — AtGames event score sync). A
+    // room OWNER stores their own AtGames login so Arcaid can read that
+    // account's private tournaments; players never share credentials. This is a
+    // real third-party account password, so it belongs here for the same reason
+    // ISCORED_PASSWORD does.
+    'ATGAMES_PASSWORD',
 ]);
 
 export function isEncryptedKey(key: string): boolean {
