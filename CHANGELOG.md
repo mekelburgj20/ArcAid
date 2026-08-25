@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.137.2] — Fix: pending identity claims unreachable in open rooms
+
+### Fixed
+- **The "Identity Claims" admin nav item never appeared in open (non-approval) rooms, so pending claims could not be reached.** The nav item is shown only when the pending count is > 0, but that count was fetched inside an effect that early-returned unless `join_policy === 'approval'`. Identity claims happen in every room — a player claims an iScored name wherever their synced scores landed — so on an open room the count stayed 0 and the link stayed hidden while claims piled up (two real claims sat stuck in one room for a day; owner report 2026-08-25). The count now polls regardless of join policy; the join-requests count stays approval-only, which is correct. The claims page itself was always fine and reachable by direct URL (`/:slug/admin/identity-claims`).
+
 ## [2.137.1] — Fix: logged-in players bounced to the super-admin login
 
 ### Fixed

@@ -57,14 +57,24 @@ export default function RoomAdminLayout() {
   }, [slug]);
 
   useEffect(() => {
-    if (!room || room.join_policy !== 'approval') return;
+    if (!room) return;
     const fetchPending = () => {
+      // Identity claims happen in EVERY room, not just approval ones — a
+      // player claims an iScored name wherever their synced scores landed.
+      // Gating this on join_policy (as this whole effect was pre-v2.137.2)
+      // meant the "Identity Claims" nav item — which only appears when the
+      // count is > 0 — never showed on an OPEN room, so pending claims were
+      // unreachable. Two real claims sat stuck in RTX for a day before an
+      // owner noticed (2026-08-25). Claims are orthogonal to join policy.
       api.get<{ count: number }>(`/rooms/${room.id}/admin/identity-claims/count`)
         .then(r => setPendingIdentityClaims(r.count ?? 0))
         .catch(() => { /* badge is a nicety; never break the layout */ });
-      api.get<{ pending: number }>(`/rooms/${room.id}/admin/join-requests/count`)
-        .then(r => setPendingJoinRequests(r.pending || 0))
-        .catch(() => { /* nav badge is best-effort */ });
+      // Join requests, by contrast, ARE approval-only — an open room has none.
+      if (room.join_policy === 'approval') {
+        api.get<{ pending: number }>(`/rooms/${room.id}/admin/join-requests/count`)
+          .then(r => setPendingJoinRequests(r.pending || 0))
+          .catch(() => { /* nav badge is best-effort */ });
+      }
     };
     fetchPending();
     const interval = setInterval(fetchPending, 60_000);
