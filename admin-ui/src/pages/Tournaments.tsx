@@ -780,6 +780,7 @@ export default function Tournaments() {
       {roundsTarget && (
         <EventRoundsPanel
           roomId={room.roomId}
+          roomSlug={room.roomSlug}
           tournament={roundsTarget}
           onClose={() => setRoundsTarget(null)}
           onChanged={fetchTournaments}

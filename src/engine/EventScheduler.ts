@@ -1,7 +1,8 @@
 import { EmbedBuilder } from 'discord.js';
 import { getDatabase } from '../database/database.js';
 import { logInfo, logError, logWarn } from '../utils/logger.js';
-import { sendChannelEmbed } from '../utils/discord.js';
+import { sendChannelEmbed, resolveAnnouncementChannelId } from '../utils/discord.js';
+import { roomUrl } from '../utils/publicLinks.js';
 import { emitLeaderboardUpdated } from '../api/websocket.js';
 import { applyLibraryDefaults } from '../utils/gameLibraryDefaults.js';
 import { eventEndGraceSec } from '../services/EventSubmissionGate.js';
@@ -114,12 +115,17 @@ export class EventScheduler {
             const first = rounds[0];
             logInfo(`Event check-in open: '${event.name}' (${event.id}), ${rounds.length} round(s).`);
 
+            // The event page IS where a player checks in, so an announcement
+            // without its link tells them to do something and not where —
+            // nothing else in the product surfaces this URL (found the hard
+            // way, 2026-08-25).
+            const eventLink = event.room_slug ? `\n${roomUrl(event.room_slug)}/events/${event.id}` : '';
             await this.announce(event, new EmbedBuilder()
                 .setTitle(`Check-in open: ${event.name}`)
                 .setDescription(
-                    event.checkin_required === 1
+                    (event.checkin_required === 1
                         ? `Check in before round 1 starts${first ? ` <t:${Math.floor(Date.parse(first.scheduled_start_at) / 1000)}:R>` : ''} — only checked-in players can post a score.`
-                        : `${event.name} is open. ${rounds.length} round${rounds.length === 1 ? '' : 's'} to play.`,
+                        : `${event.name} is open. ${rounds.length} round${rounds.length === 1 ? '' : 's'} to play.`) + eventLink,
                 )
                 .setColor(EVENT_COLOR)
                 .setFooter({ text: `${rounds.length} round${rounds.length === 1 ? '' : 's'}` })
@@ -403,11 +409,12 @@ export class EventScheduler {
         embed: EmbedBuilder,
     ): Promise<void> {
         try {
-            let channelId = target.discord_channel_id ?? null;
-            if (!channelId && target.game_room_id) {
-                const { GameRoomSettingsService } = await import('../services/GameRoomSettingsService.js');
-                channelId = await GameRoomSettingsService.get(target.game_room_id, 'DISCORD_ANNOUNCEMENT_CHANNEL_ID');
-            }
+            // The SHARED resolver, not a local fallback chain: it is the one
+            // place that honours the per-room Discord toggle and the 'none'
+            // ("don't announce") sentinel, and a local copy here is exactly
+            // how the owner's test event ended up posting into the live
+            // Daily Grind channel (2026-08-25).
+            const channelId = await resolveAnnouncementChannelId(target.game_room_id, target.discord_channel_id);
             if (!channelId) return;
             await sendChannelEmbed(channelId, embed);
         } catch (error) {

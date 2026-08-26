@@ -152,8 +152,8 @@ export class EventService {
      */
     static async createOrUpdateEvent(tournamentId: string, config: EventConfigInput): Promise<EventRoundRow[]> {
         const db = await getDatabase();
-        const tournament = await db.get<{ id: string; game_room_id: string | null; name: string }>(
-            'SELECT id, game_room_id, name FROM tournaments WHERE id = ?', tournamentId,
+        const tournament = await db.get<{ id: string; game_room_id: string | null; name: string; event_finished_at: string | null }>(
+            'SELECT id, game_room_id, name, event_finished_at FROM tournaments WHERE id = ?', tournamentId,
         );
         if (!tournament) throw new EventConfigError('NO_ROUNDS', `Tournament ${tournamentId} not found`);
 
@@ -242,6 +242,26 @@ export class EventService {
         }
 
         logInfo(`Event '${tournament.name}' (${tournamentId}) saved with ${rounds.length} round(s).`);
+        // v2.140.0 — saving a round whose window is still ahead REOPENS a
+        // finished event. An event created with its only round already in the
+        // past marks itself finished within the minute, after which adding a
+        // future round did nothing, silently — the scheduler only looks at
+        // active events (owner hit this on the first live test, 2026-08-25).
+        // The frozen result is cleared because finishing recomputes it from
+        // score_history anyway, so nothing is lost; earlier rounds' scores are
+        // still there and the new final result will include them.
+        if (tournament.event_finished_at) {
+            const nowMs = Date.now();
+            const hasFutureRound = rounds.some(r => Date.parse(r.scheduledEndAt) > nowMs);
+            if (hasFutureRound) {
+                await db.run(
+                    `UPDATE tournaments SET event_finished_at = NULL, event_result = NULL, is_active = 1
+                      WHERE id = ? AND event_finished_at IS NOT NULL`,
+                    tournamentId,
+                );
+            }
+        }
+
         return EventService.getRounds(tournamentId);
     }
 

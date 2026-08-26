@@ -678,6 +678,214 @@ describe('AtGamesIdentityService — who is who', () => {
     });
 });
 
+describe('AtGamesEventSyncService — invitation-code resolution', () => {
+    let roomId: string;
+    let tournamentId: string;
+    const base = Date.parse('2026-09-01T20:00:00.000Z');
+    const ATGAMES_GAME_ID = 50334;
+
+    beforeEach(async () => {
+        await setupTestDb();
+        roomId = await createTestRoom();
+        const db = await getDatabase();
+        for (const [key, value] of [['ISCORED_ENABLED', 'false'], ['ATGAMES_EMAIL', 'o@e.com'], ['ATGAMES_PASSWORD', 'pw'], ['ATGAMES_DEVICE_FP', 'fp']]) {
+            await db.run(`INSERT OR REPLACE INTO game_room_settings (game_room_id, key, value) VALUES (?, ?, ?)`, roomId, key, value);
+        }
+        await db.run(
+            `INSERT INTO global_games (id, name, normalized_name, type, atgames_id, status, platforms, features)
+             VALUES (?, 'Attack from Mars', ?, 'pinball', ?, 'approved', '["atgames_native"]', '[]')`,
+            crypto.randomUUID(), normalizeGameName('Attack from Mars'), ATGAMES_GAME_ID,
+        );
+        tournamentId = crypto.randomUUID();
+        await db.run(
+            `INSERT INTO tournaments (id, name, type, mode, cadence, is_active, game_room_id, format, end_grace_sec, atgames_tournament_id)
+             VALUES (?, 'Stream Night', 'DG', 'pinball', '{"timezone":"UTC"}', 1, ?, 'event', 60, '9CTQSJF')`,
+            tournamentId, roomId,
+        );
+        await db.run(
+            `INSERT INTO games (id, tournament_id, name, status, game_room_id, round_no, scheduled_start_at, scheduled_end_at)
+             VALUES (?, ?, 'Attack from Mars', 'SCHEDULED', ?, 1, ?, ?)`,
+            crypto.randomUUID(), tournamentId, roomId,
+            new Date(base).toISOString(), new Date(base + 20 * MINUTE).toISOString(),
+        );
+    });
+
+    afterEach(() => vi.restoreAllMocks());
+
+    it('resolves an invitation code to the tournament id and stores it', async () => {
+        // Hosts paste the CODE at least as often as the id — the code is what
+        // AtGames shows players; the id only lives in the address bar.
+        vi.spyOn(AtGamesPrivateClient.prototype, 'listPrivateTournaments').mockResolvedValue([
+            { id: 1170, name: 'Stream Night', invitationCode: '9CTQSJF' },
+            { id: 1171, name: 'Other Night', invitationCode: 'ZZZZZZZ' },
+        ]);
+        const detail = vi.spyOn(AtGamesPrivateClient.prototype, 'getPrivateTournament')
+            .mockResolvedValue({ id: 1170, name: 'Stream Night', games: [] });
+
+        await AtGamesEventSyncService.syncTournament(tournamentId, { dryRun: true });
+
+        expect(detail).toHaveBeenCalledWith('1170');
+        const db = await getDatabase();
+        const row = await db.get<{ atgames_tournament_id: string; atgames_invite_code: string | null }>(
+            'SELECT atgames_tournament_id, atgames_invite_code FROM tournaments WHERE id = ?', tournamentId,
+        );
+        expect(row?.atgames_tournament_id).toBe('1170');
+        expect(row?.atgames_invite_code).toBe('9CTQSJF');
+    });
+
+    it('reports an unknown code instead of guessing a tournament', async () => {
+        vi.spyOn(AtGamesPrivateClient.prototype, 'listPrivateTournaments').mockResolvedValue([
+            { id: 1171, name: 'Other Night', invitationCode: 'ZZZZZZZ' },
+        ]);
+        await expect(AtGamesEventSyncService.syncTournament(tournamentId, { dryRun: true }))
+            .rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+});
+
+describe('AtGamesEventSyncService — create on AtGames', () => {
+    let roomId: string;
+    let tournamentId: string;
+    const base = Date.parse('2026-09-01T20:00:00.000Z');
+    const ATGAMES_GAME_ID = 50334;
+
+    beforeEach(async () => {
+        await setupTestDb();
+        roomId = await createTestRoom();
+        const db = await getDatabase();
+        for (const [key, value] of [['ISCORED_ENABLED', 'false'], ['ATGAMES_EMAIL', 'o@e.com'], ['ATGAMES_PASSWORD', 'pw'], ['ATGAMES_DEVICE_FP', 'fp']]) {
+            await db.run(`INSERT OR REPLACE INTO game_room_settings (game_room_id, key, value) VALUES (?, ?, ?)`, roomId, key, value);
+        }
+        await db.run(
+            `INSERT INTO global_games (id, name, normalized_name, type, atgames_id, status, platforms, features)
+             VALUES (?, 'Attack from Mars', ?, 'pinball', ?, 'approved', '["atgames_native"]', '[]')`,
+            crypto.randomUUID(), normalizeGameName('Attack from Mars'), ATGAMES_GAME_ID,
+        );
+        tournamentId = crypto.randomUUID();
+        await db.run(
+            `INSERT INTO tournaments (id, name, type, mode, cadence, is_active, game_room_id, format, end_grace_sec)
+             VALUES (?, 'Stream Night', 'DG', 'pinball', '{"timezone":"UTC"}', 1, ?, 'event', 120)`,
+            tournamentId, roomId,
+        );
+        await db.run(
+            `INSERT INTO games (id, tournament_id, name, status, game_room_id, round_no, scheduled_start_at, scheduled_end_at)
+             VALUES (?, ?, 'Attack from Mars', 'SCHEDULED', ?, 1, ?, ?)`,
+            crypto.randomUUID(), tournamentId, roomId,
+            new Date(base).toISOString(), new Date(base + 20 * MINUTE).toISOString(),
+        );
+    });
+
+    afterEach(() => vi.restoreAllMocks());
+
+    it('derives the window and games from the event, and stores id + invite code', async () => {
+        const create = vi.spyOn(AtGamesPrivateClient.prototype, 'createPrivateTournament')
+            .mockResolvedValue({ id: 2001, name: 'Stream Night', invitationCode: 'ABCD123', createdAt: '2026-09-01' });
+
+        const result = await AtGamesEventSyncService.createForTournament(tournamentId);
+
+        // Window = first round start .. last round end + the event's grace, so
+        // the AtGames window always CONTAINS every Arcaid round window.
+        expect(create).toHaveBeenCalledWith({
+            name: 'Stream Night',
+            startDate: new Date(base).toISOString(),
+            endDate: new Date(base + 20 * MINUTE + 120_000).toISOString(),
+            gameIds: [ATGAMES_GAME_ID],
+        });
+        expect(result.atgamesTournamentId).toBe('2001');
+        expect(result.inviteCode).toBe('ABCD123');
+
+        const db = await getDatabase();
+        const row = await db.get<{ atgames_tournament_id: string; atgames_invite_code: string }>(
+            'SELECT atgames_tournament_id, atgames_invite_code FROM tournaments WHERE id = ?', tournamentId,
+        );
+        expect(row).toMatchObject({ atgames_tournament_id: '2001', atgames_invite_code: 'ABCD123' });
+    });
+
+    it('refuses when the event is already linked — no accidental duplicates', async () => {
+        const db = await getDatabase();
+        await db.run(`UPDATE tournaments SET atgames_tournament_id = '1170' WHERE id = ?`, tournamentId);
+        await expect(AtGamesEventSyncService.createForTournament(tournamentId))
+            .rejects.toMatchObject({ code: 'NOT_LINKED' });
+    });
+
+    it('names the games that are not AtGames-linked instead of sending nothing', async () => {
+        const db = await getDatabase();
+        await db.run(`UPDATE global_games SET atgames_id = NULL`);
+        const err = await AtGamesEventSyncService.createForTournament(tournamentId).catch(e => e);
+        expect(err).toBeInstanceOf(AtGamesSyncError);
+        // The fix is a catalogue action on a NAMED game — a bare count would
+        // leave the host guessing which round is the problem.
+        expect(String(err.message)).toContain('Attack from Mars');
+    });
+});
+
+describe('announcements — the none sentinel and the event reopen', () => {
+    beforeEach(async () => { await setupTestDb(); });
+
+    it("resolveAnnouncementChannelId treats 'none' as announce-nowhere, before any fallback", async () => {
+        const { resolveAnnouncementChannelId, ANNOUNCE_NONE } = await import('../utils/discord.js');
+        const roomId = await createTestRoom();
+        const db = await getDatabase();
+        // A room WITH a default channel — the exact setup where the owner's
+        // test event leaked into the live Daily Grind channel.
+        await db.run(
+            `INSERT OR REPLACE INTO game_room_settings (game_room_id, key, value) VALUES (?, 'DISCORD_ANNOUNCEMENT_CHANNEL_ID', '111222333')`,
+            roomId,
+        );
+
+        expect(await resolveAnnouncementChannelId(roomId, ANNOUNCE_NONE)).toBeNull();
+        expect(await resolveAnnouncementChannelId(roomId, '')).toBe('111222333');
+        expect(await resolveAnnouncementChannelId(roomId, '999')).toBe('999');
+    });
+
+    it('saving a future round reopens a finished event', async () => {
+        const { EventService } = await import('../services/EventService.js');
+        const roomId = await createTestRoom();
+        const db = await getDatabase();
+        await db.run(
+            `INSERT OR REPLACE INTO game_room_settings (game_room_id, key, value) VALUES (?, 'ISCORED_ENABLED', 'false')`,
+            roomId,
+        );
+        const tid = crypto.randomUUID();
+        // Finished: the owner created an event whose only round was already
+        // past, it froze within the minute, and adding round 2 did nothing.
+        await db.run(
+            `INSERT INTO tournaments (id, name, type, mode, cadence, is_active, game_room_id, format, event_finished_at, event_result)
+             VALUES (?, 'Arcaid_Test', 'DG', 'pinball', '{"timezone":"UTC"}', 0, ?, 'event', '2026-08-25T23:30:00.001Z', '{}')`,
+            tid, roomId,
+        );
+        const past = Date.now() - 3 * 60 * MINUTE;
+        await db.run(
+            `INSERT INTO games (id, tournament_id, name, status, game_room_id, round_no, scheduled_start_at, scheduled_end_at)
+             VALUES (?, ?, 'Aerobatics', 'COMPLETED', ?, 1, ?, ?)`,
+            crypto.randomUUID(), tid, roomId,
+            new Date(past).toISOString(), new Date(past + 30 * MINUTE).toISOString(),
+        );
+
+        const future = Date.now() + 60 * MINUTE;
+        await EventService.createOrUpdateEvent(tid, {
+            rounds: [
+                {
+                    roundNo: 1, gameName: 'Aerobatics',
+                    scheduledStartAt: new Date(past).toISOString(),
+                    scheduledEndAt: new Date(past + 30 * MINUTE).toISOString(),
+                },
+                {
+                    roundNo: 2, gameName: 'Aerobatics',
+                    scheduledStartAt: new Date(future).toISOString(),
+                    scheduledEndAt: new Date(future + 30 * MINUTE).toISOString(),
+                },
+            ],
+        });
+
+        const row = await db.get<{ is_active: number; event_finished_at: string | null; event_result: string | null }>(
+            'SELECT is_active, event_finished_at, event_result FROM tournaments WHERE id = ?', tid,
+        );
+        // Reopened: the scheduler will now run round 2 and re-freeze after it,
+        // recomputing the result from score_history — nothing is lost.
+        expect(row).toMatchObject({ is_active: 1, event_finished_at: null, event_result: null });
+    });
+});
+
 describe('score_history — the fourth source', () => {
     let roomId: string;
     beforeEach(async () => { await setupTestDb(); roomId = await createTestRoom(); });
