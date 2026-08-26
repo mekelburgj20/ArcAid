@@ -8,6 +8,8 @@ import { compareByRank } from '../lib/searchRank';
 import { relativeTimeFrom } from '../lib/format';
 
 interface PlayerSummary {
+  /** Arcaid profile username (v2.141.1) — searchable, never displayed here. */
+  username?: string | null;
   discord_user_id: string;
   iscored_username: string | null;
   /** v2.8.0: user-chosen global display name. */
@@ -168,6 +170,9 @@ export default function PublicStats() {
     return shown.includes(q)
       || (p.iscored_username || '').toLowerCase().includes(q)
       || (p.display_name || '').toLowerCase().includes(q)
+      // v2.141.1 — the Arcaid username too: "Buke" is how people know the
+      // player whose room name is "Jrbuch", and searching it found nothing.
+      || (p.username || '').toLowerCase().includes(q)
       || p.discord_user_id.toLowerCase().includes(q);
   });
   const filteredGames = games.filter(g => g.name.toLowerCase().includes(search.toLowerCase()));

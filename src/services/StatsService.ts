@@ -1281,6 +1281,7 @@ export class StatsService {
                 LOWER(s.iscored_username) as player_key,
                 COALESCE(um.iscored_username, s.iscored_username) as iscored_username,
                 up.display_name,
+                up.username,
                 CASE WHEN MAX(CASE WHEN s.discord_user_id != 'SYSTEM' THEN s.discord_user_id END) IS NOT NULL
                      THEN MAX(CASE WHEN s.discord_user_id != 'SYSTEM' THEN s.discord_user_id END)
                      ELSE s.discord_user_id
@@ -1378,6 +1379,10 @@ export class StatsService {
                 // never mapped through — the compare picker (and any
                 // display-name-aware consumer) needs it (S14 check-agent catch).
                 display_name: p.display_name ?? null,
+                // v2.141.1 — the Arcaid profile USERNAME, so the Stats search
+                // can find "Buke" for the player whose room name is "Jrbuch".
+                // Every other player surface knows both names; Stats didn't.
+                username: p.username ?? null,
                 games_played: p.games_played,
                 wins: winMap.get(p.player_key) || 0,
                 avg_finish_position: Math.round(avgFinish * 10) / 10,
