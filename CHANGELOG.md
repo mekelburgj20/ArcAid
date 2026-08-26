@@ -6,6 +6,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.141.0] — Players can find events, link their own AtGames account, and log in either way
+
+### Added
+- **Event discovery banner on every public room page.** When an event is open for check-in or live, a banner appears at the top of the scoreboard, lobby, picks — everywhere — "LIVE · Round 1 — Aerobatics · ends in 25 min →" — linking to the event page. Before this, *nothing* player-facing linked to an event: the only doors were a link the host pasted by hand and the Discord announcement.
+- **Both login options on the event and Throwdown pages.** "Log in to check in" was Discord-only; a Google-account player had no button that worked. Now both.
+- **Players link their own AtGames account** — Account Settings → "AtGames cabinet account". They sign in to AtGames **once** to prove it's theirs; Arcaid keeps only the account-id link and never stores the password (the credential is used in-flight to obtain the id and discarded). Linking claims their past tournament scores retroactively — same conflict guard and same claim sweep as the admin-side "Who is who", because both funnel into the same service. Unlinking returns those scores to the AtGames name.
+- **`@username` works in the event's "Add player" box.** A bare name resolves against global display names (unique), profile usernames, and the room's claimed names — exactly one match wins; several matches is an explicit "paste their ID instead", never a guess. Snowflake-shaped and unrecognised values pass through as raw ids, so nothing that worked before stops working.
+
+### Fixed
+- **"Create on AtGames" now works for an event that is already running.** The owner's cURL capture confirmed our create payload was byte-for-byte correct — the live 400 was AtGames refusing a **start date in the past** (Create was pressed mid-round). The start now clamps to one minute ahead; an event that is entirely over is refused with a plain message. Arcaid's per-round windows arbitrate at ingest regardless, so the AtGames window only has to contain what remains.
+
+### The create contract, now settled
+`POST /user/tournaments/private` with `{name, startDate, endDate, gameIds}` in ISO UTC — confirmed against an owner-captured cURL of a successful manual create (2026-08-26). Recorded in the research notes; no field guessing remains anywhere in the AtGames integration.
+
+### Names on the board
+No change was needed for "show the Arcaid username once linked" — that already works. Scores carry the AtGames handle only while unowned; the moment an account is linked (by the player or by an admin), display resolution shows the player's Arcaid name everywhere, including retroactively claimed rows.
+
 ## [2.140.1] — Fix: the two failures from the first live-fire AtGames run
 
 The good news first: the sync itself worked against real AtGames end to end — the invitation code resolved to the right tournament, the score landed in the correct round, and the window check passed. Both failures were around the edges.

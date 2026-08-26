@@ -133,6 +133,17 @@ export default function AccountSettings() {
   // currently linked to them, with an unlink option each.
   const isGoogleIdentity = isGoogleUserId(discordUser?.discordId);
   const [links, setLinks] = useState<{ provider_user_id: string; created_at: string }[] | null>(null);
+
+  // v2.141.0 (P7 part 3) — AtGames self-link. Ownership is proven by ONE
+  // sign-in; the password goes to the server, the server goes to AtGames, and
+  // only the `atgames:<account id>` link row survives — no player credential
+  // is ever stored (owner ruling). The linked state itself rides in the same
+  // `links` list the Google section uses; these fields are only the form.
+  const [atgamesEmail, setAtgamesEmail] = useState('');
+  const [atgamesPassword, setAtgamesPassword] = useState('');
+  const [atgamesBusy, setAtgamesBusy] = useState(false);
+  const [atgamesError, setAtgamesError] = useState<string | null>(null);
+  const [atgamesNotice, setAtgamesNotice] = useState<string | null>(null);
   const [linksLoading, setLinksLoading] = useState(true);
   const [linkStarting, setLinkStarting] = useState(false);
   const [linkError, setLinkError] = useState<string | null>(null);
@@ -1056,9 +1067,12 @@ export default function AccountSettings() {
                   </button>
                   {linksLoading ? (
                     <p className="text-sm text-muted">Loading…</p>
-                  ) : links && links.length > 0 ? (
+                  ) : links && links.some(l => !l.provider_user_id.startsWith('atgames:')) ? (
                     <ul className="space-y-2">
-                      {links.map(l => (
+                      {/* google:* rows only — atgames:* rows render in their own
+                          block below, whose unlink also re-anonymises scores
+                          (the generic delete here would not). */}
+                      {links.filter(l => !l.provider_user_id.startsWith('atgames:')).map(l => (
                         <li
                           key={l.provider_user_id}
                           className="flex items-center justify-between gap-3 text-sm bg-surface border border-border rounded px-3 py-2"
@@ -1103,6 +1117,117 @@ export default function AccountSettings() {
                   )}
                 </>
               )}
+
+              {/* v2.141.0 — AtGames cabinet account. Unlike Google/Discord this
+                  is not a login method: it exists so scores Arcaid pulls off an
+                  AtGames tournament land on YOUR account instead of an
+                  anonymous AtGames handle. */}
+              <div className="mt-6 pt-4 border-t border-border">
+                <h3 className="text-sm font-medium mb-1">AtGames cabinet account</h3>
+                {(() => {
+                  const atgamesLinks = (links ?? []).filter(l => l.provider_user_id.startsWith('atgames:'));
+                  if (atgamesLinks.length > 0) {
+                    return (
+                      <>
+                        <p className="text-xs text-muted mb-2">
+                          Linked — tournament scores from your cabinet count for you automatically.
+                        </p>
+                        <ul className="space-y-2 mb-2">
+                          {atgamesLinks.map(l => (
+                            <li key={l.provider_user_id} className="flex items-center justify-between gap-3 text-sm bg-surface border border-border rounded px-3 py-2">
+                              <span className="font-mono text-xs text-muted truncate">AtGames account {l.provider_user_id.slice('atgames:'.length)}</span>
+                              <button
+                                type="button"
+                                disabled={atgamesBusy}
+                                onClick={async () => {
+                                  setAtgamesBusy(true); setAtgamesError(null);
+                                  try {
+                                    const res = await fetch('/api/auth/link/atgames', {
+                                      method: 'DELETE',
+                                      headers: { Authorization: `Bearer ${playerToken}` },
+                                    });
+                                    if (!res.ok) throw new Error((await res.json()).error || 'Could not unlink');
+                                    setAtgamesNotice('AtGames account unlinked. Its scores return to the AtGames name.');
+                                    await loadLinks();
+                                  } catch (err) {
+                                    setAtgamesError((err as Error).message);
+                                  } finally {
+                                    setAtgamesBusy(false);
+                                  }
+                                }}
+                                className="px-2 py-1 rounded border border-border text-xs text-muted hover:text-rose-400 hover:border-rose-500/40 cursor-pointer shrink-0 inline-flex items-center gap-1"
+                              >
+                                <Unlink size={12} /> Unlink
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                        {atgamesNotice && <p className="text-xs text-neon-cyan">{atgamesNotice}</p>}
+                        {atgamesError && (
+                          <p className="text-xs text-rose-400 inline-flex items-center gap-1"><AlertCircle size={12} /> {atgamesError}</p>
+                        )}
+                      </>
+                    );
+                  }
+                  return (
+                    <>
+                      <p className="text-xs text-muted mb-3">
+                        Link your AtGames account and tournament scores from your cabinet count for
+                        you automatically. You sign in ONCE to prove it's yours — Arcaid keeps only
+                        the account link, never your AtGames password.
+                      </p>
+                      <div className="flex flex-col sm:flex-row gap-2 mb-2">
+                        <input
+                          type="email" placeholder="AtGames email" value={atgamesEmail}
+                          onChange={e => setAtgamesEmail(e.target.value)}
+                          autoComplete="off"
+                          className="flex-1 px-3 py-2 bg-surface border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan"
+                        />
+                        <input
+                          type="password" placeholder="AtGames password" value={atgamesPassword}
+                          onChange={e => setAtgamesPassword(e.target.value)}
+                          autoComplete="new-password"
+                          className="flex-1 px-3 py-2 bg-surface border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan"
+                        />
+                        <button
+                          type="button"
+                          disabled={atgamesBusy || !atgamesEmail.trim() || !atgamesPassword}
+                          onClick={async () => {
+                            setAtgamesBusy(true); setAtgamesError(null); setAtgamesNotice(null);
+                            try {
+                              const res = await fetch('/api/auth/link/atgames', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${playerToken}` },
+                                body: JSON.stringify({ email: atgamesEmail.trim(), password: atgamesPassword }),
+                              });
+                              const data = await res.json();
+                              if (!res.ok) throw new Error(data.error || 'Could not link the AtGames account');
+                              // The password's job is done the moment the link
+                              // exists — clear it from the DOM immediately.
+                              setAtgamesEmail(''); setAtgamesPassword('');
+                              setAtgamesNotice(
+                                data.rowsAttributed > 0
+                                  ? `Linked! ${data.rowsAttributed} of your past tournament score${data.rowsAttributed === 1 ? '' : 's'} now count for you.`
+                                  : 'Linked! Your cabinet scores will count for you from here on.',
+                              );
+                              await loadLinks();
+                            } catch (err) {
+                              setAtgamesError((err as Error).message);
+                            } finally {
+                              setAtgamesBusy(false);
+                            }
+                          }}
+                          className="px-4 py-2 rounded border border-neon-cyan/40 bg-neon-cyan/10 text-neon-cyan text-sm font-medium hover:bg-neon-cyan/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer whitespace-nowrap"
+                        >{atgamesBusy ? 'Linking…' : 'Link AtGames'}</button>
+                      </div>
+                      {atgamesNotice && <p className="text-xs text-neon-cyan">{atgamesNotice}</p>}
+                      {atgamesError && (
+                        <p className="text-xs text-rose-400 inline-flex items-center gap-1"><AlertCircle size={12} /> {atgamesError}</p>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
             </section>
 
             <section className="mt-8 pt-8 border-t border-border">

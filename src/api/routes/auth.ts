@@ -448,6 +448,92 @@ router.get('/link/discord', requireDiscordUser, async (req, res) => {
     }
 });
 
+// v2.141.0 (P7 part 3) — player self-link of their AtGames account.
+//
+// Ownership is proven by SIGNING IN once: the password is used in-flight to
+// obtain AtGames' JWT (whose payload carries the account id), then discarded —
+// nothing but the `atgames:<id>` link row is kept, per the owner's explicit
+// ruling: "I don't want to store username passwords for players, just their
+// link ID." This is the player-side twin of the admin "Who is who" panel;
+// both funnel into AtGamesIdentityService.linkAccount, so the conflict guard
+// and the retroactive score claim are the same code either way.
+router.post('/link/atgames', requireDiscordUser, async (req, res) => {
+    try {
+        const viewerId = req.user!.discordId;
+        if (!viewerId) return res.status(400).json({ error: 'No identity on this token' });
+
+        const email = typeof req.body?.email === 'string' ? req.body.email.trim() : '';
+        const password = typeof req.body?.password === 'string' ? req.body.password : '';
+        if (!email || !password) return res.status(400).json({ error: 'AtGames email and password are required' });
+
+        const { AtGamesPrivateClient, AtGamesAuthError } = await import('../../services/AtGamesPrivateClient.js');
+        const { AtGamesIdentityService, AtGamesLinkError } = await import('../../services/AtGamesIdentityService.js');
+        const { randomUUID } = await import('crypto');
+
+        let session;
+        try {
+            // force=true: never reuse a cached session for a VERIFICATION —
+            // the whole point is that these credentials work right now.
+            session = await new AtGamesPrivateClient({ email, password, deviceFp: randomUUID() })
+                .ensureSession(true);
+        } catch (err) {
+            if (err instanceof AtGamesAuthError) {
+                // 401-shaped regardless of AtGames' exact status: the player
+                // typed something wrong, and the fix is theirs.
+                return res.status(401).json({ error: 'AtGames did not accept that email and password', code: 'ATGAMES_AUTH' });
+            }
+            throw err;
+        }
+        if (session.accountId == null) {
+            return res.status(502).json({ error: 'AtGames signed in but returned no account id — try again later' });
+        }
+
+        try {
+            const result = await AtGamesIdentityService.linkAccount(session.accountId, viewerId);
+            logInfo(`AtGames self-link: account ${session.accountId} -> ${viewerId} (${result.rowsAttributed} score(s) claimed)`);
+            return res.json({
+                success: true,
+                atgamesAccountId: session.accountId,
+                atgamesUserName: session.userName,
+                rowsAttributed: result.rowsAttributed,
+            });
+        } catch (err) {
+            if (err instanceof AtGamesLinkError && err.code === 'LINK_CONFLICT') {
+                return res.status(409).json({ error: 'That AtGames account is already linked to a different player', code: 'LINK_CONFLICT' });
+            }
+            throw err;
+        }
+    } catch (error) {
+        logError('API Error (POST /api/auth/link/atgames):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// v2.141.0 — self-unlink. Goes through AtGamesIdentityService.unlinkAccount
+// (NOT the generic link delete below) so the account's synced scores return to
+// anonymous instead of staying attributed to an account that just disowned it.
+router.delete('/link/atgames', requireDiscordUser, async (req, res) => {
+    try {
+        const viewerId = req.user!.discordId;
+        if (!viewerId) return res.status(400).json({ error: 'No identity on this token' });
+
+        const links = (await IdentityLinkService.getLinkForCanonical(viewerId))
+            .filter(l => l.provider_user_id.startsWith('atgames:'));
+        if (links.length === 0) return res.status(404).json({ error: 'No AtGames account is linked' });
+
+        const { AtGamesIdentityService } = await import('../../services/AtGamesIdentityService.js');
+        let rowsReanonymized = 0;
+        for (const link of links) {
+            const r = await AtGamesIdentityService.unlinkAccount(link.provider_user_id.slice('atgames:'.length));
+            rowsReanonymized += r.rowsReanonymized;
+        }
+        res.json({ success: true, rowsReanonymized });
+    } catch (error) {
+        logError('API Error (DELETE /api/auth/link/atgames):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 // v2.36.0 — unlink (row delete only, no un-merge; see IdentityLinkService).
 // Self-only: the target link must belong to the caller's own canonical id.
 router.delete('/link/discord/:providerUserId', requireDiscordUser, async (req, res) => {

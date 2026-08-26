@@ -4608,10 +4608,48 @@ router.get('/:roomId/events/:id/participants', requireAuth, requireRoomAccess('r
 
 router.post('/:roomId/events/:id/participants', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
     try {
-        const event = await resolveRoomEvent(req.params.roomId as string, req.params.id as string);
+        const roomId = req.params.roomId as string;
+        const event = await resolveRoomEvent(roomId, req.params.id as string);
         if (!event) return res.status(404).json({ error: 'Event not found' });
-        const userId = typeof req.body?.userId === 'string' ? req.body.userId.trim() : '';
-        if (!userId) return res.status(400).json({ error: 'userId is required' });
+        const raw = typeof req.body?.userId === 'string' ? req.body.userId.trim() : '';
+        if (!raw) return res.status(400).json({ error: 'userId is required' });
+
+        // v2.141.0 — accept @username, not just a raw user id (owner: nobody
+        // has player ids handy at the desk). Rules, in order:
+        //   - a snowflake-shaped value is always a raw id;
+        //   - '@name' DEMANDS name resolution (global display name — which is
+        //     case-insensitively UNIQUE by index — then profile username, then
+        //     THIS room's claimed names) and errors when it can't;
+        //   - a bare string resolves only when EXACTLY ONE name matches, and
+        //     otherwise passes through as a raw id, which is the pre-v2.141
+        //     contract (test fixtures and google:* ids arrive that way).
+        // Several distinct matches is a 409 naming the problem, never a guess —
+        // checking the wrong player into a competition is an identity bug.
+        let userId = raw;
+        if (!/^\d{15,21}$/.test(raw)) {
+            const explicit = raw.startsWith('@');
+            const name = raw.replace(/^@/, '').trim();
+            if (!name) return res.status(400).json({ error: 'userId is required' });
+            const db = await getDatabase();
+            const candidates = await db.all<Array<{ discord_user_id: string }>>(
+                `SELECT discord_user_id FROM user_profiles
+                  WHERE display_name = ? COLLATE NOCASE OR username = ? COLLATE NOCASE
+                 UNION
+                 SELECT user_id AS discord_user_id FROM room_members
+                  WHERE room_id = ? AND display_name = ? COLLATE NOCASE`,
+                name, name, roomId, name,
+            );
+            const distinct = [...new Set(candidates.map(c => c.discord_user_id))];
+            if (distinct.length === 1) {
+                userId = distinct[0]!;
+            } else if (explicit && distinct.length === 0) {
+                return res.status(404).json({ error: `No player named "${name}" — check the spelling, or paste their Discord user ID` });
+            } else if (distinct.length > 1) {
+                return res.status(409).json({ error: `"${name}" matches more than one player — paste their Discord user ID instead` });
+            }
+            // 0 matches without '@': fall through with the raw value — the
+            // caller may genuinely hold a non-snowflake id.
+        }
 
         // source='admin' deliberately bypasses the late-check-in guard - this
         // IS the straggler mechanism that lets "check-in closes at round 1"

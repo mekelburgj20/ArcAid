@@ -825,6 +825,40 @@ describe('AtGamesEventSyncService — create on AtGames', () => {
         expect(row).toMatchObject({ atgames_tournament_id: '2001', atgames_invite_code: 'ABCD123' });
     });
 
+    it('clamps a past start into the future — AtGames refuses windows that begin in the past', async () => {
+        // The live 400 of 2026-08-26: Create pressed while round 1 was already
+        // running. The owner's own successful manual create (cURL) confirmed
+        // our field names and format exactly — the difference was the window.
+        const db = await getDatabase();
+        const pastStart = Date.now() - 10 * MINUTE;
+        const futureEnd = Date.now() + 30 * MINUTE;
+        await db.run(
+            `UPDATE games SET scheduled_start_at = ?, scheduled_end_at = ? WHERE tournament_id = ?`,
+            new Date(pastStart).toISOString(), new Date(futureEnd).toISOString(), tournamentId,
+        );
+        const create = vi.spyOn(AtGamesPrivateClient.prototype, 'createPrivateTournament')
+            .mockResolvedValue({ id: 2002, name: 'Stream Night', invitationCode: 'XYZ' });
+
+        await AtGamesEventSyncService.createForTournament(tournamentId);
+
+        const sent = create.mock.calls[0]?.[0] as { startDate: string; endDate: string };
+        expect(Date.parse(sent.startDate)).toBeGreaterThan(Date.now());
+        // The end still covers the event: last round end + the 120s grace.
+        expect(Date.parse(sent.endDate)).toBe(futureEnd + 120_000);
+    });
+
+    it('refuses outright when the event is already over', async () => {
+        const db = await getDatabase();
+        await db.run(
+            `UPDATE games SET scheduled_start_at = ?, scheduled_end_at = ? WHERE tournament_id = ?`,
+            new Date(Date.now() - 60 * MINUTE).toISOString(),
+            new Date(Date.now() - 30 * MINUTE).toISOString(),
+            tournamentId,
+        );
+        await expect(AtGamesEventSyncService.createForTournament(tournamentId))
+            .rejects.toThrow(/already over/);
+    });
+
     it('refuses when the event is already linked — no accidental duplicates', async () => {
         const db = await getDatabase();
         await db.run(`UPDATE tournaments SET atgames_tournament_id = '1170' WHERE id = ?`, tournamentId);

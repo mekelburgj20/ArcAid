@@ -153,7 +153,7 @@ export default function EventDetail({ throwdownCode }: EventDetailProps = {}) {
     // PLAYER client throughout: `api.*` is the admin one, and its 401 handler
     // navigates to /superadmin — nonsense for a player, and the cause of the
     // 2026-08-25 incident. See lib/playerApi.ts.
-    const { discordUser, playerToken, loginWithDiscord } = useViewerAuth();
+    const { discordUser, playerToken, loginWithDiscord, loginWithGoogle } = useViewerAuth();
     const isThrowdown = !!throwdownCode;
     const navigate = useNavigate();
     const [scoreDraft, setScoreDraft] = useState('');
@@ -382,10 +382,16 @@ export default function EventDetail({ throwdownCode }: EventDetailProps = {}) {
                                 >{checkingIn ? 'Checking in…' : 'Check in'}</button>
                             )}
                             {!discordUser && viewer.reason === 'LOGIN_REQUIRED' && (
-                                <button
-                                    type="button" onClick={() => loginWithDiscord(roomSlug ?? '', `/${roomSlug}/events/${event.id}`)}
-                                    className="px-4 py-2 rounded border border-neon-cyan bg-neon-cyan/15 text-neon-cyan text-sm hover:bg-neon-cyan/25 transition-colors"
-                                >Log in to check in</button>
+                                <span className="flex gap-2 flex-wrap">
+                                    <button
+                                        type="button" onClick={() => loginWithDiscord(roomSlug ?? '', `/${roomSlug}/events/${event.id}`)}
+                                        className="px-4 py-2 rounded border border-neon-cyan bg-neon-cyan/15 text-neon-cyan text-sm hover:bg-neon-cyan/25 transition-colors"
+                                    >Log in with Discord</button>
+                                    <button
+                                        type="button" onClick={() => loginWithGoogle(roomSlug ?? '', `/${roomSlug}/events/${event.id}`)}
+                                        className="px-4 py-2 rounded border border-border bg-raised text-primary text-sm hover:border-neon-cyan transition-colors"
+                                    >Log in with Google</button>
+                                </span>
                             )}
                             {viewer.reason === 'CHECKIN_CLOSED' && !checkin.viewerCheckedIn && (
                                 <span className="text-xs text-neon-amber">Check-in has closed — ask an admin to add you.</span>
@@ -424,11 +430,18 @@ export default function EventDetail({ throwdownCode }: EventDetailProps = {}) {
                     ) : (
                         <div className="flex items-center gap-3 flex-wrap">
                             <p className="text-sm text-primary">Log in to post a score.</p>
-                            <button
-                                type="button"
-                                onClick={() => loginWithDiscord('__global__', `/throwdown/${throwdownCode}`)}
-                                className="ml-auto px-4 py-2 rounded border border-neon-cyan bg-neon-cyan/15 text-neon-cyan text-sm hover:bg-neon-cyan/25 transition-colors"
-                            >Log in</button>
+                            <span className="ml-auto flex gap-2 flex-wrap">
+                                <button
+                                    type="button"
+                                    onClick={() => loginWithDiscord('__global__', `/throwdown/${throwdownCode}`)}
+                                    className="px-4 py-2 rounded border border-neon-cyan bg-neon-cyan/15 text-neon-cyan text-sm hover:bg-neon-cyan/25 transition-colors"
+                                >Log in with Discord</button>
+                                <button
+                                    type="button"
+                                    onClick={() => loginWithGoogle('__global__', `/throwdown/${throwdownCode}`)}
+                                    className="px-4 py-2 rounded border border-border bg-raised text-primary text-sm hover:border-neon-cyan transition-colors"
+                                >Log in with Google</button>
+                            </span>
                         </div>
                     )}
                     {error && <p className="text-xs text-neon-magenta mt-2">{error}</p>}

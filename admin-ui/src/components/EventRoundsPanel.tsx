@@ -374,7 +374,7 @@ export default function EventRoundsPanel({ roomId, roomSlug, tournament, onClose
 
                 <div className="flex gap-2 items-center">
                     <input
-                        type="text" placeholder="Discord user ID" value={addUserId}
+                        type="text" placeholder="@username or Discord user ID" value={addUserId}
                         onChange={e => setAddUserId(e.target.value)}
                         className="flex-1 px-3 py-2 bg-raised border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan transition-colors font-mono"
                     />
