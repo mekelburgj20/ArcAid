@@ -417,8 +417,19 @@ export class AtGamesEventSyncService {
         if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) {
             throw new AtGamesSyncError('NOT_FOUND', 'This event\'s rounds have no scheduled windows');
         }
-        const start = new Date(startMs).toISOString();
-        const end = new Date(endMs + eventEndGraceSec(tournament) * 1000).toISOString();
+        const endWithGraceMs = endMs + eventEndGraceSec(tournament) * 1000;
+        // AtGames refuses a start date in the past (the live 400 of 2026-08-26:
+        // the owner pressed Create while round 1 was already running; the
+        // owner's own successful manual create — whose cURL confirmed our
+        // field names and ISO format exactly — used a future window). Clamp
+        // forward: Arcaid's per-round windows arbitrate at ingest anyway, so
+        // the AtGames window only has to CONTAIN what remains of the event.
+        const nowMs = Date.now();
+        if (endWithGraceMs <= nowMs + 120_000) {
+            throw new AtGamesSyncError('NOT_FOUND', 'This event is already over — there is nothing left for an AtGames tournament to cover');
+        }
+        const start = new Date(Math.max(startMs, nowMs + 60_000)).toISOString();
+        const end = new Date(endWithGraceMs).toISOString();
 
         const client = new AtGamesPrivateClient(creds);
         const created = await client.createPrivateTournament({

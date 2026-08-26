@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, Outlet, useParams, useLocation } from 'react-router-dom';
+import EventBanner from './EventBanner';
 import { Monitor, Gamepad2, BarChart3, Trophy, MessageSquare, Users, UserPlus } from 'lucide-react';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { usePickAwardEnabled } from '../hooks/usePickAwardEnabled';
@@ -503,6 +504,16 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
                 notifications" nudge. Renders nothing for guests, for users
                 with no pending nudge, and in Discord-connected rooms. */}
             <NotificationNudgeBanner roomDiscordEnabled={portal?.discord_enabled !== false} roomId={resolvedRoomId} />
+            {/* v2.141.0 — live/upcoming event discovery. Rendered at the layout
+                so every public page carries it (before this, NOTHING
+                player-facing linked to an event page). Suppressed on the event
+                pages themselves — a banner linking to the page you are on is
+                noise. */}
+            {resolvedRoomId && !location.pathname.includes('/events/') && (
+              <div className="max-w-5xl mx-auto px-4 sm:px-6 pt-3">
+                <EventBanner roomId={resolvedRoomId} roomSlug={slug || ''} />
+              </div>
+            )}
             <PlayerQuickViewProvider>
               <Outlet />
             </PlayerQuickViewProvider>
