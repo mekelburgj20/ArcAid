@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { X, Camera, Trash2, Keyboard, AlertTriangle, LogIn, UserCheck, Trophy } from 'lucide-react';
+import { X, Camera, Image as ImageIcon, Trash2, Keyboard, AlertTriangle, LogIn, UserCheck, Trophy } from 'lucide-react';
 import NeonButton from './NeonButton';
 import OnScreenKeyboard from './OnScreenKeyboard';
 import ShareButton from './ShareButton';
@@ -343,6 +343,8 @@ export default function SubmissionSheet({
     const [activeField, setActiveField] = useState<'name' | 'score' | null>(null);
     const [showKeyboard, setShowKeyboard] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    // Separate ref for the capture input — see the comment at the inputs.
+    const cameraInputRef = useRef<HTMLInputElement>(null);
     const nameRef = useRef<HTMLInputElement>(null);
     const scoreRef = useRef<HTMLInputElement>(null);
     const backdropMouseDown = useRef(false);
@@ -1346,6 +1348,23 @@ export default function SubmissionSheet({
                                 <label className="text-xs text-faint block mb-1">
                                     Photo {needsPhoto ? <span className="text-neon-amber">(required)</span> : '(optional)'}
                                 </label>
+                                {/* Two inputs, one handler (v2.141.1). A single
+                                    capture-less input reads as "Take or choose"
+                                    on iOS (native sheet offers both) but on
+                                    Android 13+ the system photo picker it opens
+                                    has NO camera tile at all — the button
+                                    promised a camera it couldn't deliver (owner
+                                    report, 2026-08-26). `capture` opens the
+                                    camera directly on BOTH platforms, so the
+                                    choice moves into our own two buttons. */}
+                                <input
+                                    ref={cameraInputRef}
+                                    type="file"
+                                    accept="image/*"
+                                    capture="environment"
+                                    onChange={handlePhotoChange}
+                                    className="hidden"
+                                />
                                 <input
                                     ref={fileInputRef}
                                     type="file"
@@ -1366,14 +1385,24 @@ export default function SubmissionSheet({
                                         </button>
                                     </div>
                                 ) : (
-                                    <button
-                                        type="button"
-                                        onClick={() => fileInputRef.current?.click()}
-                                        className="w-full flex items-center justify-center gap-2 px-4 py-6 border-2 border-dashed border-border rounded-lg text-muted hover:text-neon-cyan hover:border-neon-cyan/30 transition-colors cursor-pointer"
-                                    >
-                                        <Camera size={20} />
-                                        <span className="text-sm">Take or choose photo</span>
-                                    </button>
+                                    <div className="flex gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => cameraInputRef.current?.click()}
+                                            className="flex-1 flex items-center justify-center gap-2 px-4 py-6 border-2 border-dashed border-border rounded-lg text-muted hover:text-neon-cyan hover:border-neon-cyan/30 transition-colors cursor-pointer"
+                                        >
+                                            <Camera size={20} />
+                                            <span className="text-sm">Take photo</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => fileInputRef.current?.click()}
+                                            className="flex-1 flex items-center justify-center gap-2 px-4 py-6 border-2 border-dashed border-border rounded-lg text-muted hover:text-neon-cyan hover:border-neon-cyan/30 transition-colors cursor-pointer"
+                                        >
+                                            <ImageIcon size={20} />
+                                            <span className="text-sm">Choose photo</span>
+                                        </button>
+                                    </div>
                                 )}
                                 {needsPhoto && !photoFile && (
                                     <p className="text-xs text-neon-amber mt-1">A photo is required to submit your score.</p>

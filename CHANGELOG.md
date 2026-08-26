@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.141.1] — Fix: the Android camera that wasn't, and the name Stats couldn't find
+
+### Fixed
+- **"Take or choose photo" couldn't take a photo on Android.** The submit sheet used one photo input with no camera hint. On iPhone that gets the native "Take Photo / Photo Library" sheet, so iOS genuinely offered both (checked — no iPhone change needed). On Android 13+ the system photo picker that opens for the same markup has **no camera option at all**, so the button promised a camera it couldn't deliver. Now two buttons — **Take photo** opens the camera directly on both platforms; **Choose photo** opens the picker.
+- **Searching "Buke" on the Stats page found nothing.** The player's room name is "Jrbuch"; "Buke" is his Arcaid username, and the Stats data simply didn't carry it — every other player surface knows both names. Stats now ships the username and the search matches it. (His stats row was present all along — the investigation confirmed the data end to end — it was the search that couldn't reach it.)
+
 ## [2.141.0] — Players can find events, link their own AtGames account, and log in either way
 
 ### Added
