@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.140.1] — Fix: the two failures from the first live-fire AtGames run
+
+The good news first: the sync itself worked against real AtGames end to end — the invitation code resolved to the right tournament, the score landed in the correct round, and the window check passed. Both failures were around the edges.
+
+### Fixed
+- **"Create on AtGames" died as an opaque Internal Server Error.** AtGames rejected the create request with an HTTP 400, and the raw error fell through as a 500 with no explanation. The rejection now surfaces as `ATGAMES_REJECTED` (502) carrying **AtGames' own response body** in the message — the payload contract is reverse-engineered, so their error text is the only clue to which field is wrong. The next press of the button becomes the diagnostic. (A capture of a manual create on atgames.net — DevTools → the POST → Copy as cURL — would settle the contract outright.)
+- **"Who is who" was an empty picker with a greyed Link button in a fresh room.** The picker offered room *members*, and the link endpoint accepted only members — but a brand-new test room has no members at all; the admin adds themselves to the event by hand, which makes them a *participant*. Both sides now accept **members plus this event's checked-in players**: someone the admin deliberately put in the event is inside the same trust boundary as a member.
+
 ## [2.140.0] — First live test: everything the owner tripped over
 
 Four fixes from the first real AtGames test night (2026-08-25), each one a thing the test run hit.

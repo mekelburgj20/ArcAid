@@ -676,6 +676,31 @@ describe('AtGamesIdentityService — who is who', () => {
         await expect(AtGamesIdentityService.linkAccount('not-a-number', USER))
             .rejects.toMatchObject({ code: 'BAD_ACCOUNT_ID' });
     });
+
+    it('an event participant passes the link authorization even with no membership', async () => {
+        // The route's rule, pinned at the data layer: member OR participant of
+        // THIS tournament. A fresh test room has NO members — the admin adds
+        // themselves to the event by hand, plays, and the link must not dead-end
+        // (first live test, 2026-08-26).
+        const db = await getDatabase();
+        await db.run(
+            `INSERT INTO tournament_participants (tournament_id, user_id, source, checked_in_at) VALUES (?, ?, 'admin', datetime('now'))`,
+            tournamentId, USER,
+        );
+
+        const { RoomMembershipService } = await import('../services/RoomMembershipService.js');
+        expect(await RoomMembershipService.isMember(USER, roomId)).toBe(false);
+        const participant = await db.get(
+            'SELECT 1 FROM tournament_participants WHERE tournament_id = ? AND user_id = ?',
+            tournamentId, USER,
+        );
+        expect(participant).toBeTruthy();
+
+        // And the link itself works for them end to end.
+        await ingest('Wyo', 11, 1000);
+        const res = await AtGamesIdentityService.linkAccount(11, USER);
+        expect(res.rowsAttributed).toBe(1);
+    });
 });
 
 describe('AtGamesEventSyncService — invitation-code resolution', () => {
@@ -815,6 +840,35 @@ describe('AtGamesEventSyncService — create on AtGames', () => {
         // The fix is a catalogue action on a NAMED game — a bare count would
         // leave the host guessing which round is the problem.
         expect(String(err.message)).toContain('Attack from Mars');
+    });
+});
+
+describe('AtGamesPrivateClient — create rejection surfacing', () => {
+    beforeEach(() => clearAtGamesSessions());
+    afterEach(() => vi.restoreAllMocks());
+
+    it("carries AtGames' response body instead of dying as an opaque error", async () => {
+        // The first live create attempt (2026-08-26) came back HTTP 400 and the
+        // admin saw "Internal Server Error". The payload contract is
+        // reverse-engineered, so AtGames' own body is the only clue to which
+        // field it disliked — it must reach the admin, not just the log.
+        const { AtGamesApiError } = await import('../services/AtGamesPrivateClient.js');
+        const token = fakeJwt({ id: 1, exp: Math.floor(Date.now() / 1000) + 3600 });
+        vi.spyOn(axios, 'post')
+            .mockResolvedValueOnce({ data: { account: { token } }, headers: {} } as never)
+            .mockRejectedValueOnce(Object.assign(new Error('Request failed'), {
+                response: { status: 400, data: { status: 400, error: 'start_date is required' } },
+            }));
+
+        const client = new AtGamesPrivateClient({ email: 'o@e.com', password: 'pw', deviceFp: 'fp' });
+        const err = await client.createPrivateTournament({
+            name: 'Stream Night', startDate: '2026-09-01T20:00:00.000Z',
+            endDate: '2026-09-01T21:00:00.000Z', gameIds: [50334],
+        }).catch(e => e);
+
+        expect(err).toBeInstanceOf(AtGamesApiError);
+        expect(err.status).toBe(400);
+        expect(String(err.message)).toContain('start_date is required');
     });
 });
 
