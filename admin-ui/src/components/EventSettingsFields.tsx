@@ -29,6 +29,70 @@ export type { EventFormState };
 const inputClass = 'w-full px-3 py-2 bg-raised border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan transition-colors';
 const selectClass = `${inputClass} cursor-pointer`;
 
+const HOURS = Array.from({ length: 24 }, (_, h) => String(h).padStart(2, '0'));
+const MINUTE_STEPS = Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, '0'));
+
+/**
+ * Date + hour + minute, replacing the native `datetime-local` control.
+ *
+ * v2.140.0, owner field report: Chrome's datetime-local time WHEEL skips
+ * values when scrolled (10..14 then 17..) and only the arrow keys worked. A
+ * date input's calendar is fine — it is only the time half that is broken —
+ * so the time becomes two plain selects. Minutes step by 5 (a round starting
+ * at :07 is nobody's plan), but a stored off-step value renders as itself
+ * rather than snapping — editing an existing event must not silently move a
+ * round.
+ *
+ * Picking a date before a time gets 20:00 — an evening default the host was
+ * about to change anyway beats emitting a half-formed value the validators
+ * would bounce.
+ */
+function DateTimeField({ value, onChange, disabled, invalid }: {
+    value: string;
+    onChange: (v: string) => void;
+    disabled?: boolean;
+    invalid?: boolean;
+}) {
+    const [datePart, timePart] = value ? value.split('T') : ['', ''];
+    const [hh, mm] = timePart ? timePart.split(':') : ['', ''];
+    const minuteOptions = mm && !MINUTE_STEPS.includes(mm) ? [...MINUTE_STEPS, mm].sort() : MINUTE_STEPS;
+    const cls = `${inputClass} ${disabled ? 'opacity-60' : ''} ${invalid ? 'border-neon-magenta/60' : ''}`;
+
+    const emit = (d: string, h: string, m: string) => {
+        if (!d) { onChange(''); return; }
+        onChange(`${d}T${h || '20'}:${m || '00'}`);
+    };
+
+    return (
+        <div className="flex gap-1 items-center">
+            <input
+                type="date" value={datePart} disabled={disabled}
+                onChange={e => emit(e.target.value, hh, mm)}
+                className={`${cls} min-w-0 flex-[1.6]`}
+            />
+            <select
+                value={hh} disabled={disabled || !datePart}
+                onChange={e => emit(datePart, e.target.value, mm)}
+                className={`${cls} cursor-pointer flex-1`}
+                aria-label="Hour"
+            >
+                {!hh && <option value="">--</option>}
+                {HOURS.map(h => <option key={h} value={h}>{h}</option>)}
+            </select>
+            <span className="text-faint text-sm">:</span>
+            <select
+                value={mm} disabled={disabled || !datePart}
+                onChange={e => emit(datePart, hh, e.target.value)}
+                className={`${cls} cursor-pointer flex-1`}
+                aria-label="Minute"
+            >
+                {!mm && <option value="">--</option>}
+                {minuteOptions.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+        </div>
+    );
+}
+
 /**
  * Game name with a suggestion list from the room's library.
  *
@@ -173,10 +237,9 @@ export default function EventSettingsFields({ state, onChange, roomId, lockedRou
                     <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">
                         Check-in opens <InfoTip text="Leave blank to open check-in as soon as the event is saved. Check-in always CLOSES when round 1 starts — after that only an admin can add a player." />
                     </label>
-                    <input
-                        type="datetime-local" value={state.checkinOpensLocal}
-                        onChange={e => set('checkinOpensLocal', e.target.value)}
-                        className={inputClass}
+                    <DateTimeField
+                        value={state.checkinOpensLocal}
+                        onChange={v => set('checkinOpensLocal', v)}
                     />
                 </div>
                 <div>
@@ -280,10 +343,10 @@ export default function EventSettingsFields({ state, onChange, roomId, lockedRou
                                         )}
                                     </div>
                                     <div>
-                                        <input
-                                            type="datetime-local" value={round.startLocal} disabled={locked}
-                                            onChange={e => updateRound(round.roundNo, { startLocal: e.target.value })}
-                                            className={`${inputClass} ${locked ? 'opacity-60' : ''}`}
+                                        <DateTimeField
+                                            value={round.startLocal} disabled={locked}
+                                            onChange={v => updateRound(round.roundNo, { startLocal: v })}
+                                            invalid={!!error}
                                         />
                                     </div>
                                     <div className="flex items-center gap-1">

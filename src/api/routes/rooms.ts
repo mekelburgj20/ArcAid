@@ -1782,6 +1782,54 @@ router.post('/:roomId/admin/tournaments/:tournamentId/atgames-sync', requireAuth
     }
 });
 
+// Create the AtGames private tournament FOR this event, from inside Arcaid —
+// name, window and game list all derived from the event itself, invitation
+// code stored and returned so the host can read it to players. Refuses when a
+// link already exists (clear it by passing a new id to atgames-sync).
+router.post('/:roomId/admin/tournaments/:tournamentId/atgames-create', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const db = await getDatabase();
+        const roomId = req.params.roomId as string;
+        const tournamentId = req.params.tournamentId as string;
+
+        const tournament = await db.get(
+            'SELECT id, format FROM tournaments WHERE id = ? AND game_room_id = ?', tournamentId, roomId,
+        );
+        if (!tournament) return res.status(404).json({ error: 'Tournament not found in this room' });
+        if (tournament.format !== 'event') {
+            return res.status(400).json({ error: 'AtGames tournaments can only be created for Live Events' });
+        }
+
+        const { AtGamesEventSyncService, AtGamesSyncError } = await import('../../services/AtGamesEventSyncService.js');
+        const { AtGamesAuthError } = await import('../../services/AtGamesPrivateClient.js');
+        try {
+            const result = await AtGamesEventSyncService.createForTournament(tournamentId);
+
+            await AuditService.log({
+                actor: req.user!.discordId || req.user!.username || 'admin',
+                action: 'tournament.atgames_create',
+                target_type: 'tournament',
+                target_id: tournamentId,
+                details: JSON.stringify(result),
+                ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+                correlation_id: req.correlationId || '',
+            });
+            return res.json({ success: true, ...result });
+        } catch (err) {
+            if (err instanceof AtGamesSyncError) {
+                return res.status(err.code === 'NOT_FOUND' ? 404 : 400).json({ error: err.message, code: err.code });
+            }
+            if (err instanceof AtGamesAuthError) {
+                return res.status(502).json({ error: err.message, code: 'ATGAMES_AUTH' });
+            }
+            throw err;
+        }
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/admin/tournaments/:tournamentId/atgames-create):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 // The AtGames accounts that appear in this event's scores, and who each one is.
 //
 // Arcaid refuses to guess which local player an AtGames handle belongs to, so

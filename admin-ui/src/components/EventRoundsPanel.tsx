@@ -80,19 +80,23 @@ interface ParticipantRow {
 
 interface EventRoundsPanelProps {
     roomId: string;
+    /** For the shareable public event URL. */
+    roomSlug: string;
     tournament: Tournament;
     onClose: () => void;
     onChanged: () => void;
     toast: (message: string, kind?: 'success' | 'error') => void;
 }
 
-export default function EventRoundsPanel({ roomId, tournament, onClose, onChanged, toast }: EventRoundsPanelProps) {
+export default function EventRoundsPanel({ roomId, roomSlug, tournament, onClose, onChanged, toast }: EventRoundsPanelProps) {
     const [rounds, setRounds] = useState<EventRoundRow[]>(tournament.rounds ?? []);
     const [participants, setParticipants] = useState<ParticipantRow[]>([]);
     const [busy, setBusy] = useState<string | null>(null);
     const [addUserId, setAddUserId] = useState('');
     const [loading, setLoading] = useState(true);
     const [atgamesId, setAtgamesId] = useState(tournament.atgames_tournament_id ?? '');
+    const [inviteCode, setInviteCode] = useState(tournament.atgames_invite_code ?? '');
+    const [copied, setCopied] = useState(false);
     const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
     const [accounts, setAccounts] = useState<AtGamesAccount[]>([]);
     const [members, setMembers] = useState<MemberOption[]>([]);
@@ -217,6 +221,36 @@ export default function EventRoundsPanel({ roomId, tournament, onClose, onChange
         }
     };
 
+    const createOnAtGames = async () => {
+        setBusy('atg-create');
+        try {
+            const res = await api.post<{ atgamesTournamentId: string; inviteCode: string | null }>(
+                `/rooms/${roomId}/admin/tournaments/${tournament.id}/atgames-create`, {},
+            );
+            setAtgamesId(res.atgamesTournamentId);
+            setInviteCode(res.inviteCode ?? '');
+            onChanged();
+            toast(res.inviteCode
+                ? `Created on AtGames — players join with code ${res.inviteCode}`
+                : 'Created on AtGames', 'success');
+        } catch (err) {
+            toast((err as Error)?.message || 'Could not create the AtGames tournament', 'error');
+        } finally {
+            setBusy(null);
+        }
+    };
+
+    const eventUrl = `${window.location.origin}/${roomSlug}/events/${tournament.id}`;
+    const copyEventUrl = async () => {
+        try {
+            await navigator.clipboard.writeText(eventUrl);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1600);
+        } catch {
+            toast('Could not copy — the link is shown next to the button', 'error');
+        }
+    };
+
     const finished = !!tournament.event_finished_at;
 
     return (
@@ -232,6 +266,18 @@ export default function EventRoundsPanel({ roomId, tournament, onClose, onChange
                         </p>
                     </div>
                     <NeonButton variant="ghost" onClick={onClose} className="text-xs px-3 py-1">Close</NeonButton>
+                </div>
+
+                {/* The event page is where players check in and watch standings,
+                    and nothing else in the product surfaces its URL — a host who
+                    can't hand out the link has an event nobody can join
+                    (2026-08-25). */}
+                <div className="flex items-center gap-2 mb-4 p-2 rounded border border-border bg-raised flex-wrap">
+                    <span className="text-xs font-display uppercase tracking-wider text-muted">Share</span>
+                    <code className="text-xs text-primary font-mono truncate flex-1 min-w-[10rem]">{eventUrl}</code>
+                    <NeonButton variant="ghost" className="text-xs px-2 py-1" onClick={copyEventUrl}>
+                        {copied ? 'Copied!' : 'Copy link'}
+                    </NeonButton>
                 </div>
 
                 <h3 className="font-display text-xs font-bold uppercase tracking-wider text-muted mb-2">Rounds</h3>
@@ -335,9 +381,21 @@ export default function EventRoundsPanel({ roomId, tournament, onClose, onChange
                     don't have to type anything in. Paste the number from the end of the tournament's
                     address on atgames.net. Preview first — it shows what would happen and changes nothing.
                 </p>
+                {inviteCode && (
+                    <p className="text-xs text-neon-cyan mb-2">
+                        Players join on their cabinet with invitation code <span className="font-mono font-bold">{inviteCode}</span>.
+                    </p>
+                )}
                 <div className="flex gap-2 items-center flex-wrap">
+                    {!atgamesId.trim() && (
+                        <NeonButton
+                            variant="secondary" className="text-xs px-3 py-2"
+                            disabled={busy === 'atg-create'}
+                            onClick={createOnAtGames}
+                        >{busy === 'atg-create' ? 'Creating…' : 'Create on AtGames'}</NeonButton>
+                    )}
                     <input
-                        type="text" placeholder="AtGames tournament id" value={atgamesId}
+                        type="text" placeholder="AtGames tournament id or invite code" value={atgamesId}
                         onChange={e => setAtgamesId(e.target.value)}
                         className="flex-1 min-w-[10rem] px-3 py-2 bg-raised border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan transition-colors font-mono"
                     />

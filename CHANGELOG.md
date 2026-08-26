@@ -6,6 +6,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.140.0] — First live test: everything the owner tripped over
+
+Four fixes from the first real AtGames test night (2026-08-25), each one a thing the test run hit.
+
+### Added
+- **"Don't post to Discord" per tournament.** The Channel ID field is now an Announcements select: *Room default channel* / *A specific channel…* / *Don't post to Discord*. Before this, an empty channel meant "fall back to the room's channel", so there was no way to run a quiet test in a live room — the AtGames test event announced itself straight into the Daily Grind channel. Stored as a `'none'` sentinel in the same column and honoured by the ONE shared resolver (`resolveAnnouncementChannelId`), so every announcement path — events and rotation alike — respects it. The event scheduler now also routes through that resolver, picking up the per-room Discord toggle it previously ignored.
+- **Create the AtGames tournament from inside Arcaid.** A "Create on AtGames" button on the event's AtGames panel: name, window (first round start → last round end + grace) and game list all derived from the event itself, the invitation code stored and shown — "Players join on their cabinet with invitation code X". No more leaving Arcaid to set one up.
+- **Invitation codes now work in the id field.** The first live test stored `9CTQSJF` — the code AtGames shows players — where the numeric id belonged, which is at least as natural as finding the id in the address bar. A non-numeric value is resolved against the account's own tournament list (by code, then name), and the numeric id is written back so the next sync skips the lookup.
+- **The event's share link, surfaced.** The rounds panel now shows the public event URL with a Copy button, and the Discord check-in announcement carries the link. Before this, nothing in the product surfaced that URL — a host literally could not hand out the page where players check in.
+
+### Fixed
+- **A finished event reopens when a future round is saved.** An event created with its only round already in the past froze itself within the minute; adding a new round then did nothing, silently, because the scheduler only looks at active events. Saving a round whose window is still ahead now clears the finish and reactivates the event; it re-freezes after the new round, recomputing the final result from all rounds' scores — nothing is lost.
+- **The round time picker no longer fights you.** Chrome's native `datetime-local` time wheel skips values when scrolled (10…14, then 17…); only the arrow keys worked. Round start and check-in times are now a date field plus plain hour/minute dropdowns (minutes in 5-minute steps; an existing off-step time renders as itself rather than snapping, so editing an event never silently moves a round).
+
 ## [2.139.0] — AtGames event score sync: the host's controls (P7, part 2)
 
 Part 1 built the machinery. This is the part you can actually press.

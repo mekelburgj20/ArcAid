@@ -530,6 +530,9 @@ export default function TournamentFormFields({ state, set, platforms, roomId, lo
   const selectClass = `${inputClass} cursor-pointer`;
 
   const isEvent = state.format === 'event';
+  // 'Announcements' select — see the comment at its JSX. Only meaningful while
+  // the admin is mid-edit; the stored value is always state.channel.
+  const [channelMode, setChannelMode] = useState<'default' | 'custom' | 'none' | null>(null);
 
   return (
     <>
@@ -581,9 +584,38 @@ export default function TournamentFormFields({ state, set, platforms, roomId, lo
         </div>
         <div>
           <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">
-            Channel ID <InfoTip text="Discord channel ID for announcements. Right-click a channel in Discord → Copy Channel ID." />
+            Announcements <InfoTip text="Where this tournament's Discord announcements go. 'Room default' uses the room's announcement channel; 'Don't post' keeps this tournament off Discord entirely — the right choice for a test run in a live room." />
           </label>
-          <input type="text" placeholder="Optional" value={state.channel} onChange={e => set('channel', e.target.value)} className={inputClass} />
+          {/* v2.140.0 — an EMPTY channel falls back to the room's announcement
+              channel, so before this select there was no way to run a QUIET
+              tournament in a room that has one: the owner's AtGames test event
+              posted straight into the live Daily Grind channel. 'none' is a
+              sentinel the shared resolver recognises, stored in the same
+              column. channelMode overrides the derivation only while the admin
+              is mid-edit (picked "specific" but hasn't typed the id yet). */}
+          <select
+            value={channelMode ?? (state.channel === '' ? 'default' : state.channel === 'none' ? 'none' : 'custom')}
+            onChange={e => {
+              const v = e.target.value as 'default' | 'custom' | 'none';
+              setChannelMode(v);
+              if (v === 'default') set('channel', '');
+              else if (v === 'none') set('channel', 'none');
+              else if (state.channel === 'none') set('channel', '');
+            }}
+            className={selectClass}
+          >
+            <option value="default">Room default channel</option>
+            <option value="custom">A specific channel…</option>
+            <option value="none">Don't post to Discord</option>
+          </select>
+          {(channelMode ?? (state.channel === '' ? 'default' : state.channel === 'none' ? 'none' : 'custom')) === 'custom' && (
+            <input
+              type="text" placeholder="Channel ID (right-click the channel → Copy Channel ID)"
+              value={state.channel === 'none' ? '' : state.channel}
+              onChange={e => set('channel', e.target.value)}
+              className={`${inputClass} mt-1.5`}
+            />
+          )}
         </div>
       </div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">

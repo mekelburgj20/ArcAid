@@ -333,6 +333,69 @@ export class AtGamesPrivateClient {
         }
     }
 
+    /**
+     * Creates a private tournament on AtGames.
+     *
+     * Contract from the 0b capture: `POST /user/tournaments/private` with
+     * `{name, startDate, endDate, gameIds}` (ISO UTC) returns 201. The capture
+     * did not record the response BODY, so nothing here depends on it: the
+     * created tournament is found by re-listing and matching on name + start,
+     * newest first, which also yields the invitation code players type at the
+     * cabinet.
+     */
+    async createPrivateTournament(input: {
+        name: string; startDate: string; endDate: string; gameIds: number[];
+    }): Promise<AtGamesPrivateTournamentSummary> {
+        const session = await this.ensureSession();
+        try {
+            await axios.post(
+                `${API_BASE}${PRIVATE_TOURNAMENTS_PATH}`,
+                { name: input.name, startDate: input.startDate, endDate: input.endDate, gameIds: input.gameIds },
+                {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Accept: 'application/json',
+                        Authorization: `Bearer ${session.token}`,
+                        fp: this.creds.deviceFp,
+                    },
+                    timeout: REQUEST_TIMEOUT_MS,
+                },
+            );
+        } catch (err) {
+            const status = statusOf(err);
+            if (status === 401) {
+                // Same one-retry rule as authedGet — a fresh token, once.
+                const fresh = await this.ensureSession(true);
+                await axios.post(
+                    `${API_BASE}${PRIVATE_TOURNAMENTS_PATH}`,
+                    { name: input.name, startDate: input.startDate, endDate: input.endDate, gameIds: input.gameIds },
+                    {
+                        headers: {
+                            'Content-Type': 'application/json',
+                            Accept: 'application/json',
+                            Authorization: `Bearer ${fresh.token}`,
+                            fp: this.creds.deviceFp,
+                        },
+                        timeout: REQUEST_TIMEOUT_MS,
+                    },
+                );
+            } else {
+                throw err;
+            }
+        }
+
+        const list = await this.listPrivateTournaments();
+        const created = list
+            .filter(t => t.name === input.name)
+            .sort((a, b) => Date.parse(b.createdAt ?? '') - Date.parse(a.createdAt ?? ''))[0];
+        if (!created) {
+            throw new Error(
+                `AtGames accepted the tournament "${input.name}" but it did not appear in the list — check atgames.net directly`,
+            );
+        }
+        return created;
+    }
+
     /** Every private tournament this account can see. */
     async listPrivateTournaments(): Promise<AtGamesPrivateTournamentSummary[]> {
         const data = await this.authedGet<unknown>(PRIVATE_TOURNAMENTS_PATH);

@@ -194,7 +194,8 @@ export class AtGamesEventSyncService {
         }
 
         const client = new AtGamesPrivateClient(creds);
-        const detail = await client.getPrivateTournament(tournament.atgames_tournament_id);
+        const resolvedId = await this.resolveAtGamesId(client, tournament.id, tournament.atgames_tournament_id);
+        const detail = await client.getPrivateTournament(resolvedId);
         const rankings = AtGamesPrivateClient.flattenRankings(detail);
 
         const rounds = await db.all<RoundRow[]>(
@@ -306,6 +307,138 @@ export class AtGamesEventSyncService {
             );
         }
         return result;
+    }
+
+    /**
+     * Resolves what the host typed into a numeric AtGames tournament id.
+     *
+     * Hosts paste the INVITATION CODE at least as often as the id — the code
+     * is the thing AtGames shows players, while the id only appears in the
+     * address bar (the first live test stored `9CTQSJF`, 2026-08-25). A
+     * non-numeric value is matched against the account's own tournament list
+     * by invitation code or name, and the numeric id is written back so the
+     * next sync skips the list call.
+     */
+    private static async resolveAtGamesId(
+        client: AtGamesPrivateClient,
+        tournamentId: string,
+        stored: string,
+    ): Promise<string> {
+        const trimmed = stored.trim();
+        if (/^\d+$/.test(trimmed)) return trimmed;
+
+        const list = await client.listPrivateTournaments();
+        const needle = trimmed.toLowerCase();
+        const match = list.find(t => (t.invitationCode ?? '').toLowerCase() === needle)
+            ?? list.find(t => t.name.toLowerCase() === needle);
+        if (!match) {
+            throw new AtGamesSyncError(
+                'NOT_FOUND',
+                `"${trimmed}" matches no tournament on this AtGames account — paste the number from the tournament's address on atgames.net, or its invitation code`,
+            );
+        }
+
+        const db = await getDatabase();
+        await db.run(
+            `UPDATE tournaments SET atgames_tournament_id = ?, atgames_invite_code = COALESCE(atgames_invite_code, ?)
+              WHERE id = ?`,
+            String(match.id), match.invitationCode ?? null, tournamentId,
+        );
+        logInfo(`AtGames sync: resolved "${trimmed}" to tournament ${match.id} ("${match.name}") and stored the id`);
+        return String(match.id);
+    }
+
+    /**
+     * Creates the AtGames private tournament FOR an Arcaid event, so a host
+     * never has to leave Arcaid to set one up (owner-asked, 2026-08-25).
+     *
+     * The AtGames window is the event's whole span — first round start to last
+     * round end plus the grace — because AtGames has one window per tournament
+     * while an Arcaid event has one per round. Arcaid's per-round windows stay
+     * the arbiter at ingest; the AtGames window just has to CONTAIN them.
+     */
+    static async createForTournament(tournamentId: string): Promise<{
+        atgamesTournamentId: string;
+        inviteCode: string | null;
+        name: string;
+        start: string;
+        end: string;
+        gameIds: number[];
+    }> {
+        const db = await getDatabase();
+        const tournament = await db.get<TournamentRow & { name: string }>(
+            `SELECT id, name, game_room_id, format, atgames_tournament_id, end_grace_sec
+             FROM tournaments WHERE id = ?`,
+            tournamentId,
+        );
+        if (!tournament) throw new AtGamesSyncError('NOT_FOUND', 'Tournament not found');
+        if (tournament.atgames_tournament_id) {
+            throw new AtGamesSyncError(
+                'NOT_LINKED',
+                'This event is already linked to an AtGames tournament — clear the id first to create a fresh one',
+            );
+        }
+        if (!tournament.game_room_id) {
+            throw new AtGamesSyncError('NO_ROOM', 'AtGames sync needs a game room (the AtGames account is a room setting)');
+        }
+
+        const creds = await getAtGamesCredsForRoom(tournament.game_room_id);
+        if (!creds) {
+            throw new AtGamesSyncError(
+                'NO_CREDENTIALS',
+                'This room has no AtGames account configured (set ATGAMES_EMAIL and ATGAMES_PASSWORD)',
+            );
+        }
+
+        const rounds = await db.all<RoundRow[]>(
+            `SELECT id, name, round_no, scheduled_start_at, scheduled_end_at
+             FROM games WHERE tournament_id = ? AND round_no IS NOT NULL ORDER BY round_no ASC`,
+            tournamentId,
+        );
+        if (rounds.length === 0) {
+            throw new AtGamesSyncError('NOT_FOUND', 'This event has no rounds yet — add rounds before creating the AtGames tournament');
+        }
+
+        const roundsByGameId = await this.mapRoundsToAtGamesIds(rounds);
+        const gameIds = [...roundsByGameId.keys()];
+        if (gameIds.length === 0) {
+            // Naming the games beats "0 gameIds": the fix is a catalogue sync
+            // or picking the table from the suggestions, and the host needs to
+            // know WHICH name failed to resolve.
+            const names = [...new Set(rounds.map(r => r.name))].join(', ');
+            throw new AtGamesSyncError(
+                'NOT_FOUND',
+                `None of this event's games (${names}) are AtGames-linked in the catalogue — run "Sync AtGames" on the catalogue, or check the round names match the library entries`,
+            );
+        }
+
+        const startMs = Math.min(...rounds.map(r => Date.parse(r.scheduled_start_at ?? '')));
+        const endMs = Math.max(...rounds.map(r => Date.parse(r.scheduled_end_at ?? '')));
+        if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) {
+            throw new AtGamesSyncError('NOT_FOUND', 'This event\'s rounds have no scheduled windows');
+        }
+        const start = new Date(startMs).toISOString();
+        const end = new Date(endMs + eventEndGraceSec(tournament) * 1000).toISOString();
+
+        const client = new AtGamesPrivateClient(creds);
+        const created = await client.createPrivateTournament({
+            name: tournament.name, startDate: start, endDate: end, gameIds,
+        });
+
+        await db.run(
+            `UPDATE tournaments SET atgames_tournament_id = ?, atgames_invite_code = ? WHERE id = ?`,
+            String(created.id), created.invitationCode ?? null, tournamentId,
+        );
+        logInfo(
+            `AtGames: created private tournament ${created.id} for event ${tournamentId} ` +
+            `(${gameIds.length} game(s), ${start} -> ${end})`,
+        );
+        return {
+            atgamesTournamentId: String(created.id),
+            inviteCode: created.invitationCode ?? null,
+            name: tournament.name,
+            start, end, gameIds,
+        };
     }
 
     /**

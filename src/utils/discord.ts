@@ -377,11 +377,22 @@ export async function guildInteractionBlockReason(guildId: string): Promise<stri
  * `DISCORD_ANNOUNCEMENT_CHANNEL_ID` → env fallback. Returns `null` when the
  * room has DISCORD_ENABLED=false or no channel can be resolved.
  */
+/** Stored in `tournaments.discord_channel_id` to mean "announce nowhere". */
+export const ANNOUNCE_NONE = 'none';
+
 export async function resolveAnnouncementChannelId(
     gameRoomId: string | null | undefined,
     tournamentChannelId: string | null | undefined,
 ): Promise<string | null> {
     if (!(await isDiscordEnabledForRoom(gameRoomId))) return null;
+    // v2.140.0 — 'none' is the per-tournament "don't announce" sentinel. It
+    // exists because an EMPTY channel id means "fall back to the room's
+    // announcement channel", so before this there was no way to run a quiet
+    // tournament in a room that has one (an owner's AtGames test event posted
+    // into the live Daily Grind channel, 2026-08-25). A sentinel in the same
+    // column — rather than a new flag — means every caller that already
+    // resolves through here inherits the behaviour.
+    if (tournamentChannelId === ANNOUNCE_NONE) return null;
     if (tournamentChannelId) return tournamentChannelId;
     if (gameRoomId) {
         const perRoom = await GameRoomSettingsService.get(gameRoomId, 'DISCORD_ANNOUNCEMENT_CHANNEL_ID');

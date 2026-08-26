@@ -47,6 +47,8 @@ export interface Tournament {
   event_finished_at?: string | null;
   /** P7 — the AtGames private tournament this event reads its scores from. */
   atgames_tournament_id?: string | null;
+  /** The code players type at the cabinet to join it. */
+  atgames_invite_code?: string | null;
   /** Embedded by `GET /:roomId/tournaments` for event rows only. */
   rounds?: EventRoundRow[];
 }
