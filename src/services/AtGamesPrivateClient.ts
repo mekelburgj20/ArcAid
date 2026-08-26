@@ -150,6 +150,40 @@ export class AtGamesAuthError extends Error {
 }
 
 /**
+ * AtGames answered, and the answer was no.
+ *
+ * Distinct from `AtGamesAuthError` (credentials) and from a network failure
+ * (raw axios error): this carries AtGames' OWN response body, because "HTTP
+ * 400" alone is useless to whoever has to fix the request. The first live
+ * create attempt (2026-08-26) died as an opaque 500 for exactly this reason —
+ * the payload shape is reverse-engineered, so when AtGames rejects it, its
+ * error text is the only clue to which field is wrong.
+ */
+export class AtGamesApiError extends Error {
+    readonly status?: number;
+    /** AtGames' response body, stringified and truncated — safe to show an admin. */
+    readonly body?: string;
+    constructor(message: string, status?: number, body?: string) {
+        super(message);
+        this.name = 'AtGamesApiError';
+        this.status = status;
+        this.body = body;
+    }
+}
+
+/** AtGames' response body as a short printable string, for error messages. */
+function responseBodyText(err: unknown): string | undefined {
+    const data = (err as AxiosError | undefined)?.response?.data;
+    if (data == null) return undefined;
+    try {
+        const text = typeof data === 'string' ? data : JSON.stringify(data);
+        return text.length > 300 ? `${text.slice(0, 300)}…` : text;
+    } catch {
+        return undefined;
+    }
+}
+
+/**
  * Decodes a JWT payload without verifying it.
  *
  * Verification is AtGames' job — we hold no signing key and the token is only
@@ -346,42 +380,45 @@ export class AtGamesPrivateClient {
     async createPrivateTournament(input: {
         name: string; startDate: string; endDate: string; gameIds: number[];
     }): Promise<AtGamesPrivateTournamentSummary> {
+        const body = { name: input.name, startDate: input.startDate, endDate: input.endDate, gameIds: input.gameIds };
+        const send = async (token: string) => axios.post(
+            `${API_BASE}${PRIVATE_TOURNAMENTS_PATH}`,
+            body,
+            {
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'application/json',
+                    Authorization: `Bearer ${token}`,
+                    fp: this.creds.deviceFp,
+                },
+                timeout: REQUEST_TIMEOUT_MS,
+            },
+        );
+
         const session = await this.ensureSession();
         try {
-            await axios.post(
-                `${API_BASE}${PRIVATE_TOURNAMENTS_PATH}`,
-                { name: input.name, startDate: input.startDate, endDate: input.endDate, gameIds: input.gameIds },
-                {
-                    headers: {
-                        'Content-Type': 'application/json',
-                        Accept: 'application/json',
-                        Authorization: `Bearer ${session.token}`,
-                        fp: this.creds.deviceFp,
-                    },
-                    timeout: REQUEST_TIMEOUT_MS,
-                },
-            );
-        } catch (err) {
-            const status = statusOf(err);
-            if (status === 401) {
+            try {
+                await send(session.token);
+            } catch (err) {
+                if (statusOf(err) !== 401) throw err;
                 // Same one-retry rule as authedGet — a fresh token, once.
                 const fresh = await this.ensureSession(true);
-                await axios.post(
-                    `${API_BASE}${PRIVATE_TOURNAMENTS_PATH}`,
-                    { name: input.name, startDate: input.startDate, endDate: input.endDate, gameIds: input.gameIds },
-                    {
-                        headers: {
-                            'Content-Type': 'application/json',
-                            Accept: 'application/json',
-                            Authorization: `Bearer ${fresh.token}`,
-                            fp: this.creds.deviceFp,
-                        },
-                        timeout: REQUEST_TIMEOUT_MS,
-                    },
-                );
-            } else {
-                throw err;
+                await send(fresh.token);
             }
+        } catch (err) {
+            const status = statusOf(err);
+            if (status != null) {
+                // AtGames rejected the request. Its body is the only clue to
+                // WHICH field of the reverse-engineered payload it disliked, so
+                // it travels with the error instead of dying as an opaque 500.
+                const text = responseBodyText(err);
+                logWarn(`AtGames: create tournament rejected (HTTP ${status})${text ? `: ${text}` : ''}`);
+                throw new AtGamesApiError(
+                    `AtGames rejected the tournament (HTTP ${status})${text ? ` — ${text}` : ''}`,
+                    status, text,
+                );
+            }
+            throw err;
         }
 
         const list = await this.listPrivateTournaments();

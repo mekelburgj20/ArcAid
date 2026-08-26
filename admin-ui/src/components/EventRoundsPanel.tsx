@@ -251,6 +251,22 @@ export default function EventRoundsPanel({ roomId, roomSlug, tournament, onClose
         }
     };
 
+    // "Who is this?" options: room members PLUS this event's checked-in
+    // players. A fresh test room has no members at all — the admin adds
+    // themselves to the event by hand, plays, and then found an empty picker
+    // and a greyed Link button (first live test, 2026-08-26). Participants are
+    // already loaded for the check-in list above; the server accepts them too.
+    const linkOptions = (() => {
+        const byId = new Map<string, MemberOption>();
+        for (const m of members) byId.set(m.userId, m);
+        for (const p of participants) {
+            if (!byId.has(p.user_id)) {
+                byId.set(p.user_id, { userId: p.user_id, displayName: p.display_name || p.user_id });
+            }
+        }
+        return [...byId.values()];
+    })();
+
     const finished = !!tournament.event_finished_at;
 
     return (
@@ -480,7 +496,7 @@ export default function EventRoundsPanel({ roomId, roomSlug, tournament, onClose
                                                 className="px-2 py-1 bg-surface border border-border rounded text-primary text-xs focus:outline-none focus:border-neon-cyan"
                                             >
                                                 <option value="">Who is this?</option>
-                                                {members.map(m => (
+                                                {linkOptions.map(m => (
                                                     <option key={m.userId} value={m.userId}>{m.displayName}</option>
                                                 ))}
                                             </select>

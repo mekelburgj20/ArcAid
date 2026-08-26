@@ -1801,7 +1801,7 @@ router.post('/:roomId/admin/tournaments/:tournamentId/atgames-create', requireAu
         }
 
         const { AtGamesEventSyncService, AtGamesSyncError } = await import('../../services/AtGamesEventSyncService.js');
-        const { AtGamesAuthError } = await import('../../services/AtGamesPrivateClient.js');
+        const { AtGamesAuthError, AtGamesApiError } = await import('../../services/AtGamesPrivateClient.js');
         try {
             const result = await AtGamesEventSyncService.createForTournament(tournamentId);
 
@@ -1821,6 +1821,12 @@ router.post('/:roomId/admin/tournaments/:tournamentId/atgames-create', requireAu
             }
             if (err instanceof AtGamesAuthError) {
                 return res.status(502).json({ error: err.message, code: 'ATGAMES_AUTH' });
+            }
+            if (err instanceof AtGamesApiError) {
+                // AtGames itself said no — hand the admin its reason, because
+                // the payload contract is reverse-engineered and the body names
+                // the field that is wrong.
+                return res.status(502).json({ error: err.message, code: 'ATGAMES_REJECTED' });
             }
             throw err;
         }
@@ -1877,9 +1883,19 @@ router.post('/:roomId/admin/tournaments/:tournamentId/atgames-links', requireAut
         const userId = typeof req.body?.userId === 'string' ? req.body.userId.trim() : '';
         if (!userId) return res.status(400).json({ error: 'userId is required' });
 
+        // Member OR event participant. A fresh test room has NO members —
+        // the admin adds themselves to the event by hand, plays, and then the
+        // link is refused because a participant is not a member (first live
+        // test, 2026-08-26). Someone the admin deliberately put in this event
+        // is inside the same trust boundary as a member of the room.
         const { RoomMembershipService } = await import('../../services/RoomMembershipService.js');
-        if (!(await RoomMembershipService.isMember(userId, roomId))) {
-            return res.status(400).json({ error: 'That player is not a member of this room' });
+        const isMember = await RoomMembershipService.isMember(userId, roomId);
+        const isParticipant = !isMember && !!(await db.get(
+            'SELECT 1 FROM tournament_participants WHERE tournament_id = ? AND user_id = ?',
+            tournamentId, userId,
+        ));
+        if (!isMember && !isParticipant) {
+            return res.status(400).json({ error: 'That player is not a member of this room or a participant in this event' });
         }
 
         const { AtGamesIdentityService, AtGamesLinkError } = await import('../../services/AtGamesIdentityService.js');
