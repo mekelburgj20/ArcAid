@@ -26,3 +26,22 @@ export function getNextRunTime(cronExpr: string, timezone: string, from?: Date):
         return null;
     }
 }
+
+/**
+ * The next rotation time for a tournament's `cadence` JSON column, as an ISO
+ * string (or null). Same parsing approach as `calloutActions.ts`'s
+ * `renderTimeLeft` — reused here so `GET /:roomId/pick-status` can surface
+ * "rotates <when>" without hand-rolling a second cadence parser.
+ *
+ * `null` for: a cadence with no `cron` (Live Events, which don't rotate on a
+ * clock), malformed/absent JSON, or an unparseable cron — never throws.
+ */
+export function nextRotationIso(cadenceJson: string | null | undefined, from?: Date): string | null {
+    let parsed: { cron?: string; timezone?: string } = {};
+    try { parsed = JSON.parse(cadenceJson || '{}'); } catch { parsed = {}; }
+    const cron = parsed.cron || null;
+    if (!cron) return null;
+    const timezone = parsed.timezone || process.env.BOT_TIMEZONE || 'America/Chicago';
+    const next = getNextRunTime(cron, timezone, from);
+    return next ? next.toISOString() : null;
+}

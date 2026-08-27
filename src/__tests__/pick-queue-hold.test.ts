@@ -87,8 +87,11 @@ describe('nextEligibleQueuedFor — the hold walker', () => {
         const { tournamentId } = await setupTournament();
         const engine = TournamentEngine.getInstance();
 
-        const a = await engine.queueGame(tournamentId, 'Cooling Table', undefined, undefined, PLAYER);
+        // Newest-first (owner ruling 2026-08-27): queue the ineligible row
+        // LAST so it lands at position 1 — the walker checks position 1
+        // first, which is the scenario this test is pinning down.
         const b = await engine.queueGame(tournamentId, 'Fresh Table', undefined, undefined, PLAYER);
+        const a = await engine.queueGame(tournamentId, 'Cooling Table', undefined, undefined, PLAYER);
         await seedRecentlyPlayed(tournamentId, 'Cooling Table');
 
         const next = await engine.nextEligibleQueuedFor(tournamentId, PLAYER);
@@ -105,16 +108,20 @@ describe('nextEligibleQueuedFor — the hold walker', () => {
         const { tournamentId } = await setupTournament();
         const engine = TournamentEngine.getInstance();
 
-        const a = await engine.queueGame(tournamentId, 'Cooling Table', undefined, undefined, PLAYER);
+        // Newest-first (owner ruling 2026-08-27): queue the row that must be
+        // checked FIRST last, so it lands at position 1.
         await engine.queueGame(tournamentId, 'Fresh Table', undefined, undefined, PLAYER);
+        const a = await engine.queueGame(tournamentId, 'Cooling Table', undefined, undefined, PLAYER);
         const blockerId = await seedRecentlyPlayed(tournamentId, 'Cooling Table');
 
         // Round 1 — the cooled-down pick goes on hold, the other one runs.
         await engine.nextEligibleQueuedFor(tournamentId, PLAYER);
         expect((await queueRow(a.id)).queue_held_at).toBeTruthy();
 
-        // The player then queues something else, which lands at the BACK of
-        // their stored order — and would have been next under the old rules.
+        // The player then queues something else. Newest-first means it lands
+        // at the FRONT of their stored order (position 1) — but the hold
+        // still wins the walk regardless of numeric position, since held rows
+        // sort first via queueOrderSql no matter what queue_order they carry.
         await engine.queueGame(tournamentId, 'Newest Table', undefined, undefined, PLAYER);
         // Consume the row that actually ran, so only queued rows remain.
         await db.run(`DELETE FROM games WHERE tournament_id = ? AND name = 'Fresh Table'`, tournamentId);
@@ -157,8 +164,10 @@ describe('runMaintenance extra-slot loop — hold, not delete', () => {
         const { tournamentId } = await setupTournament({ maxActive: 1 });
         const engine = TournamentEngine.getInstance();
 
-        const stale = await engine.queueGame(tournamentId, 'Cooling Table', undefined, undefined, PLAYER);
+        // Newest-first (owner ruling 2026-08-27): queue the row that must be
+        // checked FIRST last, so it lands at position 1.
         const fresh = await engine.queueGame(tournamentId, 'Fresh Table', undefined, undefined, PLAYER);
+        const stale = await engine.queueGame(tournamentId, 'Cooling Table', undefined, undefined, PLAYER);
         await seedRecentlyPlayed(tournamentId, 'Cooling Table');
 
         await engine.runMaintenance(tournamentId);
@@ -182,8 +191,10 @@ describe('GET /:roomId/pick-status — held rows', () => {
         const { roomId, tournamentId } = await setupTournament();
         const engine = TournamentEngine.getInstance();
 
-        const a = await engine.queueGame(tournamentId, 'Cooling Table', undefined, undefined, PLAYER);
+        // Newest-first (owner ruling 2026-08-27): queue the row that must be
+        // checked FIRST last, so it lands at position 1.
         await engine.queueGame(tournamentId, 'Fresh Table', undefined, undefined, PLAYER);
+        const a = await engine.queueGame(tournamentId, 'Cooling Table', undefined, undefined, PLAYER);
         await seedRecentlyPlayed(tournamentId, 'Cooling Table');
         await engine.nextEligibleQueuedFor(tournamentId, PLAYER);
         // Park the held pick LAST by stored position: the HOLD, not
@@ -217,6 +228,8 @@ describe('DELETE /:roomId/queue/:gameId — queue compaction', () => {
         const engine = TournamentEngine.getInstance();
         const db = await getDatabase();
 
+        // Newest-first (owner ruling 2026-08-27): stored order after these
+        // three inserts is [three, two, one] (positions 1, 2, 3).
         const one = await engine.queueGame(tournamentId, 'Table One', undefined, undefined, PLAYER);
         const two = await engine.queueGame(tournamentId, 'Table Two', undefined, undefined, PLAYER);
         const three = await engine.queueGame(tournamentId, 'Table Three', undefined, undefined, PLAYER);
@@ -232,7 +245,7 @@ describe('DELETE /:roomId/queue/:gameId — queue compaction', () => {
             tournamentId,
         );
         expect(rows.map(r => r.queue_order)).toEqual([1, 2]);
-        expect(rows.map(r => r.id)).toEqual([one.id, three.id]);
+        expect(rows.map(r => r.id)).toEqual([three.id, one.id]);
     });
 });
 
@@ -248,9 +261,12 @@ describe('PUT /:roomId/queue/reorder — held rows are not reordered away', () =
         const engine = TournamentEngine.getInstance();
         const db = await getDatabase();
 
-        const held = await engine.queueGame(tournamentId, 'Cooling Table', undefined, undefined, PLAYER);
+        // Newest-first (owner ruling 2026-08-27): queue the row that must be
+        // checked FIRST by nextEligibleQueuedFor (below) last, so it lands
+        // at position 1.
         const b = await engine.queueGame(tournamentId, 'Table B', undefined, undefined, PLAYER);
         const c = await engine.queueGame(tournamentId, 'Table C', undefined, undefined, PLAYER);
+        const held = await engine.queueGame(tournamentId, 'Cooling Table', undefined, undefined, PLAYER);
         await seedRecentlyPlayed(tournamentId, 'Cooling Table');
         await engine.nextEligibleQueuedFor(tournamentId, PLAYER);
         const heldStamp = (await queueRow(held.id)).queue_held_at;

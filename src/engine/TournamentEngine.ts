@@ -195,29 +195,44 @@ export class TournamentEngine {
 
     /**
      * Queues a game for a tournament (status = QUEUED, no start date).
+     *
+     * Newest-first (owner ruling 2026-08-27, player ask: "when I'm adding a
+     * table it's because I'd rather play it sooner"): the new pick is inserted
+     * at position 1 for THIS PLAYER in this tournament, and every existing
+     * unheld queued row of theirs shifts down one. This applies to every
+     * queue path — the web queue branch, Discord `/pick-game`'s queue branch,
+     * and the admin queue-on-behalf endpoint — since they all route through
+     * this one method.
+     *
+     * Queues are per-player (owner spec 2026-08-17): a queue is "my pick if
+     * I win", not a room-level play-next list, so two players legitimately
+     * both hold position 1. The shift is scoped the same way the old MAX
+     * allocator was — `picker_discord_id IS ?` — so it never touches another
+     * player's queue.
+     *
+     * '[Pending Pick]' placeholders are excluded: they carry queue_order NULL
+     * so they sort ahead of everything via `queueOrderSql`, and shifting them
+     * would just waste a write. HELD rows (`queue_held_at` set) are shifted
+     * along with everything else — their numeric `queue_order` doesn't matter,
+     * since `queueOrderSql` sorts held rows first regardless of its value —
+     * but excluding NULL-order rows from the shift keeps the WHERE clause
+     * identical to the old allocator's scope.
+     *
+     * No explicit transaction: the two statements aren't atomic, but a crash
+     * between them just leaves a benign gap at position 1 (nothing landed
+     * there), which `compactQueue` self-heals the next time this player's
+     * queue is touched (delete, or the next queue insert's own shift+insert).
      */
     public async queueGame(tournamentId: string, gameName: string, styleId?: string, iscoredId?: string, pickerDiscordId?: string): Promise<Game> {
         const db = await getDatabase();
 
-        // Next queue_order for THIS PLAYER in this tournament.
-        //
-        // Queues are per-player (owner spec 2026-08-17): a queue is "my pick if
-        // I win", not a room-level play-next list, so two players legitimately
-        // both hold position 1. Allocating from a tournament-global MAX was the
-        // root of the reorder collision — PUT /:roomId/queue/reorder renumbers a
-        // player's own games 1..N, which only agrees with the allocator once the
-        // allocator is player-scoped too.
-        //
-        // '[Pending Pick]' placeholders are excluded: they carry queue_order
-        // NULL so they sort ahead of everything, and counting them would leave a
-        // hole in the sequence.
-        const maxRow = await db.get(
-            `SELECT COALESCE(MAX(queue_order), 0) + 1 as next_order FROM games
+        await db.run(
+            `UPDATE games SET queue_order = queue_order + 1
              WHERE tournament_id = ? AND status = ? AND name != '[Pending Pick]'
-               AND picker_discord_id IS ?`,
+               AND picker_discord_id IS ? AND queue_order IS NOT NULL`,
             tournamentId, 'QUEUED', pickerDiscordId ?? null
         );
-        const queueOrder = maxRow?.next_order ?? 1;
+        const queueOrder = 1;
 
         const game: Game = {
             id: uuidv4(),

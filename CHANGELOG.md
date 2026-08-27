@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.143.0] — Picks queue redesign: per-tournament tabs, drag reorder, newest-first
+
+The queue UX overhaul from soggybacon's feedback + owner direction (approved via mockups, 2026-08-27). Queues were already independent per (tournament, player) server-side — the page just rendered them as one interleaved list with one meaningless numbering.
+
+### Added
+- **"Your Picks" is grouped by tournament** — filter tabs (one per tournament with queued picks, plus a read-only **All** overview), per-tournament 1..N numbering, and the active tab follows the tournament selected on the page. Reorders can no longer "move" a pick across tournaments, because that was never a real operation.
+- **Drag-and-drop reorder** (pointer-based, touch-friendly, no library) within a tournament, plus a per-row **⤒ Top** button. Arrows stay as the keyboard/one-step fallback. Held (cooldown) rows stay pinned and undraggable; nothing can be dropped above them.
+- **The tournament selector is unmissable** — "Queuing a pick for" control directly above the game search bar: tournament name large in the room theme's accent, with "N of 30 queued · rotates <next fire>" (new `nextRotationAt` on `/pick-status`, computed from the tournament's cadence cron in its own timezone; Live Events yield none). A real native `<select>` overlays it for keyboard/mobile/screen-reader behavior.
+- Queue confirmation toast names the position and tournament ("Dune queued #1 for Weekly Grind - VPXS"), and the new row flashes briefly.
+
+### Changed
+- **A new pick lands at position #1 of your queue** (owner ruling; player ask: "when I'm adding a table it's because I'd rather play it sooner"). Applies to every queue path — web, Discord `/pick-game` (whose reply now says so), and admin queue-on-behalf. Held rows still run first regardless, exactly as before.
+
 ## [2.142.1] — Fix: a pick window reserves its slot (the 2026-08-27 double-activation)
 
 Root-cause fix for the 2026-08-27 rtx_pinball rotation incident: WG-VR ended at 2 ACTIVE games in a 1-slot tournament and WG-VPXS at 3-in-2, and the pick windows granted to the runner-up/winner were unusable the whole time. Every "is a slot free?" computation counted only ACTIVE rows — a live `[Pending Pick]` window reserved nothing.

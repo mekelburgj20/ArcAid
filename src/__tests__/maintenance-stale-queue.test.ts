@@ -166,8 +166,12 @@ describe('nextEligibleQueuedFor — hold, never remove (v2.126.0)', () => {
         const tournamentId = await createTestTournament(roomId, { name: 'NEQ' });
         const engine = TournamentEngine.getInstance();
 
-        const stale = await engine.queueGame(tournamentId, 'Recently Played', undefined, undefined, 'PLAYER_A');
+        // Newest-first (owner ruling 2026-08-27): queue the row that must be
+        // checked FIRST last, so it lands at position 1. 'Recently Played'
+        // needs to be at the front of the queue for the walker to reach it
+        // (and hold it) before falling through to 'Fresh Pick'.
         const fresh = await engine.queueGame(tournamentId, 'Fresh Pick', undefined, undefined, 'PLAYER_A');
+        const stale = await engine.queueGame(tournamentId, 'Recently Played', undefined, undefined, 'PLAYER_A');
         await seedRecentlyPlayed(tournamentId, 'Recently Played');
         await seedLeaderboardCache(stale.id);
 

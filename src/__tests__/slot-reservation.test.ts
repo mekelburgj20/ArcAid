@@ -376,8 +376,10 @@ describe('Slot reservation — pick during someone else\'s window queues instead
         await pickgame.execute(interaction);
 
         const text = JSON.stringify(replies[replies.length - 1]);
-        // Reply copy for the queued (not activated) branch.
-        expect(text).toMatch(/has been queued/i);
+        // Reply copy for the queued (not activated) branch. Newest-first
+        // (owner ruling 2026-08-27) changed the exact wording to name the
+        // queue position rather than a bare "has been queued".
+        expect(text).toMatch(/top of your queue/i);
 
         const active = await db.all(`SELECT id FROM games WHERE tournament_id = ? AND status = 'ACTIVE'`, tournamentId);
         expect(active).toHaveLength(0);
