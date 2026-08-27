@@ -6,6 +6,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.142.0] — Arcaid Witness: device pairing + launch-time ingest (P8, server side)
+
+The Arcaid side of the on-device anti-gear-up Witness. The device app itself is still a prototype (see P8 test matrix); this is the endpoint it reports to, plus the pairing a player does to claim a cabinet.
+
+### Added
+- **Pair a cabinet in Account Settings** — "Arcaid Witness cabinets". A player mints a short, single-use code (unambiguous charset, ~10-min expiry) and types it into the Witness app on the machine. Paired cabinets list with a last-seen date and an Unpair button.
+- **Device ingest endpoints, GET-shaped by necessity** — the AtGames External Applications SDK offers only a synchronous GET (`httpGet`), so the Witness pairs and reports over GETs:
+  - `GET /api/witness/pair?code&device&username` — redeems the pairing code, binds the cabinet's stable `ATGAMES_UNIQUE_ID` to the player, returns a device token **once**.
+  - `GET /api/witness/report?device&token&table&launch&exit&dur` — records one witnessed table session (token also accepted via `x-witness-token` header).
+  - `POST /api/me/witness/pairing-code`, `GET`/`DELETE /api/me/witness/devices` — the player side.
+- Migration **169**: `witness_devices`, `witness_pairing_codes`, `witness_observations`.
+
+### Security shape (built around a token that lives in a URL)
+- The device token is **long, random, device-scoped, revocable, and stored only as a SHA-256 hash** — the plaintext lives on the cabinet. A token in a query string gets logged, so it's built to be worthless without also being the right device, and cheap to rotate (re-pairing rotates it; the old one dies).
+- A bad or missing token gets a **bare 401** that never reveals whether the device or the token was wrong. Reports are **rate-limited per device id** and **idempotent** (a retried GET for the same table+launch is a no-op).
+- A cabinet belongs to **one** Arcaid account — re-pairing to the same owner rotates the token; a different owner is refused (`DEVICE_CONFLICT`), so nobody can hijack another player's cabinet trail.
+
+### Deliberately not here yet
+The **verify-join** — matching a witnessed launch time against the AtGames score to badge it Verified / Flagged / Unwitnessed — is the next phase. Observations are captured but nothing scores them yet, so a stolen token can only pollute its own (inert) trail. And the on-device app that produces these reports isn't built — the External-Apps install path (T1) is a pending hardware test (see the P8 plan).
+
 ## [2.141.1] — Fix: the Android camera that wasn't, and the name Stats couldn't find
 
 ### Fixed

@@ -2829,6 +2829,61 @@ async function doInitDatabase(): Promise<Database> {
                     ON tournaments(atgames_tournament_id) WHERE atgames_tournament_id IS NOT NULL
             `);
         } },
+        // P8 — Arcaid Witness ingest (device pairing + launch observations).
+        // The on-device app reports table launch/exit times over a SYNCHRONOUS
+        // GET (the SDK offers no POST), so the auth model is a device-scoped
+        // token, minted when the player redeems a short-lived pairing code.
+        // The verify-join (matching observations to AtGames scores) is a LATER
+        // phase — these tables just capture what the device reports.
+        { name: '169_witness_ingest', sql: `
+            -- One row per paired cabinet. Keyed on ATGAMES_UNIQUE_ID (stable,
+            -- hardware-derived, per-DEVICE not per-account), bound to the
+            -- Arcaid canonical user who paired it. token_hash is a SHA-256 of
+            -- the device token — the plaintext token lives only on the device,
+            -- and it rides in a GET query string, so we never store it raw.
+            CREATE TABLE IF NOT EXISTS witness_devices (
+                atgames_unique_id TEXT PRIMARY KEY,
+                canonical_user_id TEXT NOT NULL,
+                atgames_username TEXT,
+                token_hash TEXT NOT NULL,
+                paired_at TEXT NOT NULL DEFAULT (datetime('now')),
+                last_seen_at TEXT,
+                revoked_at TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_witness_devices_user ON witness_devices(canonical_user_id);
+
+            -- Short-lived, single-use pairing codes. A logged-in player mints
+            -- one, types it into the Witness app on the cabinet; the app
+            -- redeems it (GET) to bind its device id and receive its token.
+            CREATE TABLE IF NOT EXISTS witness_pairing_codes (
+                code TEXT PRIMARY KEY,
+                canonical_user_id TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                expires_at TEXT NOT NULL,
+                consumed_at TEXT,
+                consumed_device_id TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_witness_codes_user ON witness_pairing_codes(canonical_user_id);
+
+            -- One row per witnessed table session. launch/exit are epoch
+            -- SECONDS as the device read them from /userdata/error_log; the
+            -- (device, table, launch) UNIQUE index makes re-reports idempotent
+            -- (the app may retry a GET that already landed). Inert until the
+            -- verify-join phase reads them.
+            CREATE TABLE IF NOT EXISTS witness_observations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                atgames_unique_id TEXT NOT NULL,
+                canonical_user_id TEXT NOT NULL,
+                table_name TEXT NOT NULL,
+                launch_ts INTEGER NOT NULL,
+                exit_ts INTEGER,
+                duration_sec INTEGER,
+                reported_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_witness_obs_unique
+                ON witness_observations(atgames_unique_id, table_name, launch_ts);
+            CREATE INDEX IF NOT EXISTS idx_witness_obs_user ON witness_observations(canonical_user_id, launch_ts);
+        ` },
     ];
 
     for (const migration of migrations) {

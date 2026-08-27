@@ -2,7 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import { logError, logInfo } from '../../utils/logger.js';
 import { requireAuth, requireDiscordUser, requireSuperAdmin, requireNotBanned, requireNotBannedGlobal, optionalDiscordUser } from '../middleware.js';
-import { writeLimiter, globalSubmitLimiter, authLimiter, roomCreateLimiter, raSearchLimiter, raImportLimiter } from '../rateLimit.js';
+import { writeLimiter, globalSubmitLimiter, authLimiter, roomCreateLimiter, raSearchLimiter, raImportLimiter, witnessIngestLimiter } from '../rateLimit.js';
 import { raSearchHandler, raImportHandler } from '../raCatalogueHandlers.js';
 import { validate } from '../validate.js';
 import { isAllowedImage } from '../uploadValidation.js';
@@ -155,6 +155,103 @@ router.post('/me/scoreboard-preferences', requireDiscordUser, async (req, res) =
     } catch (error) {
         logError('API Error (POST /api/me/scoreboard-preferences):', error);
         res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// ---------------------------------------------------------------------------
+// P8 — Arcaid Witness (device pairing + launch-time ingest).
+//
+// TWO audiences with different auth models:
+//   - PLAYER routes (`/me/witness/*`, requireDiscordUser) — mint a pairing
+//     code, list/unpair cabinets. Normal Bearer auth.
+//   - DEVICE routes (`/witness/*`, witnessIngestLimiter, NO auth) — the
+//     on-device app pairs and reports over synchronous GETs (the AtGames SDK
+//     offers no POST). The device token in the query string IS the auth; it is
+//     never logged (handlers reference codes/ids only), rate-limited per
+//     device id, and only ever grants writes to that device's own trail.
+// The verify-join that scores these observations is a later phase — these
+// endpoints just capture what the device reports.
+// ---------------------------------------------------------------------------
+
+router.post('/me/witness/pairing-code', requireDiscordUser, async (req, res) => {
+    try {
+        const { WitnessService } = await import('../../services/WitnessService.js');
+        const result = await WitnessService.createPairingCode(req.user!.discordId!);
+        res.json(result);
+    } catch (error) {
+        logError('API Error (POST /api/me/witness/pairing-code):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.get('/me/witness/devices', requireDiscordUser, async (req, res) => {
+    try {
+        const { WitnessService } = await import('../../services/WitnessService.js');
+        res.json(await WitnessService.listDevices(req.user!.discordId!));
+    } catch (error) {
+        logError('API Error (GET /api/me/witness/devices):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.delete('/me/witness/devices/:deviceId', requireDiscordUser, async (req, res) => {
+    try {
+        const { WitnessService } = await import('../../services/WitnessService.js');
+        const ok = await WitnessService.revokeDevice(req.user!.discordId!, req.params.deviceId as string);
+        if (!ok) return res.status(404).json({ error: 'No such cabinet paired to your account' });
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (DELETE /api/me/witness/devices/:deviceId):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Device: redeem a pairing code, receive the device token (returned ONCE).
+// `token` accepted via query only here; the device stores what it gets back.
+router.get('/witness/pair', witnessIngestLimiter, async (req, res) => {
+    try {
+        const { WitnessService, WitnessPairError } = await import('../../services/WitnessService.js');
+        const code = typeof req.query.code === 'string' ? req.query.code : '';
+        const device = typeof req.query.device === 'string' ? req.query.device : '';
+        const username = typeof req.query.username === 'string' ? req.query.username : null;
+        try {
+            const { token } = await WitnessService.redeemPairingCode(code, device, username);
+            return res.json({ ok: true, token });
+        } catch (err) {
+            if (err instanceof WitnessPairError) {
+                return res.status(400).json({ ok: false, error: err.message, code: err.code });
+            }
+            throw err;
+        }
+    } catch (error) {
+        // Deliberately terse — no query echo, so a logged error never carries a code.
+        logError('API Error (GET /api/witness/pair)');
+        res.status(500).json({ ok: false, error: 'Internal Server Error' });
+    }
+});
+
+// Device: report one witnessed table session. Token via `token` query param OR
+// `x-witness-token` header (whichever the on-device SDK's httpGet supports).
+router.get('/witness/report', witnessIngestLimiter, async (req, res) => {
+    try {
+        const { WitnessService } = await import('../../services/WitnessService.js');
+        const device = typeof req.query.device === 'string' ? req.query.device : '';
+        const token = (typeof req.query.token === 'string' && req.query.token)
+            || (typeof req.headers['x-witness-token'] === 'string' ? req.headers['x-witness-token'] as string : '');
+        const table = typeof req.query.table === 'string' ? req.query.table : '';
+        const launchTs = Number(req.query.launch);
+        const exitTs = req.query.exit !== undefined ? Number(req.query.exit) : null;
+        const durationSec = req.query.dur !== undefined ? Number(req.query.dur) : null;
+
+        const ok = await WitnessService.recordObservation({
+            atgamesUniqueId: device, token, tableName: table, launchTs, exitTs, durationSec,
+        });
+        // One 401 for unknown device / bad token / revoked — never says which.
+        if (!ok) return res.status(401).json({ ok: false });
+        res.json({ ok: true });
+    } catch (error) {
+        logError('API Error (GET /api/witness/report)');
+        res.status(500).json({ ok: false });
     }
 });
 
