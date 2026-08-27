@@ -965,7 +965,13 @@ router.post('/:roomId/pick-game', pickLimiter, requireDiscordUser, requireNotBan
 
         const maxSlots = tournament.max_active_games ?? 1;
         const activeGames = await engine.getActiveGames(tournamentId);
-        const hasOpenSlot = activeGames.length < maxSlots;
+        // 2026-08-27 incident: another player's live pick window RESERVES its
+        // slot — without counting it, any player who picked during the window
+        // activated straight into the reserved slot. The invoker's OWN
+        // placeholder is excluded: fulfilling your own win pick is what the
+        // reservation is for.
+        const reservedByOthers = await engine.countPendingPickSlots(tournamentId, discordId);
+        const hasOpenSlot = activeGames.length + reservedByOthers < maxSlots;
 
         // v2.103.0 duplicate-activation guard — mirrors the Discord
         // /pick-game check exactly (UAT incident: same game picked twice in
@@ -1011,9 +1017,14 @@ router.post('/:roomId/pick-game', pickLimiter, requireDiscordUser, requireNotBan
                 logInfo(`Web pick (activated): ${req.user!.username} picked ${resolvedName} for ${tournament.name}`);
                 return res.json({ status: 'activated', gameName: resolvedName, tournamentName: tournament.name });
             } else {
-                // All slots full — update placeholder to real game name (will activate at next maintenance)
+                // All slots full — repurpose the placeholder into the chosen
+                // game (queue_order stays NULL, so it activates first at the
+                // next rotation). The pick-window fields are CLEARED: the pick
+                // is fulfilled, and a row that keeps picker_designated_at
+                // stays inside TimeoutManager's sweep — reminders kept firing
+                // and expiry would overwrite the chosen game (2026-08-27).
                 await db.run(
-                    'UPDATE games SET name = ?, style_id = ? WHERE id = ?',
+                    `UPDATE games SET name = ?, style_id = ?, picker_type = NULL, picker_designated_at = NULL, reminder_count = 0 WHERE id = ?`,
                     resolvedName, styleId || null, pendingPick.id
                 );
 

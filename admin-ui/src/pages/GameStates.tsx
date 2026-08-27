@@ -91,7 +91,7 @@ export default function GameStates() {
   const [confirmAction, setConfirmAction] = useState<{
     title: string;
     description: string;
-    onConfirm: () => Promise<void>;
+    onConfirm: (optionValues?: Record<string, boolean>) => void;
     danger?: boolean;
     options?: { label: string; key: string; checked: boolean }[];
   } | null>(null);
@@ -217,8 +217,8 @@ export default function GameStates() {
       title: `Change Status: ${game.name}`,
       description: `${game.status} \u2192 ${newStatus}`,
       options: game.iscored_id ? options : undefined,
-      onConfirm: async () => {
-        const syncIScored = game.iscored_id ? (options[0].checked) : false;
+      onConfirm: async (optionValues) => {
+        const syncIScored = game.iscored_id ? (optionValues?.syncIScored ?? false) : false;
         setActionLoading(game.id);
         try {
           await api.patch(`/rooms/${room.roomId}/admin/game-states/${game.id}/status`, {
@@ -268,8 +268,8 @@ export default function GameStates() {
         : `This will permanently remove this game entry and all its submissions. This cannot be undone.`,
       danger: true,
       options,
-      onConfirm: async () => {
-        const deleteFromIScored = game.iscored_id ? (options?.[0]?.checked ?? false) : false;
+      onConfirm: async (optionValues) => {
+        const deleteFromIScored = game.iscored_id ? (optionValues?.deleteFromIScored ?? false) : false;
         setActionLoading(game.id);
         try {
           await api.delete(`/rooms/${room.roomId}/admin/game-states/${game.id}`, {
@@ -647,9 +647,9 @@ export default function GameStates() {
           description={confirmAction.description}
           danger={confirmAction.danger}
           options={confirmAction.options}
-          onConfirm={async () => {
+          onConfirm={async (optionValues) => {
             setConfirmAction(null);
-            await confirmAction.onConfirm();
+            await confirmAction.onConfirm(optionValues);
           }}
           onCancel={() => setConfirmAction(null)}
         />
@@ -760,9 +760,18 @@ function ConfirmModal({ title, description, danger, options, onConfirm, onCancel
   description: string;
   danger?: boolean;
   options?: { label: string; key: string; checked: boolean }[];
-  onConfirm: () => void;
+  onConfirm: (optionValues?: Record<string, boolean>) => void;
   onCancel: () => void;
 }) {
+  // The modal owns checkbox state — `options` only seeds the initial values.
+  // Pre-fix, onChange mutated `opt.checked` directly with no state update:
+  // React re-rendered from the (unchanged) prop and snapped the checkbox back
+  // unchecked, while the mutation silently changed the value the confirm
+  // handlers read on submit. The box never visibly checked, and worse, its
+  // value could drift from what the label showed.
+  const [optionValues, setOptionValues] = useState<Record<string, boolean>>(
+    () => Object.fromEntries((options ?? []).map(o => [o.key, o.checked])),
+  );
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-deep/80 backdrop-blur-sm" onClick={onCancel}>
       <div className="bg-surface border border-border rounded-lg shadow-2xl p-6 max-w-md w-full mx-4" onClick={e => e.stopPropagation()}>
@@ -777,8 +786,8 @@ function ConfirmModal({ title, description, danger, options, onConfirm, onCancel
               <label key={opt.key} className="flex items-center gap-2 text-sm text-muted cursor-pointer">
                 <input
                   type="checkbox"
-                  checked={opt.checked}
-                  onChange={e => { opt.checked = e.target.checked; }}
+                  checked={optionValues[opt.key] ?? false}
+                  onChange={e => setOptionValues(v => ({ ...v, [opt.key]: e.target.checked }))}
                   className="rounded border-border"
                 />
                 {opt.label}
@@ -795,7 +804,7 @@ function ConfirmModal({ title, description, danger, options, onConfirm, onCancel
             Cancel
           </button>
           <NeonButton
-            onClick={onConfirm}
+            onClick={() => onConfirm(optionValues)}
             className={danger ? '!bg-red-500/20 !text-red-400 !border-red-500/40 hover:!bg-red-500/30' : ''}
           >
             Confirm

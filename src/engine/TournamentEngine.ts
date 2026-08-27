@@ -895,7 +895,13 @@ export class TournamentEngine {
             // expanded to more slots), activate remaining queued games up to max_active_games.
             const maxSlots = tournamentRow.max_active_games ?? 1;
             const currentActive = await this.getActiveGames(tournamentId);
-            let slotsAvailable = maxSlots - currentActive.length;
+            // 2026-08-27 incident: pending pick slots RESERVE their slot. The
+            // per-slot cascade above may have just granted a pick window; this
+            // loop used to see that slot as free and hand it to whoever else
+            // had something queued — activating another player's pick because
+            // someone won, exactly what the pick-delegation contract forbids.
+            const pendingPickSlots = await this.countPendingPickSlots(tournamentId);
+            let slotsAvailable = maxSlots - currentActive.length - pendingPickSlots;
 
             // Consume a FRESH queue here, never the run-start `queuedQueue`
             // snapshot.
@@ -1421,8 +1427,9 @@ export class TournamentEngine {
         // maintenance re-runs after a winner has already picked.
         const maxSlots = tournamentRow.max_active_games ?? 1;
         const currentActiveGames = await this.getActiveGames(tournamentId);
-        if (currentActiveGames.length >= maxSlots) {
-            logInfo(`   -> Tournament already at max active games (${currentActiveGames.length}/${maxSlots}). Skipping slot fill.`);
+        const pendingPickSlotsGuard = await this.countPendingPickSlots(tournamentId);
+        if (currentActiveGames.length + pendingPickSlotsGuard >= maxSlots) {
+            logInfo(`   -> Tournament already at max active games (${currentActiveGames.length} active + ${pendingPickSlotsGuard} pending pick(s) / ${maxSlots}). Skipping slot fill.`);
             return;
         }
 
@@ -1870,6 +1877,31 @@ export class TournamentEngine {
             const { QueueLowNudgeService } = await import('../services/QueueLowNudgeService.js');
             trackBackground(QueueLowNudgeService.maybeNudge(pickerId, tournamentId)).catch(() => {});
         } catch { /* never surfaces */ }
+    }
+
+    /**
+     * Slot accounting (2026-08-27 incident): a `[Pending Pick]` placeholder is a
+     * RESERVED slot — its picker's window is live, and the game that fulfils it
+     * will occupy the slot. Every "how many slots are free?" computation must
+     * count these rows alongside ACTIVE games, or the reserved slot gets given
+     * away (the fill loop stole "Junk Yard"/"Fathom" from reserved slots the
+     * moment their windows opened). `excludePickerId` exists for the pick
+     * endpoints: the placeholder's own holder is entitled to the slot their
+     * placeholder reserves, so their own row must not block them.
+     */
+    public async countPendingPickSlots(tournamentId: string, excludePickerId?: string): Promise<number> {
+        const db = await getDatabase();
+        const row = excludePickerId
+            ? await db.get(
+                `SELECT COUNT(*) AS n FROM games
+                 WHERE tournament_id = ? AND status = 'QUEUED' AND name = '[Pending Pick]'
+                   AND (picker_discord_id IS NULL OR picker_discord_id != ?)`,
+                tournamentId, excludePickerId)
+            : await db.get(
+                `SELECT COUNT(*) AS n FROM games
+                 WHERE tournament_id = ? AND status = 'QUEUED' AND name = '[Pending Pick]'`,
+                tournamentId);
+        return row?.n ?? 0;
     }
 
     /**
