@@ -6,6 +6,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.142.1] — Fix: a pick window reserves its slot (the 2026-08-27 double-activation)
+
+Root-cause fix for the 2026-08-27 rtx_pinball rotation incident: WG-VR ended at 2 ACTIVE games in a 1-slot tournament and WG-VPXS at 3-in-2, and the pick windows granted to the runner-up/winner were unusable the whole time. Every "is a slot free?" computation counted only ACTIVE rows — a live `[Pending Pick]` window reserved nothing.
+
+### Fixed
+- **The maintenance fill loop no longer gives away a reserved slot.** `runMaintenanceWork`'s extra-slot loop (and `processSlotMaintenance`'s max-slots guard) now count pending pick placeholders as occupied. Pre-fix, the loop saw the window-holder's slot as free and activated *other players' queued games* into it the moment the window opened — how DennisB's Junk Yard and LeonSpeegle's Fathom were consumed because someone else won, exactly what the pick-delegation contract forbids.
+- **Pick-window expiry can no longer over-activate a full tournament.** `TimeoutManager`'s pivot paths (`pivotToRunnerUp`, `pivotToThirdPlaceQueue`) gained the capacity guard their `fallbackToAutoSelection` sibling always had: tournament already full → the stale placeholder is deleted, not converted into an extra ACTIVE game. This is what stacked Whirlwind (2/1) and Back to the Future (3/2) on top of full tournaments.
+- **Picking during someone else's window now queues instead of stealing the slot.** Web and Discord `/pick-game` both compute the open slot net of *other* players' reservations (your own placeholder never blocks you — fulfilling it is what the reservation is for).
+- **A pick made while slots are full now exits the timeout sweep.** The repurposed placeholder kept `picker_designated_at`, so reminders kept firing at a player who had already picked, and expiry would have overwritten their chosen game with a pivot/auto-pick. Both repurpose paths clear the window fields.
+- **Game States confirm dialogs: checkboxes actually check.** The ConfirmModal mutated its options prop with no state update — React snapped the box back visually while the value silently toggled underneath (the "Also delete from iScored" box that never showed a checkmark but deleted anyway). The modal now owns checkbox state and passes values to the confirm handler.
+
+### Added
+- `TournamentEngine.countPendingPickSlots()` — the one slot-accounting helper all four call sites share.
+- `src/__tests__/slot-reservation.test.ts` — 10 tests pinning the reservation rule at every layer (fill loop, timeout pivots, web route, Discord command).
+
 ## [2.142.0] — Arcaid Witness: device pairing + launch-time ingest (P8, server side)
 
 The Arcaid side of the on-device anti-gear-up Witness. The device app itself is still a prototype (see P8 test matrix); this is the endpoint it reports to, plus the pairing a player does to claim a cabinet.

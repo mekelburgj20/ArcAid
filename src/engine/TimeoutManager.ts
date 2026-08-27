@@ -192,6 +192,22 @@ export class TimeoutManager {
         const term = getTerminology(info.mode);
 
         try {
+            // 2026-08-27 incident: this path activated a queued game into an
+            // already-full tournament (the slot this placeholder reserved had
+            // been given away). Same guard fallbackToAutoSelection has had all
+            // along: a full tournament means the slot is gone — delete the
+            // stale placeholder instead of over-activating.
+            const engine = TournamentEngine.getInstance();
+            const tournamentForGuard = await db.get('SELECT name, max_active_games FROM tournaments WHERE id = ?', game.tournamentId);
+            const maxSlotsGuard = tournamentForGuard?.max_active_games ?? 1;
+            const activeNow = await engine.getActiveGames(game.tournamentId!);
+            const otherPendingSlots = Math.max(0, (await engine.countPendingPickSlots(game.tournamentId!)) - 1);
+            if (activeNow.length + otherPendingSlots >= maxSlotsGuard) {
+                logInfo(`Pick-window expiry skipped: ${tournamentForGuard?.name ?? game.tournamentId} already at max active games (${activeNow.length}/${maxSlotsGuard}). Removing stale picker slot.`);
+                await db.run('DELETE FROM games WHERE id = ?', game.id);
+                return;
+            }
+
             if (!game.wonGameId) {
                 logWarn(`No won_game_id on slot ${game.id}. Cannot determine runner-up. Falling back to auto-select.`);
                 await this.fallbackToAutoSelection(game);
@@ -208,7 +224,6 @@ export class TimeoutManager {
             // consolidates: `resolvePick` now decides here too, so the
             // runner-up's own queue is used immediately, their disposition is
             // honored, and third place's queue is consulted before auto-pick.
-            const engine = TournamentEngine.getInstance();
             const places = await resolveLeaderboardPlaces(db, game.wonGameId, MAX_PLACES);
 
             // Resume BELOW whoever just timed out, not blindly at place 1.
@@ -365,12 +380,27 @@ export class TimeoutManager {
         const info = await this.getTournamentInfo(game.tournamentId);
 
         try {
+            // 2026-08-27 incident: this path activated a queued game into an
+            // already-full tournament (the slot this placeholder reserved had
+            // been given away). Same guard fallbackToAutoSelection has had all
+            // along: a full tournament means the slot is gone — delete the
+            // stale placeholder instead of over-activating.
+            const engine = TournamentEngine.getInstance();
+            const tournamentForGuard = await db.get('SELECT name, max_active_games FROM tournaments WHERE id = ?', game.tournamentId);
+            const maxSlotsGuard = tournamentForGuard?.max_active_games ?? 1;
+            const activeNow = await engine.getActiveGames(game.tournamentId!);
+            const otherPendingSlots = Math.max(0, (await engine.countPendingPickSlots(game.tournamentId!)) - 1);
+            if (activeNow.length + otherPendingSlots >= maxSlotsGuard) {
+                logInfo(`Pick-window expiry skipped: ${tournamentForGuard?.name ?? game.tournamentId} already at max active games (${activeNow.length}/${maxSlotsGuard}). Removing stale picker slot.`);
+                await db.run('DELETE FROM games WHERE id = ?', game.id);
+                return;
+            }
+
             if (!game.wonGameId || !game.tournamentId) {
                 await this.fallbackToAutoSelection(game);
                 return;
             }
 
-            const engine = TournamentEngine.getInstance();
             const places = await resolveLeaderboardPlaces(db, game.wonGameId, MAX_PLACES);
             const { outcome, narrative } = await resolvePick({
                 tournamentId: game.tournamentId,

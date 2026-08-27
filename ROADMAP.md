@@ -5,6 +5,25 @@
 
 ---
 
+## Rotation audit trail — room-admin-visible decision log (owner-asked 2026-08-27)
+
+Prompted by the 2026-08-27 slot-reservation incident (WG-VR / WG-VPXS over-activation): reconstructing "who or what picked what, and what triggered it" required grepping prod logs + DB archaeology. The owner wants that answerable from the game room's admin UI without asking Claude.
+
+- **What to record:** one structured event per rotation decision, at the moment it happens — winner resolved (who, score, from which game), disposition applied (forfeit/nominate/auto → who it moved to), pick window granted (who, WINNER/RUNNER_UP, deadline), every activation with its SOURCE (winner's queue / runner-up's queue / third-place queue / fill loop / timeout pivot / auto-pick / admin manual / web pick / Discord pick — and whose queue it consumed), placeholder deletions (orphan sweep, capacity guard), and cleanup actions.
+- **Where:** likely extend `room_events` (already room-scoped with retention) or a dedicated `rotation_events` table if the query patterns differ; surface as a "Rotation log" panel on the room admin side (Game States or Tournaments page), newest-first, filterable by tournament.
+- **Writers already exist for some of this** (`RoomEventService.log` calls in `processSlotMaintenance` — `tournament_completion`, `game_rotation`, `game_state_change`) but they carry too little detail (no actor, no source, no queue owner) and miss the interesting paths entirely (fill loop, TimeoutManager pivots, auto-pick, admin on-behalf actions).
+- `maintenance_runs` (S10) records that a run happened + summary; this item is the per-decision detail underneath it.
+
+## Queue UX overhaul — per-tournament grouping, drag reorder, newest-first (owner-approved direction 2026-08-27, mockups pending)
+
+Player ask (soggybacon) + owner additions, from the 2026-08-27 session:
+
+- **Group "Your Picks" by tournament.** Queues are already per-(tournament, player) server-side; the page renders them interleaved in one list with one numbering, so cross-tournament reorder arrows are meaningless (owner screenshot: moving a WG-VPX pick "above" a DG pick does nothing real). Filter tabs per tournament, defaulting to the tournament selected on the page.
+- **Drag-and-drop reorder** within a tournament group (arrows stay as fallback), plus a per-row "send to top". Current up/down mechanic is "wonky" and unusable at 20–30 queued games.
+- **Newest pick lands at the TOP of the queue** ("when I'm adding a table it's because I'd rather play it sooner") — insert at position 1, shift the rest. Held rows keep their engine-contract position (held first).
+- **Make the tournament selector prominent** — players have almost queued for the wrong tournament because the dropdown was easy to miss. Move it near the game search bar, bigger/standout accent styling per theme; echo the tournament name in the queue-confirmation toast.
+- Owner wants mockups before implementation.
+
 ## Identity: claiming iScored names + verifying scores (P1+P4 SHIPPED v2.112.0, PRs #243/#244 — P2/P3 remain)
 
 Full design + owner rulings: `tmp/identity-claim-design.md`. Prompted by the ChalataLove double-entry found during the pick-delegation investigation.

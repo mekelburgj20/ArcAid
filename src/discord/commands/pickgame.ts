@@ -265,16 +265,26 @@ export const pickgame: Command = {
                 // Determine if we should activate immediately or queue
                 const maxSlots = tournament.max_active_games ?? 1;
                 const activeGames = await engine.getActiveGames(tournament.id);
-                const hasOpenSlot = activeGames.length < maxSlots;
+                // 2026-08-27 incident: another player's live pick window RESERVES its
+                // slot — without counting it, any player who picked during the window
+                // activated straight into the reserved slot. The invoker's OWN
+                // placeholder is excluded: fulfilling your own win pick is what the
+                // reservation is for.
+                const reservedByOthers = await engine.countPendingPickSlots(tournament.id, userId);
+                const hasOpenSlot = activeGames.length + reservedByOthers < maxSlots;
 
                 let outcome: 'activated' | 'queued' | 'queuedFromPick';
 
                 if (heldPick && !hasOpenSlot) {
                     // Pending pick + slots full — repurpose the placeholder. queue_order
                     // stays NULL on the row so it sorts ahead of explicit queue games
-                    // and activates first at next maintenance.
+                    // and activates first at next maintenance. The pick-window fields
+                    // are CLEARED: the pick is fulfilled, and a row that keeps
+                    // picker_designated_at stays inside TimeoutManager's sweep —
+                    // reminders kept firing and expiry would overwrite the chosen game
+                    // (2026-08-27).
                     await db.run(
-                        `UPDATE games SET name = ?, style_id = ? WHERE id = ?`,
+                        `UPDATE games SET name = ?, style_id = ?, picker_type = NULL, picker_designated_at = NULL, reminder_count = 0 WHERE id = ?`,
                         gameName, styleId || null, heldPick.id,
                     );
                     outcome = 'queuedFromPick';
