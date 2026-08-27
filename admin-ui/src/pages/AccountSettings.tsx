@@ -139,6 +139,21 @@ export default function AccountSettings() {
   // only the `atgames:<account id>` link row survives — no player credential
   // is ever stored (owner ruling). The linked state itself rides in the same
   // `links` list the Google section uses; these fields are only the form.
+  // v2.142.0 (P8) — Arcaid Witness cabinet pairing.
+  const [witnessCode, setWitnessCode] = useState<string | null>(null);
+  const [witnessDevices, setWitnessDevices] = useState<{ atgamesUniqueId: string; atgamesUsername: string | null; lastSeenAt: string | null }[]>([]);
+  const [witnessBusy, setWitnessBusy] = useState(false);
+  const [witnessError, setWitnessError] = useState<string | null>(null);
+  const loadWitnessDevices = useCallback(async () => {
+    if (!playerToken) return;
+    try {
+      const res = await fetch('/api/me/witness/devices', { headers: { Authorization: `Bearer ${playerToken}` } });
+      setWitnessDevices(res.ok ? await res.json() : []);
+    } catch {
+      setWitnessDevices([]);
+    }
+  }, [playerToken]);
+
   const [atgamesEmail, setAtgamesEmail] = useState('');
   const [atgamesPassword, setAtgamesPassword] = useState('');
   const [atgamesBusy, setAtgamesBusy] = useState(false);
@@ -270,7 +285,7 @@ export default function AccountSettings() {
     setLinksLoading(false);
   }, [playerToken, isGoogleIdentity]);
 
-  useEffect(() => { loadLinks(); }, [loadLinks]);
+  useEffect(() => { loadLinks(); void loadWitnessDevices(); }, [loadLinks, loadWitnessDevices]);
 
   // v2.46.0 (mirror-link contract) — Discord-identity viewer starts a
   // Discord->Google link. Deliberate near-duplicate of startDiscordLink
@@ -1227,6 +1242,88 @@ export default function AccountSettings() {
                     </>
                   );
                 })()}
+              </div>
+
+              {/* v2.142.0 (P8) — Arcaid Witness cabinet pairing. Not a login
+                  and not the AtGames account link above: this pairs the
+                  on-device Witness app so it can report table LAUNCH times
+                  (the anti-gear-up signal). Player mints a code here, types it
+                  into the app on the cabinet. */}
+              <div className="mt-6 pt-4 border-t border-border">
+                <h3 className="text-sm font-medium mb-1">Arcaid Witness cabinets</h3>
+                <p className="text-xs text-muted mb-3">
+                  Pair the Arcaid Witness app on your cabinet so your tournament scores are backed by
+                  when you actually started each table. Get a code here, then enter it in the Witness
+                  app on the machine.
+                </p>
+                {witnessCode ? (
+                  <div className="mb-3 p-3 rounded border border-neon-cyan/40 bg-neon-cyan/10">
+                    <p className="text-xs text-muted mb-1">Enter this in the Witness app (expires in ~10 min):</p>
+                    <p className="font-mono text-2xl font-bold tracking-[0.3em] text-neon-cyan">{witnessCode}</p>
+                  </div>
+                ) : null}
+                <button
+                  type="button"
+                  disabled={witnessBusy}
+                  onClick={async () => {
+                    setWitnessBusy(true); setWitnessError(null);
+                    try {
+                      const res = await fetch('/api/me/witness/pairing-code', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${playerToken}` },
+                      });
+                      const data = await res.json();
+                      if (!res.ok) throw new Error(data.error || 'Could not create a pairing code');
+                      setWitnessCode(data.code);
+                    } catch (err) {
+                      setWitnessError((err as Error).message);
+                    } finally {
+                      setWitnessBusy(false);
+                    }
+                  }}
+                  className="mb-3 px-4 py-1.5 rounded border border-neon-cyan/40 bg-neon-cyan/10 text-neon-cyan text-sm font-medium hover:bg-neon-cyan/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer inline-flex items-center gap-1.5"
+                >
+                  <Link2 size={14} /> {witnessBusy ? 'Working…' : witnessCode ? 'New code' : 'Pair a cabinet'}
+                </button>
+                {witnessError && (
+                  <p className="mb-2 text-xs text-rose-400 inline-flex items-center gap-1"><AlertCircle size={12} /> {witnessError}</p>
+                )}
+                {witnessDevices.length > 0 ? (
+                  <ul className="space-y-2">
+                    {witnessDevices.map(d => (
+                      <li key={d.atgamesUniqueId} className="flex items-center justify-between gap-3 text-sm bg-surface border border-border rounded px-3 py-2">
+                        <span className="min-w-0 truncate">
+                          <span className="text-primary">{d.atgamesUsername || 'Cabinet'}</span>
+                          <span className="font-mono text-xs text-muted ml-2">{d.atgamesUniqueId.slice(0, 8)}…</span>
+                          {d.lastSeenAt && <span className="text-xs text-faint ml-2">last seen {new Date(d.lastSeenAt).toLocaleDateString()}</span>}
+                        </span>
+                        <button
+                          type="button"
+                          disabled={witnessBusy}
+                          onClick={async () => {
+                            setWitnessBusy(true); setWitnessError(null);
+                            try {
+                              const res = await fetch(`/api/me/witness/devices/${encodeURIComponent(d.atgamesUniqueId)}`, {
+                                method: 'DELETE', headers: { Authorization: `Bearer ${playerToken}` },
+                              });
+                              if (!res.ok) throw new Error((await res.json()).error || 'Could not unpair');
+                              await loadWitnessDevices();
+                            } catch (err) {
+                              setWitnessError((err as Error).message);
+                            } finally {
+                              setWitnessBusy(false);
+                            }
+                          }}
+                          className="px-2 py-1 rounded border border-border text-xs text-muted hover:text-rose-400 hover:border-rose-500/40 cursor-pointer shrink-0 inline-flex items-center gap-1"
+                        >
+                          <Unlink size={12} /> Unpair
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-xs text-muted">No cabinets paired yet.</p>
+                )}
               </div>
             </section>
 

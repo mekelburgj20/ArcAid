@@ -173,3 +173,26 @@ export const guestContentLimiter = rateLimit({
     keyGenerator: (req: any) => ipKeyGenerator(req.ip),
     message: { error: 'Too many requests. Please slow down.' },
 });
+
+/**
+ * Witness device ingest (P8): 120 report/pair GETs per minute per DEVICE.
+ *
+ * The Arcaid Witness reports over synchronous GETs (the AtGames SDK offers no
+ * POST), unauthenticated except for a device token in the query string. Keyed
+ * on the `device` query param (the stable `ATGAMES_UNIQUE_ID`) with an IP
+ * fallback — one cabinet reports a handful of launches an hour, so 120/min is
+ * far above real use and well below a token-guessing or replay flood. An
+ * attacker rotating the device param only rate-limits themselves per fake id;
+ * the token check behind it is what actually gates writes.
+ */
+export const witnessIngestLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 120,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req: any) => {
+        const device = typeof req.query?.device === 'string' ? req.query.device : '';
+        return device ? `wt:${device}` : ipKeyGenerator(req.ip);
+    },
+    message: { error: 'Too many requests.' },
+});
