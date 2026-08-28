@@ -9,6 +9,7 @@ import ProvenanceTags from '../components/ProvenanceTags';
 import { getEngineCategoryLabel, getEngineDisplay } from '../lib/scoreProvenance';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { useRoom } from '../contexts/RoomContext';
+import { getSocket } from '../lib/websocket';
 import { decodeViewerClaims, isRoomAdminFor } from '../lib/viewerClaims';
 import { canDeleteRow, deleteScoreHistory } from '../lib/scoreDelete';
 import { formatScore, scoreTitle, parseServerDate } from '../lib/format';
@@ -330,66 +331,7 @@ export default function GameDetail() {
         .catch(() => {});
     }
 
-    fetch(`/api/rooms/${roomId}/leaderboard`)
-      .then(r => r.ok ? r.json() : [])
-      .then((boards: GameLeaderboard[]) => {
-        const match = boards.find(b => b.gameName.toLowerCase() === name.toLowerCase());
-        if (match) {
-          setLeaderboard(match);
-          // Fetch score counts for conditional expand icons
-          fetch(`/api/rooms/${roomId}/score-counts/${match.gameId}`)
-            .then(r => r.ok ? r.json() : {})
-            .then(setScoreCounts)
-            .catch(() => {});
-          // v2.58.0: pull the distinct engines separately so the "All" view can
-          // render the segmented tab strip. Bulk leaderboard list endpoint
-          // doesn't include this; the per-game endpoint does.
-          fetch(`/api/rooms/${roomId}/leaderboard/${match.gameId}`)
-            .then(r => r.ok ? r.json() : null)
-            .then((data: { distinctEngines?: string[]; rankings?: RankedEntry[] } | null) => {
-              if (!data) return;
-              if (Array.isArray(data.distinctEngines)) setDistinctEngines(data.distinctEngines);
-              // The per-game endpoint also returns a fresher rankings array
-              // that's been recomputed post-cache-flush, so prefer it.
-              if (Array.isArray(data.rankings) && data.rankings.length > 0) {
-                setLeaderboard(prev => prev ? { ...prev, rankings: data.rankings! } : prev);
-              }
-            })
-            .catch(() => {});
-          return;
-        }
-        // Non-active games (pinned/room-only games with no ACTIVE tournament
-        // board) aren't in the active-boards list above. Fall back to the
-        // Room Scores card for this game — same all-time, canonical-partition
-        // rankings the Room Scores tab shows, including globalGameId (powers
-        // the About This Game section below). The card's gameId is a
-        // catalogue id or a `room_<name>` pseudo-id, NOT a games-table id —
-        // do NOT call the id-keyed /leaderboard/:gameId or
-        // /score-counts/:gameId endpoints against it.
-        fetch(`/api/rooms/${roomId}/room-scores?search=${encodeURIComponent(name)}&limit=10`)
-          .then(r => r.ok ? r.json() : null)
-          .then((payload: { data?: GameLeaderboard[] } | null) => {
-            const card = payload?.data?.find(c => c.gameName.toLowerCase() === name.toLowerCase());
-            if (!card) return;
-            setLeaderboard(card);
-            // Score counts keyed by name (fallback cards have no games-table
-            // id to key the id-based score-counts endpoint on).
-            fetch(`/api/rooms/${roomId}/score-counts?gameNames=${encodeURIComponent(name)}`)
-              .then(r => r.ok ? r.json() : null)
-              .then((data: { counts?: Record<string, Record<string, number>> } | null) => {
-                if (data?.counts?.[name]) setScoreCounts(data.counts[name]);
-              })
-              .catch(() => {});
-          })
-          .catch(() => {});
-      })
-      .catch(() => {});
-
-    // Load all-time player rankings for this game
-    fetch(`/api/rooms/${roomId}/stats/game/${encodeURIComponent(name)}/players`)
-      .then(r => r.ok ? r.json() : [])
-      .then(setGamePlayerRankings)
-      .catch(() => {});
+    loadScores(roomId, name);
 
     // Load community scores
     loadCommunityData(roomId, name);
@@ -438,6 +380,68 @@ export default function GameDetail() {
     return () => { cancelled = true; };
   }, [roomId, leaderboard?.gameId, selectedEngine]);
 
+  // Live score refresh (v2.144.2, owner ask 2026-08-28). This is the page a
+  // player keeps open while a table is being played, and it previously had NO
+  // websocket subscription at all — its own delete-path comments called the
+  // `leaderboard:updated` broadcast "the backstop", but nothing here ever
+  // listened, so new scores (web submits AND iScored-synced ones, which both
+  // emit `score:new` via LobbyFeedGenerator) only appeared on a manual
+  // reload. Mirrors Scoreboard.tsx's discipline: join the room channel,
+  // re-join on every (re)connect, and pass handler refs to socket.off — the
+  // socket is a shared singleton, so a bare off() would kill other pages'
+  // listeners.
+  //
+  // The handler goes through a ref so the socket effect can depend only on
+  // (roomId, name) while the refresh always sees current state
+  // (selectedEngine, the community tab's loaders).
+  const refreshScoresRef = useRef<() => void>(() => {});
+  refreshScoresRef.current = () => {
+    if (!roomId || !name) return;
+    loadScores(roomId, name);
+    loadCommunityData(roomId, name);
+    // The engine-filtered view is fetched by its own effect keyed on
+    // (roomId, gameId, selectedEngine) — none of which change on a new
+    // score — so nudge it directly, same as the delete paths do.
+    if (leaderboard?.gameId && selectedEngine) {
+      fetch(`/api/rooms/${roomId}/leaderboard/${leaderboard.gameId}?engine=${encodeURIComponent(selectedEngine)}`)
+        .then(r => r.ok ? r.json() : null)
+        .then((data: { rankings?: RankedEntry[] } | null) => {
+          setFilteredRankings(Array.isArray(data?.rankings) ? data!.rankings! : []);
+        })
+        .catch(() => {});
+    }
+  };
+
+  useEffect(() => {
+    if (!roomId || !name) return;
+    const socket = getSocket();
+    socket.emit('join:room', roomId);
+    // Re-join on every (re)connect — socket.io room membership is
+    // per-connection and doesn't survive a reconnect (same rationale as
+    // Scoreboard.tsx).
+    const onConnect = () => socket.emit('join:room', roomId);
+    const onScore = (data?: { gameName?: string }) => {
+      // `score:new` carries the game name — skip other games' scores; a
+      // payload without one (defensive) refreshes anyway.
+      if (data?.gameName && data.gameName.toLowerCase() !== name.toLowerCase()) return;
+      refreshScoresRef.current();
+    };
+    // `leaderboard:updated` payloads carry a games-table id or '' for a
+    // room-wide invalidation; this page's board can also be a fallback card
+    // with a pseudo-id that never appears in broadcasts. A refetch is cheap
+    // and page-scoped, so refresh on every event rather than guessing.
+    const onLeaderboard = () => refreshScoresRef.current();
+    socket.on('connect', onConnect);
+    socket.on('score:new', onScore);
+    socket.on('leaderboard:updated', onLeaderboard);
+    return () => {
+      socket.emit('leave:room', roomId);
+      socket.off('connect', onConnect);
+      socket.off('score:new', onScore);
+      socket.off('leaderboard:updated', onLeaderboard);
+    };
+  }, [roomId, name]);
+
   // "About this game" — pull the full catalogue entity once the game's
   // globalGameId resolves. Public endpoint; failures are silent (section
   // just doesn't render).
@@ -451,6 +455,73 @@ export default function GameDetail() {
       .catch(() => { if (!cancelled) setCatalogueGame(null); });
     return () => { cancelled = true; };
   }, [leaderboard?.globalGameId]);
+
+  /**
+   * The tournament-board + all-time-rankings load, shared by the initial
+   * page load and the live websocket refresh (v2.144.2). Active boards come
+   * from the bulk leaderboard list (then the per-game endpoint for distinct
+   * engines + fresher rankings); non-active games fall back to the Room
+   * Scores card — whose gameId is a catalogue id or `room_<name>` pseudo-id,
+   * NOT a games-table id, so the id-keyed /leaderboard/:gameId and
+   * /score-counts/:gameId endpoints must never be called against it.
+   */
+  const loadScores = (rid: string, gameName: string) => {
+    fetch(`/api/rooms/${rid}/leaderboard`)
+      .then(r => r.ok ? r.json() : [])
+      .then((boards: GameLeaderboard[]) => {
+        const match = boards.find(b => b.gameName.toLowerCase() === gameName.toLowerCase());
+        if (match) {
+          setLeaderboard(match);
+          // Fetch score counts for conditional expand icons
+          fetch(`/api/rooms/${rid}/score-counts/${match.gameId}`)
+            .then(r => r.ok ? r.json() : {})
+            .then(setScoreCounts)
+            .catch(() => {});
+          // v2.58.0: pull the distinct engines separately so the "All" view can
+          // render the segmented tab strip. Bulk leaderboard list endpoint
+          // doesn't include this; the per-game endpoint does.
+          fetch(`/api/rooms/${rid}/leaderboard/${match.gameId}`)
+            .then(r => r.ok ? r.json() : null)
+            .then((data: { distinctEngines?: string[]; rankings?: RankedEntry[] } | null) => {
+              if (!data) return;
+              if (Array.isArray(data.distinctEngines)) setDistinctEngines(data.distinctEngines);
+              // The per-game endpoint also returns a fresher rankings array
+              // that's been recomputed post-cache-flush, so prefer it.
+              if (Array.isArray(data.rankings) && data.rankings.length > 0) {
+                setLeaderboard(prev => prev ? { ...prev, rankings: data.rankings! } : prev);
+              }
+            })
+            .catch(() => {});
+          return;
+        }
+        // Non-active games (pinned/room-only games with no ACTIVE tournament
+        // board) aren't in the active-boards list above. Fall back to the
+        // Room Scores card for this game — see the doc comment above.
+        fetch(`/api/rooms/${rid}/room-scores?search=${encodeURIComponent(gameName)}&limit=10`)
+          .then(r => r.ok ? r.json() : null)
+          .then((payload: { data?: GameLeaderboard[] } | null) => {
+            const card = payload?.data?.find(c => c.gameName.toLowerCase() === gameName.toLowerCase());
+            if (!card) return;
+            setLeaderboard(card);
+            // Score counts keyed by name (fallback cards have no games-table
+            // id to key the id-based score-counts endpoint on).
+            fetch(`/api/rooms/${rid}/score-counts?gameNames=${encodeURIComponent(gameName)}`)
+              .then(r => r.ok ? r.json() : null)
+              .then((data: { counts?: Record<string, Record<string, number>> } | null) => {
+                if (data?.counts?.[gameName]) setScoreCounts(data.counts[gameName]);
+              })
+              .catch(() => {});
+          })
+          .catch(() => {});
+      })
+      .catch(() => {});
+
+    // Load all-time player rankings for this game
+    fetch(`/api/rooms/${rid}/stats/game/${encodeURIComponent(gameName)}/players`)
+      .then(r => r.ok ? r.json() : [])
+      .then(setGamePlayerRankings)
+      .catch(() => {});
+  };
 
   const loadCommunityData = (rid: string, gameName: string) => {
     fetch(`/api/rooms/${rid}/community-scores/${encodeURIComponent(gameName)}`)

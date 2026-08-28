@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.144.2] — Live game-detail scores + landing-page Global icon
+
+### Fixed
+- **The game detail page (`/:slug/games/:name`) now live-refreshes scores.** It's the page a player keeps open while a table is being played, and it had no websocket subscription at all — its own comments called the `leaderboard:updated` broadcast "the backstop," but nothing listened, so new scores (web submits and iScored-synced alike, both of which emit `score:new`) only appeared on a manual reload. It now joins the room channel with the same discipline as the scoreboard (re-join on reconnect, handler-ref cleanup on the shared socket) and refetches the board, score counts, engine-filtered view, community scores, and all-time rankings on `score:new` (filtered to this game) and `leaderboard:updated`.
+- **The landing page's "Global" link now carries the Trophy icon**, matching the room pages' nav item (it previously read as a different control).
+
 ## [2.144.1] — Fix: same-named catalogue variants qualify per-row
 
 Fix for a name-group qualification bug found on prod 2026-08-28, the day after v2.144.0 shipped the Pinball FX Classic VR import: the catalogue now holds two APPROVED rows both named "The Walking Dead" — an "Original" VPX fan table (2016, `platforms:[vpx, fx_classic]`, `features:[dt only, no rom, vr]`) and the new Zen Studios FX Classic release (`platforms:[fx_classic]`, `features:[vr, fx_classic_vr]` — the ADR 0019 evidence row). Four eligibility readers (`GET /game-availability`, the Discord `/pick-game` autocomplete, `TimeoutManager.fallbackToAutoSelection`'s auto-pick, and `checkPickQueueEligibility`) collapsed same-named catalogue rows into one before evaluating tournament platform rules — three via a `GROUP BY LOWER(name)` + `MIN()`-per-column SQL query, one via an arbitrary `LIMIT 1`. `MIN()` is evaluated per COLUMN, independently and lexicographically, so the "collapsed" Walking Dead row paired the FX Classic row's `platforms` with the Original row's `features` — a chimera neither actual catalogue row has, carrying no `fx_classic_vr` evidence. The game wrongly vanished from a VR tournament's pick list even though the Zen Studios variant alone fully qualifies. The same class of bug could equally have FALSELY qualified a group where no single variant does.
