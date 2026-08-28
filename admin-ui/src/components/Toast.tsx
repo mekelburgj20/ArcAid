@@ -31,9 +31,21 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const typeStyles = {
-    success: 'border-neon-green/50 text-neon-green bg-neon-green/10',
-    error: 'border-neon-magenta/50 text-neon-magenta bg-neon-magenta/10',
-    info: 'border-neon-cyan/50 text-neon-cyan bg-neon-cyan/10',
+    success: 'border-neon-green/50 text-neon-green',
+    error: 'border-neon-magenta/50 text-neon-magenta',
+    info: 'border-neon-cyan/50 text-neon-cyan',
+  };
+
+  // OPAQUE surface — same fix UpdateNudgeBanner got in v2.133.1. The original
+  // `bg-neon-*/10` was a 10% tint over whatever the page had behind the toast,
+  // so over busy content ("Game queued…" fires right above the picker grid)
+  // the text clashed with the objects underneath (owner, 2026-08-27). Mixing
+  // the accent into the theme's solid card colour keeps the tinted look while
+  // fully covering the page in every theme.
+  const typeBackgrounds: Record<Toast['type'], string> = {
+    success: 'color-mix(in oklab, var(--color-neon-green) 12%, var(--color-surface))',
+    error: 'color-mix(in oklab, var(--color-neon-magenta) 12%, var(--color-surface))',
+    info: 'color-mix(in oklab, var(--color-neon-cyan) 12%, var(--color-surface))',
   };
 
   return (
@@ -43,7 +55,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         {toasts.map(t => (
           <div
             key={t.id}
-            className={`px-4 py-3 rounded border text-sm font-medium shadow-lg transition-all animate-[fadeIn_0.2s_ease-out] ${typeStyles[t.type]}`}
+            className={`px-4 py-3 rounded border text-sm font-medium shadow-xl shadow-black/40 transition-all animate-[fadeIn_0.2s_ease-out] ${typeStyles[t.type]}`}
+            style={{ background: typeBackgrounds[t.type] }}
           >
             {t.message}
           </div>
