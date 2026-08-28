@@ -1194,6 +1194,8 @@ router.post('/catalogue/sync-steam-pinball', async (_req, res) => {
  * applies `pinball_fx_vr` to matching `global_games` rows. No external HTTP
  * (the source list is baked in from tmp/fx-vr-tables-draft.md), so this
  * runs in seconds — but we still 202-and-poll to match the admin sync UX.
+ * ADR 0019: also walks the sibling FX_CLASSIC_VR_TABLES list under the same
+ * click — see `FxVrImportService.applyTags`.
  */
 router.post('/catalogue/sync-fx-vr', async (_req, res) => {
     void (async () => {

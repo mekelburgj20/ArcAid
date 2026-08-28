@@ -6,6 +6,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.144.0] — Engine-scoped VR availability (ADR 0019)
+
+Fix for a VR-eligibility false-positive class found in the 2026-08-27 Weekly Grind - VR rotation: a tournament requiring `engines.required=[zaccaria, fx_classic, star_wars, fx]` + `devices.required=[vr_headset]` wrongly admitted games whose `fx` platform (flat Pinball FX, PC/console) and generic `vr` feature (a VPX VR-Room mod, from VPS) came from two *different* products — the old rule evaluated "has FX somewhere" and "has VR somewhere" independently and admitted a combination that exists nowhere. An id-anchored audit of the live 280-game VR pick list found 10 confirmed false positives: Banzai Run, Black Knight 2000, Earthshaker, Godzilla (Sega 1998), Jurassic Park, South Park, Swords of Fury, The Machine - Bride of Pin-bot, Tomb Raider (Original 2025), Whirlwind.
+
+### Changed
+- **VR availability is now an engine property**, not a flat feature. `ENGINE_VR_AVAILABILITY` (`src/utils/scoreProvenance.ts`, mirrored to the admin UI) gives each engine one of two modes, per owner rulings (2026-08-27): **`always`** — every table on the engine is VR-playable, wholesale (`vpx`, `fp` via BAM, `zaccaria` via the Zaccaria VR Steam app, `star_wars` since the product IS a VR app) — and **`per_table`** — only a curated subset is VR-playable, evidenced by a new per-table feature stamped by the importer (`fx` → `fx_vr`, `fx_classic` → `fx_classic_vr`).
+- **`passesplatformRules`'s `vr_headset` required-device check is now engine-scoped** (`vrHeadsetMatchesGame` in `src/utils/platformRules.ts`): it looks at which required engines are on the game and whether each qualifies (wholesale, or per-table evidence), rather than checking the game's flat platform/feature sets independently. Engine-less `vr_headset` rules keep the old generic-`vr`-feature fallback for legacy rows that carry no engine-scoped signal at all. The `excluded` axis and every other device are untouched.
+- **The generic `vr` feature is demoted to informational** ("a VR room/edition exists somewhere") — it no longer drives `vr_headset` required-matching for a game with a known engine.
+
+### Added
+- **Pinball FX Classic VR curated (owner Q3, 9 tables)**: the product formerly called "FX2 VR" — CastleStorm, Wild West Rampage, BioLab, Paranormal, Earth Defense (Season 1 Pack); Back to the Future Pinball, Jaws Pinball, E.T. Pinball (Universal-licensed Zen tables); The Walking Dead. New `tmp/fx-classic-vr-tables-draft.md` → `src/services/fxClassicVrPackContents.ts`, imported by a second loop in `FxVrImportService.applyTags` (same "Sync FX VR" admin click as FX VR). Every entry stamps `manufacturer: 'Zen Studios'` — several titles collide by name with real machines or VPX recreations ("Back to the Future" is a Data East 1990 machine; "Jaws"/"E.T."/"The Walking Dead" have real/VPX namesakes too), and the non-null manufacturer mismatch is what stops `GlobalGameService.upsert`'s dedup from merging onto one of those rows.
+- `FxVrImportService`'s FX VR loop now also stamps `fx_vr` (alongside the existing informational `vr`) on every table it tags.
+- `src/__tests__/vr-availability.test.ts` (matching-rule behavior) and `src/__tests__/vr-availability-import.test.ts` (importer dedup safety).
+
+### Post-deploy
+- Owner clicks **"Sync FX VR"** on the admin Catalogue page once to stamp `fx_vr` on the existing 42 FX VR tables and create/tag the 9 FX Classic VR tables with `fx_classic_vr` + `manufacturer`. Until then, a `per_table` engine (`fx`, `fx_classic`) contributes nothing to VR eligibility for rows that haven't been re-synced.
+
 ## [2.143.1] — Fix: opaque toasts
 
 ### Added

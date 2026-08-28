@@ -1,7 +1,6 @@
 # ADR 0019 — Engine-scoped VR availability
 
-**Status:** Proposed (2026-08-27) — owner approved direction ("option A"); three data-coverage
-questions below need owner answers before implementation.
+**Status:** Accepted (2026-08-27)
 **Amends:** ADR 0016 (engine + device score provenance) — the *provenance* model is untouched; this
 changes only how the `vr_headset` device is matched on the **availability** (game-eligibility) axis.
 ADR 0009's orthogonality principle survives unchanged.
@@ -56,18 +55,18 @@ demands it.**
    | engine | mode | rationale |
    |---|---|---|
    | `vpx` | `always` | owner ruling — every table renders in VR, room or not |
-   | `fp` | `always` **(ASSUMPTION — Q2)** | BAM provides the same wholesale VR capability |
+   | `fp` | `always` | owner ruling 2026-08-27 (Q2) — BAM provides the same wholesale VR capability |
    | `star_wars` | `always` | the product is a VR app (canonical legacy id is `star_wars_pinball_vr`) |
-   | `zaccaria` | `always` **(ASSUMPTION — Q1)** | the Quest app is understood to carry the catalogue |
+   | `zaccaria` | `always` | owner ruling 2026-08-27 (Q1) — every table is available via the Zaccaria VR Steam app |
    | `fx` | `per_table` | evidence = curated FX VR catalogue → feature `fx_vr` |
-   | `fx_classic` | `per_table` | evidence = feature `fx_classic_vr`; **initially EMPTY (Q3)** |
+   | `fx_classic` | `per_table` | evidence = feature `fx_classic_vr`; curated 2026-08-27 (Q3) — 9 tables, see below |
    | everything else | `never` | `atgames_native`, consoles, `real`, … |
 
-2. **New per-table availability features** `fx_vr` (now) and `fx_classic_vr` (when curated).
-   `FxVrImportService` writes `fx_vr` for every table it tags (idempotent re-sync populates existing
-   rows). The generic `vr` feature is **kept but demoted to informational** ("some VR
-   room/edition exists") — it stops driving `vr_headset` required-matching except as the legacy
-   fallback below.
+2. **New per-table availability features** `fx_vr` and `fx_classic_vr`. `FxVrImportService` writes
+   `fx_vr` for every FX VR table it tags and `fx_classic_vr` for every FX Classic VR table (both
+   loops, idempotent re-sync populates existing rows). The generic `vr` feature is **kept but
+   demoted to informational** ("some VR room/edition exists") — it stops driving `vr_headset`
+   required-matching except as the legacy fallback below.
 
 3. **Matching rule** (in `deviceMatchesGame`/`passesplatformRules`; only the `vr_headset`
    REQUIRED-device path changes — all other devices, and the entire `excluded` axis, are untouched):
@@ -80,13 +79,13 @@ demands it.**
      superset; `passesplatformRules` is the authority) — no SQL surgery.
 
 4. **No schema migration.** `features` is already a JSON array; the change is importer output + the
-   matching rule + one owner click of "Sync FX VR" post-deploy to stamp `fx_vr` on the 42 tables.
+   matching rule + one owner click of "Sync FX VR" post-deploy to stamp `fx_vr` on the 42 FX VR
+   tables and `fx_classic_vr` (+ `manufacturer`) on the 9 FX Classic VR tables.
 
 ## Consequences
 
 - The Weekly Grind - VR pick list drops the 10 false positives and keeps the 42 FX VR tables plus
-  the Zaccaria/Star Wars sets. Games qualifying **only** via `fx_classic` drop until FX2 VR is
-  curated (Q3) — the implementation will report the exact delta before merge.
+  the Zaccaria/Star Wars/Future Pinball sets, plus the 9 curated Pinball FX Classic VR tables.
 - A pure-VPX VR tournament (`engines.required=[vpx]` + `vr_headset`) admits **all** VPX tables —
   correct per the owner's clarification, and previously wrong (it admitted only VR-room tables).
 - Engine-less `vr_headset` tournaments behave at least as broadly as before (legacy `vr` fallback).
@@ -102,10 +101,24 @@ demands it.**
 - **Name-matched auditing/repair** — the Godzilla (Sega) vs "Godzilla Pinball" (Zen) collision shows
   adjacent names are different games; evidence must live on catalogue rows.
 
-## Open questions (owner)
+## Owner answers (2026-08-27)
 
-1. **Zaccaria:** does the Quest Zaccaria Pinball app carry (essentially) the full table catalogue?
-   If not, `zaccaria` becomes `per_table` and needs a curated list like FX VR's.
-2. **Future Pinball:** treat `fp` as wholesale VR-capable via BAM (`always`), or `never`?
-3. **FX2 VR (`fx_classic`):** is curating its table list worth it? Until curated, `fx_classic`
-   contributes nothing to VR eligibility (tables it shares with FX VR still qualify via `fx_vr`).
+1. **Zaccaria:** confirmed `always` — the entire Zaccaria catalogue is available via the Zaccaria VR
+   Steam app.
+2. **Future Pinball:** confirmed `always` — BAM provides the same wholesale VR capability as VPX.
+3. **FX2 VR (`fx_classic`):** worth curating. It is now called **Pinball FX Classic VR** (not "FX2
+   VR"), a separate Zen product from Pinball FX VR. Owner-supplied Steam table list (9 tables,
+   `tmp/fx-classic-vr-tables-draft.md` → `src/services/fxClassicVrPackContents.ts`):
+
+   | Pack | Tables |
+   |---|---|
+   | Base / Season 1 Pack | CastleStorm, Wild West Rampage, BioLab, Paranormal, Earth Defense |
+   | Universal Classics | Back to the Future Pinball, Jaws Pinball, E.T. Pinball (Universal-licensed Zen tables) |
+   | The Walking Dead | The Walking Dead |
+
+   Several of these collide by name with real machines or VPX recreations ("Back to the Future" is
+   a Data East 1990 machine; "Jaws", "E.T.", "The Walking Dead" have real/VPX namesakes too) — every
+   FX Classic VR importer entry stamps `manufacturer: 'Zen Studios'` specifically so
+   `GlobalGameService.upsert`'s step-4 dedup (`manufacturerYearAgree`) refuses to merge onto one of
+   those rows. `FxVrImportService.applyTags` runs both the FX VR and FX Classic VR loops under the
+   same "Sync FX VR" admin click.
