@@ -9,6 +9,7 @@ import type { TokenPayload } from '../auth.js';
 import { validate } from '../validate.js';
 import { isProviderUserId, isDiscordUserId } from '../../utils/identityProvider.js';
 import { iscoredDeletesAllowed, ISCORED_DELETES_DISABLED_MESSAGE } from '../../utils/iscoredCreds.js';
+import { nextRotationIso } from '../../utils/cronUtils.js';
 import {
     CreateTournamentSchema, UpdateTournamentSchema, ToggleTournamentActiveSchema,
     SettingsSchema,
@@ -884,11 +885,26 @@ router.get('/:roomId/pick-status', requireDiscordUser, async (req, res) => {
                 : null,
         })));
 
-        // Also get tournaments for this room so the UI knows what's available
-        const tournaments = await db.all(
-            'SELECT id, name, type, mode, max_active_games, platform_rules FROM tournaments WHERE game_room_id = ? AND is_active = 1 ORDER BY display_order',
+        // Also get tournaments for this room so the UI knows what's available.
+        // v2.143.0 — `nextRotationAt` (ISO string or null) is the F1 selector's
+        // "rotates <when>" subtitle: the tournament's own maintenance cron
+        // evaluated in its own timezone, same parsing `calloutActions.ts`'s
+        // `time_left` action uses. A cadence with no cron (Live Events) or a
+        // malformed one yields null, never a throw — a room's worth of
+        // tournaments is cheap enough to compute inline.
+        const tournamentRows = await db.all(
+            'SELECT id, name, type, mode, max_active_games, platform_rules, cadence FROM tournaments WHERE game_room_id = ? AND is_active = 1 ORDER BY display_order',
             roomId
         );
+        const tournaments = tournamentRows.map((t: any) => ({
+            id: t.id,
+            name: t.name,
+            type: t.type,
+            mode: t.mode,
+            max_active_games: t.max_active_games,
+            platform_rules: t.platform_rules,
+            nextRotationAt: nextRotationIso(t.cadence),
+        }));
 
         // Pick-award gate state (plan §5) — room-scoped, controls UI enablement.
         // v2.56.0: resolves as "any tournament in this room has winner-picks on".

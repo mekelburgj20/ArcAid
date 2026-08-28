@@ -142,7 +142,12 @@ interface PickStatusData {
   queuedGames: QueuedGame[];
   /** Server-owned queue cap (PICK_QUEUE_MAX). */
   queueMax?: number;
-  tournaments: Array<{ id: string; name: string; type: string; mode: string; max_active_games: number; platform_rules: string }>;
+  tournaments: Array<{
+    id: string; name: string; type: string; mode: string; max_active_games: number; platform_rules: string;
+    /** Next maintenance-cron fire (ISO), or null for a no-cron cadence (Live
+     *  Events) or a malformed one. Powers the F1 selector's "rotates <when>". */
+    nextRotationAt?: string | null;
+  }>;
 }
 
 /**
@@ -184,6 +189,24 @@ function tournamentSlug(name: string): string {
 }
 function isUuid(v: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+}
+
+/** OS-level motion preference (same idiom as `PinnedCarousel.tsx`). Defaults
+ *  to "no preference" when matchMedia is unavailable (jsdom). Gates the F3
+ *  drag transition and the F4 new-row highlight fade. */
+function usePrefersReducedMotion(): boolean {
+  const [reduce, setReduce] = useState(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  });
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const onChange = () => setReduce(mq.matches);
+    mq.addEventListener?.('change', onChange);
+    return () => mq.removeEventListener?.('change', onChange);
+  }, []);
+  return reduce;
 }
 
 /** `GET /:roomId/guild-members/search` result row (nominee typeahead, v2.99.0). */
@@ -235,6 +258,23 @@ export default function Picks() {
   const { toast } = useToast();
   const [pickStatus, setPickStatus] = useState<PickStatusData | null>(null);
   const [pickTarget, setPickTarget] = useState<string | null>(null);
+
+  // ---- Queue-UX redesign (F2/F3/F4) state --------------------------------
+  // Active "Your Picks" tab: 'all' or a tournament id. Synced one-way off the
+  // page's selectedTournamentId (see the effect near fetchPickStatus below) —
+  // clicking a tab never changes selectedTournamentId back.
+  const [activeQueueTab, setActiveQueueTab] = useState<string>('all');
+  const lastSyncedTournamentRef = useRef<string | null>(null);
+  // Live-drag state: which row is being dragged, for which tournament, and
+  // the current in-progress order (committed via the same PUT the arrows and
+  // "send to top" use). Row DOM nodes are tracked so pointermove can hit-test
+  // against real row positions rather than an assumed row height.
+  const [dragRow, setDragRow] = useState<{ tournamentId: string; id: string; order: string[] } | null>(null);
+  const rowElsRef = useRef<Map<string, HTMLDivElement>>(new Map());
+  const dragRowRectsRef = useRef<{ id: string; top: number; height: number }[]>([]);
+  // F4 — briefly highlights the row a fresh pick landed in.
+  const [highlightRowId, setHighlightRowId] = useState<string | null>(null);
+  const prefersReducedMotion = usePrefersReducedMotion();
   // Pick-award gate (plan §5) — when false the whole pick + Mystery Award flow is disabled room-wide.
   // Sprint 9: this page is the Picks surface; when the gate is off the page should not exist.
   const { loading: pickAwardLoading, enabled: pickAwardEnabled } = usePickAwardEnabled(slug);
@@ -306,6 +346,20 @@ export default function Picks() {
   }, [roomId, playerToken]);
 
   useEffect(() => { fetchPickStatus(); }, [fetchPickStatus]);
+
+  // F2 tab sync — one-way, off selectedTournamentId only (not off pickStatus,
+  // or a background refetch after a delete/reorder would yank the tab back
+  // out from under the player mid-click). Fires once selectedTournamentId
+  // first resolves and again on every subsequent change; a ref (not the tab
+  // state itself) tracks "have we synced for this tournament id yet" so a
+  // pickStatus refresh alone never re-triggers it.
+  useEffect(() => {
+    if (!pickStatus || !selectedTournamentId) return;
+    if (lastSyncedTournamentRef.current === selectedTournamentId) return;
+    lastSyncedTournamentRef.current = selectedTournamentId;
+    const hasPicks = pickStatus.queuedGames.some(g => g.tournament_id === selectedTournamentId);
+    setActiveQueueTab(hasPicks ? selectedTournamentId : 'all');
+  }, [selectedTournamentId, pickStatus]);
 
   // Same probe the nav badge runs (see PickAlertsData above). Silent on
   // failure — these drive supplementary banners, never the page's core data.
@@ -542,7 +596,31 @@ export default function Picks() {
     if (result.status === 'activated') {
       toast(`${result.gameName} is now active for ${result.tournamentName}!`, 'success');
     } else {
-      toast(`${result.gameName} queued for ${result.tournamentName}`, 'success');
+      // F4 — newest-first means a fresh queue always lands at position 1
+      // within its tournament, but we still look the row up in the
+      // REFRESHED list rather than assume, so the toast can't drift from
+      // reality if something raced it (another queue add, a hold, etc.).
+      const fresh = await fetch(`/api/rooms/${roomId}/pick-status`, {
+        headers: { Authorization: `Bearer ${playerToken}` },
+      }).then(r => (r.ok ? r.json() as Promise<PickStatusData> : null)).catch(() => null);
+      if (fresh) setPickStatus(fresh);
+      const ownRows = (fresh?.queuedGames ?? []).filter(g => g.tournament_id === tournamentId);
+      const pos = ownRows.findIndex(g => g.game_name === result.gameName) + 1;
+      const landed = ownRows.find(g => g.game_name === result.gameName);
+      if (pos > 0) {
+        toast(`${result.gameName} queued #${pos} for ${result.tournamentName}`, 'success');
+      } else {
+        toast(`${result.gameName} queued for ${result.tournamentName}`, 'success');
+      }
+      if (landed) {
+        setHighlightRowId(landed.id);
+        if (!prefersReducedMotion) window.setTimeout(() => setHighlightRowId(null), 2000);
+        else setHighlightRowId(null);
+      }
+      // The tab should follow a fresh add even if the player queued for a
+      // tournament other than the one currently selected in F1.
+      lastSyncedTournamentRef.current = tournamentId;
+      setActiveQueueTab(tournamentId);
     }
     // Refresh data
     fetchPickStatus();
@@ -569,23 +647,27 @@ export default function Picks() {
     } catch { toast('Failed to remove game', 'error'); }
   };
 
-  const handleMoveQueued = async (index: number, direction: 'up' | 'down') => {
+  /**
+   * F3 — the ONE place that writes a reorder. `fullOrderedIds` is the
+   * complete visible row order for ONE tournament (held rows included, in
+   * their pinned positions) — arrows, "send to top", and drag all funnel
+   * through this so the payload is always scoped to a single tournament's
+   * ids, never the old cross-tournament interleaved list. Optimistic: the
+   * player's other tournaments' rows are left untouched, this tournament's
+   * rows are re-ordered locally to match immediately, and a failure re-fetches
+   * the real state.
+   */
+  const commitReorder = async (tournamentId: string, fullOrderedIds: string[]) => {
     if (!roomId || !playerToken || !pickStatus) return;
-    const games = [...pickStatus.queuedGames];
-    const swapIndex = direction === 'up' ? index - 1 : index + 1;
-    if (swapIndex < 0 || swapIndex >= games.length) return;
-    // A held pick's place is decided by the hold, not by `queue_order` — it
-    // can neither be moved nor be displaced. The buttons already reflect this;
-    // the guard makes it true regardless of how the click arrived.
-    if (games[index]?.held || games[swapIndex]?.held) return;
-    [games[index], games[swapIndex]] = [games[swapIndex], games[index]];
-    // Optimistic update
-    setPickStatus({ ...pickStatus, queuedGames: games });
+    const byId = new Map(pickStatus.queuedGames.map(g => [g.id, g]));
+    const reordered = fullOrderedIds.map(id => byId.get(id)).filter((g): g is QueuedGame => !!g);
+    const otherRows = pickStatus.queuedGames.filter(g => g.tournament_id !== tournamentId);
+    setPickStatus({ ...pickStatus, queuedGames: [...otherRows, ...reordered] });
     try {
       const res = await fetch(`/api/rooms/${roomId}/queue/reorder`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${playerToken}` },
-        body: JSON.stringify({ gameIds: games.map(g => g.id) }),
+        body: JSON.stringify({ gameIds: fullOrderedIds }),
       });
       if (!res.ok) { fetchPickStatus(); toast('Failed to reorder', 'error'); }
       // Reorder changes which game is head-of-queue, so it can flip the
@@ -593,6 +675,104 @@ export default function Picks() {
       refreshPickAlerts();
     } catch { fetchPickStatus(); }
   };
+
+  /** Arrow fallback — scoped to ONE tournament's row list, never crossing
+   *  above the held block (held rows can't be moved or displaced). */
+  const moveWithinTournament = (tournamentId: string, rows: QueuedGame[], index: number, direction: 'up' | 'down') => {
+    const swapIndex = direction === 'up' ? index - 1 : index + 1;
+    if (swapIndex < 0 || swapIndex >= rows.length) return;
+    if (rows[index]?.held || rows[swapIndex]?.held) return;
+    const ids = rows.map(r => r.id);
+    [ids[index], ids[swapIndex]] = [ids[swapIndex], ids[index]];
+    commitReorder(tournamentId, ids);
+  };
+
+  /** "⤒ Top" — the first position after any held rows. */
+  const sendToTop = (tournamentId: string, rows: QueuedGame[], gameId: string) => {
+    const target = rows.find(r => r.id === gameId);
+    if (!target || target.held) return;
+    const heldIds = rows.filter(r => r.held).map(r => r.id);
+    const restIds = rows.filter(r => !r.held && r.id !== gameId).map(r => r.id);
+    commitReorder(tournamentId, [...heldIds, gameId, ...restIds]);
+  };
+
+  // ---- F3 drag-and-drop -----------------------------------------------
+  // Pointer-events based, no library. `rowElsRef` holds each visible row's
+  // DOM node (keyed by game id) so a drag hit-tests against real positions
+  // instead of an assumed row height — rows can wrap to two lines on phones.
+  const startDragRow = (tournamentId: string, rows: QueuedGame[], id: string) => (e: React.PointerEvent) => {
+    const target = rows.find(r => r.id === id);
+    if (!target || target.held) return;
+    e.preventDefault();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    dragRowRectsRef.current = rows.map(r => {
+      const el = rowElsRef.current.get(r.id);
+      const rect = el?.getBoundingClientRect();
+      return { id: r.id, top: rect?.top ?? 0, height: rect?.height ?? 48 };
+    });
+    setDragRow({ tournamentId, id, order: rows.map(r => r.id) });
+  };
+
+  const onDragRowMove = (heldCount: number) => (e: React.PointerEvent) => {
+    setDragRow(prev => {
+      if (!prev) return prev;
+      const rects = dragRowRectsRef.current;
+      let targetIndex = rects.length - 1;
+      for (let i = 0; i < rects.length; i++) {
+        if (e.clientY < rects[i].top + rects[i].height / 2) { targetIndex = i; break; }
+      }
+      targetIndex = Math.max(targetIndex, heldCount);
+      const currentIndex = prev.order.indexOf(prev.id);
+      if (targetIndex === currentIndex) return prev;
+      const order = [...prev.order];
+      order.splice(currentIndex, 1);
+      order.splice(targetIndex, 0, prev.id);
+      return { ...prev, order };
+    });
+  };
+
+  const endDragRow = () => {
+    setDragRow(prev => {
+      if (prev) commitReorder(prev.tournamentId, prev.order);
+      return null;
+    });
+  };
+
+  /**
+   * F2 — this player's queued picks grouped by tournament, in the order the
+   * server already sent them (held rows first, then `queue_order` ASC —
+   * `queueOrderSql`). Grouping preserves that relative order per tournament;
+   * it's only the FLAT list from `/pick-status` that interleaves tournaments
+   * (position 1 in two different tournaments ties on `queue_order`), which is
+   * exactly the thing per-tournament tabs exist to stop showing as one list.
+   */
+  const tournamentGroups = useMemo(() => {
+    const map = new Map<string, { tournamentId: string; tournamentName: string; games: QueuedGame[] }>();
+    for (const g of pickStatus?.queuedGames ?? []) {
+      let group = map.get(g.tournament_id);
+      if (!group) {
+        group = { tournamentId: g.tournament_id, tournamentName: g.tournament_name, games: [] };
+        map.set(g.tournament_id, group);
+      }
+      group.games.push(g);
+    }
+    return [...map.values()];
+  }, [pickStatus]);
+  const totalQueuedCount = pickStatus?.queuedGames.length ?? 0;
+
+  // ---- F1: Style 1 tournament selector ---------------------------------
+  const selectedTournamentOption = tournaments.find(t => t.id === selectedTournamentId) ?? null;
+  const selectedPickStatusTournament = pickStatus?.tournaments.find(t => t.id === selectedTournamentId) ?? null;
+  const selectedTournamentQueuedCount = pickStatus?.queuedGames.filter(g => g.tournament_id === selectedTournamentId).length ?? 0;
+  const selectorQueueMax = pickStatus?.queueMax ?? 30;
+  const selectorRotatesText = selectedPickStatusTournament?.nextRotationAt
+    ? new Date(selectedPickStatusTournament.nextRotationAt).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })
+    : null;
+  // Logged-out or pre-load: no count clause, per spec — there's nothing this
+  // player has queued to report yet.
+  const selectorSubtitle = discordUser && pickStatus
+    ? `${selectedTournamentQueuedCount} of ${selectorQueueMax} queued${selectorRotatesText ? ` · rotates ${selectorRotatesText}` : ''}`
+    : null;
 
   /**
    * Per-game derived index: the engine ids it denotes and one lowercase
@@ -690,31 +870,11 @@ export default function Picks() {
         &larr; Scoreboard
       </Link>
 
-      {/* v2.77.0 — the title block and the tournament select shared one
-          non-wrapping row with no min-w-0, so at 390px a long tournament name
-          squeezed the heading into a two-line sliver. Stack them on phones;
-          the select goes full-width under the title and keeps sm+ inline. */}
-      <div className="mt-3 mb-4 flex flex-col sm:flex-row sm:items-baseline sm:justify-between gap-2 sm:gap-3">
-        <div className="min-w-0">
-          <h1 className="font-display text-xl font-bold text-primary">Picks</h1>
-          <p className="text-muted text-xs mt-1">
-            Queue your next pick or spin the Mystery Award.
-          </p>
-        </div>
-        {tournaments.length > 1 && (
-          <div className="relative w-full sm:w-auto sm:flex-shrink-0">
-            <select
-              value={selectedTournamentId || ''}
-              onChange={(e) => setSelectedTournamentId(e.target.value)}
-              className="appearance-none w-full sm:w-auto bg-surface border border-border rounded-lg px-4 py-2 pr-8 text-sm text-primary focus:outline-none focus:border-neon-cyan/50 cursor-pointer"
-            >
-              {tournaments.map(t => (
-                <option key={t.id} value={t.id}>{t.name}</option>
-              ))}
-            </select>
-            <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
-          </div>
-        )}
+      <div className="mt-3 mb-4">
+        <h1 className="font-display text-xl font-bold text-primary">Picks</h1>
+        <p className="text-muted text-xs mt-1">
+          Queue your next pick or spin the Mystery Award.
+        </p>
       </div>
 
       {/* Guest-login banner (S5). When the viewer isn't logged in with Discord
@@ -976,7 +1136,10 @@ export default function Picks() {
         </div>
       )}
 
-      {/* Your Picks summary */}
+      {/* Your Picks summary — Option A: one interleaved list replaced with
+          per-tournament tabs (owner ruling 2026-08-27), since a shared
+          `queue_order` numbering across tournaments never meant anything —
+          queues are per-(tournament, player). */}
       {discordUser && pickStatus && (pickStatus.pendingPicks.length > 0 || pickStatus.queuedGames.length > 0) && (
         <div className="max-w-5xl mx-auto mb-4 bg-surface border border-border rounded-lg overflow-hidden">
           <div className="px-4 py-2 border-b border-border/50 flex items-baseline justify-between gap-2">
@@ -985,88 +1148,230 @@ export default function Picks() {
               up to {pickStatus.queueMax ?? 30} per tournament
             </span>
           </div>
-          <div className="divide-y divide-border/20">
-            {pickStatus.pendingPicks.map(p => (
-              <div key={`pending-${p.pick_slot_id}`} className="flex items-center justify-between px-4 py-2.5">
-                <div className="flex items-center gap-2 min-w-0">
-                  <Crosshair size={14} className="text-neon-green flex-shrink-0" />
-                  <span className="text-xs text-muted truncate">{p.tournament_name}</span>
-                  {p.won_game_name && (
-                    <span className="text-xs text-faint truncate">· won <span className="text-neon-amber">{p.won_game_name}</span></span>
-                  )}
+
+          {pickStatus.pendingPicks.length > 0 && (
+            <div className="divide-y divide-border/20 border-b border-border/50">
+              {pickStatus.pendingPicks.map(p => (
+                <div key={`pending-${p.pick_slot_id}`} className="flex items-center justify-between px-4 py-2.5">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Crosshair size={14} className="text-neon-green flex-shrink-0" />
+                    <span className="text-xs text-muted truncate">{p.tournament_name}</span>
+                    {p.won_game_name && (
+                      <span className="text-xs text-faint truncate">· won <span className="text-neon-amber">{p.won_game_name}</span></span>
+                    )}
+                  </div>
+                  <span className="text-xs text-neon-green font-medium flex-shrink-0">Awaiting your pick</span>
                 </div>
-                <span className="text-xs text-neon-green font-medium flex-shrink-0">Awaiting your pick</span>
+              ))}
+            </div>
+          )}
+
+          {pickStatus.queuedGames.length > 0 && (
+            <>
+              {/* Tab row — All, then one per tournament that has ≥1 queued
+                  pick. Horizontal scroll with no visible scrollbar rather than
+                  wrapping or truncating tournament names. */}
+              <div
+                data-testid="picks-queue-tabs"
+                className="flex items-center gap-1.5 overflow-x-auto scrollbar-none px-3 py-2 border-b border-border/50"
+              >
+                <button
+                  type="button"
+                  onClick={() => setActiveQueueTab('all')}
+                  data-testid="picks-queue-tab-all"
+                  className={`flex-shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-xs font-medium border cursor-pointer transition-colors ${
+                    activeQueueTab === 'all'
+                      ? 'border-neon-cyan/50 text-neon-cyan bg-neon-cyan/10'
+                      : 'bg-deep border-border text-muted hover:text-primary'
+                  }`}
+                  style={activeQueueTab === 'all' ? { boxShadow: '0 0 10px color-mix(in oklab, var(--color-neon-cyan) 25%, transparent)' } : undefined}
+                >
+                  All <span className="tabular-nums">({totalQueuedCount})</span>
+                </button>
+                {tournamentGroups.map(group => (
+                  <button
+                    key={group.tournamentId}
+                    type="button"
+                    onClick={() => setActiveQueueTab(group.tournamentId)}
+                    data-testid={`picks-queue-tab-${group.tournamentId}`}
+                    className={`flex-shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-xs font-medium border cursor-pointer transition-colors ${
+                      activeQueueTab === group.tournamentId
+                        ? 'border-neon-cyan/50 text-neon-cyan bg-neon-cyan/10'
+                        : 'bg-deep border-border text-muted hover:text-primary'
+                    }`}
+                    style={activeQueueTab === group.tournamentId ? { boxShadow: '0 0 10px color-mix(in oklab, var(--color-neon-cyan) 25%, transparent)' } : undefined}
+                  >
+                    {group.tournamentName} <span className="tabular-nums">({group.games.length})</span>
+                  </button>
+                ))}
               </div>
-            ))}
-            {pickStatus.queuedGames.map((q, idx) => {
-              // v2.77.0 — the badge's (c) condition, made visible. Without the
-              // chip this row looks identical to a healthy one right up until
-              // maintenance silently skips it.
-              const inelig = ineligibleByGameId.get(q.id);
-              return (
-              <div key={`queued-${q.id}`} className="flex items-center justify-between px-4 py-2.5 gap-2">
-                {/* v2.77.0 — wraps to two lines on phones: the game name (the
-                    identity of the pick) shares line 1 with the index, the
-                    clock and any cooldown chip, and the tournament name drops
-                    to line 2 as context. Pre-fix all four competed in one
-                    non-wrapping row and the game name lost, rendering as
-                    "WHO ..." at 390px — the chip only made it tighter.
-                    `order-last` is mobile-only, so sm+ keeps the original
-                    tournament-then-game reading order on a single line. */}
-                <div className="flex flex-wrap sm:flex-nowrap items-center gap-x-2 gap-y-0.5 min-w-0 flex-1">
-                  <span className="text-[10px] text-faint w-4 text-center flex-shrink-0">{idx + 1}</span>
-                  <Clock size={14} className={`flex-shrink-0 ${inelig || q.held ? 'text-neon-amber' : 'text-neon-cyan'}`} />
-                  {q.held ? (
-                    <span
-                      data-testid={`picks-hold-chip-${q.id}`}
-                      title="This pick is in cooldown. It keeps its place at the front of your queue and activates as soon as the cooldown ends — the next eligible game runs meanwhile."
-                      className="flex-shrink-0 whitespace-nowrap px-1.5 py-0.5 rounded text-[10px] font-medium border border-neon-amber/40 bg-neon-amber/10 text-neon-amber"
-                    >
-                      On hold &mdash; cooldown{q.daysUntilAvailable ? `, ${q.daysUntilAvailable}d` : ''}
-                    </span>
-                  ) : inelig ? (
-                    <span
-                      data-testid={`picks-cooldown-chip-${q.id}`}
-                      title="This pick is on cooldown. At the next rotation it goes on hold at the front of your queue and the next eligible game is used instead."
-                      className="flex-shrink-0 whitespace-nowrap px-1.5 py-0.5 rounded text-[10px] font-medium border border-neon-amber/40 bg-neon-amber/10 text-neon-amber"
-                    >
-                      On cooldown
-                    </span>
-                  ) : null}
-                  <span className="order-last sm:order-none w-full sm:w-auto pl-6 sm:pl-0 text-xs text-muted truncate min-w-0 sm:max-w-[40%]">
-                    {q.tournament_name}
-                  </span>
-                  <span className="text-xs text-primary font-medium truncate min-w-0 flex-1">{q.game_name}</span>
+
+              {activeQueueTab === 'all' ? (
+                // Read-only overview — no drag/arrows/top, index + name +
+                // held chip + delete only.
+                <div data-testid="picks-queue-all-view">
+                  {tournamentGroups.map(group => (
+                    <div key={group.tournamentId}>
+                      <div className="px-4 pt-2.5 pb-1 text-[10px] text-faint uppercase tracking-wider truncate">
+                        {group.tournamentName}
+                      </div>
+                      <div className="divide-y divide-border/20">
+                        {group.games.map((q, idx) => (
+                          <div key={`all-${q.id}`} className="flex items-center justify-between px-4 py-2 gap-2">
+                            <div className="flex items-center gap-2 min-w-0 flex-1">
+                              <span className="text-[10px] text-faint w-4 text-center flex-shrink-0">{idx + 1}</span>
+                              {q.held && (
+                                <span
+                                  data-testid={`picks-hold-chip-${q.id}`}
+                                  title="This pick is in cooldown. It keeps its place at the front of your queue and activates as soon as the cooldown ends — the next eligible game runs meanwhile."
+                                  className="flex-shrink-0 whitespace-nowrap px-1.5 py-0.5 rounded text-[10px] font-medium border border-neon-amber/40 bg-neon-amber/10 text-neon-amber"
+                                >
+                                  On hold{q.daysUntilAvailable ? `, ${q.daysUntilAvailable}d` : ''}
+                                </span>
+                              )}
+                              <span className="text-xs text-primary font-medium truncate min-w-0 flex-1">{q.game_name}</span>
+                            </div>
+                            <button
+                              onClick={() => handleDeleteQueued(q.id)}
+                              className="p-1 text-muted hover:text-neon-magenta transition-colors cursor-pointer flex-shrink-0"
+                              title="Remove from queue"
+                            >
+                              <X size={14} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
                 </div>
-                <div className="flex items-center gap-0.5 flex-shrink-0">
-                  <button
-                    onClick={() => handleMoveQueued(idx, 'up')}
-                    disabled={idx === 0 || !!q.held || !!pickStatus.queuedGames[idx - 1]?.held}
-                    className="p-1 text-muted hover:text-neon-cyan disabled:opacity-20 disabled:cursor-not-allowed transition-colors cursor-pointer"
-                    title="Move up"
-                  >
-                    <ChevronUp size={14} />
-                  </button>
-                  <button
-                    onClick={() => handleMoveQueued(idx, 'down')}
-                    disabled={idx === pickStatus.queuedGames.length - 1 || !!q.held || !!pickStatus.queuedGames[idx + 1]?.held}
-                    className="p-1 text-muted hover:text-neon-cyan disabled:opacity-20 disabled:cursor-not-allowed transition-colors cursor-pointer"
-                    title="Move down"
-                  >
-                    <ChevronDown size={14} />
-                  </button>
-                  <button
-                    onClick={() => handleDeleteQueued(q.id)}
-                    className="p-1 text-muted hover:text-neon-magenta transition-colors cursor-pointer"
-                    title="Remove from queue"
-                  >
-                    <X size={14} />
-                  </button>
-                </div>
-              </div>
-              );
-            })}
-          </div>
+              ) : (() => {
+                const group = tournamentGroups.find(g => g.tournamentId === activeQueueTab);
+                const rows = group?.games ?? [];
+                const heldCount = rows.filter(r => r.held).length;
+                const displayRows = dragRow && dragRow.tournamentId === activeQueueTab
+                  ? dragRow.order.map(id => rows.find(r => r.id === id)).filter((r): r is QueuedGame => !!r)
+                  : rows;
+                return (
+                  <div className="divide-y divide-border/20" data-testid={`picks-queue-rows-${activeQueueTab}`}>
+                    {displayRows.map((q, idx) => {
+                      // v2.77.0 — the badge's (c) condition, made visible.
+                      // Without the chip this row looks identical to a
+                      // healthy one right up until maintenance silently
+                      // skips it.
+                      const inelig = ineligibleByGameId.get(q.id);
+                      const isDragging = dragRow?.id === q.id;
+                      const isHighlighted = highlightRowId === q.id;
+                      return (
+                        <div
+                          key={`queued-${q.id}`}
+                          /* This callback ref only mutates `rowElsRef.current`
+                             (a plain Map) during React's commit phase, the
+                             same phase callback refs always fire in — it
+                             never reads the ref synchronously during render.
+                             Same false-positive idiom already suppressed in
+                             ScoreboardComponents.tsx. */
+                          // eslint-disable-next-line react-hooks/refs
+                          ref={(el) => { if (el) rowElsRef.current.set(q.id, el); else rowElsRef.current.delete(q.id); }}
+                          data-testid={`picks-queue-row-${q.id}`}
+                          className={`flex items-center justify-between px-4 py-2.5 gap-2 ${
+                            isDragging ? (prefersReducedMotion ? 'border-neon-cyan/60 bg-neon-cyan/5' : 'border-neon-cyan/60 bg-neon-cyan/5 scale-[1.01] shadow-[0_0_14px_color-mix(in_oklab,var(--color-neon-cyan)_30%,transparent)]') : ''
+                          }`}
+                          style={{
+                            transition: prefersReducedMotion ? undefined : 'box-shadow 1800ms ease-out',
+                            boxShadow: isHighlighted ? '0 0 0 2px color-mix(in oklab, var(--color-neon-cyan) 70%, transparent)' : undefined,
+                          }}
+                        >
+                          {/* v2.77.0 — wraps to two lines on phones: the game
+                              name (the identity of the pick) shares line 1
+                              with the index, the clock and any cooldown chip.
+                              Pre-fix all competed in one non-wrapping row and
+                              the game name lost, rendering as "WHO ..." at
+                              390px — the chip only made it tighter. */}
+                          <div className="flex flex-wrap sm:flex-nowrap items-center gap-x-2 gap-y-0.5 min-w-0 flex-1">
+                            {/* Drag grip — hidden/disabled for held rows,
+                                since a hold governs their position instead of
+                                queue_order. touch-action: none so a touch
+                                drag doesn't also scroll the page. */}
+                            {q.held ? (
+                              <span className="w-4 flex-shrink-0" aria-hidden="true" />
+                            ) : (
+                              <span
+                                role="button"
+                                aria-label={`Drag to reorder ${q.game_name}`}
+                                data-testid={`picks-queue-grip-${q.id}`}
+                                className="w-4 flex-shrink-0 text-center text-faint hover:text-neon-cyan cursor-grab active:cursor-grabbing select-none"
+                                style={{ touchAction: 'none' }}
+                                onPointerDown={startDragRow(activeQueueTab, rows, q.id)}
+                                onPointerMove={onDragRowMove(heldCount)}
+                                onPointerUp={endDragRow}
+                                onPointerCancel={endDragRow}
+                              >
+                                ⠿
+                              </span>
+                            )}
+                            <span className="text-[10px] text-faint w-4 text-center flex-shrink-0">{idx + 1}</span>
+                            <Clock size={14} className={`flex-shrink-0 ${inelig || q.held ? 'text-neon-amber' : 'text-neon-cyan'}`} />
+                            {q.held ? (
+                              <span
+                                data-testid={`picks-hold-chip-${q.id}`}
+                                title="This pick is in cooldown. It keeps its place at the front of your queue and activates as soon as the cooldown ends — the next eligible game runs meanwhile."
+                                className="flex-shrink-0 whitespace-nowrap px-1.5 py-0.5 rounded text-[10px] font-medium border border-neon-amber/40 bg-neon-amber/10 text-neon-amber"
+                              >
+                                On hold &mdash; cooldown{q.daysUntilAvailable ? `, ${q.daysUntilAvailable}d` : ''}
+                              </span>
+                            ) : inelig ? (
+                              <span
+                                data-testid={`picks-cooldown-chip-${q.id}`}
+                                title="This pick is on cooldown. At the next rotation it goes on hold at the front of your queue and the next eligible game is used instead."
+                                className="flex-shrink-0 whitespace-nowrap px-1.5 py-0.5 rounded text-[10px] font-medium border border-neon-amber/40 bg-neon-amber/10 text-neon-amber"
+                              >
+                                On cooldown
+                              </span>
+                            ) : null}
+                            <span className="text-xs text-primary font-medium truncate min-w-0 flex-1">{q.game_name}</span>
+                          </div>
+                          <div className="flex items-center gap-0.5 flex-shrink-0">
+                            {!q.held && idx > heldCount && (
+                              <button
+                                onClick={() => sendToTop(activeQueueTab, rows, q.id)}
+                                className="p-1 text-muted hover:text-neon-cyan transition-colors cursor-pointer"
+                                title="Send to top"
+                              >
+                                <span className="text-xs leading-none">⤒</span>
+                              </button>
+                            )}
+                            <button
+                              onClick={() => moveWithinTournament(activeQueueTab, rows, idx, 'up')}
+                              disabled={idx === 0 || !!q.held || !!displayRows[idx - 1]?.held}
+                              className="p-1 text-muted hover:text-neon-cyan disabled:opacity-20 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                              title="Move up"
+                            >
+                              <ChevronUp size={14} />
+                            </button>
+                            <button
+                              onClick={() => moveWithinTournament(activeQueueTab, rows, idx, 'down')}
+                              disabled={idx === displayRows.length - 1 || !!q.held || !!displayRows[idx + 1]?.held}
+                              className="p-1 text-muted hover:text-neon-cyan disabled:opacity-20 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                              title="Move down"
+                            >
+                              <ChevronDown size={14} />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteQueued(q.id)}
+                              className="p-1 text-muted hover:text-neon-magenta transition-colors cursor-pointer"
+                              title="Remove from queue"
+                            >
+                              <X size={14} />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </>
+          )}
         </div>
       )}
 
@@ -1112,6 +1417,44 @@ export default function Picks() {
           <p className="font-display font-bold text-sm sm:text-lg text-neon-amber flex-shrink-0 whitespace-nowrap tabular-nums">{cooldownCount}</p>
         </button>
       </div>
+
+      {/* F1 — "Style 1" tournament selector, directly above the search bar so
+          nobody queues for the wrong tournament. A real native <select> sits
+          on top (opacity-0, full inset) for keyboard/mobile/screen-reader
+          behavior; the styled block underneath is purely decorative
+          (pointer-events-none) and just renders the current selection. */}
+      {tournaments.length > 0 && (
+        <div
+          data-testid="picks-tournament-selector"
+          className="relative mb-3 rounded-lg border border-neon-cyan/40 bg-gradient-to-br from-neon-cyan/10 to-transparent px-4 py-3"
+          style={{ boxShadow: '0 0 20px color-mix(in oklab, var(--color-neon-cyan) 16%, transparent)' }}
+        >
+          <p className="pointer-events-none font-display text-[10px] text-faint uppercase tracking-wider mb-1">
+            Queuing a pick for
+          </p>
+          <div className="pointer-events-none flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <p data-testid="picks-tournament-selector-name" className="font-display text-lg font-bold text-neon-cyan truncate">
+                {selectedTournamentOption?.name ?? 'Select a tournament'}
+              </p>
+              {selectorSubtitle && (
+                <p className="text-xs text-muted mt-0.5 truncate">{selectorSubtitle}</p>
+              )}
+            </div>
+            <ChevronDown size={18} className="text-neon-cyan flex-shrink-0" />
+          </div>
+          <select
+            value={selectedTournamentId || ''}
+            onChange={(e) => setSelectedTournamentId(e.target.value)}
+            aria-label="Select tournament to queue for"
+            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+          >
+            {tournaments.map(t => (
+              <option key={t.id} value={t.id}>{t.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* Search — matches name, manufacturer, year and the row's chip labels,
           so "Bally", "1992" and "VPX" all find something. */}

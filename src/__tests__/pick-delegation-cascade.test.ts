@@ -81,11 +81,20 @@ describe('Pick delegation — per-player queues', () => {
         const a2 = await queueFor(tournamentId, 'PLAYER_A', 'A Second');
         const b1 = await queueFor(tournamentId, 'PLAYER_B', 'B First');
 
+        // Newest-first (owner ruling 2026-08-27): every insert lands at
+        // position 1, so the return value is always 1 — it's the STORED
+        // position after a2's insert shifts a1 down that proves per-player
+        // scoping (a1 -> 2, not 3, which is what a tournament-global MAX
+        // allocator would have produced and what let the reorder endpoint's
+        // 1..N renumber collide across players pre-fix).
         expect(a1.queueOrder).toBe(1);
-        expect(a2.queueOrder).toBe(2);
-        // Pre-fix this was 3 — a tournament-global MAX — which is what let the
-        // reorder endpoint's 1..N renumber collide across players.
+        expect(a2.queueOrder).toBe(1);
         expect(b1.queueOrder).toBe(1);
+
+        const db = await getDatabase();
+        expect((await db.get('SELECT queue_order FROM games WHERE id = ?', a2.id)).queue_order).toBe(1);
+        expect((await db.get('SELECT queue_order FROM games WHERE id = ?', a1.id)).queue_order).toBe(2);
+        expect((await db.get('SELECT queue_order FROM games WHERE id = ?', b1.id)).queue_order).toBe(1);
     });
 
     it('REGRESSION (prod 2026-08-17): the winner gets their OWN queued game, not the queue head', async () => {
@@ -129,7 +138,9 @@ describe('Pick delegation — per-player queues', () => {
         await seedScore(gameId, { username: 'Winner', playerId: 'WINNER', score: 100 });
 
         const { outcome } = await runCascade(tournamentId, roomId, gameId);
-        expect((outcome as any).game.name).toBe('First Choice');
+        // Newest-first (owner ruling 2026-08-27): 'Second Choice' was queued
+        // last, so it landed at position 1 and is the front of the queue.
+        expect((outcome as any).game.name).toBe('Second Choice');
     });
 });
 
@@ -433,8 +444,10 @@ describe('Pick delegation — queue eligibility', () => {
         const gameId = await createTestGame(tournamentId, { status: 'ACTIVE' });
         await seedScore(gameId, { username: 'Winner', playerId: 'W', score: 300 });
 
-        const stale = await queueFor(tournamentId, 'W', 'Recently Played');
+        // Newest-first (owner ruling 2026-08-27): queue the row that must be
+        // checked FIRST last, so it lands at position 1.
         await queueFor(tournamentId, 'W', 'Fresh Pick');
+        const stale = await queueFor(tournamentId, 'W', 'Recently Played');
 
         // A COMPLETED run of the same game inside the cooldown window makes the
         // queued row ineligible.
@@ -508,8 +521,10 @@ describe('Pick delegation — queue reorder endpoint', () => {
         expect((await db.get('SELECT queue_order FROM games WHERE id = ?', a1.id)).queue_order).toBe(2);
         // ...and B's is untouched. Pre-fix the renumber ran in a tournament-GLOBAL
         // space, so A's write silently collided with B's positions.
-        expect((await db.get('SELECT queue_order FROM games WHERE id = ?', b1.id)).queue_order).toBe(1);
-        expect((await db.get('SELECT queue_order FROM games WHERE id = ?', b2.id)).queue_order).toBe(2);
+        // Newest-first (owner ruling 2026-08-27): 'B Two' was queued after
+        // 'B One', so it sits at position 1.
+        expect((await db.get('SELECT queue_order FROM games WHERE id = ?', b2.id)).queue_order).toBe(1);
+        expect((await db.get('SELECT queue_order FROM games WHERE id = ?', b1.id)).queue_order).toBe(2);
     });
 
     it('a PARTIAL reorder payload does not leave duplicate positions in the caller\'s own queue', async () => {

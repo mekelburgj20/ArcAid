@@ -344,7 +344,7 @@ export const pickgame: Command = {
                     ? `**${gameName}** is now active for the **${tournamentName}** tournament — play immediately!`
                     : outcome === 'queuedFromPick'
                         ? `**${gameName}** will activate next for **${tournamentName}** — your won pick slot will fill at the next rotation.`
-                        : `**${gameName}** has been queued for the **${tournamentName}** tournament.`;
+                        : `**${gameName}** is now at the top of your queue for **${tournamentName}**.`;
 
                 const embed = new EmbedBuilder()
                     .setTitle(`${term.game} Picked!`)
