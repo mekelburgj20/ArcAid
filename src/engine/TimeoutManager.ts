@@ -7,7 +7,10 @@ import { sendChannelMessage, sendChannelEmbed, getTournamentColor, formatUserMen
 import { TournamentEngine } from './TournamentEngine.js';
 // IScoredClient construction is owned by IScoredSessionRegistry.
 import { v4 as uuidv4 } from 'uuid';
-import { parsePlatformsList, parseTournamentRules, passesplatformRules, hasGameLevelPlatformRules } from '../utils/platformRules.js';
+import {
+    parsePlatformsList, parseTournamentRules, hasGameLevelPlatformRules, firstQualifyingVariant,
+    type QualificationVariant,
+} from '../utils/platformRules.js';
 import { PickAwardGate } from '../services/PickAwardGate.js';
 import { computePickDeadline, isPickWindowExpired, pickWindowFallback, pickPromptPushBody, pickFallbackPhrase, DEFAULT_RUNNERUP_PICK_WINDOW_MIN } from '../utils/pickWindow.js';
 import { catalogueTypeMatchesTournamentMode } from '../utils/tournamentMode.js';
@@ -574,17 +577,32 @@ export class TimeoutManager {
 
             const eligibilityDays = tournament.eligibility_days ?? 120;
 
-            // Get games matching tournament mode + platform rules from the catalogue.
-                // `MIN(features)` alongside `MIN(platforms)`: the device axis
-                // reads availability out of `features` post-fold (ADR 0016
-                // catalogue phase §4). Both are MIN over a name-group for the
-                // same pre-existing reason — variants are collapsed for
-                // autopick and one row has to stand for the name.
-            const libraryGames = await db.all(`
-                SELECT name, MIN(type) AS mode, MIN(platforms) AS platforms, MIN(features) AS features
+            // Get games matching tournament mode + platform rules from the
+            // catalogue — one row per catalogue VARIANT, grouped by name in
+            // JS below. v2.144.1: a prior `GROUP BY LOWER(name)` +
+            // `MIN()`-per-column here could pair one variant's `platforms`
+            // with a DIFFERENT variant's `features` (the Walking Dead miss);
+            // qualification must judge each variant's platforms + features
+            // together, never mixed.
+            const catalogueVariantRows = await db.all(`
+                SELECT name, type AS mode, platforms, features
                 FROM global_games WHERE status = 'approved'
-                GROUP BY LOWER(name)
             `);
+            // `style_id`: `global_games` was never selected for it here (pre-
+            // v2.144.1 either) — always undefined. Kept on the shape only so
+            // the downstream `pick.style_id` reads below still type-check;
+            // not in scope of the variant-qualification fix.
+            const libraryGames = new Map<string, { name: string; variants: QualificationVariant[]; style_id?: string }>();
+            for (const r of catalogueVariantRows) {
+                const key = r.name.toLowerCase();
+                const entry = libraryGames.get(key) ?? { name: r.name, variants: [] as QualificationVariant[] };
+                entry.variants.push({
+                    mode: r.mode,
+                    platforms: parsePlatformsList(r.platforms || '[]'),
+                    features: parsePlatformsList(r.features || '[]'),
+                });
+                libraryGames.set(key, entry);
+            }
             // Pre-load room tag map for batched lookup (no N+1 in filter).
             let tagMap: Map<string, string[]> = new Map();
             if (tournament.game_room_id) {
@@ -592,21 +610,23 @@ export class TimeoutManager {
                 tagMap = await RoomGameTagsService.getTagMapByGameNameForRoom(tournament.game_room_id);
             }
             const gameLevelRules = hasGameLevelPlatformRules(platformRules);
-            const modeAndPlatformMatches = libraryGames.filter(g => {
-                // `catalogueTypeMatchesTournamentMode` bridges tournament.mode
-                // ('videogame') against global_games.type ('video_game' |
-                // 'arcade') — see src/utils/tournamentMode.ts.
-                if (!catalogueTypeMatchesTournamentMode(g.mode, tournament.mode)) return false;
+            // A name qualifies iff ANY ONE of its catalogue variants qualifies
+            // on its own (v2.144.1) — never a MIN-mixed pair.
+            const modeAndPlatformMatches = [...libraryGames.values()].filter(g => {
                 // v2.6.x: `excluded` is a submission-level filter only; the
                 // game-level gate checks `required` exclusively against
                 // catalogue ∪ room tags. v2.60.0 (ADR 0016 P2): both axes, via
                 // the shared `passesplatformRules`.
-                if (!gameLevelRules) return true;
-                const cataloguePlatforms = parsePlatformsList(g.platforms || '[]');
+                if (!gameLevelRules) {
+                    // `catalogueTypeMatchesTournamentMode` bridges
+                    // tournament.mode ('videogame') against
+                    // global_games.type ('video_game' | 'arcade') — see
+                    // src/utils/tournamentMode.ts. No platform rules to check,
+                    // so any variant matching mode qualifies the name.
+                    return g.variants.some(v => catalogueTypeMatchesTournamentMode(v.mode, tournament.mode));
+                }
                 const tags = tagMap.get(g.name.toLowerCase()) || [];
-                return passesplatformRules(
-                    [...cataloguePlatforms, ...tags], platformRules, parsePlatformsList(g.features || '[]'),
-                );
+                return !!firstQualifyingVariant(g.variants, tournament.mode, platformRules, tags);
             });
 
             // Filter by eligibility — batch query instead of per-game check

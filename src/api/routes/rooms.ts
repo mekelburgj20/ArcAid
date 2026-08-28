@@ -53,7 +53,8 @@ import type { StatsWindowFilters } from '../../services/StatsService.js';
 import {
     passesplatformRules, parsePlatformsList, parseTournamentRules,
     hasAnyPlatformRules, legacyPlatformsForEngine, deviceMatchTokens,
-    emptyTournamentRules, resolveSubmittablePlatforms, type TournamentRules,
+    emptyTournamentRules, resolveSubmittablePlatforms, firstQualifyingVariant,
+    type TournamentRules, type QualificationVariant,
 } from '../../utils/platformRules.js';
 import { deleteScorePhotoFiles } from '../../utils/scorePhotoCleanup.js';
 import {
@@ -61,7 +62,6 @@ import {
     PICK_QUEUE_MAX, compactQueue, cooldownDaysFromLastPlayed, cooldownDaysRemaining,
     notifyQueuedOnBehalf, queueOrderSql,
 } from '../../services/PickQueueService.js';
-import { catalogueTypeMatchesTournamentMode } from '../../utils/tournamentMode.js';
 import { trackBackground } from '../../utils/backgroundTasks.js';
 import { normalizeSubmitterUserId } from '../../services/SubmissionContextService.js';
 import { TournamentService } from '../../services/TournamentService.js';
@@ -646,9 +646,9 @@ router.get('/:roomId/game-availability/:tournamentId', async (req, res) => {
             candidateParams.push(...taggedNames);
         }
 
-        // `MIN(...)` per column mirrors the Discord autocomplete / autopick
-        // catalogue read (pickgame.ts, TimeoutManager): the GROUP BY collapses
-        // catalogue variants of one name and a single row has to stand for it.
+        // `MIN(...)` per column collapses catalogue variants of one name into
+        // a single DISPLAY row — image precedence, manufacturer/year, etc.
+        // That part is unchanged and fine: it is not deciding eligibility.
         //
         // `MIN(COALESCE(local_image_path, wheel_image_path, image_url))` applies
         // the catalogue's image precedence per ROW first, so the winning value
@@ -669,23 +669,48 @@ router.get('/:roomId/game-availability/:tournamentId', async (req, res) => {
             ORDER BY name
         `, ...candidateParams);
 
+        // v2.144.1 — `MIN()` must NEVER decide eligibility: it is per-column
+        // and lexicographic, so the "collapsed" row above can pair one
+        // variant's `platforms` with a DIFFERENT variant's `features` — a
+        // chimera neither actual catalogue row has (the Walking Dead miss).
+        // Re-fetch the SAME candidate set ungrouped, one row per catalogue
+        // variant, so the gate below can judge each variant on its own
+        // platforms + features together.
+        const variantRows = await db.all(`
+            SELECT LOWER(gg.name) AS key, gg.type AS mode, gg.platforms AS platforms, gg.features AS features
+            FROM global_games gg
+            WHERE gg.status = 'approved'${candidateFilter}
+        `, ...candidateParams);
+        const variantsByName = new Map<string, QualificationVariant[]>();
+        for (const v of variantRows) {
+            const list = variantsByName.get(v.key) ?? [];
+            list.push({
+                mode: v.mode,
+                platforms: parsePlatformsList(v.platforms || '[]'),
+                features: parsePlatformsList(v.features || '[]'),
+            });
+            variantsByName.set(v.key, list);
+        }
+
         // The authoritative gate — identical to pickgame.ts's autocomplete
         // filter: tournament mode, then platform rules over catalogue ∪ room
         // tags with `features` carrying the device axis (ADR 0016 §4), then
         // the v2.102.2 no-submittable-platform hide (a game every one of
         // whose platforms is excluded can be picked but never scored — the
-        // sane survivor of the retired SQL excluded-quirk above).
-        const libraryGames = catalogueRows.filter((r: any) => {
-            if (!catalogueTypeMatchesTournamentMode(r.mode, tournament.mode)) return false;
-            const cataloguePlatforms = parsePlatformsList(r.platforms || '[]');
-            const tags = tagMap.get(String(r.name).toLowerCase()) ?? [];
-            const gamePlatforms = [...cataloguePlatforms, ...tags];
-            if (!passesplatformRules(gamePlatforms, rules, parsePlatformsList(r.features || '[]'))) return false;
-            // Platform-less placeholder rows have nothing for exclusions to
-            // remove — only hide when the game HAD platforms and the rules
-            // excluded every one of them.
-            return gamePlatforms.length === 0 || resolveSubmittablePlatforms(gamePlatforms, rules).length > 0;
-        });
+        // sane survivor of the retired SQL excluded-quirk above). A name
+        // qualifies iff ANY ONE of its catalogue variants qualifies on its own
+        // (v2.144.1); the row shipped to the client carries THAT qualifying
+        // variant's platforms/features, never the MIN-mixed pair.
+        const libraryGames = catalogueRows
+            .map((r: any) => {
+                const key = String(r.name).toLowerCase();
+                const tags = tagMap.get(key) ?? [];
+                const variants = variantsByName.get(key) ?? [];
+                const qualifying = firstQualifyingVariant(variants, tournament.mode, rules, tags, { requireSubmittable: true });
+                if (!qualifying) return null;
+                return { ...r, platforms: JSON.stringify(qualifying.platforms), features: JSON.stringify(qualifying.features) };
+            })
+            .filter((r: any): r is NonNullable<typeof r> => r !== null);
 
         // Get recently played games in this tournament within the lookback window
         const recentGames = await db.all(`

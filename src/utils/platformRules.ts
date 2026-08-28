@@ -1,5 +1,6 @@
 import { logWarn } from './logger.js';
 import { normalizePlatform } from './platformMapping.js';
+import { catalogueTypeMatchesTournamentMode } from './tournamentMode.js';
 import {
     CANONICAL_ENGINES,
     DEVICE_AVAILABILITY_FEATURES,
@@ -731,4 +732,80 @@ export function passesplatformRules(
             // unchanged.
             ? vrHeadsetMatchesGame(gamePlatforms, gameFeatures, requiredEngines)
             : deviceMatchesGame(d, gamePlatforms, gameFeatures));
+}
+
+/**
+ * One catalogue row's identity-independent fields — everything
+ * `variantQualifies` needs to judge a SINGLE row on its own merits.
+ */
+export interface QualificationVariant {
+    /** `global_games.type` for this row, or the catalogue-row `mode` field. */
+    mode?: string | null;
+    platforms: string[];
+    features: string[];
+}
+
+/**
+ * v2.144.1 — the anti-cross-mix fix.
+ *
+ * The catalogue can hold several APPROVED rows with the same `name` (genuinely
+ * different games/variants that happen to share a title — e.g. an "Original"
+ * VPX fan table and a "Zen Studios" FX Classic release both named "The
+ * Walking Dead"). Four eligibility readers used to collapse those rows with a
+ * `GROUP BY LOWER(name)` + `MIN()`-per-column SQL query. `MIN()` is evaluated
+ * per COLUMN, independently and lexicographically, so the "collapsed" row
+ * could carry one variant's `platforms` paired with a DIFFERENT variant's
+ * `features` — a chimera neither actual row has. That silently hid a fully
+ * qualifying variant (the Walking Dead miss, live prod 2026-08-28:
+ * `MIN(platforms)` and `MIN(features)` landed on two different rows, so the
+ * resulting group had the FX Classic row's platforms with no evidence
+ * feature attached, and a VR tournament's eligibility check found no VR
+ * signal even though the Zen Studios variant alone fully qualifies) and
+ * could equally FALSELY qualify a group where no single row satisfies the
+ * rule.
+ *
+ * The fix: never mix columns across rows. A name-group qualifies iff at
+ * least ONE variant qualifies on its OWN platforms + features. `tags`
+ * (`room_game_tags`, keyed by name) are a room fact about the NAME, not
+ * about one catalogue row, so they apply to every variant equally.
+ *
+ * `requireSubmittable` mirrors the v2.102.2 no-submittable-platform hide: a
+ * platform-less variant still qualifies (nothing for `excluded` to remove),
+ * but a variant whose every submittable platform the rules excluded does
+ * not. Pass it only where that hide already applied before this fix
+ * (game-availability, the Discord autocomplete) — omit it where it never
+ * applied (autopick).
+ */
+export function variantQualifies(
+    variant: QualificationVariant,
+    tournamentMode: string | null | undefined,
+    rules: TournamentRules,
+    tags: string[] = [],
+    opts: { requireSubmittable?: boolean } = {},
+): boolean {
+    if (!catalogueTypeMatchesTournamentMode(variant.mode ?? null, tournamentMode)) return false;
+    const gamePlatforms = [...variant.platforms, ...tags];
+    if (!passesplatformRules(gamePlatforms, rules, variant.features)) return false;
+    if (opts.requireSubmittable) {
+        return gamePlatforms.length === 0 || resolveSubmittablePlatforms(gamePlatforms, rules).length > 0;
+    }
+    return true;
+}
+
+/**
+ * The any-variant-qualifies gate for a whole name-group: the first variant
+ * (input order) that satisfies `variantQualifies`, or `null` when none does.
+ * See `variantQualifies` for the doctrine.
+ */
+export function firstQualifyingVariant<T extends QualificationVariant>(
+    variants: T[],
+    tournamentMode: string | null | undefined,
+    rules: TournamentRules,
+    tags: string[] = [],
+    opts: { requireSubmittable?: boolean } = {},
+): T | null {
+    for (const variant of variants) {
+        if (variantQualifies(variant, tournamentMode, rules, tags, opts)) return variant;
+    }
+    return null;
 }

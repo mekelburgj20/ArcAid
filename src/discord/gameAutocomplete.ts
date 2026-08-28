@@ -1,9 +1,8 @@
 import { getDatabase } from '../database/database.js';
 import { TournamentEngine } from '../engine/TournamentEngine.js';
-import { catalogueTypeMatchesTournamentMode } from '../utils/tournamentMode.js';
 import {
-    passesplatformRules, parsePlatformsList, parseTournamentRules,
-    emptyTournamentRules, resolveSubmittablePlatforms, type TournamentRules,
+    parseTournamentRules, emptyTournamentRules, firstQualifyingVariant, parsePlatformsList,
+    type TournamentRules, type QualificationVariant,
 } from '../utils/platformRules.js';
 import { rankName } from '../utils/searchRank.js';
 
@@ -45,16 +44,28 @@ export async function buildGameAutocompleteChoices(
     const tournamentRoomId = tournament?.game_room_id ?? null;
     const platformRules: TournamentRules = tournament ? parseTournamentRules(tournament) : emptyTournamentRules();
 
-    // Fetch the catalogue for autocomplete (one row per name).
-    // `MIN(features)` alongside `MIN(platforms)`: the device axis reads
-    // availability out of `features` post-fold (ADR 0016 catalogue phase §4).
-    // Both are MIN over a name-group for the same pre-existing reason —
-    // variants are collapsed for autopick and one row has to stand for the name.
+    // Fetch the catalogue for autocomplete — one row per catalogue VARIANT
+    // (not per name). v2.144.1: a prior `GROUP BY LOWER(name)` +
+    // `MIN()`-per-column here could pair one variant's `platforms` with a
+    // DIFFERENT variant's `features` (the Walking Dead miss); qualification
+    // must judge each variant's platforms + features together, never mixed.
     const rows = await db.all(`
-        SELECT name, MIN(type) AS mode, MIN(platforms) AS platforms, MIN(features) AS features
+        SELECT name, type AS mode, platforms, features
         FROM global_games WHERE status = 'approved'
-        GROUP BY LOWER(name)
     `);
+
+    // Group by name (case-insensitive) into per-name variant lists.
+    const grouped = new Map<string, { name: string; variants: QualificationVariant[] }>();
+    for (const r of rows) {
+        const key = r.name.toLowerCase();
+        const entry = grouped.get(key) ?? { name: r.name, variants: [] as QualificationVariant[] };
+        entry.variants.push({
+            mode: r.mode,
+            platforms: parsePlatformsList(r.platforms || '[]'),
+            features: parsePlatformsList(r.features || '[]'),
+        });
+        grouped.set(key, entry);
+    }
 
     // Pre-load this room's tag map (name → tags) so the platform-rule filter
     // unions room tags into each game's effective platforms. Single query —
@@ -65,29 +76,17 @@ export async function buildGameAutocompleteChoices(
         tagMap = await RoomGameTagsService.getTagMapByGameNameForRoom(tournamentRoomId);
     }
 
-    let choices = rows;
-
-    // Filter by tournament mode. `catalogueTypeMatchesTournamentMode` bridges
-    // tournament.mode ('videogame') against global_games.type ('video_game' |
-    // 'arcade') — see src/utils/tournamentMode.ts.
-    if (tournamentMode) {
-        choices = choices.filter(r => catalogueTypeMatchesTournamentMode(r.mode, tournamentMode));
-    }
-
-    // Filter by platform rules + the v2.102.2 no-submittable-platform hide
-    // (mirrors game-availability's JS gate exactly: a game whose EVERY
-    // platform the rules exclude can be picked but never scored, so it stays
-    // out of the list; a game merely CARRYING an excluded platform — e.g. a
-    // real machine with a VPXS port in a VPXS tournament — stays IN, per ADR
-    // 0009's excluded-is-not-eligibility).
-    choices = choices.filter(r => {
-        const cataloguePlatforms = parsePlatformsList(r.platforms || '[]');
-        const tags = tagMap.get(r.name.toLowerCase()) || [];
-        const gamePlatforms = [...cataloguePlatforms, ...tags];
-        if (!passesplatformRules(gamePlatforms, platformRules, parsePlatformsList(r.features || '[]'))) return false;
-        // Platform-less placeholder rows: nothing for exclusions to remove —
-        // same guard as game-availability's JS gate.
-        return gamePlatforms.length === 0 || resolveSubmittablePlatforms(gamePlatforms, platformRules).length > 0;
+    // Filter by tournament mode + platform rules + the v2.102.2
+    // no-submittable-platform hide (mirrors game-availability's JS gate
+    // exactly: a game whose EVERY platform the rules exclude can be picked
+    // but never scored, so it stays out of the list; a game merely CARRYING
+    // an excluded platform — e.g. a real machine with a VPXS port in a VPXS
+    // tournament — stays IN, per ADR 0009's excluded-is-not-eligibility). A
+    // name qualifies iff ANY ONE of its catalogue variants qualifies on its
+    // own — never a MIN-mixed pair (v2.144.1).
+    const choices = [...grouped.values()].filter(g => {
+        const tags = tagMap.get(g.name.toLowerCase()) || [];
+        return !!firstQualifyingVariant(g.variants, tournamentMode, platformRules, tags, { requireSubmittable: true });
     });
 
     // Filter by what the user is currently typing, ranked nearest-exact-match
