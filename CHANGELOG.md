@@ -11,6 +11,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 ### Fixed
 - **The game detail page (`/:slug/games/:name`) now live-refreshes scores.** It's the page a player keeps open while a table is being played, and it had no websocket subscription at all — its own comments called the `leaderboard:updated` broadcast "the backstop," but nothing listened, so new scores (web submits and iScored-synced alike, both of which emit `score:new`) only appeared on a manual reload. It now joins the room channel with the same discipline as the scoreboard (re-join on reconnect, handler-ref cleanup on the shared socket) and refetches the board, score counts, engine-filtered view, community scores, and all-time rankings on `score:new` (filtered to this game) and `leaderboard:updated`.
 - **The landing page's "Global" link now carries the Trophy icon**, matching the room pages' nav item (it previously read as a different control).
+- **Deploys now verify themselves.** The 2026-08-28 08:33 deploy reported success while prod served the previous build all day — `docker compose up` without `--force-recreate` can keep the old container running after pulling a new `:latest`. The deploy script now forces recreation (matching the manual runbook), and a new final workflow step polls `/api/version` until the live app reports the deployed commit's SHA, failing the run otherwise — a green deploy now means the code is actually running.
 
 ## [2.144.1] — Fix: same-named catalogue variants qualify per-row
 

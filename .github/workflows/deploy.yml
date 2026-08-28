@@ -120,5 +120,32 @@ jobs:
           script: |
             cd /opt/arcaid
             docker compose pull
-            docker compose up -d --remove-orphans
+            # --force-recreate: without it compose can keep the OLD container
+            # running after pulling a new :latest (exactly the 2026-08-28
+            # incident — the 08:33 v2.144.1 deploy reported success while prod
+            # served the previous build all day). Same rule as the manual
+            # deploy runbook.
+            docker compose up -d --remove-orphans --force-recreate
             docker image prune -f
+
+      # A deploy is not done until the LIVE app says it is running this
+      # commit. /api/version reports the GIT_SHA baked into the image by the
+      # build-args above, so a stale container (the pull/recreate silently
+      # keeping the old build, as on 2026-08-28) turns this step — and the
+      # whole run — red instead of reporting a green deploy that never
+      # deployed. ~5 minutes covers the container's boot (DB migrations
+      # included); the app normally answers within seconds of `up`.
+      - name: Verify deployed version
+        run: |
+          echo "Expecting commit ${GITHUB_SHA} at https://arcaid.app/api/version"
+          for i in $(seq 1 30); do
+            body=$(curl -fsS --max-time 10 https://arcaid.app/api/version || true)
+            if echo "$body" | grep -q "\"commit\":\"${GITHUB_SHA}\""; then
+              echo "Verified: $body"
+              exit 0
+            fi
+            echo "Attempt $i/30 — live version is: ${body:-unreachable}"
+            sleep 10
+          done
+          echo "::error::Prod never reported commit ${GITHUB_SHA} — the deploy did NOT take effect."
+          exit 1
