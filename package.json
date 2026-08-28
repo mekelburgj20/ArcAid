@@ -12,6 +12,7 @@
     "scrape-styles": "tsx src/cli-scrape-styles.ts",
     "generate-secrets-key": "tsx scripts/generate-secrets-key.ts",
     "generate-vapid-keys": "tsx scripts/generate-vapid-keys.ts",
+    "witness-agent": "tsx scripts/witness-agent.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },
