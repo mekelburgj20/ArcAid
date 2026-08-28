@@ -26,6 +26,19 @@ import { playerApi } from '../lib/playerApi';
  * standings and the countdown would drift within a release.
  */
 
+/**
+ * The Arcaid Witness verdict for one AtGames-sourced score (v2.145.0, P8).
+ * Optional throughout: absent on every non-AtGames row, and on any board
+ * rendered from a result frozen before v2.145.0.
+ */
+interface WitnessVerdict {
+    status: 'verified' | 'flagged' | 'unwitnessed';
+    launchTs: number | null;
+    exitTs: number | null;
+    durationSec: number | null;
+    table: string | null;
+}
+
 interface ScoreRow {
     rank: number;
     identity_key: string;
@@ -36,6 +49,7 @@ interface ScoreRow {
     elapsed_sec: number | null;
     flagged: boolean;
     participant: boolean;
+    witness?: WitnessVerdict | null;
 }
 
 interface RoundBoard {
@@ -59,6 +73,8 @@ interface StandingRow {
     total: number;
     roundsPlayed: number;
     flagged: boolean;
+    /** Any counted round score whose table was launched before the round opened. */
+    witnessFlagged?: boolean;
 }
 
 interface EventPayload {
@@ -113,6 +129,47 @@ function elapsed(sec: number | null): string {
     if (sec == null) return '';
     const clamped = Math.max(0, sec);
     return `+${String(Math.floor(clamped / 60)).padStart(2, '0')}:${String(clamped % 60).padStart(2, '0')}`;
+}
+
+/** `4m 12s` / `47s` — how long the witness saw the table open. */
+function playDuration(sec: number): string {
+    const clamped = Math.max(0, Math.floor(sec));
+    const m = Math.floor(clamped / 60);
+    return m > 0 ? `${m}m ${clamped % 60}s` : `${clamped}s`;
+}
+
+/**
+ * The Arcaid Witness badge for one score (v2.145.0, P8).
+ *
+ * A BADGE, never a gate — nothing here changes a rank. `unwitnessed` is the
+ * neutral default (most players have no paired cabinet), so it renders as quiet
+ * grey text and never as a warning.
+ */
+function WitnessBadge({ witness }: { witness?: WitnessVerdict | null }) {
+    if (!witness) return null;
+    if (witness.status === 'verified') {
+        const played = witness.durationSec != null ? ` · ${playDuration(witness.durationSec)} of play` : '';
+        return (
+            <span
+                className="ml-1 text-neon-green"
+                title={`Witnessed: launched inside the round window${played}`}
+            >✓</span>
+        );
+    }
+    if (witness.status === 'flagged') {
+        return (
+            <span
+                className="ml-1 text-neon-amber"
+                title="Witness: this table was launched before the round opened"
+            >⚠</span>
+        );
+    }
+    return (
+        <span
+            className="ml-1 text-faint text-xs"
+            title="No cabinet witness for this score — most players have no paired cabinet"
+        >unwitnessed</span>
+    );
 }
 
 /** Live countdown to an instant. Ticks once a second; empty once passed. */
@@ -523,6 +580,7 @@ export default function EventDetail({ throwdownCode }: EventDetailProps = {}) {
                                         <td className="py-2 px-3 text-primary truncate max-w-[10rem]">
                                             {name(row)}
                                             {row.flagged && <span className="ml-1 text-neon-amber" title="One or more scores arrived unusually fast">⚡</span>}
+                                            {row.witnessFlagged && <span className="ml-1 text-neon-amber" title="A cabinet witness saw a table launched before its round opened">⚠</span>}
                                         </td>
                                         {row.roundScores.map((s, i) => (
                                             <td key={i} className="py-2 px-3 text-right font-mono text-muted">
@@ -570,6 +628,10 @@ export default function EventDetail({ throwdownCode }: EventDetailProps = {}) {
                                 {round.status === 'SCHEDULED' ? 'This round has not started yet.' : 'No scores in this round.'}
                             </p>
                         ) : (
+                            /* The witness badge adds a variable-width column on
+                               a table that already fills a phone — scroll it
+                               inside its own box rather than pushing the page. */
+                            <div className="overflow-x-auto">
                             <table className="w-full text-sm">
                                 <tbody>
                                     {round.scores.map(row => (
@@ -589,6 +651,7 @@ export default function EventDetail({ throwdownCode }: EventDetailProps = {}) {
                                                 {row.flagged && (
                                                     <span className="ml-1 text-neon-amber" title="Posted unusually soon after the round opened">⚡</span>
                                                 )}
+                                                <WitnessBadge witness={row.witness} />
                                             </td>
                                             <td className="py-2 px-3 text-right font-mono text-primary w-28" title={scoreTitle(row.score)}>
                                                 {formatScore(row.score)}
@@ -597,6 +660,7 @@ export default function EventDetail({ throwdownCode }: EventDetailProps = {}) {
                                     ))}
                                 </tbody>
                             </table>
+                            </div>
                         )}
                     </div>
                 ))}

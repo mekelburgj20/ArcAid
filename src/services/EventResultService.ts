@@ -3,6 +3,7 @@ import { resolveProfiles } from './PlayerProfileResolver.js';
 import { IdentityLinkService } from './IdentityLinkService.js';
 import { EventService, type EventRoundRow, type EventTournamentRow } from './EventService.js';
 import { eventEndGraceSec } from './EventSubmissionGate.js';
+import { WitnessVerifyService, type WitnessVerdict } from './WitnessVerifyService.js';
 import type { EventAggregateMethod } from '../types/index.js';
 
 /**
@@ -58,6 +59,13 @@ export interface EventScoreRow {
     flagged: boolean;
     /** False = this score is on the board but its player never checked in. */
     participant: boolean;
+    /**
+     * v2.145.0 (P8, ADR 0020) — the Arcaid Witness verdict for this score, or
+     * `null` when none applies (anything not AtGames-sourced). A HOST-FACING
+     * BADGE like `flagged`: it never rejects a score or changes a rank, and
+     * `unwitnessed` is neutral — most players have no paired cabinet.
+     */
+    witness: WitnessVerdict | null;
 }
 
 export interface EventRoundBoard {
@@ -87,6 +95,13 @@ export interface EventStandingRow {
     roundsPlayed: number;
     /** Any round score flagged as implausibly fast. */
     flagged: boolean;
+    /**
+     * Any counted round score whose witness verdict is `flagged` — the table
+     * was launched before that round opened. A boolean, so it is identity-stable
+     * and freezes into `event_result` without violating that blob's doctrine.
+     * Absent on results frozen before v2.145.0; readers treat missing as false.
+     */
+    witnessFlagged: boolean;
 }
 
 export interface EventStandings {
@@ -102,7 +117,13 @@ export interface EventStandings {
     incomplete: EventStandingRow[];
 }
 
-/** The frozen `tournaments.event_result` payload. Identity-stable rows only. */
+/**
+ * The frozen `tournaments.event_result` payload. Identity-stable rows only.
+ *
+ * `witnessFlagged` (v2.145.0) freezes fine — it is a boolean fact about what
+ * happened, not a rendering of who somebody is. Blobs frozen BEFORE v2.145.0
+ * carry no such key, so every reader must treat it as missing-tolerant (false).
+ */
 export interface FrozenEventResult {
     v: 1;
     finishedAt: string;
@@ -125,6 +146,10 @@ interface RawScoreRow {
     device: string | null;
     photo_url: string | null;
     elapsed_sec: number | null;
+    /** Needed by the witness verify-join: only `'atgames'` rows get a verdict. */
+    source: string | null;
+    /** `created_at` as epoch seconds — the witness join key (exit ≈ created). */
+    created_epoch: number | null;
 }
 
 /**
@@ -157,7 +182,8 @@ export class EventResultService {
         // invisible on the board that accepted it.
         const rows = await db.all<RawScoreRow[]>(
             `SELECT identity_key, discord_user_id, submitted_by_user_id, iscored_username,
-                    score, created_at, platform, engine, device, photo_url, elapsed_sec
+                    score, created_at, platform, engine, device, photo_url, elapsed_sec,
+                    source, created_epoch
                FROM (
                     SELECT ${IDENTITY_KEY_SQL} AS identity_key,
                            sh.discord_user_id,
@@ -169,6 +195,8 @@ export class EventResultService {
                            sh.engine,
                            sh.device,
                            sh.photo_url,
+                           sh.source,
+                           CAST(strftime('%s', sh.created_at) AS INTEGER) AS created_epoch,
                            CAST(strftime('%s', sh.created_at) AS INTEGER)
                              - CAST(strftime('%s', ?) AS INTEGER) AS elapsed_sec,
                            ROW_NUMBER() OVER (
@@ -207,6 +235,20 @@ export class EventResultService {
             iscored_username?: string | null;
         }>);
 
+        // The witness verify-join, batched for the whole board (v2.145.0, P8).
+        // `scheduled_start_at` is stored ISO, so the epoch conversion is done in
+        // JS here while the SQL above does the same conversion with strftime —
+        // both land on the same UTC second.
+        const roundStartEpoch = Math.floor(Date.parse(round.scheduled_start_at) / 1000);
+        const witnessVerdicts = await WitnessVerifyService.verdictsForRound({
+            roundStartEpoch,
+            rows: rows.map(row => ({
+                identityKey: row.identity_key,
+                createdEpoch: row.created_epoch,
+                source: row.source,
+            })),
+        });
+
         const minElapsed = event.min_elapsed_sec;
         const scores: EventScoreRow[] = rows.map((row, i) => {
             const profile = profiles[i]!;
@@ -230,6 +272,7 @@ export class EventResultService {
                 // otherwise a handful of voluntary check-ins would grey out the
                 // rest of an open event's board.
                 participant: event.checkin_required !== 1 || roster.has(row.identity_key),
+                witness: witnessVerdicts[i] ?? null,
             };
         });
 
@@ -307,6 +350,7 @@ export class EventResultService {
             bestSingle: number;
             earliest: string;
             flagged: boolean;
+            witnessFlagged: boolean;
         }
         const byPlayer = new Map<string, Acc>();
 
@@ -325,6 +369,7 @@ export class EventResultService {
                         bestSingle: score.score,
                         earliest: score.created_at ?? '',
                         flagged: false,
+                        witnessFlagged: false,
                     };
                     byPlayer.set(score.identity_key, acc);
                 }
@@ -334,6 +379,10 @@ export class EventResultService {
                     acc.earliest = score.created_at;
                 }
                 if (score.flagged) acc.flagged = true;
+                // Only `flagged` propagates: `unwitnessed` is the neutral
+                // default and must never accumulate into a mark against a
+                // player who simply has no paired cabinet.
+                if (score.witness?.status === 'flagged') acc.witnessFlagged = true;
             }
         }
 
@@ -362,6 +411,7 @@ export class EventResultService {
                 total,
                 roundsPlayed: played.length,
                 flagged: acc.flagged,
+                witnessFlagged: acc.witnessFlagged,
             };
             // Only `average` is distorted by a partial set — `best` and `sum`
             // rank partial players perfectly sensibly against full ones.

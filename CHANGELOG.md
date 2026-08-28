@@ -6,6 +6,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.145.0] — Arcaid Witness verify-join (P8, ADR 0020)
+
+The payoff for v2.142.0's Witness ingest, which captured cabinet observations but had nothing reading them. An AtGames cabinet is **exit-to-submit**: the score reaches AtGames when the player leaves the table, so their timestamp proves a score *landed* inside the round window and nothing about when the game was *launched* — and AtGames does not filter that either (owner-tested on hardware, 2026-08-25). "Gear-up" — start a table before the round opens, exit into the window — was invisible. The Witness app on the cabinet sees the launch; this release joins what it saw to the scores.
+
+### Added
+- **Witness verdicts on Live Event round boards.** Each AtGames-sourced score now carries `verified` / `flagged` / `unwitnessed`, from `WitnessVerifyService.verdictsForRound` (one batched observation query per board). The join key is `exit_ts ≈ created_at` — the same instant seen by two independent clocks, which makes it a device-clock consistency check for free: a drifted cabinet produces no match and reads as neutral, never as a false pass. `JOIN_TOLERANCE_SEC = 120` (upload latency + modest NTP drift; nearest exit wins when two sessions both fit), `LAUNCH_GRACE_SEC = 15` (seconds early is clock slop, **minutes** early is gear-up).
+- **Board badges** on `/:slug/events/:id` (and `/throwdown/:code`, where they are always absent — Throwdowns have no AtGames sync): a green ✓ with the witnessed play duration, an amber ⚠ reading "this table was launched before the round opened", or quiet grey `unwitnessed`. Standings rows gain their own amber ⚠ beside the existing ⚡ when any counted round was flagged.
+- `src/__tests__/witness-verify.test.ts` — the false-`verified` cases first: another user's observation, one three minutes outside tolerance, an unlinked `atgames:*` synthetic identity, plus link-graph resolution (a cabinet paired under Google matching a Discord-attributed score) and `witnessFlagged` propagation into the frozen result.
+
+### Changed
+- **`source='atgames'` rows now store ATGAMES' timestamp in `created_at`**, via a new optional `createdAt` on `ScoreHistoryService.log`. They previously got `CURRENT_TIMESTAMP` — the host's "Pull scores" click — which is a fact about the host's afternoon: it made `elapsed_sec` on the round board meaningless and left the verify-join nothing real to join on. The dedup predicate deliberately still ignores `created_at`, so re-pulls recognise rows ingested before this change.
+- `EventScoreRow` gains `witness`, `EventStandingRow` gains `witnessFlagged`. Only `flagged` propagates to standings — `unwitnessed` must never accumulate into a mark against a player who simply never paired a cabinet. The boolean is identity-stable, so it freezes into `event_result` cleanly; results frozen before v2.145.0 lack the key and are read as false.
+
+### Notes
+- **A badge, never a gate** (ADR 0017's rule, unchanged): no verdict rejects a score, filters a board, or changes a rank. It catches casual gear-up and gives a host a receipt for social/stream enforcement; it is **not** tamper-proof anti-cheat — root is free on these cabinets. `unwitnessed` is the neutral default because most players have no paired cabinet, and it is styled accordingly.
+- The witness reports the ENGINE-INTERNAL table id (`aerobatics`), a different namespace from the catalogue name with no mapping between them. It is surfaced for a host to eyeball and deliberately never matched — a wrong guess would silently downgrade legitimate scores.
+
 ## [2.144.2] — Live game-detail scores + landing-page Global icon
 
 ### Fixed
