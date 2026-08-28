@@ -75,6 +75,19 @@ const DISCOVER_DEVICE_ID_CMD =
 /** Raised for user-facing failures — printed without a stack trace. */
 class CliError extends Error {}
 
+/**
+ * Device ids are embedded in an on-device shell command (the launch line's
+ * `export ARCAID_DEVICE_ID=...`), so their shape is enforced here — real ids
+ * are hex (e.g. 8819D107B10040F0), and rejecting anything shell-significant
+ * keeps a typo'd prompt answer from breaking the cabinet-side command.
+ */
+function assertSafeDeviceId(deviceId: string): string {
+    if (!/^[A-Za-z0-9._-]+$/.test(deviceId)) {
+        throw new CliError(`"${deviceId}" doesn't look like a device id (letters/digits/._- only).`);
+    }
+    return deviceId;
+}
+
 // ---------------------------------------------------------------------------
 // Help text
 // ---------------------------------------------------------------------------
@@ -468,7 +481,7 @@ function describeDevice(id: string, device: DeviceEntry): string {
 
 /** Resolves a device that must already be configured (start/stop/status/config). */
 function resolveDeviceId(flags: Flags, config: AgentConfig): string {
-    if (flags.deviceId) return flags.deviceId;
+    if (flags.deviceId) return assertSafeDeviceId(flags.deviceId);
     if (config.lastDeviceId && config.devices[config.lastDeviceId]) return config.lastDeviceId;
 
     const ids = Object.keys(config.devices);
@@ -503,8 +516,11 @@ async function promptForPairingCode(rl: readline.Interface): Promise<string> {
 }
 
 async function resolvePairDeviceId(flags: Flags, config: AgentConfig, rl: readline.Interface | null): Promise<string> {
-    if (flags.deviceId) return flags.deviceId;
-    if (config.lastDeviceId) return config.lastDeviceId;
+    if (flags.deviceId) return assertSafeDeviceId(flags.deviceId);
+    if (config.lastDeviceId) {
+        console.log(`Pairing device ${config.lastDeviceId} (last used) — pass --device-id to pair a different cabinet.`);
+        return config.lastDeviceId;
+    }
 
     if (flags.dryRun) {
         console.log('[dry-run] no --device-id given — would attempt on-device discovery, then prompt if that fails (using a placeholder id for this preview).');
@@ -532,7 +548,7 @@ async function resolvePairDeviceId(flags: Flags, config: AgentConfig, rl: readli
     console.log('On a 6.x big cab it shows (partly masked) on the Witness app status screen; for a Micro it must be known from a prior pairing.');
     const answer = (await rl.question('Enter the cabinet device id: ')).trim();
     if (!answer) throw new CliError('A device id is required to pair.');
-    return answer;
+    return assertSafeDeviceId(answer);
 }
 
 function formatPairError(code: string, message: string): string {
@@ -608,7 +624,7 @@ async function cmdPair(flags: Flags): Promise<void> {
         }
 
         console.log(`Requesting a pairing token for device ${deviceId}...`);
-        const res = await fetch(url);
+        const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
         const body = await res.json().catch(() => null) as { ok?: boolean; token?: string; error?: string; code?: string } | null;
 
         if (res.ok && body?.ok && typeof body.token === 'string') {
