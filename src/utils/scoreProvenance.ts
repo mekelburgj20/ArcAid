@@ -872,6 +872,34 @@ export const DEVICE_AVAILABILITY_FEATURES: Record<string, string[]> = {
     vr_headset: ['vr'],
 };
 
+export type EngineVrAvailability = 'always' | 'per_table';
+
+/**
+ * ADR 0019 — VR availability is an ENGINE property. 'always': every table on
+ * the engine is VR-playable (owner rulings 2026-08-27: every VPX table renders
+ * a full VR cabinet whether or not a "VR Room" exists — the VPS `vr` feature
+ * means only that a room environment exists, and is NOT availability evidence;
+ * FP has the same wholesale capability via BAM; Zaccaria's entire catalogue is
+ * in the Zaccaria VR Steam app; Star Wars Pinball's canonical product IS a VR
+ * app). 'per_table': only a curated subset exists in VR — evidence is the
+ * engine's entry in ENGINE_VR_EVIDENCE_FEATURE stamped on the row's features
+ * by the FX VR importer. An engine absent from this map is not VR-available.
+ */
+export const ENGINE_VR_AVAILABILITY: Record<string, EngineVrAvailability> = {
+    vpx: 'always',
+    fp: 'always',
+    zaccaria: 'always',
+    star_wars: 'always',
+    fx: 'per_table',
+    fx_classic: 'per_table',
+};
+
+/** Per-table VR evidence features, one per 'per_table' engine (ADR 0019). */
+export const ENGINE_VR_EVIDENCE_FEATURE: Record<string, string> = {
+    fx: 'fx_vr',
+    fx_classic: 'fx_classic_vr',
+};
+
 /**
  * Derive the legacy `platform` id for a (engine, device) pair, preferring an id
  * the game actually carries so the existing `?platform=` leaderboard tabs keep

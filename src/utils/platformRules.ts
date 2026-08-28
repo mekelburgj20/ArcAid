@@ -3,6 +3,8 @@ import { normalizePlatform } from './platformMapping.js';
 import {
     CANONICAL_ENGINES,
     DEVICE_AVAILABILITY_FEATURES,
+    ENGINE_VR_AVAILABILITY,
+    ENGINE_VR_EVIDENCE_FEATURE,
     LEGACY_PLATFORM_MAP,
     UNKNOWN,
     foldCataloguePlatforms,
@@ -305,8 +307,31 @@ export function deviceMatchTokens(deviceId: string): { platforms: string[]; feat
     const platforms = engines
         ? Array.from(new Set(engines.flatMap(e => legacyPlatformsForEngine(e))))
         : legacyPlatformsForDevice(key);
+    const features = DEVICE_AVAILABILITY_FEATURES[key] ?? [];
 
-    return { platforms, features: DEVICE_AVAILABILITY_FEATURES[key] ?? [] };
+    if (key !== 'vr_headset') return { platforms, features };
+
+    // ADR 0019 — `vr_headset`'s AUTHORITY moved to `vrHeadsetMatchesGame`
+    // (engine-scoped: wholesale 'always' engines + per-table evidence
+    // features), so this function is no longer the source of truth for it —
+    // it is used ONLY as the SQL pre-filter's candidate superset ("SQL is a
+    // PRE-filter; passesplatformRules below is the authority", rooms.ts). A
+    // wholesale-engine game (e.g. a plain `vpx` row carrying no `vr` feature
+    // at all) must still survive the SQL pass so the JS gate gets a chance to
+    // admit it, so this widens rather than narrows: union in every legacy id
+    // for every `always` engine, and every per-table evidence feature. This
+    // deliberately makes `deviceMatchesGame('vr_headset', …)` a SUPERSET of
+    // `vrHeadsetMatchesGame` — see the "SQL twin" test in
+    // catalogue-engine-readers.test.ts for the exact new contract.
+    const platformSet = new Set(platforms);
+    for (const [engine, mode] of Object.entries(ENGINE_VR_AVAILABILITY)) {
+        if (mode !== 'always') continue;
+        for (const token of legacyPlatformsForEngine(engine)) platformSet.add(token);
+    }
+    const featureSet = new Set(features);
+    for (const evidenceFeature of Object.values(ENGINE_VR_EVIDENCE_FEATURE)) featureSet.add(evidenceFeature);
+
+    return { platforms: [...platformSet], features: [...featureSet] };
 }
 
 /**
@@ -327,7 +352,11 @@ export function deviceMatchTokens(deviceId: string): { platforms: string[]; feat
  *   |------------------|-----------------------------------------------------------|
  *   | `atgames`        | features ∋ {atgames, vpxs, vpxs_manual} — or, pre-fold,    |
  *   |                  | platforms ∋ {atgames, vpxs, vpx standalone, vpxs_manual, …}|
- *   | `vr_headset`     | features ∋ vr — or, pre-fold, platforms ∋ any `*_vr` id    |
+ *   | `vr_headset`     | features ∋ vr — or, pre-fold, platforms ∋ any `*_vr` id.   |
+ *   |                  | **This row describes `deviceMatchesGame` itself, which as  |
+ *   |                  | of ADR 0019 is used ONLY as the SQL pre-filter's superset — |
+ *   |                  | `passesplatformRules` routes `vr_headset` through the      |
+ *   |                  | engine-scoped `vrHeadsetMatchesGame` instead.**             |
  *   | `real_cabinet`   | engine `real`                                             |
  *   | `pc`             | engine `pc` (the video engine — NOT "runs on a PC")        |
  *   | `console`        | any console video engine                                  |
@@ -347,6 +376,93 @@ export function deviceMatchesGame(
     const tokens = deviceMatchTokens(deviceId);
     return matchesAny(gamePlatforms, tokens.platforms)
         || matchesAny(gameFeatures, tokens.features);
+}
+
+/**
+ * ADR 0019 — the ONE authority for the `vr_headset` REQUIRED-device rule.
+ * Replaces the flat `deviceMatchesGame('vr_headset', …)` check inside
+ * `passesplatformRules` (every other device is unchanged; `excluded` is
+ * untouched — see that function's doc).
+ *
+ * VR availability is an ENGINE property (`ENGINE_VR_AVAILABILITY`), not the
+ * generic `vr` feature: the fix for the Banzai Run false-positive class
+ * (`engines.required=[…,fx]` + `devices.required=[vr_headset]` wrongly
+ * admitting a game whose `fx` platform and `vr` feature came from different
+ * products — a VPX VR-room mod, not Pinball FX VR). An engine E "qualifies"
+ * for VR when:
+ *   - `ENGINE_VR_AVAILABILITY[E] === 'always'` and the game carries engine E
+ *     (wholesale — e.g. every VPX table, owner ruling 2026-08-27), OR
+ *   - `ENGINE_VR_AVAILABILITY[E] === 'per_table'` and the game carries
+ *     `ENGINE_VR_EVIDENCE_FEATURE[E]` in its features (post-refold evidence,
+ *     stamped by the FX VR / FX Classic VR importers) OR a legacy `*_vr`
+ *     platform token whose `LEGACY_PLATFORM_MAP` entry names engine E
+ *     (pre-refold row evidence — a row that was never re-synced still works).
+ *
+ * With `requiredEngines` non-empty: satisfied iff SOME required engine
+ * qualifies (tokens are normalized the same way rule tokens are elsewhere).
+ * With `requiredEngines` empty: satisfied iff ANY engine on the game
+ * qualifies; and if the game carries NO recognizable engine-scoped signal at
+ * all (no folded engine, no legacy `*_vr` evidence token), falls back to the
+ * legacy generic check (`features ∋ 'vr'`, or a legacy `*_vr`/`vr` platform
+ * token) so engine-less legacy rows keep matching engine-less VR rules
+ * exactly as before this ADR. A game that DOES carry a known non-VR-eligible
+ * engine does NOT fall back to the generic `vr` feature — that is precisely
+ * the Banzai Run shape this ADR closes, and it applies whether or not the
+ * tournament names any required engine.
+ */
+export function vrHeadsetMatchesGame(
+    gamePlatforms: string[],
+    gameFeatures: string[],
+    requiredEngines: string[],
+): boolean {
+    const gameEngines = new Set(foldCataloguePlatforms(gamePlatforms).engines);
+    const featureSet = new Set(gameFeatures.map(f => normalizeProvenanceToken(f)));
+
+    // Legacy `*_vr` platform tokens still sitting in `platforms` (a row never
+    // re-synced through the FX VR importer post-refold) count as per-table
+    // evidence for the engine they name.
+    const legacyVrEvidenceEngines = new Set<string>();
+    for (const raw of gamePlatforms) {
+        const token = normalizeProvenanceToken(raw);
+        if (!token) continue;
+        const prov = LEGACY_PLATFORM_MAP[token];
+        if (prov && prov.device === 'vr_headset' && prov.engine !== UNKNOWN) {
+            legacyVrEvidenceEngines.add(prov.engine);
+        }
+    }
+
+    const qualifies = (engine: string): boolean => {
+        const mode = ENGINE_VR_AVAILABILITY[engine];
+        if (!mode) return false;
+        if (mode === 'always') return gameEngines.has(engine);
+        const evidenceFeature = ENGINE_VR_EVIDENCE_FEATURE[engine];
+        return (!!evidenceFeature && featureSet.has(evidenceFeature)) || legacyVrEvidenceEngines.has(engine);
+    };
+
+    const normalizedRequired = requiredEngines
+        .map(e => normalizeProvenanceToken(e))
+        .filter((e): e is string => !!e);
+
+    if (normalizedRequired.length > 0) {
+        return normalizedRequired.some(qualifies);
+    }
+
+    const candidateEngines = new Set<string>([...gameEngines, ...legacyVrEvidenceEngines]);
+    if (candidateEngines.size === 0) {
+        // No engine-scoped signal at all — legacy fallback so engine-less
+        // rows keep matching engine-less VR rules exactly as before.
+        if (featureSet.has('vr')) return true;
+        return gamePlatforms.some(raw => {
+            const token = normalizeProvenanceToken(raw);
+            const prov = token ? LEGACY_PLATFORM_MAP[token] : undefined;
+            return !!prov && prov.device === 'vr_headset';
+        });
+    }
+
+    for (const engine of candidateEngines) {
+        if (qualifies(engine)) return true;
+    }
+    return false;
 }
 
 /**
@@ -610,5 +726,9 @@ export function passesplatformRules(
     if (!engineOk) return false;
 
     return requiredDevices.length === 0 ||
-        requiredDevices.some(d => deviceMatchesGame(d, gamePlatforms, gameFeatures));
+        requiredDevices.some(d => d === 'vr_headset'
+            // ADR 0019 — vr_headset is engine-scoped; every other device is
+            // unchanged.
+            ? vrHeadsetMatchesGame(gamePlatforms, gameFeatures, requiredEngines)
+            : deviceMatchesGame(d, gamePlatforms, gameFeatures));
 }

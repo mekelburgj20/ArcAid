@@ -149,14 +149,50 @@ describe("the dominant production rule — required: ['atgames']", () => {
         // Only the devices a legacy rule can actually lift to are compared —
         // `console`/`arcade_cabinet` matched literally nothing before (no legacy
         // id maps to them), and their widening is documented in
-        // `DEVICE_MATCH_ENGINES`.
-        for (const device of ['atgames', 'vr_headset', 'real_cabinet', 'pc', 'standalone_other']) {
+        // `DEVICE_MATCH_ENGINES`. `vr_headset` is EXCLUDED here as of ADR
+        // 0019 — it now WIDENS on purpose; see the dedicated test below.
+        for (const device of ['atgames', 'real_cabinet', 'pc', 'standalone_other']) {
             for (const platforms of LEGACY_CATALOGUE) {
                 expect(
                     deviceMatchesGame(device, platforms, []),
                     `${device} vs ${JSON.stringify(platforms)}`,
                 ).toBe(oldDeviceMatch(device, platforms));
             }
+        }
+    });
+
+    it("widens `vr_headset`'s SQL-superset tokens for the wholesale ('always') engines — ADR 0019", () => {
+        // `deviceMatchTokens('vr_headset')` — and therefore `deviceMatchesGame`
+        // — is no longer pinned 1:1 to `oldDeviceMatch`: ADR 0019 deliberately
+        // widens it into a SUPERSET so a wholesale-VR-engine game (e.g. a
+        // plain `vpx` row carrying no legacy `*_vr`/`vr` token at all)
+        // survives the SQL pre-filter in rooms.ts and reaches the JS gate.
+        // The real authority is `vrHeadsetMatchesGame` (engine-scoped,
+        // exercised in vr-availability.test.ts), which narrows this back
+        // down; `deviceMatchesGame` itself no longer decides eligibility for
+        // this device, only SQL candidacy. Pinned entry by entry:
+        const nowMatches = [
+            ['vpx'], ['vpx', 'vpxs'], ['vpx', 'vpxs_manual'], ['vpx', 'vpx standalone'],
+            ['bam', 'fp'],
+        ];
+        const stillNoMatch = [
+            ['atgames'], ['real'], ['pinball_fx'], ['nes'], ['pc'], [],
+        ];
+        const alreadyMatched = [
+            ['vpx', 'vpxs', 'real', 'pinball_fx', 'pinball_fx_vr', 'atgames'],
+            ['pinball_fx_vr'], ['zaccaria', 'zaccaria_vr'], ['star_wars_pinball_vr'], ['vr'],
+        ];
+        for (const platforms of nowMatches) {
+            expect(oldDeviceMatch('vr_headset', platforms), JSON.stringify(platforms)).toBe(false);
+            expect(deviceMatchesGame('vr_headset', platforms, []), JSON.stringify(platforms)).toBe(true);
+        }
+        for (const platforms of stillNoMatch) {
+            expect(deviceMatchesGame('vr_headset', platforms, []), JSON.stringify(platforms))
+                .toBe(oldDeviceMatch('vr_headset', platforms));
+        }
+        for (const platforms of alreadyMatched) {
+            expect(oldDeviceMatch('vr_headset', platforms), JSON.stringify(platforms)).toBe(true);
+            expect(deviceMatchesGame('vr_headset', platforms, []), JSON.stringify(platforms)).toBe(true);
         }
     });
 
@@ -196,7 +232,12 @@ describe('pre/post-fold gating equivalence, over every device rule', () => {
     ];
 
     it('admits the same games for every single-device rule', () => {
-        for (const device of Object.keys(CANONICAL_DEVICES)) {
+        // `vr_headset` is EXCLUDED here as of ADR 0019 — it has two known,
+        // documented divergences (a legacy `*_vr` platform token carries
+        // per-table VR evidence directly; the GENERIC fold — as opposed to an
+        // FX VR importer re-sync — collapses it to feature `vr`, which no
+        // longer counts as per-table evidence). See the dedicated test below.
+        for (const device of Object.keys(CANONICAL_DEVICES).filter(d => d !== 'vr_headset')) {
             const rule = twoAxis([device]);
             for (const platforms of CATALOGUE) {
                 const before = passesplatformRules(platforms, rule, []);
@@ -205,6 +246,41 @@ describe('pre/post-fold gating equivalence, over every device rule', () => {
                 // fixture mirrors that.
                 const after = passesplatformRules(fold.engines, rule, fold.features);
                 expect(after, `${device} vs ${JSON.stringify(platforms)}`).toBe(before);
+            }
+        }
+    });
+
+    it('`vr_headset` fold identity holds except for un-re-synced per-table `*_vr` evidence (ADR 0019)', () => {
+        // `foldCataloguePlatforms` — the GENERIC legacy→engine+feature fold
+        // shared by migration 129 and the importers — collapses every legacy
+        // `*_vr` token to the single informational feature `vr` (unchanged by
+        // this ADR; see `CATALOGUE_PLATFORM_FEATURE`). That is NOT the same
+        // as the engine-scoped evidence feature (`fx_vr`/`fx_classic_vr`)
+        // `vrHeadsetMatchesGame` looks for on a `per_table` engine — that
+        // evidence is stamped only by the dedicated FX VR / FX Classic VR
+        // importer sync (Task E), which is the ADR's documented "one owner
+        // click" post-deploy step, not by re-running the generic fold.
+        //
+        // So a row still carrying the RAW legacy token `pinball_fx_vr` or
+        // `pinball_fx_classic_vr` (never migrated, never re-synced) matches
+        // via the legacy-token-evidence path directly — but the SAME
+        // platforms run back through the generic fold lose that evidence
+        // down to generic `vr`, and (fx/fx_classic being `per_table`, not
+        // `always`) no longer qualify until an importer sync restamps the
+        // evidence feature. Every OTHER row in the catalogue (including
+        // `zaccaria_vr`/`star_wars_pinball_vr`, whose engines are `always`
+        // and so need no per-table evidence at all) keeps the fold identity.
+        const rule = twoAxis(['vr_headset']);
+        const KNOWN_DIVERGENT = [['pinball_fx_vr'], ['pinball_fx_classic_vr']];
+        for (const platforms of CATALOGUE) {
+            const before = passesplatformRules(platforms, rule, []);
+            const fold = foldCataloguePlatforms(platforms);
+            const after = passesplatformRules(fold.engines, rule, fold.features);
+            if (KNOWN_DIVERGENT.some(p => JSON.stringify(p) === JSON.stringify(platforms))) {
+                expect(before, JSON.stringify(platforms)).toBe(true);
+                expect(after, JSON.stringify(platforms)).toBe(false);
+            } else {
+                expect(after, JSON.stringify(platforms)).toBe(before);
             }
         }
     });
