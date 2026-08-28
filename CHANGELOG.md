@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.144.1] — Fix: same-named catalogue variants qualify per-row
+
+Fix for a name-group qualification bug found on prod 2026-08-28, the day after v2.144.0 shipped the Pinball FX Classic VR import: the catalogue now holds two APPROVED rows both named "The Walking Dead" — an "Original" VPX fan table (2016, `platforms:[vpx, fx_classic]`, `features:[dt only, no rom, vr]`) and the new Zen Studios FX Classic release (`platforms:[fx_classic]`, `features:[vr, fx_classic_vr]` — the ADR 0019 evidence row). Four eligibility readers (`GET /game-availability`, the Discord `/pick-game` autocomplete, `TimeoutManager.fallbackToAutoSelection`'s auto-pick, and `checkPickQueueEligibility`) collapsed same-named catalogue rows into one before evaluating tournament platform rules — three via a `GROUP BY LOWER(name)` + `MIN()`-per-column SQL query, one via an arbitrary `LIMIT 1`. `MIN()` is evaluated per COLUMN, independently and lexicographically, so the "collapsed" Walking Dead row paired the FX Classic row's `platforms` with the Original row's `features` — a chimera neither actual catalogue row has, carrying no `fx_classic_vr` evidence. The game wrongly vanished from a VR tournament's pick list even though the Zen Studios variant alone fully qualifies. The same class of bug could equally have FALSELY qualified a group where no single variant does.
+
+### Fixed
+- **Qualification is now any-single-variant, never column-mixed.** A name-group qualifies iff at least one catalogue variant qualifies on its own merits (platforms + features from the SAME row); room tags (`room_game_tags`, name-keyed) apply to every variant equally, since a tag is a fact about the name, not one row. New shared helper `firstQualifyingVariant`/`variantQualifies` in `src/utils/platformRules.ts` is the ONE implementation all four sites now use — no more per-site drift risk.
+  - `src/api/routes/rooms.ts` (`GET /:roomId/game-availability/:tournamentId`) — the display-row `MIN()` query is unchanged (image precedence, manufacturer/year), but a second ungrouped query now feeds the eligibility gate; the row shipped to the client carries the QUALIFYING variant's own `platforms`/`features`, never the old MIN-mixed pair.
+  - `src/discord/gameAutocomplete.ts` (`buildGameAutocompleteChoices`) — catalogue rows are grouped by name in JS instead of SQL, then gated per-variant.
+  - `src/engine/TimeoutManager.ts` (`fallbackToAutoSelection`'s auto-pick) — same per-variant regrouping feeding `modeAndPlatformMatches`.
+  - `src/services/PickQueueService.ts` (`checkPickQueueEligibility`) — fetches every approved row for the name instead of an arbitrary `LIMIT 1`; the first row to pass mode + platform rules resolves the pick, and — when none does — the rejection reason (mode mismatch vs. platform restriction) is diagnosed off the first row so the error copy stays sensible.
+
+---
+
 ## [2.144.0] — Engine-scoped VR availability (ADR 0019)
 
 Fix for a VR-eligibility false-positive class found in the 2026-08-27 Weekly Grind - VR rotation: a tournament requiring `engines.required=[zaccaria, fx_classic, star_wars, fx]` + `devices.required=[vr_headset]` wrongly admitted games whose `fx` platform (flat Pinball FX, PC/console) and generic `vr` feature (a VPX VR-Room mod, from VPS) came from two *different* products — the old rule evaluated "has FX somewhere" and "has VR somewhere" independently and admitted a combination that exists nowhere. An id-anchored audit of the live 280-game VR pick list found 10 confirmed false positives: Banzai Run, Black Knight 2000, Earthshaker, Godzilla (Sega 1998), Jurassic Park, South Park, Swords of Fury, The Machine - Bride of Pin-bot, Tomb Raider (Original 2025), Whirlwind.

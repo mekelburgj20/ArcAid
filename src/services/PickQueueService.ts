@@ -1,7 +1,9 @@
 import { getDatabase } from '../database/database.js';
 import { TournamentEngine } from '../engine/TournamentEngine.js';
 import { catalogueTypeMatchesTournamentMode } from '../utils/tournamentMode.js';
-import { passesplatformRules, parsePlatformsList, parseTournamentRules } from '../utils/platformRules.js';
+import {
+    parsePlatformsList, parseTournamentRules, firstQualifyingVariant, type QualificationVariant,
+} from '../utils/platformRules.js';
 import { RoomGameTagsService } from './RoomGameTagsService.js';
 import { PickAwardGate } from './PickAwardGate.js';
 import { QUEUE_ORDER_SQL } from '../utils/queueOrder.js';
@@ -196,42 +198,58 @@ export async function checkPickQueueEligibility(input: PickEligibilityInput): Pr
         return { ok: false, reason: 'PICK_AWARD_DISABLED', status: 403, message: 'Winner picks is turned off for this tournament' };
     }
 
-    // 2. Look up game in catalogue.
-    const gameLibEntry = await db.get(
+    // 2. Look up game in catalogue — EVERY approved row for this name (a name
+    //    can hold several catalogue variants: genuinely different games that
+    //    happen to share a title, e.g. an "Original" VPX fan table and a
+    //    "Zen Studios" FX Classic release both named "The Walking Dead").
+    //    Pre-v2.144.1 this took an arbitrary row via `LIMIT 1`, so whichever
+    //    row SQLite happened to return decided mode-match and platform-rules
+    //    for the WHOLE pick — a fully-qualifying sibling variant could be
+    //    rejected because the arbitrary row it landed on didn't qualify.
+    const gameLibRows = await db.all(
         `SELECT name, type AS mode, platforms, features FROM global_games
-         WHERE LOWER(name) = LOWER(?) AND status = 'approved' LIMIT 1`,
+         WHERE LOWER(name) = LOWER(?) AND status = 'approved'`,
         gameName,
     );
-    if (!gameLibEntry) {
+    if (gameLibRows.length === 0) {
         return { ok: false, reason: 'GAME_NOT_FOUND', status: 404, message: `Game "${gameName}" not found in the catalogue` };
     }
 
-    // 3. Check mode match. `catalogueTypeMatchesTournamentMode` bridges the
-    //    tournament-mode vocabulary against the catalogue-type vocabulary.
-    if (!catalogueTypeMatchesTournamentMode(gameLibEntry.mode, tournament.mode)) {
-        return {
-            ok: false, reason: 'MODE_MISMATCH', status: 400,
-            message: `Game mode "${gameLibEntry.mode}" does not match tournament mode "${tournament.mode}"`,
-        };
-    }
-
-    // 4. Check platform rules. Game's effective platforms = catalogue ∪ room tags.
-    //    Parsed ONCE — the gate and its rejection message must come from the
-    //    same read of the blob, or the two drift apart.
+    // 3+4. Mode match, then platform rules. Game's effective platforms =
+    //    catalogue ∪ room tags; features carry the device-axis availability
+    //    the fold moved out of `platforms` (ADR 0016 catalogue phase §4).
+    //    Room tags are a fact about the NAME (not one catalogue row) so they
+    //    apply to every variant equally. Evaluated PER ROW so one variant's
+    //    platforms are never paired with another's features (v2.144.1) — the
+    //    pick is eligible iff SOME row passes both checks.
     const platformRules = parseTournamentRules(tournament);
-    const cataloguePlatforms = parsePlatformsList(gameLibEntry.platforms || '[]');
     const roomTags = await RoomGameTagsService.getTagsForGameName(roomId, gameName);
-    const gamePlatforms = Array.from(new Set([...cataloguePlatforms, ...roomTags]));
-    // Features carry the device-axis availability the fold moved out of
-    // `platforms` (ADR 0016 catalogue phase §4). Room tags are platforms only.
-    const gameFeatures = parsePlatformsList(gameLibEntry.features || '[]');
+    const variants: Array<QualificationVariant & { name: string }> = gameLibRows.map(r => ({
+        name: r.name,
+        mode: r.mode,
+        platforms: parsePlatformsList(r.platforms || '[]'),
+        features: parsePlatformsList(r.features || '[]'),
+    }));
 
-    if (!passesplatformRules(gamePlatforms, platformRules, gameFeatures)) {
+    const qualifying = firstQualifyingVariant(variants, tournament.mode, platformRules, roomTags);
+    if (!qualifying) {
+        // No variant qualifies. Diagnose off the FIRST row — the same
+        // arbitrary row the pre-fix `LIMIT 1` query would have returned — so
+        // the rejection copy stays sensible: mode mismatch beats platform
+        // restriction when both would apply to it.
+        const first = variants[0]!;
+        if (!catalogueTypeMatchesTournamentMode(first.mode, tournament.mode)) {
+            return {
+                ok: false, reason: 'MODE_MISMATCH', status: 400,
+                message: `Game mode "${first.mode}" does not match tournament mode "${tournament.mode}"`,
+            };
+        }
         return {
             ok: false, reason: 'PLATFORM_RESTRICTED', status: 400,
             message: platformRules.restrictedText || 'This game is not available for this tournament type (platform restriction)',
         };
     }
+    const gameLibEntry = { name: qualifying.name };
 
     // 5. Check cooldown (eligibility)
     const engine = TournamentEngine.getInstance();
@@ -281,7 +299,10 @@ export async function checkPickQueueEligibility(input: PickEligibilityInput): Pr
         ok: true,
         tournament,
         gameName: gameLibEntry.name,
-        styleId: gameLibEntry.style_id || undefined,
+        // `global_games.style_id` was never selected by the catalogue query
+        // above (pre-v2.144.1 either) — always `undefined`. Preserved as-is;
+        // not in scope of the variant-qualification fix.
+        styleId: undefined,
     };
 }
 
