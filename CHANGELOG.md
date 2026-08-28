@@ -8,6 +8,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ## [2.143.1] — Fix: opaque toasts
 
+### Added
+- **FX VR catalogue refreshed against Zen's current site copy** (owner-supplied 2026-08-27): Goat Simulator Pinball, The Princess Bride Pinball, and Pacific Rim Pinball added to the curated list — the only additions since 2026-04-26. Click "Sync FX VR" on the admin Catalogue page after deploy to tag them.
+
 ### Fixed
 - **Toast notifications ("Game queued…", errors, info) are opaque again.** The shared Toast rendered a 10% accent tint with nothing solid behind it, so over busy content the message blended into whatever sat underneath (owner report, 2026-08-27). Same cure the "new version — tap to refresh" banner got in v2.133.1: the accent is now mixed into the theme's solid card colour, keeping the tinted look while fully covering the page in every theme.
 

@@ -83,6 +83,15 @@ export const FX_VR_PACKS: Array<{ pack: string; tables: string[] }> = [
         'DOOM Pinball',
         'The Elder Scrolls V: Skyrim Pinball',
     ] },
+    { pack: 'Goat Simulator Pinball', tables: [
+        'Goat Simulator Pinball',
+    ] },
+    { pack: 'The Princess Bride Pinball', tables: [
+        'The Princess Bride Pinball',
+    ] },
+    { pack: 'Pacific Rim Pinball', tables: [
+        'Pacific Rim Pinball',
+    ] },
 ];
 
 /** Flat de-duplicated list of all FX VR tables. Used by the import service. */
@@ -126,4 +135,7 @@ export const FX_VR_TABLES: string[] = [
     'Fallout Pinball',
     'DOOM Pinball',
     'The Elder Scrolls V: Skyrim Pinball',
+    'Goat Simulator Pinball',
+    'The Princess Bride Pinball',
+    'Pacific Rim Pinball',
 ];
