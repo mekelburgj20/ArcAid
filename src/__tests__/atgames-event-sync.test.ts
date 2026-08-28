@@ -330,6 +330,33 @@ describe('AtGamesEventSyncService — ingest', () => {
         expect(rows.every(r => r.source === 'atgames')).toBe(true);
     });
 
+    it('stores ATGAMES\' timestamp as created_at, not the moment of the pull', async () => {
+        // v2.145.0 (P8): exit-to-submit makes AtGames' timestamp the moment the
+        // player LEFT the table. Stamping `CURRENT_TIMESTAMP` instead — which is
+        // what the pre-v2.145.0 write did — recorded the host's "Pull scores"
+        // click, which makes `elapsed_sec` meaningless and leaves the witness
+        // verify-join (`exit_ts ≈ created_at`) nothing real to join on.
+        const scoredAt = base + 10 * MINUTE;
+        stubAtGames({
+            games: [{ game_id: ATGAMES_GAME_ID, rankings: [ranking(11, 'Wyo', 1_200_000, scoredAt)] }],
+        });
+
+        await AtGamesEventSyncService.syncTournament(tournamentId);
+
+        const db = await getDatabase();
+        const row = await db.get<{ created_at: string }>(
+            'SELECT created_at FROM score_history WHERE submitted_during_tournament_id = ?', tournamentId,
+        );
+        // SQLite UTC shape, to the second, equal to AtGames' own instant.
+        expect(row?.created_at).toBe(
+            new Date(scoredAt).toISOString().replace('T', ' ').slice(0, 19),
+        );
+        expect(Math.abs(Date.parse(`${row!.created_at}Z`) - scoredAt)).toBeLessThan(1000);
+        // Sanity: "now" is years away from the fixture window, so a
+        // CURRENT_TIMESTAMP default would have failed the assertion above.
+        expect(Math.abs(Date.now() - scoredAt)).toBeGreaterThan(60_000);
+    });
+
     it('accepts a score inside the end grace and refuses one past it', async () => {
         stubAtGames({
             games: [{

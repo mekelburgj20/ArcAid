@@ -104,6 +104,24 @@ export class ScoreHistoryService {
          * every interactive submit path leaves it unset.
          */
         skipTournamentLink?: boolean;
+        /**
+         * v2.145.0 (P8) — an explicit `created_at` in SQLite UTC shape
+         * (`'YYYY-MM-DD HH:MM:SS'`), for a caller that INGESTS a score somebody
+         * else timestamped rather than witnessing the submit itself.
+         *
+         * The AtGames sync is the only such caller today, and it must pass one:
+         * AtGames is exit-to-submit, so its timestamp IS the moment the player
+         * left the table. Defaulting to `CURRENT_TIMESTAMP` would stamp the
+         * row with the HOST'S "Pull scores" click instead, which breaks two
+         * things at once — `elapsed_sec` on the round board would measure the
+         * host's clicking, not the play, and `WitnessVerifyService`'s
+         * `exit_ts ≈ created_at` join would have nothing real to join on.
+         *
+         * Deliberately NOT part of `isDuplicate`: the dedup key is
+         * (room, game, player, score), so a re-pull still recognises rows that
+         * were ingested before this parameter existed.
+         */
+        createdAt?: string;
     }): Promise<number | null> {
         const db = await getDatabase();
 
@@ -137,19 +155,26 @@ export class ScoreHistoryService {
             submittedTournamentId = activeGame?.tournament_id ?? null;
         }
 
+        // `created_at` is named in the column list ONLY when the caller
+        // supplied one — otherwise the column is left off entirely so the
+        // table's `CURRENT_TIMESTAMP` default applies, exactly as before.
+        const withCreatedAt = !!params.createdAt;
         const inserted = await db.run(
             `INSERT INTO score_history (
                 game_name, game_room_id, game_id, iscored_username, discord_user_id, score, photo_url, source,
                 submitted_from_room_id, submitted_during_tournament_id, submitted_by_user_id,
                 submitted_by_anonymous_name, merged_from_anonymous_identity_id, platform,
-                engine, device
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
-            params.gameName, params.gameRoomId, params.gameId || null,
-            params.username, params.discordUserId || 'SYSTEM',
-            params.score, params.photoUrl || null, params.source,
-            params.gameRoomId, submittedTournamentId, submittedByUserId, submittedByAnonymousName,
-            params.platform ?? null,
-            params.engine || UNKNOWN, params.device || UNKNOWN,
+                engine, device${withCreatedAt ? ', created_at' : ''}
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?${withCreatedAt ? ', ?' : ''})`,
+            ...[
+                params.gameName, params.gameRoomId, params.gameId || null,
+                params.username, params.discordUserId || 'SYSTEM',
+                params.score, params.photoUrl || null, params.source,
+                params.gameRoomId, submittedTournamentId, submittedByUserId, submittedByAnonymousName,
+                params.platform ?? null,
+                params.engine || UNKNOWN, params.device || UNKNOWN,
+                ...(withCreatedAt ? [params.createdAt] : []),
+            ],
         );
 
         // Sprint 6.5: any Discord-authenticated score establishes room membership.

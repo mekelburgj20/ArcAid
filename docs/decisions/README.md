@@ -50,3 +50,5 @@ You do **not** need an ADR for routine bug fixes, code style preferences, or any
 | 0016 | [Engine + device score provenance (supersedes 0006, partially 0009)](0016-engine-device-score-provenance.md) | accepted | 2026-07-30 |
 | 0017 | [Live Event tournament format: rounds are `games` rows, `SCHEDULED` status, read-time aggregation](0017-live-event-tournament-format.md) | accepted | 2026-08-24 |
 | 0018 | [Throwdowns are room-less: one nullable column, not a personal room](0018-throwdowns-are-room-less.md) | accepted | 2026-08-24 |
+| 0019 | [Engine-scoped VR availability](0019-engine-scoped-vr-availability.md) | accepted | 2026-08-27 |
+| 0020 | [Arcaid Witness: verify-join on exit ≈ created](0020-arcaid-witness-verify-join.md) | accepted | 2026-08-28 |

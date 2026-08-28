@@ -117,6 +117,22 @@ export class AtGamesSyncError extends Error {
 }
 
 /**
+ * Epoch ms → the SQLite UTC shape `score_history.created_at` is stored in
+ * (`'YYYY-MM-DD HH:MM:SS'`, what `datetime('now')` writes).
+ *
+ * Built from the UTC getters rather than sliced out of `toISOString()` so the
+ * milliseconds and the `T` can't survive by accident — a stray `.000Z` would
+ * still compare and `strftime('%s', …)` correctly, but it would make these rows
+ * visibly different from every other row in the column.
+ */
+export function toSqliteUtc(epochMs: number): string {
+    const d = new Date(epochMs);
+    const p = (n: number) => String(n).padStart(2, '0');
+    return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} ` +
+        `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`;
+}
+
+/**
  * Parses an AtGames timestamp to epoch milliseconds, or null.
  *
  * AtGames writes tournament rankings as `"2026-08-23 20:54:42.0"` — UTC, but
@@ -285,7 +301,7 @@ export class AtGamesEventSyncService {
                     gameName: round.name, gameRoomId: tournament.game_room_id,
                     gameId: round.id, username: row.user_name, score,
                 }))
-                : await this.writeScore(row, round, tournament, canonical);
+                : await this.writeScore(row, round, tournament, canonical, at);
 
             if (isNew) { result.ingested++; affected.add(round.id); record('ingested', round, canonical); }
             else { result.duplicates++; record('duplicate', round, canonical); }
@@ -498,12 +514,20 @@ export class AtGamesEventSyncService {
      * taken from the catalogue row when that row names exactly one engine and
      * left `'unknown'` otherwise. Guessing an engine here would put a score in
      * the wrong comparability bucket, which ADR 0016 exists to prevent.
+     *
+     * `createdAt` is ATGAMES' timestamp, not now (v2.145.0). Exit-to-submit
+     * means that instant is when the player left the table, so it is both the
+     * honest submit time for `elapsed_sec` and the join key the Witness
+     * verify-join needs (`exit_ts ≈ created_at`). Stamping the host's "Pull
+     * scores" click instead — which is what the default did — made every
+     * ingested row claim to have arrived whenever the host got round to it.
      */
     private static async writeScore(
         row: AtGamesRanking,
         round: RoundRow,
         tournament: TournamentRow,
         canonicalUserId: string | null,
+        atMs: number,
     ): Promise<boolean> {
         const engine = await this.resolveEngine(round.name);
         const score = typeof row.score === 'number' ? row.score : Number(row.score);
@@ -523,6 +547,7 @@ export class AtGamesEventSyncService {
             platform: 'atgames',
             engine,
             device: 'atgames',
+            createdAt: toSqliteUtc(atMs),
         });
         return id != null;
     }
