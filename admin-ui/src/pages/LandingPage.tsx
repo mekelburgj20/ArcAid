@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Users, Gamepad2, ChevronRight, Plus, Building2, BookmarkPlus, BookmarkCheck, Clock } from 'lucide-react';
+import { Users, Gamepad2, ChevronRight, Plus, Building2, BookmarkPlus, BookmarkCheck, Clock, Trophy } from 'lucide-react';
 import LoadingState from '../components/LoadingState';
 import { formatCompactNumber, relativeTimeFrom } from '../lib/format';
 import { PlayerAvatar } from '../components/ScoreboardComponents';
@@ -160,7 +160,11 @@ export default function LandingPage() {
                 non-admins to OAuth in with __super__ intent and land on the
                 (data-less, 403-gated) Super Admin shell — confusing, and needless
                 attack surface. SuperAdminLayout also role-guards now. */}
-            <Link to="/scoreboard" className="text-xs text-muted hover:text-neon-cyan no-underline">
+            {/* Trophy icon matches the room pages' "Global" nav item
+                (PublicLayout navItems) — owner ask 2026-08-28: the landing
+                page's bare-text link looked like a different control. */}
+            <Link to="/scoreboard" className="inline-flex items-center gap-1.5 text-xs text-muted hover:text-neon-cyan no-underline">
+              <Trophy size={14} />
               Global
             </Link>
             {/* v2.50.0 (A1): the landing page is a global page, so it gets the
