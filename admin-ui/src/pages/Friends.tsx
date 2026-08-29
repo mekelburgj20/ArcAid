@@ -93,7 +93,10 @@ export default function Friends() {
     <div className="min-h-screen bg-deep text-primary">
       {/* Navigation header */}
       <nav className="border-b border-border bg-surface/80 backdrop-blur-sm">
-        <div className="max-w-xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
+        <div
+          className="max-w-xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between"
+          style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}
+        >
           <button
             onClick={() => window.history.back()}
             className="flex items-center gap-1.5 text-sm text-muted hover:text-neon-cyan transition-colors cursor-pointer bg-transparent border-0 p-0"

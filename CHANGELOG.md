@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.145.1] — iPhone: standalone page headers respect the notch safe area
+
+### Fixed
+- **Back/Home buttons on the standalone global pages no longer render under the iPhone status bar.** The app ships `viewport-fit=cover` + a translucent status bar for the installed PWA, and the three layouts (PublicLayout, RoomAdminLayout, SuperAdminLayout) pad their top bars by `env(safe-area-inset-top)` — but every page that draws its OWN top nav outside those layouts didn't, so its Back/Home controls sat under the clock and battery icons and were untappable (members could pull the page down to see them, but iOS rubber-bands it straight back). Fixed with the same `paddingTop: max(baseline, env(safe-area-inset-top))` idiom PublicLayout uses, on: Account Settings, My Rooms, My Stats, Friends, Create Room, Privacy, Terms, the Global Scoreboard + Global Game Detail sticky headers, the landing page header, the Mystery Award page's fixed back-link bar, and Event Detail when rendered layout-less as a Throwdown (`/throwdown/:code` — conditional, so the layout-nested `/:slug/events/:id` route isn't double-padded). No visual change on devices without a notch (`env()` resolves to 0 and the `max()` keeps the existing padding).
+
 ## [2.145.0] — Arcaid Witness verify-join (P8, ADR 0020)
 
 The payoff for v2.142.0's Witness ingest, which captured cabinet observations but had nothing reading them. An AtGames cabinet is **exit-to-submit**: the score reaches AtGames when the player leaves the table, so their timestamp proves a score *landed* inside the round window and nothing about when the game was *launched* — and AtGames does not filter that either (owner-tested on hardware, 2026-08-25). "Gear-up" — start a table before the round opens, exit into the window — was invisible. The Witness app on the cabinet sees the launch; this release joins what it saw to the scores.

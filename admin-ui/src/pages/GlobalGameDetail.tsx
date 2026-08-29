@@ -486,7 +486,10 @@ export default function GlobalGameDetail() {
     <div className="min-h-screen bg-deep text-primary">
       {/* Header */}
       <div className="border-b border-border bg-surface/80 backdrop-blur-sm sticky top-0 z-20">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between gap-3">
+        <div
+          className="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between gap-3"
+          style={{ paddingTop: 'max(1rem, env(safe-area-inset-top))' }}
+        >
           <Link
             to={backToRoomHref}
             className="flex items-center gap-2 text-xs text-muted hover:text-neon-cyan no-underline"
