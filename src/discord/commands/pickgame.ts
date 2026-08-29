@@ -17,6 +17,7 @@ import { buildGameAutocompleteChoices, type AutocompleteTournament } from '../ga
 import { resolveGuildReadScope, buildGuildScopedRoomSqlFilter } from '../../utils/discordRoomFilter.js';
 import { v4 as uuidv4 } from 'uuid';
 import { PICK_QUEUE_MAX } from '../../services/PickQueueService.js';
+import { RotationAuditService } from '../../services/RotationAuditService.js';
 // TODO(§8): gate /mystery-award when that command is authored (Q6 — out of scope for Sprint 5).
 
 /**
@@ -316,8 +317,22 @@ export const pickgame: Command = {
                     try {
                         if (heldPick) {
                             await db.run('DELETE FROM games WHERE id = ?', heldPick.id);
+                            await RotationAuditService.log({
+                                gameRoomId: tournament.game_room_id,
+                                tournamentId: tournament.id,
+                                tournamentName: tournamentName,
+                                eventType: 'placeholder_deleted',
+                                actor: `player:${userId}`,
+                                gameId: heldPick.id,
+                                gameName: '[Pending Pick]',
+                                details: { reason: 'repurposed', picker: userId, pickedGame: gameName },
+                            });
                         }
-                        await engine.activateGame(tournament.id, gameName!, styleId, iscoredId, false);
+                        await engine.activateGame(tournament.id, gameName!, styleId, iscoredId, false, {
+                            actor: `player:${userId}`,
+                            source: 'discord_pick',
+                            queueOwner: userId,
+                        });
                         await db.exec('COMMIT');
                     } catch (dbError) {
                         await db.exec('ROLLBACK');

@@ -667,6 +667,17 @@ export const SyncIScoredActionSchema = z.object({
 });
 
 /**
+ * Query params for GET /:roomId/admin/rotation-log (v2.146.0) — the room-admin
+ * rotation decision trail. `before` is the opaque `created_at|id` cursor the
+ * previous page returned as `nextCursor`; the caller never builds one.
+ */
+export const RotationLogQuerySchema = z.object({
+    tournamentId: z.string().trim().min(1).max(100).optional(),
+    before: z.string().trim().min(1).max(100).optional(),
+    limit: z.coerce.number().int().min(1).max(200).default(50),
+});
+
+/**
  * Query params for GET /:roomId/room-scores — every score ever set in a room,
  * best-per-player-per-game across sources (reads score_history alone; see
  * RoomScoresService). Replaces the old bare-array /:roomId/community-leaderboards

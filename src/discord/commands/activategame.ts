@@ -168,7 +168,10 @@ export const activategame: Command = {
             // Activate in DB without completing existing active games
             await db.exec('BEGIN TRANSACTION');
             try {
-                await engine.activateGame(tournament.id, gameName, styleId, iscoredId, false);
+                await engine.activateGame(tournament.id, gameName, styleId, iscoredId, false, {
+                    actor: `admin:${interaction.user.id}`,
+                    source: 'admin_manual',
+                });
                 await db.exec('COMMIT');
             } catch (dbError) {
                 await db.exec('ROLLBACK');

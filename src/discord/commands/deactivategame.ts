@@ -4,6 +4,7 @@ import { getDatabase } from '../../database/database.js';
 import { logInfo, logError } from '../../utils/logger.js';
 import { TournamentEngine } from '../../engine/TournamentEngine.js';
 import { resolveGuildReadScope, buildGuildScopedRoomSqlFilter } from '../../utils/discordRoomFilter.js';
+import { RotationAuditService } from '../../services/RotationAuditService.js';
 
 export const deactivategame: Command = {
     data: new SlashCommandBuilder()
@@ -85,6 +86,21 @@ export const deactivategame: Command = {
 
             const engine = TournamentEngine.getInstance();
             const result = await engine.deactivateGame(gameId);
+
+            await RotationAuditService.log({
+                gameRoomId: gameRow?.game_room_id ?? null,
+                tournamentName: result.tournamentName,
+                eventType: 'game_deactivated',
+                actor: `admin:${interaction.user.id}`,
+                gameId,
+                gameName: result.gameName,
+                details: {
+                    trigger: 'admin',
+                    route: 'discord_deactivate_game',
+                    iscoredStatus: result.iscoredStatus,
+                    finalSyncedScores: result.finalSyncedScores ?? 0,
+                },
+            });
 
             logInfo(`Admin ${interaction.user.tag} deactivated ${result.gameName} from ${result.tournamentName}`);
             const captured = result.finalSyncedScores ?? 0;

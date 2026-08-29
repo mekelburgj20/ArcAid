@@ -16,6 +16,8 @@ import { computePickDeadline, isPickWindowExpired, pickWindowFallback, pickPromp
 import { catalogueTypeMatchesTournamentMode } from '../utils/tournamentMode.js';
 import { resolveLeaderboardPlaces } from '../utils/submissionAttribution.js';
 import { resolvePick, MAX_PLACES } from './pickResolution.js';
+import { RotationAuditService, type RotationSource } from '../services/RotationAuditService.js';
+import { queueSourceForPlace } from './TournamentEngine.js';
 
 export class TimeoutManager {
     private static instance: TimeoutManager;
@@ -205,9 +207,40 @@ export class TimeoutManager {
             const maxSlotsGuard = tournamentForGuard?.max_active_games ?? 1;
             const activeNow = await engine.getActiveGames(game.tournamentId!);
             const otherPendingSlots = Math.max(0, (await engine.countPendingPickSlots(game.tournamentId!)) - 1);
+
+            RotationAuditService.log({
+                gameRoomId: info.gameRoomId,
+                tournamentId: game.tournamentId,
+                tournamentName: tournamentForGuard?.name ?? null,
+                eventType: 'timeout_pivot',
+                actor: 'system:timeout',
+                gameId: game.id,
+                gameName: '[Pending Pick]',
+                details: {
+                    expiredPicker: game.pickerDiscordId ?? null,
+                    expiredPickerType: 'WINNER',
+                    wonGameId: game.wonGameId ?? null,
+                },
+            }).catch(() => {});
+
             if (activeNow.length + otherPendingSlots >= maxSlotsGuard) {
                 logInfo(`Pick-window expiry skipped: ${tournamentForGuard?.name ?? game.tournamentId} already at max active games (${activeNow.length}/${maxSlotsGuard}). Removing stale picker slot.`);
                 await db.run('DELETE FROM games WHERE id = ?', game.id);
+                RotationAuditService.log({
+                    gameRoomId: info.gameRoomId,
+                    tournamentId: game.tournamentId,
+                    tournamentName: tournamentForGuard?.name ?? null,
+                    eventType: 'placeholder_deleted',
+                    actor: 'system:timeout',
+                    gameId: game.id,
+                    gameName: '[Pending Pick]',
+                    details: {
+                        reason: 'capacity_guard',
+                        picker: game.pickerDiscordId ?? null,
+                        activeNow: activeNow.length,
+                        maxSlots: maxSlotsGuard,
+                    },
+                }).catch(() => {});
                 return;
             }
 
@@ -273,7 +306,9 @@ export class TimeoutManager {
             }
 
             if (outcome.kind === 'activate') {
-                await this.activateQueuedIntoSlot(game, outcome.game, reason, info);
+                await this.activateQueuedIntoSlot(
+                    game, outcome.game, reason, info, queueSourceForPlace(outcome.placeIndex),
+                );
                 return;
             }
 
@@ -295,6 +330,25 @@ export class TimeoutManager {
                  WHERE id = ?`,
                 runnerUpId, pickerDesignatedAt, game.id
             );
+
+            RotationAuditService.log({
+                gameRoomId: info.gameRoomId,
+                tournamentId: game.tournamentId,
+                tournamentName: tournamentRow?.name ?? null,
+                eventType: 'pick_window_granted',
+                actor: 'system:timeout',
+                gameId: game.id,
+                gameName: '[Pending Pick]',
+                details: {
+                    picker: runnerUpId,
+                    pickerType: 'RUNNER_UP',
+                    windowMin: runnerUpWindowMin,
+                    deadline: pickDeadline.toISOString(),
+                    fallback: pickWindowFallback('RUNNER_UP', game.wonGameId),
+                    reason,
+                    pivotedFrom: game.pickerDiscordId ?? null,
+                },
+            }).catch(() => {});
 
             // The pivot hands a fresh manual-pick obligation to a different
             // player, so it gets its own public prompt — same event type, the
@@ -393,9 +447,40 @@ export class TimeoutManager {
             const maxSlotsGuard = tournamentForGuard?.max_active_games ?? 1;
             const activeNow = await engine.getActiveGames(game.tournamentId!);
             const otherPendingSlots = Math.max(0, (await engine.countPendingPickSlots(game.tournamentId!)) - 1);
+
+            RotationAuditService.log({
+                gameRoomId: info.gameRoomId,
+                tournamentId: game.tournamentId,
+                tournamentName: tournamentForGuard?.name ?? null,
+                eventType: 'timeout_pivot',
+                actor: 'system:timeout',
+                gameId: game.id,
+                gameName: '[Pending Pick]',
+                details: {
+                    expiredPicker: game.pickerDiscordId ?? null,
+                    expiredPickerType: 'RUNNER_UP',
+                    wonGameId: game.wonGameId ?? null,
+                },
+            }).catch(() => {});
+
             if (activeNow.length + otherPendingSlots >= maxSlotsGuard) {
                 logInfo(`Pick-window expiry skipped: ${tournamentForGuard?.name ?? game.tournamentId} already at max active games (${activeNow.length}/${maxSlotsGuard}). Removing stale picker slot.`);
                 await db.run('DELETE FROM games WHERE id = ?', game.id);
+                RotationAuditService.log({
+                    gameRoomId: info.gameRoomId,
+                    tournamentId: game.tournamentId,
+                    tournamentName: tournamentForGuard?.name ?? null,
+                    eventType: 'placeholder_deleted',
+                    actor: 'system:timeout',
+                    gameId: game.id,
+                    gameName: '[Pending Pick]',
+                    details: {
+                        reason: 'capacity_guard',
+                        picker: game.pickerDiscordId ?? null,
+                        activeNow: activeNow.length,
+                        maxSlots: maxSlotsGuard,
+                    },
+                }).catch(() => {});
                 return;
             }
 
@@ -417,6 +502,7 @@ export class TimeoutManager {
             if (outcome.kind === 'activate') {
                 await this.activateQueuedIntoSlot(
                     game, outcome.game, narrative.length ? narrative.join(' ') : null, info,
+                    queueSourceForPlace(outcome.placeIndex),
                 );
                 return;
             }
@@ -444,6 +530,8 @@ export class TimeoutManager {
         queuedRow: any,
         reason: string | null,
         info: { type: string | null; mode: string | null; gameRoomId: string | null },
+        /** Which place's queue the cascade drew from, for the rotation log. */
+        source: RotationSource,
     ): Promise<void> {
         const db = await getDatabase();
         const tournament = await db.get('SELECT * FROM tournaments WHERE id = ?', slot.tournamentId);
@@ -480,6 +568,27 @@ export class TimeoutManager {
         );
         await db.run('DELETE FROM games WHERE id = ?', queuedRow.id);
         logInfo(`   -> Activated queued game "${queuedRow.name}" into slot ${slot.id}.`);
+
+        // The placeholder row is REUSED as the active game (see the JSDoc), so
+        // the trail records the activation on the slot id, not a new row.
+        RotationAuditService.log({
+            gameRoomId: info.gameRoomId,
+            tournamentId: slot.tournamentId,
+            tournamentName: tournament?.name ?? null,
+            eventType: 'game_activated',
+            actor: 'system:timeout',
+            source,
+            queueOwner: queuedRow.picker_discord_id ?? null,
+            gameId: slot.id,
+            gameName: queuedRow.name,
+            details: {
+                filledPlaceholder: true,
+                consumedQueuedGameId: queuedRow.id,
+                expiredPicker: slot.pickerDiscordId ?? null,
+                reason,
+                iscoredId,
+            },
+        }).catch(() => {});
 
         // The engine just consumed one of this player's picks (v2.126.0): close
         // the hole it left in their 1..N sequence, and nudge them if the queue
@@ -541,6 +650,21 @@ export class TimeoutManager {
             if (currentActive.length >= maxSlots) {
                 logInfo(`Auto-select skipped: ${tournament.name} already at max active games (${currentActive.length}/${maxSlots}). Removing orphaned picker slot.`);
                 await db.run('DELETE FROM games WHERE id = ?', game.id);
+                RotationAuditService.log({
+                    gameRoomId: tournament.game_room_id,
+                    tournamentId: game.tournamentId,
+                    tournamentName: tournament.name,
+                    eventType: 'placeholder_deleted',
+                    actor: 'system:timeout',
+                    gameId: game.id,
+                    gameName: '[Pending Pick]',
+                    details: {
+                        reason: 'capacity_guard',
+                        picker: game.pickerDiscordId ?? null,
+                        activeNow: currentActive.length,
+                        maxSlots,
+                    },
+                }).catch(() => {});
                 return;
             }
 
@@ -555,6 +679,16 @@ export class TimeoutManager {
                 // "already at max active games" delete above.
                 logInfo(`Auto-pick disabled for ${tournament.name}. Removing the unfulfilled picker slot ${game.id}.`);
                 await db.run('DELETE FROM games WHERE id = ?', game.id);
+                RotationAuditService.log({
+                    gameRoomId: tournament.game_room_id,
+                    tournamentId: game.tournamentId,
+                    tournamentName: tournament.name,
+                    eventType: 'placeholder_deleted',
+                    actor: 'system:timeout',
+                    gameId: game.id,
+                    gameName: '[Pending Pick]',
+                    details: { reason: 'autopick_disabled', picker: game.pickerDiscordId ?? null },
+                }).catch(() => {});
                 const channelId = await this.getChannelId(game.tournamentId);
                 if (channelId) {
                     const term = getTerminology(tournament.mode);
@@ -648,6 +782,16 @@ export class TimeoutManager {
                 // the head of the queue where nothing can see or clear it.
                 logWarn(`No eligible ${term.games} found for auto-selection in ${tournament.name}. Removing the unfulfilled picker slot ${game.id}.`);
                 await db.run('DELETE FROM games WHERE id = ?', game.id);
+                RotationAuditService.log({
+                    gameRoomId: tournament.game_room_id,
+                    tournamentId: game.tournamentId,
+                    tournamentName: tournament.name,
+                    eventType: 'placeholder_deleted',
+                    actor: 'system:timeout',
+                    gameId: game.id,
+                    gameName: '[Pending Pick]',
+                    details: { reason: 'no_eligible_games', picker: game.pickerDiscordId ?? null },
+                }).catch(() => {});
                 const channelId = await this.getChannelId(game.tournamentId);
                 if (channelId) {
                     const color = getTournamentColor(tournament.type);
@@ -700,6 +844,24 @@ export class TimeoutManager {
                 pick.name, pick.style_id || null, iscoredId, new Date().toISOString(), game.id
             );
             logInfo(`   -> Auto-selected and activated: ${pick.name}`);
+
+            RotationAuditService.log({
+                gameRoomId: tournament.game_room_id,
+                tournamentId: game.tournamentId,
+                tournamentName: tournament.name,
+                eventType: 'game_activated',
+                actor: 'system:timeout',
+                source: 'timeout_auto',
+                queueOwner: null,
+                gameId: game.id,
+                gameName: pick.name,
+                details: {
+                    filledPlaceholder: true,
+                    expiredPicker: game.pickerDiscordId ?? null,
+                    candidatePool: eligible.length,
+                    iscoredId,
+                },
+            }).catch(() => {});
 
             const channelId = await this.getChannelId(game.tournamentId);
             if (channelId) {

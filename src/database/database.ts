@@ -2884,6 +2884,42 @@ async function doInitDatabase(): Promise<Database> {
                 ON witness_observations(atgames_unique_id, table_name, launch_ts);
             CREATE INDEX IF NOT EXISTS idx_witness_obs_user ON witness_observations(canonical_user_id, launch_ts);
         ` },
+        // Rotation audit trail (owner-asked 2026-08-27, after the WG-VR /
+        // WG-VPXS over-activation incident). One append-only row per rotation
+        // DECISION — who or what picked what, and what triggered it — written
+        // at the moment the decision happens, so the question is answerable
+        // from the room admin UI instead of by grepping prod logs.
+        //
+        // NO FOREIGN KEYS, deliberately: an audit log has to outlive the
+        // tournament and the games row it describes, exactly like
+        // `maintenance_runs` (migration 106). `tournament_name` / `game_name`
+        // are denormalized for the same reason — a deleted tournament must
+        // still read as a name, not a dangling id.
+        //
+        // `details` is a per-type JSON blob (winner + score, disposition +
+        // nominee, deadline, cleanup mode…). `source` / `queue_owner` are the
+        // two columns the incident actually needed: WHICH cascade branch
+        // activated the game, and WHOSE queue it consumed.
+        { name: '170_rotation_events', sql: `
+            CREATE TABLE IF NOT EXISTS rotation_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                game_room_id TEXT NOT NULL,
+                tournament_id TEXT,
+                tournament_name TEXT,
+                event_type TEXT NOT NULL,
+                actor TEXT NOT NULL,
+                source TEXT,
+                queue_owner TEXT,
+                game_id TEXT,
+                game_name TEXT,
+                details TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_rotation_events_room
+                ON rotation_events(game_room_id, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_rotation_events_tournament
+                ON rotation_events(tournament_id, created_at DESC);
+        ` },
     ];
 
     for (const migration of migrations) {

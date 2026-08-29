@@ -257,6 +257,15 @@ describe('admin Leaderboard mirrors the public Scoreboard', () => {
         document.dispatchEvent(new MouseEvent('mousemove', { clientX: 0, clientY: 0, bubbles: true }));
       });
 
+      // The arrow mounts on a state update that may not have flushed yet
+      // under CI load (documented flake — assert-after-scroll needs waitFor).
+      // Only the public page waits: on admin the arrow must never appear, and
+      // a synchronous absence check can only yield the expected `false`.
+      if (page === 'public') {
+        await waitFor(() => {
+          expect(screen.getByRole('button', { name: 'Scroll right' })).toBeInTheDocument();
+        });
+      }
       seen[page] = !!screen.queryByRole('button', { name: 'Scroll right' });
       view.unmount();
     }

@@ -6,6 +6,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.146.0] — Rotation audit trail
+
+Owner-asked after the 2026-08-27 WG-VR/WG-VPXS over-activation incident: reconstructing "who or what picked what, and what triggered it" required prod-log grepping and DB archaeology. Now every rotation decision writes one structured, append-only event at the moment it happens, and room admins read them in the UI.
+
+### Added
+- **`rotation_events` table (migration 170)** — one row per rotation decision: `winner_resolved`, `disposition_applied` (forfeit/nominate/auto + who it moved to), `pick_window_granted` / `pick_window_cleared`, `game_activated` with its **source** (winner/runner-up/third-place queue, fill loop, timeout auto, auto-pick, admin manual, web pick, Discord pick) and **whose queue was consumed**, `placeholder_created` / `placeholder_deleted` (with reason: orphan sweep, capacity guard, repurposed, autopick disabled, no eligible games, admin removed), `game_deactivated`, `game_deleted`, `cleanup_action`, `timeout_pivot`. No foreign keys and denormalized names on purpose — the audit outlives its tournament (`maintenance_runs` doctrine). Player queue traffic is deliberately not logged. 180-day retention via a nightly prune cron.
+- **"Rotation log" panel** on the room admin Game States page: newest-first, filterable by tournament, cursor-paginated, one plain sentence per event. Backed by `GET /api/rooms/:roomId/admin/rotation-log`.
+- ~28 audit hooks across `TournamentEngine`, `TimeoutManager`, and the web/Discord/admin pick/activate/deactivate/delete routes — all additive; an audit write can never throw into a rotation path, and a round-trip test over every event type guards the silent-column-drift trap.
+
+### Fixed
+- **Deflaked `ScoreboardWysiwygParity` "scroll arrows"** (the queued fix): the public-page assertion now `waitFor`s the arrow to mount instead of sampling synchronously after `fireEvent.scroll`.
+
 ## [2.145.1] — iPhone: standalone page headers respect the notch safe area
 
 ### Fixed
