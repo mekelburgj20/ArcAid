@@ -266,4 +266,95 @@ describe('OG shell serving', () => {
         expect(match![1]).toMatch(/^https?:\/\/.+\/api\/catalogue-images\/vps\/afm\.jpg$/);
         expect(res.text).toContain('summary_large_image');
     });
+
+    // v2.147.0 — per-score share link (`?score=<score_history.id>`).
+    describe('score-share variant', () => {
+        it('a hit with a photo uses the photo as og:image and names the player + score in the title', async () => {
+            const roomId = await createTestRoom('sharetest', 'Share Test Room');
+            const db = await getDatabase();
+            const result = await db.run(
+                `INSERT INTO score_history (game_name, game_room_id, iscored_username, score, photo_url, source)
+                 VALUES ('Medieval Madness', ?, 'Ada', 1234567, '/api/score-photos/${roomId}/ada.jpg', 'tournament')`,
+                roomId,
+            );
+            const historyId = result.lastID;
+
+            const res = await request(createTestApp())
+                .get(`/sharetest/games/Medieval%20Madness?score=${historyId}`)
+                .set('User-Agent', DISCORD_UA);
+            expect(res.status).toBe(200);
+            expect(res.text).toContain('Ada — 1,234,567 · Medieval Madness');
+            expect(res.text).toContain('Score on Medieval Madness at Share Test Room');
+            const match = res.text.match(/property="og:image" content="([^"]+)"/);
+            expect(match).not.toBeNull();
+            expect(match![1]).toMatch(/\/api\/score-photos\/.+\/ada\.jpg$/);
+            expect(res.text).toContain(`property="og:url" content="`);
+            expect(res.text).toContain(`?score=${historyId}`);
+        });
+
+        it('a hit without a photo falls back to the game art', async () => {
+            const roomId = await createTestRoom('sharetest', 'Share Test Room');
+            const db = await getDatabase();
+            await db.run(
+                `INSERT INTO global_games (id, name, status, local_image_path)
+                 VALUES (?, 'Medieval Madness', 'approved', 'data/catalogue-images/vps/mm.jpg')`,
+                crypto.randomUUID(),
+            );
+            const result = await db.run(
+                `INSERT INTO score_history (game_name, game_room_id, iscored_username, score, source)
+                 VALUES ('Medieval Madness', ?, 'Ada', 500, 'tournament')`,
+                roomId,
+            );
+            const historyId = result.lastID;
+
+            const res = await request(createTestApp())
+                .get(`/sharetest/games/Medieval%20Madness?score=${historyId}`)
+                .set('User-Agent', DISCORD_UA);
+            expect(res.status).toBe(200);
+            expect(res.text).toContain('Ada — 500 · Medieval Madness');
+            const match = res.text.match(/property="og:image" content="([^"]+)"/);
+            expect(match).not.toBeNull();
+            expect(match![1]).toMatch(/\/api\/catalogue-images\/vps\/mm\.jpg$/);
+        });
+
+        it('a miss (bad/deleted id) falls through to the identical plain-game unfurl', async () => {
+            await createTestRoom('sharetest', 'Share Test Room');
+            // Each `request(createTestApp())` boots its own ephemeral listener,
+            // so absolute URLs (og:url/og:image host:port) legitimately differ
+            // between calls — strip the origin before the equality check; the
+            // origin isn't what "identical unfurl" is asserting.
+            const stripOrigin = (text: string) => text.replace(/https?:\/\/[^"]+/g, 'ORIGIN');
+            const plain = await request(createTestApp())
+                .get('/sharetest/games/Medieval%20Madness')
+                .set('User-Agent', DISCORD_UA);
+            const withBadScore = await request(createTestApp())
+                .get('/sharetest/games/Medieval%20Madness?score=999999')
+                .set('User-Agent', DISCORD_UA);
+            const withMalformedScore = await request(createTestApp())
+                .get('/sharetest/games/Medieval%20Madness?score=not-a-number')
+                .set('User-Agent', DISCORD_UA);
+            expect(withBadScore.status).toBe(200);
+            expect(stripOrigin(withBadScore.text)).toBe(stripOrigin(plain.text));
+            expect(withMalformedScore.status).toBe(200);
+            expect(stripOrigin(withMalformedScore.text)).toBe(stripOrigin(plain.text));
+        });
+
+        it('an approval room still returns the unmodified shell with a score param', async () => {
+            const roomId = await createTestRoom('approvaltest', 'Approval Test Room');
+            const db = await getDatabase();
+            const result = await db.run(
+                `INSERT INTO score_history (game_name, game_room_id, iscored_username, score, source)
+                 VALUES ('Medieval Madness', ?, 'Ada', 500, 'tournament')`,
+                roomId,
+            );
+            const { GameRoomSettingsService } = await import('../services/GameRoomSettingsService.js');
+            await GameRoomSettingsService.set(roomId, 'JOIN_POLICY', 'approval');
+
+            const res = await request(createTestApp())
+                .get(`/approvaltest/games/Medieval%20Madness?score=${result.lastID}`)
+                .set('User-Agent', DISCORD_UA);
+            expect(res.status).toBe(200);
+            expect(res.text).toBe(SHELL);
+        });
+    });
 });

@@ -13,10 +13,11 @@ import { getSocket } from '../lib/websocket';
 import { decodeViewerClaims, isRoomAdminFor } from '../lib/viewerClaims';
 import { canDeleteRow, deleteScoreHistory } from '../lib/scoreDelete';
 import { formatScore, scoreTitle, parseServerDate } from '../lib/format';
-import { Search, Trophy, TrendingUp, Target, Medal, Plus, Minus, Clock, Lightbulb, MessageCircle, Trash2, ChevronDown, ChevronUp, History, Download, Play, BookOpen, ExternalLink, Flag, BadgeCheck } from 'lucide-react';
+import { Search, Trophy, TrendingUp, Target, Medal, Plus, Minus, Clock, Lightbulb, MessageCircle, Trash2, ChevronDown, ChevronUp, History, Download, Play, BookOpen, ExternalLink, Flag, BadgeCheck, Share2 } from 'lucide-react';
 import ReportProblemModal from '../components/ReportProblemModal';
 import ReportContentModal from '../components/ReportContentModal';
 import ConfirmModal from '../components/ConfirmModal';
+import ScorePhotoModal from '../components/ScorePhotoModal';
 import { useToast } from '../components/Toast';
 
 interface RankedEntry {
@@ -304,6 +305,13 @@ export default function GameDetail() {
   /** S23.6 — room-scoped score report; reuses ReportContentModal's endpoint
    *  prop, the same pattern the comment/tip reports above use. */
   const [scoreFlagTarget, setScoreFlagTarget] = useState<ScoreHistoryEntry | null>(null);
+  /**
+   * v2.147.0 — per-score share. Opened either by a row's Share icon or by a
+   * `?score=<historyId>` deep link on mount (see the effect below). `photoUrl`
+   * may be null (most rows have none) — the modal still opens so the row's
+   * Share button is reachable for every score, not only photographed ones.
+   */
+  const [photoModal, setPhotoModal] = useState<{ playerName: string; score: number; photoUrl: string | null; sharePath: string } | null>(null);
 
   // Load game data once room is resolved
   useEffect(() => {
@@ -349,6 +357,31 @@ export default function GameDetail() {
       })
       .catch(() => {});
   }, [name, roomId]);
+
+  // v2.147.0 — per-score share deep link (`?score=<score_history.id>`).
+  // Silent on a miss (deleted score, stale bookmark, malformed id) — the page
+  // just renders normally, same "fail open to the plain page" contract the
+  // OG unfurl variant of this link follows server-side.
+  const scoreParam = searchParams.get('score');
+  useEffect(() => {
+    if (!roomId || !slug || !name || !scoreParam) return;
+    const historyId = parseInt(scoreParam, 10);
+    if (!Number.isInteger(historyId) || historyId <= 0) return;
+    let cancelled = false;
+    fetch(`/api/rooms/${roomId}/score-share/${historyId}`)
+      .then(r => r.ok ? r.json() : null)
+      .then((data: { playerName: string; score: number; photoUrl: string | null } | null) => {
+        if (cancelled || !data) return;
+        setPhotoModal({
+          playerName: data.playerName,
+          score: data.score,
+          photoUrl: data.photoUrl,
+          sharePath: `/${slug}/games/${encodeURIComponent(name)}?score=${historyId}`,
+        });
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [roomId, slug, name, scoreParam]);
 
   // Default the active tab once the game-data load settles: 'leaderboard' when
   // tournament data exists (same `!!stats` signal that gates the tab list),
@@ -1074,6 +1107,12 @@ export default function GameDetail() {
                                             onToggleVerified={() => handleToggleVerified(h)}
                                             canReport={!!viewerClaims?.discordId}
                                             onReport={() => setScoreFlagTarget(h)}
+                                            onShare={() => setPhotoModal({
+                                              playerName: h.display_name || h.iscored_username,
+                                              score: h.score,
+                                              photoUrl: h.photo_url ?? null,
+                                              sharePath: `/${slug}/games/${encodeURIComponent(name || '')}?score=${h.id}`,
+                                            })}
                                           />
                                         ))}
                                       </div>
@@ -1095,6 +1134,12 @@ export default function GameDetail() {
                                             onToggleVerified={() => handleToggleVerified(h)}
                                             canReport={!!viewerClaims?.discordId}
                                             onReport={() => setScoreFlagTarget(h)}
+                                            onShare={() => setPhotoModal({
+                                              playerName: h.display_name || h.iscored_username,
+                                              score: h.score,
+                                              photoUrl: h.photo_url ?? null,
+                                              sharePath: `/${slug}/games/${encodeURIComponent(name || '')}?score=${h.id}`,
+                                            })}
                                           />
                                         ))}
                                       </div>
@@ -1579,6 +1624,18 @@ export default function GameDetail() {
           />
         )}
 
+        {/* v2.147.0 — per-score share. Opened by a row's Share icon or by the
+            `?score=<id>` deep link effect above. */}
+        {photoModal && (
+          <ScorePhotoModal
+            playerName={photoModal.playerName}
+            score={photoModal.score}
+            photoUrl={photoModal.photoUrl}
+            sharePath={photoModal.sharePath}
+            onClose={() => setPhotoModal(null)}
+          />
+        )}
+
         {activeTab === 'player-stats' && (
           <div className="space-y-6">
             {/* Top Players */}
@@ -1943,8 +2000,13 @@ export default function GameDetail() {
     S23.6/S23.7 add two more hover-only controls beside it: a flag (report this
     score — any logged-in viewer) and a verify toggle (admins only). The
     verified checkmark itself is always visible, not hover-gated: it's the
-    signal, not an action. */
-function ScoreHistoryRow({ h, canDelete, onDelete, canVerify, onToggleVerified, canReport, onReport }: {
+    signal, not an action.
+
+    v2.147.0 adds a share icon, always available (every row is shareable, not
+    just admin/owner rows) — it opens the ScorePhotoModal for this exact row
+    rather than performing the share itself; the modal's own Share button does
+    the copy/native-share. */
+function ScoreHistoryRow({ h, canDelete, onDelete, canVerify, onToggleVerified, canReport, onReport, onShare }: {
   h: ScoreHistoryEntry;
   canDelete: boolean;
   onDelete: () => void;
@@ -1952,6 +2014,7 @@ function ScoreHistoryRow({ h, canDelete, onDelete, canVerify, onToggleVerified, 
   onToggleVerified?: () => void;
   canReport?: boolean;
   onReport?: () => void;
+  onShare?: () => void;
 }) {
   const isVerified = !!h.verified_at;
   return (
@@ -1982,6 +2045,17 @@ function ScoreHistoryRow({ h, canDelete, onDelete, canVerify, onToggleVerified, 
       </div>
       <div className="flex items-center gap-2">
         <span className="text-faint text-xs whitespace-nowrap">{parseServerDate(h.created_at)?.toLocaleDateString() ?? ''}</span>
+        {onShare && (
+          <button
+            type="button"
+            onClick={onShare}
+            className="p-4 -m-2 opacity-0 group-hover:opacity-100 focus:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 text-muted/60 hover:text-neon-cyan transition-all cursor-pointer"
+            title="Share this score"
+            aria-label="Share this score"
+          >
+            <Share2 size={12} />
+          </button>
+        )}
         {canReport && onReport && (
           <button
             type="button"

@@ -197,7 +197,9 @@ export async function maybeBuildOgShell(req: Request, frontendPath: string): Pro
         const db = await getDatabase();
         const origin = `${req.protocol}://${host}`;
         const section = route.kind === 'game' ? 'games' : route.kind === 'player' ? 'players' : 'events';
-        const canonicalUrl = `${origin}/${encodeURIComponent(room.slug)}/${section}/${encodeURIComponent(route.name)}`;
+        // `let` — the score-share variant (below) appends `?score=<id>` when it
+        // hits, so the canonical og:url matches the exact link that was shared.
+        let canonicalUrl = `${origin}/${encodeURIComponent(room.slug)}/${section}/${encodeURIComponent(route.name)}`;
 
         let title: string;
         let description: string;
@@ -217,9 +219,59 @@ export async function maybeBuildOgShell(req: Request, frontendPath: string): Pro
                   ORDER BY created_at ASC LIMIT 1`,
                 route.name,
             );
-            title = `${gameName} · ${room.name}`;
-            description = `Leaderboard and top scores for ${gameName} at ${room.name} on Arcaid.`;
-            image = normalizeImageUrl(art?.local_image_path || art?.image_url);
+
+            // v2.147.0 — per-score share link (`?score=<score_history.id>`).
+            // A hit overrides the plain-game title/description/image below and
+            // appends the id to the canonical URL; a miss (deleted score, wrong
+            // game, malformed param) falls straight through to the unmodified
+            // plain-game unfurl — never a broken preview.
+            const scoreParam = req.query.score;
+            const historyId = typeof scoreParam === 'string' ? parseInt(scoreParam, 10) : NaN;
+            let scoreHit: { playerName: string; score: number; photoUrl: string | null; createdAt: string | null } | null = null;
+            if (Number.isInteger(historyId) && historyId > 0) {
+                const scoreRow = await db.get<{
+                    id: number; score: number; photo_url: string | null; created_at: string | null;
+                    iscored_username: string; discord_user_id: string | null; submitted_by_user_id: string | null;
+                }>(
+                    `SELECT id, score, photo_url, created_at, iscored_username, discord_user_id, submitted_by_user_id
+                       FROM score_history
+                      WHERE id = ? AND game_room_id = ? AND LOWER(game_name) = LOWER(?)`,
+                    historyId, room.id, route.name,
+                );
+                if (scoreRow) {
+                    // Same display-name doctrine as the score-share endpoint —
+                    // see `resolveProfiles`'s doc comment for the rule this mirrors.
+                    const { resolveProfiles } = await import('../services/PlayerProfileResolver.js');
+                    const [profile] = await resolveProfiles([scoreRow]);
+                    scoreHit = {
+                        playerName: profile!.display_name || scoreRow.iscored_username,
+                        score: scoreRow.score,
+                        photoUrl: scoreRow.photo_url,
+                        createdAt: scoreRow.created_at,
+                    };
+                }
+            }
+
+            if (scoreHit) {
+                canonicalUrl += `?score=${historyId}`;
+                const formattedScore = scoreHit.score.toLocaleString('en-US');
+                // `created_at` is a bare SQLite UTC timestamp ("YYYY-MM-DD HH:MM:SS") —
+                // same shape `parseServerDate` (admin-ui/src/lib/format.ts) normalizes
+                // client-side; mirrored here since this module is BE-only.
+                const playedOn = scoreHit.createdAt
+                    ? new Date(`${scoreHit.createdAt.replace(' ', 'T')}Z`)
+                    : null;
+                const dateText = playedOn && !Number.isNaN(playedOn.getTime())
+                    ? ` on ${playedOn.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`
+                    : '';
+                title = `${scoreHit.playerName} — ${formattedScore} · ${gameName}`;
+                description = `Score on ${gameName} at ${room.name}${dateText} on Arcaid.`;
+                image = normalizeImageUrl(scoreHit.photoUrl) || normalizeImageUrl(art?.local_image_path || art?.image_url);
+            } else {
+                title = `${gameName} · ${room.name}`;
+                description = `Leaderboard and top scores for ${gameName} at ${room.name} on Arcaid.`;
+                image = normalizeImageUrl(art?.local_image_path || art?.image_url);
+            }
         } else if (route.kind === 'event') {
             // `route.name` is the tournament id here. A miss returns null so the
             // crawler gets the generic shell — never a preview asserting an

@@ -2374,6 +2374,59 @@ router.get('/:roomId/score-history/game/:gameId', async (req, res) => {
     }
 });
 
+/**
+ * v2.147.0 — public per-score share payload. Backs the per-score Share
+ * button (`/:slug/games/:gameName?score=<historyId>` deep link) and the
+ * FE's on-load fetch that opens the photo modal for that link. Public — no
+ * auth, gated only by `roomVisibilityGate` above like every other public
+ * score read (approval rooms 403, suspended rooms 403, open rooms pass).
+ */
+router.get('/:roomId/score-share/:historyId', async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const historyId = parseInt(req.params.historyId as string, 10);
+        if (!Number.isInteger(historyId) || historyId <= 0) {
+            return res.status(404).json({ error: 'Score not found' });
+        }
+
+        const db = await getDatabase();
+        const row = await db.get<{
+            id: number; game_name: string; score: number; created_at: string;
+            photo_url: string | null; iscored_username: string;
+            discord_user_id: string | null; submitted_by_user_id: string | null;
+        }>(
+            `SELECT id, game_name, score, created_at, photo_url, iscored_username,
+                    discord_user_id, submitted_by_user_id
+               FROM score_history
+              WHERE id = ? AND game_room_id = ?`,
+            historyId, roomId,
+        );
+        if (!row) return res.status(404).json({ error: 'Score not found' });
+
+        // Display-name resolution doctrine (CLAUDE.md, "Display-name resolution
+        // in BE leaderboard queries"): user_mappings resolves an `iscored:*`
+        // synthetic id, then user_profiles is keyed on
+        // COALESCE(submitted_by_user_id, um.discord_user_id).
+        // `resolveProfiles` is that exact rule as a shared helper — reused here
+        // rather than hand-rolling the two LEFT JOINs for a single row.
+        const { resolveProfiles } = await import('../../services/PlayerProfileResolver.js');
+        const [profile] = await resolveProfiles([row]);
+
+        res.json({
+            historyId: row.id,
+            gameName: row.game_name,
+            score: row.score,
+            createdAt: row.created_at,
+            photoUrl: row.photo_url,
+            playerName: profile!.display_name || row.iscored_username,
+            iscoredUsername: row.iscored_username,
+        });
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/score-share/:historyId):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 // Delete a single score event. Authorization is per-row:
 //   - super_admin → any row in any room
 //   - room_admin  → any row in a room they admin
