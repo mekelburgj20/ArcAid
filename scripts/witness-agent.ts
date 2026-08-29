@@ -33,6 +33,7 @@ interface DeviceEntry {
 
 interface AgentConfig {
     lastDeviceId?: string;
+    adbPath?: string;
     devices: Record<string, DeviceEntry>;
 }
 
@@ -41,6 +42,7 @@ interface Flags {
     deviceId?: string;
     server: string;
     adb: string;
+    adbExplicit: boolean;
     elf: string;
     dryRun: boolean;
     tail: number;
@@ -240,6 +242,7 @@ function defaultFlags(): Flags {
     return {
         server: DEFAULT_SERVER,
         adb: DEFAULT_ADB,
+        adbExplicit: false,
         elf: DEFAULT_ELF,
         dryRun: false,
         tail: DEFAULT_TAIL,
@@ -253,7 +256,7 @@ function setFlag(flags: Flags, name: string, value: string): void {
         case 'ip': flags.ip = value; break;
         case 'device-id': flags.deviceId = value; break;
         case 'server': flags.server = value; break;
-        case 'adb': flags.adb = value; break;
+        case 'adb': flags.adb = value; flags.adbExplicit = true; break;
         case 'elf': flags.elf = value; break;
         case 'tail': {
             const n = Number.parseInt(value, 10);
@@ -366,6 +369,14 @@ async function connectAndVerify(ip: string, adbPath: string, dryRun: boolean): P
 
     const verify = await runAdb(adbPath, ['-s', ip, 'shell', 'echo ok'], { timeoutMs: 15000 });
     if (verify.timedOut || verify.stdout.trim() !== 'ok') {
+        // A missing adb binary surfaces here as spawn ENOENT — that's a PC-side
+        // problem, not a cabinet one, and blaming DHCP for it wastes a rescan.
+        if (verify.stderr.includes('ENOENT')) {
+            throw new CliError(
+                `adb not found ("${adbPath}"). Install Android platform-tools or pass --adb <path> — ` +
+                `the path is remembered in ${getConfigPath()} for later runs.`
+            );
+        }
         throw new CliError(
             `Could not reach the cabinet at ${ip}.\n` +
             `The cabinet's DHCP address may have changed — rescan and pass --ip, ` +
@@ -461,7 +472,7 @@ function loadConfig(): AgentConfig {
     try {
         const raw = fs.readFileSync(configPath, 'utf8');
         const parsed = JSON.parse(raw) as Partial<AgentConfig>;
-        return { lastDeviceId: parsed.lastDeviceId, devices: parsed.devices ?? {} };
+        return { lastDeviceId: parsed.lastDeviceId, adbPath: parsed.adbPath, devices: parsed.devices ?? {} };
     } catch (err) {
         throw new CliError(`Could not read config at ${configPath}: ${(err as Error).message}`);
     }
@@ -842,6 +853,17 @@ async function main(): Promise<void> {
     if (!command || flags.help) {
         console.log(command ? commandHelp(command) : GENERAL_HELP);
         return;
+    }
+
+    // adb is rarely on PATH on this kind of dev box, so an explicit --adb is
+    // remembered in config and reused; the flag always wins when given.
+    const startupConfig = loadConfig();
+    if (!flags.adbExplicit && startupConfig.adbPath) {
+        flags.adb = startupConfig.adbPath;
+    } else if (flags.adbExplicit && !flags.dryRun && startupConfig.adbPath !== flags.adb) {
+        startupConfig.adbPath = flags.adb;
+        saveConfig(startupConfig);
+        console.log(`(adb path remembered: ${flags.adb})`);
     }
 
     switch (command) {
