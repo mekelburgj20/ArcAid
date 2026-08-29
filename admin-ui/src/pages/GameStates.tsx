@@ -5,6 +5,7 @@ import NeonCard from '../components/NeonCard';
 import NeonButton from '../components/NeonButton';
 import LoadingState from '../components/LoadingState';
 import AdminPickOnBehalf from '../components/AdminPickOnBehalf';
+import RotationLogPanel from '../components/RotationLogPanel';
 import { AlertTriangle, Trash2, XCircle, RefreshCw, Play, Lock, EyeOff, Plus, Zap, Recycle, Link2Off } from 'lucide-react';
 
 interface GameState {
@@ -486,6 +487,14 @@ export default function GameStates() {
       <AdminPickOnBehalf
         roomId={room.roomId}
         tournaments={tournaments.filter(t => t.is_active !== 0 && t.is_active !== false).map(t => ({ id: t.id, name: t.name }))}
+      />
+
+      {/* Rotation log (v2.146.0) — who or what picked what, and what triggered
+          it. Sits under the maintenance controls because that is where an
+          admin lands when a rotation did something they did not expect. */}
+      <RotationLogPanel
+        roomId={room.roomId}
+        tournaments={tournaments.map(t => ({ id: t.id, name: t.name }))}
       />
 
       {/* Games table */}

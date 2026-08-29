@@ -85,6 +85,9 @@ export class Scheduler {
         // Daily cleanup of old room events (3 AM)
         this.startRoomEventCleanup();
 
+        // Daily prune of the rotation decision trail (3:15 AM, 180-day retention)
+        this.startRotationLogPrune();
+
         // Daily cleanup of old lobby feed events (3:30 AM)
         this.startLobbyFeedCleanup();
 
@@ -327,6 +330,30 @@ export class Scheduler {
 
         this.tasks.set('__room_event_cleanup__', task);
         logInfo('Room event cleanup scheduled (daily at 3 AM).');
+    }
+
+    /**
+     * Nightly prune of the rotation decision trail at 3:15 AM (v2.146.0).
+     *
+     * 180-day retention — long enough that "what happened to my tournament
+     * last season" is still answerable, which is the whole reason the trail
+     * exists, and slotted between the 3:00 room-event and 3:30 lobby-feed
+     * sweeps so the housekeeping crons never contend.
+     */
+    private startRotationLogPrune(): void {
+        const timezone = process.env.BOT_TIMEZONE || 'America/Chicago';
+        const task = cron.schedule('15 3 * * *', async () => {
+            try {
+                const { RotationAuditService } = await import('../services/RotationAuditService.js');
+                const deleted = await RotationAuditService.prune();
+                if (deleted > 0) logInfo(`Rotation log prune: removed ${deleted} old events.`);
+            } catch (error) {
+                logError('Rotation log prune error:', error);
+            }
+        }, { timezone });
+
+        this.tasks.set('__rotation_log_prune__', task);
+        logInfo('Rotation log prune scheduled (daily at 3:15 AM).');
     }
 
     /**

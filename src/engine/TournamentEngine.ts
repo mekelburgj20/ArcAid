@@ -29,6 +29,21 @@ import { resolvePick, MAX_PLACES } from './pickResolution.js';
 import { tournamentUrlSlug } from '../utils/tournamentSlug.js';
 import { QUEUE_ORDER_SQL } from '../utils/queueOrder.js';
 import { applyLibraryDefaults } from '../utils/gameLibraryDefaults.js';
+import { RotationAuditService, type RotationSource } from '../services/RotationAuditService.js';
+
+/**
+ * Who/what asked for an activation, threaded from every `activateGame` caller
+ * so the rotation log can answer "which branch put this on the board, and
+ * whose queue did it consume". A caller that omits it records `'unknown'` —
+ * that value in prod is a missing hook, not a legitimate state.
+ */
+export interface ActivationAudit {
+    /** `system:cron` | `system:timeout` | `admin:<id>` | `player:<id>`. */
+    actor: string;
+    source: RotationSource;
+    /** Whose queue the activated game came out of, when it came out of one. */
+    queueOwner?: string | null;
+}
 
 /**
  * v2.103.0 — thrown by `activateGame` when the tournament already has an
@@ -74,6 +89,17 @@ export function strippedLeaderNarrative(
     ));
     parts.push(`Claim your name: ${accountSettingsUrl()}`);
     return parts.join(' ');
+}
+
+/**
+ * Finishing place the pick cascade resolved on → the rotation log's `source`.
+ * `resolvePick` caps the walk at MAX_PLACES, and every place past the runner-up
+ * is queue-only (contract §4.2), so 2+ collapses to `third_place_queue`.
+ */
+export function queueSourceForPlace(placeIndex: number): RotationSource {
+    if (placeIndex <= 0) return 'winner_queue';
+    if (placeIndex === 1) return 'runner_up_queue';
+    return 'third_place_queue';
 }
 
 export class TournamentEngine {
@@ -134,8 +160,13 @@ export class TournamentEngine {
      * Activates a new game for a specific tournament immediately.
      * If completeExisting is true (default for /pick-game), marks existing ACTIVE games as COMPLETED.
      * If false (admin activate), allows multiple active games.
+     *
+     * `audit` is the rotation-log provenance (v2.146.0). Every production
+     * caller threads it — web pick, admin activate, Discord `/pick-game` and
+     * `/activate-game`. The `game_activated` row is written here, on success
+     * only, so it can never claim an activation the duplicate guard refused.
      */
-    public async activateGame(tournamentId: string, gameName: string, styleId?: string, iscoredId?: string, completeExisting: boolean = true): Promise<Game> {
+    public async activateGame(tournamentId: string, gameName: string, styleId?: string, iscoredId?: string, completeExisting: boolean = true, audit?: ActivationAudit): Promise<Game> {
         const db = await getDatabase();
         const game: Game = {
             id: uuidv4(),
@@ -177,7 +208,7 @@ export class TournamentEngine {
 
         // Look up the owning room up-front so the games row carries game_room_id
         // directly (denormalized, see migration 102) and not only via tournament_id.
-        const tournament = await db.get('SELECT game_room_id FROM tournaments WHERE id = ?', tournamentId);
+        const tournament = await db.get('SELECT game_room_id, name FROM tournaments WHERE id = ?', tournamentId);
 
         // Insert the new game
         await db.run(
@@ -189,6 +220,19 @@ export class TournamentEngine {
         // library (if set). v2.135.0: extracted to a shared helper so the Live
         // Event scheduler's round activation applies the identical overlay.
         await applyLibraryDefaults(db, tournament?.game_room_id, game.id, gameName);
+
+        await RotationAuditService.log({
+            gameRoomId: tournament?.game_room_id ?? null,
+            tournamentId,
+            tournamentName: tournament?.name ?? null,
+            eventType: 'game_activated',
+            actor: audit?.actor ?? 'system:cron',
+            source: audit?.source ?? 'unknown',
+            queueOwner: audit?.queueOwner ?? null,
+            gameId: game.id,
+            gameName,
+            details: { completedExisting: completeExisting, iscoredId: iscoredId ?? null },
+        });
 
         return game;
     }
@@ -1010,6 +1054,18 @@ export class TournamentEngine {
                     'ACTIVE', new Date().toISOString(), finalId, queuedRow.id
                 );
                 logInfo(`   -> Activated extra slot: ${queuedRow.name}`);
+                RotationAuditService.log({
+                    gameRoomId: tournamentRow.game_room_id,
+                    tournamentId,
+                    tournamentName: tournamentRow.name,
+                    eventType: 'game_activated',
+                    actor: 'system:cron',
+                    source: 'fill_loop',
+                    queueOwner: queuedRow.picker_discord_id ?? null,
+                    gameId: queuedRow.id,
+                    gameName: queuedRow.name,
+                    details: { slotsAvailableBefore: slotsAvailable, maxSlots, iscoredId: finalId },
+                }).catch(() => {});
                 await this.afterQueueConsumed(tournamentId, queuedRow.picker_discord_id);
 
                 if (channelId) {
@@ -1281,6 +1337,17 @@ export class TournamentEngine {
             }).catch(() => {});
         }
 
+        RotationAuditService.log({
+            gameRoomId: tournamentRow.game_room_id,
+            tournamentId,
+            tournamentName: tournamentRow.name,
+            eventType: 'game_deactivated',
+            actor: 'system:cron',
+            gameId: activeGame.id,
+            gameName: activeGame.name,
+            details: { trigger: 'end_of_round' },
+        }).catch(() => {});
+
         // Resolve winner
         // v2.35.0 — prefer the top submission's OWN attribution
         // (submitted_by_user_id for web submits, discord_user_id for legacy
@@ -1316,6 +1383,26 @@ export class TournamentEngine {
                 logWarn(`   -> Winner '${winnerIscoredName}' has no Discord mapping. Use /map-user to link them.`);
             }
         }
+
+        // Rotation log — WHO the slot resolved as its winner and off which
+        // score. Written even when nobody was found: "no scores were on the
+        // board" is the answer to half the questions this trail exists for.
+        RotationAuditService.log({
+            gameRoomId: tournamentRow.game_room_id,
+            tournamentId,
+            tournamentName: tournamentRow.name,
+            eventType: 'winner_resolved',
+            actor: 'system:cron',
+            gameId: activeGame.id,
+            gameName: activeGame.name,
+            details: {
+                winnerName: winnerIscoredName,
+                winnerId,
+                score: winnerScore,
+                fromGame: activeGame.name,
+                resolved: !!winnerIscoredName,
+            },
+        }).catch(() => {});
 
         // S13 — trophy case: record the tournament win. award() never throws
         // (fully try/catch-wrapped), so awaiting it here is safe.
@@ -1428,6 +1515,20 @@ export class TournamentEngine {
             if (!wonGame) {
                 await db.run('DELETE FROM games WHERE id = ?', candidate.id);
                 logInfo('   -> Cleaned up an orphaned picker placeholder.');
+                RotationAuditService.log({
+                    gameRoomId: tournamentRow.game_room_id,
+                    tournamentId,
+                    tournamentName: tournamentRow.name,
+                    eventType: 'placeholder_deleted',
+                    actor: 'system:cron',
+                    gameId: candidate.id,
+                    gameName: '[Pending Pick]',
+                    details: {
+                        reason: 'orphan_sweep',
+                        picker: candidate.picker_discord_id ?? null,
+                        wonGameId: candidate.won_game_id ?? null,
+                    },
+                }).catch(() => {});
             }
         }
 
@@ -1498,11 +1599,15 @@ export class TournamentEngine {
         } | null = null;
         let cascadeWantsAutoPick = false;
         let announceExtraForQueue: string | null = null;
+        // Which cascade branch the activation below came from, for the
+        // rotation log. Set alongside `queueOwnerId` so the two can never
+        // disagree about whose queue fired.
+        let queueSource: RotationSource = 'unknown';
 
         if (winnerPicks) {
             const places = await resolveLeaderboardPlaces(db, activeGame.id, MAX_PLACES);
             const dynastyBlockedWinner = await this.isDynastyBlocked(db, tournamentRow, activeGame, places[0]?.playerId ?? null);
-            const { outcome, narrative } = await resolvePick({
+            const { outcome, narrative, dispositionsApplied } = await resolvePick({
                 tournamentId,
                 places,
                 nextQueuedFor: (playerId) => this.nextEligibleQueuedFor(tournamentId, playerId),
@@ -1519,9 +1624,29 @@ export class TournamentEngine {
             });
             const reason = narrative.length ? narrative.join(' ') : null;
 
+            // One row per disposition that actually fired — the "forfeit /
+            // nominate / auto → who it moved to" half of the incident question.
+            for (const applied of dispositionsApplied) {
+                RotationAuditService.log({
+                    gameRoomId: tournamentRow.game_room_id,
+                    tournamentId,
+                    tournamentName: tournamentRow.name,
+                    eventType: 'disposition_applied',
+                    actor: `player:${applied.playerId}`,
+                    gameId: activeGame.id,
+                    gameName: activeGame.name,
+                    details: {
+                        disposition: applied.disposition,
+                        movedTo: applied.nomineeId ?? null,
+                        placeIndex: applied.placeIndex,
+                    },
+                }).catch(() => {});
+            }
+
             if (outcome.kind === 'activate') {
                 queuedRow = outcome.game;
                 queueOwnerId = outcome.playerId;
+                queueSource = queueSourceForPlace(outcome.placeIndex);
                 announceExtraForQueue = reason;
                 logInfo(`   -> Cascade: activating ${outcome.playerId}'s queued game "${outcome.game.name}".`);
             } else if (outcome.kind === 'window') {
@@ -1576,6 +1701,23 @@ export class TournamentEngine {
                 'ACTIVE', new Date().toISOString(), finalIscoredId, queuedRow.id
             );
             logInfo(`   -> Activated in DB: ${queuedRow.name}`);
+            RotationAuditService.log({
+                gameRoomId: tournamentRow.game_room_id,
+                tournamentId,
+                tournamentName: tournamentRow.name,
+                eventType: 'game_activated',
+                actor: 'system:cron',
+                source: queueSource,
+                queueOwner: queuedRow.picker_discord_id ?? queueOwnerId,
+                gameId: queuedRow.id,
+                gameName: queuedRow.name,
+                details: {
+                    replacedGame: activeGame.name,
+                    winnerId,
+                    iscoredId: finalIscoredId,
+                    reason: announceExtraForQueue,
+                },
+            }).catch(() => {});
             await this.afterQueueConsumed(tournamentId, queuedRow.picker_discord_id ?? queueOwnerId);
 
             // Log game rotation event
@@ -1696,6 +1838,40 @@ export class TournamentEngine {
                     slotId, tournamentId, '[Pending Pick]', pickerId, pickerType, pickerDesignatedAt, activeGame.id, tournamentRow.game_room_id ?? null
                 );
                 logInfo(`   -> Created picker slot for ${pickerType === 'WINNER' ? 'winner/nominee' : 'runner-up'} (pick window active).`);
+
+                // Two rows, not one: the placeholder is a slot RESERVATION
+                // (the thing the 2026-08-27 over-activation blew past) and the
+                // pick window is an obligation with a deadline. They are
+                // deleted/expire independently, so the trail records them
+                // independently.
+                RotationAuditService.log({
+                    gameRoomId: tournamentRow.game_room_id,
+                    tournamentId,
+                    tournamentName: tournamentRow.name,
+                    eventType: 'placeholder_created',
+                    actor: 'system:cron',
+                    gameId: slotId,
+                    gameName: '[Pending Pick]',
+                    details: { picker: pickerId, pickerType, wonGameId: activeGame.id, wonGameName: activeGame.name },
+                }).catch(() => {});
+                RotationAuditService.log({
+                    gameRoomId: tournamentRow.game_room_id,
+                    tournamentId,
+                    tournamentName: tournamentRow.name,
+                    eventType: 'pick_window_granted',
+                    actor: 'system:cron',
+                    gameId: slotId,
+                    gameName: activeGame.name,
+                    details: {
+                        picker: pickerId,
+                        pickerLabel,
+                        pickerType,
+                        windowMin: pickWindowMin,
+                        deadline: pickDeadline.toISOString(),
+                        fallback: pickFallback,
+                        reason: announceExtra,
+                    },
+                }).catch(() => {});
 
                 // Onboarding hook (nominate only, nominee not yet a room
                 // member) — fire-and-forget, never blocks slot creation.
@@ -2185,6 +2361,23 @@ export class TournamentEngine {
         );
         logInfo(`   -> Activated in DB: ${pick.name}`);
 
+        RotationAuditService.log({
+            gameRoomId: tournamentRow.game_room_id,
+            tournamentId,
+            tournamentName: tournamentRow.name,
+            eventType: 'game_activated',
+            actor: 'system:cron',
+            source: 'auto_pick',
+            queueOwner: null,
+            gameId,
+            gameName: pick.name,
+            details: {
+                replacedGame: completedGame.name,
+                candidatePool: finalEligible.length,
+                iscoredId,
+            },
+        }).catch(() => {});
+
         // Log game rotation event
         if (tournamentRow.game_room_id) {
             RoomEventService.log(tournamentRow.game_room_id, 'game_rotation', {
@@ -2261,7 +2454,7 @@ export class TournamentEngine {
         // already has both the registry-managed client and the creds — reuse
         // them. When called standalone (runScheduledCleanup or admin), look
         // up creds and acquire a session via the registry.
-        const tournamentRow = await db.get('SELECT game_room_id FROM tournaments WHERE id = ?', tournamentId);
+        const tournamentRow = await db.get('SELECT game_room_id, name FROM tournaments WHERE id = ?', tournamentId);
         let creds: IScoredCreds | null = sharedCreds ?? null;
         if (!sharedClient && sharedCreds === undefined) {
             const { getIScoredCredsForRoom } = await import('../utils/iscoredCreds.js');
@@ -2329,9 +2522,11 @@ export class TournamentEngine {
         // state and the historical anchor for score_history attribution (Stats and
         // Ranking read status IN ('COMPLETED','ARCHIVED')).
         const roomId = tournamentRow?.game_room_id;
+        const archivedNames: string[] = [];
         for (const game of toHide) {
             if (!archivable.has(game.id)) continue; // delete failed → keep COMPLETED, retry next cycle
             await db.run('UPDATE games SET status = ? WHERE id = ?', 'ARCHIVED', game.id);
+            archivedNames.push(game.name);
 
             // Clean up score photos for this game
             if (roomId) {
@@ -2372,6 +2567,25 @@ export class TournamentEngine {
                 }
             }
         }
+
+        // One summary row per cleanup pass. `considered` vs `archived` is the
+        // useful pair: a gap means iScored refused a delete and those rows are
+        // deliberately still COMPLETED, waiting for the next cycle.
+        RotationAuditService.log({
+            gameRoomId: roomId,
+            tournamentId,
+            tournamentName: tournamentRow?.name ?? null,
+            eventType: 'cleanup_action',
+            actor: 'system:cron',
+            details: {
+                mode: rule.mode,
+                retainCount,
+                considered: toHide.length,
+                archived: archivedNames.length,
+                archivedGames: archivedNames,
+                iscoredDeletesAllowed: deletesAllowed,
+            },
+        }).catch(() => {});
     }
 
     /**

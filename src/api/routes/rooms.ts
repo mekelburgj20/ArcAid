@@ -42,7 +42,9 @@ import {
     SetPickDispositionSchema,
     AdminSetPickDispositionSchema,
     AdminQueueOnBehalfSchema,
+    RotationLogQuerySchema,
 } from '../schemas.js';
+import { RotationAuditService } from '../../services/RotationAuditService.js';
 import { writeLimiter, pickLimiter, pickAlertsLimiter, guestContentLimiter } from '../rateLimit.js';
 import { isAllowedImage } from '../uploadValidation.js';
 import { withUploadErrors } from '../uploadMiddleware.js';
@@ -95,6 +97,17 @@ const roomAssetUpload = multer({
         }
     },
 });
+
+/**
+ * Rotation-log actor for an admin-initiated decision (v2.146.0).
+ *
+ * Resolves the acting identity exactly the way the explicit `AuditService.log`
+ * writes in this file already do, so the rotation trail and the audit log name
+ * the same person for the same click.
+ */
+function adminActor(req: { user?: TokenPayload }): string {
+    return `admin:${req.user?.discordId || req.user?.username || req.user?.localAdminId || 'unknown'}`;
+}
 
 /**
  * v2.54.0 username lock — shared by the three web submit handlers
@@ -1048,7 +1061,21 @@ router.post('/:roomId/pick-game', pickLimiter, requireDiscordUser, requireNotBan
 
                 // Delete the pending pick placeholder and activate the real game
                 await db.run('DELETE FROM games WHERE id = ?', pendingPick.id);
-                await engine.activateGame(tournamentId, resolvedName, styleId, iscoredId, false);
+                await RotationAuditService.log({
+                    gameRoomId: roomId,
+                    tournamentId,
+                    tournamentName: tournament.name,
+                    eventType: 'placeholder_deleted',
+                    actor: `player:${discordId}`,
+                    gameId: pendingPick.id,
+                    gameName: '[Pending Pick]',
+                    details: { reason: 'repurposed', picker: discordId, pickedGame: resolvedName },
+                });
+                await engine.activateGame(tournamentId, resolvedName, styleId, iscoredId, false, {
+                    actor: `player:${discordId}`,
+                    source: 'web_pick',
+                    queueOwner: discordId,
+                });
 
                 // Reorder iScored lineup in background, scoped to this room.
                 if (hasCredentials) {
@@ -4929,7 +4956,10 @@ router.post('/:roomId/tournaments/:id/activate-game', requireAuth, requireRoomAc
         try {
             let game;
             try {
-                game = await engine.activateGame(tournamentId, gameName, styleId, iscoredId, false);
+                game = await engine.activateGame(tournamentId, gameName, styleId, iscoredId, false, {
+                    actor: adminActor(req),
+                    source: 'admin_manual',
+                });
             } catch (err) {
                 // v2.103.0 — duplicate-activation guard: surface the friendly
                 // message instead of a 500 (the admin can Deactivate the twin
@@ -5229,6 +5259,20 @@ router.delete('/:roomId/games/:id', requireAuth, requireRoomAccess('roomId'), as
                 tournamentName: deactivateResult.tournamentName,
                 iscoredStatus: deactivateResult.iscoredStatus,
             });
+            await RotationAuditService.log({
+                gameRoomId: roomId,
+                tournamentId: game.tournament_id ?? null,
+                tournamentName: deactivateResult.tournamentName,
+                eventType: 'game_deactivated',
+                actor: adminActor(req),
+                gameId,
+                gameName: deactivateResult.gameName,
+                details: {
+                    trigger: 'admin',
+                    iscoredStatus: deactivateResult.iscoredStatus,
+                    finalSyncedScores: deactivateResult.finalSyncedScores ?? 0,
+                },
+            });
 
             // Explicit audit write — auditMiddleware does NOT fire on router routes.
             await AuditService.log({
@@ -5252,6 +5296,21 @@ router.delete('/:roomId/games/:id', requireAuth, requireRoomAccess('roomId'), as
             tournamentName: result.tournamentName,
             iscoredStatus: result.iscoredStatus,
             scoresOrphaned: result.scoresOrphaned,
+        });
+        await RotationAuditService.log({
+            gameRoomId: roomId,
+            tournamentId: game.tournament_id ?? null,
+            tournamentName: result.tournamentName,
+            eventType: 'game_deleted',
+            actor: adminActor(req),
+            gameId,
+            gameName: result.gameName,
+            details: {
+                route: 'tournament_game_delete',
+                previousStatus: game.status,
+                iscoredStatus: result.iscoredStatus,
+                scoresOrphaned: result.scoresOrphaned,
+            },
         });
 
         // Explicit audit write — auditMiddleware does NOT fire on router routes.
@@ -7535,6 +7594,30 @@ router.get('/:roomId/admin/platform-usage/:platform', requireAuth, requireRoomAc
 // ==================== GAME STATE MANAGEMENT ====================
 
 // List all games for a room (admin view with full state info)
+/**
+ * Rotation log (v2.146.0) — the room-admin-visible decision trail behind the
+ * rotation: winner resolved, disposition applied, pick window granted, every
+ * activation with its SOURCE and whose queue it consumed, placeholder
+ * creations/removals, deactivations, deletions, cleanups and timeout pivots.
+ *
+ * Registered BEFORE `/:roomId/admin/game-states` is irrelevant (different
+ * path), but it deliberately sits beside it: the panel lives on that page.
+ */
+router.get('/:roomId/admin/rotation-log', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const validationResult = validate(RotationLogQuerySchema, req.query);
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+        const { tournamentId, before, limit } = validationResult.data;
+
+        const page = await RotationAuditService.list(roomId, { tournamentId, before, limit });
+        res.json(page);
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/admin/rotation-log):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 router.get('/:roomId/admin/game-states', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
     try {
         const roomId = req.params.roomId as string;
@@ -7660,6 +7743,34 @@ router.patch('/:roomId/admin/game-states/:gameId/status', requireAuth, requireRo
             syncedIScored: parsed.syncIScored && !!game.iscored_id,
         });
 
+        // A forced status change is a rotation decision when it puts a game on
+        // or takes it off the board. Other transitions (COMPLETED → ARCHIVED,
+        // → QUEUED) are bookkeeping and stay out of the decision trail.
+        if (parsed.status === 'ACTIVE' && oldStatus !== 'ACTIVE') {
+            await RotationAuditService.log({
+                gameRoomId: roomId,
+                tournamentId: game.tournament_id ?? null,
+                tournamentName: null,
+                eventType: 'game_activated',
+                actor: adminActor(req),
+                source: 'admin_manual',
+                gameId,
+                gameName: game.name,
+                details: { route: 'force_status', previousStatus: oldStatus },
+            });
+        } else if (parsed.status === 'COMPLETED' && oldStatus === 'ACTIVE') {
+            await RotationAuditService.log({
+                gameRoomId: roomId,
+                tournamentId: game.tournament_id ?? null,
+                tournamentName: null,
+                eventType: 'game_deactivated',
+                actor: adminActor(req),
+                gameId,
+                gameName: game.name,
+                details: { trigger: 'admin', route: 'force_status', previousStatus: oldStatus },
+            });
+        }
+
         logInfo(`Admin forced game state: ${game.name} ${oldStatus} → ${parsed.status} (room: ${roomId})`);
         res.json({ success: true, oldStatus, newStatus: parsed.status });
     } catch (error: any) {
@@ -7690,6 +7801,21 @@ router.patch('/:roomId/admin/game-states/:gameId/clear-picker', requireAuth, req
 
         const { RoomEventService } = await import('../../services/RoomEventService.js');
         await RoomEventService.log(roomId, 'picker_cleared', { gameName: game.name });
+        await RotationAuditService.log({
+            gameRoomId: roomId,
+            tournamentId: game.tournament_id ?? null,
+            tournamentName: null,
+            eventType: 'pick_window_cleared',
+            actor: adminActor(req),
+            gameId,
+            gameName: game.name,
+            details: {
+                picker: game.picker_discord_id ?? null,
+                pickerType: game.picker_type ?? null,
+                designatedAt: game.picker_designated_at ?? null,
+                remindersSent: game.reminder_count ?? 0,
+            },
+        });
 
         logInfo(`Admin cleared picker for game: ${game.name} (room: ${roomId})`);
         res.json({ success: true });
@@ -7782,6 +7908,21 @@ router.delete('/:roomId/admin/game-states/:gameId', requireAuth, requireRoomAcce
             status: game.status,
             deletedFromIScored: parsed.deleteFromIScored && !!game.iscored_id && deletesAllowed,
             iscoredStatus,
+        });
+        // A `[Pending Pick]` row deleted here is the admin cancelling a
+        // reserved slot ("Clean Phantoms"), which the trail records as a
+        // placeholder removal rather than a game deletion.
+        await RotationAuditService.log({
+            gameRoomId: roomId,
+            tournamentId: game.tournament_id ?? null,
+            tournamentName: null,
+            eventType: game.name === '[Pending Pick]' ? 'placeholder_deleted' : 'game_deleted',
+            actor: adminActor(req),
+            gameId,
+            gameName: game.name,
+            details: game.name === '[Pending Pick]'
+                ? { reason: 'admin_removed', picker: game.picker_discord_id ?? null, previousStatus: game.status }
+                : { route: 'game_states_delete', previousStatus: game.status, iscoredStatus, force: !!parsed.force },
         });
 
         // Explicit audit write — auditMiddleware does NOT fire on router routes.
@@ -7884,6 +8025,21 @@ router.delete('/:roomId/admin/games/:gameId', requireAuth, requireRoomAccess('ro
             hadIScored: !!game.iscored_id,
             iscoredStatus,
             scoresRetained: true,
+        });
+        await RotationAuditService.log({
+            gameRoomId: roomId,
+            tournamentId: game.tournament_id ?? null,
+            tournamentName: null,
+            eventType: 'game_deleted',
+            actor: adminActor(req),
+            gameId,
+            gameName: game.name,
+            details: {
+                route: 'remove_from_leaderboard',
+                previousStatus: game.status,
+                iscoredStatus,
+                scoresRetained: true,
+            },
         });
 
         // Explicit audit write — auditMiddleware does NOT fire on router routes.

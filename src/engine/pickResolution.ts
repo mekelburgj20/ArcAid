@@ -44,9 +44,30 @@ export interface QueuedPick {
     [key: string]: any;
 }
 
+/**
+ * One stored disposition that actually fired during a cascade walk (v2.146.0).
+ * Purely descriptive — it changes no decision, it just gives the rotation audit
+ * trail a structured account of "forfeit/nominate/auto → who it moved to"
+ * instead of forcing the log to re-parse the announcement narrative.
+ */
+export interface AppliedDisposition {
+    /** The player whose stored disposition fired. */
+    playerId: string;
+    disposition: 'auto' | 'forfeit' | 'nominate';
+    /** Set for `nominate` only — who the pick was handed to. */
+    nomineeId?: string;
+    /** Place in the finishing order this was read from (0 = winner). */
+    placeIndex: number;
+}
+
 export type PickOutcome =
-    /** Activate this player's own queued game right now. No window. */
-    | { kind: 'activate'; playerId: string; game: QueuedPick }
+    /**
+     * Activate this player's own queued game right now. No window.
+     * `placeIndex` is the finishing place the cascade was standing on when it
+     * resolved (0 = winner, 1 = runner-up, 2+ = third) — the rotation audit
+     * trail turns it into the activation's `source`.
+     */
+    | { kind: 'activate'; playerId: string; game: QueuedPick; placeIndex: number }
     /** Give this player a pick window; expiry re-enters the cascade below them. */
     | {
           kind: 'window';
@@ -69,6 +90,12 @@ export interface PickResolution {
      * "congrats, X is now active" copy already says that.
      */
     narrative: string[];
+    /**
+     * Every stored disposition that fired on this walk, in order (v2.146.0).
+     * Additive and read-only: consumers that only destructure
+     * `{ outcome, narrative }` are unaffected.
+     */
+    dispositionsApplied: AppliedDisposition[];
 }
 
 export interface PickResolutionDeps {
@@ -98,6 +125,7 @@ export interface PickResolutionDeps {
  */
 export async function resolvePick(deps: PickResolutionDeps): Promise<PickResolution> {
     const narrative: string[] = [];
+    const dispositionsApplied: AppliedDisposition[] = [];
     const places = deps.places.slice(0, MAX_PLACES);
     const start = deps.startPlaceIndex ?? 0;
 
@@ -111,17 +139,21 @@ export async function resolvePick(deps: PickResolutionDeps): Promise<PickResolut
             const queued = await deps.nextQueuedFor(place.playerId);
             if (queued) {
                 narrative.push(`${await deps.labelFor(place.playerId)} had **${queued.name}** queued in third — it takes the slot.`);
-                return { outcome: { kind: 'activate', playerId: place.playerId, game: queued }, narrative };
+                return {
+                    outcome: { kind: 'activate', playerId: place.playerId, game: queued, placeIndex },
+                    narrative,
+                    dispositionsApplied,
+                };
             }
             break;
         }
 
-        const outcome = await resolveAtPlace(deps, place, placeIndex, narrative);
-        if (outcome) return { outcome, narrative };
+        const outcome = await resolveAtPlace(deps, place, placeIndex, narrative, dispositionsApplied);
+        if (outcome) return { outcome, narrative, dispositionsApplied };
         // null → this place declined; advance the pointer.
     }
 
-    return { outcome: { kind: 'auto' }, narrative };
+    return { outcome: { kind: 'auto' }, narrative, dispositionsApplied };
 }
 
 /**
@@ -133,6 +165,7 @@ async function resolveAtPlace(
     place: PickPlace,
     placeIndex: number,
     narrative: string[],
+    dispositionsApplied: AppliedDisposition[],
 ): Promise<PickOutcome | null> {
     const isWinnerPlace = placeIndex === 0;
     const pickerType: 'WINNER' | 'RUNNER_UP' = isWinnerPlace ? 'WINNER' : 'RUNNER_UP';
@@ -162,17 +195,20 @@ async function resolveAtPlace(
 
         if (disposition?.disposition === 'auto') {
             narrative.push(`${label} chose to roll the dice — Arcaid picks the next game.`);
+            dispositionsApplied.push({ playerId: currentId, disposition: 'auto', placeIndex });
             return { kind: 'auto' };
         }
 
         if (disposition?.disposition === 'forfeit') {
             narrative.push(`${label} forfeited the pick.`);
+            dispositionsApplied.push({ playerId: currentId, disposition: 'forfeit', placeIndex });
             return null;
         }
 
         if (disposition?.disposition === 'nominate' && disposition.nominee_discord_id) {
             const nomineeId = disposition.nominee_discord_id;
             narrative.push(`${label} handed their pick to ${await deps.labelFor(nomineeId)}.`);
+            dispositionsApplied.push({ playerId: currentId, disposition: 'nominate', nomineeId, placeIndex });
             currentId = nomineeId;
             currentIscored = null;
             isDirect = false;
@@ -197,7 +233,7 @@ async function resolveAtPlace(
             if (!isWinnerPlace || !isDirect) {
                 narrative.push(`${label} already had **${queued.name}** queued — it takes the slot.`);
             }
-            return { kind: 'activate', playerId: currentId, game: queued };
+            return { kind: 'activate', playerId: currentId, game: queued, placeIndex };
         }
 
         return {
