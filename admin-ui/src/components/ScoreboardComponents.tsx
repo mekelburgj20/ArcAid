@@ -403,7 +403,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
   const [expandedPlayer, setExpandedPlayer] = useState<string | null>(null);
   const [playerHistory, setPlayerHistory] = useState<ScoreHistoryEntry[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
-  const [photoModal, setPhotoModal] = useState<{ playerName: string; score: number; photoUrl: string | null } | null>(null);
+  const [photoModal, setPhotoModal] = useState<{ playerName: string; score: number; photoUrl: string | null; historyId: number; gameName: string } | null>(null);
   const [countdown, setCountdown] = useState<string | null>(
     lb.nextMaintenanceAt ? formatCountdown(lb.nextMaintenanceAt) : null
   );
@@ -835,7 +835,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
                                   {h.photo_url && (
                                     <button
                                       className="text-neon-cyan hover:text-neon-cyan/80 transition-colors cursor-pointer"
-                                      onClick={(e) => { e.stopPropagation(); setPhotoModal({ playerName: expandedPlayer || '', score: h.score, photoUrl: h.photo_url }); }}
+                                      onClick={(e) => { e.stopPropagation(); setPhotoModal({ playerName: expandedPlayer || '', score: h.score, photoUrl: h.photo_url, historyId: h.id, gameName: lb.gameName }); }}
                                       title="View score photo"
                                     >
                                       <Camera size={12} />
@@ -934,6 +934,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
           playerName={photoModal.playerName}
           score={photoModal.score}
           photoUrl={photoModal.photoUrl}
+          sharePath={`/${slug}/games/${encodeURIComponent(photoModal.gameName)}?score=${photoModal.historyId}`}
           onClose={() => setPhotoModal(null)}
         />
       )}

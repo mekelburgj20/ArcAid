@@ -110,7 +110,7 @@ export default function GameQuickView({ lb, slug, fromTab, highlightStat, roomId
   // but ONLY when the row actually has a photo (no dead click). Reuses the
   // SAME lightbox `ScoreboardComponents.tsx`'s legacy GameCard already uses
   // for its own inline history expand — see ScorePhotoModal.tsx.
-  const [photoModal, setPhotoModal] = useState<{ playerName: string; score: number; photoUrl: string } | null>(null);
+  const [photoModal, setPhotoModal] = useState<{ playerName: string; score: number; photoUrl: string; historyId: number | null } | null>(null);
   const {
     expandedPlayer, playerHistory, historyLoading, togglePlayer, hasMultiple, removeHistoryEntry,
   } = useScoreExpand(roomId, lb.gameId ?? '', lb.gameName, (lb.rankings ?? []).length);
@@ -297,7 +297,7 @@ export default function GameQuickView({ lb, slug, fromTab, highlightStat, roomId
               <div key={`${entry.iscored_username}-${entry.rank}`}>
                 <div
                   className={`flex items-center gap-3 py-2 border-b border-border/30 last:border-0 ${rowPhotoUrl ? 'cursor-pointer' : ''}`}
-                  onClick={rowPhotoUrl ? () => setPhotoModal({ playerName: playerName(entry), score: entry.score, photoUrl: rowPhotoUrl }) : undefined}
+                  onClick={rowPhotoUrl ? () => setPhotoModal({ playerName: playerName(entry), score: entry.score, photoUrl: rowPhotoUrl, historyId }) : undefined}
                 >
                   <span
                     className={`font-display font-bold text-sm w-5 text-right tabular-nums flex-shrink-0 ${
@@ -372,7 +372,7 @@ export default function GameQuickView({ lb, slug, fromTab, highlightStat, roomId
                             <div
                               key={h.id}
                               className={`flex items-center gap-2 text-[11px] ${hPhotoUrl ? 'cursor-pointer' : ''}`}
-                              onClick={hPhotoUrl ? () => setPhotoModal({ playerName: playerName(entry), score: h.score, photoUrl: hPhotoUrl }) : undefined}
+                              onClick={hPhotoUrl ? () => setPhotoModal({ playerName: playerName(entry), score: h.score, photoUrl: hPhotoUrl, historyId: h.id }) : undefined}
                             >
                               <span className="text-muted tabular-nums">{h.score.toLocaleString()}</span>
                               {hPhotoUrl && (
@@ -454,6 +454,9 @@ export default function GameQuickView({ lb, slug, fromTab, highlightStat, roomId
           playerName={photoModal.playerName}
           score={photoModal.score}
           photoUrl={photoModal.photoUrl}
+          sharePath={photoModal.historyId != null
+            ? `/${slug}/games/${encodeURIComponent(lb.gameName)}?score=${photoModal.historyId}`
+            : undefined}
           onClose={() => setPhotoModal(null)}
         />
       )}

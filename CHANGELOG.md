@@ -6,6 +6,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.147.0] — Per-score share links with Discord/social embeds
+
+Owner ask: click any individual score (anyone's) and get a Share option — copy link or native share — that unfurls a proper embed in Discord/Slack/etc. showing the player, the score, and a photo (the score's own evidence photo when one exists, else the game's artwork), linking back to that exact score.
+
+### Added
+- **Deep link shape `/:slug/games/:gameName?score=<score_history.id>`** on the existing public game-detail route — no new page, no schema change.
+- **`GET /:roomId/score-share/:historyId`** (public, `roomVisibilityGate`-gated like every other public score read) — `src/api/routes/rooms.ts`. Returns `{ historyId, gameName, score, createdAt, photoUrl, playerName, iscoredUsername }`; `playerName` resolves through the same `user_mappings` → `user_profiles` doctrine as every other leaderboard read, via the shared `resolveProfiles` helper rather than a hand-rolled join.
+- **A `score`-aware OG unfurl variant** in `src/api/ogMeta.ts`: when a preview-bot request for `/:slug/games/:name` carries `?score=<id>` and it resolves to a real row in that room+game, the title becomes `<player> — <score> · <game>`, the description names the room (and date, when parseable), the image is the score's photo falling back to the game's art, and the canonical `og:url` carries the `?score=` param. A miss (deleted score, wrong game, malformed id) falls straight through to the existing plain-game unfurl — never a broken preview. Approval/suspended-room gating is unaffected — those checks run before the new branch.
+- **Share affordances on the frontend:**
+  - `ScorePhotoModal` gained an optional `sharePath` prop — when present, the existing `ShareButton` (icon-only) renders in the header beside the close X. Omitting it leaves the modal byte-identical to before.
+  - The legacy `GameCard`'s inline per-player history expand (`ScoreboardComponents.tsx`) and the game quick popup (`GameQuickView.tsx`) both thread a `historyId` + game name through to build the share link.
+  - `GameDetail.tsx`'s per-player score-history rows (`ScoreHistoryRow`) gained a Share icon next to the existing report/verify/delete icons — every row, photo or not — opening `ScorePhotoModal` for that exact row.
+  - `GameDetail.tsx` also reads `?score=<id>` on mount and fetches the share payload to open the same modal directly — the deep-link landing experience. A miss is silent (no modal, page renders normally), matching the OG variant's fail-open contract.
+
+### Tests
+- `src/__tests__/s16-og-meta.test.ts` — four new cases: photo hit, photo-less hit (falls back to game art), bad/malformed id (byte-identical to the plain unfurl modulo per-listener origin), and an approval-policy room (unmodified shell even with a score param).
+- `src/__tests__/score-share.test.ts` (new) — the endpoint's display-name resolution (raw username, linked profile, `iscored:*` synthetic-id fallback), 404s (missing id, non-numeric id, wrong room), and the approval-room 403.
+- `admin-ui/src/components/__tests__/ScorePhotoModal.test.tsx` (new) — the Share button renders only when `sharePath` is given.
+
 ## [2.146.0] — Rotation audit trail
 
 Owner-asked after the 2026-08-27 WG-VR/WG-VPXS over-activation incident: reconstructing "who or what picked what, and what triggered it" required prod-log grepping and DB archaeology. Now every rotation decision writes one structured, append-only event at the moment it happens, and room admins read them in the UI.
