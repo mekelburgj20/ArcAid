@@ -5,6 +5,29 @@
 
 ---
 
+## VPX score ingestion — TOP PRIORITY after Arcaid Witness ships (owner ruling 2026-08-29)
+
+Two arcs, discovered via the Witness round-4b signals run (FINDINGS-0q): the VPX-on-ALP ecosystem is
+the third-party **vpx-standalone** launcher, and it keeps machine-readable score/session records.
+
+1. **VPXS-on-ALP score ingestion.** Each played table's stick tree carries
+   `scoreserver/vpx-<table>-games.jsonl` (per-GAME records) + `data/leaderboard.json`, and the stick
+   root has `vpx-sessions.json` (48KB session journal) + `vpx-launcher.log`. The Witness runs from
+   the SAME partition and can read all of it — a beacon-side reader could report VPX scores (not
+   just play sessions) to Arcaid. Open questions: journal schema (capture one on the next tester
+   run), score trust model (these are launcher-recorded, not witnessed at the display — ADR
+   needed), and identity (stick owner = paired account, probably sufficient).
+2. **Realtime automatic scores from VPX tables on PC** (owner: "EXTREMELY excited"). The
+   vpx-standalone ecosystem has a scoreserver channel model (seen in its license blob:
+   `channels: bundle/launcher/tablemanager`); PC VPinballX standalone presumably feeds the same
+   kind of per-game records. Investigate: their scoreserver protocol/API, whether an Arcaid PC
+   agent (witness-agent precedent) or a direct integration can subscribe, and licensing/etiquette
+   of reading it. Prize: live VPX score flow into Arcaid rooms/events from ANY PC — beyond the
+   AtGames ecosystem entirely.
+
+Sequencing: do not start until Witness round 5 (production) + its live-event graduation test are
+done; then this is next, ahead of everything else queued below.
+
 ## Rotation audit trail — room-admin-visible decision log (owner-asked 2026-08-27)
 
 Prompted by the 2026-08-27 slot-reservation incident (WG-VR / WG-VPXS over-activation): reconstructing "who or what picked what, and what triggered it" required grepping prod logs + DB archaeology. The owner wants that answerable from the game room's admin UI without asking Claude.
