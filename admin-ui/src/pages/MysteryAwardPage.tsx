@@ -148,7 +148,10 @@ export default function MysteryAwardPage() {
             {/* Header — back link (left) + login CTA (right). The tournament
                 pool selector is now rendered as a "cabinet topper" inside
                 the MysteryAward component instead of in this top nav row. */}
-            <div className="fixed top-0 left-0 right-0 z-[60] px-4 py-3 flex items-center justify-between gap-2 pointer-events-none">
+            <div
+                className="fixed top-0 left-0 right-0 z-[60] px-4 py-3 flex items-center justify-between gap-2 pointer-events-none"
+                style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}
+            >
                 <Link
                     to={`/${slug}`}
                     className="pointer-events-auto inline-flex items-center gap-1 text-xs text-muted hover:text-neon-cyan no-underline"

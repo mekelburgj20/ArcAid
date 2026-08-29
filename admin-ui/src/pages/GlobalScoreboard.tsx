@@ -566,7 +566,10 @@ export default function GlobalScoreboard() {
     <div className="min-h-screen bg-deep text-primary">
       {/* Header */}
       <div className="border-b border-border bg-surface/80 backdrop-blur-sm sticky top-0 z-20">
-        <div className="px-4 sm:px-6 lg:px-10 py-4 flex items-center justify-between gap-3">
+        <div
+          className="px-4 sm:px-6 lg:px-10 py-4 flex items-center justify-between gap-3"
+          style={{ paddingTop: 'max(1rem, env(safe-area-inset-top))' }}
+        >
           <BrandWordmark />
           <div className="flex items-center gap-3">
             <Link to="/" className="text-xs text-muted hover:text-neon-cyan no-underline hidden sm:inline">

@@ -327,6 +327,13 @@ export default function EventDetail({ throwdownCode }: EventDetailProps = {}) {
         }
     };
 
+    // Throwdown mode renders with no surrounding layout, so this page's own
+    // top edge must clear the status-bar/notch safe area (viewport-fit=cover).
+    // Under PublicLayout (/:slug/events/:id) the layout's nav already does.
+    const mainStyle = isThrowdown
+        ? { paddingTop: 'max(1.5rem, env(safe-area-inset-top))' }
+        : undefined;
+
     const backLink = (
         <Link
             to={roomSlug ? `/${roomSlug}` : '/scoreboard'}
@@ -339,7 +346,7 @@ export default function EventDetail({ throwdownCode }: EventDetailProps = {}) {
 
     if (loading) {
         return (
-            <main className="max-w-4xl mx-auto px-4 sm:px-6 py-6">
+            <main className="max-w-4xl mx-auto px-4 sm:px-6 py-6" style={mainStyle}>
                 {backLink}
                 <div className="flex justify-center py-12">
                     <div className="w-8 h-8 border-2 border-neon-cyan/30 border-t-neon-cyan rounded-full animate-spin" />
@@ -350,7 +357,7 @@ export default function EventDetail({ throwdownCode }: EventDetailProps = {}) {
 
     if (notFound || !data) {
         return (
-            <main className="max-w-4xl mx-auto px-4 sm:px-6 py-6">
+            <main className="max-w-4xl mx-auto px-4 sm:px-6 py-6" style={mainStyle}>
                 {backLink}
                 <p className="text-muted text-center py-12">
                     {isThrowdown
@@ -366,7 +373,7 @@ export default function EventDetail({ throwdownCode }: EventDetailProps = {}) {
     const totalRounds = rounds.length;
 
     return (
-        <main className="max-w-4xl mx-auto px-4 sm:px-6 py-6">
+        <main className="max-w-4xl mx-auto px-4 sm:px-6 py-6" style={mainStyle}>
             {backLink}
 
             <header className="mt-3 mb-6">

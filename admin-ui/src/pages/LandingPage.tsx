@@ -148,7 +148,10 @@ export default function LandingPage() {
           the UserMenu dropdown's z-50 inside it — without a z-index here the
           whole header paints below the position:relative sections that follow. */}
       <div className="border-b border-border bg-surface/80 backdrop-blur-sm relative z-40">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
+        <div
+          className="max-w-5xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between"
+          style={{ paddingTop: 'max(1rem, env(safe-area-inset-top))' }}
+        >
           <div className="flex items-center gap-3">
             {/* noLink: this page IS `/` — BrandWordmark's default self-link
                 would be a no-op navigation to the current page. */}
