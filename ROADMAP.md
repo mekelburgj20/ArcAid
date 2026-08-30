@@ -28,6 +28,14 @@ the third-party **vpx-standalone** launcher, and it keeps machine-readable score
 Sequencing: do not start until Witness round 5 (production) + its live-event graduation test are
 done; then this is next, ahead of everything else queued below.
 
+> **Arc 2 now has a full plan: [`docs/vpx-desktop-witness-plan.md`](docs/vpx-desktop-witness-plan.md)**
+> (2026-08-30). Research arc complete — the cabinet scoreserver was identified (`superhac/score-server`
+> reading the public `pinmame-nvram-maps` corpus), and the equivalent live plumbing was verified to
+> already exist in VPX **10.8.0** (`core.vbs` line 2457 polls `Controller.ChangedNVRAM` every frame).
+> Owner rulings locked: 10.8.0 only (10.8.1 is beta), Node/TS agent reusing `scripts/witness-agent.ts`,
+> and near-zero barrier — the default install modifies nothing, the script hook is a one-click opt-in.
+> The plan carries the owner's test list (Rounds A–D); Rounds A and B gate everything.
+
 ## Rotation audit trail — room-admin-visible decision log (owner-asked 2026-08-27)
 
 Prompted by the 2026-08-27 slot-reservation incident (WG-VR / WG-VPXS over-activation): reconstructing "who or what picked what, and what triggered it" required grepping prod logs + DB archaeology. The owner wants that answerable from the game room's admin UI without asking Claude.
