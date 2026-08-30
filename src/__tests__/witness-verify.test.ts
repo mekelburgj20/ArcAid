@@ -77,15 +77,28 @@ async function atgamesScore(opts: {
 /** A cabinet observation, as the Witness app reports one. */
 async function observe(opts: {
     userId: string; table?: string; launchMs: number; exitMs: number; device?: string;
+    via?: 'live' | 'retro';
 }) {
     const db = await getDatabase();
     const launch = Math.floor(opts.launchMs / 1000);
     const exit = Math.floor(opts.exitMs / 1000);
     await db.run(
         `INSERT INTO witness_observations
-            (atgames_unique_id, canonical_user_id, table_name, launch_ts, exit_ts, duration_sec)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+            (atgames_unique_id, canonical_user_id, table_name, launch_ts, exit_ts, duration_sec, via)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
         opts.device ?? DEVICE, opts.userId, opts.table ?? 'aerobatics', launch, exit, exit - launch,
+        opts.via ?? 'live',
+    );
+}
+
+/** A round-start check-in — tier 2. The stored time is the SERVER's, so tests set it explicitly. */
+async function checkin(opts: { userId: string; atMs: number; device?: string }) {
+    const db = await getDatabase();
+    await db.run(
+        `INSERT INTO witness_checkins (atgames_unique_id, canonical_user_id, server_ts)
+         VALUES (?, ?, ?)`,
+        opts.device ?? DEVICE, opts.userId,
+        new Date(opts.atMs).toISOString().replace('T', ' ').slice(0, 19),
     );
 }
 
@@ -150,7 +163,8 @@ describe('WitnessVerifyService — verdicts', () => {
             { identityKey: USER, createdEpoch: Math.floor((BASE + 5 * MINUTE) / 1000), source: 'atgames' },
         ]);
         expect(v).toEqual({
-            status: 'unwitnessed', launchTs: null, exitTs: null, durationSec: null, table: null,
+            status: 'unwitnessed', method: null, launchTs: null, exitTs: null,
+            durationSec: null, table: null, via: null, checkinTs: null,
         });
     });
 
@@ -241,6 +255,155 @@ describe('WitnessVerifyService — verdicts', () => {
     it('exposes its tolerances as the constants the rest of the system reads', () => {
         expect(JOIN_TOLERANCE_SEC).toBe(120);
         expect(LAUNCH_GRACE_SEC).toBe(15);
+    });
+
+    it('carries method:session and the observation`s via tag on a tier-1 verdict', async () => {
+        await observe({ userId: USER, launchMs: BASE + 2 * MINUTE, exitMs: BASE + 10 * MINUTE });
+
+        const [v] = await verdict([
+            { identityKey: USER, createdEpoch: Math.floor((BASE + 10 * MINUTE) / 1000), source: 'atgames' },
+        ]);
+        expect(v).toMatchObject({ status: 'verified', method: 'session', via: 'live', checkinTs: null });
+    });
+
+    it('treats a RETRO observation exactly like a live one, tagging it only', async () => {
+        // Owner ruling 2026-08-29: same trust, tagged. A retro-derived session
+        // describes the same play, read from the same device — downgrading it
+        // would throw away real evidence for a distinction that changes nothing.
+        await observe({
+            userId: USER, launchMs: BASE + 2 * MINUTE, exitMs: BASE + 10 * MINUTE, via: 'retro',
+        });
+
+        const [v] = await verdict([
+            { identityKey: USER, createdEpoch: Math.floor((BASE + 10 * MINUTE) / 1000), source: 'atgames' },
+        ]);
+        expect(v).toMatchObject({ status: 'verified', method: 'session', via: 'retro' });
+    });
+});
+
+describe('WitnessVerifyService — tier 2, the check-in attestation', () => {
+    beforeEach(async () => { await setupTestDb(); });
+
+    const verdict = (rows: Array<{ identityKey: string; createdEpoch: number | null; source: string | null }>) =>
+        WitnessVerifyService.verdictsForRound({ roundStartEpoch: BASE_EPOCH, rows });
+
+    it('verifies on a check-in inside the window when no session was observed', async () => {
+        // The cabinet runs one thing at a time: the Witness being open at
+        // BASE+1m proves no table was mid-session then, so a score that exited
+        // at BASE+9m was necessarily launched inside the round.
+        await checkin({ userId: USER, atMs: BASE + 1 * MINUTE });
+
+        const [v] = await verdict([
+            { identityKey: USER, createdEpoch: Math.floor((BASE + 9 * MINUTE) / 1000), source: 'atgames' },
+        ]);
+        expect(v).toEqual({
+            status: 'verified',
+            method: 'checkin',
+            // A check-in dates the play; it does not measure it.
+            launchTs: null, exitTs: null, durationSec: null, table: null, via: null,
+            checkinTs: Math.floor((BASE + 1 * MINUTE) / 1000),
+        });
+    });
+
+    it('accepts a check-in inside the launch grace, exactly as tier 1 does', async () => {
+        await checkin({ userId: USER, atMs: BASE - (LAUNCH_GRACE_SEC - 5) * 1000 });
+
+        const [v] = await verdict([
+            { identityKey: USER, createdEpoch: Math.floor((BASE + 6 * MINUTE) / 1000), source: 'atgames' },
+        ]);
+        expect(v?.status).toBe('verified');
+        expect(v?.method).toBe('checkin');
+    });
+
+    it('proves nothing from a check-in BEFORE the round opened', async () => {
+        // The cabinet could have been idle then and busy with a geared-up table
+        // by the time the round started.
+        await checkin({ userId: USER, atMs: BASE - 20 * MINUTE });
+
+        const [v] = await verdict([
+            { identityKey: USER, createdEpoch: Math.floor((BASE + 9 * MINUTE) / 1000), source: 'atgames' },
+        ]);
+        expect(v?.status).toBe('unwitnessed');
+        expect(v?.method).toBeNull();
+    });
+
+    it('proves nothing from a check-in AFTER the score exited', async () => {
+        await checkin({ userId: USER, atMs: BASE + 15 * MINUTE });
+
+        const [v] = await verdict([
+            { identityKey: USER, createdEpoch: Math.floor((BASE + 9 * MINUTE) / 1000), source: 'atgames' },
+        ]);
+        expect(v?.status).toBe('unwitnessed');
+    });
+
+    it('never joins a check-in owned by a DIFFERENT user', async () => {
+        await checkin({ userId: OTHER, atMs: BASE + 1 * MINUTE });
+
+        const [v] = await verdict([
+            { identityKey: USER, createdEpoch: Math.floor((BASE + 9 * MINUTE) / 1000), source: 'atgames' },
+        ]);
+        expect(v?.status).toBe('unwitnessed');
+    });
+
+    it('resolves a check-in through the identity link graph', async () => {
+        const db = await getDatabase();
+        await db.run(
+            `INSERT INTO user_identity_links (provider_user_id, canonical_user_id) VALUES ('google:abc', ?)`,
+            USER,
+        );
+        await checkin({ userId: 'google:abc', atMs: BASE + 1 * MINUTE });
+
+        const [v] = await verdict([
+            { identityKey: USER, createdEpoch: Math.floor((BASE + 9 * MINUTE) / 1000), source: 'atgames' },
+        ]);
+        expect(v?.method).toBe('checkin');
+    });
+
+    it('lets tier 1 win when a session AND a check-in could both fire', async () => {
+        await observe({ userId: USER, launchMs: BASE + 2 * MINUTE, exitMs: BASE + 9 * MINUTE });
+        await checkin({ userId: USER, atMs: BASE + 1 * MINUTE });
+
+        const [v] = await verdict([
+            { identityKey: USER, createdEpoch: Math.floor((BASE + 9 * MINUTE) / 1000), source: 'atgames' },
+        ]);
+        expect(v?.method).toBe('session');
+        expect(v?.durationSec).toBe(7 * 60);
+    });
+
+    it('leaves a FLAGGED row flagged — a check-in never talks a verdict down', async () => {
+        // The expensive regression: gear-up evidenced by a real session, then
+        // excused by opening the app. Tier 2 only ever upgrades an
+        // `unwitnessed`, and never revisits tier 1.
+        await observe({ userId: USER, launchMs: BASE - 12 * MINUTE, exitMs: BASE + 9 * MINUTE });
+        await checkin({ userId: USER, atMs: BASE + 1 * MINUTE });
+
+        const [v] = await verdict([
+            { identityKey: USER, createdEpoch: Math.floor((BASE + 9 * MINUTE) / 1000), source: 'atgames' },
+        ]);
+        expect(v?.status).toBe('flagged');
+        expect(v?.method).toBe('session');
+    });
+
+    it('gives a check-in verdict to no row that is not AtGames-sourced', async () => {
+        await checkin({ userId: USER, atMs: BASE + 1 * MINUTE });
+
+        const verdicts = await verdict([
+            { identityKey: USER, createdEpoch: Math.floor((BASE + 9 * MINUTE) / 1000), source: 'community' },
+            { identityKey: USER, createdEpoch: null, source: 'atgames' },
+        ]);
+        expect(verdicts).toEqual([null, null]);
+    });
+
+    it('picks the LATEST qualifying check-in when several are in the window', async () => {
+        // More check-ins can only ever help, and the tightest gap between
+        // "cabinet was free" and "score landed" is the strongest claim.
+        await checkin({ userId: USER, atMs: BASE + 1 * MINUTE });
+        await checkin({ userId: USER, atMs: BASE + 7 * MINUTE });
+
+        const [v] = await verdict([
+            { identityKey: USER, createdEpoch: Math.floor((BASE + 9 * MINUTE) / 1000), source: 'atgames' },
+        ]);
+        expect(v?.checkinTs).toBe(Math.floor((BASE + 7 * MINUTE) / 1000));
     });
 });
 

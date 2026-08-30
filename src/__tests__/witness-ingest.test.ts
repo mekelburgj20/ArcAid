@@ -141,6 +141,135 @@ describe('Witness ingest', () => {
     });
 });
 
+describe('Witness report — the retro tag (v2.148.0, ADR 0021)', () => {
+    let app: express.Express;
+    beforeEach(async () => { app = await createTestApp(); });
+
+    const viaOf = async (launch: number) => {
+        const db = await getDatabase();
+        const row = await db.get<{ via: string }>(
+            'SELECT via FROM witness_observations WHERE atgames_unique_id = ? AND launch_ts = ?',
+            DEVICE, launch,
+        );
+        return row?.via;
+    };
+
+    it('stores via=retro when the device says so', async () => {
+        const { token } = await pairDevice(app);
+        await request(app).get('/api/witness/report').query({
+            device: DEVICE, token, table: 'aerobatics', launch: 1756200000, exit: 1756200073, via: 'retro',
+        });
+        expect(await viaOf(1756200000)).toBe('retro');
+    });
+
+    it('defaults to live when via is absent', async () => {
+        const { token } = await pairDevice(app);
+        await request(app).get('/api/witness/report').query({
+            device: DEVICE, token, table: 'aerobatics', launch: 1756200100, exit: 1756200173,
+        });
+        expect(await viaOf(1756200100)).toBe('live');
+    });
+
+    it('coerces any other value to live — a typo must never mark a live report retro', async () => {
+        const { token } = await pairDevice(app);
+        await request(app).get('/api/witness/report').query({
+            device: DEVICE, token, table: 'aerobatics', launch: 1756200200, exit: 1756200273, via: 'RETRO-ish',
+        });
+        expect(await viaOf(1756200200)).toBe('live');
+    });
+
+    it('does not let a re-report overwrite the via of an existing row (first writer wins)', async () => {
+        const { token } = await pairDevice(app);
+        const base = { device: DEVICE, token, table: 'aerobatics', launch: 1756200300 };
+        await request(app).get('/api/witness/report').query({ ...base, exit: 1756200373, via: 'retro' });
+        // A live report of the same session must not overstate what was seen…
+        await request(app).get('/api/witness/report').query({ ...base, exit: 1756200373 });
+        expect(await viaOf(1756200300)).toBe('retro');
+    });
+});
+
+describe('Witness check-in (tier 2, ADR 0021)', () => {
+    let app: express.Express;
+    beforeEach(async () => { app = await createTestApp(); });
+
+    it('records a server-stamped check-in and touches last_seen_at', async () => {
+        const { token } = await pairDevice(app);
+        const res = await request(app).get('/api/witness/checkin').query({ device: DEVICE, token });
+        expect(res.status).toBe(200);
+        expect(res.body.ok).toBe(true);
+        // The returned ts IS the stored one — the cabinet has nothing else to go on.
+        expect(res.body.ts).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
+
+        const db = await getDatabase();
+        const row = await db.get<{ canonical_user_id: string; server_ts: string }>(
+            'SELECT canonical_user_id, server_ts FROM witness_checkins WHERE atgames_unique_id = ?', DEVICE,
+        );
+        expect(row?.canonical_user_id).toBe(USER);
+        expect(row?.server_ts).toBe(res.body.ts);
+
+        const device = await db.get<{ last_seen_at: string | null }>(
+            'SELECT last_seen_at FROM witness_devices WHERE atgames_unique_id = ?', DEVICE,
+        );
+        expect(device?.last_seen_at).toBeTruthy();
+    });
+
+    it('never accepts a client-supplied timestamp — the whole point of tier 2', async () => {
+        const { token } = await pairDevice(app);
+        // Anything the device sends about the time is ignored: a check-in whose
+        // time the device chooses is a self-report worth nothing.
+        const res = await request(app).get('/api/witness/checkin')
+            .query({ device: DEVICE, token, ts: 1, server_ts: '1999-01-01 00:00:00' });
+        expect(res.status).toBe(200);
+        expect(res.body.ts.startsWith('1999')).toBe(false);
+    });
+
+    it('rejects an unknown device with a bare 401, writing nothing', async () => {
+        const res = await request(app).get('/api/witness/checkin').query({ device: 'never-paired', token: 'x' });
+        expect(res.status).toBe(401);
+        expect(res.body).toEqual({ ok: false });
+
+        const db = await getDatabase();
+        const count = await db.get<{ n: number }>('SELECT COUNT(*) AS n FROM witness_checkins');
+        expect(count?.n).toBe(0);
+    });
+
+    it('rejects a wrong token with the same undifferentiated 401', async () => {
+        await pairDevice(app);
+        const res = await request(app).get('/api/witness/checkin').query({ device: DEVICE, token: 'nope' });
+        expect(res.status).toBe(401);
+        expect(res.body).toEqual({ ok: false });
+    });
+
+    it('stops accepting check-ins after the device is unpaired', async () => {
+        const { token } = await pairDevice(app);
+        await request(app)
+            .delete(`/api/me/witness/devices/${DEVICE}`)
+            .set('Authorization', `Bearer ${playerToken(USER)}`);
+
+        const res = await request(app).get('/api/witness/checkin').query({ device: DEVICE, token });
+        expect(res.status).toBe(401);
+    });
+
+    it('accepts the token via the x-witness-token header too', async () => {
+        const { token } = await pairDevice(app);
+        const res = await request(app)
+            .get('/api/witness/checkin').set('x-witness-token', token).query({ device: DEVICE });
+        expect(res.status).toBe(200);
+    });
+
+    it('keeps EVERY check-in — each one is another attestation point', async () => {
+        const { token } = await pairDevice(app);
+        await request(app).get('/api/witness/checkin').query({ device: DEVICE, token });
+        await request(app).get('/api/witness/checkin').query({ device: DEVICE, token });
+
+        const db = await getDatabase();
+        const count = await db.get<{ n: number }>(
+            'SELECT COUNT(*) AS n FROM witness_checkins WHERE atgames_unique_id = ?', DEVICE,
+        );
+        expect(count?.n).toBe(2);
+    });
+});
+
 describe('Witness pairing codes', () => {
     let app: express.Express;
     beforeEach(async () => { app = await createTestApp(); });

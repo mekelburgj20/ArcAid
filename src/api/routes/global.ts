@@ -242,15 +242,39 @@ router.get('/witness/report', witnessIngestLimiter, async (req, res) => {
         const launchTs = Number(req.query.launch);
         const exitTs = req.query.exit !== undefined ? Number(req.query.exit) : null;
         const durationSec = req.query.dur !== undefined ? Number(req.query.dur) : null;
+        // `via=retro` marks a session derived from on-disk traces after the
+        // fact. Only that exact literal is honoured; everything else is a live
+        // report (the service enforces it too — this is not the only caller).
+        const via = typeof req.query.via === 'string' ? req.query.via : null;
 
         const ok = await WitnessService.recordObservation({
-            atgamesUniqueId: device, token, tableName: table, launchTs, exitTs, durationSec,
+            atgamesUniqueId: device, token, tableName: table, launchTs, exitTs, durationSec, via,
         });
         // One 401 for unknown device / bad token / revoked — never says which.
         if (!ok) return res.status(401).json({ ok: false });
         res.json({ ok: true });
     } catch (error) {
         logError('API Error (GET /api/witness/report)');
+        res.status(500).json({ ok: false });
+    }
+});
+
+// Device: the round-start CHECK-IN (tier 2, ADR 0021). The device asserts only
+// "the Witness is open right now"; the TIMESTAMP IS THE SERVER'S, deliberately —
+// a client-supplied time would turn the whole attestation into a self-report.
+// Same auth and same bare 401 as /witness/report.
+router.get('/witness/checkin', witnessIngestLimiter, async (req, res) => {
+    try {
+        const { WitnessService } = await import('../../services/WitnessService.js');
+        const device = typeof req.query.device === 'string' ? req.query.device : '';
+        const token = (typeof req.query.token === 'string' && req.query.token)
+            || (typeof req.headers['x-witness-token'] === 'string' ? req.headers['x-witness-token'] as string : '');
+
+        const result = await WitnessService.recordCheckin(device, token);
+        if (!result) return res.status(401).json({ ok: false });
+        res.json({ ok: true, ts: result.ts });
+    } catch (error) {
+        logError('API Error (GET /api/witness/checkin)');
         res.status(500).json({ ok: false });
     }
 });

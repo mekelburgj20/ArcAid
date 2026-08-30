@@ -2920,6 +2920,45 @@ async function doInitDatabase(): Promise<Database> {
             CREATE INDEX IF NOT EXISTS idx_rotation_events_tournament
                 ON rotation_events(tournament_id, created_at DESC);
         ` },
+        // P8 round 5 — Arcaid Witness three-tier verification (ADR 0021).
+        //
+        // `witness_checkins` is the tier-2 attestation: the player opened the
+        // Witness on the cabinet at (or after) a round start. These cabinets run
+        // ONE thing at a time, so an app in the foreground proves no table was
+        // mid-session at that instant — which is why the row needs no payload
+        // beyond WHO, WHICH CABINET and WHEN.
+        //
+        // `server_ts` is the SERVER's clock and the device may not supply it.
+        // The whole value of a check-in is that its timestamp is not the
+        // device's to choose; accepting a client time would make tier 2 a
+        // self-attestation worth nothing.
+        //
+        // NO FOREIGN KEYS, deliberately — same audit-log doctrine as
+        // `witness_observations` and `maintenance_runs`: these rows outlive the
+        // device row and the account that paired it.
+        //
+        // `witness_observations.via` distinguishes an observation the beacon saw
+        // LIVE from one derived retroactively from on-disk traces. Owner ruling
+        // (2026-08-29): same trust, tagged — the tag preserves the distinction
+        // for later without letting it change a verdict today.
+        { name: '171_witness_checkins', handler: async (db) => {
+            await db.exec(`
+                CREATE TABLE IF NOT EXISTS witness_checkins (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    atgames_unique_id TEXT NOT NULL,
+                    canonical_user_id TEXT NOT NULL,
+                    server_ts DATETIME DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE INDEX IF NOT EXISTS idx_witness_checkins_user
+                    ON witness_checkins(canonical_user_id, server_ts);
+                CREATE INDEX IF NOT EXISTS idx_witness_checkins_device
+                    ON witness_checkins(atgames_unique_id, server_ts);
+            `);
+            const cols = (await db.all(`PRAGMA table_info(witness_observations)`)) as Array<{ name: string }>;
+            if (!cols.some(c => c.name === 'via')) {
+                await db.exec(`ALTER TABLE witness_observations ADD COLUMN via TEXT NOT NULL DEFAULT 'live'`);
+            }
+        } },
     ];
 
     for (const migration of migrations) {
