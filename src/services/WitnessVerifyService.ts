@@ -28,6 +28,28 @@ import { IdentityLinkService } from './IdentityLinkService.js';
  * clock is minutes off produces no match at all, which reads as `unwitnessed`
  * rather than as a false `verified`.
  *
+ * ## Three tiers of evidence (v2.148.0, ADR 0021)
+ *
+ * 1. **Session join** — the join above. Strongest: the cabinet saw this exact
+ *    table open and close.
+ * 2. **Check-in attestation** — no session matched, but the player opened the
+ *    Witness on the cabinet at/after the round start and before this score
+ *    exited. These cabinets run ONE thing at a time, so an app in the
+ *    foreground proves no table was mid-session at that instant: anything that
+ *    exited afterwards was necessarily launched inside the window. It can only
+ *    ever UPGRADE an `unwitnessed` — a check-in never accuses anybody, so tier
+ *    2 cannot produce `flagged`.
+ * 3. **Retro-derived observations** — sessions reconstructed from on-disk
+ *    traces rather than seen live. SAME TRUST, tagged (`via = 'retro'`) so the
+ *    distinction survives without changing today's verdict.
+ *
+ * ## Why check-in time is the SERVER's
+ *
+ * Because everything else here is the device's. The session join tolerates a
+ * device clock precisely because it must AGREE with AtGames' independent stamp;
+ * a check-in has no second clock to agree with, so its timestamp is taken at
+ * the moment the request arrives and the device is never asked for one.
+ *
  * ## Why `table_name` is surfaced but never matched
  *
  * The witness reports the ENGINE-INTERNAL table id (`aerobatics`), which lives
@@ -49,6 +71,17 @@ import { IdentityLinkService } from './IdentityLinkService.js';
 
 export type WitnessVerdict = {
     status: 'verified' | 'flagged' | 'unwitnessed';
+    /**
+     * WHICH tier produced this verdict (v2.148.0, ADR 0021):
+     *
+     *   - `'session'` — a table session was joined (tier 1). Carries times.
+     *   - `'checkin'` — no session joined, but the cabinet attested it was idle
+     *     inside the window before this score exited (tier 2). Carries no
+     *     duration: a check-in says WHEN the cabinet was free, not how long the
+     *     table was played.
+     *   - `null` — `unwitnessed`; no tier applied.
+     */
+    method: 'session' | 'checkin' | null;
     /** epoch sec, from the joined observation. */
     launchTs: number | null;
     exitTs: number | null;
@@ -58,6 +91,16 @@ export type WitnessVerdict = {
      * informational only, deliberately NOT matched against the catalogue name.
      */
     table: string | null;
+    /**
+     * How the joined observation was gathered: `'live'` (the resident beacon
+     * saw it happen) or `'retro'` (derived from on-disk traces afterwards).
+     * SAME TRUST — the tag is carried so a host and a later analysis can tell
+     * them apart, and it deliberately does not change the verdict. `null` on a
+     * check-in or unwitnessed verdict, which joined no observation.
+     */
+    via: 'live' | 'retro' | null;
+    /** epoch sec of the attestation behind a `'checkin'` verdict. */
+    checkinTs: number | null;
 };
 
 /**
@@ -87,6 +130,13 @@ interface ObservationRow {
     launch_ts: number;
     exit_ts: number;
     duration_sec: number | null;
+    via: string | null;
+}
+
+interface CheckinRow {
+    canonical_user_id: string;
+    /** `server_ts` as epoch seconds — the server's clock, never the device's. */
+    ts: number;
 }
 
 export class WitnessVerifyService {
@@ -132,7 +182,7 @@ export class WitnessVerifyService {
         const db = await getDatabase();
         const placeholders = allOwners.map(() => '?').join(', ');
         const observations = await db.all<ObservationRow[]>(
-            `SELECT canonical_user_id, table_name, launch_ts, exit_ts, duration_sec
+            `SELECT canonical_user_id, table_name, launch_ts, exit_ts, duration_sec, via
                FROM witness_observations
               WHERE exit_ts IS NOT NULL
                 AND exit_ts BETWEEN ? AND ?
@@ -140,6 +190,8 @@ export class WitnessVerifyService {
             lo, hi, ...allOwners,
         );
 
+        // --- Tier 1: join a table SESSION -----------------------------------
+        const unresolved: Array<{ row: typeof eligible[number]['row']; i: number }> = [];
         for (const { row, i } of eligible) {
             const owners = ownersByKey.get(row.identityKey)!;
             const createdEpoch = row.createdEpoch!;
@@ -154,21 +206,95 @@ export class WitnessVerifyService {
             }
 
             if (!best) {
-                verdicts[i] = {
-                    status: 'unwitnessed', launchTs: null, exitTs: null, durationSec: null, table: null,
-                };
+                unresolved.push({ row, i });
                 continue;
             }
 
             verdicts[i] = {
                 status: best.launch_ts >= roundStartEpoch - LAUNCH_GRACE_SEC ? 'verified' : 'flagged',
+                method: 'session',
                 launchTs: best.launch_ts,
                 exitTs: best.exit_ts,
                 durationSec: best.duration_sec,
                 table: best.table_name,
+                // A retro-derived observation is trusted exactly as a live one
+                // (owner ruling, 2026-08-29) — the tag rides along, it does not
+                // decide anything.
+                via: best.via === 'retro' ? 'retro' : 'live',
+                checkinTs: null,
             };
         }
 
+        // --- Tier 2: the round-start CHECK-IN attestation --------------------
+        //
+        // Only for rows tier 1 could not resolve. A `flagged` row is NEVER
+        // revisited: an accusation, once evidenced by a real session, cannot be
+        // talked out of by a later attestation — and tier 2 can only ever
+        // UPGRADE an `unwitnessed`, never produce a `flagged` of its own.
+        if (unresolved.length > 0) {
+            const checkins = await WitnessVerifyService.loadCheckins(
+                db, allOwners, roundStartEpoch - LAUNCH_GRACE_SEC, Math.max(...epochs),
+            );
+
+            for (const { row, i } of unresolved) {
+                const owners = ownersByKey.get(row.identityKey)!;
+                const createdEpoch = row.createdEpoch!;
+
+                // The nearest qualifying check-in BEFORE the score exited: the
+                // tighter the gap between "cabinet was idle" and "score
+                // landed", the less room there is for anything in between.
+                let bestTs: number | null = null;
+                for (const checkin of checkins) {
+                    if (!owners.has(checkin.canonical_user_id)) continue;
+                    // A check-in AFTER the score exited proves nothing about
+                    // it, and one from BEFORE the round opened proves nothing
+                    // either (the cabinet could have been idle then and busy
+                    // with a geared-up table by the time the round started).
+                    if (checkin.ts > createdEpoch) continue;
+                    if (checkin.ts < roundStartEpoch - LAUNCH_GRACE_SEC) continue;
+                    if (bestTs == null || checkin.ts > bestTs) bestTs = checkin.ts;
+                }
+
+                verdicts[i] = bestTs != null
+                    ? {
+                        status: 'verified',
+                        method: 'checkin',
+                        // A check-in dates the cabinet being FREE, not the
+                        // table being played — so there is no launch, no exit
+                        // and deliberately no duration to report.
+                        launchTs: null, exitTs: null, durationSec: null, table: null, via: null,
+                        checkinTs: bestTs,
+                    }
+                    : {
+                        status: 'unwitnessed',
+                        method: null,
+                        launchTs: null, exitTs: null, durationSec: null, table: null, via: null,
+                        checkinTs: null,
+                    };
+            }
+        }
+
         return verdicts;
+    }
+
+    /**
+     * The check-ins for a set of owners inside one round's evidence window, in
+     * ONE query — the same batching rule the observation load follows, for the
+     * same reason (a per-score query would issue one round trip per player).
+     */
+    private static async loadCheckins(
+        db: Awaited<ReturnType<typeof getDatabase>>,
+        owners: string[],
+        loEpoch: number,
+        hiEpoch: number,
+    ): Promise<CheckinRow[]> {
+        const placeholders = owners.map(() => '?').join(', ');
+        return db.all<CheckinRow[]>(
+            `SELECT canonical_user_id, CAST(strftime('%s', server_ts) AS INTEGER) AS ts
+               FROM witness_checkins
+              WHERE canonical_user_id IN (${placeholders})
+                AND CAST(strftime('%s', server_ts) AS INTEGER) BETWEEN ? AND ?`,
+            ...owners, loEpoch, hiEpoch,
+        );
     }
 }

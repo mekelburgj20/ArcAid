@@ -30,10 +30,19 @@ import { logInfo, logWarn } from '../utils/logger.js';
  * ## Blast radius, on purpose
  *
  * An observation is inert data — "table X launched at T on device D, owned by
- * user U." Nothing consumes it yet; the verify-join that matches it to AtGames
- * scores is a later phase. So even a stolen token only lets an attacker
- * pollute their OWN witness trail. This service deliberately does the smallest
- * correct thing and no scoring.
+ * user U." The verify-join that matches it to AtGames scores lives in
+ * `WitnessVerifyService`, and produces a BADGE, never a gate. So even a stolen
+ * token only lets an attacker pollute their OWN witness trail. This service
+ * deliberately does the smallest correct thing and no scoring.
+ *
+ * ## Two things the device reports (ADR 0021)
+ *
+ *   - **Observations** — a table session (`launch_ts`/`exit_ts`, device clock),
+ *     tagged `via` = `live` (the resident beacon saw it) or `retro` (derived
+ *     from on-disk traces afterwards).
+ *   - **Check-ins** — "the Witness app is open right now", stamped with the
+ *     SERVER's clock. On a cabinet that runs one thing at a time, that is proof
+ *     no table was mid-session at that instant.
  */
 
 /** Unambiguous when read off a cabinet screen — no 0/O/1/I/L (Throwdown charset). */
@@ -191,38 +200,111 @@ export class WitnessService {
         launchTs: number;
         exitTs?: number | null;
         durationSec?: number | null;
+        /**
+         * `'retro'` = derived after the fact from on-disk traces rather than
+         * seen live by the resident beacon. ANY other value (including absent)
+         * is `'live'` — a tag this permissive must fail closed to the stronger
+         * claim being the DEFAULT, never to a caller's typo silently marking a
+         * live report as retro. Same trust either way (ADR 0021); the column
+         * exists so the distinction survives for later analysis.
+         */
+        via?: string | null;
     }): Promise<boolean> {
         const deviceId = (input.atgamesUniqueId || '').trim();
         const table = (input.tableName || '').trim();
         if (!deviceId || !input.token || !table || !Number.isFinite(input.launchTs)) return false;
 
-        const db = await getDatabase();
-        const device = await db.get<{ canonical_user_id: string; token_hash: string; revoked_at: string | null }>(
-            `SELECT canonical_user_id, token_hash, revoked_at FROM witness_devices WHERE atgames_unique_id = ?`,
-            deviceId,
-        );
-        if (!device || device.revoked_at || device.token_hash !== hashToken(input.token)) return false;
+        const device = await WitnessService.authenticateDevice(deviceId, input.token);
+        if (!device) return false;
 
+        const db = await getDatabase();
         const launch = Math.floor(input.launchTs);
         const exit = input.exitTs != null && Number.isFinite(input.exitTs) ? Math.floor(input.exitTs) : null;
         const duration = input.durationSec != null && Number.isFinite(input.durationSec)
             ? Math.floor(input.durationSec)
             : (exit != null ? exit - launch : null);
+        const via = input.via === 'retro' ? 'retro' : 'live';
 
         await db.run(
             `INSERT INTO witness_observations
-                (atgames_unique_id, canonical_user_id, table_name, launch_ts, exit_ts, duration_sec)
-             VALUES (?, ?, ?, ?, ?, ?)
+                (atgames_unique_id, canonical_user_id, table_name, launch_ts, exit_ts, duration_sec, via)
+             VALUES (?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(atgames_unique_id, table_name, launch_ts) DO UPDATE SET
                 exit_ts = COALESCE(excluded.exit_ts, witness_observations.exit_ts),
                 duration_sec = COALESCE(excluded.duration_sec, witness_observations.duration_sec)`,
-            deviceId, device.canonical_user_id, table, launch, exit, duration,
+            // `via` is deliberately absent from the DO UPDATE: first writer
+            // wins. A retro sweep that re-reports a session the beacon already
+            // saw live must not downgrade it, and a live report arriving after
+            // a retro row must not overstate what was actually observed.
+            deviceId, device.canonical_user_id, table, launch, exit, duration, via,
         );
+        await WitnessService.touchDevice(deviceId);
+        return true;
+    }
+
+    /**
+     * Record one round-start CHECK-IN from the device (GET) — tier 2 of the
+     * three-tier trust model (ADR 0021).
+     *
+     * These cabinets run one thing at a time: the Witness app being in the
+     * FOREGROUND at time T proves no table was mid-session at T. So a score
+     * exited after a check-in that happened at/after the round opened was
+     * necessarily launched inside the window, even when the beacon produced no
+     * session observation to join.
+     *
+     * The timestamp is the SERVER's and only ever the server's — that is the
+     * entire point. A device-supplied time would make the attestation a
+     * self-report, and tier 2 would prove nothing.
+     *
+     * Returns false for unknown / revoked / wrong-token, exactly like
+     * `recordObservation`, so the ROUTE can answer with one undifferentiated
+     * 401. Repeated check-ins are expected and are NOT deduped: each one is
+     * another attestation point, and more of them can only ever help.
+     */
+    static async recordCheckin(atgamesUniqueId: string, token: string): Promise<{ ts: string } | null> {
+        const deviceId = (atgamesUniqueId || '').trim();
+        if (!deviceId || !token) return null;
+
+        const device = await WitnessService.authenticateDevice(deviceId, token);
+        if (!device) return null;
+
+        const db = await getDatabase();
+        const res = await db.run(
+            `INSERT INTO witness_checkins (atgames_unique_id, canonical_user_id, server_ts)
+             VALUES (?, ?, datetime('now'))`,
+            deviceId, device.canonical_user_id,
+        ) as { lastID?: number };
+        await WitnessService.touchDevice(deviceId);
+
+        const stored = await db.get<{ server_ts: string }>(
+            'SELECT server_ts FROM witness_checkins WHERE id = ?', res.lastID,
+        );
+        return { ts: stored?.server_ts ?? '' };
+    }
+
+    /**
+     * The ONE device-token check. Both device-facing writers go through it so
+     * they cannot drift on what "authenticated" means, and so neither can ever
+     * reveal WHICH of device/token/revocation was wrong.
+     */
+    private static async authenticateDevice(
+        deviceId: string, token: string,
+    ): Promise<{ canonical_user_id: string } | null> {
+        const db = await getDatabase();
+        const device = await db.get<{ canonical_user_id: string; token_hash: string; revoked_at: string | null }>(
+            `SELECT canonical_user_id, token_hash, revoked_at FROM witness_devices WHERE atgames_unique_id = ?`,
+            deviceId,
+        );
+        if (!device || device.revoked_at || device.token_hash !== hashToken(token)) return null;
+        return { canonical_user_id: device.canonical_user_id };
+    }
+
+    private static async touchDevice(deviceId: string): Promise<void> {
+        const db = await getDatabase();
         await db.run(
             `UPDATE witness_devices SET last_seen_at = datetime('now') WHERE atgames_unique_id = ?`,
             deviceId,
         );
-        return true;
     }
 
     /** The cabinets a player has paired (Account Settings). */

@@ -33,10 +33,19 @@ import { playerApi } from '../lib/playerApi';
  */
 interface WitnessVerdict {
     status: 'verified' | 'flagged' | 'unwitnessed';
+    /**
+     * Which tier verified it (v2.148.0, ADR 0021): a joined table `session`, or
+     * the cabinet's round-start `checkin` attestation. Optional so a board
+     * rendered by an older client/server pair still reads as a session verdict.
+     */
+    method?: 'session' | 'checkin' | null;
     launchTs: number | null;
     exitTs: number | null;
     durationSec: number | null;
     table: string | null;
+    /** `retro` = reconstructed after the fact. Same trust, shown for honesty. */
+    via?: 'live' | 'retro' | null;
+    checkinTs?: number | null;
 }
 
 interface ScoreRow {
@@ -139,15 +148,26 @@ function playDuration(sec: number): string {
 }
 
 /**
- * The Arcaid Witness badge for one score (v2.145.0, P8).
+ * The Arcaid Witness badge for one score (v2.145.0, P8; tiers v2.148.0).
  *
  * A BADGE, never a gate — nothing here changes a rank. `unwitnessed` is the
  * neutral default (most players have no paired cabinet), so it renders as quiet
  * grey text and never as a warning.
+ *
+ * A check-in verdict shows NO duration on purpose: the cabinet attested it was
+ * free before this score, which dates the play but does not measure it.
  */
 function WitnessBadge({ witness }: { witness?: WitnessVerdict | null }) {
     if (!witness) return null;
     if (witness.status === 'verified') {
+        if (witness.method === 'checkin') {
+            return (
+                <span
+                    className="ml-1 text-neon-green"
+                    title="The cabinet checked in after this round opened and before this score — so the table was played inside the round window"
+                >✓ <span className="text-xs">checked in</span></span>
+            );
+        }
         const played = witness.durationSec != null ? ` · ${playDuration(witness.durationSec)} of play` : '';
         return (
             <span

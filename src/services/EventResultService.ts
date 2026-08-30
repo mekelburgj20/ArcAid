@@ -455,6 +455,61 @@ export class EventResultService {
         return EventResultService.freeze(standings, finishedAt);
     }
 
+    /**
+     * Re-freeze a FINISHED event's result from today's data (v2.148.0, ADR 0021).
+     *
+     * The host action behind it is "Re-run verification": witness reports,
+     * check-ins and identity links keep arriving AFTER an event ends — a
+     * cabinet that was offline all night uploads in the morning, a player links
+     * their AtGames account the next day — and the frozen blob is a snapshot of
+     * what was known at the buzzer. Recomputing costs nothing and can only make
+     * the record more accurate.
+     *
+     * It deliberately reuses `computeStandings` + `freeze` — the SAME pair
+     * `EventScheduler.finishCompletedEvents` uses — and does nothing else. In
+     * particular it does NOT touch `event_finished_at` (the event finished when
+     * it finished; the frozen timestamp is preserved verbatim), does not touch
+     * `is_active` (which the alias-link freeze gate reads), and ANNOUNCES
+     * NOTHING: a re-verification is bookkeeping, and a second podium post to
+     * Discord hours later would read as a second event.
+     *
+     * Returns `null` when the tournament is not a finished event.
+     */
+    static async recomputeFrozenResult(tournamentId: string): Promise<{
+        finishedAt: string;
+        standings: number;
+        incomplete: number;
+        witnessFlagged: number;
+    } | null> {
+        const db = await getDatabase();
+        const row = await db.get<{ format: string | null; event_finished_at: string | null }>(
+            'SELECT format, event_finished_at FROM tournaments WHERE id = ?', tournamentId,
+        );
+        if (!row || row.format !== 'event' || !row.event_finished_at) return null;
+
+        const standings = await EventResultService.computeStandings(tournamentId);
+        if (!standings) return null;
+        const result = EventResultService.freeze(standings, row.event_finished_at);
+
+        // Guarded on the stamp still being present, so a concurrent reopen
+        // (`EventService.createOrUpdateEvent` clears it when a future round is
+        // added back) can never be overwritten by a result computed for the
+        // finished version of the same event.
+        await db.run(
+            `UPDATE tournaments SET event_result = ?
+              WHERE id = ? AND event_finished_at IS NOT NULL`,
+            JSON.stringify(result), tournamentId,
+        );
+
+        const flagged = [...result.standings, ...result.incomplete].filter(s => s.witnessFlagged).length;
+        return {
+            finishedAt: row.event_finished_at,
+            standings: result.standings.length,
+            incomplete: result.incomplete.length,
+            witnessFlagged: flagged,
+        };
+    }
+
     /** Pure display-strip of an already-computed standings set. */
     static freeze(standings: EventStandings, finishedAt: string): FrozenEventResult {
         const strip = (rows: EventStandingRow[]) => rows.map(({

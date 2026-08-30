@@ -6,6 +6,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.148.0] — Arcaid Witness: three-tier verification (ADR 0021)
+
+Hardware rounds 4/4b proved a resident beacon can watch play live on 6.x big cabinets, and that some
+evidence only exists retroactively (VPX journals its own sessions to the stick). The owner ruled a
+three-tier trust model (2026-08-29). Server half; the cabinet build codes against these shapes.
+
+### Added
+- **Tier 2 — round-start check-in attestation.** `witness_checkins` (migration 171: `atgames_unique_id`, `canonical_user_id`, `server_ts`; two indexes; no FKs, same audit doctrine as `witness_observations`) fed by **`GET /api/witness/checkin?device=&token=`** (`token` also accepted as `x-witness-token`) — same device-token auth and the same single undifferentiated 401 as `/witness/report`, returns `{ok:true, ts}`. **The timestamp is the SERVER's, always**: these cabinets run one thing at a time, so the Witness being open at `server_ts` proves no table was mid-session then, and a device-chosen time would collapse the whole attestation into a self-report. Repeated check-ins are expected and are not deduped.
+- **`WitnessVerifyService` tiers.** A `source='atgames'` score that tier 1 could not join is now `verified` with `method:'checkin'` when a check-in exists with `roundStart − LAUNCH_GRACE_SEC ≤ server_ts ≤ score.created_at` — no duration (a check-in dates the play, it does not measure it). Tier 2 can **never** produce `flagged`, never revisits a tier-1 verdict, and a too-early check-in leaves the score `unwitnessed`. Verdicts gained `method`, `via` and `checkinTs`; batched one query per board, no N+1.
+- **Tier 3 — retro-derived observations.** `witness_observations.via` (`live`|`retro`, default `live`) plus an optional `via=retro` param on `/witness/report`; only that exact literal is honoured and the upsert's `DO UPDATE` deliberately leaves `via` alone (first writer wins). **Same trust, tagged** — the tag never changes a verdict.
+- **"Re-run verification" host action.** `POST /api/rooms/:roomId/admin/tournaments/:tournamentId/reverify` (`requireAuth` + `requireRoomAccess`, audited) → `EventResultService.recomputeFrozenResult`, which reuses `computeStandings` + `freeze` — the same pair `EventScheduler` uses at the buzzer — and touches nothing else: `event_finished_at` preserved verbatim, `is_active` untouched, and **nothing is announced**. 404 for not-an-event, 409 for not-finished. Surfaced as a confirming button in `EventRoundsPanel`, visible only once an event is finished. Room-less Throwdowns have no admin surface and so have no reverify.
+- **Badge for the new tier** in `EventDetail`'s `WitnessBadge`: `method:'checkin'` renders the green ✓ with a "checked in" label and a plain-language title; session verdicts keep their duration. Still a badge, never a gate.
+
+### Docs
+- **ADR 0021** — the ruling, the check-in proof sketch, why server-stamped time is what makes tier 2 mean anything, the device-binding caveat (a check-in proves the CABINET was idle; AtGames exposes only a model code, `AtGamesRanking.hardware`, so a score cannot be bound to a device), retro = same-trust-tagged, and badge-never-gate reaffirmed.
+
+### Tests
+- `src/__tests__/witness-ingest.test.ts` — the check-in endpoint's three 401 paths (unknown device, wrong token, revoked), the server-stamped write + `last_seen_at` touch, repeat check-ins both landing, and the `via` contract on `/witness/report` (stored, defaulted, invalid coerced to `live`, upsert does not overwrite).
+- `src/__tests__/witness-verify.test.ts` — tier 1 wins when both could fire; check-in-in-window + later exit ⇒ `verified`/`checkin`; check-in before the window and check-in after the exit both ⇒ `unwitnessed`; a `flagged` row is untouched by tier 2; a `retro` observation behaves identically to a live one and passes `via` through.
+- `src/__tests__/event-reverify.test.ts` (new) — auth, 404 not-an-event, 409 not-finished, a check-in inserted AFTER the freeze flips a row to verified on reverify, `event_finished_at`/`is_active` preserved, and no Discord announcement fires.
+
 ## [2.147.0] — Per-score share links with Discord/social embeds
 
 Owner ask: click any individual score (anyone's) and get a Share option — copy link or native share — that unfurls a proper embed in Discord/Slack/etc. showing the player, the score, and a photo (the score's own evidence photo when one exists, else the game's artwork), linking back to that exact score.

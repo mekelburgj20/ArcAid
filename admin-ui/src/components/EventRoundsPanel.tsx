@@ -221,6 +221,32 @@ export default function EventRoundsPanel({ roomId, roomSlug, tournament, onClose
         }
     };
 
+    // Re-run witness verification (v2.148.0, ADR 0021). Only meaningful once an
+    // event is frozen: while it is live the boards recompute on every read.
+    const reverify = async () => {
+        if (!window.confirm(
+            'Re-check every score in this event against the cabinet reports that have arrived since it finished?\n\n'
+            + 'This only updates the badges and the standings — it will not re-announce the results.',
+        )) return;
+        setBusy('reverify');
+        try {
+            const res = await api.post<{ standings: number; witnessFlagged: number }>(
+                `/rooms/${roomId}/admin/tournaments/${tournament.id}/reverify`, {},
+            );
+            onChanged();
+            toast(
+                res.witnessFlagged > 0
+                    ? `Re-checked ${res.standings} player${res.standings === 1 ? '' : 's'} — ${res.witnessFlagged} still flagged`
+                    : `Re-checked ${res.standings} player${res.standings === 1 ? '' : 's'} — nothing flagged`,
+                'success',
+            );
+        } catch (err) {
+            toast((err as Error)?.message || 'Could not re-run verification', 'error');
+        } finally {
+            setBusy(null);
+        }
+    };
+
     const createOnAtGames = async () => {
         setBusy('atg-create');
         try {
@@ -295,6 +321,27 @@ export default function EventRoundsPanel({ roomId, roomSlug, tournament, onClose
                         {copied ? 'Copied!' : 'Copy link'}
                     </NeonButton>
                 </div>
+
+                {/* Cabinet reports keep arriving after an event ends — a cabinet
+                    that was offline all night uploads in the morning, a player
+                    links their AtGames account the next day. Before this button
+                    every one of those landed after the freeze and changed
+                    nothing. */}
+                {finished && (
+                    <div className="mb-4 p-3 rounded border border-border bg-raised">
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <NeonButton
+                                variant="ghost" className="text-xs px-3 py-2"
+                                disabled={busy === 'reverify'}
+                                onClick={reverify}
+                            >{busy === 'reverify' ? 'Re-checking…' : 'Re-run verification'}</NeonButton>
+                            <p className="text-xs text-faint flex-1 min-w-[14rem]">
+                                Re-checks every score against the cabinet reports that have come in since this
+                                event finished, and updates the badges and standings. Nothing is announced again.
+                            </p>
+                        </div>
+                    </div>
+                )}
 
                 <h3 className="font-display text-xs font-bold uppercase tracking-wider text-muted mb-2">Rounds</h3>
                 <div className="space-y-2 mb-6">

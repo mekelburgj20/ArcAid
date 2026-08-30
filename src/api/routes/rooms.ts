@@ -2055,6 +2055,64 @@ router.delete('/:roomId/admin/tournaments/:tournamentId/atgames-links/:atgamesAc
 });
 
 
+// Re-run witness verification on a FINISHED event (v2.148.0, P8, ADR 0021).
+//
+// Why this exists: the frozen `event_result` is what was known at the buzzer,
+// but witness reports, check-ins and AtGames identity links keep arriving after
+// it. A cabinet that was offline all night uploads in the morning; a player
+// links their AtGames account the next day. Before this, every one of those
+// landed after the freeze and changed nothing — reported into the void.
+//
+// It RECOMPUTES and re-freezes, and does nothing else: `event_finished_at`
+// stays exactly as it was, `is_active` is untouched, and NOTHING is announced.
+// A second podium post to Discord hours after the event would read as a second
+// event, so the announce path is deliberately not on this route at all.
+router.post('/:roomId/admin/tournaments/:tournamentId/reverify', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const db = await getDatabase();
+        const roomId = req.params.roomId as string;
+        const tournamentId = req.params.tournamentId as string;
+
+        const tournament = await db.get<{ id: string; format: string | null; event_finished_at: string | null }>(
+            'SELECT id, format, event_finished_at FROM tournaments WHERE id = ? AND game_room_id = ?',
+            tournamentId, roomId,
+        );
+        if (!tournament) return res.status(404).json({ error: 'Tournament not found in this room' });
+        if (tournament.format !== 'event') {
+            return res.status(404).json({ error: 'Verification only applies to Live Event tournaments' });
+        }
+        if (!tournament.event_finished_at) {
+            // A running event recomputes its boards on every read anyway, so
+            // there is nothing frozen to refresh — 409, not an error the host
+            // can act on by pressing again.
+            return res.status(409).json({
+                error: 'This event has not finished yet — its standings are still live',
+                code: 'NOT_FINISHED',
+            });
+        }
+
+        const { EventResultService } = await import('../../services/EventResultService.js');
+        const result = await EventResultService.recomputeFrozenResult(tournamentId);
+        if (!result) return res.status(409).json({ error: 'This event has no result to re-verify' });
+
+        await AuditService.log({
+            actor: req.user!.discordId || req.user!.username || 'admin',
+            action: 'tournament.event_reverify',
+            target_type: 'tournament',
+            target_id: tournamentId,
+            details: JSON.stringify(result),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
+        return res.json({ success: true, ...result });
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/admin/tournaments/:tournamentId/reverify):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+
 // v2.9x — shared query-param reader for the two filterable stats endpoints
 // below (enhanced/players, games-activity), so their `type`/`from`/`to`
 // parsing can't drift between routes. Blank/whitespace-only values are
