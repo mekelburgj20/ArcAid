@@ -261,18 +261,7 @@ export class ScoreHistoryService {
         // rows that predate it — so room scoping goes through
         // COALESCE(g.game_room_id, t.game_room_id), the same LEFT JOIN idiom
         // the admin wipe path uses for its ownedByRoom check.
-        const gameRow = row.game_id
-            ? { id: row.game_id }
-            : await db.get<{ id: string }>(
-                `SELECT g.id FROM games g
-                 LEFT JOIN tournaments t ON t.id = g.tournament_id
-                 WHERE COALESCE(g.game_room_id, t.game_room_id) = ?
-                   AND LOWER(g.name) = LOWER(?)
-                 ORDER BY CASE g.status WHEN 'ACTIVE' THEN 0 ELSE 1 END, g.created_at DESC
-                 LIMIT 1`,
-                row.game_room_id, row.game_name,
-            );
-        const resolvedGameId = gameRow?.id ?? null;
+        const resolvedGameId = await this.resolveGameIdForRow(row);
 
         // Tombstone for the sync poller (see deleted_score_suppressions doc),
         // suppressing at MAX(existing, deleted_score) so a player who deletes
@@ -375,29 +364,233 @@ export class ScoreHistoryService {
      * that score_history's insert-time dedup collapsed to one row; there is no
      * way to tell which twin is this one, so NOTHING is deleted.
      */
-    private static async deleteCommunityScoreTwin(row: DeletableScoreRow): Promise<void> {
-        try {
-            const db = await getDatabase();
-            const candidates = await db.all<Array<{ id: number }>>(
-                `SELECT id FROM community_scores
+    /**
+     * Which `games` row does this score belong to?
+     *
+     * `row.game_id` is a TRANSIENT pointer (v2.75.1 doctrine): web submissions
+     * write it as NULL from the start, and rotation NULLs it on synced rows
+     * later. Prod evidence (2026-08-14, the Strike scores): every modern web
+     * row has game_id NULL, so anything gated on `row.game_id` alone silently
+     * skips the common case. Resolve by (room, name) ACTIVE-first instead —
+     * the same ORDER BY contract the submit handlers adopted in v2.100.3 —
+     * because the poller dedup and winner resolution both operate against the
+     * ACTIVE run's game row.
+     *
+     * `games.game_room_id` is an ALTER-added denormalized column (NULL on rows
+     * that predate it), so room scoping goes through
+     * COALESCE(g.game_room_id, t.game_room_id) — the LEFT JOIN idiom the admin
+     * wipe path uses for its ownedByRoom check.
+     */
+    private static async resolveGameIdForRow(row: DeletableScoreRow): Promise<string | null> {
+        if (row.game_id) return row.game_id;
+        const db = await getDatabase();
+        const gameRow = await db.get<{ id: string }>(
+            `SELECT g.id FROM games g
+             LEFT JOIN tournaments t ON t.id = g.tournament_id
+             WHERE COALESCE(g.game_room_id, t.game_room_id) = ?
+               AND LOWER(g.name) = LOWER(?)
+             ORDER BY CASE g.status WHEN 'ACTIVE' THEN 0 ELSE 1 END, g.created_at DESC
+             LIMIT 1`,
+            row.game_room_id, row.game_name,
+        );
+        return gameRow?.id ?? null;
+    }
+
+    /**
+     * Admin score CORRECTION — change a score's value in place.
+     *
+     * ## Why this exists
+     *
+     * Owner incident, 2026-08-30: a player typed one digit too many
+     * (`66,661,589,860` for `6,666,158,980`) on a Daily Grind table that had
+     * since rotated to COMPLETED. Arcaid had no edit path at any privilege
+     * level, so the only two remedies were both wrong:
+     *
+     *   - DELETE the row. That writes a `deleted_score_suppressions` tombstone
+     *     at the WRONG (inflated) value, drops the player to their previous
+     *     best — which in that incident handed the win to a different player —
+     *     and there is no way to put the right number back, because every
+     *     submit path requires `games.status = 'ACTIVE'`.
+     *   - Hand-written SQL against production, across three tables.
+     *
+     * A typo in an otherwise-valid score is not moderation. It needs an
+     * UPDATE, and that is all this is.
+     *
+     * ## What it deliberately does NOT do
+     *
+     * No tombstone on the corrected row (a tombstone means "this score should
+     * not exist"; this one should, at a different value), no photo cleanup
+     * (the evidence still belongs to the score), and none of the submit-time
+     * side effects — no lobby-feed event, no score toast, no notifications, no
+     * Global fan-out CREATION. A correction is bookkeeping, not a new score,
+     * and re-announcing it would tell the room somebody just played.
+     *
+     * ## The iScored guard
+     *
+     * `IScoredApiClient` can submit a score but cannot edit or delete one, so
+     * on a room mirrored to iScored the old value survives on their board and
+     * `ScoreSyncPoller` would re-import it within a cycle — silently undoing
+     * the correction. When the value goes DOWN we therefore tombstone at the
+     * OLD score, which is exactly what the poller's `score <= suppressed_score`
+     * skip needs. The cost is real and bounded: a later genuine score for this
+     * player on this game that falls between the new and old values is also
+     * suppressed until an admin clears it (Manage Scores → Suppressions).
+     * Corrections UPWARD need no guard — the poller only ever raises a score.
+     *
+     * The guard is skipped entirely when the room resolves to NO iScored
+     * credentials, because then the poller never reads that room and the
+     * tombstone could only ever cost the admin a future score (owner request,
+     * 2026-08-31, after RTX_Pinball dropped iScored). The predicate is
+     * `getIScoredCredsForRoom` — the SAME resolution the poller uses to decide
+     * whether to poll at all — rather than a bare `ISCORED_ENABLED` read, so
+     * "disabled", "partially configured" and "no env fallback" cannot disagree
+     * between the two. `deleteEvent`'s tombstone is deliberately left
+     * unconditional: there the row is GONE, so a stray suppression is the
+     * cheaper mistake.
+     *
+     * Authorization is the CALLER's job (admins only — see the route).
+     */
+    static async correctScore(
+        row: DeletableScoreRow,
+        newScore: number,
+        actorId: string,
+    ): Promise<{ resolvedGameId: string | null; suppressedAt: number | null }> {
+        if (!Number.isInteger(newScore) || newScore < 0) {
+            throw new Error('A corrected score must be a non-negative integer');
+        }
+        const db = await getDatabase();
+        const oldScore = row.score;
+
+        // Both twin lookups match on the OLD score, so they run BEFORE the update.
+        const communityTwinId = row.source === 'community'
+            ? await this.findCommunityScoreTwinId(row)
+            : null;
+        const globalScoreId = await this.findFannedOutGlobalScoreId(row);
+
+        await db.run('UPDATE score_history SET score = ? WHERE id = ?', newScore, row.id);
+
+        if (communityTwinId !== null) {
+            await db.run('UPDATE community_scores SET score = ? WHERE id = ?', newScore, communityTwinId);
+            logInfo(`Community cascade: community_scores#${communityTwinId} corrected with score_history#${row.id}`);
+        }
+        if (globalScoreId !== null) {
+            // Direct UPDATE rather than GlobalScoreService: it has no "correct"
+            // verb, and its create path would re-run the submit-time side
+            // effects this must not.
+            await db.run('UPDATE global_scores SET score = ? WHERE id = ?', newScore, globalScoreId);
+            const { GlobalLeaderboardService } = await import('./GlobalLeaderboardService.js');
+            await GlobalLeaderboardService.invalidateAll();
+            logInfo(`Global fan-out: global_scores#${globalScoreId} corrected with score_history#${row.id}`);
+        }
+
+        const resolvedGameId = await this.resolveGameIdForRow(row);
+
+        let suppressedAt: number | null = null;
+        if (resolvedGameId && newScore < oldScore && await this.roomSyncsToIScored(row.game_room_id)) {
+            await db.run(
+                `INSERT INTO deleted_score_suppressions
+                    (game_id, iscored_username_lower, suppressed_score, deleted_at, deleted_by_user_id)
+                 VALUES (?, LOWER(?), ?, datetime('now'), ?)
+                 ON CONFLICT(game_id, iscored_username_lower) DO UPDATE SET
+                    suppressed_score = MAX(suppressed_score, excluded.suppressed_score),
+                    deleted_at = datetime('now'),
+                    deleted_by_user_id = excluded.deleted_by_user_id`,
+                resolvedGameId, row.iscored_username, oldScore, actorId,
+            );
+            suppressedAt = oldScore;
+        }
+
+        // Recompute best-per-player-per-game across ALL sources, by
+        // (room, name) — the same rule `deleteEvent` uses, for the same reason
+        // (game_id is NULL on web rows; both the room board and the mirrored
+        // iScored board are name-scoped across reruns).
+        if (resolvedGameId) {
+            const submissionId = `${resolvedGameId}-${row.iscored_username.toLowerCase()}`;
+            const best = await db.get<{ score: number; created_at: string }>(
+                `SELECT score, created_at
+                 FROM score_history
                  WHERE game_room_id = ?
                    AND LOWER(game_name) = LOWER(?)
                    AND LOWER(iscored_username) = LOWER(?)
-                   AND score = ?
-                   AND submitted_by_user_id IS ?
-                   AND orphaned_at IS NULL`,
-                row.game_room_id, row.game_name, row.iscored_username, row.score,
-                row.submitted_by_user_id,
+                   AND orphaned_at IS NULL
+                 ORDER BY score DESC, created_at ASC
+                 LIMIT 1`,
+                row.game_room_id, row.game_name, row.iscored_username,
             );
-            if (candidates.length !== 1) {
-                logDebug(
-                    `Community cascade skipped for score_history#${row.id}: ${candidates.length} community_scores candidates ` +
-                    `(room ${row.game_room_id}, game "${row.game_name}", player "${row.iscored_username}", score ${row.score})`,
+            if (best) {
+                await db.run(
+                    'UPDATE submissions SET score = ?, timestamp = ? WHERE id = ?',
+                    best.score, best.created_at, submissionId,
                 );
-                return;
             }
-            await db.run('DELETE FROM community_scores WHERE id = ?', candidates[0]!.id);
-            logInfo(`Community cascade: community_scores#${candidates[0]!.id} deleted with score_history#${row.id}`);
+            const { LeaderboardService } = await import('./LeaderboardService.js');
+            await LeaderboardService.invalidate(resolvedGameId);
+            const { emitLeaderboardUpdated } = await import('../api/websocket.js');
+            emitLeaderboardUpdated(row.game_room_id, { gameId: resolvedGameId });
+        }
+
+        logInfo(
+            `score_history#${row.id} corrected by ${actorId}: ${oldScore} -> ${newScore} ` +
+            `(player ${row.iscored_username}, game ${row.game_name})` +
+            (suppressedAt !== null ? ` [iScored re-import suppressed at ${suppressedAt}]` : ''),
+        );
+        return { resolvedGameId, suppressedAt };
+    }
+
+    /**
+     * Does `ScoreSyncPoller` actually read this room from iScored?
+     *
+     * Answered by the poller's own credential resolution, so a room that is
+     * switched off, half-configured, or relying on an absent env fallback all
+     * give the same answer here as they do there. A NULL room (a Throwdown —
+     * `score_history.game_room_id` is nullable since migration 164) is never
+     * synced: Throwdowns have no iScored integration by construction, and
+     * falling through to the env account would be wrong on top of that.
+     *
+     * Never throws — a settings-read failure degrades to "yes, it might sync",
+     * which keeps the protective tombstone rather than dropping it on an error.
+     */
+    private static async roomSyncsToIScored(gameRoomId: string | null): Promise<boolean> {
+        if (!gameRoomId) return false;
+        try {
+            const { getIScoredCredsForRoom } = await import('../utils/iscoredCreds.js');
+            return !!(await getIScoredCredsForRoom(gameRoomId));
+        } catch (err) {
+            logDebug(`iScored creds check failed for room ${gameRoomId}; assuming it syncs: ${err instanceof Error ? err.message : String(err)}`);
+            return true;
+        }
+    }
+
+    private static async findCommunityScoreTwinId(row: DeletableScoreRow): Promise<number | null> {
+        const db = await getDatabase();
+        const candidates = await db.all<Array<{ id: number }>>(
+            `SELECT id FROM community_scores
+             WHERE game_room_id = ?
+               AND LOWER(game_name) = LOWER(?)
+               AND LOWER(iscored_username) = LOWER(?)
+               AND score = ?
+               AND submitted_by_user_id IS ?
+               AND orphaned_at IS NULL`,
+            row.game_room_id, row.game_name, row.iscored_username, row.score,
+            row.submitted_by_user_id,
+        );
+        if (candidates.length !== 1) {
+            logDebug(
+                `Community cascade skipped for score_history#${row.id}: ${candidates.length} community_scores candidates ` +
+                `(room ${row.game_room_id}, game "${row.game_name}", player "${row.iscored_username}", score ${row.score})`,
+            );
+            return null;
+        }
+        return candidates[0]!.id;
+    }
+
+    private static async deleteCommunityScoreTwin(row: DeletableScoreRow): Promise<void> {
+        try {
+            const id = await this.findCommunityScoreTwinId(row);
+            if (id === null) return;
+            const db = await getDatabase();
+            await db.run('DELETE FROM community_scores WHERE id = ?', id);
+            logInfo(`Community cascade: community_scores#${id} deleted with score_history#${row.id}`);
         } catch (err) {
             // Best-effort: the score_history row is already gone and that is
             // the delete the caller asked for.
@@ -431,47 +624,53 @@ export class ScoreHistoryService {
      * recorded and an admin can restore. `GlobalScoreService.softDelete`
      * invalidates `global_leaderboard_cache` itself.
      */
+    private static async findFannedOutGlobalScoreId(row: DeletableScoreRow): Promise<string | null> {
+        if (!row.submitted_by_user_id) return null;
+        const db = await getDatabase();
+
+        let globalGameId: string | null = null;
+        if (row.game_id) {
+            const g = await db.get('SELECT global_game_id FROM games WHERE id = ?', row.game_id);
+            globalGameId = g?.global_game_id ?? null;
+        }
+
+        const clauses = [
+            'origin_game_room_id = ?',
+            'player_id = ?',
+            'LOWER(iscored_username) = LOWER(?)',
+            'score = ?',
+            'deleted_at IS NULL',
+        ];
+        const params: any[] = [
+            row.game_room_id, row.submitted_by_user_id, row.iscored_username, row.score,
+        ];
+        if (globalGameId) {
+            clauses.push('global_game_id = ?');
+            params.push(globalGameId);
+        }
+
+        const candidates = await db.all<Array<{ id: string }>>(
+            `SELECT id FROM global_scores WHERE ${clauses.join(' AND ')}`,
+            ...params,
+        );
+        if (candidates.length !== 1) {
+            logDebug(
+                `Global fan-out cleanup skipped for score_history#${row.id}: ${candidates.length} global_scores candidates ` +
+                `(room ${row.game_room_id}, player "${row.iscored_username}", score ${row.score})`,
+            );
+            return null;
+        }
+        return candidates[0]!.id;
+    }
+
     private static async softDeleteFannedOutGlobalScore(row: DeletableScoreRow, actorId: string): Promise<void> {
         if (!row.submitted_by_user_id) return;
         try {
-            const db = await getDatabase();
-
-            let globalGameId: string | null = null;
-            if (row.game_id) {
-                const g = await db.get('SELECT global_game_id FROM games WHERE id = ?', row.game_id);
-                globalGameId = g?.global_game_id ?? null;
-            }
-
-            const clauses = [
-                'origin_game_room_id = ?',
-                'player_id = ?',
-                'LOWER(iscored_username) = LOWER(?)',
-                'score = ?',
-                'deleted_at IS NULL',
-            ];
-            const params: any[] = [
-                row.game_room_id, row.submitted_by_user_id, row.iscored_username, row.score,
-            ];
-            if (globalGameId) {
-                clauses.push('global_game_id = ?');
-                params.push(globalGameId);
-            }
-
-            const candidates = await db.all<Array<{ id: string }>>(
-                `SELECT id FROM global_scores WHERE ${clauses.join(' AND ')}`,
-                ...params,
-            );
-            if (candidates.length !== 1) {
-                logDebug(
-                    `Global fan-out cleanup skipped for score_history#${row.id}: ${candidates.length} global_scores candidates ` +
-                    `(room ${row.game_room_id}, player "${row.iscored_username}", score ${row.score})`,
-                );
-                return;
-            }
-
+            const id = await this.findFannedOutGlobalScoreId(row);
+            if (id === null) return;
             const { GlobalScoreService } = await import('./GlobalScoreService.js');
-            const ok = await GlobalScoreService.softDelete(candidates[0]!.id, actorId);
-            if (ok) logInfo(`Global fan-out cleanup: global_scores#${candidates[0]!.id} soft-deleted with score_history#${row.id}`);
+            const ok = await GlobalScoreService.softDelete(id, actorId);
+            if (ok) logInfo(`Global fan-out cleanup: global_scores#${id} soft-deleted with score_history#${row.id}`);
         } catch (err) {
             logDebug(`Global fan-out cleanup failed for score_history#${row.id}: ${err instanceof Error ? err.message : String(err)}`);
         }

@@ -24,6 +24,12 @@ import { type SubmitRank } from '../lib/api';
 import { playerApi } from '../lib/playerApi';
 import { formatScore } from '../lib/format';
 import { deleteAtCaret, insertAtCaret, readCaret } from '../lib/caretEdit';
+import {
+    digitsOnly,
+    formatMagnitude,
+    reformatScoreEdit,
+    skipSeparatorBack,
+} from '../lib/scoreInput';
 import { normalizePhotoFile } from '../lib/photoNormalize';
 
 /**
@@ -126,6 +132,85 @@ export const PENDING_SUBMISSION_STORAGE_KEY = 'arcaid_pending_submission';
  * mode the two-question form has to avoid.
  */
 const LAST_DEVICE_KEY = 'arcaid_last_device';
+
+/**
+ * The engine half of the same memory (owner request, 2026-08-30: "make them
+ * default to their last selections").
+ *
+ * Engine was the half that never persisted — it only auto-locked when a game
+ * supported exactly one — so a player on a multi-engine table re-answered
+ * "what produced this score" on every single submission.
+ */
+const LAST_ENGINE_KEY = 'arcaid_last_engine';
+
+/**
+ * Per-game override, checked BEFORE the two global keys above.
+ *
+ * The global memory is the right default because engine and device describe
+ * the player's rig, not the table. But a player who owns both a cabinet and a
+ * PC plays specific tables on specific hardware, and for them a global memory
+ * is wrong on every second submission — so the last choice is also recorded
+ * per game and wins when present.
+ */
+const PROVENANCE_KEY_PREFIX = 'arcaid_last_provenance:';
+
+interface RememberedProvenance {
+    engine?: string;
+    device?: string;
+}
+
+/**
+ * Identifies the game for the per-game memory. Room targets key on
+ * (room, lowercased name) rather than a game id because a tournament game row
+ * is recreated on every rotation — keying on the id would forget the choice
+ * the moment the table came round again, which is exactly when it is wanted.
+ */
+function provenanceKeyFor(target: SubmissionTarget): string {
+    if (target.kind === 'global') return `${PROVENANCE_KEY_PREFIX}global:${target.globalGameId}`;
+    if (target.kind === 'freeplay') return `${PROVENANCE_KEY_PREFIX}global:${target.globalGameId}`;
+    return `${PROVENANCE_KEY_PREFIX}${target.roomId}:${target.gameName.toLowerCase()}`;
+}
+
+function readRememberedProvenance(target: SubmissionTarget): RememberedProvenance {
+    try {
+        const raw = localStorage.getItem(provenanceKeyFor(target));
+        if (!raw) return {};
+        const parsed = JSON.parse(raw) as unknown;
+        if (!parsed || typeof parsed !== 'object') return {};
+        const { engine, device } = parsed as RememberedProvenance;
+        return {
+            engine: typeof engine === 'string' ? engine : undefined,
+            device: typeof device === 'string' ? device : undefined,
+        };
+    } catch {
+        // Corrupt JSON or storage disabled — fall through to the global keys.
+        return {};
+    }
+}
+
+/**
+ * Picks the first remembered value that the caller's option list actually
+ * offers, per-game before global.
+ *
+ * `options` MUST be the same exclusion-filtered list the dropdown renders.
+ * Passing an unfiltered list reintroduces the v2.95.1 field bug: a remembered
+ * value the tournament excludes passes the membership test, becomes the
+ * submitted value, and the <select> — whose options lack it — silently shows
+ * something else, so the player sees "AtGames Cabinet" and the server is told
+ * "pc". The submit then bounces with a rule violation nobody can explain.
+ */
+function rememberedChoice(options: string[], perGame: string | undefined, globalKey: string): string | null {
+    if (perGame && options.includes(perGame)) return perGame;
+    let stored: string | null;
+    try {
+        stored = localStorage.getItem(globalKey);
+    } catch {
+        // Storage disabled (private mode, blocked cookies) — no memory, no crash.
+        stored = null;
+    }
+    if (stored && options.includes(stored)) return stored;
+    return null;
+}
 
 /**
  * Identity P2 — the submit response offers an unclaimed iScored name when the
@@ -377,6 +462,7 @@ export default function SubmissionSheet({
     useEffect(() => {
         if (commitDraftState) return; // draft-commit path skips the form entirely.
         let cancelled = false;
+        const remembered0 = readRememberedProvenance(target);
         (async () => {
             const params = new URLSearchParams();
             if (target.kind === 'global') {
@@ -394,9 +480,17 @@ export default function SubmissionSheet({
                 setFullGamePlatforms(resolved.platforms);
                 setGameFeatures(resolved.features);
                 setExcludedProvenance(resolved.exclusions);
-                // Engine auto-locks when the game only supports one.
+                // Engine auto-locks when the game only supports one; otherwise
+                // it pre-selects the player's remembered choice (per-game
+                // first, then their last submission anywhere). `engines` is
+                // already exclusion-filtered — see `rememberedChoice`.
                 const engines = allowedEngines(resolved.submittable, resolved.exclusions.engines);
-                if (engines.length === 1) setEngine(engines[0]);
+                if (engines.length === 1) {
+                    setEngine(engines[0]);
+                } else {
+                    const remembered = rememberedChoice(engines, remembered0.engine, LAST_ENGINE_KEY);
+                    if (remembered) setEngine(remembered);
+                }
             } catch {
                 if (cancelled) return;
                 setSubmittablePlatforms([]);
@@ -438,11 +532,11 @@ export default function SubmissionSheet({
         setDevice(prev => {
             if (prev && options.includes(prev)) return prev;
             if (options.length === 1) return options[0];
-            const remembered = localStorage.getItem(LAST_DEVICE_KEY);
-            if (remembered && options.includes(remembered)) return remembered;
-            return '';
+            // Per-game choice first, then the global "last device anywhere"
+            // key that has backed this since v2.53.0.
+            return rememberedChoice(options, readRememberedProvenance(target).device, LAST_DEVICE_KEY) ?? '';
         });
-    }, [engine, submittablePlatforms, gameFeatures, excludedProvenance]);
+    }, [engine, submittablePlatforms, gameFeatures, excludedProvenance, target]);
 
     // Sprint 10 OAuth-return flow: commit a server-stored draft and close.
     useEffect(() => {
@@ -515,7 +609,7 @@ export default function SubmissionSheet({
      * time this can be called; the name field is never guest-editable.
      */
     const submitScoreNow = async () => {
-        const scoreNum = parseInt(score, 10);
+        const scoreNum = parseInt(digitsOnly(score), 10);
         if (isNaN(scoreNum) || scoreNum < 0) return;
         if (photoRequired(target) && !photoFile) return;
         // v2.53.0: both provenance axes must be resolved — guard against a stray
@@ -570,8 +664,15 @@ export default function SubmissionSheet({
             setPlayerName(resolvedName);
             // v2.131.0: the success card's comment posts under this same name.
             setSubmittedAs(resolvedName);
-            // Remember the device so the next submission pre-selects it.
-            localStorage.setItem(LAST_DEVICE_KEY, device);
+            // Remember the provenance so the next submission pre-selects it:
+            // globally (the player's rig) and against this game (the override
+            // for someone who plays this table on different hardware). Wrapped
+            // because a storage quota error must never fail a submitted score.
+            try {
+                localStorage.setItem(LAST_DEVICE_KEY, device);
+                localStorage.setItem(LAST_ENGINE_KEY, engine);
+                localStorage.setItem(provenanceKeyFor(target), JSON.stringify({ engine, device }));
+            } catch { /* memory is a convenience; the score is already in. */ }
             // S5: capture the submit-moment rank (best-effort; null when the BE
             // couldn't compute it — the card falls back to a plain success line).
             setSubmitRank(responseData?.rank ?? null);
@@ -753,7 +854,7 @@ export default function SubmissionSheet({
         // pointerup + suppresses compatibility mouse events; this is the
         // second gate for anything that still slips through.
         if (Date.now() - keyboardClosedAt.current < KEYBOARD_CLOSE_LATCH_MS) return;
-        const scoreNum = parseInt(score, 10);
+        const scoreNum = parseInt(digitsOnly(score), 10);
         if (isNaN(scoreNum) || scoreNum < 0) return;
         if (photoRequired(target) && !photoFile) return;
         // v2.79.0 (login mandate): every submitter is authed by the time the
@@ -792,9 +893,14 @@ export default function SubmissionSheet({
         } else if (activeField === 'score') {
             const el = scoreRef.current;
             if (/\d/.test(key)) {
+                // Splice into the GROUPED value the caret indexes, then
+                // re-group — inserting a digit can add a separator ahead of
+                // the caret, so the position has to be re-derived from the
+                // digit count rather than nudged by one.
                 const edit = insertAtCaret(score, readCaret(el), key);
-                setScore(edit.next);
-                if (edit.caret !== null) pendingCaret.current = { field: 'score', pos: edit.caret };
+                const regrouped = reformatScoreEdit(edit.next, edit.caret);
+                setScore(regrouped.value);
+                if (regrouped.caret !== null) pendingCaret.current = { field: 'score', pos: regrouped.caret };
             }
             el?.focus({ preventScroll: true });
         }
@@ -806,9 +912,13 @@ export default function SubmissionSheet({
             setPlayerName(edit.next);
             if (edit.caret !== null) pendingCaret.current = { field: 'name', pos: edit.caret };
         } else if (activeField === 'score') {
-            const edit = deleteAtCaret(score, readCaret(scoreRef.current));
-            setScore(edit.next);
-            if (edit.caret !== null) pendingCaret.current = { field: 'score', pos: edit.caret };
+            // Step the caret back over any separator first, or the backspace
+            // deletes a comma the re-group immediately restores and the key
+            // looks broken.
+            const edit = deleteAtCaret(score, skipSeparatorBack(score, readCaret(scoreRef.current)));
+            const regrouped = reformatScoreEdit(edit.next, edit.caret);
+            setScore(regrouped.value);
+            if (regrouped.caret !== null) pendingCaret.current = { field: 'score', pos: regrouped.caret };
         }
     }, [activeField, playerName, score]);
 
@@ -849,6 +959,33 @@ export default function SubmissionSheet({
      * moment someone wraps this in one. Enter closes the on-screen keyboard
      * and blurs instead, which is what the key means here.
      */
+    /**
+     * Hardware-keyboard / paste path. The browser has already written a raw
+     * value that may contain the separators we rendered plus whatever was
+     * typed; re-group it and put the caret back where the digits say it
+     * belongs.
+     *
+     * The one case the browser gets wrong on its own is backspacing over a
+     * separator: it removes the comma, the re-group restores it, and the value
+     * is unchanged. Detected here as "the edit shortened the string but left
+     * the digits alone", and resolved by dropping the digit in front instead —
+     * the same rule `skipSeparatorBack` applies on the keypad path.
+     */
+    const handleScoreChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+        const raw = e.target.value;
+        const caret = e.target.selectionStart;
+        let nextRaw = raw;
+        let nextCaret = caret;
+        const deletedSomething = raw.length < score.length;
+        if (deletedSomething && digitsOnly(raw) === digitsOnly(score) && caret !== null && caret > 0) {
+            nextRaw = raw.slice(0, caret - 1) + raw.slice(caret);
+            nextCaret = caret - 1;
+        }
+        const regrouped = reformatScoreEdit(nextRaw, nextCaret);
+        setScore(regrouped.value);
+        if (regrouped.caret !== null) pendingCaret.current = { field: 'score', pos: regrouped.caret };
+    }, [score]);
+
     const handleScoreKeyDown = useCallback((e: ReactKeyboardEvent<HTMLInputElement>) => {
         if (e.key !== 'Enter') return;
         e.preventDefault();
@@ -866,7 +1003,10 @@ export default function SubmissionSheet({
     const provenanceChosen = engine.trim() !== '' && device.trim() !== '';
     // v2.79.0 (login mandate): every submitter is authed by the time the form
     // renders — there's no guest name field to gate on anymore.
-    const canSubmit = score !== '' && !isNaN(parseInt(score, 10)) && parseInt(score, 10) >= 0
+    // `score` holds the GROUPED string, so every numeric read strips it first.
+    const scoreDigits = digitsOnly(score);
+    const scoreMagnitude = formatMagnitude(scoreDigits);
+    const canSubmit = scoreDigits !== '' && !isNaN(parseInt(scoreDigits, 10)) && parseInt(scoreDigits, 10) >= 0
         && (!needsPhoto || !!photoFile) && platformsResolved && provenanceChosen && !submitting;
     const nameLabel = target.kind === 'global' ? 'Display Name' : 'Player Name';
 
@@ -1244,18 +1384,29 @@ export default function SubmissionSheet({
                                         score photo. type=text + inputMode=none is
                                         the cross-browser way to keep the field
                                         focusable without summoning a virtual
-                                        keyboard. Desktop keeps numeric for the
-                                        spinner / hardware-keypad behavior. */}
+                                        keyboard.
+
+                                        Desktop is type=text too as of the
+                                        comma-grouping change: type=number refuses
+                                        to hold a value containing separators (it
+                                        reports the field as empty), and it is the
+                                        one input type whose `selectionStart`
+                                        throws, so it could never have had a
+                                        caret-aware edit either. inputMode=numeric
+                                        still asks a hybrid device for a keypad;
+                                        the lost spinner is no loss on an
+                                        eleven-digit field. */}
                                     <input
                                         ref={scoreRef}
-                                        type={isTouchDevice ? 'text' : 'number'}
+                                        type="text"
                                         inputMode={isTouchDevice ? 'none' : 'numeric'}
+                                        autoComplete="off"
                                         value={score}
-                                        onChange={e => setScore(isTouchDevice ? e.target.value.replace(/\D/g, '') : e.target.value)}
+                                        onChange={handleScoreChange}
                                         onKeyDown={handleScoreKeyDown}
                                         onFocus={() => { setActiveField('score'); if (isTouchDevice) setShowKeyboard(true); }}
                                         placeholder="0"
-                                        min="0"
+                                        aria-describedby={scoreMagnitude ? 'score-magnitude' : undefined}
                                         className="flex-1 px-3 py-2 bg-raised border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan transition-colors"
                                     />
                                     {!isTouchDevice && (
@@ -1269,6 +1420,16 @@ export default function SubmissionSheet({
                                         </button>
                                     )}
                                 </div>
+                                {/* The digit-count check. Grouping proves the
+                                    separators are well-formed, not that the
+                                    magnitude is the one you meant — an extra
+                                    zero still reads as a plausible comma
+                                    pattern. "6.66 billion" does not. */}
+                                {scoreMagnitude && (
+                                    <p id="score-magnitude" className="text-xs text-faint mt-1" aria-live="polite">
+                                        {scoreMagnitude}
+                                    </p>
+                                )}
                             </div>
 
                             {/* v2.53.0 (ADR 0016): two questions, but never twice

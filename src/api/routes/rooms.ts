@@ -38,6 +38,7 @@ import {
     DeleteGameStateSchema,
     SyncIScoredActionSchema,
     RoomScoresQuerySchema,
+    CorrectScoreSchema,
     CreateBanSchema,
     SetPickDispositionSchema,
     AdminSetPickDispositionSchema,
@@ -2560,6 +2561,79 @@ router.delete('/:roomId/score-history/:historyId', requireDiscordUser, async (re
         res.json({ success: true });
     } catch (error) {
         logError('API Error (DELETE rooms/:roomId/score-history/:historyId):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
+ * Correct a score's VALUE in place (owner incident 2026-08-30 — a player typed
+ * one digit too many on a table that had already rotated to COMPLETED, and
+ * Arcaid had no edit path at any privilege level).
+ *
+ * ADMIN ONLY, deliberately — the sibling DELETE route allows self-service on
+ * your own row, but "let a player rewrite their own score" is the one thing
+ * this endpoint must never be. Same reasoning as the verify route below.
+ *
+ * No source restriction: a typo is a typo whatever wrote the row, and unlike
+ * DELETE (where `'atgames'` is excluded because the next sync would resurrect
+ * a deleted row with no tombstone table to stop it) a correction that gets
+ * re-synced simply lands on the same value again.
+ *
+ * The interesting behaviour — the twin cascades, the recompute, and the
+ * iScored re-import guard on a downward correction — lives in
+ * `ScoreHistoryService.correctScore`; read its doc comment before changing
+ * anything here.
+ */
+router.patch('/:roomId/score-history/:historyId/score', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const historyId = parseInt(req.params.historyId as string, 10);
+        if (!Number.isFinite(historyId)) return res.status(400).json({ error: 'Invalid history id' });
+
+        const parsed = CorrectScoreSchema.safeParse(req.body);
+        if (!parsed.success) {
+            return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid score' });
+        }
+        const newScore = parsed.data.score;
+
+        const { ScoreHistoryService } = await import('../../services/ScoreHistoryService.js');
+        const row = await ScoreHistoryService.getDeletableRow(historyId);
+        if (!row) return res.status(404).json({ error: 'Score not found' });
+        if (row.game_room_id !== roomId) return res.status(404).json({ error: 'Score not found in this room' });
+        if (row.score === newScore) {
+            return res.status(400).json({ error: 'That is already the recorded score' });
+        }
+
+        const actor = req.user!.discordId || req.user!.username || 'admin';
+        const { suppressedAt } = await ScoreHistoryService.correctScore(row, newScore, actor);
+
+        const { RoomEventService } = await import('../../services/RoomEventService.js');
+        RoomEventService.log(roomId, 'score_corrected', {
+            gameId: row.game_id,
+            gameName: row.game_name,
+            player: row.iscored_username,
+            from: row.score,
+            to: newScore,
+            historyId,
+        }).catch(() => {});
+
+        // Explicit audit write — auditMiddleware does NOT fire on router routes.
+        await AuditService.log({
+            actor,
+            action: 'score.correct',
+            target_type: 'score_history',
+            target_id: String(historyId),
+            details: JSON.stringify({
+                roomId, gameName: row.game_name, player: row.iscored_username,
+                from: row.score, to: newScore, suppressedAt,
+            }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
+        res.json({ success: true, score: newScore, previousScore: row.score, suppressedAt });
+    } catch (error) {
+        logError('API Error (PATCH rooms/:roomId/score-history/:historyId/score):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
