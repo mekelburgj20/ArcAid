@@ -51,6 +51,18 @@ async function completedGameFixture(scores: Array<{ username?: string; score?: n
     return { roomId, tournamentId, gameId };
 }
 
+/**
+ * Give a room a full, valid iScored credential set — the state in which
+ * `ScoreSyncPoller` actually reads the room, and therefore the only state in
+ * which a downward correction needs its re-import tombstone.
+ */
+async function connectIScored(roomId: string) {
+    const { GameRoomSettingsService } = await import('../services/GameRoomSettingsService.js');
+    await GameRoomSettingsService.set(roomId, 'ISCORED_USERNAME', 'RTX_Pinball');
+    await GameRoomSettingsService.set(roomId, 'ISCORED_PASSWORD', 'hunter2');
+    await GameRoomSettingsService.set(roomId, 'ISCORED_PUBLIC_URL', 'https://www.iscored.info/RTX_Pinball');
+}
+
 async function historyRow(gameId: string, username: string) {
     const db = await getDatabase();
     return db.get<{ id: number; score: number }>(
@@ -116,7 +128,8 @@ describe('ScoreHistoryService.correctScore', () => {
     });
 
     it('tombstones the OLD value when correcting DOWN, so the iScored poller cannot re-import it', async () => {
-        const { gameId } = await completedGameFixture([{ username: 'Nudge', score: 66661589860 }]);
+        const { roomId, gameId } = await completedGameFixture([{ username: 'Nudge', score: 66661589860 }]);
+        await connectIScored(roomId);
         const row = await ScoreHistoryService.getDeletableRow((await historyRow(gameId, 'Nudge'))!.id);
         const result = await ScoreHistoryService.correctScore(row!, 6666158980, 'admin-1');
 
@@ -130,7 +143,8 @@ describe('ScoreHistoryService.correctScore', () => {
     });
 
     it('does NOT tombstone when correcting UP — the poller only ever raises a score', async () => {
-        const { gameId } = await completedGameFixture([{ username: 'Nudge', score: 1000 }]);
+        const { roomId, gameId } = await completedGameFixture([{ username: 'Nudge', score: 1000 }]);
+        await connectIScored(roomId);
         const row = await ScoreHistoryService.getDeletableRow((await historyRow(gameId, 'Nudge'))!.id);
         const result = await ScoreHistoryService.correctScore(row!, 5000, 'admin-1');
 
@@ -138,6 +152,53 @@ describe('ScoreHistoryService.correctScore', () => {
         const db = await getDatabase();
         const supp = await db.all('SELECT * FROM deleted_score_suppressions WHERE game_id = ?', gameId);
         expect(supp).toHaveLength(0);
+    });
+
+    /**
+     * Owner request 2026-08-31, after RTX_Pinball dropped iScored: the
+     * tombstone exists ONLY to stop `ScoreSyncPoller` re-importing the old
+     * value. A room the poller never reads gains nothing from it and pays the
+     * full cost — a later genuine score between the new and old values would
+     * be suppressed for no reason.
+     */
+    it('skips the tombstone when the room has iScored switched off', async () => {
+        const { roomId, gameId } = await completedGameFixture([{ username: 'Nudge', score: 66661589860 }]);
+        await connectIScored(roomId);
+        const { GameRoomSettingsService } = await import('../services/GameRoomSettingsService.js');
+        await GameRoomSettingsService.set(roomId, 'ISCORED_ENABLED', 'false');
+
+        const row = await ScoreHistoryService.getDeletableRow((await historyRow(gameId, 'Nudge'))!.id);
+        const result = await ScoreHistoryService.correctScore(row!, 6666158980, 'admin-1');
+
+        expect(result.suppressedAt).toBeNull();
+        const db = await getDatabase();
+        expect(await db.all('SELECT * FROM deleted_score_suppressions WHERE game_id = ?', gameId)).toHaveLength(0);
+        // The correction itself still happened — only the guard was skipped.
+        const after = await db.get<{ score: number }>('SELECT score FROM score_history WHERE id = ?', row!.id);
+        expect(after!.score).toBe(6666158980);
+    });
+
+    it('skips the tombstone for a room that never had iScored configured', async () => {
+        const { gameId } = await completedGameFixture([{ username: 'Nudge', score: 66661589860 }]);
+        const row = await ScoreHistoryService.getDeletableRow((await historyRow(gameId, 'Nudge'))!.id);
+        const result = await ScoreHistoryService.correctScore(row!, 6666158980, 'admin-1');
+
+        expect(result.suppressedAt).toBeNull();
+        const db = await getDatabase();
+        expect(await db.all('SELECT * FROM deleted_score_suppressions WHERE game_id = ?', gameId)).toHaveLength(0);
+    });
+
+    it('skips the tombstone on a PARTIALLY configured room — the poller does not read it either', async () => {
+        const { roomId, gameId } = await completedGameFixture([{ username: 'Nudge', score: 66661589860 }]);
+        // The exact state RTX_Pinball was left in by clearing the credential
+        // fields: a stray password and nothing else.
+        const { GameRoomSettingsService } = await import('../services/GameRoomSettingsService.js');
+        await GameRoomSettingsService.set(roomId, 'ISCORED_PASSWORD', 'hunter2');
+
+        const row = await ScoreHistoryService.getDeletableRow((await historyRow(gameId, 'Nudge'))!.id);
+        const result = await ScoreHistoryService.correctScore(row!, 6666158980, 'admin-1');
+
+        expect(result.suppressedAt).toBeNull();
     });
 
     it('carries the community_scores twin along instead of deleting it', async () => {

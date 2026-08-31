@@ -437,6 +437,17 @@ export class ScoreHistoryService {
      * suppressed until an admin clears it (Manage Scores → Suppressions).
      * Corrections UPWARD need no guard — the poller only ever raises a score.
      *
+     * The guard is skipped entirely when the room resolves to NO iScored
+     * credentials, because then the poller never reads that room and the
+     * tombstone could only ever cost the admin a future score (owner request,
+     * 2026-08-31, after RTX_Pinball dropped iScored). The predicate is
+     * `getIScoredCredsForRoom` — the SAME resolution the poller uses to decide
+     * whether to poll at all — rather than a bare `ISCORED_ENABLED` read, so
+     * "disabled", "partially configured" and "no env fallback" cannot disagree
+     * between the two. `deleteEvent`'s tombstone is deliberately left
+     * unconditional: there the row is GONE, so a stray suppression is the
+     * cheaper mistake.
+     *
      * Authorization is the CALLER's job (admins only — see the route).
      */
     static async correctScore(
@@ -475,7 +486,7 @@ export class ScoreHistoryService {
         const resolvedGameId = await this.resolveGameIdForRow(row);
 
         let suppressedAt: number | null = null;
-        if (resolvedGameId && newScore < oldScore) {
+        if (resolvedGameId && newScore < oldScore && await this.roomSyncsToIScored(row.game_room_id)) {
             await db.run(
                 `INSERT INTO deleted_score_suppressions
                     (game_id, iscored_username_lower, suppressed_score, deleted_at, deleted_by_user_id)
@@ -524,6 +535,30 @@ export class ScoreHistoryService {
             (suppressedAt !== null ? ` [iScored re-import suppressed at ${suppressedAt}]` : ''),
         );
         return { resolvedGameId, suppressedAt };
+    }
+
+    /**
+     * Does `ScoreSyncPoller` actually read this room from iScored?
+     *
+     * Answered by the poller's own credential resolution, so a room that is
+     * switched off, half-configured, or relying on an absent env fallback all
+     * give the same answer here as they do there. A NULL room (a Throwdown —
+     * `score_history.game_room_id` is nullable since migration 164) is never
+     * synced: Throwdowns have no iScored integration by construction, and
+     * falling through to the env account would be wrong on top of that.
+     *
+     * Never throws — a settings-read failure degrades to "yes, it might sync",
+     * which keeps the protective tombstone rather than dropping it on an error.
+     */
+    private static async roomSyncsToIScored(gameRoomId: string | null): Promise<boolean> {
+        if (!gameRoomId) return false;
+        try {
+            const { getIScoredCredsForRoom } = await import('../utils/iscoredCreds.js');
+            return !!(await getIScoredCredsForRoom(gameRoomId));
+        } catch (err) {
+            logDebug(`iScored creds check failed for room ${gameRoomId}; assuming it syncs: ${err instanceof Error ? err.message : String(err)}`);
+            return true;
+        }
     }
 
     private static async findCommunityScoreTwinId(row: DeletableScoreRow): Promise<number | null> {

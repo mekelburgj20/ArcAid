@@ -45,6 +45,12 @@ every submit path requires an ACTIVE game.
     `deleted_score_suppressions`. Bounded cost, documented: a later genuine score between the new and
     old values is suppressed until an admin clears it (Manage Scores → Suppressions). Corrections
     upward need no guard — the poller only ever raises a score.
+  - **The guard is skipped entirely on a room the poller never reads** — decided by
+    `getIScoredCredsForRoom`, the SAME resolution `ScoreSyncPoller` uses, so a room that is switched
+    off, half-configured, or leaning on an absent env fallback gives one answer in both places rather
+    than two that can drift. A room-less Throwdown row is never synced. A settings-read failure
+    degrades to "it might sync" and keeps the tombstone. `deleteEvent`'s tombstone stays
+    unconditional: there the row is gone, so a stray suppression is the cheaper mistake.
 
 ### Tests
 - `admin-ui/src/lib/__tests__/scoreInput.test.ts` (new) — grouping, leading-zero collapse, exactness
@@ -60,7 +66,8 @@ every submit path requires an ACTIVE game.
   submissions recompute (including falling back to a next-best row), tombstone on the way down and
   none on the way up, the community twin corrected rather than deleted, the four authorization tiers
   (room admin, super admin, player refused, foreign-room admin refused), validation, no-op rejection,
-  and the audit row naming both values.
+  the audit row naming both values, and the three no-tombstone cases (iScored switched off, never
+  configured, partially configured).
 
 ## [2.148.0] — Arcaid Witness: three-tier verification (ADR 0021)
 
