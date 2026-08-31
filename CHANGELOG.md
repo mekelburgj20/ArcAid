@@ -6,6 +6,43 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.149.1] — Score correction is reachable where the delete already is
+
+Owner feedback the morning after v2.149.0 shipped: "I'm not seeing a hover-over action at all."
+Two placement defects, one of them functional.
+
+### Fixed
+- **The pencil now sits on the leaderboard ROW**, beside the trash, always visible rather than
+  hover-gated (same rule the row delete has had since v2.108.0 F5). v2.149.0 put it only inside the
+  per-player history expand — and that expand is gated on `hasMultiple`, so **a player with a single
+  score on a game had no expand and therefore no reachable correction at all**, which is the
+  commonest case in the app. It also meant the destructive action was one hover away while the safe
+  one was two clicks deep, the opposite of the intended ordering.
+- **The admin Leaderboard's Manage Scores modal offers a correction too** — that is the admin-side
+  home for per-score actions and where the owner looked first, and it was delete-only. The delete
+  there is the blunt "wipe player from this game", which makes a correction beside it more valuable,
+  not less. It goes through `api.*` (admin token + refresh-and-retry), never the public page's
+  player-token helper.
+
+### Added
+- **`history_id` on `GET /:roomId/leaderboard/:gameId/submissions`** — the `score_history` row each
+  submissions row was computed from, which is what the correction PATCH is keyed on. Matched on an
+  EXACT score (submissions IS best-per-player-per-game, so the row that produced it holds the same
+  number) rather than "the player's best", or the pencil could open on a different value than the one
+  on screen. Joined by (room, name) because `game_id` is NULL on every modern web row (v2.75.1). No
+  match → NULL → no pencil, never a guess.
+- **`components/CorrectScoreModal.tsx`** — the dialog lifted out of `GameDetail` now that three
+  surfaces open it, so the grouped input and the before/after magnitudes cannot diverge.
+
+### Tests
+- `admin-ui/src/pages/__tests__/GameDetailScoreCorrect.test.tsx` (new) — the single-score row (the
+  actual regression: `score-counts` stubbed empty, so nothing can expand), room admin and super admin
+  both see it, a plain player does NOT on their own row while still seeing their delete, signed-out
+  sees neither, the dialog names the old value and magnitude, grouped typing PATCHes the ungrouped
+  number to the right URL, and a no-op edit cannot be saved.
+- `src/__tests__/score-correct.test.ts` — `history_id` present, exact-score matching (a lower earlier
+  row is not chosen), NULL when nothing matches, and resolution when `game_id` is NULL.
+
 ## [2.149.0] — Grouped score entry, remembered provenance, admin score correction
 
 All three come out of one incident (2026-08-30, RTX_Pinball → Daily Grind → World Cup Soccer): a

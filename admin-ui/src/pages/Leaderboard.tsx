@@ -8,6 +8,7 @@ import { useToast } from '../components/Toast';
 import { getSocket } from '../lib/websocket';
 import LoadingState from '../components/LoadingState';
 import ConfirmModal from '../components/ConfirmModal';
+import CorrectScoreModal from '../components/CorrectScoreModal';
 import NeonButton from '../components/NeonButton';
 import GameQuickView from '../components/GameQuickView';
 import DevicePreviewFrame from '../components/DevicePreviewFrame';
@@ -38,6 +39,12 @@ interface Submission {
   score: number;
   timestamp: string;
   photo_url: string | null;
+  /**
+   * The `score_history` row this submissions row was computed from (v2.149.1),
+   * which is what a CORRECTION is keyed on. NULL for legacy rows that predate
+   * score_history — those get no pencil, only the delete.
+   */
+  history_id: number | null;
 }
 
 /** A deleted-score tombstone (deleted_score_suppressions, migration 096). While
@@ -1264,6 +1271,7 @@ function ManageScoresModal({ lb, roomId, onClose, onDeleted }: {
   const [pendingConfirm, setPendingConfirm] = useState<
     { kind: 'delete'; sub: Submission } | { kind: 'suppression'; s: Suppression } | null
   >(null);
+  const [pendingCorrect, setPendingCorrect] = useState<Submission | null>(null);
 
   const load = () => {
     setSubmissions(null);
@@ -1292,6 +1300,37 @@ function ManageScoresModal({ lb, roomId, onClose, onDeleted }: {
       toast(err.message || 'Failed to delete score', 'error');
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  /**
+   * Admin score correction (v2.149.1). The owner went looking for this HERE
+   * first — Manage Scores is the admin-side home for per-score actions — and
+   * found delete-only, because v2.149.0 shipped the pencil on the public Game
+   * Detail page alone.
+   */
+  const handleCorrect = async (sub: Submission, newScore: number) => {
+    if (sub.history_id == null) return;
+    try {
+      // `api.*`, NOT the public page's `correctScoreHistory` helper: this is an
+      // admin surface, so the request must carry the ADMIN token and get
+      // api.ts's refresh-and-retry. The public Game Detail page deliberately
+      // uses a raw fetch with the player token instead, so a 401 there cannot
+      // bounce a player to the super-admin login.
+      const res = await api.patch<{ suppressedAt: number | null }>(
+        `/rooms/${roomId}/score-history/${sub.history_id}/score`,
+        { score: newScore },
+      );
+      toast(
+        res.suppressedAt !== null
+          ? `Corrected: ${sub.iscored_username} → ${newScore.toLocaleString()}. The old value is blocked from re-syncing from iScored.`
+          : `Corrected: ${sub.iscored_username} → ${newScore.toLocaleString()}`,
+        'success',
+      );
+      load();
+      onDeleted();
+    } catch (err: unknown) {
+      toast(err instanceof Error ? err.message : 'Failed to correct score', 'error');
     }
   };
 
@@ -1338,6 +1377,21 @@ function ManageScoresModal({ lb, roomId, onClose, onDeleted }: {
                   <div className="flex items-center gap-3 flex-shrink-0">
                     <span className="font-display font-bold text-sm flex-shrink-0 whitespace-nowrap tabular-nums">{sub.score.toLocaleString()}</span>
                     <span className="text-faint text-[10px] w-20 text-right">{parseServerDate(sub.timestamp)?.toLocaleDateString() ?? ''}</span>
+                    {/* Correction first: on a mistyped score it is almost
+                        always the right action, and the delete here is the
+                        BLUNT one (it wipes the player from the game, not just
+                        this row). */}
+                    {sub.history_id != null && (
+                      <button
+                        type="button"
+                        onClick={() => setPendingCorrect(sub)}
+                        className="p-4 -m-2 text-muted/60 hover:text-neon-cyan transition-colors"
+                        title="Correct this score"
+                        aria-label="Correct this score"
+                      >
+                        <Pencil size={14} />
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => setPendingConfirm({ kind: 'delete', sub })}
@@ -1396,6 +1450,18 @@ function ManageScoresModal({ lb, roomId, onClose, onDeleted }: {
         </div>
       </div>
     </div>
+    {pendingCorrect && (
+      <CorrectScoreModal
+        playerLabel={pendingCorrect.iscored_username}
+        currentScore={pendingCorrect.score}
+        onCancel={() => setPendingCorrect(null)}
+        onConfirm={async (newScore) => {
+          const sub = pendingCorrect;
+          setPendingCorrect(null);
+          await handleCorrect(sub, newScore);
+        }}
+      />
+    )}
     {pendingConfirm?.kind === 'delete' && (
       <ConfirmModal
         title="Delete score"

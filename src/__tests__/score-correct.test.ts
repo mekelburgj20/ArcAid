@@ -230,6 +230,70 @@ describe('ScoreHistoryService.correctScore', () => {
     });
 });
 
+/**
+ * v2.149.1 — the admin Manage Scores modal offers a correction beside its
+ * delete, and a correction is keyed on `score_history.id`, which this endpoint
+ * did not ship. The owner went looking for the pencil here first.
+ */
+describe('GET /:roomId/leaderboard/:gameId/submissions — history_id', () => {
+    let app: express.Express;
+    beforeEach(async () => { app = await createTestApp(); });
+
+    it('ships the score_history id backing each submissions row', async () => {
+        const { roomId, gameId } = await completedGameFixture([{ username: 'Nudge', score: 66661589860 }]);
+        const hist = await historyRow(gameId, 'Nudge');
+
+        const res = await request(app).get(`/api/rooms/${roomId}/leaderboard/${gameId}/submissions`);
+
+        expect(res.status).toBe(200);
+        expect(res.body).toHaveLength(1);
+        expect(res.body[0].history_id).toBe(hist!.id);
+        expect(res.body[0].score).toBe(66661589860);
+    });
+
+    it('matches on the EXACT score, so the pencil never opens on a different number', async () => {
+        const { roomId, gameId } = await completedGameFixture([{ username: 'Nudge', score: 5000 }]);
+        const db = await getDatabase();
+        // A LOWER earlier score for the same player. The submissions row holds
+        // 5000, so history_id must be the 5000 row, not this one.
+        const lower = await db.run(
+            `INSERT INTO score_history (game_name, game_room_id, game_id, iscored_username, discord_user_id, score, source)
+             VALUES ('World Cup Soccer', ?, ?, 'Nudge', 'SYSTEM', 100, 'tournament')`,
+            roomId, gameId,
+        );
+        const res = await request(app).get(`/api/rooms/${roomId}/leaderboard/${gameId}/submissions`);
+
+        expect(res.body[0].history_id).not.toBe(lower.lastID);
+        const matched = await db.get<{ score: number }>(
+            'SELECT score FROM score_history WHERE id = ?', res.body[0].history_id,
+        );
+        expect(matched!.score).toBe(5000);
+    });
+
+    it('returns a NULL history_id when nothing matches, rather than guessing', async () => {
+        const { roomId, gameId } = await completedGameFixture([{ username: 'Nudge', score: 5000 }]);
+        const db = await getDatabase();
+        // Simulate a legacy row: the submissions row survives, its history does not.
+        await db.run('DELETE FROM score_history WHERE game_id = ?', gameId);
+
+        const res = await request(app).get(`/api/rooms/${roomId}/leaderboard/${gameId}/submissions`);
+
+        expect(res.body).toHaveLength(1);
+        expect(res.body[0].history_id).toBeNull();
+    });
+
+    it('resolves for a row whose game_id is NULL (every modern web submission)', async () => {
+        const { roomId, gameId } = await completedGameFixture([{ username: 'Nudge', score: 5000 }]);
+        const db = await getDatabase();
+        // v2.75.1 doctrine: game_id is a transient pointer, NULL on web rows.
+        await db.run('UPDATE score_history SET game_id = NULL WHERE game_id = ?', gameId);
+
+        const res = await request(app).get(`/api/rooms/${roomId}/leaderboard/${gameId}/submissions`);
+
+        expect(res.body[0].history_id).not.toBeNull();
+    });
+});
+
 describe('PATCH /:roomId/score-history/:historyId/score — authorization + validation', () => {
     // `createTestApp` calls `setupTestDb` itself; a second call here would
     // close the handle the app is already holding (same idiom as
