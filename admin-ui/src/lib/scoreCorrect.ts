@@ -14,22 +14,53 @@
 
 import type { ViewerClaims } from './viewerClaims';
 import { isRoomAdminFor } from './viewerClaims';
-import { rowHistoryId, type DeletableRowLike } from './scoreDelete';
+import { isOwnScoreRow, rowHistoryId, type DeletableRowLike } from './scoreDelete';
+
+/** The extra fields the owner tier reads, beyond `DeletableRowLike`. */
+export interface CorrectableRowLike extends DeletableRowLike {
+  /** Admin verification stamp. Either shape, depending on which list built the row. */
+  verified_at?: string | null;
+  verified?: boolean;
+}
 
 /**
  * Whether the viewer may correct `row` in `roomId`.
  *
- * No `source` filter, unlike `canDeleteRow`: the server accepts a correction
- * on any source, because a typo is a typo whatever wrote the row.
+ * Three tiers, mirroring the server:
+ *   - super_admin / room_admin → any row, locked or not
+ *   - the SUBMITTER → their own row, but only while the card is UNLOCKED
+ *
+ * **"Unlocked" is `gameStatus === 'ACTIVE'`** — the same line
+ * `isCooldownLocked` already draws in the submission sheet, and what both
+ * admin lock affordances ("Force Complete", "Lock on iScored") actually change.
+ * Owner ruling 2026-08-31: a player fixes their own typo while the round runs;
+ * once it closes they ask an admin.
+ *
+ * An admin-VERIFIED row is closed to its owner — an admin asserted that exact
+ * number, so changing it underneath the badge would make the badge a lie.
+ *
+ * `gameStatus` omitted means "not a tournament card" (the global and all-time
+ * views), where there is no round to close and only admins may correct.
+ *
+ * No `source` filter, unlike `canDeleteRow`: the server accepts a correction on
+ * any source, because a typo is a typo whatever wrote the row. Ownership does
+ * the filtering on its own — a synced row has a NULL `submitted_by_user_id` and
+ * so belongs to nobody.
+ *
+ * NOT the enforcement point. The server re-checks every clause.
  */
 export function canCorrectRow(
-  row: DeletableRowLike,
+  row: CorrectableRowLike,
   claims: ViewerClaims | null,
   roomId: string | undefined,
+  gameStatus?: string,
 ): boolean {
   if (!claims || !roomId) return false;
   if (rowHistoryId(row) == null) return false;
-  return isRoomAdminFor(claims, roomId);
+  if (isRoomAdminFor(claims, roomId)) return true;
+  if (!isOwnScoreRow(row, claims)) return false;
+  if (row.verified_at || row.verified) return false;
+  return gameStatus === 'ACTIVE';
 }
 
 export interface CorrectScoreResult {

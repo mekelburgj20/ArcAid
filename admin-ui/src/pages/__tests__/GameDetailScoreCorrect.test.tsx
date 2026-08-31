@@ -38,19 +38,29 @@ function signInAs(discordId: string, claims: Record<string, unknown> = {}) {
   localStorage.setItem('arcaid_player_user', JSON.stringify({ discordId, username: 'Tester', avatar: null }));
 }
 
-const RANKINGS = [
-  {
-    rank: 1, discord_user_id: 'disc-nudge', iscored_username: 'StopNudgingMe', score: 66661589860,
-    history_id: 496, source: 'community', submitted_by_user_id: 'disc-nudge',
-  },
-];
+interface StubOpts {
+  /** 'COMPLETED' is a LOCKED card (the default here — it is the incident's shape). */
+  gameStatus?: string;
+  /** Admin-verified rows are closed to their owner. */
+  verified?: boolean;
+}
 
-const BOARD = {
-  gameId: 'game-1', gameName: 'World Cup Soccer', tournamentName: 'Daily Grind',
-  imageUrl: null, rankings: RANKINGS, gameStatus: 'COMPLETED', globalGameId: null,
-};
+function rankings(opts: StubOpts = {}) {
+  return [
+    {
+      rank: 1, discord_user_id: 'disc-nudge', iscored_username: 'StopNudgingMe', score: 66661589860,
+      history_id: 496, source: 'community', submitted_by_user_id: 'disc-nudge',
+      verified: opts.verified ?? false,
+    },
+  ];
+}
 
-function stubFetch() {
+function stubFetch(opts: StubOpts = {}) {
+  const RANKINGS = rankings(opts);
+  const BOARD = {
+    gameId: 'game-1', gameName: 'World Cup Soccer', tournamentName: 'Daily Grind',
+    imageUrl: null, rankings: RANKINGS, gameStatus: opts.gameStatus ?? 'COMPLETED', globalGameId: null,
+  };
   const fetchMock = vi.fn((url: string, init?: RequestInit) => {
     if (init?.method === 'PATCH') {
       return Promise.resolve({
@@ -113,12 +123,48 @@ describe('GameDetail — leaderboard-row score correction', () => {
     expect(await screen.findByRole('button', { name: correctLabel })).toBeInTheDocument();
   });
 
-  it('a plain player does NOT see it on their own row, though they may delete it', async () => {
+  /**
+   * Owner tier (ruling 2026-08-31): "I want players to be able to edit their
+   * own scores just as easily, unless the card is locked — in which case they
+   * will need an admin." Locked == the game is no longer ACTIVE, the same line
+   * `isCooldownLocked` draws for submissions.
+   */
+  it('the SUBMITTER sees the pencil while the card is unlocked', async () => {
     signInAs('disc-nudge');
+    stubFetch({ gameStatus: 'ACTIVE' });
     renderPage();
-    // Their own delete is present — proves the row rendered and the viewer
-    // resolved — while the correction is admin-only.
+    expect(await screen.findByRole('button', { name: correctLabel })).toBeInTheDocument();
+  });
+
+  it('the submitter LOSES it once the card locks — that is the admin-only case', async () => {
+    signInAs('disc-nudge');
+    stubFetch({ gameStatus: 'COMPLETED' });
+    renderPage();
+    // Delete is still theirs; only the correction closes.
     await screen.findByRole('button', { name: /Delete this score/ });
+    expect(screen.queryByRole('button', { name: correctLabel })).not.toBeInTheDocument();
+  });
+
+  it('an admin-VERIFIED row is closed to its owner even while unlocked', async () => {
+    signInAs('disc-nudge');
+    stubFetch({ gameStatus: 'ACTIVE', verified: true });
+    renderPage();
+    await screen.findByRole('button', { name: /Delete this score/ });
+    expect(screen.queryByRole('button', { name: correctLabel })).not.toBeInTheDocument();
+  });
+
+  it('an admin keeps it on a verified row on a locked card', async () => {
+    signInAs('disc-admin', { role: 'room_admin', gameRoomIds: ['room-1'] });
+    stubFetch({ gameStatus: 'COMPLETED', verified: true });
+    renderPage();
+    expect(await screen.findByRole('button', { name: correctLabel })).toBeInTheDocument();
+  });
+
+  it('a DIFFERENT player never sees it on someone else’s row', async () => {
+    signInAs('disc-someone-else');
+    stubFetch({ gameStatus: 'ACTIVE' });
+    renderPage();
+    await screen.findByText('66,661,589,860');
     expect(screen.queryByRole('button', { name: correctLabel })).not.toBeInTheDocument();
   });
 
