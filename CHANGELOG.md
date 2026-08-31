@@ -6,6 +6,62 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.149.0] — Grouped score entry, remembered provenance, admin score correction
+
+All three come out of one incident (2026-08-30, RTX_Pinball → Daily Grind → World Cup Soccer): a
+player submitted `66,661,589,860` for `6,666,158,980`. Nobody spotted the extra digit in a bare
+eleven-digit input, and by the time it was noticed the table had rotated to COMPLETED — at which
+point Arcaid had no way to fix it, because there was no score-edit path at any privilege level and
+every submit path requires an ACTIVE game.
+
+### Added
+- **Grouped score entry + a magnitude echo.** The submission sheet's score field now formats as you
+  type (`6,666,158,980`) and prints the order of magnitude beneath it (`6.66 billion`). Display has
+  been grouped since S17 (`formatScore`); entry never was, which is where the mistake lived. The echo
+  is the half that actually catches an off-by-one digit — at eleven digits you still have to count
+  comma groups, but "66.66 billion" reads wrong immediately. New pure module
+  `admin-ui/src/lib/scoreInput.ts` (string grouping, exact past `MAX_SAFE_INTEGER`; truncated, never
+  rounded, magnitudes).
+- **Engine is remembered, and both halves gain a per-game override.** Device has been remembered
+  globally since v2.53.0 (`arcaid_last_device`); engine was remembered nowhere and only auto-locked
+  on single-engine games, so a multi-engine table re-asked "what produced this score" every time.
+  Adds `arcaid_last_engine` plus `arcaid_last_provenance:<game>` (per-game, checked FIRST — global is
+  right for a player's rig, per-game is right for someone who plays this table on other hardware).
+  Both resolve through the same exclusion-filtered option list the dropdown renders, so the v2.95.1
+  "remembered value the tournament excludes" regression cannot come back.
+- **Admin score correction.** `PATCH /api/rooms/:roomId/score-history/:historyId/score` +
+  `ScoreHistoryService.correctScore` — changes a score's value in place. ADMIN ONLY (unlike the
+  sibling DELETE, which the row's owner may also use: letting a player rewrite their own score is not
+  a correction tool). Carries the `community_scores` twin and the `global_scores` fan-out with it via
+  the same conservative match rules `deleteEvent` uses (extracted so the two cannot drift), recomputes
+  the `submissions` best-per-player row, invalidates and broadcasts. Writes **no** tombstone on the
+  corrected row, deletes no photo, and fires none of the submit-time side effects — no lobby event,
+  no toast, no notification, nothing announced. Surfaced as a hover pencil beside the trash on the
+  Game Detail history rows, opening a dialog that uses the same grouped input and shows both the old
+  and new magnitude.
+  - **iScored guard:** `IScoredApiClient` can submit a score but cannot edit or delete one, so on a
+    mirrored room the old value survives on their board and `ScoreSyncPoller` would re-import it
+    within a cycle. A correction DOWNWARD therefore tombstones the OLD value in
+    `deleted_score_suppressions`. Bounded cost, documented: a later genuine score between the new and
+    old values is suppressed until an admin clears it (Manage Scores → Suppressions). Corrections
+    upward need no guard — the poller only ever raises a score.
+
+### Tests
+- `admin-ui/src/lib/__tests__/scoreInput.test.ts` (new) — grouping, leading-zero collapse, exactness
+  past `MAX_SAFE_INTEGER`, digit-counted caret translation, separator-skip on backspace, and the
+  magnitude tiers including the incident's own two values.
+- `admin-ui/src/components/__tests__/SubmissionSheet.keypad.test.tsx` — existing caret assertions
+  updated for grouping (they asserted bare digits); new cases for group-as-you-type, the magnitude
+  echo changing when a stray zero is added, backspace onto a separator deleting the digit in front,
+  and the POST carrying the UNGROUPED number.
+- `admin-ui/src/components/__tests__/SubmissionSheet.test.tsx` — engine restore, exclusion refusal,
+  per-game beating global, global fallback, and a corrupt per-game record degrading quietly.
+- `src/__tests__/score-correct.test.ts` (new) — value changed in place with the row id intact, the
+  submissions recompute (including falling back to a next-best row), tombstone on the way down and
+  none on the way up, the community twin corrected rather than deleted, the four authorization tiers
+  (room admin, super admin, player refused, foreign-room admin refused), validation, no-op rejection,
+  and the audit row naming both values.
+
 ## [2.148.0] — Arcaid Witness: three-tier verification (ADR 0021)
 
 Hardware rounds 4/4b proved a resident beacon can watch play live on 6.x big cabinets, and that some

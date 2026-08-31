@@ -12,8 +12,10 @@ import { useRoom } from '../contexts/RoomContext';
 import { getSocket } from '../lib/websocket';
 import { decodeViewerClaims, isRoomAdminFor } from '../lib/viewerClaims';
 import { canDeleteRow, deleteScoreHistory } from '../lib/scoreDelete';
+import { canCorrectRow, correctScoreHistory } from '../lib/scoreCorrect';
+import { digitsOnly, formatMagnitude, formatScoreInput } from '../lib/scoreInput';
 import { formatScore, scoreTitle, parseServerDate } from '../lib/format';
-import { Search, Trophy, TrendingUp, Target, Medal, Plus, Minus, Clock, Lightbulb, MessageCircle, Trash2, ChevronDown, ChevronUp, History, Download, Play, BookOpen, ExternalLink, Flag, BadgeCheck, Share2 } from 'lucide-react';
+import { Search, Trophy, TrendingUp, Target, Medal, Plus, Minus, Clock, Lightbulb, MessageCircle, Trash2, ChevronDown, ChevronUp, History, Download, Play, BookOpen, ExternalLink, Flag, BadgeCheck, Share2, Pencil } from 'lucide-react';
 import ReportProblemModal from '../components/ReportProblemModal';
 import ReportContentModal from '../components/ReportContentModal';
 import ConfirmModal from '../components/ConfirmModal';
@@ -217,6 +219,8 @@ export default function GameDetail() {
   const [reportOpen, setReportOpen] = useState(false);
   // s20: confirm-before-delete for score-history rows, replacing native confirm().
   const [pendingDeleteEntry, setPendingDeleteEntry] = useState<ScoreHistoryEntry | null>(null);
+  /** Admin score correction — the row whose value is being edited. */
+  const [pendingCorrect, setPendingCorrect] = useState<ScoreHistoryEntry | null>(null);
   // v2.108.0 (F5) — same confirm flow for a CURRENT LEADERBOARD row, which
   // deletes its backing `history_id` rather than an expanded history row.
   const [pendingDeleteRanked, setPendingDeleteRanked] = useState<RankedEntry | null>(null);
@@ -739,6 +743,35 @@ export default function GameDetail() {
    *  defeat the point), using the same admin detection the delete gate uses. */
   const canVerifyScoreHistory = (): boolean => !!roomId && isRoomAdminFor(viewerClaims, roomId);
 
+  /** Score correction is admin-only for the same reason verify is — see
+   *  `lib/scoreCorrect.ts`. Unlike delete, it is NOT offered to the owner. */
+  const canCorrectScoreHistory = (entry: ScoreHistoryEntry): boolean =>
+    canCorrectRow(entry, viewerClaims, roomId);
+
+  /** Applies an admin score correction and reconciles the two lists this page
+   *  renders from — the expanded per-player history and the ranked board —
+   *  without a refetch. The websocket `leaderboard:updated` broadcast is the
+   *  backstop for every other open page. */
+  const handleCorrectScore = async (entry: ScoreHistoryEntry, newScore: number) => {
+    if (!roomId) return;
+    const res = await correctScoreHistory(roomId, entry.id, newScore, playerToken);
+    if (!res.ok) {
+      toast(res.error, 'error');
+      return;
+    }
+    setPlayerHistory(prev => prev.map(h => (h.id === entry.id ? { ...h, score: newScore } : h)));
+    // The ranked row shows the player's BEST, and a correction can change
+    // which row that is (in either direction) — reuse the same authoritative
+    // refetch both delete paths use rather than patching ranks by hand.
+    refreshAfterScoreDelete();
+    toast(
+      res.result.suppressedAt !== null
+        ? `Score corrected to ${newScore.toLocaleString()}. The old value is blocked from re-syncing from iScored.`
+        : `Score corrected to ${newScore.toLocaleString()}.`,
+      'success',
+    );
+  };
+
   /** S23.7 — toggles `verified_by`/`verified_at` on one score_history row. */
   const handleToggleVerified = async (entry: ScoreHistoryEntry) => {
     if (!roomId || !playerToken) return;
@@ -1103,6 +1136,8 @@ export default function GameDetail() {
                                             h={h}
                                             canDelete={canDeleteScoreHistory(h)}
                                             onDelete={() => handleDeleteScoreHistory(h)}
+                                            canCorrect={canCorrectScoreHistory(h)}
+                                            onCorrect={() => setPendingCorrect(h)}
                                             canVerify={canVerifyScoreHistory()}
                                             onToggleVerified={() => handleToggleVerified(h)}
                                             canReport={!!viewerClaims?.discordId}
@@ -1130,6 +1165,8 @@ export default function GameDetail() {
                                             h={h}
                                             canDelete={canDeleteScoreHistory(h)}
                                             onDelete={() => handleDeleteScoreHistory(h)}
+                                            canCorrect={canCorrectScoreHistory(h)}
+                                            onCorrect={() => setPendingCorrect(h)}
                                             canVerify={canVerifyScoreHistory()}
                                             onToggleVerified={() => handleToggleVerified(h)}
                                             canReport={!!viewerClaims?.discordId}
@@ -1959,6 +1996,18 @@ export default function GameDetail() {
         />
       )}
 
+      {pendingCorrect && (
+        <CorrectScoreModal
+          entry={pendingCorrect}
+          onCancel={() => setPendingCorrect(null)}
+          onConfirm={async (newScore) => {
+            const entry = pendingCorrect;
+            setPendingCorrect(null);
+            await handleCorrectScore(entry, newScore);
+          }}
+        />
+      )}
+
       {reportOpen && leaderboard?.globalGameId && (
         <ReportProblemModal
           globalGameId={leaderboard.globalGameId}
@@ -2006,10 +2055,12 @@ export default function GameDetail() {
     just admin/owner rows) — it opens the ScorePhotoModal for this exact row
     rather than performing the share itself; the modal's own Share button does
     the copy/native-share. */
-function ScoreHistoryRow({ h, canDelete, onDelete, canVerify, onToggleVerified, canReport, onReport, onShare }: {
+function ScoreHistoryRow({ h, canDelete, onDelete, canCorrect, onCorrect, canVerify, onToggleVerified, canReport, onReport, onShare }: {
   h: ScoreHistoryEntry;
   canDelete: boolean;
   onDelete: () => void;
+  canCorrect?: boolean;
+  onCorrect?: () => void;
   canVerify?: boolean;
   onToggleVerified?: () => void;
   canReport?: boolean;
@@ -2080,6 +2131,20 @@ function ScoreHistoryRow({ h, canDelete, onDelete, canVerify, onToggleVerified, 
             <BadgeCheck size={12} />
           </button>
         )}
+        {/* Correction sits BEFORE delete: on a mistyped score it is almost
+            always the right action, and putting it after the trash invites
+            the destructive one to be reached first. */}
+        {canCorrect && onCorrect && (
+          <button
+            type="button"
+            onClick={onCorrect}
+            className="p-4 -m-2 opacity-0 group-hover:opacity-100 focus:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 text-muted/60 hover:text-neon-cyan transition-all cursor-pointer"
+            title="Correct this score"
+            aria-label="Correct this score"
+          >
+            <Pencil size={12} />
+          </button>
+        )}
         {canDelete && (
           <button
             type="button"
@@ -2091,6 +2156,93 @@ function ScoreHistoryRow({ h, canDelete, onDelete, canVerify, onToggleVerified, 
             <Trash2 size={12} />
           </button>
         )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Admin score correction (owner incident 2026-08-30 — a mistyped score on a
+ * table that had already rotated, with no edit path anywhere in the app).
+ *
+ * Uses the SAME grouped entry as the submission sheet (`lib/scoreInput`),
+ * because a correction dialog that shows bare digits is the exact surface that
+ * produced the mistake being corrected. The magnitude echo is shown for both
+ * the old and the new value so the admin is comparing two readable phrases,
+ * not two long runs of digits.
+ */
+function CorrectScoreModal({ entry, onConfirm, onCancel }: {
+  entry: ScoreHistoryEntry;
+  onConfirm: (score: number) => void | Promise<void>;
+  onCancel: () => void;
+}) {
+  const [value, setValue] = useState(() => formatScoreInput(String(entry.score)));
+  const [busy, setBusy] = useState(false);
+  const digits = digitsOnly(value);
+  const parsed = digits === '' ? null : Number(digits);
+  const magnitude = formatMagnitude(digits);
+  const oldMagnitude = formatMagnitude(String(entry.score));
+  // Number() past 2^53 is already lossy, and the server refuses it — say so
+  // here rather than letting the PATCH come back with a 400.
+  const tooLarge = parsed !== null && !Number.isSafeInteger(parsed);
+  const unchanged = parsed !== null && parsed === entry.score;
+  const canSave = parsed !== null && !tooLarge && !unchanged && !busy;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-deep/80 backdrop-blur-sm p-4" onClick={onCancel}>
+      <div className="bg-surface border border-border rounded-lg w-full max-w-sm" onClick={e => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-border/50">
+          <h2 className="font-display text-lg font-bold mb-0.5">Correct score</h2>
+          <p className="text-xs text-muted">
+            {entry.display_name || entry.iscored_username} · was {entry.score.toLocaleString()}
+            {oldMagnitude ? ` (${oldMagnitude})` : ''}
+          </p>
+        </div>
+        <div className="px-5 py-4 space-y-2">
+          <label htmlFor="correct-score-input" className="text-xs text-faint block">Corrected score</label>
+          <input
+            id="correct-score-input"
+            type="text"
+            inputMode="numeric"
+            autoComplete="off"
+            autoFocus
+            value={value}
+            onChange={e => setValue(formatScoreInput(e.target.value))}
+            className="w-full px-3 py-2 bg-raised border border-border rounded text-primary text-sm focus:outline-none focus:border-neon-cyan transition-colors"
+          />
+          {magnitude && <p className="text-xs text-faint">{magnitude}</p>}
+          {tooLarge && <p className="text-xs text-neon-magenta">That number is too large to record exactly.</p>}
+          {unchanged && <p className="text-xs text-faint">That is already the recorded score.</p>}
+          <p className="text-xs text-muted pt-1">
+            Changes the value in place — the score, its photo and its place in the player&apos;s
+            history all stay. Nothing is announced.
+          </p>
+        </div>
+        <div className="px-5 py-3 border-t border-border/50 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="px-3 py-1.5 text-sm text-muted hover:text-primary transition-colors cursor-pointer"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={!canSave}
+            onClick={async () => {
+              if (parsed === null) return;
+              setBusy(true);
+              try {
+                await onConfirm(parsed);
+              } finally {
+                setBusy(false);
+              }
+            }}
+            className="px-3 py-1.5 text-sm rounded bg-neon-cyan/15 text-neon-cyan border border-neon-cyan/40 hover:bg-neon-cyan/25 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+          >
+            {busy ? 'Saving…' : 'Save correction'}
+          </button>
+        </div>
       </div>
     </div>
   );

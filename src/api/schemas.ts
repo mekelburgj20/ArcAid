@@ -792,6 +792,20 @@ export const AdminSetDisplayNameSchema = z.object({
     displayName: z.string().trim().min(1).max(32).nullable(),
 });
 /**
+ * PATCH /:roomId/score-history/:historyId/score body — admin score correction.
+ *
+ * `Number.isSafeInteger` rather than a plain `.int()`: the value arrives from
+ * JSON, and past 2^53 the parse is already lossy, so accepting it would store
+ * a number nobody typed. That ceiling (~9.0 quadrillion) is far above any real
+ * pinball score, and it is the same limit every other numeric score path
+ * inherits from `JSON.parse`.
+ */
+export const CorrectScoreSchema = z.object({
+    score: z.number().refine(n => Number.isSafeInteger(n) && n >= 0, {
+        message: 'Score must be a whole number of 0 or more',
+    }),
+});
+/**
  * PUT /admin/callouts body (v2.123.0). Deliberately loose here: this schema
  * only asserts the envelope shape, because the per-entry rules live in
  * `validateCalloutEntries` (src/utils/callouts.ts), which is shared with the

@@ -166,6 +166,86 @@ describe('SubmissionSheet — engine/device derivation', () => {
         await waitFor(() => expect(select.value).toBe('pc'));
     });
 
+    /**
+     * Engine memory (owner request 2026-08-30). Device has been remembered
+     * globally since v2.53.0; engine was never remembered at all, so a player
+     * on a multi-engine table re-answered "what produced this score" every
+     * time. Same exclusion-filtered option list as the device rule — the
+     * v2.95.1 regression above is exactly what a raw membership test
+     * reintroduces.
+     */
+    it('restores a remembered ENGINE when the game offers more than one', async () => {
+        signIn();
+        localStorage.setItem('arcaid_last_engine', 'fx');
+        renderSheet({
+            platformsResponse: platformsPayload({ submittable: ['vpx', 'fx'] }),
+        });
+
+        // Two engines → an engine <select> renders; it is the first combobox.
+        const selects = await screen.findAllByRole('combobox');
+        await waitFor(() => expect((selects[0] as HTMLSelectElement).value).toBe('fx'));
+    });
+
+    it('does NOT restore a remembered engine the tournament excludes', async () => {
+        signIn();
+        localStorage.setItem('arcaid_last_engine', 'fx');
+        renderSheet({
+            platformsResponse: platformsPayload({
+                platforms: ['vpx', 'fx', 'fp'],
+                submittable: ['vpx', 'fp'],
+                excludedEngines: ['fx'],
+            }),
+        });
+
+        const selects = await screen.findAllByRole('combobox');
+        await waitFor(() => expect((selects[0] as HTMLSelectElement).value).toBe(''));
+        expect(screen.queryByRole('option', { name: 'Pinball FX' })).not.toBeInTheDocument();
+    });
+
+    it('a per-game choice outranks the global one', async () => {
+        signIn();
+        localStorage.setItem('arcaid_last_engine', 'fx');
+        localStorage.setItem('arcaid_last_device', 'pc');
+        localStorage.setItem(
+            'arcaid_last_provenance:room-1:attack from mars',
+            JSON.stringify({ engine: 'vpx', device: 'atgames' }),
+        );
+        renderSheet({
+            platformsResponse: platformsPayload({ submittable: ['vpx', 'fx'] }),
+        });
+
+        const selects = await screen.findAllByRole('combobox');
+        await waitFor(() => expect((selects[0] as HTMLSelectElement).value).toBe('vpx'));
+        await waitFor(() => expect((selects[1] as HTMLSelectElement).value).toBe('atgames'));
+    });
+
+    it('falls back to the global memory for a game with no per-game record', async () => {
+        signIn();
+        localStorage.setItem('arcaid_last_engine', 'fx');
+        localStorage.setItem(
+            'arcaid_last_provenance:room-1:some other table',
+            JSON.stringify({ engine: 'vpx' }),
+        );
+        renderSheet({
+            platformsResponse: platformsPayload({ submittable: ['vpx', 'fx'] }),
+        });
+
+        const selects = await screen.findAllByRole('combobox');
+        await waitFor(() => expect((selects[0] as HTMLSelectElement).value).toBe('fx'));
+    });
+
+    it('ignores a corrupt per-game record instead of throwing', async () => {
+        signIn();
+        localStorage.setItem('arcaid_last_engine', 'fx');
+        localStorage.setItem('arcaid_last_provenance:room-1:attack from mars', 'not json');
+        renderSheet({
+            platformsResponse: platformsPayload({ submittable: ['vpx', 'fx'] }),
+        });
+
+        const selects = await screen.findAllByRole('combobox');
+        await waitFor(() => expect((selects[0] as HTMLSelectElement).value).toBe('fx'));
+    });
+
     it('single-engine payload auto-locks the engine to a read-only chip', async () => {
         signIn();
         renderSheet({

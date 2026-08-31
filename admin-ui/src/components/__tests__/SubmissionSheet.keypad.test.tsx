@@ -118,15 +118,15 @@ describe('SubmissionSheet — keypad caret handling (bug 2)', () => {
         const input = await openKeypad();
 
         for (const d of ['5', '0', '0', '9', '9', '9']) pressKey(d);
-        await waitFor(() => expect(input.value).toBe('500999'));
+        await waitFor(() => expect(input.value).toBe('500,999'));
 
         // Player taps between "500" and "999", then types 5.
         act(() => input.setSelectionRange(3, 3));
         pressKey('5');
 
-        await waitFor(() => expect(input.value).toBe('5005999'));
-        expect(input.selectionStart).toBe(4);
-        expect(input.selectionEnd).toBe(4);
+        await waitFor(() => expect(input.value).toBe('5,005,999'));
+        expect(input.selectionStart).toBe(5);
+        expect(input.selectionEnd).toBe(5);
     });
 
     it('backspace deletes the character before the caret, not the last one', async () => {
@@ -135,12 +135,12 @@ describe('SubmissionSheet — keypad caret handling (bug 2)', () => {
         const input = await openKeypad();
 
         for (const d of ['5', '0', '0', '9', '9', '9']) pressKey(d);
-        await waitFor(() => expect(input.value).toBe('500999'));
+        await waitFor(() => expect(input.value).toBe('500,999'));
 
         act(() => input.setSelectionRange(3, 3));
         pressKey('Backspace');
 
-        await waitFor(() => expect(input.value).toBe('50999'));
+        await waitFor(() => expect(input.value).toBe('50,999'));
         expect(input.selectionStart).toBe(2);
     });
 
@@ -150,12 +150,12 @@ describe('SubmissionSheet — keypad caret handling (bug 2)', () => {
         const input = await openKeypad();
 
         for (const d of ['5', '0', '0', '9', '9', '9']) pressKey(d);
-        await waitFor(() => expect(input.value).toBe('500999'));
+        await waitFor(() => expect(input.value).toBe('500,999'));
 
         act(() => input.setSelectionRange(1, 3));
         pressKey('7');
 
-        await waitFor(() => expect(input.value).toBe('57999'));
+        await waitFor(() => expect(input.value).toBe('57,999'));
         expect(input.selectionStart).toBe(2);
     });
 
@@ -169,7 +169,88 @@ describe('SubmissionSheet — keypad caret handling (bug 2)', () => {
         expect(input.selectionStart).toBe(3);
 
         pressKey('4');
-        await waitFor(() => expect(input.value).toBe('1234'));
+        await waitFor(() => expect(input.value).toBe('1,234'));
+        expect(input.selectionStart).toBe(5);
+    });
+});
+
+/**
+ * Grouped score entry (owner incident 2026-08-30 — an eleven-digit score with
+ * one extra zero reached a locked board). These lock the seam the pure helpers
+ * in `lib/__tests__/scoreInput.test.ts` cannot: that the grouping survives the
+ * keypad's caret splice, and that the magnitude echo renders.
+ */
+describe('SubmissionSheet — grouped score entry', () => {
+    beforeEach(() => {
+        vi.restoreAllMocks();
+        localStorage.clear();
+        (window as unknown as { ontouchstart?: unknown }).ontouchstart = null;
+    });
+    afterEach(() => {
+        delete (window as unknown as { ontouchstart?: unknown }).ontouchstart;
+    });
+
+    it('groups digits as they are typed', async () => {
+        signIn();
+        renderSheet();
+        const input = await openKeypad();
+        for (const d of ['6', '6', '6', '6', '1', '5', '8', '9', '8', '0']) pressKey(d);
+        await waitFor(() => expect(input.value).toBe('6,666,158,980'));
+    });
+
+    it('echoes the magnitude in words — the check that actually catches a stray digit', async () => {
+        signIn();
+        renderSheet();
+        const input = await openKeypad();
+        for (const d of ['6', '6', '6', '6', '1', '5', '8', '9', '8', '0']) pressKey(d);
+        await waitFor(() => expect(input.value).toBe('6,666,158,980'));
+        await screen.findByText('6.66 billion');
+
+        // The typo that prompted this work: one more zero, an order of
+        // magnitude the echo makes unmissable.
+        pressKey('0');
+        await waitFor(() => expect(input.value).toBe('66,661,589,800'));
+        await screen.findByText('66.66 billion');
+    });
+
+    it('backspacing onto a separator removes the digit in front of it, not the comma', async () => {
+        signIn();
+        renderSheet();
+        const input = await openKeypad();
+        for (const d of ['1', '2', '3', '4']) pressKey(d);
+        await waitFor(() => expect(input.value).toBe('1,234'));
+
+        // Caret immediately after the comma. Deleting the separator alone
+        // would be undone by the re-group and the key would look dead.
+        act(() => input.setSelectionRange(2, 2));
+        pressKey('Backspace');
+
+        await waitFor(() => expect(input.value).toBe('234'));
+    });
+
+    it('submits the ungrouped number, never the formatted string', async () => {
+        signIn();
+        const { fetchMock } = renderSheet();
+        await screen.findByText('Real Cabinet');
+        const input = await openKeypad();
+        for (const d of ['1', '2', '3', '4', '5', '6', '7']) pressKey(d);
+        await waitFor(() => expect(input.value).toBe('1,234,567'));
+
+        // Past the keyboard-close submit latch (see bug 1 below).
+        const base = Date.now();
+        let clock = base;
+        vi.spyOn(Date, 'now').mockImplementation(() => clock);
+        pressDone();
+        await waitFor(() => expect(screen.queryByRole('button', { name: 'Done' })).not.toBeInTheDocument());
+        clock = base + 400;
+
+        fireEvent.click(screen.getByRole('button', { name: 'Submit Score' }));
+        await waitFor(() => {
+            const call = fetchMock.mock.calls.find(c => String(c[0]).includes('/submit-score/'));
+            expect(call).toBeTruthy();
+            const body = (call![1] as { body: FormData }).body;
+            expect(body.get('score')).toBe('1234567');
+        });
     });
 });
 
