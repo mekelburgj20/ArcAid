@@ -464,12 +464,37 @@ router.get('/:roomId/leaderboard/:gameId/submissions', async (req, res) => {
     try {
         const gameId = req.params.gameId as string;
         const db = await getDatabase();
+        // `history_id` (v2.149.1) — the `score_history` row this submissions
+        // row was computed from, so the admin Manage Scores modal can offer a
+        // CORRECTION (which is keyed on score_history.id) beside its delete.
+        //
+        // Matched on an EXACT score, not "the player's best": submissions IS
+        // best-per-player-per-game, so the row that produced it is the one
+        // holding the same number. An inexact match would hand the pencil a
+        // different score than the one on screen. Oldest wins a tie, mirroring
+        // the `ORDER BY score DESC, created_at ASC` recompute in
+        // `ScoreHistoryService`. No match (legacy rows that predate
+        // score_history) → NULL → the FE simply shows no pencil.
+        //
+        // Joined by (room, name) rather than `game_id` because that column is
+        // a transient pointer — NULL on every modern web submission (v2.75.1
+        // doctrine, see `resolveGameIdForRow`).
         const submissions = await db.all(`
-            SELECT id, iscored_username, score, timestamp, photo_url
-            FROM submissions
-            WHERE game_id = ?
-              AND orphaned_at IS NULL
-            ORDER BY LOWER(iscored_username), score DESC
+            SELECT s.id, s.iscored_username, s.score, s.timestamp, s.photo_url,
+                   (SELECT sh.id FROM score_history sh
+                     WHERE sh.game_room_id = COALESCE(g.game_room_id, t.game_room_id)
+                       AND LOWER(sh.game_name) = LOWER(g.name)
+                       AND LOWER(sh.iscored_username) = LOWER(s.iscored_username)
+                       AND sh.score = s.score
+                       AND sh.orphaned_at IS NULL
+                     ORDER BY sh.created_at ASC
+                     LIMIT 1) AS history_id
+            FROM submissions s
+            JOIN games g ON g.id = s.game_id
+            LEFT JOIN tournaments t ON t.id = g.tournament_id
+            WHERE s.game_id = ?
+              AND s.orphaned_at IS NULL
+            ORDER BY LOWER(s.iscored_username), s.score DESC
         `, gameId);
         res.json(submissions);
     } catch (error) {
