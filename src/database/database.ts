@@ -189,7 +189,7 @@ async function doInitDatabase(): Promise<Database> {
             discord_user_id TEXT DEFAULT 'SYSTEM',
             score INTEGER NOT NULL,
             photo_url TEXT,
-            source TEXT NOT NULL DEFAULT 'tournament' CHECK(source IN ('tournament', 'community', 'sync', 'atgames')),
+            source TEXT NOT NULL DEFAULT 'tournament' CHECK(source IN ('tournament', 'community', 'sync', 'atgames', 'vpx')),
             created_at TEXT DEFAULT (datetime('now')),
             FOREIGN KEY (game_room_id) REFERENCES game_rooms (id) ON DELETE CASCADE
         );
@@ -2848,7 +2848,13 @@ async function doInitDatabase(): Promise<Database> {
                 token_hash TEXT NOT NULL,
                 paired_at TEXT NOT NULL DEFAULT (datetime('now')),
                 last_seen_at TEXT,
-                revoked_at TEXT
+                revoked_at TEXT,
+                -- Score routing (P9b, migration 173). A NULL room means
+                -- UNDESIGNATED, which sends unrouted scores to the Global
+                -- Scoreboard instead of dropping them.
+                target_room_id TEXT,
+                target_tournament_id TEXT,
+                global_fallback INTEGER NOT NULL DEFAULT 1
             );
             CREATE INDEX IF NOT EXISTS idx_witness_devices_user ON witness_devices(canonical_user_id);
 
@@ -2957,6 +2963,31 @@ async function doInitDatabase(): Promise<Database> {
             const cols = (await db.all(`PRAGMA table_info(witness_observations)`)) as Array<{ name: string }>;
             if (!cols.some(c => c.name === 'via')) {
                 await db.exec(`ALTER TABLE witness_observations ADD COLUMN via TEXT NOT NULL DEFAULT 'live'`);
+            }
+        } },
+        { name: '172_score_history_source_vpx', handler: async (db) => {
+            const { scoreHistorySourceVpx } = await import('./migrations/scoreHistorySourceVpx.js');
+            await scoreHistorySourceVpx(db);
+        } },
+        // Witness score routing (P9b): where a paired cabinet's scores go.
+        //
+        // `target_room_id` / `target_tournament_id` are the player's own
+        // designation, made in Account Settings. `global_fallback` decides what
+        // happens to everything the designation does not cover — on by default,
+        // because the point of the fallback is that a player can fire up any
+        // table and have it count for their personal record without configuring
+        // anything at all.
+        { name: '173_witness_device_targets', handler: async (db) => {
+            const cols = (await db.all(`PRAGMA table_info(witness_devices)`)) as Array<{ name: string }>;
+            const has = (name: string) => cols.some(c => c.name === name);
+            if (!has('target_room_id')) {
+                await db.exec(`ALTER TABLE witness_devices ADD COLUMN target_room_id TEXT`);
+            }
+            if (!has('target_tournament_id')) {
+                await db.exec(`ALTER TABLE witness_devices ADD COLUMN target_tournament_id TEXT`);
+            }
+            if (!has('global_fallback')) {
+                await db.exec(`ALTER TABLE witness_devices ADD COLUMN global_fallback INTEGER NOT NULL DEFAULT 1`);
             }
         } },
     ];

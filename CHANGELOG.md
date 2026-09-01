@@ -6,6 +6,131 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.153.0] — Every score reaches the Global Scoreboard
+
+Which scores reached the Global Scoreboard had accumulated by history rather than by design. From
+the player's chair the result was hard to defend: **the same score counted for your public record or
+not depending on which format you happened to play in.** Play a table in freeplay and the world sees
+it; play it in a Throwdown, or on a cabinet, and it vanished.
+
+Owner ruling: wherever you played it, you should be rewarded by having the world see how well you
+did — unless you explicitly opt out. See
+[ADR 0023](docs/decisions/0023-every-score-reaches-the-global-scoreboard.md).
+
+### Changed
+- **Throwdown scores now fan out.** ADR 0018 deferred this as "a product call, not an implementation
+  detail"; the call has been made the other way. `fanOutFromRoomSubmission` tolerates a null room
+  (NULL-safe dedup, recorded as `origin_type = 'global'` — which is what a challenge belonging to no
+  room actually is).
+- **AtGames cabinet scores now fan out**, for a LINKED account only.
+- **VPXS cabinet scores that land in a tournament now fan out** — v2.151.0 wired only the room-less
+  fallback, so playing in a tournament silently cost the player their global record.
+- **The opt-out copy says what it now covers**, since a player who set it a month ago set it against
+  a narrower rule.
+
+### Added
+- **`GlobalScoreService.fanOutAutomatedScore`** — the one place the three form-less paths resolve the
+  account preference and refuse an unlinked identity. None of them can ask the player at submit
+  time, so `share_to_global` is the only voice available; a fourth caller hand-rolling either check
+  would be a bug the day the rule changes.
+
+### Unchanged, deliberately
+- **iScored-synced scores still never reach the Global Scoreboard.** That bar is about missing
+  provenance, not format: a synced score carries `unknown`/`unknown` (ADR 0016 P2 §3b) and cannot be
+  placed honestly on an engine-split board. It survives a change that abolished every other
+  exclusion, and is still enforced inside the fan-out rather than at its call sites.
+- **An unlinked cabinet account is never published.** Crediting a public board row to a synthetic id
+  is worse than the score not appearing, and unlike a missing score it cannot be fixed afterwards.
+  The score still lands on the room board; linking the account later claims it.
+- **Rooms keep `GLOBAL_SCOREBOARD_ENABLED`.** A room owner opting their room out is a different
+  decision from a player opting themselves out.
+
+---
+
+## [2.152.0] — The player says where their cabinet's scores go
+
+v2.151.0 could match a score to a game by name and window. That leaves one case nothing in a score
+record can settle — **the same table open in two tournaments of one room** — and it left ordinary
+play at home able to enter somebody into a rotation tournament they had not opted into for that
+session. Both are closed by letting the player point each paired cabinet somewhere.
+
+### Added
+- **A designation per paired cabinet** — a room, and optionally one tournament in it (Account
+  Settings -> your cabinets). `PATCH /api/me/witness/devices/:deviceId`, validated: the room must be
+  one you belong to and the tournament must be in that room. Per cabinet, not per player, because a
+  player can own two and keep them in different rooms.
+- **The Global Scoreboard as the fallback.** Anything the designation does not cover is recorded on
+  the player's own global record instead of being dropped — so a cabinet can be paired and then
+  forgotten about and still be worth having. Provenance rides along (engine `vpx`, device
+  `atgames`), deduped on (player, catalogue game, score).
+- **`sendingTo` on the check-in response**, printed on the cabinet's status screen. A designation
+  the player set last Tuesday and forgot is now visible at the moment they open the app, rather than
+  discovered when their scores are missing.
+
+### Changed
+- **A rotation tournament now requires the designation.** Joining an event is a deliberate,
+  time-boxed act, so an event round still counts with nothing configured; a rotation tournament has
+  no equivalent act, and quietly entering somebody into one because they played at home is a
+  surprise nobody asked for.
+- **Games of inactive tournaments are no longer candidates**, and a designated tournament that has
+  FINISHED reads as absent — read-time expiry, so no cleanup job has to stay correct.
+
+### Notes
+- The designation **narrows** the candidate set; it does not route past the matching. Name and
+  window still decide, and two survivors is still never a guess.
+- This does not relax ADR 0016 P2: that bars iScored-*synced* scores from the Global Scoreboard
+  because their provenance is unknowable. A witness score's is exact. See the
+  [ADR 0022 addendum](docs/decisions/0022-vpxs-scores-from-the-launcher.md).
+- A table the catalogue does not know cannot be recorded globally (`global_game_id` is NOT NULL);
+  that is reported with its reason rather than invented.
+
+---
+
+## [2.151.0] — VPXS scores collect themselves
+
+VPX on an AtGames cabinet runs under the third-party vpx-standalone launcher, which means AtGames
+never sees those tables: they carry no AtGames game id, they cannot go in an AtGames private
+tournament, and no AtGames board will ever hold a VPX score. Until now the only way a VPXS
+tournament got scored was players typing their totals in.
+
+The launcher writes its own machine-readable record of every completed game — score, ball-by-ball
+timestamps, the game's start and end — **on the same USB partition the Arcaid Witness runs from**.
+So the Witness reads it. This is the first Arcaid score path with no third-party leaderboard behind
+it and no human in it. See [ADR 0022](docs/decisions/0022-vpxs-scores-from-the-launcher.md).
+
+### Added
+- **`GET /api/witness/score`** — device-token authenticated, same bare 401 as `/witness/report` and
+  `/witness/checkin`. An unmatched score answers `200 {status:'no_match'}`, never a 401, so a player
+  playing something untracked cannot put the cabinet into a retry loop.
+- **`VpxScoreIngestService`** — matches a record to an ACTIVE rotation game or an event round of the
+  player's own rooms, on the game's END time (the same rule the AtGames path uses, so two sources on
+  one board keep one definition of "inside the round"). Names match on the journal name, the record's
+  `rom`, or the folder slug, through `normalizeGameName` plus a squashed form (`vpx-badcats` →
+  `badcats`). **Two candidates is `no_match`** — never a guess. Pinned boards are deliberately not
+  candidates: no window means an unbounded write triggered by ordinary play at home.
+- **`score_history.source = 'vpx'`** (migration 172) — a fifth value, because the trust model has to
+  keep being able to answer *how did this score reach us?*.
+- **The cabinet build (`arcaid-witness v1.0.0-rc2`)** reads `scoreserver/vpx-<table>-games.jsonl`,
+  correlates the display name through the session journal, and reports each completed game. Player 1
+  only; games under 20s and the launcher's continuation artifact are dropped.
+
+### Changed
+- **The ingest files the GAME as a witness observation** (`launch_ts` = game start, `exit_ts` = game
+  end). A VPX sitting holds several games, so verifying against the *session's* launch would flag
+  every legitimate second and third game of a normal sitting. Filing the game means the ADR 0020
+  verify join needed one line — source eligibility — and no VPX-specific rule.
+- **`rebuildScoreHistorySource`** — migration 167's create-copy-drop-rename extracted so 172 shares
+  it. Two hand-copied rebuilds of the hottest table in the app is exactly the drift this codebase
+  refuses elsewhere.
+
+### Notes
+- These records are launcher-recorded, not display-witnessed, and their Ed25519 signatures are not
+  verifiable by us (no public key). Same badge-never-gate rule as every other witness signal.
+- The launcher's own `accountName` is never used for identity — attribution is the paired device's
+  canonical account.
+
+---
+
 ## [2.150.1] — Correction on the game quick view (the last surface that lacked it)
 
 Owner, looking at a live tournament card: *"I hover over my score and nothing shows. I click the

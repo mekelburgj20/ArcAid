@@ -82,7 +82,15 @@ export class ScoreHistoryService {
          * cabinet), not `'community'` (these count for standings). Widening the
          * column's CHECK cost a rebuild; see migration 167.
          */
-        source: 'tournament' | 'community' | 'sync' | 'atgames';
+        /**
+         * P9: `'vpx'` is a score the Arcaid Witness read out of the VPX
+         * launcher's own scoreserver records on a cabinet stick. Nobody
+         * submitted it and no third-party board ever held it — AtGames does
+         * not know these tables exist — so it is neither `'tournament'` nor
+         * `'atgames'`. Widening the column's CHECK cost a second rebuild; see
+         * migration 172.
+         */
+        source: 'tournament' | 'community' | 'sync' | 'atgames' | 'vpx';
         tournamentId?: string | null;
         anonymousName?: string | null;
         /**

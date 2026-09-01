@@ -156,7 +156,14 @@ export class WitnessVerifyService {
 
         const eligible = rows
             .map((row, i) => ({ row, i }))
-            .filter(({ row }) => row.source === 'atgames' && row.createdEpoch != null);
+            // P9: `'vpx'` joins `'atgames'` here. A VPXS score is read off the
+            // cabinet by the same Witness and files the GAME as its own
+            // observation (see WitnessService.recordVpxScore), so it verifies
+            // through exactly this join with no rule of its own. A phone
+            // submit still gets no verdict — there is no cabinet session to
+            // join it to, and `min_elapsed_sec` is its own heuristic.
+            .filter(({ row }) => (row.source === 'atgames' || row.source === 'vpx')
+                && row.createdEpoch != null);
         const verdicts: Array<WitnessVerdict | null> = rows.map(() => null);
         if (eligible.length === 0) return verdicts;
 

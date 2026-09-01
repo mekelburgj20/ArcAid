@@ -549,6 +549,27 @@ export class AtGamesEventSyncService {
             device: 'atgames',
             createdAt: toSqliteUtc(atMs),
         });
+
+        // v2.153.0 (ADR 0023): a cabinet score reaches the Global Scoreboard
+        // like any other, unless the player opted out. Only for a LINKED
+        // account — an unlinked `atgames:<id>` has nobody to credit, and the
+        // helper refuses it rather than guessing.
+        if (id != null) {
+            const { GlobalScoreService } = await import('./GlobalScoreService.js');
+            await GlobalScoreService.fanOutAutomatedScore({
+                gameRoomId: tournament.game_room_id,
+                gameName: round.name,
+                gameId: round.id,
+                canonicalUserId,
+                username: row.user_name,
+                score,
+                tournamentId: tournament.id,
+                platform: 'atgames',
+                engine,
+                device: 'atgames',
+                source: 'atgames',
+            });
+        }
         return id != null;
     }
 
