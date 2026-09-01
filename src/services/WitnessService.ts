@@ -67,6 +67,21 @@ export interface WitnessDevice {
     atgamesUsername: string | null;
     pairedAt: string;
     lastSeenAt: string | null;
+    /** Score routing (P9b) — a null room means UNDESIGNATED. */
+    targetRoomId: string | null;
+    targetRoomName: string | null;
+    targetTournamentId: string | null;
+    targetTournamentName: string | null;
+    globalFallback: boolean;
+}
+
+export class WitnessTargetError extends Error {
+    readonly code: 'NOT_FOUND' | 'NOT_A_MEMBER' | 'TOURNAMENT_NOT_IN_ROOM';
+    constructor(code: WitnessTargetError['code'], message: string) {
+        super(message);
+        this.code = code;
+        this.name = 'WitnessTargetError';
+    }
 }
 
 export class WitnessPairError extends Error {
@@ -315,8 +330,10 @@ export class WitnessService {
         if (!device) return null;
 
         const { VpxScoreIngestService } = await import('./VpxScoreIngestService.js');
+        const target = await WitnessService.getDeviceTarget(deviceId);
         const result = await VpxScoreIngestService.ingest({
             canonicalUserId: device.canonical_user_id,
+            target,
             tableName: (input.tableName || '').trim(),
             rom: input.rom ?? null,
             slug: input.slug ?? null,
@@ -379,14 +396,143 @@ export class WitnessService {
         );
     }
 
+    /**
+     * Point a cabinet at a room (and optionally one tournament in it), or clear
+     * the designation by passing nulls.
+     *
+     * The validation is the whole value of this method: a designation the
+     * player could not legitimately score into would send their scores
+     * somewhere they cannot see, which is worse than having no designation at
+     * all. So the room must be one they belong to, and the tournament must
+     * belong to that room.
+     */
+    static async setDeviceTarget(canonicalUserId: string, deviceId: string, target: {
+        roomId?: string | null;
+        tournamentId?: string | null;
+        globalFallback?: boolean;
+    }): Promise<WitnessDevice> {
+        const db = await getDatabase();
+        const device = await db.get<{ atgames_unique_id: string }>(
+            `SELECT atgames_unique_id FROM witness_devices
+              WHERE atgames_unique_id = ? AND canonical_user_id = ? AND revoked_at IS NULL`,
+            deviceId, canonicalUserId,
+        );
+        if (!device) throw new WitnessTargetError('NOT_FOUND', 'No such cabinet paired to your account');
+
+        const roomId = target.roomId ?? null;
+        // Clearing the room clears the tournament with it: a tournament
+        // designation without its room is a dangling pointer that would outlive
+        // the choice the player actually made.
+        const tournamentId = roomId ? (target.tournamentId ?? null) : null;
+
+        if (roomId) {
+            const member = await db.get<{ user_id: string }>(
+                `SELECT user_id FROM room_members WHERE room_id = ? AND user_id = ?`,
+                roomId, canonicalUserId,
+            );
+            if (!member) {
+                throw new WitnessTargetError('NOT_A_MEMBER', 'You are not a member of that room');
+            }
+        }
+        if (tournamentId) {
+            const tournament = await db.get<{ id: string }>(
+                `SELECT id FROM tournaments WHERE id = ? AND game_room_id = ?`,
+                tournamentId, roomId,
+            );
+            if (!tournament) {
+                throw new WitnessTargetError('TOURNAMENT_NOT_IN_ROOM', 'That tournament is not in that room');
+            }
+        }
+
+        await db.run(
+            `UPDATE witness_devices
+                SET target_room_id = ?, target_tournament_id = ?, global_fallback = ?
+              WHERE atgames_unique_id = ? AND canonical_user_id = ?`,
+            roomId, tournamentId,
+            target.globalFallback === false ? 0 : 1,
+            deviceId, canonicalUserId,
+        );
+
+        const devices = await WitnessService.listDevices(canonicalUserId);
+        return devices.find(d => d.atgamesUniqueId === deviceId)!;
+    }
+
+    /**
+     * The routing a score from this cabinet should follow.
+     *
+     * A designated tournament that has FINISHED is treated as absent rather
+     * than cleared: a stale pointer must not quietly swallow scores weeks after
+     * the event, and read-time expiry needs no cleanup job to stay correct.
+     */
+    static async getDeviceTarget(deviceId: string): Promise<{
+        roomId: string | null; tournamentId: string | null; globalFallback: boolean;
+    }> {
+        const db = await getDatabase();
+        const row = await db.get<{
+            target_room_id: string | null; target_tournament_id: string | null;
+            global_fallback: number; tournament_active: number | null;
+        }>(
+            `SELECT d.target_room_id, d.target_tournament_id, d.global_fallback,
+                    t.is_active AS tournament_active
+               FROM witness_devices d
+               LEFT JOIN tournaments t ON t.id = d.target_tournament_id
+              WHERE d.atgames_unique_id = ?`,
+            deviceId,
+        );
+        if (!row) return { roomId: null, tournamentId: null, globalFallback: true };
+        const tournamentId = row.target_tournament_id && row.tournament_active === 0
+            ? null
+            : row.target_tournament_id;
+        return {
+            roomId: row.target_room_id,
+            tournamentId,
+            globalFallback: row.global_fallback !== 0,
+        };
+    }
+
+    /**
+     * One short human line naming where this cabinet's scores go, for the app
+     * to print on its status screen.
+     *
+     * This is the whole defence against a stale designation: a player who
+     * pointed the cabinet at last Tuesday's event and forgot sees it at the
+     * moment they open the Witness to check in, rather than discovering it when
+     * their scores are missing from tonight's board.
+     */
+    static async describeTarget(deviceId: string): Promise<string> {
+        const target = await WitnessService.getDeviceTarget(deviceId);
+        if (!target.roomId) return 'Global Scoreboard';
+
+        const db = await getDatabase();
+        const room = await db.get<{ name: string }>(
+            'SELECT name FROM game_rooms WHERE id = ?', target.roomId,
+        );
+        const roomName = room?.name ?? 'your room';
+        if (!target.tournamentId) return roomName;
+
+        const tournament = await db.get<{ name: string }>(
+            'SELECT name FROM tournaments WHERE id = ?', target.tournamentId,
+        );
+        return tournament?.name ? `${roomName} / ${tournament.name}` : roomName;
+    }
+
     /** The cabinets a player has paired (Account Settings). */
     static async listDevices(canonicalUserId: string): Promise<WitnessDevice[]> {
         const db = await getDatabase();
         const rows = await db.all<Array<{
-            atgames_unique_id: string; atgames_username: string | null; paired_at: string; last_seen_at: string | null;
+            atgames_unique_id: string; atgames_username: string | null; paired_at: string;
+            last_seen_at: string | null; target_room_id: string | null; room_name: string | null;
+            target_tournament_id: string | null; tournament_name: string | null; global_fallback: number;
         }>>(
-            `SELECT atgames_unique_id, atgames_username, paired_at, last_seen_at
-             FROM witness_devices WHERE canonical_user_id = ? AND revoked_at IS NULL ORDER BY paired_at DESC`,
+            `SELECT d.atgames_unique_id, d.atgames_username, d.paired_at, d.last_seen_at,
+                    d.target_room_id, r.name AS room_name,
+                    d.target_tournament_id, t.name AS tournament_name,
+                    d.global_fallback
+               FROM witness_devices d
+               LEFT JOIN game_rooms r ON r.id = d.target_room_id
+               LEFT JOIN tournaments t ON t.id = d.target_tournament_id
+              WHERE d.canonical_user_id = ? AND d.revoked_at IS NULL
+              ORDER BY d.paired_at DESC`,
             canonicalUserId,
         );
         return rows.map(r => ({
@@ -394,6 +540,11 @@ export class WitnessService {
             atgamesUsername: r.atgames_username,
             pairedAt: r.paired_at,
             lastSeenAt: r.last_seen_at,
+            targetRoomId: r.target_room_id,
+            targetRoomName: r.room_name,
+            targetTournamentId: r.target_tournament_id,
+            targetTournamentName: r.tournament_name,
+            globalFallback: r.global_fallback !== 0,
         }));
     }
 

@@ -194,6 +194,40 @@ router.get('/me/witness/devices', requireDiscordUser, async (req, res) => {
     }
 });
 
+// Point a paired cabinet at a room (and optionally one tournament in it), or
+// clear the designation. An UNDESIGNATED cabinet is the default and is not a
+// broken state: its scores go to the player's Global Scoreboard record.
+router.patch('/me/witness/devices/:deviceId', requireDiscordUser, async (req, res) => {
+    try {
+        const { WitnessService, WitnessTargetError } = await import('../../services/WitnessService.js');
+        const body = req.body ?? {};
+        const asId = (value: unknown): string | null => {
+            if (value === null || value === undefined || value === '') return null;
+            return typeof value === 'string' ? value : null;
+        };
+        try {
+            const device = await WitnessService.setDeviceTarget(
+                req.user!.discordId!, req.params.deviceId as string,
+                {
+                    roomId: asId(body.roomId),
+                    tournamentId: asId(body.tournamentId),
+                    globalFallback: body.globalFallback !== false,
+                },
+            );
+            res.json({ success: true, device });
+        } catch (err) {
+            if (err instanceof WitnessTargetError) {
+                return res.status(err.code === 'NOT_FOUND' ? 404 : 400)
+                    .json({ error: err.message, code: err.code });
+            }
+            throw err;
+        }
+    } catch (error) {
+        logError('API Error (PATCH /api/me/witness/devices/:deviceId):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 router.delete('/me/witness/devices/:deviceId', requireDiscordUser, async (req, res) => {
     try {
         const { WitnessService } = await import('../../services/WitnessService.js');
@@ -272,7 +306,11 @@ router.get('/witness/checkin', witnessIngestLimiter, async (req, res) => {
 
         const result = await WitnessService.recordCheckin(device, token);
         if (!result) return res.status(401).json({ ok: false });
-        res.json({ ok: true, ts: result.ts });
+        // `sendingTo` rides back on the check-in because that is the moment a
+        // player is looking at the cabinet: it is how a stale designation gets
+        // noticed before the round rather than after it (P9b).
+        const sendingTo = await WitnessService.describeTarget(device).catch(() => '');
+        res.json({ ok: true, ts: result.ts, sendingTo });
     } catch (error) {
         logError('API Error (GET /api/witness/checkin)');
         res.status(500).json({ ok: false });

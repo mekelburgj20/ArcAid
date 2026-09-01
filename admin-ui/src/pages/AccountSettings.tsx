@@ -141,18 +141,89 @@ export default function AccountSettings() {
   // `links` list the Google section uses; these fields are only the form.
   // v2.142.0 (P8) — Arcaid Witness cabinet pairing.
   const [witnessCode, setWitnessCode] = useState<string | null>(null);
-  const [witnessDevices, setWitnessDevices] = useState<{ atgamesUniqueId: string; atgamesUsername: string | null; lastSeenAt: string | null }[]>([]);
+  const [witnessDevices, setWitnessDevices] = useState<{
+    atgamesUniqueId: string; atgamesUsername: string | null; lastSeenAt: string | null;
+    targetRoomId: string | null; targetRoomName: string | null;
+    targetTournamentId: string | null; targetTournamentName: string | null;
+    globalFallback: boolean;
+  }[]>([]);
   const [witnessBusy, setWitnessBusy] = useState(false);
   const [witnessError, setWitnessError] = useState<string | null>(null);
+  // v2.152.0 (P9b) — where each cabinet's scores go. The room list is the
+  // player's own memberships; tournaments are fetched per room, on demand and
+  // cached, so opening this page costs one request regardless of how many
+  // rooms they belong to.
+  const [witnessRooms, setWitnessRooms] = useState<{ id: string; name: string }[]>([]);
+  const [witnessTournaments, setWitnessTournaments] =
+    useState<Record<string, { id: string; name: string }[]>>({});
+  const loadWitnessTournaments = useCallback(async (roomId: string) => {
+    if (!roomId) return;
+    try {
+      const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/tournaments`);
+      if (!res.ok) return;
+      const rows = await res.json();
+      setWitnessTournaments(prev => ({
+        ...prev,
+        [roomId]: (Array.isArray(rows) ? rows : [])
+          .filter((t: { is_active?: number | boolean }) => t.is_active !== 0 && t.is_active !== false)
+          .map((t: { id: string; name: string }) => ({ id: t.id, name: t.name })),
+      }));
+    } catch { /* the picker degrades to "any tournament in this room" */ }
+  }, []);
   const loadWitnessDevices = useCallback(async () => {
     if (!playerToken) return;
     try {
       const res = await fetch('/api/me/witness/devices', { headers: { Authorization: `Bearer ${playerToken}` } });
-      setWitnessDevices(res.ok ? await res.json() : []);
+      // Coerced, not trusted: this state is now ITERATED (not just measured for
+      // length), so a non-array body would take the whole page down rather than
+      // render an empty list.
+      const rows = res.ok ? await res.json() : [];
+      const devices = Array.isArray(rows) ? rows : [];
+      setWitnessDevices(devices);
+      if (devices.length === 0) return;
+
+      // The picker's two lists are loaded HERE, off the device fetch, rather
+      // than from effects watching the device state — an effect that fires a
+      // fetch which sets state that the effect depends on is the cascading
+      // render this file's lint rule exists to prevent.
+      try {
+        const roomsRes = await fetch('/api/me/rooms', { headers: { Authorization: `Bearer ${playerToken}` } });
+        if (roomsRes.ok) {
+          const roomRows = await roomsRes.json();
+          setWitnessRooms((Array.isArray(roomRows) ? roomRows : [])
+            .map((r: { id: string; name: string }) => ({ id: r.id, name: r.name })));
+        }
+      } catch { /* the picker still shows the current designation */ }
+
+      // Tournament lists for rooms a cabinet already points at, so the second
+      // picker renders its current value on first paint rather than after a click.
+      const designated = new Set(devices
+        .map((d: { targetRoomId: string | null }) => d.targetRoomId)
+        .filter((id: string | null): id is string => !!id));
+      await Promise.all([...designated].map(roomId => loadWitnessTournaments(roomId)));
     } catch {
       setWitnessDevices([]);
     }
-  }, [playerToken]);
+  }, [playerToken, loadWitnessTournaments]);
+  const setWitnessTarget = useCallback(async (
+    deviceId: string, patch: { roomId?: string | null; tournamentId?: string | null },
+  ) => {
+    if (!playerToken) return;
+    setWitnessBusy(true); setWitnessError(null);
+    try {
+      const res = await fetch(`/api/me/witness/devices/${encodeURIComponent(deviceId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${playerToken}` },
+        body: JSON.stringify(patch),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || 'Could not save');
+      await loadWitnessDevices();
+    } catch (err) {
+      setWitnessError((err as Error).message);
+    } finally {
+      setWitnessBusy(false);
+    }
+  }, [playerToken, loadWitnessDevices]);
 
   const [atgamesEmail, setAtgamesEmail] = useState('');
   const [atgamesPassword, setAtgamesPassword] = useState('');
@@ -286,6 +357,7 @@ export default function AccountSettings() {
   }, [playerToken, isGoogleIdentity]);
 
   useEffect(() => { loadLinks(); void loadWitnessDevices(); }, [loadLinks, loadWitnessDevices]);
+
 
   // v2.46.0 (mirror-link contract) — Discord-identity viewer starts a
   // Discord->Google link. Deliberate near-duplicate of startDiscordLink
@@ -1294,7 +1366,8 @@ export default function AccountSettings() {
                 {witnessDevices.length > 0 ? (
                   <ul className="space-y-2">
                     {witnessDevices.map(d => (
-                      <li key={d.atgamesUniqueId} className="flex items-center justify-between gap-3 text-sm bg-surface border border-border rounded px-3 py-2">
+                      <li key={d.atgamesUniqueId} className="text-sm bg-surface border border-border rounded px-3 py-2">
+                        <div className="flex items-center justify-between gap-3">
                         <span className="min-w-0 truncate">
                           <span className="text-primary">{d.atgamesUsername || 'Cabinet'}</span>
                           <span className="font-mono text-xs text-muted ml-2">{d.atgamesUniqueId.slice(0, 8)}…</span>
@@ -1321,6 +1394,55 @@ export default function AccountSettings() {
                         >
                           <Unlink size={12} /> Unpair
                         </button>
+                        </div>
+
+                        {/* Where this cabinet's scores go. Undesignated is a
+                            real, useful default — not an unfinished state —
+                            so the empty option says what it actually does. */}
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <span className="text-xs text-muted">Send scores to</span>
+                          <select
+                            value={d.targetRoomId ?? ''}
+                            disabled={witnessBusy}
+                            onChange={e => {
+                              const roomId = e.target.value || null;
+                              if (roomId) void loadWitnessTournaments(roomId);
+                              void setWitnessTarget(d.atgamesUniqueId, { roomId, tournamentId: null });
+                            }}
+                            className="bg-raised border border-border rounded px-2 py-1 text-xs text-primary cursor-pointer"
+                          >
+                            <option value="">Global Scoreboard only</option>
+                            {witnessRooms.map(r => (
+                              <option key={r.id} value={r.id}>{r.name}</option>
+                            ))}
+                            {d.targetRoomId && !witnessRooms.some(r => r.id === d.targetRoomId) && (
+                              <option value={d.targetRoomId}>{d.targetRoomName || 'Current room'}</option>
+                            )}
+                          </select>
+
+                          {d.targetRoomId && (
+                            <select
+                              value={d.targetTournamentId ?? ''}
+                              disabled={witnessBusy}
+                              onChange={e => void setWitnessTarget(d.atgamesUniqueId, {
+                                roomId: d.targetRoomId, tournamentId: e.target.value || null,
+                              })}
+                              className="bg-raised border border-border rounded px-2 py-1 text-xs text-primary cursor-pointer"
+                            >
+                              <option value="">Any tournament in this room</option>
+                              {(witnessTournaments[d.targetRoomId] ?? []).map(t => (
+                                <option key={t.id} value={t.id}>{t.name}</option>
+                              ))}
+                            </select>
+                          )}
+                        </div>
+                        <p className="mt-1 text-xs text-faint">
+                          {d.targetRoomId
+                            ? `Scores from this cabinet go to ${d.targetRoomName || 'that room'}${
+                                d.targetTournamentName ? ` → ${d.targetTournamentName}` : ''
+                              }. Anything that doesn't match an open game there goes to the Global Scoreboard.`
+                            : 'Scores go to your Global Scoreboard record, plus any event you have joined. Pick a room to have them count towards a rotation tournament.'}
+                        </p>
                       </li>
                     ))}
                   </ul>

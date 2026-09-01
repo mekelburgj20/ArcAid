@@ -6,6 +6,45 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.152.0] — The player says where their cabinet's scores go
+
+v2.151.0 could match a score to a game by name and window. That leaves one case nothing in a score
+record can settle — **the same table open in two tournaments of one room** — and it left ordinary
+play at home able to enter somebody into a rotation tournament they had not opted into for that
+session. Both are closed by letting the player point each paired cabinet somewhere.
+
+### Added
+- **A designation per paired cabinet** — a room, and optionally one tournament in it (Account
+  Settings -> your cabinets). `PATCH /api/me/witness/devices/:deviceId`, validated: the room must be
+  one you belong to and the tournament must be in that room. Per cabinet, not per player, because a
+  player can own two and keep them in different rooms.
+- **The Global Scoreboard as the fallback.** Anything the designation does not cover is recorded on
+  the player's own global record instead of being dropped — so a cabinet can be paired and then
+  forgotten about and still be worth having. Provenance rides along (engine `vpx`, device
+  `atgames`), deduped on (player, catalogue game, score).
+- **`sendingTo` on the check-in response**, printed on the cabinet's status screen. A designation
+  the player set last Tuesday and forgot is now visible at the moment they open the app, rather than
+  discovered when their scores are missing.
+
+### Changed
+- **A rotation tournament now requires the designation.** Joining an event is a deliberate,
+  time-boxed act, so an event round still counts with nothing configured; a rotation tournament has
+  no equivalent act, and quietly entering somebody into one because they played at home is a
+  surprise nobody asked for.
+- **Games of inactive tournaments are no longer candidates**, and a designated tournament that has
+  FINISHED reads as absent — read-time expiry, so no cleanup job has to stay correct.
+
+### Notes
+- The designation **narrows** the candidate set; it does not route past the matching. Name and
+  window still decide, and two survivors is still never a guess.
+- This does not relax ADR 0016 P2: that bars iScored-*synced* scores from the Global Scoreboard
+  because their provenance is unknowable. A witness score's is exact. See the
+  [ADR 0022 addendum](docs/decisions/0022-vpxs-scores-from-the-launcher.md).
+- A table the catalogue does not know cannot be recorded globally (`global_game_id` is NOT NULL);
+  that is reported with its reason rather than invented.
+
+---
+
 ## [2.151.0] — VPXS scores collect themselves
 
 VPX on an AtGames cabinet runs under the third-party vpx-standalone launcher, which means AtGames

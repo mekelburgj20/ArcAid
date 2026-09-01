@@ -102,3 +102,63 @@ repeats its total — observed in the corpus as an 8-second "game" scoring 879 i
   other witness signal, and the same badge-never-gate rule governs it.
 - **`accountName` in the launcher's own files is never used for identity.** Attribution is the
   paired device's canonical account, full stop.
+
+---
+
+## Addendum (2026-09-01) — routing: the player says where their scores go
+
+**Status:** Accepted. Shipped in v2.152.0, one day after the original decision.
+
+### The gap this closes
+
+The original design matched a score to a game by name and window, scoped to the player's rooms. That
+leaves one case genuinely unresolvable: **the same table open in two tournaments of one room.** No
+amount of information in a score record can distinguish them, so the ingest refused — which meant a
+silent loss for the player. It also left a consent question open: a rotation tournament runs for
+days, so ordinary play at home would enter somebody into a competition they never opted into for
+that session.
+
+### The decision
+
+**Each paired cabinet carries its own designation**, set by its owner in Account Settings: a room,
+and optionally one tournament in it. Per *cabinet* rather than per player, because a player can own
+two and keep them in different rooms.
+
+**The designation NARROWS the candidate set; it never routes past the matching.** Name and window
+still decide, and two survivors is still refused rather than guessed. Its job is to remove ambiguity
+the record itself cannot resolve — not to force a score somewhere it does not belong.
+
+    designated room (+ optional tournament)  ->  only that scope's games
+    undesignated                             ->  event rounds of events the player JOINED
+    anything left over                       ->  the Global Scoreboard
+
+### Why undesignated still counts event rounds, but not rotation games
+
+Joining an event is a deliberate act about one specific, time-boxed competition. That *is* the
+consent a designation would otherwise supply, so requiring both would be ceremony. A rotation
+tournament has no equivalent act — which is exactly why it needs the designation.
+
+### Why the leftovers go to the Global Scoreboard rather than nowhere
+
+So that pairing a cabinet is worth doing on its own. A player who configures nothing can fire up any
+table and have it count towards their personal record; the designation is then an upgrade, not a
+prerequisite. It also means the fallback path is exercised constantly rather than being a rarely
+trodden branch.
+
+This does **not** relax ADR 0016 P2, which bars iScored-*synced* scores from the Global Scoreboard.
+That bar exists because a synced score's provenance is unknowable and would pollute
+engine-comparable boards. A witness score's provenance is exact — engine `vpx`, device `atgames`,
+read by our own process from a cabinet paired to a real linked account — so it qualifies on the
+merits the ADR actually names. (The parallel question for AtGames-sourced scores, currently kept off
+Global as a product call, is deliberately left open here.)
+
+### Two constraints worth stating plainly
+
+- **`global_scores.global_game_id` is NOT NULL.** A table the catalogue does not know cannot be
+  recorded globally; that is reported with its reason, never papered over by inventing a catalogue
+  row from a launcher's free-text name. Same-named machines are told apart using the
+  manufacturer/year parenthetical the session journal already carries.
+- **A stale designation is the failure mode this design must survive.** Three defences: a finished
+  tournament reads as *absent* rather than needing a cleanup job; games of inactive tournaments are
+  not candidates at all; and the check-in response carries a `sendingTo` line the cabinet prints on
+  its status screen, so a wrong setting is seen before the round rather than after it.

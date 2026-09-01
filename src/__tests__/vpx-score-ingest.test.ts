@@ -83,6 +83,12 @@ async function addMember(roomId: string, userId: string) {
     );
 }
 
+/** Point the cabinet at a room (and optionally one tournament in it). */
+async function designate(roomId: string | null, tournamentId: string | null = null) {
+    const { WitnessService } = await import('../services/WitnessService.js');
+    await WitnessService.setDeviceTarget(USER, DEVICE, { roomId, tournamentId });
+}
+
 async function createRotationGame(roomId: string, name: string, startDateMs = Date.now() - 60 * MINUTE) {
     const db = await getDatabase();
     const tournamentId = crypto.randomUUID();
@@ -133,6 +139,7 @@ describe('VPXS auto score collection — ingest', () => {
 
     it('lands a launcher-recorded score on the active rotation game', async () => {
         const { gameId, tournamentId } = await createRotationGame(roomId, 'Bad Cats');
+        await designate(roomId);
 
         const res = await request(app).get('/api/witness/score')
             .query({ device: DEVICE, token, ...scoreQuery() });
@@ -163,6 +170,7 @@ describe('VPXS auto score collection — ingest', () => {
 
     it('stamps the launcher\'s own timestamp, not the moment we received it', async () => {
         await createRotationGame(roomId, 'Bad Cats');
+        await designate(roomId);
         const endedSec = Math.floor((Date.now() - 40 * MINUTE) / 1000);
 
         await request(app).get('/api/witness/score')
@@ -182,6 +190,7 @@ describe('VPXS auto score collection — ingest', () => {
 
     it('files the GAME as a witness observation so the verify join can use it', async () => {
         await createRotationGame(roomId, 'Bad Cats');
+        await designate(roomId);
         const q = scoreQuery();
 
         await request(app).get('/api/witness/score').query({ device: DEVICE, token, ...q });
@@ -241,6 +250,7 @@ describe('VPXS auto score collection — ingest', () => {
         // originals, and the session journal's name carries a manufacturer/year
         // parenthetical the room almost never types.
         await createRotationGame(roomId, 'Bad Cats');
+        await designate(roomId);
         const res = await request(app).get('/api/witness/score')
             .query({ device: DEVICE, token, ...scoreQuery({ table: '', rom: '', slug: 'vpx-badcats' }) });
         expect(res.body).toMatchObject({ status: 'ingested' });
@@ -264,6 +274,9 @@ describe('VPXS auto score collection — ingest', () => {
         await addMember(otherRoom, USER);
         await createRotationGame(roomId, 'Bad Cats');
         await createRotationGame(otherRoom, 'Bad Cats');
+        // Designating the room is what normally prevents this; the test
+        // deliberately leaves BOTH in scope by designating neither.
+        await designate(null);
 
         const res = await request(app).get('/api/witness/score')
             .query({ device: DEVICE, token, ...scoreQuery() });
@@ -278,6 +291,7 @@ describe('VPXS auto score collection — ingest', () => {
         const now = Date.now();
         await createRotationGame(roomId, 'Bad Cats');
         const round = await createEventRound(roomId, 'Bad Cats', now - 10 * MINUTE, now + 10 * MINUTE);
+        await designate(roomId);
 
         const res = await request(app).get('/api/witness/score')
             .query({ device: DEVICE, token, ...scoreQuery() });
@@ -302,6 +316,7 @@ describe('VPXS auto score collection — ingest', () => {
 
     it('respects a tournament that excludes VPX', async () => {
         const { tournamentId } = await createRotationGame(roomId, 'Bad Cats');
+        await designate(roomId);
         const db = await getDatabase();
         await db.run(
             `UPDATE tournaments SET platform_rules = ? WHERE id = ?`,
@@ -329,6 +344,7 @@ describe('VPXS auto score collection — ingest', () => {
 
     it('is idempotent — a re-sent record adds nothing', async () => {
         await createRotationGame(roomId, 'Bad Cats');
+        await designate(roomId);
         const q = scoreQuery();
 
         const first = await request(app).get('/api/witness/score').query({ device: DEVICE, token, ...q });
@@ -343,6 +359,7 @@ describe('VPXS auto score collection — ingest', () => {
 
     it('writes nothing for a wrong token, and says only 401', async () => {
         await createRotationGame(roomId, 'Bad Cats');
+        await designate(roomId);
 
         const res = await request(app).get('/api/witness/score')
             .query({ device: DEVICE, token: 'not-the-token', ...scoreQuery() });
@@ -356,6 +373,7 @@ describe('VPXS auto score collection — ingest', () => {
 
     it('rejects a non-positive score rather than storing it', async () => {
         await createRotationGame(roomId, 'Bad Cats');
+        await designate(roomId);
         const res = await request(app).get('/api/witness/score')
             .query({ device: DEVICE, token, ...scoreQuery({ score: 0 }) });
         expect(res.body).toMatchObject({ status: 'invalid' });
