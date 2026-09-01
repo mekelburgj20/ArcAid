@@ -6,6 +6,7 @@ import { normalizeThemeId } from '../lib/themeIds';
 import { useRoom } from '../contexts/RoomContext';
 import { useToast } from '../components/Toast';
 import { getSocket } from '../lib/websocket';
+import { useLiveRefresh } from '../hooks/useLiveRefresh';
 import LoadingState from '../components/LoadingState';
 import ConfirmModal from '../components/ConfirmModal';
 import CorrectScoreModal from '../components/CorrectScoreModal';
@@ -248,6 +249,15 @@ export default function Leaderboard() {
       socket.off('settings:updated', onSettings);
     };
   }, [room.roomId]);
+
+  // Admins leave this page open on a second monitor for hours, which is
+  // exactly where a silently dead socket goes unnoticed. Deliberately does NOT
+  // reload the config: `onSettings` above guards that behind the unsaved-draft
+  // check, and a blind refetch here would clobber an in-progress edit.
+  useLiveRefresh(
+    () => { loadData(); loadRankings(); loadCardOrder(); },
+    { enabled: !!room.roomId },
+  );
 
   useEffect(() => {
     if (!room.roomSlug) return;

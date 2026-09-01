@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { Search } from 'lucide-react';
 import { getSocket } from '../lib/websocket';
+import { useLiveRefresh } from '../hooks/useLiveRefresh';
 import { useRoom } from '../contexts/RoomContext';
 import { useViewerAuth, useViewerHeaders, usePlayerHeaders } from '../contexts/ViewerAuthContext';
 import type { GameLeaderboard, RankingGroupData } from '../components/ScoreboardComponents';
@@ -233,6 +234,11 @@ export default function Scoreboard() {
       socket.off('settings:updated', onSettings);
     };
   }, [roomId, playerToken]);
+
+  // The socket delivers live updates; this covers the gaps where it cannot —
+  // a reconnect that missed events, a phone tab coming back to the
+  // foreground, and a socket that died without saying so. See the hook.
+  useLiveRefresh(() => { loadData(); loadRankings(); }, { enabled: !!roomId });
 
   const viewerUsername = discordUser?.username || undefined;
   // Not a rendering derivation — the surface owns every one of those. This one

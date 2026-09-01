@@ -806,7 +806,14 @@ describe('AtGamesEventSyncService — invitation-code resolution', () => {
 describe('AtGamesEventSyncService — create on AtGames', () => {
     let roomId: string;
     let tournamentId: string;
-    const base = Date.parse('2026-09-01T20:00:00.000Z');
+    // RELATIVE to now, unlike the fixed `base` the other blocks use. Those
+    // compare timestamps only to each other, so a frozen calendar date is
+    // fine; this block asserts the window `createForTournament` SENDS, and
+    // that method clamps a start in the past up to now+60s (AtGames 400s a
+    // past startDate). A hard-coded date therefore passes only until the
+    // wall clock reaches it — `2026-09-01T20:00:00Z` did exactly that a few
+    // hours after it shipped, turning main red for every PR.
+    const base = Date.now() + 60 * MINUTE;
     const ATGAMES_GAME_ID = 50334;
 
     beforeEach(async () => {

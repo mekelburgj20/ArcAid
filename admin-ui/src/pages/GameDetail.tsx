@@ -10,6 +10,7 @@ import { getEngineCategoryLabel, getEngineDisplay } from '../lib/scoreProvenance
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { useRoom } from '../contexts/RoomContext';
 import { getSocket } from '../lib/websocket';
+import { useLiveRefresh } from '../hooks/useLiveRefresh';
 import { decodeViewerClaims, isRoomAdminFor } from '../lib/viewerClaims';
 import { canDeleteRow, deleteScoreHistory } from '../lib/scoreDelete';
 import { canCorrectRow, correctScoreHistory } from '../lib/scoreCorrect';
@@ -484,6 +485,12 @@ export default function GameDetail() {
       socket.off('leaderboard:updated', onLeaderboard);
     };
   }, [roomId, name]);
+
+  // Covers what the socket cannot: a reconnect that missed events, a phone
+  // tab returning to the foreground, and a socket that died without saying
+  // so. Reuses the page's own "a score changed" refresh so this can never
+  // reload a different set of things than the live handlers do. See the hook.
+  useLiveRefresh(() => refreshScoresRef.current(), { enabled: !!roomId && !!name });
 
   // "About this game" — pull the full catalogue entity once the game's
   // globalGameId resolves. Public endpoint; failures are silent (section
