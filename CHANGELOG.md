@@ -6,6 +6,58 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+<<<<<<< HEAD
+## [2.154.0] — Boards recover when the WebSocket cannot
+
+Owner report 2026-09-01: *"the scoreboard doesn't auto refresh for mobile or desktop. You have to
+manually refresh."*
+
+The socket wiring was never missing — `score:new` and `leaderboard:updated` have been emitted and
+listened for for releases. What was missing is the recovery around a socket that is not currently
+delivering, which on a phone is the normal case rather than an edge case.
+
+*(2.151.0–2.153.0 went to the Witness arc in #324; this took the next number.)*
+
+### Fixed
+- **A reconnect refetched nothing.** All four live pages re-joined `room:<id>` on `connect` (room
+  membership is per-connection and does not survive a drop) but never reloaded — so any score
+  submitted DURING the gap was never seen. The page then sat there looking connected and healthy,
+  showing stale numbers until the next live event happened to arrive.
+- **Returning to a backgrounded tab did nothing.** A frozen page may not notice its socket died, so
+  `connect` never fires and there is nothing to hook. Visibility is the only reliable signal that a
+  phone user is looking again — and switching apps freezes the tab every single time.
+- **A silently dead socket was permanent.** A proxy idle-timeout or a network switch can leave a
+  socket that believes it is open, with no recovery path at all.
+
+### Added
+- **`hooks/useLiveRefresh.ts`** — refetch on RE-connect, on tab visibility / `pageshow` / window
+  focus, and a 60s backstop poll that **never runs while the document is hidden**. All three share
+  one 5s throttle, so a reconnect landing with a tab focus fires a single fetch. `pageshow` is
+  included because iOS Safari restoring from the back/forward cache fires neither a visibility
+  change nor a socket event; `focus` because a desktop alt-tab back to an already-visible window
+  fires no visibility change either.
+- Wired into all four pages that join the room channel — the public **Scoreboard**, the **Kiosk**
+  (a wall-mounted TV is the worst place for a socket to die quietly: nobody is there to notice, and
+  it is always visible so the poll actually runs), **Game Detail**, and the admin **Leaderboard**
+  (left open on a second monitor for hours).
+- Game Detail reuses its existing `refreshScoresRef` so the hook cannot reload a different set of
+  things than the live handlers do. The admin Leaderboard deliberately does NOT reload config —
+  `onSettings` already guards that behind the unsaved-draft check, and a blind refetch would clobber
+  an in-progress edit.
+
+### Note
+The poll is the least important of the three triggers and is deliberately slack: it exists to catch
+a dead socket, not to be the update mechanism. Live updates still arrive in well under a second over
+the socket when it is healthy.
+
+### Tests
+- `admin-ui/src/hooks/__tests__/useLiveRefresh.test.tsx` (new, 12) — each trigger fires; the FIRST
+  connect does NOT (it would duplicate the page's own initial load); a visibilitychange that HID the
+  tab does not; the poll never runs while hidden; the shared throttle collapses a reconnect+focus
+  pair; `enabled: false` is fully inert; the latest callback is always used so an inline arrow cannot
+  go stale; and every listener is removed on unmount.
+>>>>>>> 08df9ed72 (feature: boards recover when the WebSocket cannot (v2.152.0))
+
 ## [2.153.0] — Every score reaches the Global Scoreboard
 
 Which scores reached the Global Scoreboard had accumulated by history rather than by design. From
@@ -130,7 +182,7 @@ it and no human in it. See [ADR 0022](docs/decisions/0022-vpxs-scores-from-the-l
   canonical account.
 
 ---
-
+=======
 ## [2.150.1] — Correction on the game quick view (the last surface that lacked it)
 
 Owner, looking at a live tournament card: *"I hover over my score and nothing shows. I click the

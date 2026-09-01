@@ -5,6 +5,7 @@ import { Flame, TrendingUp, Target, Trophy, Gamepad2, Star, Users, Hourglass } f
 import ScoreboardSurface from '../components/scoreboard/ScoreboardSurface';
 import { deriveCardProps, deriveScoreboardConfig } from '../lib/scoreboardConfig';
 import { getSocket } from '../lib/websocket';
+import { useLiveRefresh } from '../hooks/useLiveRefresh';
 import { getPortal } from '../lib/portal';
 import { relativeTimeFrom } from '../lib/format';
 
@@ -134,6 +135,11 @@ export default function KioskScoreboard() {
       socket.off('settings:updated', onSettings);
     };
   }, [roomId, loadData]);
+
+  // A wall-mounted kiosk is the worst place for a socket to die quietly:
+  // nobody is standing there to notice a frozen board, and the screen is
+  // always visible so the backstop poll actually runs. See the hook.
+  useLiveRefresh(() => { loadData(); }, { enabled: !!roomId });
 
   const TICKER_ICONS: Record<string, typeof Flame> = {
     new_high_score: Flame, rank_change: TrendingUp, score_posted: Target,
