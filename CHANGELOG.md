@@ -6,6 +6,41 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.150.1] — Correction on the game quick view (the last surface that lacked it)
+
+Owner, looking at a live tournament card: *"I hover over my score and nothing shows. I click the
+score and the modal shows up but again, hover does nothing and I only see an option to delete — no
+edit. Why is this so difficult?"*
+
+Because the correction had been added one surface at a time. `GameQuickView` — the popup that opens
+straight off a scoreboard card, and therefore the surface a host actually looks at a score in — was
+the last one still carrying a delete with no correction beside it. v2.149.1 and v2.150.0 both missed
+it.
+
+### Fixed
+- **Pencil on the quick view's ranked rows and its nested history rows**, beside the existing trash
+  and under the identical gate (`canCorrectRow` with the card's `gameStatus`): admins always, the
+  submitter while the card is unlocked. Always visible, never hover-gated — the same rule the delete
+  there has followed since v2.108.0 F4.
+- **`QuickViewTarget.gameStatus`** — the field the owner tier needs to know whether the card is
+  locked. Callers already pass a whole `GameLeaderboard`, which carries it; it is optional, so the
+  Global tab and Picks (which pass neither a room nor a status) render exactly as before.
+
+### Surface audit
+Every place a room score can be deleted now offers a correction next to it:
+`GameDetail` board rows and history rows, the admin Leaderboard's Manage Scores modal, and both
+`GameQuickView` levels. **Deliberately excluded:** `GlobalGameDetail`'s delete, which acts on
+`global_scores` through `DELETE /api/me/global-scores/:scoreId` and is one-way by design — correcting
+the global copy there would silently desync it from the room row it was fanned out from.
+
+### Tests
+- `admin-ui/src/components/__tests__/GameQuickView.correct.test.tsx` (new) — own row while unlocked,
+  gone once locked (delete retained), every row for an admin locked or not, nothing without a
+  `roomId`, nothing signed out, and the PATCH going to the right URL with the corrected value before
+  the owning page is told to refetch. Mirrors the delete suite's harness on purpose: the two
+  affordances sit on the same rows under the same gates, so adding a third should mean touching both
+  files.
+
 ## [2.150.0] — Players correct their own scores while the card is open
 
 Owner ruling 2026-08-31: *"I want players to be able to edit their own scores just as easily, unless
