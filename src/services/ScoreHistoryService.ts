@@ -16,6 +16,10 @@ export interface DeletableScoreRow {
     source: string;
     submitted_by_user_id: string | null;
     photo_url: string | null;
+    /** Set once an admin has verified this exact number (S23.7). */
+    verified_at?: string | null;
+    /** The tournament window this score was submitted during, if any. */
+    submitted_during_tournament_id?: string | null;
 }
 
 export class ScoreHistoryService {
@@ -196,7 +200,8 @@ export class ScoreHistoryService {
         const db = await getDatabase();
         return db.get<DeletableScoreRow>(
             `SELECT id, game_room_id, game_id, game_name, iscored_username, score,
-                    source, submitted_by_user_id, photo_url
+                    source, submitted_by_user_id, photo_url, verified_at,
+                    submitted_during_tournament_id
              FROM score_history WHERE id = ?`,
             historyId,
         );
@@ -535,6 +540,56 @@ export class ScoreHistoryService {
             (suppressedAt !== null ? ` [iScored re-import suppressed at ${suppressedAt}]` : ''),
         );
         return { resolvedGameId, suppressedAt };
+    }
+
+    /**
+     * May the person who SUBMITTED this score correct it themselves?
+     *
+     * Owner ruling 2026-08-31: "I want players to be able to edit their own
+     * scores just as easily, unless the card is locked — in which case they
+     * will need an admin."
+     *
+     * **"Locked" means the game is no longer ACTIVE.** That is not a new flag:
+     * it is the same line the submission sheet already draws
+     * (`isCooldownLocked` = `gameStatus !== 'ACTIVE'`), and both admin lock
+     * affordances — "Force Complete" and "Lock on iScored" — move a game out of
+     * ACTIVE. So a player may fix their own typo while the round is still
+     * running, and once it closes and the result is settled the correction
+     * becomes an admin action. Adding a separate `games.locked` column would
+     * have created a second, drifting answer to the same question.
+     *
+     * The ACTIVE game is matched by (room, name) — `game_id` is NULL on every
+     * modern web row (v2.75.1) — and, when the score carries a tournament
+     * stamp, that stamp must match the active game's tournament. Without that
+     * second clause a table rotating back round would silently re-open editing
+     * on a player's scores from the PREVIOUS run of it.
+     *
+     * An admin-VERIFIED row is closed to its owner regardless: an admin
+     * asserted that exact number, and letting the owner change it afterwards
+     * would leave the verification badge attached to a value nobody checked.
+     *
+     * Returns the reason on refusal so the route can say which rule applied.
+     * Admins bypass this entirely — see the route's tiers.
+     */
+    static async ownerCorrectionWindow(
+        row: DeletableScoreRow,
+    ): Promise<{ open: true } | { open: false; reason: 'locked' | 'verified' }> {
+        if (row.verified_at) return { open: false, reason: 'verified' };
+        const db = await getDatabase();
+        const active = await db.get<{ id: string; tournament_id: string | null }>(
+            `SELECT g.id, g.tournament_id FROM games g
+             LEFT JOIN tournaments t ON t.id = g.tournament_id
+             WHERE COALESCE(g.game_room_id, t.game_room_id) = ?
+               AND LOWER(g.name) = LOWER(?)
+               AND g.status = 'ACTIVE'
+             ORDER BY g.created_at DESC
+             LIMIT 1`,
+            row.game_room_id, row.game_name,
+        );
+        if (!active) return { open: false, reason: 'locked' };
+        const stamp = row.submitted_during_tournament_id ?? null;
+        if (stamp && stamp !== active.tournament_id) return { open: false, reason: 'locked' };
+        return { open: true };
     }
 
     /**

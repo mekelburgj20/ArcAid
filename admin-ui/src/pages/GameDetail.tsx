@@ -752,7 +752,7 @@ export default function GameDetail() {
   /** Score correction is admin-only for the same reason verify is — see
    *  `lib/scoreCorrect.ts`. Unlike delete, it is NOT offered to the owner. */
   const canCorrectScoreHistory = (entry: ScoreHistoryEntry): boolean =>
-    canCorrectRow(entry, viewerClaims, roomId);
+    canCorrectRow(entry, viewerClaims, roomId, leaderboard?.gameStatus);
 
   /** Applies an admin score correction and reconciles the two lists this page
    *  renders from — the expanded per-player history and the ranked board —
@@ -1020,9 +1020,10 @@ export default function GameDetail() {
                 // of the owner ask is that removing a mis-entered score you
                 // just posted takes no hunting.
                 const canDeleteThisRow = canDeleteRow(entry, viewerClaims, roomId);
-                // Admin-only, and only when the row carries the score_history
-                // id the PATCH is keyed on (`canCorrectRow` checks both).
-                const canCorrectThisRow = canCorrectRow(entry, viewerClaims, roomId);
+                // Admins always; the submitter too, but only while the card
+                // is unlocked (`gameStatus === 'ACTIVE'`) and unverified. Both
+                // tiers also need the score_history id the PATCH is keyed on.
+                const canCorrectThisRow = canCorrectRow(entry, viewerClaims, roomId, leaderboard?.gameStatus);
                 return (
                     /* v2.2.0 fix: discord_user_id is "SYSTEM" / "ANON" / "COMMUNITY"
                        for guest submissions, so two anon players collide on the

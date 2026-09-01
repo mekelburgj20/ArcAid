@@ -2595,10 +2595,20 @@ router.delete('/:roomId/score-history/:historyId', requireDiscordUser, async (re
  * one digit too many on a table that had already rotated to COMPLETED, and
  * Arcaid had no edit path at any privilege level).
  *
- * ADMIN ONLY, deliberately — the sibling DELETE route allows self-service on
- * your own row, but "let a player rewrite their own score" is the one thing
- * this endpoint must never be. Same reasoning as the verify route below.
+ * Authorization tiers, mirroring the sibling DELETE route:
+ *   - super_admin → any row
+ *   - room_admin  → any row in a room they administer
+ *   - the SUBMITTER → their own row, but only while the card is unlocked
  *
+ * That third tier is an owner ruling (2026-08-31): "I want players to be able
+ * to edit their own scores just as easily, unless the card is locked — in which
+ * case they will need an admin." **Unlocked means the game is still ACTIVE** —
+ * see `ScoreHistoryService.ownerCorrectionWindow` for why that is the right
+ * line and not a new column. v2.149.0 shipped this admin-only; the ruling
+ * reverses that deliberately, and the audit row records the player as the
+ * actor exactly as it does an admin.
+ *
+
  * No source restriction: a typo is a typo whatever wrote the row, and unlike
  * DELETE (where `'atgames'` is excluded because the next sync would resurrect
  * a deleted row with no tombstone table to stop it) a correction that gets
@@ -2609,7 +2619,7 @@ router.delete('/:roomId/score-history/:historyId', requireDiscordUser, async (re
  * `ScoreHistoryService.correctScore`; read its doc comment before changing
  * anything here.
  */
-router.patch('/:roomId/score-history/:historyId/score', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+router.patch('/:roomId/score-history/:historyId/score', requireDiscordUser, async (req, res) => {
     try {
         const roomId = req.params.roomId as string;
         const historyId = parseInt(req.params.historyId as string, 10);
@@ -2629,6 +2639,27 @@ router.patch('/:roomId/score-history/:historyId/score', requireAuth, requireRoom
             return res.status(400).json({ error: 'That is already the recorded score' });
         }
 
+        const isSuper = req.user!.role === 'super_admin';
+        const isRoomAdmin = req.user!.role === 'room_admin' && req.user!.gameRoomIds.includes(roomId);
+        const isOwner = !!row.submitted_by_user_id && row.submitted_by_user_id === req.user!.discordId;
+        if (!isSuper && !isRoomAdmin && !isOwner) {
+            return res.status(403).json({ error: 'You can only correct your own scores' });
+        }
+        // The submitter's window closes when the card locks; an admin's never
+        // does. Checked server-side because the FE gate is a rendering hint,
+        // not a boundary.
+        if (!isSuper && !isRoomAdmin) {
+            const window = await ScoreHistoryService.ownerCorrectionWindow(row);
+            if (!window.open) {
+                return res.status(403).json({
+                    error: window.reason === 'verified'
+                        ? 'An admin has verified this score — ask them to change it.'
+                        : 'This game is closed — ask an admin to correct the score.',
+                    reason: window.reason,
+                });
+            }
+        }
+
         const actor = req.user!.discordId || req.user!.username || 'admin';
         const { suppressedAt } = await ScoreHistoryService.correctScore(row, newScore, actor);
 
@@ -2640,6 +2671,10 @@ router.patch('/:roomId/score-history/:historyId/score', requireAuth, requireRoom
             from: row.score,
             to: newScore,
             historyId,
+            // Who did it matters here in a way it does not for a delete: a
+            // self-correction is routine, an admin editing someone else's
+            // number is a moderation action.
+            actor: isSuper ? 'super_admin' : isRoomAdmin ? 'room_admin' : 'self',
         }).catch(() => {});
 
         // Explicit audit write — auditMiddleware does NOT fire on router routes.
@@ -2651,6 +2686,7 @@ router.patch('/:roomId/score-history/:historyId/score', requireAuth, requireRoom
             details: JSON.stringify({
                 roomId, gameName: row.game_name, player: row.iscored_username,
                 from: row.score, to: newScore, suppressedAt,
+                actor: isSuper ? 'super_admin' : isRoomAdmin ? 'room_admin' : 'self',
             }),
             ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
             correlation_id: req.correlationId || '',

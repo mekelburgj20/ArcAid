@@ -6,6 +6,47 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.150.0] — Players correct their own scores while the card is open
+
+Owner ruling 2026-08-31: *"I want players to be able to edit their own scores just as easily, unless
+the card is locked — in which case they will need an admin."* This reverses v2.149.0's admin-only
+posture, deliberately.
+
+### Changed
+- **`PATCH /:roomId/score-history/:historyId/score` gains a third authorization tier.** It now runs
+  on `requireDiscordUser` with tiers matching the sibling DELETE: super_admin → any row; room_admin
+  → any row in their rooms; **the SUBMITTER → their own row, while the card is unlocked**. Ownership
+  is the RAW `submitted_by_user_id`, so a synced row (NULL submitter) belongs to nobody and an
+  `iscored:*` synthetic never confers edit rights.
+- **"Locked" means the game is no longer `ACTIVE`** — `ScoreHistoryService.ownerCorrectionWindow`.
+  Not a new column: it is the same line the submission sheet already draws (`isCooldownLocked`), and
+  it is what both admin lock affordances ("Force Complete", "Lock on iScored") actually change. A
+  second `games.locked` flag would have been a second, drifting answer to one question.
+- **A rerun cannot re-open the previous run.** The ACTIVE game is matched by (room, name) because
+  `game_id` is NULL on modern web rows, so the score's `submitted_during_tournament_id` must also
+  match that game's tournament — otherwise a table rotating back round would silently hand a player
+  editing rights over their scores from the last time it ran.
+- **An admin-VERIFIED row is closed to its owner** even while unlocked. An admin asserted that exact
+  number; letting the owner change it afterwards would leave the badge attached to a value nobody
+  checked. Admins are unaffected — their window never closes.
+- **The audit row and the room-timeline event now record WHO corrected** (`super_admin` /
+  `room_admin` / `self`). A self-correction is routine; an admin editing somebody else's number is a
+  moderation action, and the log should be able to tell them apart.
+
+### Note on trust
+A player can now raise their own score while a round is live. That is the ruling, and it is the same
+trust already extended to submitting the score in the first place. What backstops it: every
+correction is audited with the actor, appears in the room timeline, keeps its evidence photo, and can
+be frozen by an admin verifying the row.
+
+### Tests
+- `src/__tests__/score-correct.test.ts` — submitter succeeds on an ACTIVE game; refused once locked
+  (`reason: 'locked'`); refused on a verified row (`reason: 'verified'`); an admin still succeeds on a
+  locked verified row; a different player is refused; and a rerun of the same table does not re-open
+  the previous run.
+- `admin-ui/src/pages/__tests__/GameDetailScoreCorrect.test.tsx` — the same six rules at the render
+  layer, including that the submitter keeps their DELETE when the correction closes.
+
 ## [2.149.1] — Score correction is reachable where the delete already is
 
 Owner feedback the morning after v2.149.0 shipped: "I'm not seeing a hover-over action at all."

@@ -63,6 +63,24 @@ async function connectIScored(roomId: string) {
     await GameRoomSettingsService.set(roomId, 'ISCORED_PUBLIC_URL', 'https://www.iscored.info/RTX_Pinball');
 }
 
+/**
+ * One score on 'Whirlwind' owned by `disc-nudge`. `createTestSubmission`
+ * writes `discord_user_id` but leaves `submitted_by_user_id` NULL, and the
+ * owner tier keys on the latter (the RAW column — an `iscored:*` synthetic
+ * must never confer edit rights, v2.125.2).
+ */
+async function ownedScoreFixture(status: 'ACTIVE' | 'COMPLETED') {
+    const roomId = await createTestRoom(`owner-${status.toLowerCase()}`);
+    const tournamentId = await createTestTournament(roomId, { name: 'Daily Grind' });
+    const gameId = await createTestGame(tournamentId, { name: 'Whirlwind', status });
+    await createTestSubmission(gameId, { username: 'Nudge', score: 1000, discordUserId: 'disc-nudge' });
+    const db = await getDatabase();
+    await db.run(
+        `UPDATE score_history SET submitted_by_user_id = 'disc-nudge' WHERE game_id = ?`, gameId,
+    );
+    return { roomId, tournamentId, gameId };
+}
+
 async function historyRow(gameId: string, username: string) {
     const db = await getDatabase();
     return db.get<{ id: number; score: number }>(
@@ -327,10 +345,29 @@ describe('PATCH /:roomId/score-history/:historyId/score — authorization + vali
         expect(res.status).toBe(200);
     });
 
-    it('a PLAYER may not correct their own score — that would be an edit-the-leaderboard tool', async () => {
-        const { roomId, gameId } = await completedGameFixture([
-            { username: 'Nudge', score: 1000, discordUserId: 'disc-nudge' },
-        ]);
+    /**
+     * Owner ruling 2026-08-31 REVERSED v2.149.0's admin-only posture: "I want
+     * players to be able to edit their own scores just as easily, unless the
+     * card is locked — in which case they will need an admin." Locked == the
+     * game is no longer ACTIVE.
+     */
+    it('the SUBMITTER may correct their own score while the game is ACTIVE', async () => {
+        const { roomId, gameId } = await ownedScoreFixture('ACTIVE');
+        const hist = await historyRow(gameId, 'Nudge');
+
+        const res = await request(app)
+            .patch(`/api/rooms/${roomId}/score-history/${hist!.id}/score`)
+            .set('Authorization', `Bearer ${playerToken('disc-nudge')}`)
+            .send({ score: 2000 });
+
+        expect(res.status).toBe(200);
+        const db = await getDatabase();
+        const after = await db.get<{ score: number }>('SELECT score FROM score_history WHERE id = ?', hist!.id);
+        expect(after!.score).toBe(2000);
+    });
+
+    it('the submitter is refused once the card is LOCKED (game no longer ACTIVE)', async () => {
+        const { roomId, gameId } = await ownedScoreFixture('COMPLETED');
         const hist = await historyRow(gameId, 'Nudge');
 
         const res = await request(app)
@@ -339,9 +376,79 @@ describe('PATCH /:roomId/score-history/:historyId/score — authorization + vali
             .send({ score: 999999 });
 
         expect(res.status).toBe(403);
+        expect(res.body.reason).toBe('locked');
         const db = await getDatabase();
         const after = await db.get<{ score: number }>('SELECT score FROM score_history WHERE id = ?', hist!.id);
         expect(after!.score).toBe(1000);
+    });
+
+    it('the submitter is refused on an admin-VERIFIED row even while ACTIVE', async () => {
+        const { roomId, gameId } = await ownedScoreFixture('ACTIVE');
+        const db = await getDatabase();
+        await db.run(
+            `UPDATE score_history SET verified_by = 'admin-1', verified_at = datetime('now') WHERE game_id = ?`,
+            gameId,
+        );
+        const hist = await historyRow(gameId, 'Nudge');
+
+        const res = await request(app)
+            .patch(`/api/rooms/${roomId}/score-history/${hist!.id}/score`)
+            .set('Authorization', `Bearer ${playerToken('disc-nudge')}`)
+            .send({ score: 2000 });
+
+        expect(res.status).toBe(403);
+        expect(res.body.reason).toBe('verified');
+    });
+
+    it('an ADMIN may still correct a locked, verified row — their window never closes', async () => {
+        const { roomId, gameId } = await ownedScoreFixture('COMPLETED');
+        const db = await getDatabase();
+        await db.run(
+            `UPDATE score_history SET verified_by = 'admin-1', verified_at = datetime('now') WHERE game_id = ?`,
+            gameId,
+        );
+        const hist = await historyRow(gameId, 'Nudge');
+
+        const res = await request(app)
+            .patch(`/api/rooms/${roomId}/score-history/${hist!.id}/score`)
+            .set('Authorization', `Bearer ${adminToken(roomId)}`)
+            .send({ score: 2000 });
+
+        expect(res.status).toBe(200);
+    });
+
+    it('a DIFFERENT player may not correct somebody else\u2019s row', async () => {
+        const { roomId, gameId } = await ownedScoreFixture('ACTIVE');
+        const hist = await historyRow(gameId, 'Nudge');
+
+        const res = await request(app)
+            .patch(`/api/rooms/${roomId}/score-history/${hist!.id}/score`)
+            .set('Authorization', `Bearer ${playerToken('disc-someone-else')}`)
+            .send({ score: 2000 });
+
+        expect(res.status).toBe(403);
+    });
+
+    /**
+     * Without the tournament-stamp clause in `ownerCorrectionWindow`, a table
+     * rotating back round would silently re-open editing on the player's
+     * scores from the PREVIOUS run of it.
+     */
+    it('a rerun of the same table does not re-open the previous run for its submitter', async () => {
+        const { roomId, gameId } = await ownedScoreFixture('COMPLETED');
+        const hist = await historyRow(gameId, 'Nudge');
+
+        // The same table comes round again under a DIFFERENT tournament.
+        const t2 = await createTestTournament(roomId, { name: 'Weekly Grind' });
+        await createTestGame(t2, { name: 'Whirlwind', status: 'ACTIVE' });
+
+        const res = await request(app)
+            .patch(`/api/rooms/${roomId}/score-history/${hist!.id}/score`)
+            .set('Authorization', `Bearer ${playerToken('disc-nudge')}`)
+            .send({ score: 999999 });
+
+        expect(res.status).toBe(403);
+        expect(res.body.reason).toBe('locked');
     });
 
     it('an admin of a DIFFERENT room is refused', async () => {
