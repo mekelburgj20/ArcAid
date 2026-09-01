@@ -6,7 +6,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
-<<<<<<< HEAD
+## [2.154.1] — Fix: picking a room for a Witness cabinet said "you are not a member"
+
+Owner, on the freshly deployed cabinet picker: choosing **RTX_Pinball** — a room they own — came
+back *"You are not a member of that room."*
+
+The server was right about what it received. The picker read `id` off `/api/me/rooms`, which returns
+**`roomId`** (`RoomForUser`). Every option was therefore rendered with `value={undefined}`, and a
+valueless `<option>` falls back to its own text — so choosing the room submitted its **name** as the
+room id, and the membership lookup for a room called `RTX_Pinball` found nothing.
+
+### Fixed
+- **Read `roomId`**, and drop any row without one, so a future shape change shows an empty list
+  rather than a valueless option that silently submits its own label.
+- **A regression test that pins the contract between the two endpoints** — whatever the rooms list
+  calls its identifier, the PATCH must carry that exact value. Verified against the broken code
+  first: it fails without the fix.
+
+---
+
 ## [2.154.0] — Boards recover when the WebSocket cannot
 
 Owner report 2026-09-01: *"the scoreboard doesn't auto refresh for mobile or desktop. You have to
@@ -56,7 +74,6 @@ the socket when it is healthy.
   tab does not; the poll never runs while hidden; the shared throttle collapses a reconnect+focus
   pair; `enabled: false` is fully inert; the latest callback is always used so an inline arrow cannot
   go stale; and every listener is removed on unmount.
->>>>>>> 08df9ed72 (feature: boards recover when the WebSocket cannot (v2.152.0))
 
 ## [2.153.0] — Every score reaches the Global Scoreboard
 
@@ -182,7 +199,6 @@ it and no human in it. See [ADR 0022](docs/decisions/0022-vpxs-scores-from-the-l
   canonical account.
 
 ---
-=======
 ## [2.150.1] — Correction on the game quick view (the last surface that lacked it)
 
 Owner, looking at a live tournament card: *"I hover over my score and nothing shows. I click the

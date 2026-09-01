@@ -191,7 +191,15 @@ export default function AccountSettings() {
         if (roomsRes.ok) {
           const roomRows = await roomsRes.json();
           setWitnessRooms((Array.isArray(roomRows) ? roomRows : [])
-            .map((r: { id: string; name: string }) => ({ id: r.id, name: r.name })));
+            // `/api/me/rooms` returns `roomId`, NOT `id` (RoomForUser). Reading
+            // the wrong field left every option with no `value`, at which point
+            // the DOM falls back to the option's TEXT — so picking a room sent
+            // its NAME as the room id and the server correctly answered "you
+            // are not a member of that room". Filtering on a real id means a
+            // future shape change shows an empty list rather than a valueless
+            // option that silently submits its own label.
+            .map((r: { roomId: string; name: string }) => ({ id: r.roomId, name: r.name }))
+            .filter((r: { id: string; name: string }) => !!r.id));
         }
       } catch { /* the picker still shows the current designation */ }
 
