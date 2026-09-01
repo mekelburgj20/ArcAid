@@ -5,12 +5,19 @@
 
 ---
 
-## VPX score ingestion — TOP PRIORITY after Arcaid Witness ships (owner ruling 2026-08-29)
+## VPX score ingestion — arc 1 BUILT (v2.151.0, ADR 0022); arc 2 is the desktop agent
 
 Two arcs, discovered via the Witness round-4b signals run (FINDINGS-0q): the VPX-on-ALP ecosystem is
 the third-party **vpx-standalone** launcher, and it keeps machine-readable score/session records.
 
-1. **VPXS-on-ALP score ingestion.** Each played table's stick tree carries
+1. **VPXS-on-ALP score ingestion — ✅ BUILT 2026-08-31 (v2.151.0, ADR 0022), awaiting the round-5
+   field run.** The Witness reads `scoreserver/vpx-<table>-games.jsonl` and reports each completed
+   game to `GET /api/witness/score`; `score_history.source='vpx'` (migration 172); the game is filed
+   as its own witness observation so gear-up is judged per GAME, not per sitting. Open questions
+   from the original entry are answered: schema captured (FINDINGS-0r/0s), trust model in ADR 0022,
+   identity = the paired device's account. What remains is hardware confirmation on a cabinet that
+   actually has VPX — the owner's Micro does not. Original scope, for reference:
+   Each played table's stick tree carries
    `scoreserver/vpx-<table>-games.jsonl` (per-GAME records) + `data/leaderboard.json`, and the stick
    root has `vpx-sessions.json` (48KB session journal) + `vpx-launcher.log`. The Witness runs from
    the SAME partition and can read all of it — a beacon-side reader could report VPX scores (not
@@ -25,8 +32,9 @@ the third-party **vpx-standalone** launcher, and it keeps machine-readable score
    of reading it. Prize: live VPX score flow into Arcaid rooms/events from ANY PC — beyond the
    AtGames ecosystem entirely.
 
-Sequencing: do not start until Witness round 5 (production) + its live-event graduation test are
-done; then this is next, ahead of everything else queued below.
+Sequencing: arc 1 was pulled INTO the Witness RC iteration (owner ruling 2026-08-31) rather than
+following it, so the round-5 tester run now proves both at once. Arc 2 (desktop) still waits for the
+graduation event.
 
 > **Arc 2 now has a full plan: [`docs/vpx-desktop-witness-plan.md`](docs/vpx-desktop-witness-plan.md)**
 > (2026-08-30). Research arc complete — the cabinet scoreserver was identified (`superhac/score-server`

@@ -189,7 +189,7 @@ async function doInitDatabase(): Promise<Database> {
             discord_user_id TEXT DEFAULT 'SYSTEM',
             score INTEGER NOT NULL,
             photo_url TEXT,
-            source TEXT NOT NULL DEFAULT 'tournament' CHECK(source IN ('tournament', 'community', 'sync', 'atgames')),
+            source TEXT NOT NULL DEFAULT 'tournament' CHECK(source IN ('tournament', 'community', 'sync', 'atgames', 'vpx')),
             created_at TEXT DEFAULT (datetime('now')),
             FOREIGN KEY (game_room_id) REFERENCES game_rooms (id) ON DELETE CASCADE
         );
@@ -2958,6 +2958,10 @@ async function doInitDatabase(): Promise<Database> {
             if (!cols.some(c => c.name === 'via')) {
                 await db.exec(`ALTER TABLE witness_observations ADD COLUMN via TEXT NOT NULL DEFAULT 'live'`);
             }
+        } },
+        { name: '172_score_history_source_vpx', handler: async (db) => {
+            const { scoreHistorySourceVpx } = await import('./migrations/scoreHistorySourceVpx.js');
+            await scoreHistorySourceVpx(db);
         } },
     ];
 

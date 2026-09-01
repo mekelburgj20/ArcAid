@@ -6,6 +6,51 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.151.0] — VPXS scores collect themselves
+
+VPX on an AtGames cabinet runs under the third-party vpx-standalone launcher, which means AtGames
+never sees those tables: they carry no AtGames game id, they cannot go in an AtGames private
+tournament, and no AtGames board will ever hold a VPX score. Until now the only way a VPXS
+tournament got scored was players typing their totals in.
+
+The launcher writes its own machine-readable record of every completed game — score, ball-by-ball
+timestamps, the game's start and end — **on the same USB partition the Arcaid Witness runs from**.
+So the Witness reads it. This is the first Arcaid score path with no third-party leaderboard behind
+it and no human in it. See [ADR 0022](docs/decisions/0022-vpxs-scores-from-the-launcher.md).
+
+### Added
+- **`GET /api/witness/score`** — device-token authenticated, same bare 401 as `/witness/report` and
+  `/witness/checkin`. An unmatched score answers `200 {status:'no_match'}`, never a 401, so a player
+  playing something untracked cannot put the cabinet into a retry loop.
+- **`VpxScoreIngestService`** — matches a record to an ACTIVE rotation game or an event round of the
+  player's own rooms, on the game's END time (the same rule the AtGames path uses, so two sources on
+  one board keep one definition of "inside the round"). Names match on the journal name, the record's
+  `rom`, or the folder slug, through `normalizeGameName` plus a squashed form (`vpx-badcats` →
+  `badcats`). **Two candidates is `no_match`** — never a guess. Pinned boards are deliberately not
+  candidates: no window means an unbounded write triggered by ordinary play at home.
+- **`score_history.source = 'vpx'`** (migration 172) — a fifth value, because the trust model has to
+  keep being able to answer *how did this score reach us?*.
+- **The cabinet build (`arcaid-witness v1.0.0-rc2`)** reads `scoreserver/vpx-<table>-games.jsonl`,
+  correlates the display name through the session journal, and reports each completed game. Player 1
+  only; games under 20s and the launcher's continuation artifact are dropped.
+
+### Changed
+- **The ingest files the GAME as a witness observation** (`launch_ts` = game start, `exit_ts` = game
+  end). A VPX sitting holds several games, so verifying against the *session's* launch would flag
+  every legitimate second and third game of a normal sitting. Filing the game means the ADR 0020
+  verify join needed one line — source eligibility — and no VPX-specific rule.
+- **`rebuildScoreHistorySource`** — migration 167's create-copy-drop-rename extracted so 172 shares
+  it. Two hand-copied rebuilds of the hottest table in the app is exactly the drift this codebase
+  refuses elsewhere.
+
+### Notes
+- These records are launcher-recorded, not display-witnessed, and their Ed25519 signatures are not
+  verifiable by us (no public key). Same badge-never-gate rule as every other witness signal.
+- The launcher's own `accountName` is never used for identity — attribution is the paired device's
+  canonical account.
+
+---
+
 ## [2.150.1] — Correction on the game quick view (the last surface that lacked it)
 
 Owner, looking at a live tournament card: *"I hover over my score and nothing shows. I click the

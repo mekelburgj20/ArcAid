@@ -283,6 +283,78 @@ export class WitnessService {
     }
 
     /**
+     * Record one VPXS score the Witness read off the cabinet's own stick (P9).
+     *
+     * Same device-token auth and same undifferentiated failure as the other two
+     * device-facing writers, for the same reason. What differs is that this one
+     * can succeed at AUTHENTICATION and still decline to record: a score whose
+     * table matches no open game of this player is a perfectly normal event
+     * (they played something that is not in a tournament), and the device must
+     * be told "accepted, not matched" rather than "unauthorised", or it would
+     * retry forever against a wall.
+     *
+     * Returns `null` ONLY for an auth failure, so the route can keep answering
+     * a bare 401 for that and 200 for everything else.
+     */
+    static async recordVpxScore(input: {
+        atgamesUniqueId: string;
+        token: string;
+        tableName: string;
+        rom?: string | null;
+        slug?: string | null;
+        score: number;
+        startedTs: number;
+        endedTs: number;
+        durationSec?: number | null;
+        reason?: string | null;
+    }): Promise<import('./VpxScoreIngestService.js').VpxIngestResult | null> {
+        const deviceId = (input.atgamesUniqueId || '').trim();
+        if (!deviceId || !input.token) return null;
+
+        const device = await WitnessService.authenticateDevice(deviceId, input.token);
+        if (!device) return null;
+
+        const { VpxScoreIngestService } = await import('./VpxScoreIngestService.js');
+        const result = await VpxScoreIngestService.ingest({
+            canonicalUserId: device.canonical_user_id,
+            tableName: (input.tableName || '').trim(),
+            rom: input.rom ?? null,
+            slug: input.slug ?? null,
+            score: input.score,
+            startedTs: input.startedTs,
+            endedTs: input.endedTs,
+            durationSec: input.durationSec ?? null,
+            reason: input.reason ?? null,
+        });
+
+        // A matched VPX score also files its own OBSERVATION, and that is the
+        // whole reason the verify layer needs no VPX-specific rule:
+        //
+        // The launcher's record carries the GAME's start and end, which is
+        // finer-grained than the table SESSION the resident detector sees — one
+        // VPX session routinely contains several games. Verifying a VPX score
+        // against the session's launch time would flag every second and third
+        // game of a legitimate sitting, because the session began before the
+        // round did. Filing the game itself as an observation makes the
+        // existing tier-1 join answer the right question: the exit matches the
+        // score's timestamp exactly, and the launch it compares against the
+        // round start is the GAME's launch.
+        if (result.status === 'ingested' || result.status === 'duplicate') {
+            await WitnessService.recordObservation({
+                atgamesUniqueId: deviceId,
+                token: input.token,
+                tableName: (input.tableName || '').trim(),
+                launchTs: Math.floor(input.startedTs),
+                exitTs: Math.floor(input.endedTs),
+                durationSec: input.durationSec ?? null,
+            });
+        }
+
+        await WitnessService.touchDevice(deviceId);
+        return result;
+    }
+
+    /**
      * The ONE device-token check. Both device-facing writers go through it so
      * they cannot drift on what "authenticated" means, and so neither can ever
      * reveal WHICH of device/token/revocation was wrong.

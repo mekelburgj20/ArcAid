@@ -279,6 +279,48 @@ router.get('/witness/checkin', witnessIngestLimiter, async (req, res) => {
     }
 });
 
+// Device: one VPXS score, read by the Witness out of the VPX launcher's own
+// scoreserver records on the cabinet stick (P9). Same device-token auth and
+// same bare 401 as /witness/report.
+//
+// A 200 with `status: 'no_match'` is a NORMAL answer, not a failure: the player
+// played a table that no open tournament of theirs covers. The device treats
+// every 200 as final and never retries it — only a transport failure is
+// retried — so a mismatched score cannot turn into a loop.
+router.get('/witness/score', witnessIngestLimiter, async (req, res) => {
+    try {
+        const { WitnessService } = await import('../../services/WitnessService.js');
+        const device = typeof req.query.device === 'string' ? req.query.device : '';
+        const token = (typeof req.query.token === 'string' && req.query.token)
+            || (typeof req.headers['x-witness-token'] === 'string' ? req.headers['x-witness-token'] as string : '');
+
+        const result = await WitnessService.recordVpxScore({
+            atgamesUniqueId: device,
+            token,
+            tableName: typeof req.query.table === 'string' ? req.query.table : '',
+            rom: typeof req.query.rom === 'string' ? req.query.rom : null,
+            slug: typeof req.query.slug === 'string' ? req.query.slug : null,
+            score: Number(req.query.score),
+            startedTs: Number(req.query.started),
+            endedTs: Number(req.query.ended),
+            durationSec: req.query.dur !== undefined ? Number(req.query.dur) : null,
+            reason: typeof req.query.reason === 'string' ? req.query.reason : null,
+        });
+        if (!result) return res.status(401).json({ ok: false });
+
+        if (result.status === 'ingested' && result.gameRoomId && result.gameId) {
+            try {
+                const { emitLeaderboardUpdated } = await import('../websocket.js');
+                emitLeaderboardUpdated(result.gameRoomId, { gameId: result.gameId });
+            } catch { /* socket optional */ }
+        }
+        res.json({ ok: true, status: result.status, game: result.gameName ?? null });
+    } catch (error) {
+        logError('API Error (GET /api/witness/score)');
+        res.status(500).json({ ok: false });
+    }
+});
+
 // Per-room theme overrides ("Theme for this room only", v2.132.0).
 // Keyed by game_rooms.id and NOT per device — see PreferencesService.RoomThemes.
 //
