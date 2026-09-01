@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { X, ExternalLink, Star, Trash2, Plus, Minus, Camera } from 'lucide-react';
+import { X, ExternalLink, Star, Trash2, Pencil, Plus, Minus, Camera } from 'lucide-react';
 import type { RankedEntry } from './ScoreboardComponents';
 import { PlayerAvatar, playerName } from './ScoreboardComponents';
 import { getLegacyPlatformLabel } from '../lib/scoreProvenance';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { decodeViewerClaims } from '../lib/viewerClaims';
 import { canDeleteRow, deleteScoreHistory, rowHistoryId } from '../lib/scoreDelete';
+import { canCorrectRow, correctScoreHistory } from '../lib/scoreCorrect';
+import CorrectScoreModal from './CorrectScoreModal';
 import { useScoreExpand } from './scoreboard/useScoreExpand';
 import { parseServerDate } from '../lib/format';
 import ConfirmModal from './ConfirmModal';
@@ -51,6 +53,13 @@ export interface QuickViewTarget {
    * Room Scores synthetic `room_<name>` id) simply means no expand chevrons.
    */
   gameId?: string;
+  /**
+   * v2.150.1 — needed by the score-correction gate: the SUBMITTER may only
+   * correct their own row while the card is unlocked (`'ACTIVE'`). Absent
+   * means "no round to close", which leaves correction admin-only here.
+   * Callers pass a whole `GameLeaderboard`, which already carries it.
+   */
+  gameStatus?: string;
 }
 
 /** A single headline figure shown in place of the top-10 list. */
@@ -105,6 +114,8 @@ export default function GameQuickView({ lb, slug, fromTab, highlightStat, roomId
   const [deletedIds, setDeletedIds] = useState<Set<number>>(() => new Set());
   const [pendingDelete, setPendingDelete] = useState<{ historyId: number; score: number } | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [pendingCorrect, setPendingCorrect] =
+    useState<{ historyId: number; score: number; label: string } | null>(null);
   // v2.109.0 (score-gesture-photos) — clicking a row's body (main ranked row
   // or any expanded nested history row) opens that score's photo evidence,
   // but ONLY when the row actually has a photo (no dead click). Reuses the
@@ -114,6 +125,28 @@ export default function GameQuickView({ lb, slug, fromTab, highlightStat, roomId
   const {
     expandedPlayer, playerHistory, historyLoading, togglePlayer, hasMultiple, removeHistoryEntry,
   } = useScoreExpand(roomId, lb.gameId ?? '', lb.gameName, (lb.rankings ?? []).length);
+
+  /**
+   * v2.150.1 — score correction from the quick view. This popup is where the
+   * owner actually looks at a score (it opens straight off a scoreboard card),
+   * and it was the one surface with a delete and no correction; v2.149.1 and
+   * v2.150.0 both missed it.
+   *
+   * Refetching is the owning page's job (`onScoreDeleted`, which is really
+   * "the score list changed"): the corrected value may or may not still be the
+   * player's best, so the rank order cannot be patched here by hand.
+   */
+  const runCorrect = async (historyId: number, newScore: number) => {
+    if (!roomId) return;
+    setDeleteError(null);
+    const result = await correctScoreHistory(roomId, historyId, newScore, playerToken);
+    if (!result.ok) {
+      setDeleteError(result.error);
+      return;
+    }
+    onScoreDeleted?.();
+    onClose();
+  };
 
   const runDelete = async (historyId: number) => {
     if (!roomId) return;
@@ -288,6 +321,7 @@ export default function GameQuickView({ lb, slug, fromTab, highlightStat, roomId
               // `canExpand` is false, and this renders as it always did.
               const historyId = rowHistoryId(entry);
               const canDelete = canDeleteRow(entry, claims, roomId);
+              const canCorrect = canCorrectRow(entry, claims, roomId, lb.gameStatus);
               const canExpand = !!roomId && hasMultiple(entry.iscored_username);
               const isExpanded = expandedPlayer === entry.iscored_username;
               // v2.109.0 (score-gesture-photos) — the row body opens the
@@ -344,8 +378,24 @@ export default function GameQuickView({ lb, slug, fromTab, highlightStat, roomId
                       {isExpanded ? <Minus size={13} /> : <Plus size={13} />}
                     </button>
                   )}
-                  {/* Always visible, never hover-gated — the owner ask is that
-                      removing a score you just posted takes no hunting. */}
+                  {/* Correction first, and always visible for the same reason
+                      the delete is: on a mistyped score it is the action you
+                      actually want, and it must not be the harder one to
+                      reach. */}
+                  {canCorrect && historyId != null && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setPendingCorrect({ historyId, score: entry.score, label: playerName(entry) });
+                      }}
+                      className="p-1 -m-0.5 text-muted/70 hover:text-neon-cyan transition-colors cursor-pointer flex-shrink-0"
+                      aria-label={`Correct this score (${entry.score.toLocaleString()})`}
+                      title="Correct this score"
+                    >
+                      <Pencil size={13} />
+                    </button>
+                  )}
                   {canDelete && historyId != null && (
                     <button
                       type="button"
@@ -367,6 +417,7 @@ export default function GameQuickView({ lb, slug, fromTab, highlightStat, roomId
                       <div className="space-y-1">
                         {playerHistory.map(h => {
                           const canDeleteNested = canDeleteRow(h, claims, roomId);
+                          const canCorrectNested = canCorrectRow(h, claims, roomId, lb.gameStatus);
                           const hPhotoUrl = h.photo_url ?? null;
                           return (
                             <div
@@ -379,6 +430,20 @@ export default function GameQuickView({ lb, slug, fromTab, highlightStat, roomId
                                 <Camera size={11} className="text-faint flex-shrink-0" aria-hidden />
                               )}
                               <span className="text-faint flex-1">{parseServerDate(h.created_at)?.toLocaleDateString() ?? ''}</span>
+                              {canCorrectNested && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setPendingCorrect({ historyId: h.id, score: h.score, label: playerName(entry) });
+                                  }}
+                                  className="p-1 -m-0.5 text-muted/70 hover:text-neon-cyan transition-colors cursor-pointer"
+                                  aria-label={`Correct this score (${h.score.toLocaleString()})`}
+                                  title="Correct this score"
+                                >
+                                  <Pencil size={12} />
+                                </button>
+                              )}
                               {canDeleteNested && (
                                 <button
                                   type="button"
@@ -431,6 +496,19 @@ export default function GameQuickView({ lb, slug, fromTab, highlightStat, roomId
           )}
         </div>
       </div>
+
+      {pendingCorrect && (
+        <CorrectScoreModal
+          playerLabel={pendingCorrect.label}
+          currentScore={pendingCorrect.score}
+          onCancel={() => setPendingCorrect(null)}
+          onConfirm={async (newScore) => {
+            const target = pendingCorrect;
+            setPendingCorrect(null);
+            await runCorrect(target.historyId, newScore);
+          }}
+        />
+      )}
 
       {/* v2.108.0 (F4) — same confirm component the GameDetail delete uses. */}
       {pendingDelete && (
