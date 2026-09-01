@@ -18,12 +18,14 @@ import { logInfo } from '../utils/logger.js';
  *
  * ## What a Throwdown score deliberately does NOT do
  *
- * - **No global-scoreboard fan-out.** `GlobalScoreService.fanOutFromRoomSubmission`
- *   is room-keyed by construction, and inventing a room-less variant is a
- *   bigger decision than this phase should make on its own — a casual
- *   two-click challenge landing on the site-wide board is a product call, not
- *   an implementation detail. Room-scoped events are unaffected and still fan
- *   out exactly as before.
+ * - ~~**No global-scoreboard fan-out.**~~ **REVERSED in v2.153.0 (ADR 0023.)**
+ *   The original note called this "a product call, not an implementation
+ *   detail", and the product call has now been made the other way: a player
+ *   should be rewarded for a score wherever they earned it, so a Throwdown
+ *   score fans out like any other. `fanOutFromRoomSubmission` tolerates a null
+ *   room and records the row as global-origin — which is exactly what a
+ *   challenge belonging to no room is. Opting out is the player's choice
+ *   (`share_to_global`), never the format's.
  * - **No iScored sync.** iScored boards belong to rooms.
  * - **No room name claim.** `RoomNameClaimService` is per-room first-claim-wins;
  *   with no room there is nothing to claim against, so the player's global
@@ -64,6 +66,27 @@ export class ThrowdownScoreService {
             engine: input.engine ?? UNKNOWN,
             device: input.device ?? UNKNOWN,
         });
+
+        // v2.153.0 (ADR 0023): a Throwdown score reaches the Global Scoreboard
+        // like any other. Room-less is not a reason to hide it — the fan-out
+        // now tolerates a null room and records the row as global-origin, which
+        // is exactly what a challenge that belongs to no room is.
+        if (historyId != null) {
+            const { GlobalScoreService } = await import('./GlobalScoreService.js');
+            await GlobalScoreService.fanOutAutomatedScore({
+                gameRoomId: null,
+                gameName: input.gameName,
+                gameId: input.gameId,
+                canonicalUserId: normalizeSubmitterUserId(input.userId),
+                username: input.username,
+                score: input.score,
+                tournamentId: input.tournamentId,
+                platform: input.platform ?? null,
+                engine: input.engine ?? UNKNOWN,
+                device: input.device ?? UNKNOWN,
+                source: 'tournament',
+            });
+        }
 
         logInfo(`Throwdown score: ${input.username} ${input.score} on ${input.gameName} (${input.tournamentId})`);
         return { historyId, rank: await ThrowdownScoreService.rankFor(input.tournamentId, input.userId, input.username) };

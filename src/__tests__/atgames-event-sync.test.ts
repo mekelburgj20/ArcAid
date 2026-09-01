@@ -414,6 +414,15 @@ describe('AtGamesEventSyncService — ingest', () => {
         // of submitted_by_user_id.
         expect(rows[1]).toMatchObject({ iscored_username: 'Stranger', discord_user_id: 'atgames:99' });
         expect(rows[1]?.submitted_by_user_id).toBeNull();
+
+        // v2.153.0 (ADR 0023): the LINKED account's cabinet score also reaches
+        // the Global Scoreboard — and the unlinked one does not, because there
+        // is nobody to credit it to.
+        const global = await db.all<Array<{ player_id: string; score: number }>>(
+            `SELECT player_id, score FROM global_scores`,
+        );
+        expect(global).toHaveLength(1);
+        expect(global[0]).toMatchObject({ player_id: '123456789012345678', score: 1_200_000 });
     });
 
     it('is idempotent — a second sync mid-round adds nothing', async () => {

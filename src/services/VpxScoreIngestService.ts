@@ -252,6 +252,25 @@ export class VpxScoreIngestService {
             };
         }
 
+        // v2.153.0 (ADR 0023): landing in a tournament does not keep a score off
+        // the Global Scoreboard. Where you played is not supposed to decide
+        // whether the world sees it — the opt-out is the player's, not the
+        // format's.
+        const { GlobalScoreService } = await import('./GlobalScoreService.js');
+        await GlobalScoreService.fanOutAutomatedScore({
+            gameRoomId: target.game_room_id,
+            gameName: target.name,
+            gameId: target.id,
+            canonicalUserId: input.canonicalUserId,
+            username,
+            score,
+            tournamentId: target.tournament_id,
+            platform: 'vpxs',
+            engine: 'vpx',
+            device: 'atgames',
+            source: 'vpx',
+        });
+
         logInfo(
             `VPX ingest: ${username} ${score} on "${target.name}" ` +
             `(${target.round_no != null ? `round ${target.round_no}` : 'rotation'}, ` +

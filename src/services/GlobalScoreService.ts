@@ -280,6 +280,12 @@ export class GlobalScoreService {
      * approval-policy rooms. Approval-room view gating (who can see the room
      * at all) is unaffected; this only concerns individual score fan-out.
      *
+     * v2.153.0 (ADR 0023): EVERY score a player earns reaches the Global
+     * Scoreboard unless they opted out — tournament, event, Throwdown, AtGames
+     * cabinet and VPXS cabinet alike. Where you played is not supposed to
+     * decide whether the world sees it. The ONE exception is below, and it is
+     * about missing provenance rather than about format.
+     *
      * v2.60.0 (ADR 0016 P2 §3c): `source` is REQUIRED and `'sync'` is rejected
      * outright. iScored-synced scores never reach the Global Scoreboard — they
      * carry no provenance of their own (always `unknown`/`unknown`, see §3b), so
@@ -292,7 +298,12 @@ export class GlobalScoreService {
      * room-scoped submission flow.
      */
     static async fanOutFromRoomSubmission(opts: {
-        gameRoomId: string;
+        /**
+         * NULL for a room-less Throwdown (v2.153.0). Every room-scoped lookup
+         * below simply finds nothing for a null room, and the dedup uses `IS`
+         * so it stays NULL-safe.
+         */
+        gameRoomId: string | null;
         gameName: string;
         gameId?: string;              // tournament game id if available
         playerId: string;              // discord_user_id (or synthetic 'COMMUNITY'/'ANON')
@@ -313,7 +324,7 @@ export class GlobalScoreService {
          * Required so a new caller has to state its provenance rather than
          * defaulting into the allowed set.
          */
-        source: 'tournament' | 'community' | 'sync';
+        source: 'tournament' | 'community' | 'sync' | 'atgames' | 'vpx';
     }): Promise<{ globalScoreId: string; globalGameId: string; gameName: string } | null> {
         try {
             // ADR 0016 P2 §3c: iScored-synced scores are excluded from the
@@ -413,7 +424,7 @@ export class GlobalScoreService {
             const existing = await db.get(
                 `SELECT id FROM global_scores
                  WHERE global_game_id = ?
-                   AND origin_game_room_id = ?
+                   AND origin_game_room_id IS ?
                    AND LOWER(iscored_username) = LOWER(?)
                    AND score = ?`,
                 globalGameId, opts.gameRoomId, opts.iscoredUsername, opts.score
@@ -427,7 +438,9 @@ export class GlobalScoreService {
                 score: opts.score,
                 // Photo isn't copied — the room already persisted it at photoUrl.
                 // We reference the same URL without re-writing the file.
-                originType: 'game_room',
+                // A room-less Throwdown score is a GLOBAL-origin row: there is
+                // no room chip for the board to render against it.
+                originType: opts.gameRoomId ? 'game_room' : 'global',
                 originGameRoomId: opts.gameRoomId,
                 originGameId: opts.gameId || null,
                 excludeFromGlobal: opts.excludeFromGlobal,
@@ -454,6 +467,79 @@ export class GlobalScoreService {
             };
         } catch (err) {
             logError('Global fan-out failed (non-fatal):', err);
+            return null;
+        }
+    }
+
+    /**
+     * Fan-out for the paths where NOBODY PRESSED SUBMIT (v2.153.0, ADR 0023):
+     * AtGames cabinet sync, VPXS cabinet scores read by the Witness, and
+     * Throwdown rounds.
+     *
+     * These exist as one helper rather than three copies because they share the
+     * two things a submit form supplies and they cannot:
+     *
+     * 1. **There is no per-submission checkbox**, so the player's ACCOUNT
+     *    preference is the only thing that can speak for them. It is consulted
+     *    here, once, exactly as `resolveExcludeFromGlobal` does for the paths
+     *    that do have a box.
+     * 2. **The identity must be a real account.** An unlinked cabinet score
+     *    (`atgames:<id>`) has nobody to credit, and crediting the wrong person
+     *    on a public board is the one failure worth refusing outright. The
+     *    guest gate inside `fanOutFromRoomSubmission` catches synthetic ids
+     *    too; this is the earlier, cheaper check.
+     *
+     * Best-effort by construction: a failure here must never cost the score
+     * itself, which is already recorded by the time this runs.
+     */
+    static async fanOutAutomatedScore(opts: {
+        gameRoomId: string | null;
+        gameName: string;
+        gameId?: string | null;
+        /** The canonical account this score belongs to, or null when unlinked. */
+        canonicalUserId: string | null;
+        username: string;
+        score: number;
+        tournamentId?: string | null;
+        platform?: string | null;
+        engine?: string | null;
+        device?: string | null;
+        source: 'tournament' | 'atgames' | 'vpx';
+    }): Promise<{ globalScoreId: string; globalGameId: string; gameName: string } | null> {
+        if (!opts.canonicalUserId) return null;
+        try {
+            const { PreferencesService } = await import('./PreferencesService.js');
+            if (await PreferencesService.resolveExcludeFromGlobal(opts.canonicalUserId, undefined)) {
+                return null;
+            }
+
+            const fanOut = await GlobalScoreService.fanOutFromRoomSubmission({
+                gameRoomId: opts.gameRoomId,
+                gameName: opts.gameName,
+                gameId: opts.gameId ?? undefined,
+                playerId: opts.canonicalUserId,
+                iscoredUsername: opts.username,
+                score: opts.score,
+                tournamentId: opts.tournamentId ?? null,
+                platform: opts.platform ?? null,
+                engine: opts.engine ?? null,
+                device: opts.device ?? null,
+                source: opts.source,
+            });
+
+            if (fanOut) {
+                const { emitScoreNewGlobal } = await import('../api/websocket.js');
+                emitScoreNewGlobal({
+                    globalGameId: fanOut.globalGameId,
+                    gameName: fanOut.gameName,
+                    playerName: opts.username,
+                    score: opts.score,
+                    engine: opts.engine ?? null,
+                });
+            }
+            return fanOut;
+        } catch (err) {
+            logError('Automated global fan-out failed (non-fatal):', err);
             return null;
         }
     }

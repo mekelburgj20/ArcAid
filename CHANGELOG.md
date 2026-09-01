@@ -6,6 +6,47 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.153.0] — Every score reaches the Global Scoreboard
+
+Which scores reached the Global Scoreboard had accumulated by history rather than by design. From
+the player's chair the result was hard to defend: **the same score counted for your public record or
+not depending on which format you happened to play in.** Play a table in freeplay and the world sees
+it; play it in a Throwdown, or on a cabinet, and it vanished.
+
+Owner ruling: wherever you played it, you should be rewarded by having the world see how well you
+did — unless you explicitly opt out. See
+[ADR 0023](docs/decisions/0023-every-score-reaches-the-global-scoreboard.md).
+
+### Changed
+- **Throwdown scores now fan out.** ADR 0018 deferred this as "a product call, not an implementation
+  detail"; the call has been made the other way. `fanOutFromRoomSubmission` tolerates a null room
+  (NULL-safe dedup, recorded as `origin_type = 'global'` — which is what a challenge belonging to no
+  room actually is).
+- **AtGames cabinet scores now fan out**, for a LINKED account only.
+- **VPXS cabinet scores that land in a tournament now fan out** — v2.151.0 wired only the room-less
+  fallback, so playing in a tournament silently cost the player their global record.
+- **The opt-out copy says what it now covers**, since a player who set it a month ago set it against
+  a narrower rule.
+
+### Added
+- **`GlobalScoreService.fanOutAutomatedScore`** — the one place the three form-less paths resolve the
+  account preference and refuse an unlinked identity. None of them can ask the player at submit
+  time, so `share_to_global` is the only voice available; a fourth caller hand-rolling either check
+  would be a bug the day the rule changes.
+
+### Unchanged, deliberately
+- **iScored-synced scores still never reach the Global Scoreboard.** That bar is about missing
+  provenance, not format: a synced score carries `unknown`/`unknown` (ADR 0016 P2 §3b) and cannot be
+  placed honestly on an engine-split board. It survives a change that abolished every other
+  exclusion, and is still enforced inside the fan-out rather than at its call sites.
+- **An unlinked cabinet account is never published.** Crediting a public board row to a synthetic id
+  is worse than the score not appearing, and unlike a missing score it cannot be fixed afterwards.
+  The score still lands on the room board; linking the account later claims it.
+- **Rooms keep `GLOBAL_SCOREBOARD_ENABLED`.** A room owner opting their room out is a different
+  decision from a player opting themselves out.
+
+---
+
 ## [2.152.0] — The player says where their cabinet's scores go
 
 v2.151.0 could match a score to a game by name and window. That leaves one case nothing in a score

@@ -68,9 +68,14 @@ export default function GlobalSharingSection() {
                 <span className="text-primary">Share my scores to the Global Scoreboard</span>
             </label>
             <p className="text-xs text-muted mt-2">
-                On by default. Turn it off and your room scores stay in the room they were
-                posted in — including scores you submit from Discord, which has no per-score
-                option. You can still share an individual score by ticking the box when you submit.
+                On by default, and it covers <strong>every</strong> score you earn — tournaments,
+                events, Throwdowns, and scores your paired cabinet reports on its own. Wherever you
+                played it, the world gets to see it.
+            </p>
+            <p className="text-xs text-muted mt-2">
+                Turn it off and your scores stay where they were posted — including scores from
+                Discord and from a cabinet, neither of which has a per-score option. You can still
+                share one particular score by ticking the box when you submit it by hand.
             </p>
             {error && <p className="text-xs text-neon-magenta mt-2">{error}</p>}
         </section>
