@@ -322,6 +322,7 @@ export class WitnessService {
         endedTs: number;
         durationSec?: number | null;
         reason?: string | null;
+        via?: string | null;
     }): Promise<import('./VpxScoreIngestService.js').VpxIngestResult | null> {
         const deviceId = (input.atgamesUniqueId || '').trim();
         if (!deviceId || !input.token) return null;
@@ -364,6 +365,7 @@ export class WitnessService {
                 launchTs: Math.floor(input.startedTs),
                 exitTs: Math.floor(input.endedTs),
                 durationSec: input.durationSec ?? null,
+                via: input.via ?? null,
             });
         }
 

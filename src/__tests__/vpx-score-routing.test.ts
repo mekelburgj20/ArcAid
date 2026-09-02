@@ -311,6 +311,23 @@ describe('VPXS score routing', () => {
         expect(res.body.code).toBe('TOURNAMENT_NOT_IN_ROOM');
     });
 
+    it('tags a retro-reported score on the observation it files', async () => {
+        // Round 5 shipped a tester's whole back catalogue tagged 'live' — a
+        // claim we had not earned. The device now marks anything older than its
+        // live grace as retro, and that tag has to survive into the evidence.
+        await createRotationGame(roomId, 'Bad Cats');
+        await designate(roomId);
+
+        await request(app).get('/api/witness/score')
+            .query({ device: DEVICE, token, ...scoreQuery(), via: 'retro' });
+
+        const db = await getDatabase();
+        const obs = await db.get<{ via: string }>(
+            `SELECT via FROM witness_observations ORDER BY id DESC LIMIT 1`,
+        );
+        expect(obs!.via).toBe('retro');
+    });
+
     it('clears the tournament when the room designation is cleared', async () => {
         const { tournamentId } = await createRotationGame(roomId, 'Bad Cats');
         await designate(roomId, tournamentId);
