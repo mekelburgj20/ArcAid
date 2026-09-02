@@ -343,6 +343,10 @@ router.get('/witness/score', witnessIngestLimiter, async (req, res) => {
             endedTs: Number(req.query.ended),
             durationSec: req.query.dur !== undefined ? Number(req.query.dur) : null,
             reason: typeof req.query.reason === 'string' ? req.query.reason : null,
+            // The evidence tag rides through to the observation this score
+            // files: a score read off disk hours later was reconstructed, not
+            // watched (ADR 0021 - same trust, tagged).
+            via: typeof req.query.via === 'string' ? req.query.via : null,
         });
         if (!result) return res.status(401).json({ ok: false });
 

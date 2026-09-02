@@ -6,6 +6,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.154.2] — A cabinet score can say it was reconstructed, not watched
+
+Round 5 on ChalataLove's 4KP proved the cabinet build in the field — and caught the Witness shipping
+his entire six-week back catalogue tagged as **live** evidence, which is a claim we had not earned.
+
+The device fix is in the cabinet app (`v1.0.0-rc4`, gitignored): the live score-watch is now bounded
+by the same retro window as the startup pass — it passed `0` before, so the first tick after a
+pairing replayed everything — and anything older than a 15-minute grace is reported as `via=retro`.
+
+### Added
+- **`via` on `GET /api/witness/score`**, threaded into the observation the score files, so a
+  reconstructed score is tagged as such (ADR 0021: same trust, tagged) instead of claiming we
+  watched it happen.
+
+---
+
 ## [2.154.1] — Fix: picking a room for a Witness cabinet said "you are not a member"
 
 Owner, on the freshly deployed cabinet picker: choosing **RTX_Pinball** — a room they own — came
