@@ -5,13 +5,14 @@
 
 ---
 
-## VPX score ingestion — arc 1 BUILT (v2.151.0, ADR 0022); arc 2 is the desktop agent
+## VPX score ingestion — arc 1 FIELD-PROVEN (v2.151.0, ADR 0022; round 5, 2026-09-01); arc 2 is the desktop agent
 
 Two arcs, discovered via the Witness round-4b signals run (FINDINGS-0q): the VPX-on-ALP ecosystem is
 the third-party **vpx-standalone** launcher, and it keeps machine-readable score/session records.
 
-1. **VPXS-on-ALP score ingestion — ✅ BUILT 2026-08-31 (v2.151.0, ADR 0022), awaiting the round-5
-   field run.** The Witness reads `scoreserver/vpx-<table>-games.jsonl` and reports each completed
+1. **VPXS-on-ALP score ingestion — ✅ BUILT 2026-08-31 (v2.151.0, ADR 0022), ✅ FIELD-PROVEN on
+   ChalataLove's 4KP in round 5 (2026-09-01: two Terminator 3 scores self-posted to Weekly Grind -
+   VPXS). Round 6 (cabinet rc6) confirms the back-to-back-games fix; then the graduation event.** The Witness reads `scoreserver/vpx-<table>-games.jsonl` and reports each completed
    game to `GET /api/witness/score`; `score_history.source='vpx'` (migration 172); the game is filed
    as its own witness observation so gear-up is judged per GAME, not per sitting. Open questions
    from the original entry are answered: schema captured (FINDINGS-0r/0s), trust model in ADR 0022,
@@ -33,8 +34,10 @@ the third-party **vpx-standalone** launcher, and it keeps machine-readable score
    AtGames ecosystem entirely.
 
 Sequencing: arc 1 was pulled INTO the Witness RC iteration (owner ruling 2026-08-31) rather than
-following it, so the round-5 tester run now proves both at once. Arc 2 (desktop) still waits for the
-graduation event.
+following it, and the round-5 tester run proved both at once. Arc 2 (desktop) still waits for the
+graduation event. Known gap from round 5: some VPXS tables (SpongeBob's Bikini Bottom) produce NO
+score record in the launcher's scoreserver — nothing Arcaid-side can recover those; a tester-supplied
+list of such tables would size the gap.
 
 > **Arc 2 now has a full plan: [`docs/vpx-desktop-witness-plan.md`](docs/vpx-desktop-witness-plan.md)**
 > (2026-08-30). Research arc complete — the cabinet scoreserver was identified (`superhac/score-server`
