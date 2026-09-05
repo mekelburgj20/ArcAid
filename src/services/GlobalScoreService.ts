@@ -36,6 +36,13 @@ export interface GlobalScoreInput {
      */
     engine?: string | null;
     device?: string | null;
+    /**
+     * How the score REACHED us (v2.155.0) — mirrors `score_history.source`.
+     * The Global Scoreboard is the one place a stranger sees the score, and
+     * therefore the one place that has to be able to say "a cabinet reported
+     * this" rather than leaving it indistinguishable from a typed entry.
+     */
+    source?: string | null;
 }
 
 export interface GlobalScore {
@@ -120,8 +127,8 @@ export class GlobalScoreService {
                 exclude_from_global, submitted_at,
                 submitted_from_room_id, submitted_during_tournament_id, submitted_by_user_id,
                 submitted_by_anonymous_name, merged_from_anonymous_identity_id, platform,
-                engine, device
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
+                engine, device, source
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)`,
             id,
             input.globalGameId,
             input.playerId,
@@ -140,6 +147,7 @@ export class GlobalScoreService {
             input.platform ?? null,
             input.engine || UNKNOWN,
             input.device || UNKNOWN,
+            input.source ?? null,
         );
 
         // Invalidate cached leaderboards for this game (global + all room scopes).
@@ -450,6 +458,9 @@ export class GlobalScoreService {
                 platform: opts.platform ?? null,
                 engine: opts.engine ?? UNKNOWN,
                 device: opts.device ?? UNKNOWN,
+                // Carried through so the Global Scoreboard can say a cabinet
+                // reported this rather than a person typing it (v2.155.0).
+                source: opts.source,
             });
 
             // Patch in the photo_url from the room's storage (submit() only handles buffer uploads)

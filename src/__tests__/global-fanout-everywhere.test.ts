@@ -110,6 +110,23 @@ describe('Global fan-out — every format', () => {
         });
     });
 
+    it('records HOW the score reached us, so the board can badge it', async () => {
+        // v2.155.0: `global_scores` never carried a source, so on the Global
+        // Scoreboard — the one place a stranger sees the row — a cabinet-reported
+        // score was indistinguishable from a typed one. It has no photo either,
+        // so it read as the LEAST evidenced row on the page.
+        await createRotationGame(roomId, 'Bad Cats');
+        await seedCatalogue('Bad Cats', 'Williams', 1989);
+
+        await VpxScoreIngestService.ingest(vpxScore(roomId, null));
+
+        const db = await getDatabase();
+        const row = await db.get<{ source: string | null }>(
+            `SELECT source FROM global_scores ORDER BY rowid DESC LIMIT 1`,
+        );
+        expect(row!.source).toBe('vpx');
+    });
+
     it('publishes a Throwdown score, with no room to hang it on', async () => {
         const globalGameId = await seedCatalogue('Bad Cats', 'Williams', 1989);
         const db = await getDatabase();

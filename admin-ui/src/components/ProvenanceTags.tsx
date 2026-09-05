@@ -4,8 +4,10 @@ import {
     getEngineShortLabel,
     isDeviceInformative,
 } from '../lib/scoreProvenance';
+import { ShieldCheck } from 'lucide-react';
 import {
     describeProvenance,
+    isWitnessedScore,
     resolveProvenance,
     type ScoreProvenance,
 } from '../lib/provenanceDisplay';
@@ -43,6 +45,23 @@ const DEVICE_CHIP =
 const UNSPECIFIED_CHIP =
     'text-[10px] px-1.5 py-0.5 rounded bg-raised text-faint font-display tracking-wide whitespace-nowrap';
 
+/**
+ * The WITNESSED badge (v2.155.0).
+ *
+ * Every other score on a board is backed by a person typing a number, and the
+ * ones that came from a photo say so with a proof link. A cabinet-reported
+ * score has neither — no photo, because nobody submitted it — so without this
+ * it reads as the LEAST evidenced row on the page when it is in fact the most.
+ *
+ * Green and a shield, deliberately: it is a statement about trust, not about
+ * hardware, and it must not be mistaken for one of the platform chips beside
+ * it. It renders ONLY from a source we recorded; an unknown source renders
+ * nothing rather than an absence-of-badge that could be read as suspicion.
+ */
+const WITNESS_CHIP =
+    'inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded '
+    + 'bg-emerald-500/10 text-emerald-400 font-display tracking-wide whitespace-nowrap';
+
 export default function ProvenanceTags({ entry, omitEngine = false, className = '' }: {
     entry: ScoreProvenance;
     /**
@@ -57,10 +76,21 @@ export default function ProvenanceTags({ entry, omitEngine = false, className = 
     className?: string;
 }) {
     const resolved = resolveProvenance(entry);
-    if (!resolved) return null;
+    const witnessed = isWitnessedScore(entry);
+    // The badge stands on its own: a witnessed score with no recorded engine
+    // still has something worth saying about it.
+    if (!resolved) {
+        return witnessed
+            ? (
+                <span className={`inline-flex items-center flex-shrink-0 ${className}`}>
+                    <WitnessedChip />
+                </span>
+            )
+            : null;
+    }
     const { engine, device } = resolved;
     const showDevice = isDeviceInformative(engine, device);
-    if (omitEngine && !showDevice) return null;
+    if (omitEngine && !showDevice && !witnessed) return null;
 
     return (
         <span
@@ -75,6 +105,20 @@ export default function ProvenanceTags({ entry, omitEngine = false, className = 
             {showDevice && (
                 <span className={DEVICE_CHIP}>{getDeviceShortLabel(device)}</span>
             )}
+            {witnessed && <WitnessedChip />}
+        </span>
+    );
+}
+
+function WitnessedChip() {
+    return (
+        <span
+            className={WITNESS_CHIP}
+            data-testid="witnessed-badge"
+            title="Witnessed — reported by this player's paired Arcaid Witness cabinet, not entered by hand"
+        >
+            <ShieldCheck size={10} aria-hidden="true" />
+            AW
         </span>
     );
 }

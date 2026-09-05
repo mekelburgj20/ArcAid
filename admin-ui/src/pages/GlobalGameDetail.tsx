@@ -75,6 +75,8 @@ interface RankingEntry {
   engine?: string | null;
   /** v2.58.0 (ADR 0016): what it ran on. */
   device?: string | null;
+  /** v2.155.0 — how the score reached us; drives the witnessed badge. */
+  source?: string | null;
 }
 
 interface Room {

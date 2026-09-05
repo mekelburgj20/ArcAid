@@ -6,6 +6,44 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.155.0] — The witnessed badge
+
+Owner, looking at a cabinet-reported score on the Global Scoreboard: *"Notice there's no 'proof'
+link because you didn't submit a photo, because it came from Arcaid Witness. I should probably add
+an 'AW' or something to show it is AW submitted/verified."*
+
+Exactly the right observation. A witnessed score has no photo **because nobody submitted it**, so on
+a board where every other row is typed or photo-backed, the best-evidenced score on the page was
+reading as the least-evidenced one.
+
+### Added
+- **A witnessed badge** — a green shield and `AW` — on every score a paired cabinet reported, drawn
+  from the score's `source` and nothing else. It renders in `ProvenanceTags`, so the room Game
+  Detail board and the Global Scoreboard's per-game leaderboard both got it from one change.
+- **`global_scores.source`** (migration 174, a plain nullable ALTER). `score_history` has carried
+  `source` since P7/P9, but `global_scores` never did — and the Global Scoreboard is precisely where
+  a stranger has no other way to tell a cabinet report from a typed number.
+- **`isWitnessedScore`** — the ONE definition of which sources count (`vpx`, `atgames`), so the
+  badge cannot come to mean two different things on two pages.
+
+### Changed
+- **A player's own score history no longer prints `vpx` as a raw lowercase word.** Those rows show
+  the badge instead; other sources render as before.
+
+### Notes
+- **`'tournament'` is not witnessed.** It says a submission happened inside a tournament window — a
+  person typed it. Badging that would empty the badge of meaning.
+- **An unknown source renders NOTHING, never a negative badge.** Absence has to read as "we cannot
+  say", not as suspicion — and every row written before this release has a null source.
+- Scores that reached the Global Scoreboard before this release are therefore unbadged. They are not
+  backfilled: the only available signal (engine + device + no photo) is also what a hand-typed
+  cabinet score looks like, and badging a typed score as witnessed is the one error that would
+  destroy the badge's meaning.
+- Live Event boards are unaffected — they already carry the richer verified/flagged verdict from
+  v2.145.0.
+
+---
+
 ## [2.154.2] — A cabinet score can say it was reconstructed, not watched
 
 Round 5 on ChalataLove's 4KP proved the cabinet build in the field — and caught the Witness shipping

@@ -16,7 +16,8 @@ import { canDeleteRow, deleteScoreHistory } from '../lib/scoreDelete';
 import { canCorrectRow, correctScoreHistory } from '../lib/scoreCorrect';
 import CorrectScoreModal from '../components/CorrectScoreModal';
 import { formatScore, scoreTitle, parseServerDate } from '../lib/format';
-import { Search, Trophy, TrendingUp, Target, Medal, Plus, Minus, Clock, Lightbulb, MessageCircle, Trash2, ChevronDown, ChevronUp, History, Download, Play, BookOpen, ExternalLink, Flag, BadgeCheck, Share2, Pencil } from 'lucide-react';
+import { Search, Trophy, TrendingUp, Target, Medal, Plus, Minus, Clock, Lightbulb, MessageCircle, Trash2, ChevronDown, ChevronUp, History, Download, Play, BookOpen, ExternalLink, Flag, BadgeCheck, Share2, Pencil, ShieldCheck } from 'lucide-react';
+import { isWitnessedScore } from '../lib/provenanceDisplay';
 import ReportProblemModal from '../components/ReportProblemModal';
 import ReportContentModal from '../components/ReportContentModal';
 import ConfirmModal from '../components/ConfirmModal';
@@ -129,7 +130,7 @@ interface ScoreHistoryEntry {
   /** v2.8.0: user-chosen global display name. */
   display_name?: string | null;
   score: number;
-  source: 'tournament' | 'community' | 'sync';
+  source: 'tournament' | 'community' | 'sync' | 'atgames' | 'vpx';
   created_at: string;
   photo_url?: string;
   /** v2.1.0 — tournament this score was submitted during (if any). */
@@ -187,6 +188,34 @@ const CB_CELL = 'flex items-center self-stretch min-w-0 py-3 border-b border-bor
 /** Podium colouring for the rank glyph, shared by both layouts. */
 const communityRankColor = (i: number) =>
   i === 0 ? 'text-neon-amber' : i === 1 ? 'text-neon-cyan' : i === 2 ? 'text-neon-green' : 'text-faint';
+
+/**
+ * The per-score SOURCE chip on a player's history rows.
+ *
+ * v2.155.0: `'vpx'` and `'atgames'` mean a paired cabinet reported the score
+ * with nobody typing it, so they render as the WITNESSED badge rather than as a
+ * raw lowercase word. Without this they printed literally as "vpx", which reads
+ * like a debug leak in the one place a player inspects their own scores.
+ */
+function SourceChip({ source }: { source: string | null | undefined }) {
+    if (isWitnessedScore({ source })) {
+        return (
+            <span
+                className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400"
+                title="Witnessed — reported by this player's paired Arcaid Witness cabinet, not entered by hand"
+            >
+                <ShieldCheck size={10} aria-hidden="true" /> AW
+            </span>
+        );
+    }
+    return (
+        <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+            source === 'tournament' ? 'bg-neon-cyan/10 text-neon-cyan' :
+            source === 'sync' ? 'bg-neon-purple/10 text-neon-purple' :
+            'bg-neon-green/10 text-neon-green'
+        }`}>{source}</span>
+    );
+}
 
 export default function GameDetail() {
   const { slug, name } = useParams<{ slug: string; name: string }>();
@@ -1401,11 +1430,7 @@ export default function GameDetail() {
                         <div key={h.id} className="flex items-center justify-between gap-3 px-5 py-2.5 border-b border-border/20 last:border-0 text-sm">
                           <span className="font-medium truncate min-w-0">{h.display_name || h.iscored_username}</span>
                           <div className="flex items-center gap-6 flex-shrink-0">
-                            <span className={`text-[10px] px-1.5 py-0.5 rounded ${
-                              h.source === 'tournament' ? 'bg-neon-cyan/10 text-neon-cyan' :
-                              h.source === 'sync' ? 'bg-neon-purple/10 text-neon-purple' :
-                              'bg-neon-green/10 text-neon-green'
-                            }`}>{h.source}</span>
+                            <SourceChip source={h.source} />
                             <span
                               className="font-display font-bold min-w-[6rem] text-right flex-shrink-0 whitespace-nowrap tabular-nums"
                               title={scoreTitle(h.score)}
@@ -1826,11 +1851,7 @@ export default function GameDetail() {
                           <div key={h.id} className="flex items-center justify-between text-sm">
                             <div className="flex items-center gap-2">
                               <span className="font-display font-bold text-primary">{h.score.toLocaleString()}</span>
-                              <span className={`text-[10px] px-1.5 py-0.5 rounded ${
-                                h.source === 'tournament' ? 'bg-neon-cyan/10 text-neon-cyan' :
-                                h.source === 'sync' ? 'bg-neon-purple/10 text-neon-purple' :
-                                'bg-neon-green/10 text-neon-green'
-                              }`}>{h.source}</span>
+                              <SourceChip source={h.source} />
                             </div>
                             <span className="text-faint text-xs">{parseServerDate(h.created_at)?.toLocaleDateString() ?? ''}</span>
                           </div>

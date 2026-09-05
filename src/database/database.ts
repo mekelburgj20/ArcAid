@@ -415,6 +415,9 @@ async function doInitDatabase(): Promise<Database> {
             origin_game_room_id TEXT,
             origin_game_id TEXT,
             exclude_from_global INTEGER DEFAULT 0,
+            -- How the score REACHED us (migration 174), mirroring
+            -- score_history.source. NULL on rows that predate it.
+            source TEXT,
             deleted_at TEXT,
             deleted_by TEXT,
             submitted_at TEXT DEFAULT (datetime('now')),
@@ -2977,6 +2980,19 @@ async function doInitDatabase(): Promise<Database> {
         // because the point of the fallback is that a player can fire up any
         // table and have it count for their personal record without configuring
         // anything at all.
+        // The badge (v2.155.0): which scores reached the Global Scoreboard
+        // without a human typing them. `score_history` has carried `source`
+        // since P7/P9; `global_scores` never did, so a witnessed score was
+        // indistinguishable there from one somebody entered by hand — and the
+        // Global Scoreboard is exactly where a stranger has no other way to
+        // tell. Plain ALTER: nullable, so every pre-existing row reads as
+        // "unknown provenance of report", which is the truth about them.
+        { name: '174_global_scores_source', handler: async (db) => {
+            const cols = (await db.all(`PRAGMA table_info(global_scores)`)) as Array<{ name: string }>;
+            if (!cols.some(c => c.name === 'source')) {
+                await db.exec(`ALTER TABLE global_scores ADD COLUMN source TEXT`);
+            }
+        } },
         { name: '173_witness_device_targets', handler: async (db) => {
             const cols = (await db.all(`PRAGMA table_info(witness_devices)`)) as Array<{ name: string }>;
             const has = (name: string) => cols.some(c => c.name === name);
