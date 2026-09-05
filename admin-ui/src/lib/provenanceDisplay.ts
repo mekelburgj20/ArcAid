@@ -22,6 +22,29 @@ export interface ScoreProvenance {
     device?: string | null;
     /** @deprecated v2.58.0 — read only as a marker of an unmigrated payload. */
     platform?: string | null;
+    /**
+     * v2.155.0 — how the score REACHED Arcaid, which is a different question
+     * from what produced it. Mirrors `score_history.source` /
+     * `global_scores.source`; absent on payloads that predate it.
+     */
+    source?: string | null;
+}
+
+/**
+ * The sources that mean a PAIRED CABINET reported the score with nobody typing
+ * it: `'vpx'` (read from the VPX launcher's own records) and `'atgames'`
+ * (pulled from an AtGames tournament the cabinet posted to).
+ *
+ * Everything else is a person entering a number — including `'tournament'`,
+ * which only says a submission happened inside a tournament window. NULL means
+ * the payload cannot say, and an unknown answer must render as no badge rather
+ * than as a claim.
+ *
+ * This is the ONE definition; both the room and the global surfaces render from
+ * it, so a badge can never mean two different things on two pages.
+ */
+export function isWitnessedScore(entry: { source?: string | null }): boolean {
+    return entry.source === 'vpx' || entry.source === 'atgames';
 }
 
 /**

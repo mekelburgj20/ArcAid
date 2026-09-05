@@ -79,6 +79,13 @@ export interface GlobalRankedEntry {
     engine: string;
     /** v2.58.0 (ADR 0016): what it ran on. Provenance only. */
     device: string;
+    /**
+     * v2.155.0 — how the score REACHED us, not what produced it. `'vpx'` and
+     * `'atgames'` mean a paired cabinet reported it with nobody typing;
+     * everything else, including NULL on rows that predate the column, means we
+     * cannot say. The badge is drawn from this, and only this.
+     */
+    source: string | null;
 }
 
 /**
@@ -182,9 +189,17 @@ interface CachedGlobalRow {
     platform: string | null;
     engine: string;
     device: string;
+    /**
+     * How the score reached us (v2.155.0). Identity-stable — a fact about the
+     * score, not about the person — so it belongs in the cache, unlike a name
+     * or an avatar.
+     */
+    source: string | null;
 }
 
-const GLOBAL_CACHE_ENVELOPE_VERSION = 2;
+// v2 -> v3 (v2.155.0): `source` added to CachedGlobalRow. A v2 blob is treated
+// as a miss and recomputed, which is exactly what the version exists for.
+const GLOBAL_CACHE_ENVELOPE_VERSION = 3;
 
 interface GlobalCacheEnvelope {
     v: number;
@@ -233,6 +248,7 @@ export class GlobalLeaderboardService {
                 platform: row.platform,
                 engine: row.engine,
                 device: row.device,
+                source: row.source ?? null,
             };
         });
     }
@@ -303,6 +319,7 @@ export class GlobalLeaderboardService {
                 best.platform,
                 best.engine,
                 best.device,
+                best.source,
                 gr.name as origin_room_name,
                 gr.slug as origin_room_slug,
                 gr.logo_url as origin_room_logo_url,
@@ -321,6 +338,7 @@ export class GlobalLeaderboardService {
                     gs.platform,
                     gs.engine,
                     gs.device,
+                    gs.source,
                     ROW_NUMBER() OVER (
                         PARTITION BY COALESCE(gs.submitted_by_user_id, 'iscored:' || LOWER(COALESCE(gs.iscored_username, gs.discord_user_id)))
                         ORDER BY gs.score DESC, gs.submitted_at ASC
@@ -338,7 +356,8 @@ export class GlobalLeaderboardService {
                         origin_game_room_id,
                         platform,
                         engine,
-                        device
+                        device,
+                        source
                     FROM global_scores
                     WHERE global_game_id = ?
                       AND deleted_at IS NULL
@@ -372,6 +391,10 @@ export class GlobalLeaderboardService {
             platform: e.platform || null,
             engine: e.engine || UNKNOWN,
             device: e.device || UNKNOWN,
+            // NOT defaulted to a placeholder: a null source means we cannot say
+            // how the score reached us, and the badge must stay silent rather
+            // than claim otherwise.
+            source: e.source ?? null,
         }));
     }
 
