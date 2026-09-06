@@ -465,6 +465,11 @@ export const ScoreSubmissionSchema = z.object({
     username: z.string().min(1).max(100).optional(),
     score: z.preprocess(v => typeof v === 'string' ? parseInt(v as string, 10) : v, z.number().int().min(0).max(MAX_SCORE)),
     platform: z.string().min(1).optional(),
+    // v2.155.1 — which CARD the player pressed "Submit" on. Optional (older
+    // clients never send it); `SubmissionGameResolver` treats a mismatched or
+    // absent value as "fall back to the name lookup", never as an error. See
+    // the ambiguous-active-games fix.
+    gameId: z.string().min(1).max(64).optional(),
     ...scoreProvenanceFields,
 });
 
@@ -484,6 +489,8 @@ export const FreeplayScoreSchema = z.object({
         z.boolean(),
     ).default(false),
     platform: z.string().min(1).optional(),
+    // v2.155.1 — see ScoreSubmissionSchema's gameId.
+    gameId: z.string().min(1).max(64).optional(),
     ...scoreProvenanceFields,
 });
 

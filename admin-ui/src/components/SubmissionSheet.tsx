@@ -63,6 +63,16 @@ export type SubmissionTarget =
           gameName: string;
           gameStatus?: string;
           requirePhoto?: boolean;
+          /**
+           * v2.155.1 — the games row this card actually renders, when the
+           * caller has it. A room can have two ACTIVE games sharing a name in
+           * different tournaments (the ambiguous-active-games bug); passing
+           * the card's own id lets the server's `SubmissionGameResolver` skip
+           * the name lookup entirely and land the score on THIS card with no
+           * ambiguity. Optional — omitted callers fall back to the
+           * server-side name resolution exactly as before.
+           */
+          gameId?: string;
       }
     | {
           kind: 'freeplay';
@@ -635,6 +645,7 @@ export default function SubmissionSheet({
             // schema doesn't declare the field at all.
             if (target.kind === 'tournament') {
                 formData.append('excludeGlobal', excludeFromGlobal ? 'true' : 'false');
+                if (target.gameId) formData.append('gameId', target.gameId);
                 url = `/api/rooms/${target.roomId}/submit-score/${encodeURIComponent(target.gameName)}`;
             } else if (target.kind === 'freeplay') {
                 formData.append('globalGameId', target.globalGameId);

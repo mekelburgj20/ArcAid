@@ -435,3 +435,54 @@ describe('SubmissionSheet — photo format handling', () => {
         expect(screen.queryByAltText('Score photo')).not.toBeInTheDocument();
     });
 });
+
+/**
+ * v2.155.1 — a `tournament` target carrying `gameId` (the card the player is
+ * actually looking at) threads it onto the POST, so the server's
+ * `SubmissionGameResolver` can skip the name lookup entirely instead of
+ * risking a room's ambiguous-active-games case. A target with no `gameId`
+ * (older callers) must NOT send the field at all.
+ */
+describe('SubmissionSheet — gameId threading (v2.155.1)', () => {
+    beforeEach(() => {
+        vi.restoreAllMocks();
+        localStorage.clear();
+    });
+
+    async function submitScore() {
+        await screen.findByText('Real Cabinet');
+        fireEvent.change(screen.getByPlaceholderText('0'), { target: { value: '4200' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Submit Score' }));
+    }
+
+    it('sends gameId in the FormData when the target carries one', async () => {
+        signIn();
+        const { fetchMock } = renderSheet({
+            target: { gameId: 'game-123' },
+            platformsResponse: platformsPayload({ submittable: ['real'] }),
+            submitResponse: { displayName: 'Tester', claimOffer: null },
+        });
+        await submitScore();
+
+        await screen.findByText('Score submitted!');
+        const submitCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/submit-score/'));
+        expect(submitCall).toBeTruthy();
+        const body = submitCall![1]!.body as FormData;
+        expect(body.get('gameId')).toBe('game-123');
+    });
+
+    it('omits gameId entirely when the target has none', async () => {
+        signIn();
+        const { fetchMock } = renderSheet({
+            platformsResponse: platformsPayload({ submittable: ['real'] }),
+            submitResponse: { displayName: 'Tester', claimOffer: null },
+        });
+        await submitScore();
+
+        await screen.findByText('Score submitted!');
+        const submitCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/submit-score/'));
+        expect(submitCall).toBeTruthy();
+        const body = submitCall![1]!.body as FormData;
+        expect(body.get('gameId')).toBeNull();
+    });
+});
