@@ -20,8 +20,18 @@ import { UNKNOWN } from '../utils/scoreProvenance.js';
 const DRAFT_TTL_MS = 5 * 60 * 1000;
 
 export type SubmissionDraftTarget =
-    | { kind: 'tournament'; roomId: string; gameName: string; gameStatus?: string; requirePhoto?: boolean }
-    | { kind: 'freeplay'; roomId: string; globalGameId: string; gameName: string }
+    | {
+          kind: 'tournament'; roomId: string; gameName: string; gameStatus?: string; requirePhoto?: boolean;
+          /**
+           * v2.155.2 — mirrors `SubmissionTarget.gameId` (SubmissionSheet.tsx):
+           * the games row this card actually renders, when the staging caller
+           * has it. Threaded through commit so the OAuth-handoff path resolves
+           * the SAME game a direct submit would (see the ambiguous-active-games
+           * fix, v2.155.1/v2.155.2) instead of re-deriving by name alone.
+           */
+          gameId?: string;
+      }
+    | { kind: 'freeplay'; roomId: string; globalGameId: string; gameName: string; gameId?: string }
     | { kind: 'global'; globalGameId: string; gameName: string; presetDisplayName?: string };
 
 export interface SubmissionDraft {

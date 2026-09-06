@@ -62,8 +62,35 @@ export class ScoreProvenanceService {
      * Room-scoped resolution (tournament submit + freeplay). Effective set =
      * catalogue platforms ∪ per-room tags (ADR 0008); an ACTIVE tournament for
      * the game narrows it via `platform_rules`.
+     *
+     * v2.155.2 — the ACTIVE-tournament lookup used to be its own unordered
+     * `LIMIT 1` (same shape as the pre-v2.155.1 write-side bug): a room with
+     * two ACTIVE games sharing this name in different tournaments could
+     * validate a submission against the WRONG tournament's rules (the
+     * WG-VR / Daily Grind "Black Rose" incident, generalized — the picker
+     * showed WG-VR's engines while the score was about to land on Daily
+     * Grind). `resolved` lets a caller who has ALREADY run
+     * `SubmissionGameResolver` (the submit routes, after v2.155.2) hand the
+     * answer straight through via `tournamentId`; a caller with only a
+     * candidate `gameId` (or neither) gets it resolved here, through the
+     * SAME resolver the write side uses — never a second, independently
+     * unordered query.
      */
-    static async resolveForRoomGame(roomId: string, gameName: string): Promise<ProvenanceScope> {
+    static async resolveForRoomGame(
+        roomId: string,
+        gameName: string,
+        resolved?: { tournamentId?: string | null; gameId?: string | null } | null,
+    ): Promise<ProvenanceScope> {
+        let tournamentId = resolved?.tournamentId ?? null;
+        if (!tournamentId) {
+            const { resolveSubmissionGame } = await import('./SubmissionGameResolver.js');
+            const rg = await resolveSubmissionGame({ roomId, gameName, gameId: resolved?.gameId ?? null });
+            tournamentId = rg && rg.status === 'ACTIVE' ? rg.tournament_id : null;
+        }
+        if (tournamentId) {
+            return ScoreProvenanceService.resolveForTournamentGame(tournamentId, gameName);
+        }
+
         const db = await getDatabase();
         const gg = await db.get(
             'SELECT platforms, features FROM global_games WHERE LOWER(name) = LOWER(?) AND status = ? LIMIT 1',
@@ -73,20 +100,7 @@ export class ScoreProvenanceService {
         const features = gg ? parsePlatformsList(gg.features || '[]') : [];
         const roomTags = await RoomGameTagsService.getTagsForGameName(roomId, gameName);
         const effective = Array.from(new Set([...cataloguePlatforms, ...roomTags]));
-
-        // `t.id` is selected purely so a malformed rules blob can be warned
-        // about by tournament, not anonymously.
-        const activeGame = await db.get(`
-            SELECT t.id AS tournament_id, t.platform_rules FROM games g
-            JOIN tournaments t ON t.id = g.tournament_id
-            WHERE LOWER(g.name) = LOWER(?) AND t.game_room_id = ? AND g.status = 'ACTIVE'
-            LIMIT 1
-        `, gameName, roomId) as { tournament_id: string; platform_rules: string | null } | undefined;
-
-        const rules = ScoreProvenanceService.parseRules(
-            activeGame?.platform_rules ?? null, activeGame?.tournament_id ?? null,
-        );
-        return { effective, submittable: resolveSubmittablePlatforms(effective, rules), features, rules };
+        return { effective, submittable: resolveSubmittablePlatforms(effective, null), features, rules: null };
     }
 
     /** Global-submit resolution — catalogue platforms verbatim, no rules. */
@@ -229,8 +243,9 @@ export class ScoreProvenanceService {
     /** Convenience: resolve a room-scoped scope and validate in one call. */
     static async validateForRoomGame(
         roomId: string, gameName: string, engine: unknown, device: unknown,
+        resolved?: { tournamentId?: string | null; gameId?: string | null } | null,
     ): Promise<ProvenanceValidation> {
-        const scope = await ScoreProvenanceService.resolveForRoomGame(roomId, gameName);
+        const scope = await ScoreProvenanceService.resolveForRoomGame(roomId, gameName, resolved);
         if (scope.effective.length === 0) {
             return { ok: false, error: 'No platforms are configured for this game.' };
         }

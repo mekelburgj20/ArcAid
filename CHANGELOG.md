@@ -6,6 +6,56 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.155.2] — The rest of the submit flow agrees too
+
+v2.155.1 fixed WHERE a score gets written when a room has two ACTIVE games sharing a name in
+different tournaments. It missed that five more places downstream of the write still resolved the
+same ambiguity independently, by name alone: the platform picker, the server-side provenance check,
+the submit-moment "You are #N of M" rank card, the iScored mirror, and the OAuth draft-commit path
+(missed entirely by v2.155.1). On production this showed up as the submit sheet on a Daily Grind card
+offering Weekly Grind - VR's engines — `GET /api/submit/platforms` resolved its tournament with an
+unordered `LIMIT 1` and the sheet never told it which card was open.
+
+### Fixed
+- **`GET /api/submit/platforms`** now accepts an optional `gameId` and resolves through
+  `SubmissionGameResolver`, exactly like the write side. `SubmissionSheet` sends the card's `gameId`
+  on the picker fetch, so the options it renders are guaranteed to match the tournament the score is
+  about to land in.
+- **`ScoreProvenanceService.resolveForRoomGame`/`validateForRoomGame`** take an optional
+  already-resolved `tournamentId`/`gameId` and delegate to `resolveForTournamentGame` instead of
+  their own unordered lookup. The `submit-score`, `freeplay-score`, and legacy `community-scores`
+  routes now resolve the target game ONCE, right after the event gate, and feed that same answer to
+  the provenance check, the `submissions` upsert, the rank card, and the iScored mirror.
+- **`ScoreRankService.computeRoomRank`** now receives the resolved `tournamentId` from
+  `CommunityScoreService.submitScore` (explicitly `null`, never left `undefined`, when the resolution
+  found no ACTIVE tournament) instead of quietly re-resolving by name — the "you are #N of M" card is
+  now computed against the SAME window the score was written to.
+- **`IScoredSubmitSync.syncScoreToIScored`** accepts an optional `gameId` and reads `iscored_id` off
+  that exact row when given, so a room mirroring two different iScored boards can no longer push a
+  score to the wrong one. All three `rooms.ts` call sites pass it.
+- **The OAuth draft-commit path (`POST /submission-drafts/:state/commit`)** — missed by v2.155.1
+  entirely — now resolves through the same `SubmissionGameResolver` before validating provenance and
+  upserting `submissions`, instead of its own independent `ORDER BY ... created_at DESC` lookup.
+  `SubmissionDraftTarget`'s `tournament`/`freeplay` variants gained an optional `gameId` for a future
+  staging caller to supply (today's admin-ui has no live path that creates a new draft — the
+  anonymous-collision flow that used to was removed in the v2.79.0 login mandate — so this closes the
+  gap for any client that does).
+- **`RotationNudgeService.evaluateSubmitter`** takes an optional `tournamentId`, threaded from
+  `CommunityScoreService.submitScore` through `LobbyFeedGenerator.onScoreSubmitted`, so the
+  rotation-readiness nudge evaluates the tournament the score actually landed in.
+
+### Reviewed, left alone
+A sweep for the same "resolve one ACTIVE game by name" shape elsewhere in the submit-adjacent code
+turned up several lookups that are NOT this bug: `EventSubmissionGate`/`EventService`'s
+rotation-vs-event precedence checks (an existence check — "does any active rotation game share this
+name" — not a target resolution), `ScoreHistoryService.ownerCorrectionWindow` (already matched to the
+row's own tournament stamp), `LeaderboardService.getActiveLeaderboards` and half a dozen admin/display
+listings (`db.all`, not a single-row resolution — every ACTIVE game gets its own card), and
+`VpxScoreIngestService`'s Witness candidate loader (a different flow with its own deliberate
+`no_match`-over-guessing doctrine, ADR 0022). `IScoredSubmitSync`'s `gameRoundClosed` helper still
+resolves by name — it only decides a log LEVEL (WARN vs ERROR) after a sync has already failed, never
+where a score is written, so it was left as-is.
+
 ## [2.155.1] — One answer for which game a score belongs to
 
 Production incident, 2026-09-05/06: a room had TWO ACTIVE games named "Black Rose" at once — one in

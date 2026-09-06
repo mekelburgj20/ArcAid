@@ -124,6 +124,8 @@ export class CommunityScoreService {
                 .then(({ LobbyFeedGenerator }) => LobbyFeedGenerator.onScoreSubmitted({
                     gameRoomId, gameName, username: effectiveUsername, score,
                     discordUserId, source: 'community',
+                    // v2.155.2 — same resolution the tournament stamp above used.
+                    tournamentId: options?.tournamentId,
                 }))
                 .catch(() => {}),
         );
@@ -175,6 +177,16 @@ export class CommunityScoreService {
                 submittedScore: score,
                 excludeCommunityScoreId: result.lastID,
                 excludeHistoryId: historyId,
+                // v2.155.2 — forward the SAME resolution `log()` above used
+                // (deliberately NOT `?? undefined`: `computeRoomRank` treats
+                // `undefined` as "resolve it yourself" and `null` as "there is
+                // definitely no ACTIVE tournament here, don't re-resolve by
+                // name" — a caller that already ran the resolver (the submit
+                // routes) passes an explicit `null` for a non-ACTIVE
+                // resolution, and that distinction must survive here so the
+                // rank card is computed against the SAME window the score was
+                // actually written to).
+                tournamentId: options?.tournamentId,
             });
         } catch {
             rank = null;

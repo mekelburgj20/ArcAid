@@ -1490,6 +1490,24 @@ router.post('/submission-drafts/:stateParam/commit', requireDiscordUser, require
             }
         }
 
+        // v2.155.2 — resolve which games row this draft actually targets ONCE,
+        // the same way the direct submit routes do (v2.155.1): the OAuth
+        // handoff is just a delayed submit, and this path was MISSED by
+        // v2.155.1 — it ran its own unordered `ORDER BY ... created_at DESC`
+        // lookup for the `submissions` upsert below and passed no
+        // `tournamentId` to `CommunityScoreService.submitScore` at all, so a
+        // room with two ACTIVE games sharing this name could resolve
+        // differently here than at draft-creation time. `draft.target.gameId`
+        // is the card the sheet was open on when the draft was staged, when
+        // the staging caller supplied one.
+        const { resolveSubmissionGame } = await import('../../services/SubmissionGameResolver.js');
+        const resolvedGame = (draft.target.kind === 'tournament' || draft.target.kind === 'freeplay')
+            ? await resolveSubmissionGame({
+                roomId: draft.target.roomId, gameName: draft.target.gameName, gameId: draft.target.gameId ?? null,
+            })
+            : null;
+        const resolvedTournamentId = resolvedGame && resolvedGame.status === 'ACTIVE' ? resolvedGame.tournament_id : null;
+
         // v2.53.0 (ADR 0016) — BOTH draft-commit paths previously skipped
         // validation entirely: whatever the stage endpoint stored went straight
         // to the DB, so a stale or hand-crafted draft could write a platform the
@@ -1498,7 +1516,10 @@ router.post('/submission-drafts/:stateParam/commit', requireDiscordUser, require
         const { ScoreProvenanceService } = await import('../../services/ScoreProvenanceService.js');
         const provenance = draft.target.kind === 'global'
             ? await ScoreProvenanceService.validateForGlobalGame(draft.target.globalGameId, draft.engine, draft.device)
-            : await ScoreProvenanceService.validateForRoomGame(draft.target.roomId, draft.target.gameName, draft.engine, draft.device);
+            : await ScoreProvenanceService.validateForRoomGame(
+                draft.target.roomId, draft.target.gameName, draft.engine, draft.device,
+                { tournamentId: resolvedTournamentId },
+            );
         if (!provenance.ok) return res.status(400).json({ error: provenance.error });
         const { engine, device, platform } = provenance;
 
@@ -1546,20 +1567,16 @@ router.post('/submission-drafts/:stateParam/commit', requireDiscordUser, require
                 draft.score,
                 discordId,
                 photoUrl ?? undefined,
-                { excludeFromGlobal: draft.excludeFromGlobal, platform, engine, device },
+                { excludeFromGlobal: draft.excludeFromGlobal, platform, engine, device, tournamentId: resolvedTournamentId },
             );
             const effectiveUsername = result.displayName;
 
-            // Mirror submit-score route: upsert into submissions if an active/completed tournament game matches.
+            // v2.155.2 — `activeGame` is now the SAME `resolvedGame` computed
+            // above, replacing this route's own independent (and unordered)
+            // name lookup — the exact gap v2.155.1 left in this path. See
+            // SubmissionGameResolver.ts.
             const db = await getDatabase();
-            const activeGame = await db.get(`
-                SELECT g.id, g.tournament_id FROM games g
-                JOIN tournaments t ON t.id = g.tournament_id
-                WHERE LOWER(g.name) = LOWER(?) AND t.game_room_id = ?
-                  AND g.status IN ('ACTIVE', 'COMPLETED')
-                ORDER BY CASE g.status WHEN 'ACTIVE' THEN 0 ELSE 1 END, g.created_at DESC
-                LIMIT 1
-            `, gameName, roomId);
+            const activeGame = resolvedGame;
             if (activeGame) {
                 const submissionId = `${activeGame.id}-${effectiveUsername.toLowerCase()}`;
                 const existing = await db.get('SELECT score FROM submissions WHERE id = ?', submissionId);
@@ -1575,9 +1592,11 @@ router.post('/submission-drafts/:stateParam/commit', requireDiscordUser, require
                         roomId, activeGame.tournament_id || null, discordId,
                         platform, engine, device,
                     );
-                    const { LeaderboardService } = await import('../../services/LeaderboardService.js');
-                    await LeaderboardService.invalidate(activeGame.id);
                 }
+                // Invalidate regardless of whether it beat the personal best
+                // (see the /submit-score route's identical v2.155.1 comment).
+                const { LeaderboardService } = await import('../../services/LeaderboardService.js');
+                await LeaderboardService.invalidate(activeGame.id);
             }
         } else {
             // global target — derive mimeType from the draft's stored extension so
@@ -2638,7 +2657,7 @@ router.get('/global/me/display-name', requireDiscordUser, async (req, res) => {
  */
 router.get('/submit/platforms', async (req, res) => {
     try {
-        const { roomId, gameName, globalGameId } = req.query as Record<string, string | undefined>;
+        const { roomId, gameName, globalGameId, gameId } = req.query as Record<string, string | undefined>;
         const db = await getDatabase();
         const {
             parsePlatformsList, resolveSubmittablePlatforms, parseTournamentRules,
@@ -2709,13 +2728,26 @@ router.get('/submit/platforms', async (req, res) => {
             effective = normalizeAndDedupe(effective);
 
             // Active tournament narrows the picker via platform_rules.
-            // `t.id` is selected so a malformed blob can be warned about by name.
-            const activeGame = await db.get(`
-                SELECT t.id AS tournament_id, t.platform_rules FROM games g
-                JOIN tournaments t ON t.id = g.tournament_id
-                WHERE LOWER(g.name) = LOWER(?) AND t.game_room_id = ? AND g.status = 'ACTIVE'
-                LIMIT 1
-            `, gameName, roomId) as { tournament_id: string; platform_rules: string | null } | undefined;
+            //
+            // v2.155.2 — routed through the SAME `resolveSubmissionGame` the
+            // write side uses (v2.155.1). Before this, a room with two ACTIVE
+            // games sharing this name in different tournaments (the
+            // ambiguous-active-games bug) hit an unordered `LIMIT 1` here —
+            // the picker could show tournament B's rules while the score was
+            // about to be written against tournament A. An explicit `gameId`
+            // (the card the sheet is actually open on) is authoritative when
+            // it resolves; otherwise the resolver's name rule applies. Only
+            // an ACTIVE resolution narrows the picker — a COMPLETED/no-match
+            // resolution keeps today's `rules = null` contract.
+            const { resolveSubmissionGame } = await import('../../services/SubmissionGameResolver.js');
+            const resolvedGame = await resolveSubmissionGame({ roomId, gameName, gameId: gameId ?? null });
+            let activeGame: { tournament_id: string; platform_rules: string | null } | undefined;
+            if (resolvedGame && resolvedGame.status === 'ACTIVE' && resolvedGame.tournament_id) {
+                const t = await db.get<{ platform_rules: string | null }>(
+                    'SELECT platform_rules FROM tournaments WHERE id = ?', resolvedGame.tournament_id,
+                );
+                activeGame = { tournament_id: resolvedGame.tournament_id, platform_rules: t?.platform_rules ?? null };
+            }
 
             // `null` means "no active tournament for this game" — distinct from
             // "a tournament with empty rules", and the FE contract keeps it.

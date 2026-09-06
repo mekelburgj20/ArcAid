@@ -160,9 +160,21 @@ async function ensureProvenanceAllowed(opts: {
     gameName: string;
     engine: string;
     device: string;
+    /**
+     * v2.155.2 — the tournament this submission has ALREADY been resolved to
+     * (an event round's own tournament, or `SubmissionGameResolver`'s ACTIVE
+     * winner for a rotation submit) — when set, rules are read from EXACTLY
+     * that tournament, no further lookup. `null` (not `undefined`) means "the
+     * resolver ran and found no ACTIVE tournament" — still authoritative,
+     * still no further lookup. Omit only when nothing has been resolved yet
+     * (falls back to resolving by name/gameId, same as the write side).
+     */
+    tournamentId?: string | null;
+    gameId?: string | null;
 }) {
     return ScoreProvenanceService.validateForRoomGame(
         opts.roomId, opts.gameName, opts.engine, opts.device,
+        { tournamentId: opts.tournamentId, gameId: opts.gameId },
     );
 }
 
@@ -2916,17 +2928,6 @@ router.post('/:roomId/community-scores/:gameName', writeLimiter, requireDiscordU
         const resolvedName = await resolveSubmitUsername(req, roomId);
         if (!resolvedName.ok) return res.status(400).json({ error: resolvedName.error });
 
-        // v2.53.0: re-validate the engine/device pair server-side against the
-        // game's resolved scope, and DERIVE the legacy platform from it (any
-        // client-supplied `platform` is ignored — the pair is authoritative).
-        const provenance = await ensureProvenanceAllowed({
-            roomId, gameName,
-            engine: validationResult.data.engine,
-            device: validationResult.data.device,
-        });
-        if (!provenance.ok) return res.status(400).json({ error: provenance.error });
-        const { engine, device, platform } = provenance;
-
         // v2.135.0 (ADR 0017) — Live Event window enforcement. Runs BEFORE any
         // write (before the photo is persisted, before CommunityScoreService)
         // so a refused submission leaves nothing behind. Returns ok with no
@@ -2934,6 +2935,31 @@ router.post('/:roomId/community-scores/:gameName', writeLimiter, requireDiscordU
         // everything below behaves exactly as it did pre-v2.135.0.
         const gate = await checkEventSubmission({ roomId, gameName: gameName, userId: req.user!.discordId! });
         if (!gate.ok) return res.status(409).json({ error: gate.message, code: gate.code });
+
+        // v2.155.2 — resolve which games row this submission targets ONCE,
+        // right after the gate (see the /submit-score site's comment for the
+        // full rationale). This legacy route has no `gameId` field in its
+        // schema, so the resolver falls back to the name rule.
+        const { resolveSubmissionGame } = await import('../../services/SubmissionGameResolver.js');
+        const resolvedGame = gate.event
+            ? null
+            : await resolveSubmissionGame({ roomId, gameName, gameId: null });
+        const resolvedTournamentId = gate.event
+            ? gate.event.tournamentId
+            : (resolvedGame?.status === 'ACTIVE' ? resolvedGame.tournament_id : null);
+
+        // v2.53.0: re-validate the engine/device pair server-side against the
+        // game's resolved scope, and DERIVE the legacy platform from it (any
+        // client-supplied `platform` is ignored — the pair is authoritative).
+        // v2.155.2 — validated against the SAME tournament already resolved.
+        const provenance = await ensureProvenanceAllowed({
+            roomId, gameName,
+            engine: validationResult.data.engine,
+            device: validationResult.data.device,
+            tournamentId: resolvedTournamentId,
+        });
+        if (!provenance.ok) return res.status(400).json({ error: provenance.error });
+        const { engine, device, platform } = provenance;
 
         // Security: attribution derives from the verified token, never the
         // request body — the request body doesn't even carry a discord_user_id
@@ -2952,7 +2978,7 @@ router.post('/:roomId/community-scores/:gameName', writeLimiter, requireDiscordU
         const result = await CommunityScoreService.submitScore(roomId, gameName, resolvedName.username, score, req.user!.discordId, photo_url, {
             excludeFromGlobal,
             platform, engine, device,
-            tournamentId: gate.event?.tournamentId,
+            tournamentId: resolvedTournamentId,
             gameId: gate.event?.gameId,
         });
 
@@ -2965,12 +2991,17 @@ router.post('/:roomId/community-scores/:gameName', writeLimiter, requireDiscordU
         // `.catch(() => {})` / `void X()` patterns but not a bare unawaited
         // call. The escaped chain's late getDatabase() during a test reset was
         // the root of the room-visibility-gate / community-scores flake family.
+        const communityActiveGame = gate.event
+            ? { id: gate.event.gameId }
+            : resolvedGame;
         trackBackground(syncScoreToIScored({
             roomId,
             gameName,
             username: result.displayName,
             score,
             platform,
+            // v2.155.2 — mirror onto the SAME game the score was written to.
+            gameId: communityActiveGame?.id ?? null,
         }));
 
         res.status(201).json(result);
@@ -3013,16 +3044,6 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, requireDiscordUser,
         const resolvedName = await resolveSubmitUsername(req, roomId);
         if (!resolvedName.ok) return res.status(400).json({ error: resolvedName.error });
 
-        // v2.53.0: engine/device validated + legacy platform derived (see the
-        // community-scores handler above).
-        const provenance = await ensureProvenanceAllowed({
-            roomId, gameName,
-            engine: validationResult.data.engine,
-            device: validationResult.data.device,
-        });
-        if (!provenance.ok) return res.status(400).json({ error: provenance.error });
-        const { engine, device, platform } = provenance;
-
         // v2.135.0 (ADR 0017) — Live Event window enforcement. Runs BEFORE any
         // write (before the photo is persisted, before CommunityScoreService)
         // so a refused submission leaves nothing behind. Returns ok with no
@@ -3030,6 +3051,40 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, requireDiscordUser,
         // everything below behaves exactly as it did pre-v2.135.0.
         const gate = await checkEventSubmission({ roomId, gameName: gameName, userId: req.user!.discordId! });
         if (!gate.ok) return res.status(409).json({ error: gate.message, code: gate.code });
+
+        // v2.155.1/v2.155.2 — resolve which games row this submission targets
+        // ONCE, right after the gate, so the provenance check below, the
+        // `submissions` upsert, the `score_history` tournament stamp (inside
+        // CommunityScoreService -> ScoreHistoryService.log), the rank card,
+        // the iScored mirror, and the leaderboard cache invalidation all agree.
+        // A room can have two ACTIVE games sharing this name in different
+        // tournaments (the ambiguous-active-games bug) — resolving once and
+        // passing the SAME answer everywhere is what closes it. Skipped for an
+        // accepted EVENT submission: the gate already resolved that round,
+        // and re-running the name lookup here could pick a DIFFERENT round of
+        // the same table. See `SubmissionGameResolver.ts`.
+        const { resolveSubmissionGame } = await import('../../services/SubmissionGameResolver.js');
+        const resolvedGame = gate.event
+            ? null
+            : await resolveSubmissionGame({
+                roomId, gameName, gameId: validationResult.data.gameId ?? null,
+            });
+        const resolvedTournamentId = gate.event
+            ? gate.event.tournamentId
+            : (resolvedGame?.status === 'ACTIVE' ? resolvedGame.tournament_id : null);
+
+        // v2.53.0: engine/device validated + legacy platform derived (see the
+        // community-scores handler above). v2.155.2 — validated against the
+        // SAME tournament `resolvedGame`/the gate already decided, not a
+        // second independent lookup.
+        const provenance = await ensureProvenanceAllowed({
+            roomId, gameName,
+            engine: validationResult.data.engine,
+            device: validationResult.data.device,
+            tournamentId: resolvedTournamentId,
+        });
+        if (!provenance.ok) return res.status(400).json({ error: provenance.error });
+        const { engine, device, platform } = provenance;
 
         // Check if photo is required
         const requirePhoto = await GameRoomSettingsService.get(roomId, 'REQUIRE_SCORE_PHOTO');
@@ -3057,23 +3112,6 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, requireDiscordUser,
             photoUrl = `/api/score-photos/${roomId}/${filename}`;
         }
 
-        // v2.155.1 — resolve which games row this submission targets ONCE, so
-        // the `submissions` upsert below, the `score_history` tournament
-        // stamp (inside CommunityScoreService -> ScoreHistoryService.log) and
-        // the leaderboard cache invalidation all agree. A room can have two
-        // ACTIVE games sharing this name in different tournaments (the
-        // ambiguous-active-games bug, v2.155.1) — resolving once and passing
-        // the SAME answer everywhere is what closes it. Skipped for an
-        // accepted EVENT submission: the gate already resolved that round,
-        // and re-running the name lookup here could pick a DIFFERENT round of
-        // the same table. See `SubmissionGameResolver.ts`.
-        const { resolveSubmissionGame } = await import('../../services/SubmissionGameResolver.js');
-        const resolvedGame = gate.event
-            ? null
-            : await resolveSubmissionGame({
-                roomId, gameName, gameId: validationResult.data.gameId ?? null,
-            });
-
         // Save to community_scores + score_history. Fan-out to global_scores
         // is handled inside CommunityScoreService.submitScore (best-effort).
         // The service routes username through RoomNameClaimService and returns
@@ -3082,9 +3120,7 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, requireDiscordUser,
         const result = await CommunityScoreService.submitScore(
             roomId, gameName, resolvedName.username, score, req.user!.discordId, photoUrl, {
                 excludeFromGlobal, platform, engine, device,
-                tournamentId: gate.event
-                    ? gate.event.tournamentId
-                    : (resolvedGame?.status === 'ACTIVE' ? resolvedGame.tournament_id : undefined),
+                tournamentId: resolvedTournamentId,
                 gameId: gate.event?.gameId,
             }
         );
@@ -3146,6 +3182,8 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, requireDiscordUser,
             score,
             persistentPhotoPath,
             platform,
+            // v2.155.2 — mirror onto the SAME game the score was written to.
+            gameId: activeGame?.id ?? null,
         }));
 
         // Identity P2 — offer the claim when the name this score landed under
@@ -3215,18 +3253,6 @@ router.post('/:roomId/freeplay-score', writeLimiter, requireDiscordUser, require
             return res.status(404).json({ error: 'Game not found in the global catalogue' });
         }
 
-        // v2.53.0: validate engine/device + derive the legacy platform for this
-        // game in this room (uses the canonical name, since freeplay catalogue
-        // lookups go by name not id from here on).
-        const provenance = await ensureProvenanceAllowed({
-            roomId,
-            gameName: globalGame.name,
-            engine: validationResult.data.engine,
-            device: validationResult.data.device,
-        });
-        if (!provenance.ok) return res.status(400).json({ error: provenance.error });
-        const { engine, device, platform } = provenance;
-
         // v2.135.0 (ADR 0017) — Live Event window enforcement, on the CANONICAL
         // catalogue name (freeplay resolves the game by id, but event rounds are
         // matched by name like every other submit path). Before the photo is
@@ -3236,6 +3262,37 @@ router.post('/:roomId/freeplay-score', writeLimiter, requireDiscordUser, require
         });
         if (!gate.ok) return res.status(409).json({ error: gate.message, code: gate.code });
 
+        // v2.155.1/v2.155.2 — resolve which games row this submission targets
+        // ONCE, right after the gate, so the provenance check below, the
+        // `submissions` upsert, the `score_history` tournament stamp, the
+        // rank card, the iScored mirror, and the leaderboard cache
+        // invalidation all agree (see the /submit-score site's comment for
+        // the full rationale). Skipped for an accepted EVENT submission: the
+        // gate already resolved that round.
+        const { resolveSubmissionGame } = await import('../../services/SubmissionGameResolver.js');
+        const resolvedGame = gate.event
+            ? null
+            : await resolveSubmissionGame({
+                roomId, gameName: globalGame.name, gameId: validationResult.data.gameId ?? null,
+            });
+        const resolvedTournamentId = gate.event
+            ? gate.event.tournamentId
+            : (resolvedGame?.status === 'ACTIVE' ? resolvedGame.tournament_id : null);
+
+        // v2.53.0: validate engine/device + derive the legacy platform for this
+        // game in this room (uses the canonical name, since freeplay catalogue
+        // lookups go by name not id from here on). v2.155.2 — validated
+        // against the SAME tournament already resolved above.
+        const provenance = await ensureProvenanceAllowed({
+            roomId,
+            gameName: globalGame.name,
+            engine: validationResult.data.engine,
+            device: validationResult.data.device,
+            tournamentId: resolvedTournamentId,
+        });
+        if (!provenance.ok) return res.status(400).json({ error: provenance.error });
+        const { engine, device, platform } = provenance;
+
         // Persist photo
         const ext = (req.file.mimetype === 'image/png' || req.file.mimetype === 'image/apng') ? 'png' : req.file.mimetype === 'image/webp' ? 'webp' : 'jpg';
         const filename = `${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
@@ -3244,17 +3301,6 @@ router.post('/:roomId/freeplay-score', writeLimiter, requireDiscordUser, require
         const persistentPhotoPath = path.join(dir, filename);
         fs.writeFileSync(persistentPhotoPath, req.file.buffer);
         const photoUrl = `/api/score-photos/${roomId}/${filename}`;
-
-        // v2.155.1 — resolve which games row this submission targets ONCE
-        // (see the /submit-score site's comment for the full rationale).
-        // Skipped for an accepted EVENT submission: the gate already resolved
-        // that round.
-        const { resolveSubmissionGame } = await import('../../services/SubmissionGameResolver.js');
-        const resolvedGame = gate.event
-            ? null
-            : await resolveSubmissionGame({
-                roomId, gameName: globalGame.name, gameId: validationResult.data.gameId ?? null,
-            });
 
         // Save to community_scores (room-scoped) — uses the global_games.name for
         // consistent cross-referencing. CommunityScoreService will also fan-out to
@@ -3270,9 +3316,7 @@ router.post('/:roomId/freeplay-score', writeLimiter, requireDiscordUser, require
             photoUrl,
             {
                 excludeFromGlobal, platform, engine, device,
-                tournamentId: gate.event
-                    ? gate.event.tournamentId
-                    : (resolvedGame?.status === 'ACTIVE' ? resolvedGame.tournament_id : undefined),
+                tournamentId: resolvedTournamentId,
                 gameId: gate.event?.gameId,
             }
         );
@@ -3341,6 +3385,8 @@ router.post('/:roomId/freeplay-score', writeLimiter, requireDiscordUser, require
             score,
             persistentPhotoPath,
             platform,
+            // v2.155.2 — mirror onto the SAME game the score was written to.
+            gameId: activeGame?.id ?? null,
         }));
 
         // Identity P2 — see the submit-score handler's note.

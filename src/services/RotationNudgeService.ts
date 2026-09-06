@@ -96,19 +96,40 @@ export class RotationNudgeService {
     /**
      * Event-driven check — called (fire-and-forget) right after a score
      * lands. Only nudges when THIS submit put the submitter in 1st.
+     *
+     * v2.155.2 — `tournamentId`, when the caller already resolved one
+     * (`CommunityScoreService.submitScore` -> `LobbyFeedGenerator`), is
+     * authoritative: the lookup below is scoped to THAT tournament instead of
+     * an unscoped by-name `LIMIT 1`, which could otherwise pick a DIFFERENT
+     * tournament than the one the score was actually written to in a room
+     * with two ACTIVE games sharing this name. Callers that don't have one
+     * yet (Discord `/submit-score`, the sync poller) keep the by-name lookup.
      */
-    static async evaluateSubmitter(gameRoomId: string, gameName: string, submitterId: string | null | undefined): Promise<void> {
+    static async evaluateSubmitter(
+        gameRoomId: string,
+        gameName: string,
+        submitterId: string | null | undefined,
+        tournamentId?: string | null,
+    ): Promise<void> {
         try {
             if (!submitterId) return;
 
             const db = await getDatabase();
-            const activeGame = await db.get(
-                `SELECT g.id AS game_id, t.id AS tournament_id, t.name AS tournament_name, t.cadence
-                 FROM games g JOIN tournaments t ON t.id = g.tournament_id
-                 WHERE t.game_room_id = ? AND LOWER(g.name) = LOWER(?) AND g.status = 'ACTIVE' AND t.is_active = 1
-                 LIMIT 1`,
-                gameRoomId, gameName,
-            );
+            const activeGame = tournamentId
+                ? await db.get(
+                    `SELECT g.id AS game_id, t.id AS tournament_id, t.name AS tournament_name, t.cadence
+                     FROM games g JOIN tournaments t ON t.id = g.tournament_id
+                     WHERE t.id = ? AND LOWER(g.name) = LOWER(?) AND g.status = 'ACTIVE' AND t.is_active = 1
+                     LIMIT 1`,
+                    tournamentId, gameName,
+                )
+                : await db.get(
+                    `SELECT g.id AS game_id, t.id AS tournament_id, t.name AS tournament_name, t.cadence
+                     FROM games g JOIN tournaments t ON t.id = g.tournament_id
+                     WHERE t.game_room_id = ? AND LOWER(g.name) = LOWER(?) AND g.status = 'ACTIVE' AND t.is_active = 1
+                     LIMIT 1`,
+                    gameRoomId, gameName,
+                );
             if (!activeGame) return;
             if (!(await PickAwardGate.isEnabled(gameRoomId, activeGame.tournament_id))) return;
 

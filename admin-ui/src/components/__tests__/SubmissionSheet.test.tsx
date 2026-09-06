@@ -485,4 +485,37 @@ describe('SubmissionSheet — gameId threading (v2.155.1)', () => {
         const body = submitCall![1]!.body as FormData;
         expect(body.get('gameId')).toBeNull();
     });
+
+    /**
+     * v2.155.2 — the picker resolver call (`GET /api/submit/platforms`) needs
+     * the SAME `gameId` hint so it narrows against the card's own tournament
+     * instead of a room's ambiguous-active-games default (see
+     * `SubmissionGameResolver.ts`).
+     */
+    it('sends gameId as a query param on the platforms fetch when the target carries one', async () => {
+        signIn();
+        const { fetchMock } = renderSheet({
+            target: { gameId: 'game-456' },
+            platformsResponse: platformsPayload({ submittable: ['real'] }),
+        });
+        await screen.findByText('Real Cabinet');
+
+        const platformsCall = fetchMock.mock.calls.find(([url]) => String(url).startsWith('/api/submit/platforms'));
+        expect(platformsCall).toBeTruthy();
+        const url = new URL(String(platformsCall![0]), 'http://localhost');
+        expect(url.searchParams.get('gameId')).toBe('game-456');
+    });
+
+    it('omits gameId from the platforms fetch when the target has none', async () => {
+        signIn();
+        const { fetchMock } = renderSheet({
+            platformsResponse: platformsPayload({ submittable: ['real'] }),
+        });
+        await screen.findByText('Real Cabinet');
+
+        const platformsCall = fetchMock.mock.calls.find(([url]) => String(url).startsWith('/api/submit/platforms'));
+        expect(platformsCall).toBeTruthy();
+        const url = new URL(String(platformsCall![0]), 'http://localhost');
+        expect(url.searchParams.has('gameId')).toBe(false);
+    });
 });
