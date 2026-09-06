@@ -6,6 +6,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.155.1] — One answer for which game a score belongs to
+
+Production incident, 2026-09-05/06: a room had TWO ACTIVE games named "Black Rose" at once — one in
+Weekly Grind - VR (running since 09-03), one in Daily Grind (just picked at 09-06 03:00). A player
+submitted from the WG-VR card at 03:20. The submit route's `submissions` upsert and
+`ScoreHistoryService.log`'s tournament auto-resolve each ran their OWN name lookup, with different
+(or no) `ORDER BY` — one landed the `submissions` row on Daily Grind, the other stamped
+`score_history` with WG-VR. WG-VR's leaderboard cache was never invalidated (the wrong game got
+invalidated instead) and Daily Grind's board filters `score_history` by ITS OWN tournament id, so the
+score ended up on **neither** leaderboard.
+
+### Fixed
+- **`SubmissionGameResolver.resolveSubmissionGame`** is now the ONE lookup every web submit path
+  shares. It prefers an explicit `gameId` (the card the player pressed "Submit" on) when it matches
+  the room, name, and a submittable status; otherwise it picks the EARLIEST-`start_date` ACTIVE game
+  among same-named rows (with a WARN naming every competing tournament) and falls back to the newest
+  COMPLETED row only when nothing is ACTIVE. `submit-score`, `freeplay-score`, and
+  `ScoreHistoryService.log`'s auto-resolve all call it once per request, so the `submissions` row, the
+  `score_history` tournament stamp, and the leaderboard cache invalidation can no longer disagree.
+- `SubmissionSheet` now threads the card's own game id (`selectedGame.gameId` /
+  `leaderboard?.gameId` / the `ScoreSubmit` route param) onto the submit POST, so the common case
+  never needs the name lookup to guess at all. Older clients that omit it fall back to the name rule
+  unchanged.
+
+### Added
+- **Migration 175** — a one-shot, idempotent repair for `submissions` rows already left on the wrong
+  tournament by this bug: for every `submissions` row whose game disagrees with the tournament its
+  matching `score_history` row (same room/name/player/score, within 5 minutes) was stamped with, the
+  `submissions` row is moved onto the game that stamp actually points to, and both games' stale
+  leaderboard caches are cleared.
+
 ## [2.155.0] — The witnessed badge
 
 Owner, looking at a cabinet-reported score on the Global Scoreboard: *"Notice there's no 'proof'

@@ -2102,6 +2102,7 @@ export default function GameDetail() {
             gameName: name,
             gameStatus: leaderboard?.gameStatus,
             requirePhoto,
+            gameId: leaderboard?.gameId,
           }}
           roomSlug={slug}
           discordEnabled={discordEnabled}

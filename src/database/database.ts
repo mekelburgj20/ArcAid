@@ -3006,6 +3006,15 @@ async function doInitDatabase(): Promise<Database> {
                 await db.exec(`ALTER TABLE witness_devices ADD COLUMN global_fallback INTEGER NOT NULL DEFAULT 1`);
             }
         } },
+        // v2.155.1 — one-shot data repair for the ambiguous-active-games bug:
+        // a room with two ACTIVE games sharing a name in two tournaments could
+        // land a `submissions` row on one tournament while `score_history`
+        // was stamped with the OTHER. See repairAmbiguousSubmissionGames.ts
+        // for the full match/move logic; idempotent.
+        { name: '175_repair_ambiguous_submission_games', handler: async (db) => {
+            const { repairAmbiguousSubmissionGames } = await import('./migrations/repairAmbiguousSubmissionGames.js');
+            await repairAmbiguousSubmissionGames(db);
+        } },
     ];
 
     for (const migration of migrations) {

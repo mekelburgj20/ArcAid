@@ -349,7 +349,7 @@ export default function Scoreboard() {
           v2.79.0 — login is required room-wide; the sheet gates on its own. */}
       {selectedGame && roomId && (
         <SubmissionSheet
-          target={{ kind: 'tournament', roomId, gameName: selectedGame.gameName, gameStatus: selectedGame.gameStatus, requirePhoto }}
+          target={{ kind: 'tournament', roomId, gameName: selectedGame.gameName, gameStatus: selectedGame.gameStatus, requirePhoto, gameId: selectedGame.gameId }}
           roomSlug={slug}
           discordEnabled={config.DISCORD_ENABLED !== 'false'}
           onClose={() => setSelectedGame(null)}

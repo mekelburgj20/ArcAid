@@ -39,14 +39,29 @@ export class CommunityScoreService {
              * as resolved by `EventSubmissionGate`. Set ONLY on an accepted event
              * submission.
              *
-             * Both are needed and neither is derivable here: `ScoreHistoryService.log`
-             * auto-resolves a tournament by (room, game name, status ACTIVE), which
-             * cannot tell two rounds of the SAME table apart. Stamping `game_id`
-             * explicitly is the only thing that keeps round 1 and round 2 of
-             * "Medieval Madness" as separate boards.
+             * v2.155.1 — renamed from `eventTournamentId`/`eventGameId` (the
+             * names are now generic because the ROTATION path also resolves
+             * its target ahead of time — via `SubmissionGameResolver` in the
+             * submit routes — and passes it through here too, so the
+             * `submissions` upsert, the `score_history` stamp, and the cache
+             * invalidation all agree on the same games row).
+             *
+             * `gameId` is stamped onto `score_history.game_id` ONLY for an
+             * event round — that column stays NULL for rotation submissions
+             * (v2.75.1 doctrine: modern web rows key by room+name, not
+             * game_id). For a resolved ROTATION game, only `tournamentId` is
+             * passed (and only when that game is ACTIVE — a COMPLETED
+             * resolution passes `undefined`, exactly as an unresolved lookup
+             * would have).
+             *
+             * Both are needed for an event and neither is derivable inside
+             * `ScoreHistoryService.log`: its own auto-resolve cannot tell two
+             * rounds of the SAME table apart. Stamping `game_id` explicitly is
+             * the only thing that keeps round 1 and round 2 of "Medieval
+             * Madness" as separate boards.
              */
-            eventTournamentId?: string | null;
-            eventGameId?: string | null;
+            tournamentId?: string | null;
+            gameId?: string | null;
         }
     ) {
         const db = await getDatabase();
@@ -97,8 +112,8 @@ export class CommunityScoreService {
             source: 'community',
             platform: options?.platform ?? null,
             engine, device,
-            gameId: options?.eventGameId ?? undefined,
-            tournamentId: options?.eventTournamentId ?? undefined,
+            gameId: options?.gameId ?? undefined,
+            tournamentId: options?.tournamentId ?? undefined,
         });
 
         // Fire-and-forget lobby feed event (tracked so tests can drain it —

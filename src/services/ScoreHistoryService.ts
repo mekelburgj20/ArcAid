@@ -152,19 +152,22 @@ export class ScoreHistoryService {
         // this-tournament"). Only populated when the game is ACTIVE — once
         // COMPLETED, the tournament window for that game is closed, so new
         // submissions don't count toward it.
+        //
+        // v2.155.1: this used to run its OWN name lookup with no ORDER BY,
+        // which could disagree with the submit routes' `submissions` upsert
+        // when a room had two ACTIVE games sharing a name in different
+        // tournaments — the row landed on one tournament in `submissions` and
+        // a DIFFERENT one here. `resolveSubmissionGame` is now the ONE answer
+        // both paths share; see `SubmissionGameResolver.ts`.
         let submittedTournamentId = params.tournamentId ?? null;
         if (!submittedTournamentId && !params.skipTournamentLink && params.gameRoomId && params.gameName) {
-            const activeGame = await db.get(
-                `SELECT t.id as tournament_id
-                 FROM games g
-                 JOIN tournaments t ON t.id = g.tournament_id
-                 WHERE LOWER(g.name) = LOWER(?)
-                   AND t.game_room_id = ?
-                   AND g.status = 'ACTIVE'
-                 LIMIT 1`,
-                params.gameName, params.gameRoomId,
-            );
-            submittedTournamentId = activeGame?.tournament_id ?? null;
+            const { resolveSubmissionGame } = await import('./SubmissionGameResolver.js');
+            const resolved = await resolveSubmissionGame({
+                roomId: params.gameRoomId,
+                gameName: params.gameName,
+                gameId: params.gameId ?? null,
+            });
+            submittedTournamentId = resolved && resolved.status === 'ACTIVE' ? resolved.tournament_id : null;
         }
 
         // `created_at` is named in the column list ONLY when the caller

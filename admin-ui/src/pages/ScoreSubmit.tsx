@@ -68,7 +68,7 @@ export default function ScoreSubmit() {
 
     return (
         <SubmissionSheet
-            target={{ kind: 'tournament', roomId, gameName, gameStatus, requirePhoto }}
+            target={{ kind: 'tournament', roomId, gameName, gameStatus, requirePhoto, gameId }}
             roomSlug={slug}
             onClose={() => navigate(`/${slug}`)}
             onSubmitted={() => {

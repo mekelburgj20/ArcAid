@@ -2952,8 +2952,8 @@ router.post('/:roomId/community-scores/:gameName', writeLimiter, requireDiscordU
         const result = await CommunityScoreService.submitScore(roomId, gameName, resolvedName.username, score, req.user!.discordId, photo_url, {
             excludeFromGlobal,
             platform, engine, device,
-            eventTournamentId: gate.event?.tournamentId,
-            eventGameId: gate.event?.gameId,
+            tournamentId: gate.event?.tournamentId,
+            gameId: gate.event?.gameId,
         });
 
         // v2.2.2: sync to iScored when this matches an ACTIVE tournament game.
@@ -3057,6 +3057,23 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, requireDiscordUser,
             photoUrl = `/api/score-photos/${roomId}/${filename}`;
         }
 
+        // v2.155.1 — resolve which games row this submission targets ONCE, so
+        // the `submissions` upsert below, the `score_history` tournament
+        // stamp (inside CommunityScoreService -> ScoreHistoryService.log) and
+        // the leaderboard cache invalidation all agree. A room can have two
+        // ACTIVE games sharing this name in different tournaments (the
+        // ambiguous-active-games bug, v2.155.1) — resolving once and passing
+        // the SAME answer everywhere is what closes it. Skipped for an
+        // accepted EVENT submission: the gate already resolved that round,
+        // and re-running the name lookup here could pick a DIFFERENT round of
+        // the same table. See `SubmissionGameResolver.ts`.
+        const { resolveSubmissionGame } = await import('../../services/SubmissionGameResolver.js');
+        const resolvedGame = gate.event
+            ? null
+            : await resolveSubmissionGame({
+                roomId, gameName, gameId: validationResult.data.gameId ?? null,
+            });
+
         // Save to community_scores + score_history. Fan-out to global_scores
         // is handled inside CommunityScoreService.submitScore (best-effort).
         // The service routes username through RoomNameClaimService and returns
@@ -3065,8 +3082,10 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, requireDiscordUser,
         const result = await CommunityScoreService.submitScore(
             roomId, gameName, resolvedName.username, score, req.user!.discordId, photoUrl, {
                 excludeFromGlobal, platform, engine, device,
-                eventTournamentId: gate.event?.tournamentId,
-                eventGameId: gate.event?.gameId,
+                tournamentId: gate.event
+                    ? gate.event.tournamentId
+                    : (resolvedGame?.status === 'ACTIVE' ? resolvedGame.tournament_id : undefined),
+                gameId: gate.event?.gameId,
             }
         );
         const effectiveUsername = result.displayName;
@@ -3078,30 +3097,15 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, requireDiscordUser,
         // Also upsert into submissions so the main leaderboard reflects the highest score.
         // Use the resolved displayName so the submission ID and stored name match
         // the community/score_history rows — keeps the leaderboard grouping clean.
-        const db = await getDatabase();
-        // v2.100.3: ORDER BY status preference — games RERUN after cooldown, so
-        // one name can match an ACTIVE row AND older COMPLETED rows. Without
-        // the ORDER BY, `LIMIT 1` returned an arbitrary row (SQLite scan order
-        // favors the OLDEST) — the submissions row (which winner resolution
-        // reads at rotation) could land on a long-finished game while every
-        // leaderboard looked right (they read score_history, whose tournament
-        // auto-resolve is ACTIVE-only). Same bug class as the WHO-dunnit
-        // duplicate-DM incident; same fix shape as ScoreSyncPoller's ORDER BY.
         //
-        // v2.135.0 (ADR 0017): on an accepted EVENT submission the round is
-        // already resolved, and the name lookup must not run — it would pick an
-        // arbitrary row when two rounds share a table, and could land the score
-        // on a COMPLETED round. Rotation keeps the query verbatim.
+        // v2.155.1: `activeGame` is now the SAME resolution `resolvedGame`
+        // made above (or the event round) — replaces this route's OWN name
+        // lookup, which used to run independently of ScoreHistoryService.log's
+        // and could disagree with it (see SubmissionGameResolver.ts).
+        const db = await getDatabase();
         const activeGame = gate.event
             ? { id: gate.event.gameId, tournament_id: gate.event.tournamentId }
-            : await db.get(`
-            SELECT g.id, g.tournament_id FROM games g
-            JOIN tournaments t ON t.id = g.tournament_id
-            WHERE LOWER(g.name) = LOWER(?) AND t.game_room_id = ?
-              AND g.status IN ('ACTIVE', 'COMPLETED')
-            ORDER BY CASE g.status WHEN 'ACTIVE' THEN 0 ELSE 1 END, g.created_at DESC
-            LIMIT 1
-        `, gameName, roomId);
+            : resolvedGame;
         if (activeGame) {
             const submissionId = `${activeGame.id}-${effectiveUsername.toLowerCase()}`;
             const existing = await db.get('SELECT score FROM submissions WHERE id = ?', submissionId);
@@ -3120,9 +3124,14 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, requireDiscordUser,
                     roomId, activeGame.tournament_id || null, submittedByUserId, platform,
                     engine, device,
                 );
-                const { LeaderboardService } = await import('../../services/LeaderboardService.js');
-                await LeaderboardService.invalidate(activeGame.id);
             }
+            // v2.155.1 — invalidate the resolved game's cache regardless of
+            // whether it was this player's personal best: score_history still
+            // gained a row scoped to this game/tournament (times-played, last
+            // played), and a stale cache is exactly how the WG-VR incident
+            // showed an old best after a real submit landed.
+            const { LeaderboardService } = await import('../../services/LeaderboardService.js');
+            await LeaderboardService.invalidate(activeGame.id);
         }
 
         // v2.2.2: iScored sync extracted to a shared helper so all three web
@@ -3236,6 +3245,17 @@ router.post('/:roomId/freeplay-score', writeLimiter, requireDiscordUser, require
         fs.writeFileSync(persistentPhotoPath, req.file.buffer);
         const photoUrl = `/api/score-photos/${roomId}/${filename}`;
 
+        // v2.155.1 — resolve which games row this submission targets ONCE
+        // (see the /submit-score site's comment for the full rationale).
+        // Skipped for an accepted EVENT submission: the gate already resolved
+        // that round.
+        const { resolveSubmissionGame } = await import('../../services/SubmissionGameResolver.js');
+        const resolvedGame = gate.event
+            ? null
+            : await resolveSubmissionGame({
+                roomId, gameName: globalGame.name, gameId: validationResult.data.gameId ?? null,
+            });
+
         // Save to community_scores (room-scoped) — uses the global_games.name for
         // consistent cross-referencing. CommunityScoreService will also fan-out to
         // global_scores via GlobalScoreService, respecting exclude_from_global.
@@ -3250,8 +3270,10 @@ router.post('/:roomId/freeplay-score', writeLimiter, requireDiscordUser, require
             photoUrl,
             {
                 excludeFromGlobal, platform, engine, device,
-                eventTournamentId: gate.event?.tournamentId,
-                eventGameId: gate.event?.gameId,
+                tournamentId: gate.event
+                    ? gate.event.tournamentId
+                    : (resolvedGame?.status === 'ACTIVE' ? resolvedGame.tournament_id : undefined),
+                gameId: gate.event?.gameId,
             }
         );
 
@@ -3276,16 +3298,12 @@ router.post('/:roomId/freeplay-score', writeLimiter, requireDiscordUser, require
         // toward the active tournament.
         // v2.135.0 (ADR 0017): see the /submit-score site — an accepted event
         // submission targets the resolved round, never the name lookup.
+        // v2.155.1: `activeGame` is now the SAME `resolvedGame` resolved above
+        // — replaces this route's own independent name lookup (see
+        // SubmissionGameResolver.ts / the /submit-score site's comment).
         const activeGame = gate.event
             ? { id: gate.event.gameId, tournament_id: gate.event.tournamentId }
-            : await db.get(`
-            SELECT g.id, g.tournament_id FROM games g
-            JOIN tournaments t ON t.id = g.tournament_id
-            WHERE LOWER(g.name) = LOWER(?) AND t.game_room_id = ?
-              AND g.status IN ('ACTIVE', 'COMPLETED')
-            ORDER BY CASE g.status WHEN 'ACTIVE' THEN 0 ELSE 1 END, g.created_at DESC
-            LIMIT 1
-        `, globalGame.name, roomId);
+            : resolvedGame;
         if (activeGame) {
             const submissionId = `${activeGame.id}-${effectiveUsername.toLowerCase()}`;
             const existing = await db.get('SELECT score FROM submissions WHERE id = ?', submissionId);
@@ -3305,9 +3323,11 @@ router.post('/:roomId/freeplay-score', writeLimiter, requireDiscordUser, require
                     roomId, activeGame.tournament_id || null, submittedByUserId, platform,
                     engine, device,
                 );
-                const { LeaderboardService } = await import('../../services/LeaderboardService.js');
-                await LeaderboardService.invalidate(activeGame.id);
             }
+            // v2.155.1 — invalidate regardless of whether it was this
+            // player's personal best (see the /submit-score site's comment).
+            const { LeaderboardService } = await import('../../services/LeaderboardService.js');
+            await LeaderboardService.invalidate(activeGame.id);
         }
 
         // v2.2.2: sync to iScored too when the freeplay target matches an ACTIVE
