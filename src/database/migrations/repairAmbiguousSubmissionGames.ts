@@ -44,9 +44,16 @@ import { logInfo } from '../../utils/logger.js';
  * `s` is retargeted onto `g2`: new id `${g2.id}-${username}`. If a
  * submissions row already holds that id (the player has ALSO played the
  * other tournament's game directly), the higher of the two scores survives
- * and `s` is dropped — never overwritten with a lower score. Both games'
- * `leaderboard_cache` rows are cleared either way, since both cards were
- * built from the now-corrected data.
+ * — carrying `s`'s OWN `photo_url`/`platform`/`engine`/`device`/
+ * `submitted_by_user_id`/`submitted_from_room_id` along with its score and
+ * timestamp, never just the bare number. A prod pair proved why: the
+ * misfiled higher score has its OWN evidence photo, and a merge that kept
+ * only the destination row's stale photo would silently detach a real score
+ * from its proof. `game_id`/`submitted_during_tournament_id` on the survivor
+ * are always `g2.id`/`g2.tournament_id` — NEVER copied from `s`, whose own
+ * stamp is the wrong tournament this whole repair exists to correct. `s` is
+ * dropped either way. Both games' `leaderboard_cache` rows are cleared
+ * either way, since both cards were built from the now-corrected data.
  *
  * Idempotent: once `s.game_id` agrees with `h.submitted_during_tournament_id`,
  * the `!=` clause in the query no longer matches it, so a re-run moves 0.
@@ -81,6 +88,11 @@ interface SubmissionRow {
     iscored_username: string;
     score: number;
     timestamp: string;
+    photo_url: string | null;
+    platform: string | null;
+    engine: string | null;
+    device: string | null;
+    submitted_by_user_id: string | null;
     g_name: string;
     g_tournament_id: string;
     g_room_id: string | null;
@@ -106,6 +118,7 @@ export async function repairAmbiguousSubmissionGames(db: Db): Promise<{ moved: n
         const submissionRows = (await db.all(`
             SELECT s.id as submission_id, s.game_id as s_game_id, s.iscored_username,
                    s.score, s.timestamp, s.submitted_from_room_id,
+                   s.photo_url, s.platform, s.engine, s.device, s.submitted_by_user_id,
                    g.name as g_name, g.tournament_id as g_tournament_id,
                    COALESCE(g.game_room_id, t.game_room_id) as g_room_id
             FROM submissions s
@@ -167,9 +180,21 @@ export async function repairAmbiguousSubmissionGames(db: Db): Promise<{ moved: n
 
             if (existingAtNewId) {
                 if (s.score > existingAtNewId.score) {
+                    // The misfiled row is the higher score, so ITS evidence
+                    // (photo/platform/engine/device/submitter) is what
+                    // actually backs this number — carry all of it onto the
+                    // survivor. `game_id`/`submitted_during_tournament_id`
+                    // stay pinned to g2, never copied from `s`.
                     await db.run(
-                        `UPDATE submissions SET score = ?, timestamp = ? WHERE id = ?`,
-                        s.score, s.timestamp, newId,
+                        `UPDATE submissions SET
+                            score = ?, timestamp = ?, game_id = ?, submitted_during_tournament_id = ?,
+                            photo_url = ?, platform = ?, engine = ?, device = ?,
+                            submitted_by_user_id = ?, submitted_from_room_id = ?
+                         WHERE id = ?`,
+                        s.score, s.timestamp, g2.id, g2.tournament_id,
+                        s.photo_url, s.platform, s.engine, s.device,
+                        s.submitted_by_user_id, roomId,
+                        newId,
                     );
                 }
                 await db.run(`DELETE FROM submissions WHERE id = ?`, s.submission_id);

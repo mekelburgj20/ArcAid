@@ -200,6 +200,54 @@ describe('ambiguous ACTIVE games with the same name — submit-score', () => {
         const messages = vi.mocked(logWarn).mock.calls.map(c => String(c[0]));
         expect(messages.some(m => m.includes('ignoring gameId'))).toBe(true);
     });
+
+    it('a gameId of a PINNED game (no tournament) falls through SILENTLY — no warn, name rule applies, history stamp stays NULL', async () => {
+        // A pinned scoreboard card's SubmissionSheet target is `kind:
+        // 'tournament'` carrying the pinned game's own id (same as any
+        // tournament card) — so the resolver's by-id branch sees a pinned
+        // gameId routinely, not as an edge case. That is NOT a mismatch and
+        // must never WARN.
+        const app = await createTestApp();
+        const roomId = await createTestRoom('ambig-submit-pinned', 'Ambig Submit Pinned');
+        const gameName = 'Solo Pin';
+        await seedCatalogueGame(gameName);
+
+        const db = await getDatabase();
+        const pinnedGameId = crypto.randomUUID();
+        await db.run(
+            `INSERT INTO games (id, tournament_id, name, status, game_room_id, start_date)
+             VALUES (?, NULL, ?, 'ACTIVE', ?, ?)`,
+            pinnedGameId, gameName, roomId, new Date().toISOString(),
+        );
+
+        const token = playerToken('ambig-pin-player', 'AmbigPinPlayer', roomId);
+        const res = await request(app)
+            .post(`/api/rooms/${roomId}/submit-score/${encodeURIComponent(gameName)}`)
+            .set('Authorization', `Bearer ${token}`)
+            .field('score', '8000')
+            .field('engine', 'real')
+            .field('device', 'real_cabinet')
+            .field('gameId', pinnedGameId);
+
+        expect(res.status).toBe(201);
+        // No resolver WARN — a pinned gameId is the ordinary shape, not a
+        // mismatch. (The background iScored-sync path logs its own unrelated
+        // "no active iScored game" WARN in this room, which is fine — we're
+        // asserting the RESOLVER stayed silent, not that nothing ever warns.)
+        const warnMessages = vi.mocked(logWarn).mock.calls.map(c => String(c[0]));
+        expect(warnMessages.some(m => m.includes('ignoring gameId') || m.includes('ambiguous ACTIVE game'))).toBe(false);
+
+        // No tournament game shares this name, so the name rule finds nothing
+        // and the tournament stamp stays NULL — exactly as it would with no
+        // gameId at all.
+        const history = await db.get(
+            `SELECT submitted_during_tournament_id FROM score_history
+             WHERE game_room_id = ? AND LOWER(game_name) = LOWER(?) AND score = 8000`,
+            roomId, gameName,
+        );
+        expect(history).toBeTruthy();
+        expect(history.submitted_during_tournament_id).toBeNull();
+    });
 });
 
 describe('ambiguous ACTIVE games with the same name — freeplay-score', () => {
@@ -299,6 +347,137 @@ describe('migration 175 — repairAmbiguousSubmissionGames', () => {
 
         // Idempotent: running again finds nothing left to move.
         const second = await repairAmbiguousSubmissionGames(db as any);
+        expect(second.moved).toBe(0);
+    });
+
+    /**
+     * The merge branch: a submissions row ALREADY sits at the destination id
+     * (the player has also played the other tournament's game directly).
+     * Prod shape: the destination row held 285,647,880 with its own photo;
+     * the misfiled row held 497,401,890 with a DIFFERENT photo. A merge that
+     * kept only the higher SCORE and dropped the misfiled row's photo would
+     * silently detach a real score from its evidence.
+     */
+    async function seedMergeFixture(roomSlug: string) {
+        const db = await getDatabase();
+        const roomId = await createTestRoom(roomSlug, roomSlug);
+        const tournamentA = await createTestTournament(roomId, { name: 'Weekly Grind - VR' });
+        const tournamentB = await createTestTournament(roomId, { name: 'Daily Grind' });
+        const gameName = 'Black Rose';
+        const gameA = await createTestGame(tournamentA, { name: gameName, status: 'ACTIVE' });
+        const gameB = await createTestGame(tournamentB, { name: gameName, status: 'ACTIVE' });
+        const username = 'TestPlayer';
+
+        // The destination row: already correctly on A, with its own evidence.
+        const destinationId = `${gameA}-${username.toLowerCase()}`;
+        await db.run(
+            `INSERT INTO submissions (
+                id, game_id, discord_user_id, iscored_username, score, photo_url, timestamp,
+                submitted_from_room_id, submitted_during_tournament_id, platform, engine, device
+             ) VALUES (?, ?, 'DISCA', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            destinationId, gameA, username, 285_647_880, '/photos/photo-a.jpg',
+            '2026-09-05T00:00:00.000Z', roomId, tournamentA, 'real', 'real', 'real_cabinet',
+        );
+
+        return { db, roomId, tournamentA, tournamentB, gameName, gameA, gameB, username, destinationId };
+    }
+
+    async function seedMisfiledRow(
+        fx: Awaited<ReturnType<typeof seedMergeFixture>>,
+        opts: { score: number; photoUrl: string; timestamp: string; historyCreatedAt: string },
+    ) {
+        const misfiledId = `${fx.gameB}-${fx.username.toLowerCase()}`;
+        await fx.db.run(
+            `INSERT INTO submissions (
+                id, game_id, discord_user_id, iscored_username, score, photo_url, timestamp,
+                submitted_from_room_id, submitted_during_tournament_id, platform, engine, device
+             ) VALUES (?, ?, 'DISCB', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            misfiledId, fx.gameB, fx.username, opts.score, opts.photoUrl,
+            opts.timestamp, fx.roomId, fx.tournamentB, 'atgames', 'fx', 'atgames',
+        );
+        await fx.db.run(
+            `INSERT INTO score_history (
+                game_name, game_room_id, iscored_username, discord_user_id, score, source,
+                submitted_from_room_id, submitted_during_tournament_id, created_at
+             ) VALUES (?, ?, ?, 'DISCB', ?, 'community', ?, ?, ?)`,
+            fx.gameName, fx.roomId, fx.username, opts.score, fx.roomId, fx.tournamentA, opts.historyCreatedAt,
+        );
+        await fx.db.run(
+            `INSERT INTO leaderboard_cache (game_id, rankings, generated_at) VALUES (?, '{"v":1,"rows":[]}', ?)`,
+            fx.gameB, new Date().toISOString(),
+        );
+        return misfiledId;
+    }
+
+    it('merge branch: the misfiled row is the HIGHER score — its evidence (photo/platform/engine/device) wins, not just its number', async () => {
+        await setupTestDb();
+        const fx = await seedMergeFixture('repair-merge-higher');
+        const misfiledId = await seedMisfiledRow(fx, {
+            score: 497_401_890,
+            photoUrl: '/photos/photo-b.jpg',
+            timestamp: '2026-09-06T03:20:05.000Z',
+            historyCreatedAt: '2026-09-06 03:20:04',
+        });
+
+        const result = await repairAmbiguousSubmissionGames(fx.db as any);
+        expect(result.moved).toBe(1);
+
+        const survivor = await fx.db.get(
+            `SELECT game_id, submitted_during_tournament_id, score, photo_url, platform, engine, device
+             FROM submissions WHERE id = ?`,
+            fx.destinationId,
+        );
+        expect(survivor).toBeTruthy();
+        expect(survivor.score).toBe(497_401_890);
+        expect(survivor.photo_url).toBe('/photos/photo-b.jpg');
+        expect(survivor.platform).toBe('atgames');
+        expect(survivor.engine).toBe('fx');
+        expect(survivor.device).toBe('atgames');
+        // The destination identity is NEVER overwritten from the misfiled
+        // row's (wrong) stamp — it stays g2's own id/tournament.
+        expect(survivor.game_id).toBe(fx.gameA);
+        expect(survivor.submitted_during_tournament_id).toBe(fx.tournamentA);
+
+        const misfiledRow = await fx.db.get(`SELECT id FROM submissions WHERE id = ?`, misfiledId);
+        expect(misfiledRow).toBeUndefined();
+
+        const cacheA = await fx.db.get(`SELECT game_id FROM leaderboard_cache WHERE game_id = ?`, fx.gameA);
+        const cacheB = await fx.db.get(`SELECT game_id FROM leaderboard_cache WHERE game_id = ?`, fx.gameB);
+        expect(cacheA).toBeUndefined();
+        expect(cacheB).toBeUndefined();
+
+        const second = await repairAmbiguousSubmissionGames(fx.db as any);
+        expect(second.moved).toBe(0);
+    });
+
+    it('merge branch: the misfiled row is the LOWER score — the destination row (and its photo) is untouched', async () => {
+        await setupTestDb();
+        const fx = await seedMergeFixture('repair-merge-lower');
+        const misfiledId = await seedMisfiledRow(fx, {
+            score: 100_000_000, // lower than the destination's 285,647,880
+            photoUrl: '/photos/photo-b.jpg',
+            timestamp: '2026-09-06T03:20:05.000Z',
+            historyCreatedAt: '2026-09-06 03:20:04',
+        });
+
+        const result = await repairAmbiguousSubmissionGames(fx.db as any);
+        expect(result.moved).toBe(1);
+
+        const survivor = await fx.db.get(
+            `SELECT score, photo_url, platform, engine, device FROM submissions WHERE id = ?`,
+            fx.destinationId,
+        );
+        expect(survivor).toBeTruthy();
+        expect(survivor.score).toBe(285_647_880);
+        expect(survivor.photo_url).toBe('/photos/photo-a.jpg');
+        expect(survivor.platform).toBe('real');
+        expect(survivor.engine).toBe('real');
+        expect(survivor.device).toBe('real_cabinet');
+
+        const misfiledRow = await fx.db.get(`SELECT id FROM submissions WHERE id = ?`, misfiledId);
+        expect(misfiledRow).toBeUndefined();
+
+        const second = await repairAmbiguousSubmissionGames(fx.db as any);
         expect(second.moved).toBe(0);
     });
 });

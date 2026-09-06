@@ -29,7 +29,9 @@ interface CandidateRow {
     tournament_name: string;
 }
 
-interface ByIdRow extends CandidateRow {
+interface ByIdRow extends Omit<CandidateRow, 'tournament_id'> {
+    /** NULL for a pinned game (no tournament) — see the LEFT JOIN above. */
+    tournament_id: string | null;
     game_room_id: string | null;
 }
 
@@ -52,9 +54,16 @@ interface ByIdRow extends CandidateRow {
  *    this name (case-insensitively), and a submittable status
  *    (`ACTIVE`/`COMPLETED`) — the FE sheet knows exactly which card the
  *    player pressed "Submit" on. A pinned game (`tournament_id IS NULL`) is
- *    never a valid target here. A mismatch is logged and treated as if no
- *    `gameId` had been supplied at all — never as an error, since older
- *    clients never send one.
+ *    never a valid target here — this resolver only ever answers "which
+ *    TOURNAMENT game" — but that is the ORDINARY shape for a pinned
+ *    scoreboard card (whose `SubmissionSheet` target is `kind: 'tournament'`
+ *    with the pinned game's own id, same as any tournament card) and is
+ *    handled SILENTLY: no row, or a row with no tournament, falls through to
+ *    the name rule with no WARN. A mismatch is logged ONLY when the row
+ *    exists, HAS a tournament, and still fails to match room/name/status —
+ *    that is the genuine "the FE and the DB disagree" case — and is treated
+ *    as if no `gameId` had been supplied at all, never as an error, since
+ *    older clients never send one.
  * 2. Name lookup across ALL games in this room with this name whose status is
  *    `ACTIVE` or `COMPLETED`. ACTIVE rows are preferred; when MULTIPLE rows
  *    are ACTIVE at once (the bug class this exists to close), the one with
@@ -76,31 +85,42 @@ export async function resolveSubmissionGame(params: {
     const db = await getDatabase();
 
     if (params.gameId) {
+        // LEFT JOIN deliberately: a pinned game (tournament_id IS NULL) must
+        // still come back as a ROW (with tournament_id/tournament_name/
+        // game_room_id all NULL) so it can be told apart from a gameId that
+        // doesn't exist at all — both fall through silently, but only because
+        // there is genuinely no tournament to match against, not because the
+        // lookup itself failed to find the game.
         const byId = await db.get<ByIdRow>(
             `SELECT g.id, g.tournament_id, g.status, g.name, g.start_date, g.created_at,
-                    t.name as tournament_name, t.game_room_id
+                    t.name as tournament_name, COALESCE(g.game_room_id, t.game_room_id) as game_room_id
              FROM games g
-             JOIN tournaments t ON t.id = g.tournament_id
+             LEFT JOIN tournaments t ON t.id = g.tournament_id
              WHERE g.id = ?`,
             params.gameId,
         );
-        const matches = !!byId
-            && byId.game_room_id === roomId
-            && byId.name.toLowerCase() === gameName.toLowerCase()
-            && (byId.status === 'ACTIVE' || byId.status === 'COMPLETED');
-        if (matches) {
-            return {
-                id: byId!.id,
-                tournament_id: byId!.tournament_id,
-                status: byId!.status,
-                name: byId!.name,
-                ambiguous: false,
-            };
+        // A missing row, or a PINNED game (no tournament at all) is the
+        // ordinary shape — not a mismatch — so it falls through to the name
+        // rule with no WARN. Only a row that DOES belong to a tournament and
+        // still fails to match room/name/status is worth flagging.
+        if (byId && byId.tournament_id) {
+            const matches = byId.game_room_id === roomId
+                && byId.name.toLowerCase() === gameName.toLowerCase()
+                && (byId.status === 'ACTIVE' || byId.status === 'COMPLETED');
+            if (matches) {
+                return {
+                    id: byId.id,
+                    tournament_id: byId.tournament_id,
+                    status: byId.status,
+                    name: byId.name,
+                    ambiguous: false,
+                };
+            }
+            logWarn(
+                `submit: ignoring gameId ${params.gameId} for game "${gameName}" in room ${roomId} ` +
+                `(room/name/status mismatch) — falling back to name lookup`,
+            );
         }
-        logWarn(
-            `submit: ignoring gameId ${params.gameId} for game "${gameName}" in room ${roomId} ` +
-            `(room/name/status mismatch) — falling back to name lookup`,
-        );
     }
 
     const candidates = await db.all<CandidateRow[]>(
