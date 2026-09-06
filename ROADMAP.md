@@ -26,7 +26,7 @@ the third-party **vpx-standalone** launcher, and it keeps machine-readable score
 
 1. **VPXS-on-ALP score ingestion — ✅ BUILT 2026-08-31 (v2.151.0, ADR 0022), ✅ FIELD-PROVEN on
    ChalataLove's 4KP in round 5 (2026-09-01: two Terminator 3 scores self-posted to Weekly Grind -
-   VPXS). Round 6 (cabinet rc6) confirms the back-to-back-games fix; then the graduation event.** The Witness reads `scoreserver/vpx-<table>-games.jsonl` and reports each completed
+   VPXS). **Round 6 (2026-09-05, rc6) was INCONCLUSIVE by table choice** — TRON and The Shadow have no live-score map, so nothing could post; **round 7 = Terminator 2 (`t2_l8`, mapped) in Weekly Grind - VPX**, then a GLOBAL scorability table (seeded from manifest romVersion × map corpus, corrected by witness scores + a per-slug "blank record" signal; never per-device) so tournament pages mark cabinet-scorable tables BEFORE the graduation event.** The Witness reads `scoreserver/vpx-<table>-games.jsonl` and reports each completed
    game to `GET /api/witness/score`; `score_history.source='vpx'` (migration 172); the game is filed
    as its own witness observation so gear-up is judged per GAME, not per sitting. Open questions
    from the original entry are answered: schema captured (FINDINGS-0r/0s), trust model in ADR 0022,
