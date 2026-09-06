@@ -296,10 +296,19 @@ export class AtGamesEventSyncService {
 
             // A dry run answers the same question the real run does, through
             // the SAME dedup predicate — it just stops short of the INSERT.
+            // v2.155.3 — `tournamentId` MUST match what `writeScore` -> `log`
+            // stamps (`tournament.id`, always — the AtGames round is always
+            // resolved to THIS tournament, never auto-resolved). Omitting it
+            // here would have the dry run answer a DIFFERENT, looser
+            // question than the real write now does (isDuplicate's dedup key
+            // now includes the tournament stamp), so a preview could say
+            // "already had this one" for a score the real run would actually
+            // ingest as a second tournament's event.
             const isNew = dryRun
                 ? !(await ScoreHistoryService.isDuplicate({
                     gameName: round.name, gameRoomId: tournament.game_room_id,
                     gameId: round.id, username: row.user_name, score,
+                    tournamentId: tournament.id,
                 }))
                 : await this.writeScore(row, round, tournament, canonical, at);
 

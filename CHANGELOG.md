@@ -6,6 +6,41 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.155.3] — The same score in a second tournament is a second score
+
+Production, 2026-09-06 19:17 UTC: with Black Rose ACTIVE in both Weekly Grind - VR and Daily Grind,
+the owner submitted 945,436,670 on the Daily Grind card, then the SAME score on the WG-VR card 26
+seconds later. `ScoreHistoryService.isDuplicate` matched on (room, name, player, score) and never
+looked at the tournament stamp, so the second submit's `score_history` row was silently swallowed —
+its `submissions` row (already resolver-correct since v2.155.1/v2.155.2) landed fine on WG-VR, but
+WG-VR's leaderboard, which reads `score_history` filtered by ITS OWN tournament id, kept showing the
+older score forever. Two more rows hit the same thing this week ("Attack from Mars" in Daily Grind,
+2026-09-04, twice).
+
+Design ruling: one play may be submitted to EACH tournament currently running a table — the SAME
+score in a DIFFERENT tournament is a distinct score event, not a re-send. The same score into the
+SAME tournament is still a re-send and must still be dropped.
+
+### Fixed
+- **`ScoreHistoryService.isDuplicate`** now takes an optional `tournamentId` with three-valued
+  semantics: omitted means "don't constrain" (every pre-existing caller's behaviour, unchanged);
+  `null` or a tournament id means "the row must carry exactly this `submitted_during_tournament_id`" —
+  `null` is a real, meaningful value (a no-active-tournament row), so it is never conflated with
+  "don't care" via a bare `? IS NULL OR ...`.
+- **`ScoreHistoryService.log`** now resolves the tournament stamp BEFORE the dedup check (was after),
+  so the same score submitted to a second ACTIVE tournament on the same table is recognised as a new
+  event instead of matching the first tournament's row.
+- **`AtGamesEventSyncService`'s dry-run preview** now passes the same `tournamentId` the real write
+  stamps, keeping the CLAUDE.md-mandated parity between the two (a preview that answered a looser
+  question than the write it previews would report a false "already had this one").
+
+### Added
+- **Migration 176** — a one-shot, idempotent backfill for scores this bug already swallowed: for
+  every `submissions` row whose tournament has no matching `score_history` row but has a SIBLING row
+  (same room/name/player/score, a different tournament) within 24 hours, a new history row is cloned
+  from the sibling's provenance, stamped with the missing tournament, and the affected game's
+  leaderboard cache is cleared.
+
 ## [2.155.2] — The rest of the submit flow agrees too
 
 v2.155.1 fixed WHERE a score gets written when a room has two ACTIVE games sharing a name in
