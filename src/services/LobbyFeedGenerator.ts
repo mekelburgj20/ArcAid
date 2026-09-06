@@ -15,6 +15,17 @@ interface ScoreSubmittedParams {
     score: number;
     discordUserId?: string;
     source: 'community' | 'tournament' | 'sync';
+    /**
+     * v2.155.2 — the tournament this score was ACTUALLY written to, when the
+     * caller already resolved one (`CommunityScoreService.submitScore` passes
+     * its own already-resolved `options.tournamentId`). Threaded through to
+     * `RotationNudgeService.evaluateSubmitter` so the rotation nudge evaluates
+     * against the SAME tournament, not a second by-name lookup that could
+     * disagree in a room with two ACTIVE games sharing this name. `undefined`
+     * (Discord `/submit-score`, the sync poller) keeps that service's own
+     * by-name resolution unchanged.
+     */
+    tournamentId?: string | null;
 }
 
 export class LobbyFeedGenerator {
@@ -25,7 +36,7 @@ export class LobbyFeedGenerator {
      */
     static async onScoreSubmitted(params: ScoreSubmittedParams): Promise<void> {
         try {
-            const { gameRoomId, gameName, username, score, discordUserId } = params;
+            const { gameRoomId, gameName, username, score, discordUserId, tournamentId } = params;
 
             // Resolve the user-chosen global display name when the submitter is
             // Discord-linked; otherwise fall back to the iScored alias. All
@@ -202,7 +213,7 @@ export class LobbyFeedGenerator {
             // its next rotation AND this submit put `discordUserId` in 1st.
             trackBackground(
                 import('./RotationNudgeService.js')
-                    .then(({ RotationNudgeService }) => RotationNudgeService.evaluateSubmitter(gameRoomId, gameName, discordUserId))
+                    .then(({ RotationNudgeService }) => RotationNudgeService.evaluateSubmitter(gameRoomId, gameName, discordUserId, tournamentId))
                     .catch(() => {}),
             );
 

@@ -480,6 +480,13 @@ export default function SubmissionSheet({
             } else {
                 params.set('roomId', target.roomId);
                 params.set('gameName', target.gameName);
+                // v2.155.2 — the card's own game id, when the caller has it,
+                // so the picker resolves against the SAME game the score
+                // will be written to (a room can have two ACTIVE games
+                // sharing this name in different tournaments).
+                if (target.kind === 'tournament' && target.gameId) {
+                    params.set('gameId', target.gameId);
+                }
             }
             try {
                 const res = await fetch(`/api/submit/platforms?${params.toString()}`);

@@ -36,6 +36,17 @@ export async function syncScoreToIScored(opts: {
      * pass-through-only (logged for debugging, never sent to the API).
      */
     platform?: string | null;
+    /**
+     * v2.155.2 — the games row this score was ACTUALLY written to, when the
+     * caller already resolved one (`SubmissionGameResolver`). Reading
+     * `iscored_id` off THIS row (still requiring ACTIVE + a non-null
+     * `iscored_id`) closes the same ambiguous-active-games gap the write
+     * side closed in v2.155.1: without it, a room with two ACTIVE games
+     * sharing this name could mirror the score onto the WRONG iScored board.
+     * Omitted (Discord-side callers, which resolve by tournament id already
+     * and never hit this ambiguity) falls back to the name lookup.
+     */
+    gameId?: string | null;
 }): Promise<void> {
     const { roomId, gameName, username, score, persistentPhotoPath } = opts;
     let tempPhotoPath: string | undefined;
@@ -50,13 +61,19 @@ export async function syncScoreToIScored(opts: {
         }
 
         const db = await getDatabase();
-        const activeGame = await db.get(`
-            SELECT g.iscored_id FROM games g
-            JOIN tournaments t ON t.id = g.tournament_id
-            WHERE LOWER(g.name) = LOWER(?) AND t.game_room_id = ?
-              AND g.status = 'ACTIVE' AND g.iscored_id IS NOT NULL
-            LIMIT 1
-        `, gameName, roomId);
+        const activeGame = opts.gameId
+            ? await db.get(
+                `SELECT iscored_id FROM games
+                 WHERE id = ? AND status = 'ACTIVE' AND iscored_id IS NOT NULL`,
+                opts.gameId,
+            )
+            : await db.get(`
+                SELECT g.iscored_id FROM games g
+                JOIN tournaments t ON t.id = g.tournament_id
+                WHERE LOWER(g.name) = LOWER(?) AND t.game_room_id = ?
+                  AND g.status = 'ACTIVE' AND g.iscored_id IS NOT NULL
+                LIMIT 1
+            `, gameName, roomId);
         if (!activeGame) {
             logWarn(`No active iScored game found for "${gameName}" in room ${roomId}, skipping sync`);
             return;
