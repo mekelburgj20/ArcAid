@@ -3015,6 +3015,15 @@ async function doInitDatabase(): Promise<Database> {
             const { repairAmbiguousSubmissionGames } = await import('./migrations/repairAmbiguousSubmissionGames.js');
             await repairAmbiguousSubmissionGames(db);
         } },
+        // v2.155.3 — one-shot backfill for scores a pre-fix dedup swallowed:
+        // the SAME score submitted to a SECOND tournament running the same
+        // table never got its own score_history row (isDuplicate ignored the
+        // tournament stamp), even though its `submissions` row landed
+        // correctly. See backfillHistoryForDedupVictims.ts; idempotent.
+        { name: '176_backfill_history_for_dedup_victims', handler: async (db) => {
+            const { backfillHistoryForDedupVictims } = await import('./migrations/backfillHistoryForDedupVictims.js');
+            await backfillHistoryForDedupVictims(db);
+        } },
     ];
 
     for (const migration of migrations) {

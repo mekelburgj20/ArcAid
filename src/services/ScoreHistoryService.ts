@@ -44,15 +44,41 @@ export class ScoreHistoryService {
         gameId?: string;
         username: string;
         score: number;
+        /**
+         * v2.155.3 — THREE-valued: `undefined` (the parameter simply omitted)
+         * means "don't constrain by tournament", preserving every caller's
+         * behaviour from before this parameter existed. `null` OR a string
+         * means "constrain — the row must carry exactly this
+         * `submitted_during_tournament_id`". `null` is a real, meaningful
+         * value here (a Global-fallback / no-active-tournament row), so the
+         * two "don't care" / "must be null" cases cannot be collapsed into
+         * one `? IS NULL OR ...` clause — an explicit flag decides which
+         * clause applies.
+         *
+         * Why this matters: one play may be submitted to EACH tournament
+         * currently running the table — Black Rose ACTIVE in both Weekly
+         * Grind - VR and Daily Grind is two independent score events, not a
+         * duplicate. The SAME score into the SAME tournament is still a
+         * re-send and must still be dropped. Dedup that ignored the
+         * tournament stamp entirely (pre-v2.155.3) silently swallowed the
+         * second tournament's `score_history` row while its `submissions`
+         * row (a separate table, deduped differently) still wrote — the
+         * game's OWN leaderboard, which reads `score_history` filtered by
+         * its own tournament id, never saw the score at all.
+         */
+        tournamentId?: string | null;
     }): Promise<boolean> {
         const db = await getDatabase();
+        const constrainTournament = params.tournamentId !== undefined;
         const existing = await db.get(
             `SELECT id FROM score_history
              WHERE game_room_id = ? AND LOWER(game_name) = LOWER(?) AND LOWER(iscored_username) = LOWER(?) AND score = ?
                AND (? IS NULL OR game_id IS ?)
+               AND (? = 0 OR submitted_during_tournament_id IS ?)
              LIMIT 1`,
             params.gameRoomId, params.gameName, params.username, params.score,
             params.gameId ?? null, params.gameId ?? null,
+            constrainTournament ? 1 : 0, params.tournamentId ?? null,
         );
         return !!existing;
     }
@@ -137,14 +163,6 @@ export class ScoreHistoryService {
     }): Promise<number | null> {
         const db = await getDatabase();
 
-        // v2.125.1: returns the new row's id (null when deduped) so the submit
-        // path can exclude it from the "previous best" computation.
-        if (await ScoreHistoryService.isDuplicate(params)) return null;
-
-        const submittedByUserId = normalizeSubmitterUserId(params.discordUserId);
-        const submittedByAnonymousName =
-            params.anonymousName ?? (submittedByUserId ? null : params.username);
-
         // v2.1.0: auto-resolve the active tournament for this room+game so
         // every score_history row carries submitted_during_tournament_id.
         // Tournament leaderboards use this as the primary filter (replaces the
@@ -159,6 +177,13 @@ export class ScoreHistoryService {
         // tournaments — the row landed on one tournament in `submissions` and
         // a DIFFERENT one here. `resolveSubmissionGame` is now the ONE answer
         // both paths share; see `SubmissionGameResolver.ts`.
+        //
+        // v2.155.3 — resolved BEFORE the dedup check below (was after), so
+        // `isDuplicate` can constrain on the SAME tournament this row is
+        // about to be stamped with: one play may be submitted to EACH
+        // tournament currently running the table (Black Rose ACTIVE in both
+        // Weekly Grind - VR and Daily Grind is two independent score events),
+        // and only a re-send into the SAME tournament should be dropped.
         let submittedTournamentId = params.tournamentId ?? null;
         if (!submittedTournamentId && !params.skipTournamentLink && params.gameRoomId && params.gameName) {
             const { resolveSubmissionGame } = await import('./SubmissionGameResolver.js');
@@ -169,6 +194,14 @@ export class ScoreHistoryService {
             });
             submittedTournamentId = resolved && resolved.status === 'ACTIVE' ? resolved.tournament_id : null;
         }
+
+        // v2.125.1: returns the new row's id (null when deduped) so the submit
+        // path can exclude it from the "previous best" computation.
+        if (await ScoreHistoryService.isDuplicate({ ...params, tournamentId: submittedTournamentId })) return null;
+
+        const submittedByUserId = normalizeSubmitterUserId(params.discordUserId);
+        const submittedByAnonymousName =
+            params.anonymousName ?? (submittedByUserId ? null : params.username);
 
         // `created_at` is named in the column list ONLY when the caller
         // supplied one — otherwise the column is left off entirely so the

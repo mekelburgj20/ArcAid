@@ -575,6 +575,46 @@ describe('AtGamesEventSyncService — dry run', () => {
         expect(second.ingested).toBe(0);
         expect(second.duplicates).toBe(1);
     });
+
+    /**
+     * v2.155.3 — `isDuplicate`'s dedup key now includes the tournament stamp.
+     * The dry run's own `isDuplicate` call MUST pass the same `tournamentId`
+     * `writeScore` -> `log` stamps (`tournament.id`), or a preview would
+     * answer a looser, WRONG question: "does an identical score exist
+     * ANYWHERE" instead of "does it exist for THIS tournament" — exactly the
+     * bug class a second ACTIVE tournament on the same table exists to catch.
+     * A pre-existing history row for the SAME (room, name, player, score) but
+     * a DIFFERENT tournament must NOT read as a duplicate here.
+     */
+    it("scopes duplicate-checking to THIS tournament — an identical score parked under a DIFFERENT tournament doesn't count", async () => {
+        const db = await getDatabase();
+        const otherTournamentId = crypto.randomUUID();
+        await db.run(
+            `INSERT INTO tournaments (id, name, type, mode, cadence, is_active, game_room_id)
+             VALUES (?, 'Weekly Grind', 'WG', 'pinball', '{}', 1, ?)`,
+            otherTournamentId, roomId,
+        );
+        await db.run(
+            `INSERT INTO score_history (
+                game_name, game_room_id, iscored_username, discord_user_id, score, source,
+                submitted_from_room_id, submitted_during_tournament_id
+             ) VALUES ('Attack from Mars', ?, 'Wyo', 'disc-wyo', 1200000, 'community', ?, ?)`,
+            roomId, roomId, otherTournamentId,
+        );
+
+        const preview = await AtGamesEventSyncService.syncTournament(tournamentId, { dryRun: true });
+        const byName = Object.fromEntries(preview.rows.map(r => [r.userName, r]));
+        expect(byName.Wyo?.decision).toBe('ingested');
+
+        const real = await AtGamesEventSyncService.syncTournament(tournamentId);
+        expect(real.ingested).toBe(preview.ingested);
+        expect(real.duplicates).toBe(preview.duplicates);
+
+        const own = await db.get<{ n: number }>(
+            'SELECT COUNT(*) AS n FROM score_history WHERE submitted_during_tournament_id = ?', tournamentId,
+        );
+        expect(own?.n).toBe(1);
+    });
 });
 
 describe('AtGamesIdentityService — who is who', () => {
