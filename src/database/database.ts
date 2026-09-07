@@ -2887,10 +2887,11 @@ async function doInitDatabase(): Promise<Database> {
                 launch_ts INTEGER NOT NULL,
                 exit_ts INTEGER,
                 duration_sec INTEGER,
-                reported_at TEXT NOT NULL DEFAULT (datetime('now'))
+                reported_at TEXT NOT NULL DEFAULT (datetime('now')),
+                kind TEXT NOT NULL DEFAULT 'session'
             );
             CREATE UNIQUE INDEX IF NOT EXISTS idx_witness_obs_unique
-                ON witness_observations(atgames_unique_id, table_name, launch_ts);
+                ON witness_observations(atgames_unique_id, table_name, launch_ts, kind);
             CREATE INDEX IF NOT EXISTS idx_witness_obs_user ON witness_observations(canonical_user_id, launch_ts);
         ` },
         // Rotation audit trail (owner-asked 2026-08-27, after the WG-VR /
@@ -3023,6 +3024,25 @@ async function doInitDatabase(): Promise<Database> {
         { name: '176_backfill_history_for_dedup_victims', handler: async (db) => {
             const { backfillHistoryForDedupVictims } = await import('./migrations/backfillHistoryForDedupVictims.js');
             await backfillHistoryForDedupVictims(db);
+        } },
+        // Witness round 8 (2026-09-06): the FIRST game of a VPX sitting starts
+        // at the very second the table SESSION does, so the game observation
+        // the score ingest files (ADR 0022) collided with the beacon's session
+        // row on the (device, table, launch) key and was swallowed — the
+        // session's exit stayed, the game's exit was never stored, and the
+        // verify join (ADR 0020, exit ≈ score time) found nothing for game 1
+        // of every multi-game sitting. `kind` ('session' | 'game') joins the
+        // key so both rows can exist. The verify join never reads `kind`;
+        // rows the ingest wrote before this migration keep the default and
+        // still join exactly as they did.
+        { name: '177_witness_obs_kind', handler: async (db) => {
+            const cols = (await db.all(`PRAGMA table_info(witness_observations)`)) as Array<{ name: string }>;
+            if (!cols.some(c => c.name === 'kind')) {
+                await db.exec(`ALTER TABLE witness_observations ADD COLUMN kind TEXT NOT NULL DEFAULT 'session'`);
+            }
+            await db.exec(`DROP INDEX IF EXISTS idx_witness_obs_unique`);
+            await db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_witness_obs_unique
+                ON witness_observations(atgames_unique_id, table_name, launch_ts, kind)`);
         } },
     ];
 

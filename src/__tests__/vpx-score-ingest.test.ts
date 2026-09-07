@@ -205,6 +205,43 @@ describe('VPXS auto score collection — ingest', () => {
         });
     });
 
+    it('keeps the FIRST game of a sitting apart from the session that starts at the same second (round 8)', async () => {
+        // The beacon files the table SESSION (launch = the moment the table
+        // opened, exit = when the player left). Game 1 of that sitting starts
+        // at the very same second, so on a (device, table, launch) key the
+        // game observation collided with the session row and was swallowed —
+        // its exit never stored, so the verify join (exit ≈ score time) found
+        // nothing for the first game of every multi-game sitting.
+        await createRotationGame(roomId, 'Bad Cats');
+        await designate(roomId);
+        const q = scoreQuery();
+        const sittingExit = q.ended + 600; // two more games followed
+
+        await request(app).get('/api/witness/report').query({
+            device: DEVICE, token, table: q.table, launch: q.started, exit: sittingExit, dur: sittingExit - q.started,
+        });
+        const res = await request(app).get('/api/witness/score').query({ device: DEVICE, token, ...q });
+        expect(res.body.status).toBe('ingested');
+
+        const db = await getDatabase();
+        const rows = await db.all<Array<{ launch_ts: number; exit_ts: number; kind: string }>>(
+            `SELECT launch_ts, exit_ts, kind FROM witness_observations
+              WHERE atgames_unique_id = ? ORDER BY exit_ts`, DEVICE,
+        );
+        expect(rows).toEqual([
+            { launch_ts: q.started, exit_ts: q.ended, kind: 'game' },
+            { launch_ts: q.started, exit_ts: sittingExit, kind: 'session' },
+        ]);
+
+        // And the join now finds the game, not the session: verified on the
+        // game's own exit, with the game's own launch compared to the round.
+        const verdicts = await WitnessVerifyService.verdictsForRound({
+            roundStartEpoch: q.started - 60,
+            rows: [{ identityKey: USER, createdEpoch: q.ended, source: 'vpx' }],
+        });
+        expect(verdicts[0]).toMatchObject({ status: 'verified', method: 'session', exitTs: q.ended });
+    });
+
     it('verifies a game launched inside the round, and flags one launched before it', async () => {
         // The point of filing the GAME (not the session): one VPX sitting holds
         // several games, so the second game of a legitimate sitting must not be
