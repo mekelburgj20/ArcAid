@@ -1091,7 +1091,7 @@ export default function GameDetail() {
                           }
                         } : undefined}
                       >
-                        <div className="flex items-center gap-3 min-w-0">
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
                           <span className={`font-display font-bold w-8 text-center flex-shrink-0 ${
                             displayRank === 1 ? 'text-neon-amber text-lg' :
                             displayRank === 2 ? 'text-neon-cyan' :
@@ -1100,24 +1100,34 @@ export default function GameDetail() {
                           }`}>
                             {displayRank}
                           </span>
-                          {/* v2.13.16: PlayerNameLink opens quick-view modal on
-                              click; modifier-click falls through to full page. */}
-                          <PlayerNameLink
-                            slug={slug || ''}
-                            entry={entry}
-                            fromTab={fromTab}
-                            onClick={e => e.stopPropagation()}
-                            className="font-medium truncate no-underline text-primary hover:text-neon-cyan transition-colors"
-                          />
-                          {/* v2.58.0 (ADR 0016): engine + device tags. Shown in
-                              the "All" view; inside an engine tab every row
-                              shares the engine, so only the DEVICE half still
-                              distinguishes rows — ProvenanceTags is given just
-                              that half there rather than repeating the engine
-                              on every line. */}
-                          <ProvenanceTags entry={entry} omitEngine={!!selectedEngine} />
+                          {/* Name + provenance chips WRAP inside one cell. Pre-fix
+                              (owner phone screenshot, 2026-09-06) the chips were
+                              flex-shrink-0 beside a truncating name in a group that
+                              had no overflow clip: on a 390px screen the name shrank
+                              to nothing and the chips drew straight over the score.
+                              Wrapping lets the name keep the first line and drops
+                              the chips beneath it; the right group is now
+                              flex-shrink-0 so nothing can overlap it. */}
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
+                            {/* v2.13.16: PlayerNameLink opens quick-view modal on
+                                click; modifier-click falls through to full page. */}
+                            <PlayerNameLink
+                              slug={slug || ''}
+                              entry={entry}
+                              fromTab={fromTab}
+                              onClick={e => e.stopPropagation()}
+                              className="font-medium truncate max-w-full no-underline text-primary hover:text-neon-cyan transition-colors"
+                            />
+                            {/* v2.58.0 (ADR 0016): engine + device tags. Shown in
+                                the "All" view; inside an engine tab every row
+                                shares the engine, so only the DEVICE half still
+                                distinguishes rows — ProvenanceTags is given just
+                                that half there rather than repeating the engine
+                                on every line. */}
+                            <ProvenanceTags entry={entry} omitEngine={!!selectedEngine} />
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-shrink-0 pl-2">
                           <span className={`font-display font-bold flex-shrink-0 ${
                             displayRank === 1 ? 'text-neon-amber text-lg' : 'text-primary'
                           }`}>
@@ -1425,7 +1435,7 @@ export default function GameDetail() {
                           when a 12+ digit score lands. */}
                       <div className="flex items-center justify-between gap-3 px-5 py-2 border-b border-border/50 text-[10px] text-faint uppercase tracking-wider">
                         <span className="min-w-0 truncate">Player</span>
-                        <div className="flex items-center gap-6 flex-shrink-0">
+                        <div className="flex items-center gap-3 sm:gap-6 flex-shrink-0">
                           <span>Source</span>
                           <span className="min-w-[6rem] text-right">Score</span>
                           <span className="w-20 text-right">Date</span>
@@ -1434,7 +1444,7 @@ export default function GameDetail() {
                       {gameHistory.map(h => (
                         <div key={h.id} className="flex items-center justify-between gap-3 px-5 py-2.5 border-b border-border/20 last:border-0 text-sm">
                           <span className="font-medium truncate min-w-0">{h.display_name || h.iscored_username}</span>
-                          <div className="flex items-center gap-6 flex-shrink-0">
+                          <div className="flex items-center gap-3 sm:gap-6 flex-shrink-0">
                             <SourceChip source={h.source} />
                             <span
                               className="font-display font-bold min-w-[6rem] text-right flex-shrink-0 whitespace-nowrap tabular-nums"
@@ -2150,8 +2160,13 @@ function ScoreHistoryRow({ h, canDelete, onDelete, canCorrect, onCorrect, canVer
 }) {
   const isVerified = !!h.verified_at;
   return (
-    <div className="flex items-center justify-between gap-2 text-sm group">
-      <div className="flex items-center gap-2 min-w-0">
+    /* Left cell WRAPS (score, then chip/verified/proof flowing under it on a
+       narrow screen); right cell (date + actions) is flex-shrink-0. Pre-fix
+       both were non-shrinking content in a justify-between row with no
+       overflow clip, so on a phone the date and icons drew over the chip and
+       the "proof" link (owner screenshot, 2026-09-06). */
+    <div className="flex items-start sm:items-center justify-between gap-2 text-sm group">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
         <span className="text-muted flex-shrink-0 whitespace-nowrap tabular-nums" title={scoreTitle(h.score)}>
           {formatScore(h.score)}
         </span>
@@ -2171,7 +2186,7 @@ function ScoreHistoryRow({ h, canDelete, onDelete, canCorrect, onCorrect, canVer
           </a>
         )}
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-shrink-0">
         <span className="text-faint text-xs whitespace-nowrap">{parseServerDate(h.created_at)?.toLocaleDateString() ?? ''}</span>
         {onShare && (
           <button

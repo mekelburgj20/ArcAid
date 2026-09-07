@@ -6,6 +6,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.155.5] — Game Detail leaderboard rows no longer overlap on a phone
+
+Owner phone screenshot, 2026-09-06 (RTX_Pinball, Terminator 2, 390px): on the Current Leaderboard
+the rank-1 player's NAME had vanished entirely and the VPX / AtGames chips were drawn straight over
+the score; ranks 3-4 showed "Standalone" overlapping the score and names cut to "S.." / "B..."; in the
+expanded history the date, source chip and "proof" link were stacked on top of one another.
+
+Cause, both places: a `justify-between` flex row whose two halves were each non-shrinking content
+(chips and icons `flex-shrink-0`, score `whitespace-nowrap`) with no overflow clip. The only thing
+allowed to shrink was the truncating name, so it shrank to zero and the chips spilled out of their
+half and under the other.
+
+### Fixed
+- **Ranked rows** — name + provenance chips now live in ONE wrapping cell (`flex-wrap`): the name
+  keeps the first line and the chips drop beneath it when the width runs out; the score/expand/actions
+  group is `flex-shrink-0` so nothing can draw over it. Desktop is unchanged (everything still fits on
+  one line).
+- **History rows (`ScoreHistoryRow`)** — score / AW chip / verified / proof wrap on the left; the
+  date + action icons are `flex-shrink-0` on the right, top-aligned on narrow screens.
+- **"All Score History" list** — column gap `gap-3` on mobile (was `gap-6`), giving the player name
+  the width back.
+
+Verified with a 390px Playwright pass against the live RTX Terminator 2 page (prod API proxied into
+the local build): every name visible, chips beneath, no overlaps.
+
 ## [2.155.4] — Witness round 8: the first game of a sitting gets its own observation
 
 Round 8 of the Arcaid Witness field test (ChalataLove, Terminator 2 in Weekly Grind - VPX,
