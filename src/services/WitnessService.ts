@@ -224,6 +224,16 @@ export class WitnessService {
          * exists so the distinction survives for later analysis.
          */
         via?: string | null;
+        /**
+         * What the observation IS: the beacon's table `'session'` (default) or
+         * one `'game'` inside it, filed by the VPX score ingest. The two are
+         * keyed apart because the first game of a sitting starts at the same
+         * second the session does — on a (device, table, launch) key alone the
+         * game row collided with the session row and was swallowed, so game 1
+         * of every multi-game sitting had no observation whose exit matched
+         * its score and verified as `unwitnessed` (round 8, 2026-09-06).
+         */
+        kind?: 'session' | 'game';
     }): Promise<boolean> {
         const deviceId = (input.atgamesUniqueId || '').trim();
         const table = (input.tableName || '').trim();
@@ -239,19 +249,20 @@ export class WitnessService {
             ? Math.floor(input.durationSec)
             : (exit != null ? exit - launch : null);
         const via = input.via === 'retro' ? 'retro' : 'live';
+        const kind = input.kind === 'game' ? 'game' : 'session';
 
         await db.run(
             `INSERT INTO witness_observations
-                (atgames_unique_id, canonical_user_id, table_name, launch_ts, exit_ts, duration_sec, via)
-             VALUES (?, ?, ?, ?, ?, ?, ?)
-             ON CONFLICT(atgames_unique_id, table_name, launch_ts) DO UPDATE SET
+                (atgames_unique_id, canonical_user_id, table_name, launch_ts, exit_ts, duration_sec, via, kind)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(atgames_unique_id, table_name, launch_ts, kind) DO UPDATE SET
                 exit_ts = COALESCE(excluded.exit_ts, witness_observations.exit_ts),
                 duration_sec = COALESCE(excluded.duration_sec, witness_observations.duration_sec)`,
             // `via` is deliberately absent from the DO UPDATE: first writer
             // wins. A retro sweep that re-reports a session the beacon already
             // saw live must not downgrade it, and a live report arriving after
             // a retro row must not overstate what was actually observed.
-            deviceId, device.canonical_user_id, table, launch, exit, duration, via,
+            deviceId, device.canonical_user_id, table, launch, exit, duration, via, kind,
         );
         await WitnessService.touchDevice(deviceId);
         return true;
@@ -366,7 +377,20 @@ export class WitnessService {
                 exitTs: Math.floor(input.endedTs),
                 durationSec: input.durationSec ?? null,
                 via: input.via ?? null,
+                kind: 'game',
             });
+        } else if (result.status === 'no_match' || result.status === 'invalid') {
+            // A 200 the device will never retry, so this line is the ONLY
+            // trace the score leaves. Round 8 (2026-09-06) lost two of six
+            // scores to a cabinet-side naming bug (`table=t2_l8`) and the
+            // prod log showed nothing at all — the diagnosis had to come from
+            // the cabinet's own log. Name everything the matcher was given.
+            logWarn(
+                `VPX ingest: ${result.status} for ${device.canonical_user_id} — ` +
+                `table="${(input.tableName || '').trim()}" rom="${input.rom ?? ''}" slug="${input.slug ?? ''}" ` +
+                `score=${input.score} ended=${input.endedTs}` +
+                (result.reason ? ` (${result.reason})` : ''),
+            );
         }
 
         await WitnessService.touchDevice(deviceId);

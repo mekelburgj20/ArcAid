@@ -6,6 +6,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.155.4] — Witness round 8: the first game of a sitting gets its own observation
+
+Round 8 of the Arcaid Witness field test (ChalataLove, Terminator 2 in Weekly Grind - VPX,
+2026-09-06/07 UTC) was the first run where cabinet-read VPX scores reached a room board unaided:
+four of six games landed, including the three from the round-7 sitting that the rc8 watermark
+floor replayed retroactively. The other two were lost to a cabinet-side naming bug (fixed in the
+app, `v1.0.0-rc9`, not in this repo). The prod data from the run exposed two server-side defects.
+
+### Fixed
+- **The FIRST game of a VPX sitting was never filed as an observation.** The score ingest files each
+  GAME as a `witness_observations` row (ADR 0022) so the verify join (ADR 0020, exit ≈ score time)
+  compares the round start against the game's own launch. But game 1 of a sitting starts the very
+  second the table SESSION does, so on the (device, table, launch) unique key the game row collided
+  with the beacon's session row and was swallowed — the session's exit stayed, the game's exit was
+  never stored, and game 1 of every multi-game sitting verified as `unwitnessed`. Prod evidence:
+  observations 789 (session, 460 s) / 791 / 792 (games 2 and 3) and nothing for the 232,910 game.
+  **Migration 177** adds `witness_observations.kind` (`'session'` | `'game'`, default session) and
+  rebuilds `idx_witness_obs_unique` over (device, table, launch, kind); `WitnessService.recordObservation`
+  takes `kind`, the score ingest passes `'game'`. The verify join never reads `kind`; rows the ingest
+  wrote before this release keep the default and join exactly as before (no backfill — the swallowed
+  first-game rows cannot be reconstructed from what was stored).
+- **The AW shield was missing from the This-tournament / All-time history rows.** v2.155.0 routed two
+  of GameDetail's three history-row renderers through `SourceChip` (which draws the WITNESSED badge
+  for `'vpx'`/`'atgames'`); `ScoreHistoryRow` still printed the raw word `vpx` — the exact view the
+  round-8 tester was told to check. All three now share the chip; `SourceChip` is exported and pinned
+  by `GameDetailSourceChip.test.tsx`.
+- **A `no_match` / `invalid` VPX score now leaves a WARN in the server log** naming the table, rom,
+  slug, score, end time and the matcher's reason. Both are 200s the cabinet never retries, so that
+  line is the only trace such a score leaves — the two lost round-8 scores had none, and the
+  diagnosis had to come from the cabinet's own log.
+
 ## [2.155.3] — The same score in a second tournament is a second score
 
 Production, 2026-09-06 19:17 UTC: with Black Rose ACTIVE in both Weekly Grind - VR and Daily Grind,

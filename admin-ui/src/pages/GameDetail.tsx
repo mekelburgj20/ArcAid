@@ -196,8 +196,13 @@ const communityRankColor = (i: number) =>
  * with nobody typing it, so they render as the WITNESSED badge rather than as a
  * raw lowercase word. Without this they printed literally as "vpx", which reads
  * like a debug leak in the one place a player inspects their own scores.
+ *
+ * Every history-row renderer in this file MUST use this chip. v2.155.0 fixed
+ * two of the three and left `ScoreHistoryRow` (the This-tournament / All-time
+ * split) printing the raw word — which is exactly the surface the round-8
+ * tester was told to look at for the AW shield (2026-09-06).
  */
-function SourceChip({ source }: { source: string | null | undefined }) {
+export function SourceChip({ source }: { source: string | null | undefined }) {
     if (isWitnessedScore({ source })) {
         return (
             <span
@@ -2150,11 +2155,7 @@ function ScoreHistoryRow({ h, canDelete, onDelete, canCorrect, onCorrect, canVer
         <span className="text-muted flex-shrink-0 whitespace-nowrap tabular-nums" title={scoreTitle(h.score)}>
           {formatScore(h.score)}
         </span>
-        <span className={`text-[10px] px-1.5 py-0.5 rounded ${
-          h.source === 'tournament' ? 'bg-neon-cyan/10 text-neon-cyan' :
-          h.source === 'sync' ? 'bg-neon-purple/10 text-neon-purple' :
-          'bg-neon-green/10 text-neon-green'
-        }`}>{h.source}</span>
+        <SourceChip source={h.source} />
         {isVerified && (
           <span
             className="inline-flex items-center text-neon-green"
