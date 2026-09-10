@@ -14,10 +14,19 @@ export const runcleanup: Command = {
     data: new SlashCommandBuilder()
         .setName('run-cleanup')
         .setDescription('(Admin) Run cleanup for all tournaments per their cleanup rules.')
+        .addBooleanOption(option =>
+            option.setName('force')
+                .setDescription('Also run tournaments whose cleanup is on a schedule (archives all their completed games now)')
+                .setRequired(false))
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator) as SlashCommandBuilder,
 
     async execute(interaction: ChatInputCommandInteraction) {
         await interaction.deferReply({ ephemeral: true });
+        // v2.155.6 — the skip message below had promised "force" for a long
+        // time without an option to back it. A scheduled tournament's cleanup
+        // fires only on its cron (Daily Grind: Wednesdays), so without this an
+        // admin had no way to clear a board between fires.
+        const force = interaction.options.getBoolean('force', false) === true;
 
         // v2.120.1 - hard guild gate (see below). An unlinked guild, or a
         // DM, runs no cleanup at all.
@@ -61,8 +70,9 @@ export const runcleanup: Command = {
                 let rule: CleanupRule = { mode: 'retain', count: 0 };
                 try { rule = JSON.parse(t.cleanup_rule || '{}'); } catch {}
 
-                if (rule.mode === 'scheduled') {
-                    results.push(`**${t.name}**: Skipped (scheduled cleanup — use cron or force)`);
+                const scheduled = rule.mode === 'scheduled';
+                if (scheduled && !force) {
+                    results.push(`**${t.name}**: Skipped (scheduled cleanup — runs on its cron; add \`force:true\` to run it now)`);
                     continue;
                 }
 
@@ -71,14 +81,17 @@ export const runcleanup: Command = {
                         `SELECT COUNT(*) as count FROM games WHERE tournament_id = ? AND status = 'COMPLETED'`,
                         t.id
                     );
-                    await engine.runCleanup(t.id, rule);
+                    // A forced scheduled pass is exactly what the cron does:
+                    // hide every completed game (runScheduledCleanup passes
+                    // `immediate` for the same reason).
+                    await engine.runCleanup(t.id, scheduled ? { mode: 'immediate' } : rule);
                     const after = await db.get(
                         `SELECT COUNT(*) as count FROM games WHERE tournament_id = ? AND status = 'COMPLETED'`,
                         t.id
                     );
                     const deleted = (before?.count || 0) - (after?.count || 0);
                     totalDeleted += deleted;
-                    results.push(`**${t.name}** (${rule.mode}): ${deleted} game(s) cleaned up`);
+                    results.push(`**${t.name}** (${rule.mode}${scheduled ? ', forced' : ''}): ${deleted} game(s) cleaned up`);
                 } catch (err) {
                     logError(`Cleanup failed for ${t.name}:`, err);
                     results.push(`**${t.name}**: Error — check logs`);

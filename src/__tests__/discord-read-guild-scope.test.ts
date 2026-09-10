@@ -43,6 +43,7 @@ function makeInteraction(guildId: string | null, overrides: Record<string, unkno
             getString: () => null,
             getUser: () => null,
             getInteger: () => null,
+            getBoolean: () => null,
             getFocused: () => '',
         },
         deferReply: async (_o?: unknown) => {},
@@ -620,6 +621,30 @@ describe('admin commands — guild gate (cross-room WRITE closures)', () => {
         expect(calledIds).not.toContain(b.tournamentId);
         expect(replyText(replies)).toContain('Cup A');
         expect(replyText(replies)).not.toContain('Cup B');
+    });
+
+    it('/run-cleanup skips a scheduled-mode tournament unless force:true, which runs it as an immediate pass', async () => {
+        const a = await seedRoom({ slug: 'cleanup-sched', guildId: GUILD_A, tournamentName: 'Daily Grind', gameName: 'Game S' });
+        const db = await getDatabase();
+        await db.run(
+            `UPDATE tournaments SET cleanup_rule = ? WHERE id = ?`,
+            JSON.stringify({ mode: 'scheduled', cron: '0 22 * * 3', timezone: 'America/Chicago' }), a.tournamentId,
+        );
+        const engine = TournamentEngine.getInstance();
+        const spy = vi.spyOn(engine, 'runCleanup').mockResolvedValue(undefined as never);
+
+        const plain = makeInteraction(GUILD_A);
+        await runcleanup.execute(plain.interaction);
+        expect(spy).not.toHaveBeenCalled();
+        expect(replyText(plain.replies)).toContain('Skipped');
+
+        const forced = makeInteraction(GUILD_A, {
+            options: { getString: () => null, getUser: () => null, getInteger: () => null, getBoolean: () => true, getFocused: () => '' },
+        });
+        await runcleanup.execute(forced.interaction);
+        expect(spy).toHaveBeenCalledTimes(1);
+        expect(spy).toHaveBeenCalledWith(a.tournamentId, { mode: 'immediate' });
+        expect(replyText(forced.replies)).toContain('forced');
     });
 
     it('/run-cleanup in an unlinked guild replies not-linked and cleans nothing', async () => {

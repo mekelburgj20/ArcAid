@@ -52,6 +52,14 @@ September 1, stayed on the Scores page.
   session is opened inside a try/catch: id-bearing rows stay COMPLETED for the next cycle, rows
   that were never on iScored archive regardless, and the rotation-audit row still lands.
 
+### Added
+- **`/run-cleanup force:true`.** The command has always skipped scheduled-mode tournaments with
+  "use cron or force", and there was no force. A scheduled cleanup fires only on its cron (Daily
+  Grind: Wednesdays 22:00 Central), so between fires an admin had no way to clear the board — and
+  after this release the nine stranded Daily Grind cards would otherwise have waited a week. With
+  `force:true` a scheduled tournament runs exactly what its cron runs: every completed game
+  archives now. Slash-command options register globally on boot.
+
 ---
 
 ## [2.155.5] — Game Detail leaderboard rows no longer overlap on a phone
