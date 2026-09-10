@@ -6,6 +6,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.155.6] — Cleanup archives games that were never on iScored
+
+RTX_Pinball, 2026-09-09 22:00 Central (owner screenshot): the Wednesday cleanup for Daily Grind
+ran on schedule and archived nothing. Nine locked Daily Grind cards, one per night since
+September 1, stayed on the Scores page.
+
+### Fixed
+- **Cleanup only ever considered completed games that carry an iScored id.** `runCleanup`'s
+  query was `status = 'COMPLETED' AND iscored_id IS NOT NULL` (sprint 8, when cleanup meant
+  "delete it from iScored"). A room with iScored switched OFF creates every game WITHOUT an
+  iScored id, so those games could never be selected, and the "iScored disabled for room →
+  archive locally" branch added in v2.3.0 sat behind that filter, unreachable for exactly the
+  rows it was written for. The routine also returned silently when it found nothing, so the log
+  showed cleanup starting with no outcome. RTX_Pinball turned iScored off on 2026-08-31: the last
+  game that archived was Red and Ted's Road Show (September 1, the last one created with an id);
+  the nine completed since stayed COMPLETED, and a tournament in `scheduled` cleanup mode shows
+  every COMPLETED game on the board until cleanup archives it. Now every completed game is
+  selected. Games with no iScored id archive locally straight away (there is nothing to delete
+  remotely); games with an id go through the unchanged delete / kill-switch / shared-session
+  paths; no iScored session is opened when nothing remote needs deleting; retain counts apply
+  across both kinds. A pass with nothing to archive logs one line saying so, and the rotation-
+  audit row records how many rows were never on iScored. Latent since v2.3.0. RTX is the first
+  room to combine iScored-off with a retain/scheduled mode that keeps completed games visible;
+  the three Weekly Grinds and three other rooms held the same stranded rows, hidden by their
+  `immediate` / `retain 0` modes. Regression tests in `cleanup-native-games.test.ts`.
+
+---
+
 ## [2.155.5] — Game Detail leaderboard rows no longer overlap on a phone
 
 Owner phone screenshot, 2026-09-06 (RTX_Pinball, Terminator 2, 390px): on the Current Leaderboard

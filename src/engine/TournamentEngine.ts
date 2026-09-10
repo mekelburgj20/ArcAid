@@ -2439,31 +2439,54 @@ export class TournamentEngine {
 
         const retainCount = rule.mode === 'retain' ? rule.count : 0;
 
-        // Get completed games with iScored IDs, newest first
+        // EVERY completed game, newest first. A game that was never created on
+        // iScored carries a NULL iscored_id — the room had iScored switched off
+        // when it activated, or the create failed. It MUST still be selected:
+        // there is nothing to delete remotely, so it archives locally. Pre-v2.155.6
+        // the filter `AND iscored_id IS NOT NULL` hid those rows from cleanup
+        // entirely, so a native-only room accumulated COMPLETED games forever (RTX
+        // Daily Grind, 2026-09-09: nine locked cards, one per night since iScored
+        // was turned off) — and the "iScored disabled for room" branch below could
+        // never reach the rows it was written for.
         const completed = await db.all(`
             SELECT id, name, iscored_id FROM games
-            WHERE tournament_id = ? AND status = 'COMPLETED' AND iscored_id IS NOT NULL
+            WHERE tournament_id = ? AND status = 'COMPLETED'
             ORDER BY end_date DESC
         `, tournamentId);
 
-        // Keep the first `retainCount` visible, hide the rest
+        // Keep the first `retainCount` visible, hide the rest. Say so when there
+        // is nothing to do — a silent return is what made the RTX incident
+        // undiagnosable from the log ("Running scheduled cleanup" and no outcome).
         const toHide = completed.slice(retainCount);
-        if (toHide.length === 0) return;
+        if (toHide.length === 0) {
+            logInfo(`Cleanup for tournament ${tournamentId}: nothing to archive (${completed.length} completed, retaining ${retainCount}).`);
+            return;
+        }
+        // Rows that exist on iScored must be deleted there FIRST and stay COMPLETED
+        // when the delete does not confirm; rows that were never on iScored have
+        // nothing to wait for.
+        const remote = toHide.filter((g) => g.iscored_id != null);
+        const neverOnIScored = toHide.filter((g) => g.iscored_id == null);
 
         // Resolve creds. When called from runMaintenanceWork the caller
         // already has both the registry-managed client and the creds — reuse
         // them. When called standalone (runScheduledCleanup or admin), look
-        // up creds and acquire a session via the registry.
+        // up creds and acquire a session via the registry — but only when there
+        // is something on iScored to delete; a native-only pass never logs in.
         const tournamentRow = await db.get('SELECT game_room_id, name FROM tournaments WHERE id = ?', tournamentId);
         let creds: IScoredCreds | null = sharedCreds ?? null;
-        if (!sharedClient && sharedCreds === undefined) {
+        if (remote.length > 0 && !sharedClient && sharedCreds === undefined) {
             const { getIScoredCredsForRoom } = await import('../utils/iscoredCreds.js');
             creds = await getIScoredCredsForRoom(tournamentRow?.game_room_id);
         }
 
-        const archivable = new Set<string>(); // game.id values confirmed gone from iScored → safe to ARCHIVE
+        // game.id values safe to ARCHIVE: never on iScored, or confirmed gone from it.
+        const archivable = new Set<string>(neverOnIScored.map((g) => g.id));
+        if (neverOnIScored.length > 0) {
+            logInfo(`Cleanup for tournament ${tournamentId}: ${neverOnIScored.length} completed game(s) were never on iScored — archiving locally.`);
+        }
         const deleteAll = async (client: IScoredClient): Promise<void> => {
-            for (const game of toHide) {
+            for (const game of remote) {
                 try {
                     const deleted = await client.deleteGame(game.iscored_id, game.name);
                     if (deleted) {
@@ -2485,14 +2508,16 @@ export class TournamentEngine {
         // maintenance-shared client is left alone too. One WARN per run.
         const deletesAllowed = await iscoredDeletesAllowed(tournamentRow?.game_room_id);
 
-        if (!deletesAllowed) {
-            logWarn(`Cleanup for tournament ${tournamentId} (room ${tournamentRow?.game_room_id ?? 'n/a'}): iScored deletes disabled for this room — archiving locally only (${toHide.length} game(s) stay on iScored).`);
-            toHide.forEach((g) => archivable.add(g.id));
+        if (remote.length === 0) {
+            // Nothing on iScored to delete — no session, no snapshot, no WARN.
+        } else if (!deletesAllowed) {
+            logWarn(`Cleanup for tournament ${tournamentId} (room ${tournamentRow?.game_room_id ?? 'n/a'}): iScored deletes disabled for this room — archiving locally only (${remote.length} game(s) stay on iScored).`);
+            remote.forEach((g) => archivable.add(g.id));
         } else if (sharedClient) {
-            logInfo(`Cleanup for tournament ${tournamentId}: deleting ${toHide.length} completed game(s) from iScored (shared session)`);
+            logInfo(`Cleanup for tournament ${tournamentId}: deleting ${remote.length} completed game(s) from iScored (shared session)`);
             await deleteAll(sharedClient);
         } else if (creds) {
-            logInfo(`Cleanup for tournament ${tournamentId}: deleting ${toHide.length} completed game(s) from iScored`);
+            logInfo(`Cleanup for tournament ${tournamentId}: deleting ${remote.length} completed game(s) from iScored`);
             const cleanupCreds = creds;
             await IScoredSessionRegistry.getInstance().withSession(cleanupCreds, async (client) => {
                 // Standalone cleanup (scheduled cron / admin) opens its own
@@ -2510,11 +2535,12 @@ export class TournamentEngine {
         } else {
             // iScored disabled for the room — nothing to delete remotely, so all
             // completed games can move straight to the ARCHIVED terminal state.
-            logInfo(`Cleanup for tournament ${tournamentId}: marking ${toHide.length} completed game(s) as ARCHIVED (iScored disabled for room)`);
-            toHide.forEach((g) => archivable.add(g.id));
+            logInfo(`Cleanup for tournament ${tournamentId}: marking ${remote.length} completed game(s) as ARCHIVED (iScored disabled for room)`);
+            remote.forEach((g) => archivable.add(g.id));
         }
 
-        // ARCHIVE only the games we CONFIRMED gone from iScored. A failed delete
+        // ARCHIVE only the games we CONFIRMED gone from iScored (or that were
+        // never there). A failed delete
         // stays COMPLETED so the next cleanup cycle retries it. Pre-fix this loop
         // archived unconditionally, which stranded the iScored entity forever —
         // cleanup only ever scans COMPLETED rows, so an ARCHIVED orphan is never
@@ -2581,6 +2607,7 @@ export class TournamentEngine {
                 mode: rule.mode,
                 retainCount,
                 considered: toHide.length,
+                neverOnIScored: neverOnIScored.length,
                 archived: archivedNames.length,
                 archivedGames: archivedNames,
                 iscoredDeletesAllowed: deletesAllowed,
