@@ -86,7 +86,7 @@ export const runcleanup: Command = {
             }
 
             await interaction.editReply(
-                `**Cleanup Complete!**\n\n${results.join('\n')}\n\nTotal: ${totalDeleted} game(s) removed from iScored.`
+                `**Cleanup Complete!**\n\n${results.join('\n')}\n\nTotal: ${totalDeleted} game(s) archived.`
             );
         } catch (error) {
             logError('Error in run-cleanup command:', error);

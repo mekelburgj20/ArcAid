@@ -31,6 +31,26 @@ September 1, stayed on the Scores page.
   room to combine iScored-off with a retain/scheduled mode that keeps completed games visible;
   the three Weekly Grinds and three other rooms held the same stranded rows, hidden by their
   `immediate` / `retain 0` modes. Regression tests in `cleanup-native-games.test.ts`.
+- **Two things the wider selection would otherwise have exposed, caught in review.** (a) Live
+  Event ROUNDS are `games` rows (ADR 0017) and, in an iScored-off room, were unreachable by
+  cleanup only through the bug above; Discord `/run-cleanup` hands every active tournament the
+  default `retain 0` rule, so a mid-event completed round could have been archived and its proof
+  photos purged. The selection now excludes `round_no IS NOT NULL` outright — the event clock owns
+  rounds. (b) The photo purge that runs on archive unlinked the file and nulled `score_history` +
+  `community_scores`, but left the SAME url dangling on the `submissions` best-per-player row and
+  on the Global Scoreboard fan-out (`global_scores` copies the room's url; the file is never
+  duplicated) — 113 `submissions` rows on prod already pointed at photos that no longer existed.
+  Both are now cleared for exactly the unlinked urls. The `/run-cleanup` total reads "archived"
+  instead of "removed from iScored", which it never was for a native room.
+- **The back-to-back-winner block (`allow_dynasty = 0`) looked for the previous slot as
+  COMPLETED only.** An `immediate` / `retain 0` cleanup archives that slot in the same pass that
+  completed it, so the next night's check found nothing and the block never fired for those
+  tournaments — it had only been working for native-only rooms because cleanup could not see
+  their rows, and this fix would have taken that away from the RTX Weekly Grinds. The lookup now
+  accepts ARCHIVED (terminal, submissions intact) and ignores event rounds.
+- **A failed iScored login during a standalone cleanup no longer blocks the local archive.** The
+  session is opened inside a try/catch: id-bearing rows stay COMPLETED for the next cycle, rows
+  that were never on iScored archive regardless, and the rotation-audit row still lands.
 
 ---
 

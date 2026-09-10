@@ -2027,8 +2027,15 @@ export class TournamentEngine {
         winnerId: string | null,
     ): Promise<boolean> {
         if (!winnerId || tournamentRow.allow_dynasty !== 0) return false;
+        // ARCHIVED counts: it is the terminal state of a finished slot and keeps
+        // its submissions. An `immediate` / `retain 0` cleanup archives the
+        // previous slot in the SAME maintenance pass that completed it, so a
+        // COMPLETED-only lookup found nothing the next night and the block never
+        // fired for those tournaments (pre-v2.155.6 it silently worked for
+        // native-only rooms purely because cleanup could not see their rows).
         const prevGame = await db.get(
-            `SELECT id FROM games WHERE tournament_id = ? AND status = 'COMPLETED' AND id != ?
+            `SELECT id FROM games WHERE tournament_id = ? AND status IN ('COMPLETED', 'ARCHIVED')
+               AND round_no IS NULL AND id != ?
              ORDER BY end_date DESC LIMIT 1`,
             tournamentRow.id, activeGame.id,
         );
@@ -2448,9 +2455,17 @@ export class TournamentEngine {
         // Daily Grind, 2026-09-09: nine locked cards, one per night since iScored
         // was turned off) — and the "iScored disabled for room" branch below could
         // never reach the rows it was written for.
+        //
+        // `round_no IS NULL` keeps Live Event ROUNDS out: a round is a `games` row
+        // by design (ADR 0017) and the event clock owns its lifecycle — finishing
+        // sets the tournament inactive and the frozen result is what the page
+        // reads. Events register no maintenance or cleanup cron, but Discord
+        // `/run-cleanup` walks every active tournament with the default
+        // `retain 0` rule; before this filter an iScored-off event's completed
+        // rounds were unreachable only by the accident this fix removes.
         const completed = await db.all(`
             SELECT id, name, iscored_id FROM games
-            WHERE tournament_id = ? AND status = 'COMPLETED'
+            WHERE tournament_id = ? AND status = 'COMPLETED' AND round_no IS NULL
             ORDER BY end_date DESC
         `, tournamentId);
 
@@ -2519,19 +2534,26 @@ export class TournamentEngine {
         } else if (creds) {
             logInfo(`Cleanup for tournament ${tournamentId}: deleting ${remote.length} completed game(s) from iScored`);
             const cleanupCreds = creds;
-            await IScoredSessionRegistry.getInstance().withSession(cleanupCreds, async (client) => {
-                // Standalone cleanup (scheduled cron / admin) opens its own
-                // session — snapshot inside it before anything is deleted. When
-                // cleanup runs INLINE from maintenance the shared-client branch
-                // above is taken and the maintenance snapshot already covers it
-                // (the debounce would skip this one anyway).
-                const { IScoredSnapshotService } = await import('../services/IScoredSnapshotService.js');
-                await IScoredSnapshotService.captureBeforeMutation(
-                    client, cleanupCreds, 'cleanup',
-                    tournamentRow?.game_room_id ? [tournamentRow.game_room_id] : [],
-                );
-                await deleteAll(client);
-            });
+            try {
+                await IScoredSessionRegistry.getInstance().withSession(cleanupCreds, async (client) => {
+                    // Standalone cleanup (scheduled cron / admin) opens its own
+                    // session — snapshot inside it before anything is deleted. When
+                    // cleanup runs INLINE from maintenance the shared-client branch
+                    // above is taken and the maintenance snapshot already covers it
+                    // (the debounce would skip this one anyway).
+                    const { IScoredSnapshotService } = await import('../services/IScoredSnapshotService.js');
+                    await IScoredSnapshotService.captureBeforeMutation(
+                        client, cleanupCreds, 'cleanup',
+                        tournamentRow?.game_room_id ? [tournamentRow.game_room_id] : [],
+                    );
+                    await deleteAll(client);
+                });
+            } catch (err) {
+                // A failed login must not hold the rows that were never on iScored
+                // hostage: they archive below regardless, the id-bearing rows stay
+                // COMPLETED and are retried next cycle, and the audit row still lands.
+                logError(`Cleanup for tournament ${tournamentId}: iScored session failed — ${remote.length} game(s) with an iScored id stay COMPLETED to retry next cycle:`, err);
+            }
         } else {
             // iScored disabled for the room — nothing to delete remotely, so all
             // completed games can move straight to the ARCHIVED terminal state.
@@ -2584,6 +2606,20 @@ export class TournamentEngine {
                         WHERE LOWER(game_name) = LOWER(?) AND game_room_id = ?
                           AND photo_url LIKE '/api/score-photos/%'
                     `, game.name, roomId);
+
+                    // The same file is referenced verbatim by the `submissions`
+                    // best-per-player row and by any Global Scoreboard fan-out
+                    // (GlobalScoreService copies the room's photo_url; the file is
+                    // never duplicated). Pre-v2.155.6 those two references were
+                    // left dangling after the unlink — 113 `submissions` rows on
+                    // prod pointed at photos that no longer existed.
+                    const unlinkedUrls = photoRows.map((row) => row.photo_url as string);
+                    for (let i = 0; i < unlinkedUrls.length; i += 400) {
+                        const chunk = unlinkedUrls.slice(i, i + 400);
+                        const marks = chunk.map(() => '?').join(',');
+                        await db.run(`UPDATE submissions SET photo_url = NULL WHERE photo_url IN (${marks})`, ...chunk);
+                        await db.run(`UPDATE global_scores SET photo_url = NULL WHERE photo_url IN (${marks})`, ...chunk);
+                    }
 
                     if (photoRows.length > 0) {
                         logInfo(`   -> Cleaned up ${photoRows.length} score photo(s) for ${game.name}`);
