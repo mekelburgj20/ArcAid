@@ -6,6 +6,62 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.155.6] — Cleanup archives games that were never on iScored
+
+RTX_Pinball, 2026-09-09 22:00 Central (owner screenshot): the Wednesday cleanup for Daily Grind
+ran on schedule and archived nothing. Nine locked Daily Grind cards, one per night since
+September 1, stayed on the Scores page.
+
+### Fixed
+- **Cleanup only ever considered completed games that carry an iScored id.** `runCleanup`'s
+  query was `status = 'COMPLETED' AND iscored_id IS NOT NULL` (sprint 8, when cleanup meant
+  "delete it from iScored"). A room with iScored switched OFF creates every game WITHOUT an
+  iScored id, so those games could never be selected, and the "iScored disabled for room →
+  archive locally" branch added in v2.3.0 sat behind that filter, unreachable for exactly the
+  rows it was written for. The routine also returned silently when it found nothing, so the log
+  showed cleanup starting with no outcome. RTX_Pinball turned iScored off on 2026-08-31: the last
+  game that archived was Red and Ted's Road Show (September 1, the last one created with an id);
+  the nine completed since stayed COMPLETED, and a tournament in `scheduled` cleanup mode shows
+  every COMPLETED game on the board until cleanup archives it. Now every completed game is
+  selected. Games with no iScored id archive locally straight away (there is nothing to delete
+  remotely); games with an id go through the unchanged delete / kill-switch / shared-session
+  paths; no iScored session is opened when nothing remote needs deleting; retain counts apply
+  across both kinds. A pass with nothing to archive logs one line saying so, and the rotation-
+  audit row records how many rows were never on iScored. Latent since v2.3.0. RTX is the first
+  room to combine iScored-off with a retain/scheduled mode that keeps completed games visible;
+  the three Weekly Grinds and three other rooms held the same stranded rows, hidden by their
+  `immediate` / `retain 0` modes. Regression tests in `cleanup-native-games.test.ts`.
+- **Two things the wider selection would otherwise have exposed, caught in review.** (a) Live
+  Event ROUNDS are `games` rows (ADR 0017) and, in an iScored-off room, were unreachable by
+  cleanup only through the bug above; Discord `/run-cleanup` hands every active tournament the
+  default `retain 0` rule, so a mid-event completed round could have been archived and its proof
+  photos purged. The selection now excludes `round_no IS NOT NULL` outright — the event clock owns
+  rounds. (b) The photo purge that runs on archive unlinked the file and nulled `score_history` +
+  `community_scores`, but left the SAME url dangling on the `submissions` best-per-player row and
+  on the Global Scoreboard fan-out (`global_scores` copies the room's url; the file is never
+  duplicated) — 113 `submissions` rows on prod already pointed at photos that no longer existed.
+  Both are now cleared for exactly the unlinked urls. The `/run-cleanup` total reads "archived"
+  instead of "removed from iScored", which it never was for a native room.
+- **The back-to-back-winner block (`allow_dynasty = 0`) looked for the previous slot as
+  COMPLETED only.** An `immediate` / `retain 0` cleanup archives that slot in the same pass that
+  completed it, so the next night's check found nothing and the block never fired for those
+  tournaments — it had only been working for native-only rooms because cleanup could not see
+  their rows, and this fix would have taken that away from the RTX Weekly Grinds. The lookup now
+  accepts ARCHIVED (terminal, submissions intact) and ignores event rounds.
+- **A failed iScored login during a standalone cleanup no longer blocks the local archive.** The
+  session is opened inside a try/catch: id-bearing rows stay COMPLETED for the next cycle, rows
+  that were never on iScored archive regardless, and the rotation-audit row still lands.
+
+### Added
+- **`/run-cleanup force:true`.** The command has always skipped scheduled-mode tournaments with
+  "use cron or force", and there was no force. A scheduled cleanup fires only on its cron (Daily
+  Grind: Wednesdays 22:00 Central), so between fires an admin had no way to clear the board — and
+  after this release the nine stranded Daily Grind cards would otherwise have waited a week. With
+  `force:true` a scheduled tournament runs exactly what its cron runs: every completed game
+  archives now. Slash-command options register globally on boot.
+
+---
+
 ## [2.155.5] — Game Detail leaderboard rows no longer overlap on a phone
 
 Owner phone screenshot, 2026-09-06 (RTX_Pinball, Terminator 2, 390px): on the Current Leaderboard

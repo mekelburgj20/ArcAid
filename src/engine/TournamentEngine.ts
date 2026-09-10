@@ -2027,8 +2027,15 @@ export class TournamentEngine {
         winnerId: string | null,
     ): Promise<boolean> {
         if (!winnerId || tournamentRow.allow_dynasty !== 0) return false;
+        // ARCHIVED counts: it is the terminal state of a finished slot and keeps
+        // its submissions. An `immediate` / `retain 0` cleanup archives the
+        // previous slot in the SAME maintenance pass that completed it, so a
+        // COMPLETED-only lookup found nothing the next night and the block never
+        // fired for those tournaments (pre-v2.155.6 it silently worked for
+        // native-only rooms purely because cleanup could not see their rows).
         const prevGame = await db.get(
-            `SELECT id FROM games WHERE tournament_id = ? AND status = 'COMPLETED' AND id != ?
+            `SELECT id FROM games WHERE tournament_id = ? AND status IN ('COMPLETED', 'ARCHIVED')
+               AND round_no IS NULL AND id != ?
              ORDER BY end_date DESC LIMIT 1`,
             tournamentRow.id, activeGame.id,
         );
@@ -2439,31 +2446,62 @@ export class TournamentEngine {
 
         const retainCount = rule.mode === 'retain' ? rule.count : 0;
 
-        // Get completed games with iScored IDs, newest first
+        // EVERY completed game, newest first. A game that was never created on
+        // iScored carries a NULL iscored_id — the room had iScored switched off
+        // when it activated, or the create failed. It MUST still be selected:
+        // there is nothing to delete remotely, so it archives locally. Pre-v2.155.6
+        // the filter `AND iscored_id IS NOT NULL` hid those rows from cleanup
+        // entirely, so a native-only room accumulated COMPLETED games forever (RTX
+        // Daily Grind, 2026-09-09: nine locked cards, one per night since iScored
+        // was turned off) — and the "iScored disabled for room" branch below could
+        // never reach the rows it was written for.
+        //
+        // `round_no IS NULL` keeps Live Event ROUNDS out: a round is a `games` row
+        // by design (ADR 0017) and the event clock owns its lifecycle — finishing
+        // sets the tournament inactive and the frozen result is what the page
+        // reads. Events register no maintenance or cleanup cron, but Discord
+        // `/run-cleanup` walks every active tournament with the default
+        // `retain 0` rule; before this filter an iScored-off event's completed
+        // rounds were unreachable only by the accident this fix removes.
         const completed = await db.all(`
             SELECT id, name, iscored_id FROM games
-            WHERE tournament_id = ? AND status = 'COMPLETED' AND iscored_id IS NOT NULL
+            WHERE tournament_id = ? AND status = 'COMPLETED' AND round_no IS NULL
             ORDER BY end_date DESC
         `, tournamentId);
 
-        // Keep the first `retainCount` visible, hide the rest
+        // Keep the first `retainCount` visible, hide the rest. Say so when there
+        // is nothing to do — a silent return is what made the RTX incident
+        // undiagnosable from the log ("Running scheduled cleanup" and no outcome).
         const toHide = completed.slice(retainCount);
-        if (toHide.length === 0) return;
+        if (toHide.length === 0) {
+            logInfo(`Cleanup for tournament ${tournamentId}: nothing to archive (${completed.length} completed, retaining ${retainCount}).`);
+            return;
+        }
+        // Rows that exist on iScored must be deleted there FIRST and stay COMPLETED
+        // when the delete does not confirm; rows that were never on iScored have
+        // nothing to wait for.
+        const remote = toHide.filter((g) => g.iscored_id != null);
+        const neverOnIScored = toHide.filter((g) => g.iscored_id == null);
 
         // Resolve creds. When called from runMaintenanceWork the caller
         // already has both the registry-managed client and the creds — reuse
         // them. When called standalone (runScheduledCleanup or admin), look
-        // up creds and acquire a session via the registry.
+        // up creds and acquire a session via the registry — but only when there
+        // is something on iScored to delete; a native-only pass never logs in.
         const tournamentRow = await db.get('SELECT game_room_id, name FROM tournaments WHERE id = ?', tournamentId);
         let creds: IScoredCreds | null = sharedCreds ?? null;
-        if (!sharedClient && sharedCreds === undefined) {
+        if (remote.length > 0 && !sharedClient && sharedCreds === undefined) {
             const { getIScoredCredsForRoom } = await import('../utils/iscoredCreds.js');
             creds = await getIScoredCredsForRoom(tournamentRow?.game_room_id);
         }
 
-        const archivable = new Set<string>(); // game.id values confirmed gone from iScored → safe to ARCHIVE
+        // game.id values safe to ARCHIVE: never on iScored, or confirmed gone from it.
+        const archivable = new Set<string>(neverOnIScored.map((g) => g.id));
+        if (neverOnIScored.length > 0) {
+            logInfo(`Cleanup for tournament ${tournamentId}: ${neverOnIScored.length} completed game(s) were never on iScored — archiving locally.`);
+        }
         const deleteAll = async (client: IScoredClient): Promise<void> => {
-            for (const game of toHide) {
+            for (const game of remote) {
                 try {
                     const deleted = await client.deleteGame(game.iscored_id, game.name);
                     if (deleted) {
@@ -2485,36 +2523,46 @@ export class TournamentEngine {
         // maintenance-shared client is left alone too. One WARN per run.
         const deletesAllowed = await iscoredDeletesAllowed(tournamentRow?.game_room_id);
 
-        if (!deletesAllowed) {
-            logWarn(`Cleanup for tournament ${tournamentId} (room ${tournamentRow?.game_room_id ?? 'n/a'}): iScored deletes disabled for this room — archiving locally only (${toHide.length} game(s) stay on iScored).`);
-            toHide.forEach((g) => archivable.add(g.id));
+        if (remote.length === 0) {
+            // Nothing on iScored to delete — no session, no snapshot, no WARN.
+        } else if (!deletesAllowed) {
+            logWarn(`Cleanup for tournament ${tournamentId} (room ${tournamentRow?.game_room_id ?? 'n/a'}): iScored deletes disabled for this room — archiving locally only (${remote.length} game(s) stay on iScored).`);
+            remote.forEach((g) => archivable.add(g.id));
         } else if (sharedClient) {
-            logInfo(`Cleanup for tournament ${tournamentId}: deleting ${toHide.length} completed game(s) from iScored (shared session)`);
+            logInfo(`Cleanup for tournament ${tournamentId}: deleting ${remote.length} completed game(s) from iScored (shared session)`);
             await deleteAll(sharedClient);
         } else if (creds) {
-            logInfo(`Cleanup for tournament ${tournamentId}: deleting ${toHide.length} completed game(s) from iScored`);
+            logInfo(`Cleanup for tournament ${tournamentId}: deleting ${remote.length} completed game(s) from iScored`);
             const cleanupCreds = creds;
-            await IScoredSessionRegistry.getInstance().withSession(cleanupCreds, async (client) => {
-                // Standalone cleanup (scheduled cron / admin) opens its own
-                // session — snapshot inside it before anything is deleted. When
-                // cleanup runs INLINE from maintenance the shared-client branch
-                // above is taken and the maintenance snapshot already covers it
-                // (the debounce would skip this one anyway).
-                const { IScoredSnapshotService } = await import('../services/IScoredSnapshotService.js');
-                await IScoredSnapshotService.captureBeforeMutation(
-                    client, cleanupCreds, 'cleanup',
-                    tournamentRow?.game_room_id ? [tournamentRow.game_room_id] : [],
-                );
-                await deleteAll(client);
-            });
+            try {
+                await IScoredSessionRegistry.getInstance().withSession(cleanupCreds, async (client) => {
+                    // Standalone cleanup (scheduled cron / admin) opens its own
+                    // session — snapshot inside it before anything is deleted. When
+                    // cleanup runs INLINE from maintenance the shared-client branch
+                    // above is taken and the maintenance snapshot already covers it
+                    // (the debounce would skip this one anyway).
+                    const { IScoredSnapshotService } = await import('../services/IScoredSnapshotService.js');
+                    await IScoredSnapshotService.captureBeforeMutation(
+                        client, cleanupCreds, 'cleanup',
+                        tournamentRow?.game_room_id ? [tournamentRow.game_room_id] : [],
+                    );
+                    await deleteAll(client);
+                });
+            } catch (err) {
+                // A failed login must not hold the rows that were never on iScored
+                // hostage: they archive below regardless, the id-bearing rows stay
+                // COMPLETED and are retried next cycle, and the audit row still lands.
+                logError(`Cleanup for tournament ${tournamentId}: iScored session failed — ${remote.length} game(s) with an iScored id stay COMPLETED to retry next cycle:`, err);
+            }
         } else {
             // iScored disabled for the room — nothing to delete remotely, so all
             // completed games can move straight to the ARCHIVED terminal state.
-            logInfo(`Cleanup for tournament ${tournamentId}: marking ${toHide.length} completed game(s) as ARCHIVED (iScored disabled for room)`);
-            toHide.forEach((g) => archivable.add(g.id));
+            logInfo(`Cleanup for tournament ${tournamentId}: marking ${remote.length} completed game(s) as ARCHIVED (iScored disabled for room)`);
+            remote.forEach((g) => archivable.add(g.id));
         }
 
-        // ARCHIVE only the games we CONFIRMED gone from iScored. A failed delete
+        // ARCHIVE only the games we CONFIRMED gone from iScored (or that were
+        // never there). A failed delete
         // stays COMPLETED so the next cleanup cycle retries it. Pre-fix this loop
         // archived unconditionally, which stranded the iScored entity forever —
         // cleanup only ever scans COMPLETED rows, so an ARCHIVED orphan is never
@@ -2559,6 +2607,20 @@ export class TournamentEngine {
                           AND photo_url LIKE '/api/score-photos/%'
                     `, game.name, roomId);
 
+                    // The same file is referenced verbatim by the `submissions`
+                    // best-per-player row and by any Global Scoreboard fan-out
+                    // (GlobalScoreService copies the room's photo_url; the file is
+                    // never duplicated). Pre-v2.155.6 those two references were
+                    // left dangling after the unlink — 113 `submissions` rows on
+                    // prod pointed at photos that no longer existed.
+                    const unlinkedUrls = photoRows.map((row) => row.photo_url as string);
+                    for (let i = 0; i < unlinkedUrls.length; i += 400) {
+                        const chunk = unlinkedUrls.slice(i, i + 400);
+                        const marks = chunk.map(() => '?').join(',');
+                        await db.run(`UPDATE submissions SET photo_url = NULL WHERE photo_url IN (${marks})`, ...chunk);
+                        await db.run(`UPDATE global_scores SET photo_url = NULL WHERE photo_url IN (${marks})`, ...chunk);
+                    }
+
                     if (photoRows.length > 0) {
                         logInfo(`   -> Cleaned up ${photoRows.length} score photo(s) for ${game.name}`);
                     }
@@ -2581,6 +2643,7 @@ export class TournamentEngine {
                 mode: rule.mode,
                 retainCount,
                 considered: toHide.length,
+                neverOnIScored: neverOnIScored.length,
                 archived: archivedNames.length,
                 archivedGames: archivedNames,
                 iscoredDeletesAllowed: deletesAllowed,
