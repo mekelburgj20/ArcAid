@@ -186,6 +186,17 @@ export const activategame: Command = {
             }
 
             logInfo(`Admin ${interaction.user.tag} activated ${gameName} for ${tournamentName}`);
+
+            // v2.155.7 — same channel announcement as the admin page and the
+            // pick paths. Skipped when this command was typed in the
+            // announcement channel itself (the public reply below is already
+            // there).
+            engine.announceGameActivated({
+                tournamentId: tournament.id,
+                gameName,
+                skipChannelId: interaction.channelId,
+            }).catch(err => logError('Failed to announce /activate-game activation:', err));
+
             const color = getTournamentColor(tournament.type);
             const embed = new EmbedBuilder()
                 .setTitle(`${term.game} Activated`)

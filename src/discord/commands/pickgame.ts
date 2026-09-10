@@ -351,6 +351,20 @@ export const pickgame: Command = {
                 // Reorder iScored lineup in background
                 if (outcome === 'activated') {
                     engine.reorderIScoredLineup().catch(() => {});
+
+                    // v2.155.7 — the tournament channel gets the same "Now
+                    // Active" embed a web pick posts. The public "Picked!"
+                    // reply below already lands in the INVOKING channel, so
+                    // when that is the announcement channel the helper skips —
+                    // one message, not two.
+                    engine.announceGameActivated({
+                        tournamentId: tournament.id,
+                        gameName: gameName!,
+                        pickerId: userId,
+                        pickerLabel: interaction.user.displayName,
+                        wonGameId: heldPick?.won_game_id ?? null,
+                        skipChannelId: interaction.channelId,
+                    }).catch(err => logError('Failed to announce /pick-game activation:', err));
                 }
 
                 const color = getTournamentColor(tournament.type);
