@@ -1051,7 +1051,7 @@ router.post('/:roomId/pick-game', pickLimiter, requireDiscordUser, requireNotBan
 
         // 7. Check for pending pick slot (user won and has picking rights)
         const pendingPick = await db.get(
-            `SELECT id FROM games WHERE tournament_id = ? AND status = 'QUEUED' AND name = '[Pending Pick]' AND picker_discord_id = ?`,
+            `SELECT id, won_game_id FROM games WHERE tournament_id = ? AND status = 'QUEUED' AND name = '[Pending Pick]' AND picker_discord_id = ?`,
             tournamentId, discordId
         );
 
@@ -1119,6 +1119,19 @@ router.post('/:roomId/pick-game', pickLimiter, requireDiscordUser, requireNotBan
                 if (hasCredentials) {
                     engine.reorderIScoredLineup(roomId).catch(() => {});
                 }
+
+                // v2.155.7 — announce to the tournament channel. Until now a
+                // win pick fulfilled from the WEB was the one activation path
+                // that posted nothing (rtx_pinball Daily Grind, 2026-09-07:
+                // PeteG picked Dr. Dude eleven minutes into his window and
+                // the channel never heard). Fire-and-forget, after the write.
+                engine.announceGameActivated({
+                    tournamentId,
+                    gameName: resolvedName,
+                    pickerId: discordId,
+                    pickerLabel: req.user!.username,
+                    wonGameId: pendingPick.won_game_id ?? null,
+                }).catch(err => logWarn('Failed to announce web pick activation:', err));
 
                 logInfo(`Web pick (activated): ${req.user!.username} picked ${resolvedName} for ${tournament.name}`);
                 return res.json({ status: 'activated', gameName: resolvedName, tournamentName: tournament.name });
@@ -5287,22 +5300,15 @@ router.post('/:roomId/tournaments/:id/activate-game', requireAuth, requireRoomAc
             logInfo(`Admin activated game: ${gameName} for tournament ${tournamentId}`);
             res.json({ success: true, gameId: game.id });
 
-            // Announce activation in Discord
-            const channelId = tournament.discord_channel_id || (await GameRoomSettingsService.get(req.params.roomId as string, 'DISCORD_ANNOUNCEMENT_CHANNEL_ID'));
-            if (channelId) {
-                const { EmbedBuilder } = await import('discord.js');
-                const { sendChannelEmbed, getTournamentColor } = await import('../../utils/discord.js');
-                const color = getTournamentColor(tournament.type);
-                const embed = new EmbedBuilder()
-                    .setTitle(`Now Active: ${gameName}`)
-                    .setDescription(`A new game has been activated for **${tournament.name}**. Get your scores in!`)
-                    .setColor(color)
-                    .setFooter({ text: tournament.name })
-                    .setTimestamp();
-                sendChannelEmbed(channelId, embed).catch(err =>
-                    logWarn('Failed to send activation announcement:', err)
-                );
-            }
+            // Announce activation in Discord — through the shared helper, so
+            // the admin page, web picks and both slash commands post the same
+            // embed (v2.155.7). The helper resolves the channel through
+            // resolveAnnouncementChannelId, which also honours DISCORD_ENABLED
+            // and the per-tournament 'none' sentinel that the hand-rolled
+            // lookup this replaced had bypassed.
+            engine.announceGameActivated({ tournamentId, gameName }).catch(err =>
+                logWarn('Failed to send activation announcement:', err)
+            );
 
             if (hasCredentials) {
                 engine.reorderIScoredLineup().catch(err =>

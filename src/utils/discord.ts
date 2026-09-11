@@ -181,18 +181,31 @@ export async function resolveDiscordUserId(input: string, guildId?: string): Pro
 
 /**
  * Sends a rich embed to a Discord channel via the REST API.
+ *
+ * `pingUserIds` (v2.155.7) repeats those users' mentions in the message
+ * CONTENT with an explicit `allowed_mentions`, so they are notified and the
+ * mention renders on every client. A mention that lives only inside the embed
+ * does neither — see `resolveUserMention`, which supplies the ids.
  */
-export async function sendChannelEmbed(channelId: string, embed: EmbedBuilder): Promise<void> {
+export async function sendChannelEmbed(
+    channelId: string,
+    embed: EmbedBuilder,
+    opts?: { pingUserIds?: string[] },
+): Promise<void> {
     const token = process.env.DISCORD_BOT_TOKEN;
     if (!token) {
         logError('Cannot send Discord embed: DISCORD_BOT_TOKEN is not set.');
         return;
     }
+    const pingUserIds = Array.from(new Set((opts?.pingUserIds ?? []).filter(Boolean)));
+    const body: Record<string, unknown> = { embeds: [embed.toJSON()] };
+    if (pingUserIds.length > 0) {
+        body.content = pingUserIds.map(id => `<@${id}>`).join(' ');
+        body.allowed_mentions = { users: pingUserIds };
+    }
     try {
         const rest = new REST({ version: '10' }).setToken(token);
-        await rest.post(Routes.channelMessages(channelId), {
-            body: { embeds: [embed.toJSON()] },
-        });
+        await rest.post(Routes.channelMessages(channelId), { body });
     } catch (err) {
         logError(`Failed to send embed to channel ${channelId}:`, err);
     }
@@ -298,22 +311,50 @@ export async function fetchDiscordUserInfo(discordUserId: string): Promise<Disco
 }
 
 /**
- * Returns a Discord mention `<@userId>` if mentions are enabled for the room,
- * otherwise returns the fallback display name (plain text, no ping).
+ * How to refer to a player in channel copy (v2.155.7).
+ *
+ * `text` goes into the embed; `pingIds` goes to `sendChannelEmbed`'s
+ * `pingUserIds`, which repeats the mention in the message CONTENT. Both
+ * halves are needed, because a `<@id>` that appears ONLY inside an embed
+ * (a) never notifies anyone — Discord pings on content mentions alone — and
+ * (b) renders as the raw snowflake on any client that hasn't cached the user
+ * (the owner's phone, RTX_Pinball Daily Grind, 2026-09-07: PeteG had logged
+ * in seconds before the rotation). A content mention ships the user object in
+ * the message's `mentions[]`, so it renders everywhere and buzzes the person
+ * it addresses.
+ *
+ * Returns no ping for non-Discord identities and for rooms that have turned
+ * `DISCORD_MENTIONS_ENABLED` off — the same two cases where `text` is a
+ * plain bold name.
  */
-export async function formatUserMention(userId: string, fallbackName: string, gameRoomId?: string | null): Promise<string> {
+export async function resolveUserMention(
+    userId: string,
+    fallbackName: string,
+    gameRoomId?: string | null,
+): Promise<{ text: string; pingIds: string[] }> {
     // Non-Discord identities (e.g. `google:<sub>`) can never be mentioned —
     // always fall back to the plain-bold-name branch.
     if (!isDiscordUserId(userId)) {
-        return `**${fallbackName}**`;
+        return { text: `**${fallbackName}**`, pingIds: [] };
     }
     if (gameRoomId) {
         const setting = await GameRoomSettingsService.get(gameRoomId, 'DISCORD_MENTIONS_ENABLED');
         if (setting === 'false') {
-            return `**${fallbackName}**`;
+            return { text: `**${fallbackName}**`, pingIds: [] };
         }
     }
-    return `<@${userId}>`;
+    return { text: `<@${userId}>`, pingIds: [userId] };
+}
+
+/**
+ * Returns a Discord mention `<@userId>` if mentions are enabled for the room,
+ * otherwise returns the fallback display name (plain text, no ping).
+ *
+ * Prefer `resolveUserMention` for anything that goes into an embed — this
+ * text-only form cannot make the mention ping (see there).
+ */
+export async function formatUserMention(userId: string, fallbackName: string, gameRoomId?: string | null): Promise<string> {
+    return (await resolveUserMention(userId, fallbackName, gameRoomId)).text;
 }
 
 /**

@@ -6,7 +6,7 @@ import { getDatabase } from '../database/database.js';
 import { Tournament, Game, TournamentMode, CadenceConfig, CleanupRule } from '../types/index.js';
 import { logInfo, logError, logWarn } from '../utils/logger.js';
 import { getTerminology } from '../utils/terminology.js';
-import { sendChannelMessage, sendChannelEmbed, getTournamentColor, formatUserMention } from '../utils/discord.js';
+import { sendChannelMessage, sendChannelEmbed, getTournamentColor, resolveUserMention, resolveAnnouncementChannelId } from '../utils/discord.js';
 import { IScoredClient } from './IScoredClient.js';
 import { IScoredSessionRegistry } from './IScoredSessionRegistry.js';
 import { IScoredCreds, iscoredDeletesAllowed } from '../utils/iscoredCreds.js';
@@ -165,6 +165,11 @@ export class TournamentEngine {
      * caller threads it — web pick, admin activate, Discord `/pick-game` and
      * `/activate-game`. The `game_activated` row is written here, on success
      * only, so it can never claim an activation the duplicate guard refused.
+     *
+     * Announces NOTHING. Interactive callers post the channel embed through
+     * `announceGameActivated()` AFTER their transaction commits (v2.155.7) —
+     * a new interactive caller that forgets it is the silent-web-pick bug
+     * (rtx_pinball Daily Grind, 2026-09-07) reborn.
      */
     public async activateGame(tournamentId: string, gameName: string, styleId?: string, iscoredId?: string, completeExisting: boolean = true, audit?: ActivationAudit): Promise<Game> {
         const db = await getDatabase();
@@ -235,6 +240,81 @@ export class TournamentEngine {
         });
 
         return game;
+    }
+
+    /**
+     * Posts the "Now Active" embed for an INTERACTIVE activation — web pick,
+     * Discord `/pick-game`, the admin page, `/activate-game` — to the
+     * tournament's announcement channel (v2.155.7).
+     *
+     * `activateGame()` deliberately does NOT do this itself: three of its four
+     * callers run it inside a transaction, and a Discord round-trip belongs
+     * after COMMIT, not inside it. So every interactive caller calls this once
+     * its write has landed, fire-and-forget. The cron / queue / auto-pick paths
+     * have their own richer copy (winner + whose queue) and never route through
+     * here. Born from the rtx_pinball Daily Grind rotation of 2026-09-07: the
+     * winner fulfilled his pick from the web eleven minutes into his window and
+     * the channel never heard — the web route was the one activation path with
+     * no announcement at all, and the other three each carried a hand-rolled
+     * copy.
+     *
+     * The picker is NAMED, never pinged: this embed is about their action, not
+     * addressed to them, and a bold name renders on every client (the Rotation
+     * embed's `Winner:` line follows the same rule).
+     *
+     * `skipChannelId` is for slash commands that already posted a public reply
+     * into the invoking channel — when that channel IS the announcement channel,
+     * one message is enough.
+     */
+    public async announceGameActivated(opts: {
+        tournamentId: string;
+        gameName: string;
+        /** The player who chose it, when a player did. Absent for admin activations. */
+        pickerId?: string | null;
+        /** Last-resort label when the picker has no profile name (e.g. the login username). */
+        pickerLabel?: string | null;
+        /** The game whose win earned the pick, when it was a win pick. */
+        wonGameId?: string | null;
+        /** Don't post if the resolved announcement channel is this one. */
+        skipChannelId?: string | null;
+    }): Promise<void> {
+        const db = await getDatabase();
+        const tournament = await db.get(
+            'SELECT name, type, game_room_id, discord_channel_id FROM tournaments WHERE id = ?',
+            opts.tournamentId,
+        );
+        if (!tournament) return;
+
+        const channelId = await resolveAnnouncementChannelId(tournament.game_room_id, tournament.discord_channel_id);
+        if (!channelId || (opts.skipChannelId && channelId === opts.skipChannelId)) return;
+
+        let pickedBy: string | null = null;
+        if (opts.pickerId) {
+            const label = await this.labelForPlayer(opts.pickerId);
+            // labelForPlayer bottoms out at the raw id; the caller's login
+            // username is the better last resort.
+            pickedBy = label === opts.pickerId && opts.pickerLabel ? opts.pickerLabel : label;
+        }
+
+        const wonGame = opts.wonGameId
+            ? await db.get('SELECT name FROM games WHERE id = ?', opts.wonGameId).catch(() => null)
+            : null;
+
+        let desc = `**${opts.gameName}** is now active for **${tournament.name}**`;
+        if (pickedBy) {
+            desc += ` — picked by **${pickedBy}**`;
+            if (wonGame?.name) desc += ` after winning **${wonGame.name}**`;
+        }
+        desc += '. Get your scores in!';
+
+        const embed = new EmbedBuilder()
+            .setTitle(`Now Active: ${opts.gameName}`)
+            .setDescription(desc)
+            .setColor(getTournamentColor(tournament.type))
+            .setFooter({ text: tournament.name })
+            .setTimestamp();
+        await sendChannelEmbed(channelId, embed);
+        logInfo(`   -> Announced activation of ${opts.gameName} for ${tournament.name}${pickedBy ? ` (picked by ${pickedBy})` : ''}`);
     }
 
     /**
@@ -1475,7 +1555,14 @@ export class TournamentEngine {
                 ? await (await import('../services/UserProfileService.js')).UserProfileService.getDisplayName(winnerId).catch(() => null)
                 : null;
             const winnerLabel = winnerDisplayName || winnerIscoredName || 'Unknown';
-            const displayName = winnerId ? await formatUserMention(winnerId, winnerLabel, tournamentRow.game_room_id) : (winnerIscoredName ? `\`${winnerIscoredName}\`` : null);
+            // v2.155.7 — the winner line is a RECORD, not an address: a plain
+            // bold name renders identically on every client, where a `<@id>`
+            // inside an embed shows as the raw snowflake until the viewer's
+            // client has that user cached (owner's phone, 2026-09-07). The
+            // ping lives on the embed that actually asks something of the
+            // winner (Pick Needed / Now Active below), so one rotation buzzes
+            // them once.
+            const displayName = winnerId ? `**${winnerLabel}**` : (winnerIscoredName ? `\`${winnerIscoredName}\`` : null);
             let desc = `**Closed:** ${activeGame.name}`;
             if (displayName) {
                 desc += `\n**Winner:** ${displayName}`;
@@ -1575,14 +1662,14 @@ export class TournamentEngine {
         // Next-game selection still honors auto_pick and manual admin paths.
         if (!pickAwardEnabled && winnerId && channelId) {
             const color = getTournamentColor(tournamentRow.type);
-            const winnerMention = await formatUserMention(winnerId, winnerLabel, tournamentRow.game_room_id);
+            const winnerMention = await resolveUserMention(winnerId, winnerLabel, tournamentRow.game_room_id);
             const embed = new EmbedBuilder()
                 .setTitle('Congrats!')
-                .setDescription(`${winnerMention} — great ${term.game}! Thanks for playing.`)
+                .setDescription(`${winnerMention.text} — great ${term.game}! Thanks for playing.`)
                 .setColor(color)
                 .setFooter({ text: tournamentRow.name })
                 .setTimestamp();
-            await sendChannelEmbed(channelId, embed);
+            await sendChannelEmbed(channelId, embed, { pingUserIds: winnerMention.pingIds });
         }
 
         // --- Run the cascade ---
@@ -1769,11 +1856,13 @@ export class TournamentEngine {
                     ? `**${queuedRow.name}** is now active from ${queueOwnerLabel}'s queue.`
                     : `**${queuedRow.name}** is now active from the queue.`;
 
+                let pingUserIds: string[] = [];
                 if (winnerId) {
-                    const winnerMention = await formatUserMention(winnerId, winnerLabel, tournamentRow.game_room_id);
+                    const winnerMention = await resolveUserMention(winnerId, winnerLabel, tournamentRow.game_room_id);
+                    pingUserIds = winnerMention.pingIds;
                     embed.setDescription(announceExtraForQueue
-                        ? `${winnerMention} — congrats on the win! ${announceExtraForQueue} ${activatedClause}`
-                        : `${winnerMention} — congrats on the win! ${activatedClause}`);
+                        ? `${winnerMention.text} — congrats on the win! ${announceExtraForQueue} ${activatedClause}`
+                        : `${winnerMention.text} — congrats on the win! ${activatedClause}`);
                 } else if (winnerIscoredName) {
                     embed.setDescription(announceExtraForQueue
                         ? `**${winnerIscoredName}** wins! ${announceExtraForQueue} ${activatedClause}`
@@ -1782,7 +1871,7 @@ export class TournamentEngine {
                     embed.setDescription(activatedClause);
                 }
                 embed.setFooter({ text: tournamentRow.name });
-                await sendChannelEmbed(channelId, embed);
+                await sendChannelEmbed(channelId, embed, { pingUserIds });
             }
 
             emitGameRotated({
@@ -1918,17 +2007,17 @@ export class TournamentEngine {
 
                 if (channelId) {
                     const color = getTournamentColor(tournamentRow.type);
-                    const pickerMention = await formatUserMention(pickerId, pickerLabel, tournamentRow.game_room_id);
+                    const pickerMention = await resolveUserMention(pickerId, pickerLabel, tournamentRow.game_room_id);
                     const desc = announceExtra
-                        ? `${announceExtra} ${pickerMention} has **${pickWindowMin} minutes** to use \`/pick-game\` to select the next ${term.game} for this slot.`
-                        : `${pickerMention} — you won **${activeGame.name}**! Use \`/pick-game\` within **${pickWindowMin} minutes** to select the next ${term.game} for this slot.`;
+                        ? `${announceExtra} ${pickerMention.text} has **${pickWindowMin} minutes** to use \`/pick-game\` to select the next ${term.game} for this slot.`
+                        : `${pickerMention.text} — you won **${activeGame.name}**! Use \`/pick-game\` within **${pickWindowMin} minutes** to select the next ${term.game} for this slot.`;
                     const embed = new EmbedBuilder()
                         .setTitle(`Pick Needed — ${activeGame.name}`)
                         .setDescription(desc)
                         .setColor(color)
                         .setFooter({ text: tournamentRow.name })
                         .setTimestamp();
-                    await sendChannelEmbed(channelId, embed);
+                    await sendChannelEmbed(channelId, embed, { pingUserIds: pickerMention.pingIds });
                 }
 
                 emitPickerAssigned({

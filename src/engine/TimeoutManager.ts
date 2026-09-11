@@ -3,7 +3,7 @@ import { getDatabase } from '../database/database.js';
 import { logInfo, logError, logWarn } from '../utils/logger.js';
 import { getTerminology } from '../utils/terminology.js';
 import { Game } from '../types/index.js';
-import { sendChannelMessage, sendChannelEmbed, getTournamentColor, formatUserMention } from '../utils/discord.js';
+import { sendChannelMessage, sendChannelEmbed, getTournamentColor, resolveUserMention } from '../utils/discord.js';
 import { TournamentEngine } from './TournamentEngine.js';
 // IScoredClient construction is owned by IScoredSessionRegistry.
 import { v4 as uuidv4 } from 'uuid';
@@ -169,13 +169,13 @@ export class TimeoutManager {
 
             if (channelId) {
                 const color = getTournamentColor(info.type);
-                const pickerMention = await formatUserMention(game.pickerDiscordId!, game.pickerDiscordId!, info.gameRoomId);
+                const pickerMention = await resolveUserMention(game.pickerDiscordId!, game.pickerDiscordId!, info.gameRoomId);
                 const embed = new EmbedBuilder()
                     .setTitle('Pick Reminder')
-                    .setDescription(`${pickerMention}, you have **${minsRemaining} minutes** left to pick the next ${term.game}. Use \`/pick-game\` now!`)
+                    .setDescription(`${pickerMention.text}, you have **${minsRemaining} minutes** left to pick the next ${term.game}. Use \`/pick-game\` now!`)
                     .setColor(color)
                     .setTimestamp();
-                await sendChannelEmbed(channelId, embed);
+                await sendChannelEmbed(channelId, embed, { pingUserIds: pickerMention.pingIds });
             }
 
             await db.run(
@@ -380,13 +380,13 @@ export class TimeoutManager {
             const channelId = await this.getChannelId(game.tournamentId);
             if (channelId) {
                 const color = getTournamentColor(info.type);
-                const runnerUpMention = await formatUserMention(runnerUpId, runnerUpName || 'Runner-up', info.gameRoomId);
+                const runnerUpMention = await resolveUserMention(runnerUpId, runnerUpName || 'Runner-up', info.gameRoomId);
                 const embed = new EmbedBuilder()
                     .setTitle(`⏰ Winner Timed Out`)
-                    .setDescription(`${runnerUpMention} — as the runner-up, you now have **${runnerUpWindowMin} minutes** to pick the next ${term.game}. Use \`/pick-game\`!`)
+                    .setDescription(`${runnerUpMention.text} — as the runner-up, you now have **${runnerUpWindowMin} minutes** to pick the next ${term.game}. Use \`/pick-game\`!`)
                     .setColor(color)
                     .setTimestamp();
-                await sendChannelEmbed(channelId, embed);
+                await sendChannelEmbed(channelId, embed, { pingUserIds: runnerUpMention.pingIds });
             }
 
             // v2.70.0 — the pivot hands a REAL, short pick obligation to someone

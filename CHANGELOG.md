@@ -6,6 +6,45 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.155.7] — Win picks announce to the channel; mentions actually ping
+
+RTX_Pinball Daily Grind, 2026-09-07 20:00 PT (owner report, phone screenshot). PeteG won Scared
+Stiff, got the "Pick Needed" embed, and picked **Dr. Dude and His Excellent Ray** from the web
+Picks page eleven minutes into his fifteen-minute window. Two things were wrong with what the
+channel saw.
+
+### Fixed
+- **A win pick fulfilled from the WEB posted nothing to the channel.** `POST /:roomId/pick-game`
+  activated the game and returned JSON; `activateGame()` itself never announces (three of its
+  callers run it inside a transaction). The cron promotion, auto-pick and the admin page each
+  carried a hand-rolled "Now Active" embed; the Discord `/pick-game` reply lands only in the
+  channel the command was typed in. Now ONE helper, `TournamentEngine.announceGameActivated`,
+  posts "Now Active: *game* — picked by **Name** after winning *game*. Get your scores in!" to the
+  tournament's announcement channel — resolved through `resolveAnnouncementChannelId`, so
+  `DISCORD_ENABLED` and the per-tournament `'none'` sentinel are honoured (the admin page's copy
+  had bypassed both) — and every interactive activation calls it after COMMIT: web pick, Discord
+  `/pick-game`, the admin page, `/activate-game`. The two slash commands skip it when typed in the
+  announcement channel itself, where their public reply already sits.
+- **Winner / picker mentions never pinged, and rendered as the raw `<@1452…>` on a cold mobile
+  cache.** Every mention lived only inside an embed description. Discord notifies on CONTENT
+  mentions alone, and resolves embed mentions from the viewer's local user cache — PeteG had
+  logged in seconds before the rotation, the owner's phone had never seen him, so it showed the
+  snowflake until a refresh. PeteG has no DM opt-ins (`notification_prefs = {}`,
+  `NOTIFY_HIGH_VALUE_DEFAULT_ON` unset), so nothing at all had told him he had fifteen minutes; he
+  picked because he happened to be on the site. `sendChannelEmbed` now takes `pingUserIds`, which
+  repeats the mention in the message content with an explicit `allowed_mentions`: the person is
+  notified, and the client receives their user object in `mentions[]`, so it renders everywhere.
+  `resolveUserMention` supplies `{ text, pingIds }` (empty for non-Discord identities and rooms
+  with `DISCORD_MENTIONS_ENABLED='false'`, exactly as before). Wired on every embed that ADDRESSES
+  someone: Pick Needed, the cascade "congrats on the win" Now Active, the pick-award-off Congrats,
+  the Pick Reminder, and Winner Timed Out.
+- **The Rotation record's `Winner:` line is now a plain bold name**, not a mention. It is a record,
+  not an address — the ping belongs on the Pick Needed / Now Active embed that follows a second
+  later, so one rotation buzzes the winner once, and a bold name renders on every client. The
+  activation announcement names its picker the same way (nobody is pinged for their own action).
+
+---
+
 ## [2.155.6] — Cleanup archives games that were never on iScored
 
 RTX_Pinball, 2026-09-09 22:00 Central (owner screenshot): the Wednesday cleanup for Daily Grind
