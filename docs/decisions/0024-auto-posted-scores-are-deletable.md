@@ -92,7 +92,10 @@ nothing. `VpxIngestResult.status = 'suppressed'` exists server-side only.
 - `recordGlobal` now writes `source = 'vpx'`. Rows written before this change still carry NULL and
   are NOT backfilled: a photo-less, source-less `origin_type = 'global'` vpx/atgames row can also
   come from the OAuth draft commit (a global-target draft does not require a photo), so the shape
-  does not prove a cabinet wrote it. Deleting one of those legacy rows writes no tombstone.
+  does not prove a cabinet wrote it. Deleting one of those legacy rows writes no tombstone, but
+  the replay is still refused: `recordGlobal` treats a SOFT-DELETED row with the same game,
+  player and score as the record of removal, whatever wrote it (an admin restore clears
+  `deleted_at` and the normal duplicate check applies again).
 - **Identity changes move the owner key.** The key is captured at delete time. An unlinked AtGames
   row deleted as `atgames:<id>` is not matched once that account is linked (the next pull writes
   the linked account as the owner), and vice versa; a merge or identity link that re-points

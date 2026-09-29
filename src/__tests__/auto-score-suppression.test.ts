@@ -347,6 +347,64 @@ describe('auto-posted VPX scores on the Global Scoreboard', () => {
     });
 });
 
+describe('legacy cabinet rows on the Global Scoreboard (source NULL, pre-v2.156.0)', () => {
+    let app: express.Express;
+    let token: string;
+    let globalGameId: string;
+
+    beforeEach(async () => {
+        app = await createTestApp();
+        token = await pairDevice(app);
+        globalGameId = await seedCatalogue('Bad Cats', 'Williams', 1989);
+    });
+
+    it('treats a soft-deleted row as the record of removal, until an admin restores it', async () => {
+        // Written the way `recordGlobal` wrote cabinet rows before v2.156.0.
+        const legacy = await GlobalScoreService.submit({
+            globalGameId, playerId: USER, iscoredUsername: USER, score: 8366650,
+            originType: 'global', platform: 'vpxs', engine: 'vpx', device: 'atgames',
+        });
+        const db = await getDatabase();
+        expect((await db.get<{ source: string | null }>(
+            `SELECT source FROM global_scores WHERE id = ?`, legacy.id,
+        ))!.source).toBeNull();
+
+        expect(await GlobalScoreService.softDelete(legacy.id, USER)).toBe(true);
+        // A NULL-source row gives the delete nothing to tombstone on.
+        expect(await count(`SELECT COUNT(*) AS n FROM auto_score_suppressions`)).toBe(0);
+
+        const replay = await request(app).get('/api/witness/score').query({ device: DEVICE, token, ...scoreQuery() });
+        expect(replay.body.status).toBe('duplicate');
+        expect(await count(`SELECT COUNT(*) AS n FROM global_scores`)).toBe(1);
+
+        const result = await VpxScoreIngestService.ingest({
+            canonicalUserId: USER,
+            target: { roomId: null, tournamentId: null, globalFallback: true },
+            tableName: 'Bad Cats (Williams 1989)', rom: 'bcats_l5', slug: 'vpx-badcats',
+            score: 8366650, startedTs: ENDED - 300, endedTs: ENDED,
+        });
+        expect(result.status).toBe('suppressed');
+
+        expect(await GlobalScoreService.restore(legacy.id)).toBe(true);
+        const again = await request(app).get('/api/witness/score').query({ device: DEVICE, token, ...scoreQuery() });
+        expect(again.body.status).toBe('global_duplicate');
+        expect(await count(`SELECT COUNT(*) AS n FROM global_scores`)).toBe(1);
+    });
+
+    it('still lands a DIFFERENT score for the same player and game', async () => {
+        const legacy = await GlobalScoreService.submit({
+            globalGameId, playerId: USER, iscoredUsername: USER, score: 8366650,
+            originType: 'global', platform: 'vpxs', engine: 'vpx', device: 'atgames',
+        });
+        await GlobalScoreService.softDelete(legacy.id, USER);
+
+        const other = await request(app).get('/api/witness/score')
+            .query({ device: DEVICE, token, ...scoreQuery({ score: 9100000 }) });
+        expect(other.body.status).toBe('global');
+        expect(await count(`SELECT COUNT(*) AS n FROM global_scores WHERE deleted_at IS NULL AND score = 9100000`)).toBe(1);
+    });
+});
+
 describe('auto-posted AtGames scores — preview and pull agree about a deleted play', () => {
     let roomId: string;
     let tournamentId: string;

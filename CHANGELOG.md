@@ -39,7 +39,8 @@ VPX ingest writes straight to the Global Scoreboard. ADR 0024.
 - Cabinet leftovers recorded on the Global Scoreboard are now written with `source='vpx'`. Older
   rows keep their NULL source — the shape alone cannot prove a cabinet wrote them (a global
   submit that went through the login round-trip can also be photo-less), so they are not
-  backfilled.
+  backfilled. A deleted one still stays deleted: the cabinet's Global path refuses any play that
+  matches a deleted Global row for the same player, game and score, until an admin restores it.
 - Deleting or correcting a `vpx`/`atgames` row no longer writes the iScored tombstone
   (`deleted_score_suppressions`): these scores never go to iScored, and that table's
   highest-score threshold would have hidden unrelated lower synced scores.

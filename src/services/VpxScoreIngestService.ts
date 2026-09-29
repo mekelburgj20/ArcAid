@@ -408,6 +408,27 @@ export class VpxScoreIngestService {
 
         const username = await VpxScoreIngestService.resolvePlayerName(input.canonicalUserId, null);
 
+        // v2.156.0 (ADR 0024) — a SOFT-DELETED row for this player, game and
+        // score is itself the record that this score was removed, whatever
+        // wrote it, so the cabinet must not re-post it. This covers the
+        // cabinet rows written with a NULL source before v2.156.0 (which get
+        // no tombstone on delete) without guessing at a backfill. An admin
+        // restore clears `deleted_at`, after which the duplicate check below
+        // applies as normal.
+        const removed = await db.get<{ id: string }>(
+            `SELECT id FROM global_scores
+              WHERE global_game_id = ? AND player_id = ? AND score = ? AND deleted_at IS NOT NULL
+              LIMIT 1`,
+            game.id, input.canonicalUserId, score,
+        );
+        if (removed) {
+            logInfo(
+                `VPX ingest: suppressed ${input.canonicalUserId} ${score} on "${game.name}" ` +
+                `— a deleted Global Scoreboard row already records this score as removed`,
+            );
+            return { status: 'suppressed', reason: 'the player deleted this score', gameName: game.name };
+        }
+
         // Idempotency: the device retries a report whose answer it never saw,
         // and a re-pull re-reads the same jsonl lines. Global has no
         // ScoreHistoryService.isDuplicate of its own, so the same predicate is
