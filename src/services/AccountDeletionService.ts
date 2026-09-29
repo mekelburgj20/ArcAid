@@ -265,6 +265,13 @@ export class AccountDeletionService {
             // only null the actor.
             await anon('deleted_score_suppressions',
                 'UPDATE deleted_score_suppressions SET deleted_by_user_id = NULL WHERE deleted_by_user_id = ?', id);
+            // Same intent for the auto-posted-score tombstone (v2.156.0, ADR
+            // 0024): KEEP the rows — deleting one would let the cabinet's next
+            // replay resurrect the play — and only null the actor. `owner_key`
+            // is deliberately left alone: it IS the match key, and blanking it
+            // would switch the suppression off.
+            await anon('auto_score_suppressions',
+                'UPDATE auto_score_suppressions SET deleted_by_user_id = NULL WHERE deleted_by_user_id = ?', id);
 
             // --- DELETE-OUTRIGHT identity / session ---
             await del('user_profiles', 'DELETE FROM user_profiles WHERE discord_user_id = ?', id);

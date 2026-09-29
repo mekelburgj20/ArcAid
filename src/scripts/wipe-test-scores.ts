@@ -71,6 +71,7 @@ const WIPE_TABLES = [
     'player_achievements',
     'player_milestones_fired',
     'deleted_score_suppressions',
+    'auto_score_suppressions',
     'lobby_feed_events',
     'submission_drafts',
     'room_events',

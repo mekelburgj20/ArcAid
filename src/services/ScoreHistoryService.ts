@@ -4,6 +4,7 @@ import { RoomMembershipService } from './RoomMembershipService.js';
 import { UNKNOWN } from '../utils/scoreProvenance.js';
 import { deleteScorePhotoFiles } from '../utils/scorePhotoCleanup.js';
 import { logInfo, logDebug } from '../utils/logger.js';
+import { AutoScoreSuppressionService, isAutoScoreSource } from './AutoScoreSuppressionService.js';
 
 /** A `score_history` row as the per-row delete machinery needs to see it. */
 export interface DeletableScoreRow {
@@ -20,6 +21,15 @@ export interface DeletableScoreRow {
     verified_at?: string | null;
     /** The tournament window this score was submitted during, if any. */
     submitted_during_tournament_id?: string | null;
+    /**
+     * v2.156.0 — needed to tombstone an AUTO-POSTED row (ADR 0024): for
+     * `'vpx'`/`'atgames'` rows `created_at` holds the play's own timestamp
+     * (launcher game end / AtGames submit time), and `discord_user_id` is the
+     * owner key when the row has no `submitted_by_user_id` (an unlinked
+     * `atgames:<id>`).
+     */
+    created_at?: string | null;
+    discord_user_id?: string | null;
 }
 
 export class ScoreHistoryService {
@@ -67,7 +77,29 @@ export class ScoreHistoryService {
          * its own tournament id, never saw the score at all.
          */
         tournamentId?: string | null;
+        /**
+         * v2.156.0 (ADR 0024) — for an AUTO-POSTED score (`'vpx'` /
+         * `'atgames'`) a play somebody DELETED also counts as "already had":
+         * the answer comes from `AutoScoreSuppressionService.isSuppressed`,
+         * the one predicate every ingest check shares, so the AtGames dry run
+         * and the real pull cannot disagree about it. `ownerKey` is whose play
+         * it is (`submitted_by_user_id`, else the raw `discord_user_id`) and
+         * `createdAt` is the play's own timestamp. A caller that passes no
+         * `source` behaves exactly as before this existed.
+         */
+        source?: string;
+        ownerKey?: string | null;
+        createdAt?: string | null;
     }): Promise<boolean> {
+        if (isAutoScoreSource(params.source) && await AutoScoreSuppressionService.isSuppressed({
+            source: params.source,
+            ownerKey: params.ownerKey ?? null,
+            gameNames: [params.gameName],
+            score: params.score,
+            playedAt: params.createdAt ?? null,
+        })) {
+            return true;
+        }
         const db = await getDatabase();
         const constrainTournament = params.tournamentId !== undefined;
         const existing = await db.get(
@@ -197,9 +229,17 @@ export class ScoreHistoryService {
 
         // v2.125.1: returns the new row's id (null when deduped) so the submit
         // path can exclude it from the "previous best" computation.
-        if (await ScoreHistoryService.isDuplicate({ ...params, tournamentId: submittedTournamentId })) return null;
-
         const submittedByUserId = normalizeSubmitterUserId(params.discordUserId);
+        // `ownerKey` mirrors the rule the delete paths use to write a tombstone
+        // (`submitted_by_user_id`, else the raw `discord_user_id`), so an
+        // auto-posted replay is recognised as the play that was deleted.
+        if (await ScoreHistoryService.isDuplicate({
+            ...params,
+            tournamentId: submittedTournamentId,
+            ownerKey: submittedByUserId ?? params.discordUserId ?? null,
+            createdAt: params.createdAt ?? null,
+        })) return null;
+
         const submittedByAnonymousName =
             params.anonymousName ?? (submittedByUserId ? null : params.username);
 
@@ -245,7 +285,7 @@ export class ScoreHistoryService {
         return db.get<DeletableScoreRow>(
             `SELECT id, game_room_id, game_id, game_name, iscored_username, score,
                     source, submitted_by_user_id, photo_url, verified_at,
-                    submitted_during_tournament_id
+                    submitted_during_tournament_id, created_at, discord_user_id
              FROM score_history WHERE id = ?`,
             historyId,
         );
@@ -271,8 +311,44 @@ export class ScoreHistoryService {
      * global_scores fan-out). Both are best-effort and CONSERVATIVE — an
      * ambiguous match deletes nothing.
      */
+    /**
+     * v2.156.0 (ADR 0024) — tombstone an AUTO-POSTED row's play so the next
+     * cabinet replay / AtGames pull cannot re-create it. A no-op for every
+     * other source. `score` overrides the row's value (a correction tombstones
+     * the OLD value, which is what the replay would re-send).
+     *
+     * Every delete/correct path that removes or rewrites a `'vpx'`/`'atgames'`
+     * `score_history` row calls this — `deleteEvent`, `correctScore`, and the
+     * admin "wipe player from game" route.
+     */
+    static async recordAutoSuppressionForRow(
+        row: Pick<DeletableScoreRow, 'source' | 'submitted_by_user_id' | 'discord_user_id' | 'game_name' | 'score' | 'created_at' | 'game_room_id'>,
+        actorId: string | null,
+        score: number = row.score,
+    ): Promise<void> {
+        if (!isAutoScoreSource(row.source)) return;
+        const ownerKey = row.submitted_by_user_id || row.discord_user_id;
+        if (!ownerKey) return;
+        await AutoScoreSuppressionService.record({
+            source: row.source,
+            ownerKey,
+            gameName: row.game_name,
+            score,
+            playedAt: row.created_at ?? null,
+            gameRoomId: row.game_room_id,
+            deletedBy: actorId,
+        });
+    }
+
     static async deleteEvent(row: DeletableScoreRow, actorId: string): Promise<void> {
         const db = await getDatabase();
+        const autoPosted = isAutoScoreSource(row.source);
+        // v2.156.0 (ADR 0024) — an auto-posted play is tombstoned BEFORE the
+        // row goes, so there is no window in which a concurrent replay could
+        // slip back in between the delete and the tombstone.
+        if (autoPosted) {
+            await this.recordAutoSuppressionForRow(row, actorId);
+        }
         await db.run('DELETE FROM score_history WHERE id = ?', row.id);
 
         // S12: remove the score's evidence photo from disk now that its row is
@@ -322,7 +398,13 @@ export class ScoreHistoryService {
         // iScored too (IScoredSubmitSync), so on a mirrored board the poller
         // would re-import a deleted community score just the same. On rooms
         // with iScored off the tombstone is inert — cheap insurance either way.
-        if (resolvedGameId) {
+        //
+        // v2.156.0 (ADR 0024) — NOT for auto-posted rows ('vpx'/'atgames'):
+        // those are never pushed to iScored, so there is nothing for the
+        // poller to re-import, and this table's MAX-score threshold would
+        // suppress every unrelated LOWER synced score the player posts on
+        // this game later. Their tombstone is the play-scoped one above.
+        if (resolvedGameId && !autoPosted) {
             await db.run(
                 `INSERT INTO deleted_score_suppressions
                     (game_id, iscored_username_lower, suppressed_score, deleted_at, deleted_by_user_id)
@@ -510,6 +592,13 @@ export class ScoreHistoryService {
         const db = await getDatabase();
         const oldScore = row.score;
 
+        // v2.156.0 (ADR 0024) — an auto-posted row's replay would re-send the
+        // ORIGINAL value and land it next to the corrected one, so the old
+        // value's play is tombstoned (same played_at). Unlike the iScored
+        // guard below this applies in both directions: the replay always
+        // carries the old number, whichever way it was corrected.
+        await this.recordAutoSuppressionForRow(row, actorId, oldScore);
+
         // Both twin lookups match on the OLD score, so they run BEFORE the update.
         const communityTwinId = row.source === 'community'
             ? await this.findCommunityScoreTwinId(row)
@@ -535,7 +624,10 @@ export class ScoreHistoryService {
         const resolvedGameId = await this.resolveGameIdForRow(row);
 
         let suppressedAt: number | null = null;
-        if (resolvedGameId && newScore < oldScore && await this.roomSyncsToIScored(row.game_room_id)) {
+        // Auto-posted rows are never pushed to iScored (ADR 0024) — their
+        // replay guard is the play-scoped tombstone written above instead.
+        if (resolvedGameId && newScore < oldScore && !isAutoScoreSource(row.source)
+            && await this.roomSyncsToIScored(row.game_room_id)) {
             await db.run(
                 `INSERT INTO deleted_score_suppressions
                     (game_id, iscored_username_lower, suppressed_score, deleted_at, deleted_by_user_id)
@@ -768,7 +860,13 @@ export class ScoreHistoryService {
             const id = await this.findFannedOutGlobalScoreId(row);
             if (id === null) return;
             const { GlobalScoreService } = await import('./GlobalScoreService.js');
-            const ok = await GlobalScoreService.softDelete(id, actorId);
+            // An auto-posted room row has ALREADY been tombstoned with its exact
+            // play time by `deleteEvent`; letting the global soft-delete add its
+            // own time-unknown tombstone would widen the suppression to every
+            // future play of this table at this exact score.
+            const ok = await GlobalScoreService.softDelete(id, actorId, {
+                suppressReplay: !isAutoScoreSource(row.source),
+            });
             if (ok) logInfo(`Global fan-out cleanup: global_scores#${id} soft-deleted with score_history#${row.id}`);
         } catch (err) {
             logDebug(`Global fan-out cleanup failed for score_history#${row.id}: ${err instanceof Error ? err.message : String(err)}`);

@@ -53,3 +53,6 @@ You do **not** need an ADR for routine bug fixes, code style preferences, or any
 | 0019 | [Engine-scoped VR availability](0019-engine-scoped-vr-availability.md) | accepted | 2026-08-27 |
 | 0020 | [Arcaid Witness: verify-join on exit ≈ created](0020-arcaid-witness-verify-join.md) | accepted | 2026-08-28 |
 | 0021 | [Arcaid Witness: three tiers of verification](0021-witness-three-tier-verification.md) | accepted | 2026-08-29 |
+| 0022 | [VPXS scores come from the launcher, and the game files its own observation](0022-vpxs-scores-from-the-launcher.md) | accepted | 2026-08-31 |
+| 0023 | [Every score reaches the Global Scoreboard, unless the player opts out](0023-every-score-reaches-the-global-scoreboard.md) | accepted | 2026-09-01 |
+| 0024 | [Auto-posted scores are deletable, and the delete survives the replay](0024-auto-posted-scores-are-deletable.md) | accepted | 2026-09-28 |

@@ -12,7 +12,7 @@ import { useRoom } from '../contexts/RoomContext';
 import { getSocket } from '../lib/websocket';
 import { useLiveRefresh } from '../hooks/useLiveRefresh';
 import { decodeViewerClaims, isRoomAdminFor } from '../lib/viewerClaims';
-import { canDeleteRow, deleteScoreHistory } from '../lib/scoreDelete';
+import { canDeleteRow, deleteConfirmText, deleteScoreHistory } from '../lib/scoreDelete';
 import { canCorrectRow, correctScoreHistory } from '../lib/scoreCorrect';
 import CorrectScoreModal from '../components/CorrectScoreModal';
 import { formatScore, scoreTitle, parseServerDate } from '../lib/format';
@@ -2059,7 +2059,7 @@ export default function GameDetail() {
       {pendingDeleteEntry && (
         <ConfirmModal
           title="Delete score"
-          message={`Delete this score (${pendingDeleteEntry.score.toLocaleString()})?`}
+          message={deleteConfirmText(`Delete this score (${pendingDeleteEntry.score.toLocaleString()})?`, pendingDeleteEntry)}
           confirmLabel="Delete"
           onConfirm={() => {
             const entry = pendingDeleteEntry;
@@ -2074,7 +2074,7 @@ export default function GameDetail() {
       {pendingDeleteRanked && (
         <ConfirmModal
           title="Delete score"
-          message={`Delete this score (${pendingDeleteRanked.score.toLocaleString()})?`}
+          message={deleteConfirmText(`Delete this score (${pendingDeleteRanked.score.toLocaleString()})?`, pendingDeleteRanked)}
           confirmLabel="Delete"
           onConfirm={() => {
             const entry = pendingDeleteRanked;

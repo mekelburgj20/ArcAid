@@ -99,7 +99,13 @@ export type VpxIngestResult = {
      * failure: a player who has configured nothing can still fire up any table
      * and have it count towards their own record.
      */
-    status: 'ingested' | 'duplicate' | 'global' | 'global_duplicate' | 'no_match' | 'invalid';
+    /**
+     * `'suppressed'` (v2.156.0, ADR 0024) — the player deleted this exact play
+     * and the cabinet is replaying it. Nothing is written anywhere, and the
+     * wire answer to the device is `'duplicate'` (a status its contract
+     * already knows), never a new value.
+     */
+    status: 'ingested' | 'duplicate' | 'global' | 'global_duplicate' | 'no_match' | 'invalid' | 'suppressed';
     reason?: string;
     gameId?: string;
     gameName?: string;
@@ -157,6 +163,40 @@ function toSqliteUtc(epochSec: number): string {
 }
 
 export class VpxScoreIngestService {
+    /**
+     * The three names the device sends for one table — journal display name,
+     * `rom`, and the folder slug turned back into words. `nameKeys` (matching)
+     * and the suppression check both start from this ONE list.
+     */
+    private static deviceNames(input: VpxScoreInput): string[] {
+        return [
+            input.tableName,
+            input.rom ?? '',
+            (input.slug ?? '').replace(/^vpx-/, '').replace(/[-_]+/g, ' '),
+        ];
+    }
+
+    /** Was this exact play deleted by its owner? (ADR 0024 — the ONE predicate.) */
+    private static async isSuppressedPlay(
+        input: VpxScoreInput, score: number, names: string[], playedAt: string,
+    ): Promise<boolean> {
+        const { AutoScoreSuppressionService } = await import('./AutoScoreSuppressionService.js');
+        const suppressed = await AutoScoreSuppressionService.isSuppressed({
+            source: 'vpx',
+            ownerKey: input.canonicalUserId,
+            gameNames: names,
+            score,
+            playedAt,
+        });
+        if (suppressed) {
+            logInfo(
+                `VPX ingest: suppressed ${input.canonicalUserId} ${score} on "${input.tableName}" ` +
+                `(ended ${playedAt}) — the player deleted this play`,
+            );
+        }
+        return suppressed;
+    }
+
     static async ingest(input: VpxScoreInput): Promise<VpxIngestResult> {
         const score = Math.floor(Number(input.score));
         if (!Number.isFinite(score) || score <= 0) {
@@ -173,13 +213,23 @@ export class VpxScoreIngestService {
         // simply wrong — FINDINGS-0s), and the folder slug. Normalising all
         // three and accepting a hit on any is what makes the match survive
         // that heterogeneity.
-        const needles = nameKeys([
-            input.tableName,
-            input.rom ?? '',
-            (input.slug ?? '').replace(/^vpx-/, '').replace(/[-_]+/g, ' '),
-        ]);
+        const deviceNames = VpxScoreIngestService.deviceNames(input);
+        const needles = nameKeys(deviceNames);
         if (needles.size === 0) {
             return { status: 'no_match', reason: 'no usable table name on the record' };
+        }
+
+        // v2.156.0 (ADR 0024) — a play the player DELETED stays deleted. The
+        // cabinet replays up to seven days of score files whenever it restarts
+        // or is re-paired, so this check runs before ANY destination is chosen:
+        // a play deleted from a room board must not reappear on the Global
+        // Scoreboard once the table has rotated off the card. Checked with the
+        // three names the device sent (the same list `needles` is built from);
+        // the room path adds the matched game's name and `recordGlobal` the
+        // catalogue name, since either is what a delete there would have keyed.
+        const playedAt = toSqliteUtc(Math.floor(input.endedTs));
+        if (await VpxScoreIngestService.isSuppressedPlay(input, score, deviceNames, playedAt)) {
+            return { status: 'suppressed', reason: 'the player deleted this score' };
         }
 
         const routing = input.target ?? { roomId: null, tournamentId: null, globalFallback: true };
@@ -221,6 +271,14 @@ export class VpxScoreIngestService {
         }
         const target = pool[0]!;
 
+        if (await VpxScoreIngestService.isSuppressedPlay(input, score, [...deviceNames, target.name], playedAt)) {
+            return {
+                status: 'suppressed', reason: 'the player deleted this score',
+                gameId: target.id, gameName: target.name,
+                gameRoomId: target.game_room_id, tournamentId: target.tournament_id,
+            };
+        }
+
         const username = await VpxScoreIngestService.resolvePlayerName(
             input.canonicalUserId, target.game_room_id,
         );
@@ -242,7 +300,7 @@ export class VpxScoreIngestService {
             device: 'atgames',
             // The launcher's timestamp, not ours — the same discipline the
             // AtGames path follows, and what makes the witness join possible.
-            createdAt: toSqliteUtc(Math.floor(input.endedTs)),
+            createdAt: playedAt,
         });
 
         if (id == null) {
@@ -337,6 +395,17 @@ export class VpxScoreIngestService {
         }
         const game = candidates[0]!;
 
+        // The catalogue name is what a Global Scoreboard delete keyed its
+        // tombstone on, and what a room delete keyed it on when the room used
+        // the catalogue's name — the device's own names may not normalise to it
+        // (a launcher slug has no spaces).
+        if (await VpxScoreIngestService.isSuppressedPlay(
+            input, score, [...VpxScoreIngestService.deviceNames(input), game.name],
+            toSqliteUtc(Math.floor(input.endedTs)),
+        )) {
+            return { status: 'suppressed', reason: 'the player deleted this score', gameName: game.name };
+        }
+
         const username = await VpxScoreIngestService.resolvePlayerName(input.canonicalUserId, null);
 
         // Idempotency: the device retries a report whose answer it never saw,
@@ -364,6 +433,10 @@ export class VpxScoreIngestService {
                 platform: 'vpxs',
                 engine: 'vpx',
                 device: 'atgames',
+                // v2.156.0 — these rows used to be written with a NULL source,
+                // which left them indistinguishable from a typed global entry
+                // and gave a delete nothing to tombstone on (ADR 0024).
+                source: 'vpx',
             });
         } catch (err) {
             // `submit` throws BANNED for a banned identity (it ban-checks every

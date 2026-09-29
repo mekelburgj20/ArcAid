@@ -2540,7 +2540,9 @@ router.get('/:roomId/score-share/:historyId', async (req, res) => {
 //   - super_admin → any row in any room
 //   - room_admin  → any row in a room they admin
 //   - player      → only rows they own (submitted_by_user_id matches their discordId)
-// Accepts source IN ('tournament','sync','community'). v2.108.0 closed the
+// Accepts source IN ('tournament','sync','community','vpx','atgames') — the
+// last two since v2.156.0 (ADR 0024), backed by the play-scoped
+// `auto_score_suppressions` tombstone `deleteEvent` writes. v2.108.0 closed the
 // v2.9.0 gap: `ScoreHistoryService.deleteEvent` now cascades a community row
 // into its `community_scores` twin (conservative match — see that method) and,
 // for every source, soft-deletes the fanned-out `global_scores` row. That last
@@ -2560,7 +2562,11 @@ router.delete('/:roomId/score-history/:historyId', requireDiscordUser, async (re
         const row = await ScoreHistoryService.getDeletableRow(historyId);
         if (!row) return res.status(404).json({ error: 'Score not found' });
         if (row.game_room_id !== roomId) return res.status(404).json({ error: 'Score not found in this room' });
-        if (row.source !== 'tournament' && row.source !== 'sync' && row.source !== 'community') {
+        // v2.156.0 (ADR 0024) — auto-posted rows ('vpx' / 'atgames') are
+        // deletable too: `deleteEvent` writes the play-scoped tombstone that
+        // keeps the next cabinet replay / AtGames pull from re-creating them.
+        const DELETABLE_SOURCES = ['tournament', 'sync', 'community', 'vpx', 'atgames'];
+        if (!DELETABLE_SOURCES.includes(row.source)) {
             return res.status(400).json({ error: 'This score cannot be deleted via this endpoint' });
         }
 
@@ -2634,10 +2640,10 @@ router.delete('/:roomId/score-history/:historyId', requireDiscordUser, async (re
  * actor exactly as it does an admin.
  *
 
- * No source restriction: a typo is a typo whatever wrote the row, and unlike
- * DELETE (where `'atgames'` is excluded because the next sync would resurrect
- * a deleted row with no tombstone table to stop it) a correction that gets
- * re-synced simply lands on the same value again.
+ * No source restriction: a typo is a typo whatever wrote the row. For an
+ * auto-posted row ('vpx' / 'atgames') `correctScore` tombstones the OLD value's
+ * play (ADR 0024), so the next replay cannot re-post the original number next
+ * to the corrected one.
  *
  * The interesting behaviour — the twin cascades, the recompute, and the
  * iScored re-import guard on a downward correction — lives in
@@ -7369,6 +7375,27 @@ router.delete('/:roomId/admin/games/:gameId/submissions/:submissionId', requireA
             submission.photo_url,
             ...photoRows.map((r: any) => r.photo_url),
         ];
+
+        // v2.156.0 (ADR 0024) — every AUTO-POSTED row ('vpx' / 'atgames') this
+        // sweep is about to remove gets its play-scoped tombstone FIRST, or
+        // the cabinet's next replay / the next AtGames pull re-creates it.
+        // Same predicate as the DELETE below.
+        const autoRows = await db.all(
+            `SELECT source, submitted_by_user_id, discord_user_id, game_name, score, created_at, game_room_id
+             FROM score_history
+             WHERE game_room_id = ?
+               AND LOWER(iscored_username) = LOWER(?)
+               AND (game_id = ? OR (game_id IS NULL AND LOWER(game_name) = LOWER(?)))
+               AND source IN ('vpx', 'atgames')`,
+            roomId, submission.iscored_username, gameId, game.name
+        );
+        if (autoRows.length > 0) {
+            const { ScoreHistoryService } = await import('../../services/ScoreHistoryService.js');
+            const wipeActor = req.user!.discordId || req.user!.username || 'admin';
+            for (const autoRow of autoRows) {
+                await ScoreHistoryService.recordAutoSuppressionForRow(autoRow, wipeActor);
+            }
+        }
 
         // Delete the submissions row + all matching score_history rows. Without
         // the score_history sweep the tournament leaderboard recompute (reads

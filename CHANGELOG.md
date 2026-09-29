@@ -6,6 +6,48 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.156.0] — Players can delete their own auto-posted scores, and they stay deleted
+
+Owner ruling, 2026-09-28: "Players should have the option to delete their own auto-posted scores
+and we need a mechanism that persists this decision in case the same score tries to auto post
+again (for the same game/date/time)." Auto-posted = a score nobody typed: a paired cabinet's VPX
+score (`source='vpx'`) or an AtGames pull (`source='atgames'`), plus the cabinet leftovers the
+VPX ingest writes straight to the Global Scoreboard. ADR 0024.
+
+### Added
+- **The trash icon now appears on auto-posted rows**, under exactly the rules a typed score
+  follows: your own row (by the raw `submitted_by_user_id`), or any row for an admin of the room.
+  An unlinked AtGames row belongs to nobody a login can prove, so it stays admin-only. Game
+  Detail (board rows and per-player history), the game quick popup (ranked and nested history
+  rows, which also serves the room Scores view) and the Global game page's own-score delete. The
+  confirmation adds one sentence for these rows: "Deleting it also stops the cabinet from posting
+  this same score again."
+- **`auto_score_suppressions` (migration 178)** — a play-scoped tombstone: source, whose play,
+  which table (`normalizeGameName`), the score, and when it was played. Every delete of an
+  auto-posted row writes one: the per-row delete, the admin "wipe player from game" sweep, the ban
+  content cascade, a score-report resolution, and the Global Scoreboard's own/bulk/admin soft and
+  hard deletes. A correction tombstones the OLD value, so a replay cannot land the original number
+  next to the corrected one. An admin restore on the Global Scoreboard lifts it again.
+- **Every ingest honours it through one predicate**, `AutoScoreSuppressionService.isSuppressed`.
+  The cabinet's replay of a deleted play is refused before any destination is chosen — so a play
+  deleted from a room board does not come back on the Global Scoreboard once the table rotates
+  off the card — files no witness observation, and answers the device `duplicate` (a status it
+  already understands). The AtGames preview and the real pull share the check through
+  `ScoreHistoryService.isDuplicate`, so they agree.
+
+### Changed
+- Cabinet leftovers recorded on the Global Scoreboard are now written with `source='vpx'`. Older
+  rows keep their NULL source — the shape alone cannot prove a cabinet wrote them (a global
+  submit that went through the login round-trip can also be photo-less), so they are not
+  backfilled.
+- Deleting or correcting a `vpx`/`atgames` row no longer writes the iScored tombstone
+  (`deleted_score_suppressions`): these scores never go to iScored, and that table's
+  highest-score threshold would have hidden unrelated lower synced scores.
+
+### Known limits
+- The tombstone records the owner at delete time. If an AtGames account is linked (or accounts are
+  merged) afterwards, a replay arrives under a different owner and is not matched.
+
 ## [2.155.7] — Win picks announce to the channel; mentions actually ping
 
 RTX_Pinball Daily Grind, 2026-09-07 20:00 PT (owner report, phone screenshot). PeteG won Scared

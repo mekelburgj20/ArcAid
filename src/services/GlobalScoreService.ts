@@ -162,7 +162,11 @@ export class GlobalScoreService {
      * Soft-delete a score. Cascades to cache invalidation. Photo file is kept
      * on disk until a hard-delete so admins can restore.
      */
-    static async softDelete(scoreId: string, deletedBy: string): Promise<boolean> {
+    static async softDelete(
+        scoreId: string,
+        deletedBy: string,
+        opts: { suppressReplay?: boolean } = {},
+    ): Promise<boolean> {
         const db = await getDatabase();
         const score = await db.get('SELECT global_game_id FROM global_scores WHERE id = ?', scoreId);
         if (!score) return false;
@@ -171,6 +175,9 @@ export class GlobalScoreService {
             deletedBy, scoreId
         );
         if ((result.changes ?? 0) > 0) {
+            if (opts.suppressReplay !== false) {
+                await GlobalScoreService.recordAutoSuppression(scoreId, deletedBy);
+            }
             await GlobalLeaderboardService.invalidate(score.global_game_id);
             return true;
         }
@@ -179,6 +186,10 @@ export class GlobalScoreService {
 
     /**
      * Restore a soft-deleted score.
+     *
+     * v2.156.0 (ADR 0024) — also lifts the time-unknown tombstone the delete
+     * wrote for an auto-posted row, so the cabinet's next replay of that play
+     * is accepted again (the restored row itself then dedups it).
      */
     static async restore(scoreId: string): Promise<boolean> {
         const db = await getDatabase();
@@ -189,6 +200,11 @@ export class GlobalScoreService {
             scoreId
         );
         if ((result.changes ?? 0) > 0) {
+            const key = await GlobalScoreService.autoSuppressionKey(scoreId);
+            if (key) {
+                const { AutoScoreSuppressionService } = await import('./AutoScoreSuppressionService.js');
+                await AutoScoreSuppressionService.clear({ ...key, playedAt: null });
+            }
             await GlobalLeaderboardService.invalidate(score.global_game_id);
             return true;
         }
@@ -196,15 +212,54 @@ export class GlobalScoreService {
     }
 
     /**
-     * Hard delete — removes the row and unlinks the photo file.
+     * The tombstone key for an AUTO-POSTED global row (`source` 'vpx' or
+     * 'atgames'), or null for every other row.
+     *
+     * `played_at` is always NULL for a global row: `submitted_at` is the INGEST
+     * time (`submit` stamps `new Date()`), not when the game was played, so it
+     * cannot identify the play. The tombstone therefore matches on player +
+     * game + score alone — broader than a room tombstone, and the price of a
+     * row that never knew its own play time.
      */
-    static async hardDelete(scoreId: string): Promise<boolean> {
+    private static async autoSuppressionKey(scoreId: string): Promise<{
+        source: 'vpx' | 'atgames'; ownerKey: string; gameName: string; score: number;
+    } | null> {
+        const db = await getDatabase();
+        const row = await db.get<{ source: string | null; player_id: string; score: number; game_name: string | null }>(
+            `SELECT s.source, s.player_id, s.score, gg.name AS game_name
+               FROM global_scores s
+               LEFT JOIN global_games gg ON gg.id = s.global_game_id
+              WHERE s.id = ?`,
+            scoreId,
+        );
+        if (!row || (row.source !== 'vpx' && row.source !== 'atgames')) return null;
+        if (!row.player_id || !row.game_name) return null;
+        return { source: row.source, ownerKey: row.player_id, gameName: row.game_name, score: row.score };
+    }
+
+    /** Write the play-scoped tombstone for an auto-posted global row (no-op otherwise). */
+    private static async recordAutoSuppression(scoreId: string, deletedBy: string | null): Promise<void> {
+        const key = await GlobalScoreService.autoSuppressionKey(scoreId);
+        if (!key) return;
+        const { AutoScoreSuppressionService } = await import('./AutoScoreSuppressionService.js');
+        await AutoScoreSuppressionService.record({ ...key, playedAt: null, deletedBy });
+    }
+
+    /**
+     * Hard delete — removes the row and unlinks the photo file.
+     *
+     * v2.156.0 (ADR 0024) — an auto-posted row is tombstoned first (it is a
+     * no-op when an earlier soft delete already wrote the same tombstone), so
+     * the cabinet cannot re-post the play it described.
+     */
+    static async hardDelete(scoreId: string, deletedBy: string | null = null): Promise<boolean> {
         const db = await getDatabase();
         const score = await db.get(
             'SELECT global_game_id, photo_url FROM global_scores WHERE id = ?',
             scoreId
         );
         if (!score) return false;
+        await GlobalScoreService.recordAutoSuppression(scoreId, deletedBy);
 
         // Delete photo file if present
         if (score.photo_url && typeof score.photo_url === 'string' && score.photo_url.startsWith('/api/score-photos/')) {

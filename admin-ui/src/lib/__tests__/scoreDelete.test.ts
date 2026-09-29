@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   canDeleteRow, isOwnScoreRow, rowHistoryId, deleteScoreHistory,
+  deleteConfirmText, AUTO_POSTED_DELETE_NOTE,
 } from '../scoreDelete';
 import type { ViewerClaims } from '../viewerClaims';
 
@@ -70,6 +71,22 @@ describe('canDeleteRow tiers', () => {
     }
   });
 
+  it('offers auto-posted rows (vpx, atgames) under exactly the same tiers as a typed score (v2.156.0)', () => {
+    for (const source of ['vpx', 'atgames']) {
+      // Owner: yes. Someone else's: no. An unlinked cabinet row (no
+      // submitted_by_user_id) stays admin-only.
+      expect(canDeleteRow(row({ source }), claims(), ROOM)).toBe(true);
+      expect(canDeleteRow(row({ source, submitted_by_user_id: 'disc-ben' }), claims(), ROOM)).toBe(false);
+      expect(canDeleteRow(row({ source, submitted_by_user_id: null }), claims(), ROOM)).toBe(false);
+      const admin = claims({ role: 'room_admin', discordId: 'disc-admin', gameRoomIds: [ROOM] });
+      expect(canDeleteRow(row({ source, submitted_by_user_id: null }), admin, ROOM)).toBe(true);
+    }
+  });
+
+  it('still refuses a source the server does not accept', () => {
+    expect(canDeleteRow(row({ source: 'mystery' }), claims(), ROOM)).toBe(false);
+  });
+
   it('refuses a row with no history id — nothing to act on', () => {
     expect(canDeleteRow({ submitted_by_user_id: 'disc-ada', source: 'tournament' }, claims(), ROOM)).toBe(false);
   });
@@ -77,6 +94,18 @@ describe('canDeleteRow tiers', () => {
   it('refuses without claims or without a room', () => {
     expect(canDeleteRow(row(), null, ROOM)).toBe(false);
     expect(canDeleteRow(row(), claims(), undefined)).toBe(false);
+  });
+});
+
+describe('deleteConfirmText', () => {
+  it('adds one plain sentence for an auto-posted row, and nothing for a typed one', () => {
+    const base = 'Delete this score (1,000)?';
+    expect(deleteConfirmText(base, { source: 'vpx' })).toBe(`${base} ${AUTO_POSTED_DELETE_NOTE}`);
+    expect(deleteConfirmText(base, { source: 'atgames' })).toBe(`${base} ${AUTO_POSTED_DELETE_NOTE}`);
+    for (const source of ['tournament', 'sync', 'community', null, undefined]) {
+      expect(deleteConfirmText(base, { source })).toBe(base);
+    }
+    expect(AUTO_POSTED_DELETE_NOTE).not.toMatch(/…|\.\.\./);
   });
 });
 

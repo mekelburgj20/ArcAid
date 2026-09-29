@@ -3044,6 +3044,40 @@ async function doInitDatabase(): Promise<Database> {
             await db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_witness_obs_unique
                 ON witness_observations(atgames_unique_id, table_name, launch_ts, kind)`);
         } },
+        // v2.156.0 (ADR 0024) — players may delete their own AUTO-POSTED
+        // scores (`source` 'vpx' / 'atgames'), and the decision has to survive
+        // the next replay: the cabinet re-sends up to seven days of score files
+        // whenever it restarts or is re-paired, and a host may press "Pull
+        // scores" repeatedly. This is the play-scoped tombstone every ingest
+        // path checks through `AutoScoreSuppressionService.isSuppressed`.
+        // Deliberately NO foreign keys — it must outlive the rows, rooms and
+        // games it describes (same reasoning as `maintenance_runs`).
+        // `game_room_id` / `deleted_by_user_id` / `deleted_at` are audit only
+        // and not part of the match key. NULL `played_at` = "time unknown"
+        // (a Global Scoreboard row only knows its ingest time).
+        //
+        // NOT done here: backfilling `global_scores.source = 'vpx'` for the
+        // cabinet rows written before `recordGlobal` passed a source. A
+        // photo-less, source-less `origin_type='global'` vpx/atgames row can
+        // ALSO come from the OAuth draft commit (a global-target draft does
+        // not require a photo), so the shape does not prove a cabinet wrote it.
+        // A handler (not `sql:`) so a failure halts startup instead of being
+        // swallowed by the legacy "column may already exist" catch.
+        { name: '178_auto_score_suppressions', handler: async (db) => { await db.exec(`
+            CREATE TABLE IF NOT EXISTS auto_score_suppressions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source TEXT NOT NULL,
+                owner_key TEXT NOT NULL,
+                game_key TEXT NOT NULL,
+                score INTEGER NOT NULL,
+                played_at TEXT,
+                game_room_id TEXT,
+                deleted_by_user_id TEXT,
+                deleted_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_auto_score_suppressions_play
+                ON auto_score_suppressions(source, owner_key, game_key, score, COALESCE(played_at, ''));
+        `); } },
     ];
 
     for (const migration of migrations) {
