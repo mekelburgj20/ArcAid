@@ -803,15 +803,15 @@ export default function GlobalGameDetail() {
               <table className="w-full text-sm">
                 <thead className="bg-deep border-b border-border">
                   <tr className="text-left text-xs text-muted uppercase tracking-wide">
-                    <th className="px-3 py-2 w-12">#</th>
-                    <th className="px-3 py-2">Player</th>
-                    <th className="px-3 py-2 text-right">Score</th>
+                    <th className="px-2 sm:px-3 py-2 w-8 sm:w-12">#</th>
+                    <th className="px-2 sm:px-3 py-2">Player</th>
+                    <th className="px-2 sm:px-3 py-2 text-right">Score</th>
                     {/* v2.58.0 (ADR 0016): one column, two facts — the engine
                         that produced the score and the device it ran on. */}
-                    <th className="px-3 py-2 hidden sm:table-cell">Engine / Device</th>
-                    <th className="px-3 py-2 hidden sm:table-cell">Room</th>
-                    <th className="px-3 py-2 hidden md:table-cell">Date</th>
-                    <th className="px-3 py-2 w-10"></th>
+                    <th className="px-2 sm:px-3 py-2 hidden sm:table-cell">Engine / Device</th>
+                    <th className="px-2 sm:px-3 py-2 hidden sm:table-cell">Room</th>
+                    <th className="px-2 sm:px-3 py-2 hidden md:table-cell">Date</th>
+                    <th className="px-2 sm:px-3 py-2 w-10"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -830,8 +830,8 @@ export default function GlobalGameDetail() {
                       className={`border-b border-border/50 last:border-0 hover:bg-deep/30 ${entry.player_key ? 'cursor-pointer' : ''} ${isExpanded ? 'bg-deep/30' : ''}`}
                       onClick={() => togglePlayerHistory(entry.player_key)}
                     >
-                      <td className="px-3 py-2 font-mono text-muted">{entry.rank}</td>
-                      <td className="px-3 py-2">
+                      <td className="px-2 sm:px-3 py-2 font-mono text-muted">{entry.rank}</td>
+                      <td className="px-2 sm:px-3 py-2">
                         <div className="flex items-center gap-2">
                           <PlayerAvatar
                             username={entry.display_name || entry.iscored_username}
@@ -843,7 +843,7 @@ export default function GlobalGameDetail() {
                           <span className="min-w-0 break-words">{playerLabel}</span>
                         </div>
                       </td>
-                      <td className="px-3 py-2 text-right font-mono font-semibold text-neon-cyan">
+                      <td className="px-2 sm:px-3 py-2 text-right font-mono font-semibold text-neon-cyan">
                         {/* v2.157.0 — the score opens this player's score-over-
                             time chart (inside the expanded area). */}
                         <button
@@ -858,7 +858,7 @@ export default function GlobalGameDetail() {
                           {formatScore(entry.score)}
                         </button>
                       </td>
-                      <td className="px-3 py-2 text-xs hidden sm:table-cell">
+                      <td className="px-2 sm:px-3 py-2 text-xs hidden sm:table-cell">
                         {/* The em-dash fallback only fires for a payload with
                             no provenance keys at all (a pre-P3 cached blob).
                             A recorded-but-unknown engine renders "Unspecified"
@@ -867,7 +867,7 @@ export default function GlobalGameDetail() {
                           ? <ProvenanceTags entry={entry} />
                           : <span className="text-faint">—</span>}
                       </td>
-                      <td className="px-3 py-2 text-xs text-muted hidden sm:table-cell" onClick={e => e.stopPropagation()}>
+                      <td className="px-2 sm:px-3 py-2 text-xs text-muted hidden sm:table-cell" onClick={e => e.stopPropagation()}>
                         {entry.origin_type === 'global' ? (
                           <span>Global</span>
                         ) : entry.origin_room_slug ? (
@@ -882,14 +882,18 @@ export default function GlobalGameDetail() {
                           <span>—</span>
                         )}
                       </td>
-                      <td className="px-3 py-2 text-xs text-muted hidden md:table-cell">
+                      <td className="px-2 sm:px-3 py-2 text-xs text-muted hidden md:table-cell">
                         {formatDate(entry.submitted_at)}
                       </td>
-                      <td className="px-3 py-2 text-right whitespace-nowrap" onClick={e => e.stopPropagation()}>
+                      <td className="px-2 sm:px-3 py-2 text-right whitespace-nowrap" onClick={e => e.stopPropagation()}>
                         {/* m4: explicit flex + gap so the padded (p-4 -m-2,
                             44px-ish) hit areas of the proof link and the two
-                            icon buttons no longer overlap each other. */}
-                        <div className="inline-flex items-center justify-end gap-3">
+                            icon buttons no longer overlap each other.
+                            v2.157.0: below `sm` the (up to four) actions sit in
+                            a two-column grid — in one line they made the board
+                            wider than a 390px phone and the table's overflow
+                            clip cut off the flag and the expand toggle. */}
+                        <div className="grid grid-cols-[auto_auto] gap-3 justify-items-center sm:inline-flex sm:items-center sm:justify-end">
                           {entry.photo_url && (
                             <a
                               href={entry.photo_url}

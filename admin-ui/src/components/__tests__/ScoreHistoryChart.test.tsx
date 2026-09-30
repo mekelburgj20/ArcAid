@@ -59,4 +59,18 @@ describe('ScoreHistoryChart', () => {
     fireEvent.focus(screen.getByTestId('chart-point-best'));
     expect(screen.getByRole('status')).toHaveTextContent('12,345');
   });
+
+  it('a tap (mouseenter then click) leaves the tooltip OPEN, and a tap on empty space clears it', () => {
+    render(<ScoreHistoryChart scores={[
+      pt('a', 500, '2026-09-01T00:00:00.000Z'),
+      pt('b', 12_345, '2026-09-05T00:00:00.000Z'),
+    ]} />);
+    const point = screen.getByTestId('chart-point');
+    // What a phone fires for one tap. A toggling onClick shut it again here.
+    fireEvent.mouseEnter(point);
+    fireEvent.click(point);
+    expect(screen.getByRole('status')).toHaveTextContent('500');
+    fireEvent.click(screen.getByRole('img'));
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
 });

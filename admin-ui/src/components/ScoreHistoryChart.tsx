@@ -184,6 +184,7 @@ export default function ScoreHistoryChart({ scores, label }: Props) {
         role="img"
         aria-label={label ?? 'Score history chart'}
         onMouseLeave={() => setActive(null)}
+        onClick={() => setActive(null)}
       >
         {/* Y gridlines + tick labels */}
         {ticks.map(v => (
@@ -246,7 +247,11 @@ export default function ScoreHistoryChart({ scores, label }: Props) {
               onMouseEnter={() => setActive(idx)}
               onFocus={() => setActive(idx)}
               onBlur={() => setActive(a => (a === idx ? null : a))}
-              onClick={() => setActive(a => (a === idx ? null : idx))}
+              // SHOW, never toggle: a tap fires a synthetic mouseenter before
+              // the click, so a toggle here would open and immediately close
+              // the tooltip on every phone. Tapping empty chart space (the
+              // svg's own onClick) is what clears it.
+              onClick={e => { e.stopPropagation(); setActive(idx); }}
               style={{ cursor: 'pointer', outline: 'none' }}
             >
               {/* Generous invisible hit target for fingers */}
