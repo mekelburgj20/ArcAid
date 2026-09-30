@@ -2609,6 +2609,36 @@ router.get('/global/scoreboard/:globalGameId', async (req, res) => {
 });
 
 /**
+ * GET /api/global/scoreboard/:globalGameId/players/:playerKey/scores — every
+ * score one player holds on this game, newest first (v2.157.0).
+ *
+ * The board above shows each player's BEST only; this is the drill-in behind a
+ * row. `playerKey` is that row's `player_key` (URL-encoded — it may contain a
+ * colon), matched through the board's own collapse rule. `?scope=` takes the
+ * same values as the board so the history agrees with the board it was opened
+ * from. `optionalDiscordUser` so a logged-in viewer's own rows come back with
+ * `is_own: true` (the self-delete affordance); guests get the same rows, all
+ * read-only. Same rate-limit class as the board: the general `/api` limiter.
+ */
+router.get('/global/scoreboard/:globalGameId/players/:playerKey/scores', optionalDiscordUser, async (req, res) => {
+    try {
+        const globalGameId = req.params.globalGameId as string;
+        const playerKey = req.params.playerKey as string;
+        const scope = (req.query.scope as string) || 'global';
+        if (!playerKey) return res.status(400).json({ error: 'playerKey is required' });
+
+        const result = await GlobalLeaderboardService.getPlayerScoresForGame(
+            globalGameId, playerKey, req.user?.discordId ?? null, scope,
+        );
+        if (!result) return res.status(404).json({ error: 'Game not found' });
+        res.json(result);
+    } catch (error) {
+        logError('API Error (GET /api/global/scoreboard/:globalGameId/players/:playerKey/scores):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
  * GET /api/global/me/display-name — returns the Discord user's saved display
  * name (iscored_username in user_mappings), or null if they've never set one.
  * Used by the submit modal to pre-fill the display-name field.

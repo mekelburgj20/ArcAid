@@ -23,6 +23,21 @@ const CARD_CATEGORY_EXPR = buildEngineCategoryExpr('gs.engine', 'gs.id');
 const CARD_CATEGORY_EXPR_BARE = buildEngineCategoryExpr('engine', 'id');
 
 /**
+ * WHO a board row belongs to — the one identity rule the per-game board uses
+ * to collapse a player's scores into a single ranked row (v2.8.0 partition:
+ * Discord-linked aliases fold onto `submitted_by_user_id`, anon rows partition
+ * per lowercased name).
+ *
+ * v2.157.0: extracted so the board (`rankedRows`) and the per-player history
+ * drill-in (`getPlayerScoresForGame`) cannot drift. The board ships the value
+ * as `player_key`; the drill-in accepts exactly that value back. Applied to a
+ * subquery that exposes `global_scores.player_id` AS `discord_user_id`.
+ */
+function playerPartitionExpr(alias: string): string {
+    return `COALESCE(${alias}.submitted_by_user_id, 'iscored:' || LOWER(COALESCE(${alias}.iscored_username, ${alias}.discord_user_id)))`;
+}
+
+/**
  * Stable identity for one scoreboard card — v2.59.0 (ADR 0016 P4).
  *
  * A card is a `(game, category)` pair, so the game id alone is no longer
@@ -86,6 +101,34 @@ export interface GlobalRankedEntry {
      * cannot say. The badge is drawn from this, and only this.
      */
     source: string | null;
+    /**
+     * v2.157.0 — the board's collapse key for this row's player (see
+     * `playerPartitionExpr`). Opaque to the client: it is only ever passed back
+     * to `GET /api/global/scoreboard/:globalGameId/players/:playerKey/scores`.
+     */
+    player_key: string;
+}
+
+/**
+ * v2.157.0 — one row of a player's per-game history on the Global game page.
+ * Every non-deleted score the board's collapse folded into that player's row.
+ */
+export interface GlobalPlayerScoreRow {
+    id: string;
+    score: number;
+    submitted_at: string;
+    platform: string | null;
+    engine: string;
+    device: string;
+    /** How the score reached us — drives the witnessed (AW) chip. */
+    source: string | null;
+    origin_type: string;
+    origin_game_room_id: string | null;
+    origin_room_name: string | null;
+    origin_room_slug: string | null;
+    photo_url: string | null;
+    /** True when the viewer is the row's `player_id` (the self-delete rule). */
+    is_own: boolean;
 }
 
 /**
@@ -195,11 +238,17 @@ interface CachedGlobalRow {
      * or an avatar.
      */
     source: string | null;
+    /**
+     * The board's collapse key (v2.157.0). Identity-stable — it is the
+     * partition value, not a name or an avatar.
+     */
+    player_key: string;
 }
 
 // v2 -> v3 (v2.155.0): `source` added to CachedGlobalRow. A v2 blob is treated
 // as a miss and recomputed, which is exactly what the version exists for.
-const GLOBAL_CACHE_ENVELOPE_VERSION = 3;
+// v3 -> v4 (v2.157.0): `player_key` added, same reasoning.
+const GLOBAL_CACHE_ENVELOPE_VERSION = 4;
 
 interface GlobalCacheEnvelope {
     v: number;
@@ -249,6 +298,7 @@ export class GlobalLeaderboardService {
                 engine: row.engine,
                 device: row.device,
                 source: row.source ?? null,
+                player_key: row.player_key,
             };
         });
     }
@@ -320,6 +370,7 @@ export class GlobalLeaderboardService {
                 best.engine,
                 best.device,
                 best.source,
+                best.player_key,
                 gr.name as origin_room_name,
                 gr.slug as origin_room_slug,
                 gr.logo_url as origin_room_logo_url,
@@ -339,8 +390,9 @@ export class GlobalLeaderboardService {
                     gs.engine,
                     gs.device,
                     gs.source,
+                    ${playerPartitionExpr('gs')} as player_key,
                     ROW_NUMBER() OVER (
-                        PARTITION BY COALESCE(gs.submitted_by_user_id, 'iscored:' || LOWER(COALESCE(gs.iscored_username, gs.discord_user_id)))
+                        PARTITION BY ${playerPartitionExpr('gs')}
                         ORDER BY gs.score DESC, gs.submitted_at ASC
                     ) as rn
                 FROM (
@@ -395,6 +447,7 @@ export class GlobalLeaderboardService {
             // how the score reached us, and the badge must stay silent rather
             // than claim otherwise.
             source: e.source ?? null,
+            player_key: e.player_key,
         }));
     }
 
@@ -436,6 +489,139 @@ export class GlobalLeaderboardService {
         return GlobalLeaderboardService.hydrate(
             await GlobalLeaderboardService.rankedRows(globalGameId, scope, category),
         );
+    }
+
+    /**
+     * Every score ONE player holds on ONE global game, newest first (v2.157.0).
+     *
+     * The board shows a player's best only (owner, 2026-09-29: "only your
+     * highest score should post to the Global board, but there should be a way
+     * to click a score for a player and drill in to the historicals"). This is
+     * the drill-in: the rows the board's best-per-player collapse folded away.
+     *
+     * `playerKey` is the board row's `player_key`, matched through the SAME
+     * `playerPartitionExpr` the board partitions on — so a Discord-linked
+     * player's aliases arrive together here exactly as they collapse together
+     * there, and there is no second identity rule to drift. Visibility mirrors
+     * `rankedRows` too: soft-deleted and orphaned rows never, and on the global
+     * scope `exclude_from_global` rows never; a room scope shows only scores
+     * that originated in that room. It deliberately does NOT narrow by card
+     * category: this is a personal list, not a ranking, and each row carries
+     * its own engine/device chips.
+     *
+     * Uncached — one player on one game is a handful of rows. Returns null when
+     * the game does not exist (the route 404s on it).
+     */
+    static async getPlayerScoresForGame(
+        globalGameId: string,
+        playerKey: string,
+        viewerId: string | null = null,
+        scope: string = 'global',
+    ): Promise<{
+        player: {
+            player_key: string;
+            discord_user_id: string;
+            iscored_username: string;
+            display_name: string | null;
+            avatar_hash: string | null;
+            avatar_url: string | null;
+        } | null;
+        scores: GlobalPlayerScoreRow[];
+    } | null> {
+        const db = await getDatabase();
+        const game = await db.get('SELECT id FROM global_games WHERE id = ?', globalGameId);
+        if (!game) return null;
+
+        const isGlobal = scope === 'global';
+        const excludeFilter = isGlobal ? 'AND exclude_from_global = 0' : '';
+        const roomFilter = isGlobal ? '' : 'AND origin_game_room_id = ?';
+        const roomParams = isGlobal ? [] : [scope];
+
+        const rows = await db.all(`
+            SELECT
+                gs.id,
+                gs.discord_user_id,
+                gs.submitted_by_user_id,
+                gs.iscored_username,
+                gs.score,
+                gs.submitted_at,
+                gs.platform,
+                gs.engine,
+                gs.device,
+                gs.source,
+                gs.origin_type,
+                gs.origin_game_room_id,
+                gs.photo_url,
+                gr.name as origin_room_name,
+                gr.slug as origin_room_slug
+            FROM (
+                SELECT
+                    id,
+                    player_id as discord_user_id,
+                    submitted_by_user_id,
+                    iscored_username,
+                    score,
+                    submitted_at,
+                    platform,
+                    engine,
+                    device,
+                    source,
+                    origin_type,
+                    origin_game_room_id,
+                    photo_url
+                FROM global_scores
+                WHERE global_game_id = ?
+                  AND deleted_at IS NULL
+                  AND orphaned_at IS NULL
+                  ${excludeFilter}
+                  ${roomFilter}
+            ) gs
+            LEFT JOIN game_rooms gr ON gr.id = gs.origin_game_room_id
+            WHERE ${playerPartitionExpr('gs')} = ?
+            ORDER BY gs.submitted_at DESC, gs.score DESC
+        `, globalGameId, ...roomParams, playerKey);
+
+        const scores: GlobalPlayerScoreRow[] = rows.map((r: any) => ({
+            id: r.id,
+            score: r.score,
+            submitted_at: r.submitted_at,
+            platform: r.platform || null,
+            engine: r.engine || UNKNOWN,
+            device: r.device || UNKNOWN,
+            // Null stays null — same rule as the board: the witnessed chip must
+            // stay silent when we cannot say how the score reached us.
+            source: r.source ?? null,
+            origin_type: r.origin_type,
+            origin_game_room_id: r.origin_game_room_id || null,
+            origin_room_name: r.origin_room_name || null,
+            origin_room_slug: r.origin_room_slug || null,
+            photo_url: r.photo_url || null,
+            // The DELETE /api/me/global-scores/:scoreId ownership rule, verbatim:
+            // the raw `player_id`, nothing resolved.
+            is_own: !!viewerId && r.discord_user_id === viewerId,
+        }));
+
+        if (rows.length === 0) return { player: null, scores };
+
+        // Display identity for the header, resolved at read time from the
+        // newest row — never baked anywhere.
+        const head = rows[0];
+        const [profile] = await resolveProfiles([{
+            submitted_by_user_id: head.submitted_by_user_id,
+            discord_user_id: head.discord_user_id,
+            iscored_username: head.iscored_username,
+        }]);
+        return {
+            player: {
+                player_key: playerKey,
+                discord_user_id: profile!.discord_user_id,
+                iscored_username: head.iscored_username || 'Unknown',
+                display_name: profile!.display_name,
+                avatar_hash: profile!.avatar_hash,
+                avatar_url: profile!.avatar_url,
+            },
+            scores,
+        };
     }
 
     /**
