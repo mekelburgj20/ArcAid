@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Trophy, Upload, Download, BookOpen, Play, ExternalLink, Flag, MessageSquare, Lightbulb, Trash2 } from 'lucide-react';
+import { ArrowLeft, Trophy, Upload, Download, BookOpen, Play, ExternalLink, Flag, MessageSquare, Lightbulb, Trash2, Plus, Minus } from 'lucide-react';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { PlayerAvatar } from '../components/ScoreboardComponents';
 import StarRating from '../components/StarRating';
@@ -13,6 +13,8 @@ import RoomTag from '../components/RoomTag';
 import UserMenu from '../components/UserMenu';
 import LoginButtons from '../components/LoginButtons';
 import ProvenanceTags from '../components/ProvenanceTags';
+import { SourceChip } from '../components/SourceChip';
+import ScoreHistoryChart from '../components/ScoreHistoryChart';
 import { resolveProvenance } from '../lib/provenanceDisplay';
 import { getCardCategoryLabel, getLegacyPlatformLabel, UNSPECIFIED_CATEGORY } from '../lib/scoreProvenance';
 import { formatScore } from '../lib/format';
@@ -78,6 +80,29 @@ interface RankingEntry {
   device?: string | null;
   /** v2.155.0 — how the score reached us; drives the witnessed badge. */
   source?: string | null;
+  /**
+   * v2.157.0 — the board's collapse key for this row's player. Opaque; only
+   * ever passed back to the per-player history endpoint.
+   */
+  player_key?: string;
+}
+
+/** v2.157.0 — one score in a player's per-game history (the drill-in). */
+interface PlayerScore {
+  id: string;
+  score: number;
+  submitted_at: string;
+  platform: string | null;
+  engine: string;
+  device: string;
+  source: string | null;
+  origin_type: string;
+  origin_game_room_id: string | null;
+  origin_room_name: string | null;
+  origin_room_slug: string | null;
+  photo_url: string | null;
+  /** Viewer owns this row (raw player_id match) — the self-delete rule. */
+  is_own: boolean;
 }
 
 interface Room {
@@ -154,6 +179,17 @@ export default function GlobalGameDetail() {
   // v2.156.0 (ADR 0024) — the pending row's `source`, so the confirm can say
   // that deleting a cabinet-posted score also stops it being posted again.
   const [pendingDeleteSource, setPendingDeleteSource] = useState<string | null>(null);
+  /**
+   * v2.157.0 — the per-player history drill-in. The board shows each player's
+   * BEST only; clicking a row expands every score the collapse folded away.
+   * One player at a time, keyed on the row's `player_key`. The same fetched
+   * rows feed both the list and the chart (`chartOpen`, toggled by clicking a
+   * score), so opening the chart never costs a second request.
+   */
+  const [expanded, setExpanded] = useState<{ playerKey: string; board: string } | null>(null);
+  const [playerScores, setPlayerScores] = useState<PlayerScore[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [chartOpen, setChartOpen] = useState(false);
   // v2.0.1: when navigated with ?from=<slug>, treat the Submit as a room-scoped
   // freeplay submission rather than a direct global submission.
   const [fromRoom, setFromRoom] = useState<{ id: string; discordEnabled: boolean } | null>(null);
@@ -267,6 +303,15 @@ export default function GlobalGameDetail() {
   // Reset to page 0 whenever scope, category or game changes; the page-aware
   // fetch effect below will re-run because `page` flips back to 0.
   useEffect(() => { setPage(0); }, [globalGameId, scope, categoryParam]);
+
+  // v2.157.0 — a different board means a different set of rows, so an open
+  // drill-in only counts while the board it was opened on is still the one on
+  // screen. Derived at render (no reset effect): switching board, scope or
+  // page simply reads as "nothing expanded".
+  const boardKey = `${globalGameId}|${scope}|${categoryParam ?? ''}|${page}`;
+  const expandedKey = expanded && expanded.board === boardKey ? expanded.playerKey : null;
+  const setExpandedKey = (playerKey: string | null) =>
+    setExpanded(playerKey ? { playerKey, board: boardKey } : null);
 
   // Fetch leaderboard whenever game, scope, category or page changes.
   //
@@ -421,6 +466,53 @@ export default function GlobalGameDetail() {
     }
   };
 
+  /** Fetch one player's history. Sends the viewer token so own rows are marked. */
+  const loadPlayerScores = (playerKey: string) => {
+    if (!globalGameId) return;
+    setHistoryLoading(true);
+    const headers: HeadersInit = {};
+    if (playerToken) headers['Authorization'] = `Bearer ${playerToken}`;
+    fetch(
+      `/api/global/scoreboard/${globalGameId}/players/${encodeURIComponent(playerKey)}/scores?scope=${encodeURIComponent(scope)}`,
+      { headers },
+    )
+      .then(r => r.ok ? r.json() : { scores: [] })
+      .then(payload => setPlayerScores(Array.isArray(payload?.scores) ? payload.scores : []))
+      .catch(() => setPlayerScores([]))
+      .finally(() => setHistoryLoading(false));
+  };
+
+  /** Row click: expand this player's history, or collapse it on a second click. */
+  const togglePlayerHistory = (playerKey: string | undefined) => {
+    if (!playerKey) return;
+    if (expandedKey === playerKey) {
+      setExpandedKey(null);
+      setPlayerScores([]);
+      setChartOpen(false);
+      return;
+    }
+    setExpandedKey(playerKey);
+    setChartOpen(false);
+    setPlayerScores([]);
+    loadPlayerScores(playerKey);
+  };
+
+  /**
+   * Score click: show / hide the chart. Opens the row first when it is closed
+   * (the chart lives inside the expanded area and shares its data).
+   */
+  const toggleChart = (playerKey: string | undefined) => {
+    if (!playerKey) return;
+    if (expandedKey !== playerKey) {
+      setExpandedKey(playerKey);
+      setPlayerScores([]);
+      setChartOpen(true);
+      loadPlayerScores(playerKey);
+      return;
+    }
+    setChartOpen(open => !open);
+  };
+
   const handleDeleteScore = (scoreId: string, source?: string | null) => {
     if (!playerToken) return;
     setPendingDeleteScoreId(scoreId);
@@ -437,6 +529,9 @@ export default function GlobalGameDetail() {
         setReportMessage({ text: 'Score deleted.', type: 'success' });
         setTimeout(() => setReportMessage(null), 3000);
         refreshRankings();
+        // Deleting a history row (or the best) changes both the history and
+        // the board; the player's key is stable, so refetch it in place.
+        if (expandedKey) loadPlayerScores(expandedKey);
       }
     } catch { /* silent */ }
   };
@@ -708,22 +803,35 @@ export default function GlobalGameDetail() {
               <table className="w-full text-sm">
                 <thead className="bg-deep border-b border-border">
                   <tr className="text-left text-xs text-muted uppercase tracking-wide">
-                    <th className="px-3 py-2 w-12">#</th>
-                    <th className="px-3 py-2">Player</th>
-                    <th className="px-3 py-2 text-right">Score</th>
+                    <th className="px-2 sm:px-3 py-2 w-8 sm:w-12">#</th>
+                    <th className="px-2 sm:px-3 py-2">Player</th>
+                    <th className="px-2 sm:px-3 py-2 text-right">Score</th>
                     {/* v2.58.0 (ADR 0016): one column, two facts — the engine
                         that produced the score and the device it ran on. */}
-                    <th className="px-3 py-2 hidden sm:table-cell">Engine / Device</th>
-                    <th className="px-3 py-2 hidden sm:table-cell">Room</th>
-                    <th className="px-3 py-2 hidden md:table-cell">Date</th>
-                    <th className="px-3 py-2 w-10"></th>
+                    <th className="px-2 sm:px-3 py-2 hidden sm:table-cell">Engine / Device</th>
+                    <th className="px-2 sm:px-3 py-2 hidden sm:table-cell">Room</th>
+                    <th className="px-2 sm:px-3 py-2 hidden md:table-cell">Date</th>
+                    <th className="px-2 sm:px-3 py-2 w-10"></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {rankings.map(entry => (
-                    <tr key={entry.score_id} className="border-b border-border/50 last:border-0 hover:bg-deep/30">
-                      <td className="px-3 py-2 font-mono text-muted">{entry.rank}</td>
-                      <td className="px-3 py-2">
+                  {rankings.map(entry => {
+                    const isExpanded = !!entry.player_key && expandedKey === entry.player_key;
+                    const playerLabel = entry.display_name || entry.iscored_username;
+                    return (
+                    <Fragment key={entry.score_id}>
+                    {/* v2.157.0 — the row is the drill-in trigger, as on the
+                        room GameDetail board: click to expand this player's
+                        history, click again to collapse. The explicit +/-
+                        button in the last cell carries the keyboard/AT
+                        semantics; buttons and links inside the row stop
+                        propagation so they never toggle it. */}
+                    <tr
+                      className={`border-b border-border/50 last:border-0 hover:bg-deep/30 ${entry.player_key ? 'cursor-pointer' : ''} ${isExpanded ? 'bg-deep/30' : ''}`}
+                      onClick={() => togglePlayerHistory(entry.player_key)}
+                    >
+                      <td className="px-2 sm:px-3 py-2 font-mono text-muted">{entry.rank}</td>
+                      <td className="px-2 sm:px-3 py-2">
                         <div className="flex items-center gap-2">
                           <PlayerAvatar
                             username={entry.display_name || entry.iscored_username}
@@ -732,13 +840,25 @@ export default function GlobalGameDetail() {
                             avatarUrl={entry.avatar_url}
                             size={24}
                           />
-                          <span className="truncate">{entry.display_name || entry.iscored_username}</span>
+                          <span className="min-w-0 break-words">{playerLabel}</span>
                         </div>
                       </td>
-                      <td className="px-3 py-2 text-right font-mono font-semibold text-neon-cyan" title={entry.score.toLocaleString()}>
-                        {formatScore(entry.score)}
+                      <td className="px-2 sm:px-3 py-2 text-right font-mono font-semibold text-neon-cyan">
+                        {/* v2.157.0 — the score opens this player's score-over-
+                            time chart (inside the expanded area). */}
+                        <button
+                          type="button"
+                          onClick={e => { e.stopPropagation(); toggleChart(entry.player_key); }}
+                          disabled={!entry.player_key}
+                          aria-expanded={isExpanded && chartOpen}
+                          className="font-mono font-semibold text-neon-cyan hover:underline cursor-pointer disabled:cursor-default disabled:no-underline"
+                          title={`${entry.score.toLocaleString()} — show ${playerLabel}'s score history chart`}
+                          aria-label={`${entry.score.toLocaleString()} — show ${playerLabel}'s score history chart`}
+                        >
+                          {formatScore(entry.score)}
+                        </button>
                       </td>
-                      <td className="px-3 py-2 text-xs hidden sm:table-cell">
+                      <td className="px-2 sm:px-3 py-2 text-xs hidden sm:table-cell">
                         {/* The em-dash fallback only fires for a payload with
                             no provenance keys at all (a pre-P3 cached blob).
                             A recorded-but-unknown engine renders "Unspecified"
@@ -747,7 +867,7 @@ export default function GlobalGameDetail() {
                           ? <ProvenanceTags entry={entry} />
                           : <span className="text-faint">—</span>}
                       </td>
-                      <td className="px-3 py-2 text-xs text-muted hidden sm:table-cell">
+                      <td className="px-2 sm:px-3 py-2 text-xs text-muted hidden sm:table-cell" onClick={e => e.stopPropagation()}>
                         {entry.origin_type === 'global' ? (
                           <span>Global</span>
                         ) : entry.origin_room_slug ? (
@@ -762,14 +882,18 @@ export default function GlobalGameDetail() {
                           <span>—</span>
                         )}
                       </td>
-                      <td className="px-3 py-2 text-xs text-muted hidden md:table-cell">
+                      <td className="px-2 sm:px-3 py-2 text-xs text-muted hidden md:table-cell">
                         {formatDate(entry.submitted_at)}
                       </td>
-                      <td className="px-3 py-2 text-right whitespace-nowrap">
+                      <td className="px-2 sm:px-3 py-2 text-right whitespace-nowrap" onClick={e => e.stopPropagation()}>
                         {/* m4: explicit flex + gap so the padded (p-4 -m-2,
                             44px-ish) hit areas of the proof link and the two
-                            icon buttons no longer overlap each other. */}
-                        <div className="inline-flex items-center justify-end gap-3">
+                            icon buttons no longer overlap each other.
+                            v2.157.0: below `sm` the (up to four) actions sit in
+                            a two-column grid — in one line they made the board
+                            wider than a 390px phone and the table's overflow
+                            clip cut off the flag and the expand toggle. */}
+                        <div className="grid grid-cols-[auto_auto] gap-3 justify-items-center sm:inline-flex sm:items-center sm:justify-end">
                           {entry.photo_url && (
                             <a
                               href={entry.photo_url}
@@ -800,10 +924,109 @@ export default function GlobalGameDetail() {
                           >
                             <Flag className="w-3.5 h-3.5 inline" />
                           </button>
+                          {entry.player_key && (
+                            <button
+                              type="button"
+                              onClick={() => togglePlayerHistory(entry.player_key)}
+                              aria-expanded={isExpanded}
+                              className="p-4 -m-2 text-muted hover:text-neon-cyan"
+                              title={isExpanded ? `Hide ${playerLabel}'s scores` : `Show all of ${playerLabel}'s scores`}
+                              aria-label={isExpanded ? `Hide ${playerLabel}'s scores` : `Show all of ${playerLabel}'s scores`}
+                            >
+                              {isExpanded
+                                ? <Minus className="w-3.5 h-3.5 inline text-neon-cyan" />
+                                : <Plus className="w-3.5 h-3.5 inline" />}
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
-                  ))}
+                    {isExpanded && (
+                      <tr className="border-b border-border/50 bg-deep/50" data-testid="player-history">
+                        <td colSpan={7} className="px-3 py-3">
+                          {historyLoading ? (
+                            <p className="text-faint text-xs py-2">Loading history...</p>
+                          ) : playerScores.length === 0 ? (
+                            <p className="text-faint text-xs py-2">No scores to show.</p>
+                          ) : (
+                            <div className="space-y-3">
+                              {chartOpen && (
+                                <ScoreHistoryChart
+                                  scores={playerScores}
+                                  label={`${playerLabel}'s scores on ${displayName} over time`}
+                                />
+                              )}
+                              <div>
+                                <p className="text-faint text-[10px] uppercase tracking-wider mb-1">
+                                  All scores · {playerScores.length}
+                                </p>
+                                <ul className="divide-y divide-border/30">
+                                  {playerScores.map(h => (
+                                    <li key={h.id} className="flex items-start sm:items-center justify-between gap-2 py-1.5 text-sm">
+                                      {/* Left cell WRAPS so chips flow under the
+                                          score at phone width; right cell never
+                                          shrinks (same shape as the room page's
+                                          history rows). */}
+                                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
+                                        <button
+                                          type="button"
+                                          onClick={() => setChartOpen(open => !open)}
+                                          aria-expanded={chartOpen}
+                                          className="font-mono text-primary whitespace-nowrap tabular-nums hover:text-neon-cyan hover:underline cursor-pointer"
+                                          title={`${h.score.toLocaleString()} — ${chartOpen ? 'hide' : 'show'} the score history chart`}
+                                          aria-label={`${h.score.toLocaleString()} — ${chartOpen ? 'hide' : 'show'} the score history chart`}
+                                        >
+                                          {formatScore(h.score)}
+                                        </button>
+                                        {/* Engine/device only: the witnessed
+                                            badge comes from the shared
+                                            SourceChip beside it, so a cabinet
+                                            row shows ONE AW, not two. */}
+                                        <ProvenanceTags entry={{ engine: h.engine, device: h.device }} />
+                                        <SourceChip source={h.source} />
+                                        <span className="text-xs text-muted">
+                                          {h.origin_type === 'global' || !h.origin_room_name
+                                            ? 'Global'
+                                            : h.origin_room_name}
+                                        </span>
+                                        {h.photo_url && (
+                                          <a
+                                            href={h.photo_url}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="text-[10px] text-neon-cyan/70 hover:text-neon-cyan no-underline"
+                                            title="View proof"
+                                          >
+                                            proof
+                                          </a>
+                                        )}
+                                      </div>
+                                      <div className="flex items-center gap-3 flex-shrink-0">
+                                        <span className="text-faint text-xs whitespace-nowrap">{formatDate(h.submitted_at)}</span>
+                                        {h.is_own && playerToken && (
+                                          <button
+                                            type="button"
+                                            onClick={() => handleDeleteScore(h.id, h.source)}
+                                            className="p-4 -m-2 text-muted hover:text-red-400"
+                                            title="Delete this score"
+                                            aria-label={`Delete this score (${h.score.toLocaleString()})`}
+                                          >
+                                            <Trash2 className="w-3.5 h-3.5 inline" />
+                                          </button>
+                                        )}
+                                      </div>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
               {total > PAGE_SIZE && (

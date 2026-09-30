@@ -6,6 +6,45 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.157.0] — Drill into a player's Global scores, and chart them over time
+
+Owner, 2026-09-29: "Only your highest score should post to the Global board, but there should be
+a way to click a score for a player and drill in to the historicals of all their scores." The
+Global game page (`/games/:id`) still ranks each player once, by their best; every other score was
+stored but unreachable.
+
+### Added
+- **Per-player history on the Global game page.** Click a leaderboard row (or its +/- button) to
+  expand every score that player holds on the game, newest first: the score, engine/device chips,
+  the shared source chip (a cabinet-reported score shows the green AW badge), the room it came
+  from or "Global", the date and any proof photo. One player open at a time; a second click
+  collapses it. Your own rows carry the same delete (and confirmation) as the board's best row;
+  after a delete the history and the board both refresh. Other players' rows are read-only.
+- **Score-over-time chart.** Clicking a score, on the board row or on any history row, shows a
+  chart of that player's scores on this game above the list; click again (or collapse the row) to
+  hide it. Time-scaled x axis, abbreviated score ticks, one dot per score with the best
+  highlighted and marked by a dashed line, a tooltip per point on hover, tap or keyboard focus.
+  One score shows its dot and "Only one score so far." Hand-rolled SVG coloured only from theme
+  tokens, so it reads in every theme; no new dependency. The list and the chart share one fetch.
+- **`GET /api/global/scoreboard/:globalGameId/players/:playerKey/scores`** (`optionalDiscordUser`).
+  `playerKey` is the board row's new `player_key`: the exact value the board already partitions on
+  to collapse a player into one row (`submitted_by_user_id`, else `iscored:` + the lowercased
+  name), now one shared SQL fragment used by both, so the drill-in cannot disagree with the board
+  about who a player is. It applies the board's visibility rules (no soft-deleted or orphaned
+  rows; on the global scope no `exclude_from_global` rows; `?scope=<roomId>` shows only that
+  room's scores) and marks `is_own` by the raw `player_id`, the same test the self-delete route
+  uses. 404 on an unknown game. Uncached.
+
+### Changed
+- `global_leaderboard_cache` envelope v3 → v4 (`player_key` added to the cached rows). Old blobs
+  read as a miss and recompute once.
+- `SourceChip` moved from `pages/GameDetail.tsx` to `components/SourceChip.tsx` (GameDetail
+  re-exports it) so both history views share it. It now renders nothing for a null source, which
+  only Global rows that predate v2.155.0 have.
+- The Global board's player name wraps instead of being cut off with an ellipsis.
+
+---
+
 ## [2.156.0] — Players can delete their own auto-posted scores, and they stay deleted
 
 Owner ruling, 2026-09-28: "Players should have the option to delete their own auto-posted scores
