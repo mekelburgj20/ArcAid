@@ -309,6 +309,13 @@ export class AtGamesEventSyncService {
                     gameName: round.name, gameRoomId: tournament.game_room_id,
                     gameId: round.id, username: row.user_name, score,
                     tournamentId: tournament.id,
+                    // v2.156.0 (ADR 0024) — the same owner / play time
+                    // `writeScore` -> `log` checks, so a play somebody deleted
+                    // reads as "already had" in the preview exactly as the
+                    // real pull will treat it.
+                    source: 'atgames',
+                    ownerKey: canonical ?? `atgames:${row.account}`,
+                    createdAt: toSqliteUtc(at),
                 }))
                 : await this.writeScore(row, round, tournament, canonical, at);
 

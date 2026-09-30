@@ -8,6 +8,7 @@ import LoadingState from '../components/LoadingState';
 import SubmissionSheet from '../components/SubmissionSheet';
 import ReportProblemModal from '../components/ReportProblemModal';
 import ConfirmModal from '../components/ConfirmModal';
+import { deleteConfirmText } from '../lib/scoreDelete';
 import RoomTag from '../components/RoomTag';
 import UserMenu from '../components/UserMenu';
 import LoginButtons from '../components/LoginButtons';
@@ -150,6 +151,9 @@ export default function GlobalGameDetail() {
   const [reportMessage, setReportMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   // s20: confirm-before-delete for self-delete score, replacing native confirm().
   const [pendingDeleteScoreId, setPendingDeleteScoreId] = useState<string | null>(null);
+  // v2.156.0 (ADR 0024) — the pending row's `source`, so the confirm can say
+  // that deleting a cabinet-posted score also stops it being posted again.
+  const [pendingDeleteSource, setPendingDeleteSource] = useState<string | null>(null);
   // v2.0.1: when navigated with ?from=<slug>, treat the Submit as a room-scoped
   // freeplay submission rather than a direct global submission.
   const [fromRoom, setFromRoom] = useState<{ id: string; discordEnabled: boolean } | null>(null);
@@ -417,9 +421,10 @@ export default function GlobalGameDetail() {
     }
   };
 
-  const handleDeleteScore = (scoreId: string) => {
+  const handleDeleteScore = (scoreId: string, source?: string | null) => {
     if (!playerToken) return;
     setPendingDeleteScoreId(scoreId);
+    setPendingDeleteSource(source ?? null);
   };
 
   const performDeleteScore = async (scoreId: string) => {
@@ -778,7 +783,7 @@ export default function GlobalGameDetail() {
                           )}
                           {discordUser?.discordId === entry.discord_user_id && (
                             <button
-                              onClick={() => handleDeleteScore(entry.score_id)}
+                              onClick={() => handleDeleteScore(entry.score_id, entry.source)}
                               className="p-4 -m-2 text-muted hover:text-red-400"
                               title="Delete this score"
                               aria-label="Delete this score"
@@ -1101,7 +1106,10 @@ export default function GlobalGameDetail() {
       {pendingDeleteScoreId && (
         <ConfirmModal
           title="Delete score"
-          message="Delete this score? If you have other scores for this game, your next best will show instead."
+          message={deleteConfirmText(
+            'Delete this score? If you have other scores for this game, your next best will show instead.',
+            { source: pendingDeleteSource },
+          )}
           confirmLabel="Delete"
           onConfirm={() => {
             const scoreId = pendingDeleteScoreId;

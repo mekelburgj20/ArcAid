@@ -11,6 +11,7 @@
 
 import type { ViewerClaims } from './viewerClaims';
 import { isRoomAdminFor } from './viewerClaims';
+import { isWitnessedScore } from './provenanceDisplay';
 
 /** The subset of a ranked/history row this gate reads. */
 export interface DeletableRowLike {
@@ -24,8 +25,28 @@ export interface DeletableRowLike {
    * they never submitted.
    */
   submitted_by_user_id?: string | null;
-  /** `tournament` | `sync` | `community` — all three are deletable as of v2.108.0. */
+  /**
+   * `tournament` | `sync` | `community` — deletable since v2.108.0 — plus the
+   * AUTO-POSTED `vpx` | `atgames` since v2.156.0 (ADR 0024).
+   */
   source?: string | null;
+}
+
+/** Every `score_history.source` the per-row delete endpoint accepts. */
+const DELETABLE_SOURCES = new Set(['tournament', 'sync', 'community', 'vpx', 'atgames']);
+
+/** The one extra sentence a delete confirmation shows for an auto-posted row. */
+export const AUTO_POSTED_DELETE_NOTE =
+  'Deleting it also stops the cabinet from posting this same score again.';
+
+/**
+ * The full confirmation text for deleting `row`: the caller's own question,
+ * plus `AUTO_POSTED_DELETE_NOTE` when a paired cabinet or an AtGames pull
+ * wrote the score (`isWitnessedScore` — the ONE definition of "nobody typed
+ * this"). One helper so every surface says the same thing.
+ */
+export function deleteConfirmText(base: string, row: { source?: string | null }): string {
+  return isWitnessedScore(row) ? `${base} ${AUTO_POSTED_DELETE_NOTE}` : base;
 }
 
 /** The `score_history.id` this row deletes, or null when it ships none. */
@@ -47,8 +68,11 @@ export function isOwnScoreRow(row: DeletableRowLike, claims: ViewerClaims | null
  *
  * v2.108.0: `source` is no longer a gate — the community cascade
  * (`ScoreHistoryService.deleteCommunityScoreTwin`) shipped, so
- * tournament/sync/community rows are all deletable. A row with an UNKNOWN
- * source is still refused: the server's allowlist would reject it anyway.
+ * tournament/sync/community rows are all deletable. v2.156.0 (ADR 0024) adds
+ * the auto-posted `vpx`/`atgames` rows under exactly the same tiers, now that
+ * the server tombstones the play so a replay cannot re-create it. A row with
+ * an UNKNOWN source is still refused: the server's allowlist would reject it
+ * anyway.
  */
 export function canDeleteRow(
   row: DeletableRowLike,
@@ -58,7 +82,7 @@ export function canDeleteRow(
   if (!claims || !roomId) return false;
   if (rowHistoryId(row) == null) return false;
   const source = row.source;
-  if (source != null && source !== 'tournament' && source !== 'sync' && source !== 'community') return false;
+  if (source != null && !DELETABLE_SOURCES.has(source)) return false;
   if (isRoomAdminFor(claims, roomId)) return true;
   return isOwnScoreRow(row, claims);
 }

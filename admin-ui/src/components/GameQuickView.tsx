@@ -6,7 +6,7 @@ import { PlayerAvatar, playerName } from './ScoreboardComponents';
 import { getLegacyPlatformLabel } from '../lib/scoreProvenance';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { decodeViewerClaims } from '../lib/viewerClaims';
-import { canDeleteRow, deleteScoreHistory, rowHistoryId } from '../lib/scoreDelete';
+import { canDeleteRow, deleteConfirmText, deleteScoreHistory, rowHistoryId } from '../lib/scoreDelete';
 import { canCorrectRow, correctScoreHistory } from '../lib/scoreCorrect';
 import CorrectScoreModal from './CorrectScoreModal';
 import { useScoreExpand } from './scoreboard/useScoreExpand';
@@ -112,7 +112,8 @@ export default function GameQuickView({ lb, slug, fromTab, highlightStat, roomId
   const { playerToken } = useViewerAuth();
   const claims = useMemo(() => decodeViewerClaims(playerToken), [playerToken]);
   const [deletedIds, setDeletedIds] = useState<Set<number>>(() => new Set());
-  const [pendingDelete, setPendingDelete] = useState<{ historyId: number; score: number } | null>(null);
+  const [pendingDelete, setPendingDelete] =
+    useState<{ historyId: number; score: number; source?: string | null } | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [pendingCorrect, setPendingCorrect] =
     useState<{ historyId: number; score: number; label: string } | null>(null);
@@ -399,7 +400,7 @@ export default function GameQuickView({ lb, slug, fromTab, highlightStat, roomId
                   {canDelete && historyId != null && (
                     <button
                       type="button"
-                      onClick={(e) => { e.stopPropagation(); setPendingDelete({ historyId, score: entry.score }); }}
+                      onClick={(e) => { e.stopPropagation(); setPendingDelete({ historyId, score: entry.score, source: entry.source }); }}
                       className="p-1 -m-0.5 text-red-400/70 hover:text-red-400 transition-colors cursor-pointer flex-shrink-0"
                       aria-label={`Delete this score (${entry.score.toLocaleString()})`}
                       title="Delete this score"
@@ -447,7 +448,7 @@ export default function GameQuickView({ lb, slug, fromTab, highlightStat, roomId
                               {canDeleteNested && (
                                 <button
                                   type="button"
-                                  onClick={(e) => { e.stopPropagation(); setPendingDelete({ historyId: h.id, score: h.score }); }}
+                                  onClick={(e) => { e.stopPropagation(); setPendingDelete({ historyId: h.id, score: h.score, source: h.source }); }}
                                   className="p-1 -m-0.5 text-red-400/70 hover:text-red-400 transition-colors cursor-pointer"
                                   aria-label={`Delete this score (${h.score.toLocaleString()})`}
                                   title="Delete this score"
@@ -514,7 +515,7 @@ export default function GameQuickView({ lb, slug, fromTab, highlightStat, roomId
       {pendingDelete && (
         <ConfirmModal
           title="Delete score"
-          message={`Delete this score (${pendingDelete.score.toLocaleString()})?`}
+          message={deleteConfirmText(`Delete this score (${pendingDelete.score.toLocaleString()})?`, pendingDelete)}
           confirmLabel="Delete"
           onConfirm={() => {
             const target = pendingDelete;

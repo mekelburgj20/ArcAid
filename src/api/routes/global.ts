@@ -356,7 +356,11 @@ router.get('/witness/score', witnessIngestLimiter, async (req, res) => {
                 emitLeaderboardUpdated(result.gameRoomId, { gameId: result.gameId });
             } catch { /* socket optional */ }
         }
-        res.json({ ok: true, status: result.status, game: result.gameName ?? null });
+        // v2.156.0 (ADR 0024) — a play the player deleted answers 'duplicate':
+        // the cabinet's contract already knows that status (it stops retrying
+        // and moves on), and inventing a new one on the wire would break it.
+        const wireStatus = result.status === 'suppressed' ? 'duplicate' : result.status;
+        res.json({ ok: true, status: wireStatus, game: result.gameName ?? null });
     } catch (error) {
         logError('API Error (GET /api/witness/score)');
         res.status(500).json({ ok: false });

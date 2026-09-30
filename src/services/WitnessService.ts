@@ -368,6 +368,8 @@ export class WitnessService {
         // existing tier-1 join answer the right question: the exit matches the
         // score's timestamp exactly, and the launch it compares against the
         // round start is the GAME's launch.
+        // A `'suppressed'` play (ADR 0024 — the player deleted it) files NO
+        // observation: there is no score left for it to witness.
         if (result.status === 'ingested' || result.status === 'duplicate') {
             await WitnessService.recordObservation({
                 atgamesUniqueId: deviceId,

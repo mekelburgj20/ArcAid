@@ -196,7 +196,7 @@ export class ScoreReportService {
             return true;
         }
         if (hard) {
-            await GlobalScoreService.hardDelete(report.score_id);
+            await GlobalScoreService.hardDelete(report.score_id, adminDiscordId);
         } else {
             await GlobalScoreService.softDelete(report.score_id, adminDiscordId);
         }
@@ -497,6 +497,17 @@ export class ScoreReportService {
                     );
                 } else {
                     // delete
+                    if (table === 'score_history') {
+                        // v2.156.0 (ADR 0024) — an auto-posted row ('vpx' /
+                        // 'atgames') gets its play-scoped tombstone so the
+                        // cabinet's next replay cannot re-post it. No-op for
+                        // every other source.
+                        const { ScoreHistoryService } = await import('./ScoreHistoryService.js');
+                        await ScoreHistoryService.recordAutoSuppressionForRow(
+                            row as unknown as Parameters<typeof ScoreHistoryService.recordAutoSuppressionForRow>[0],
+                            banId,
+                        );
+                    }
                     if (table === 'score_history' && row.game_id) {
                         // Tombstone so the iScored sync poller doesn't
                         // re-import this score on its next tick — same

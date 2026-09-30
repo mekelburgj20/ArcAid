@@ -2326,7 +2326,7 @@ router.delete('/global-scores/:scoreId', async (req, res) => {
         const hard = req.query.hard === 'true' || req.query.hard === '1';
         const actor = req.user!.discordId || req.user!.username || 'admin';
         const ok = hard
-            ? await GlobalScoreService.hardDelete(scoreId)
+            ? await GlobalScoreService.hardDelete(scoreId, actor)
             : await GlobalScoreService.softDelete(scoreId, actor);
         if (!ok) return res.status(404).json({ error: 'Score not found' });
 

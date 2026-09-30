@@ -153,6 +153,42 @@ describe('GameQuickView — per-row delete', () => {
   });
 });
 
+describe('GameQuickView — auto-posted rows (v2.156.0, ADR 0024)', () => {
+  beforeEach(() => { localStorage.clear(); stubFetch(); });
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+  const CABINET: RankedEntry[] = [
+    {
+      rank: 1, discord_user_id: 'disc-ada', iscored_username: 'Ada', score: 8366650,
+      history_id: 21, source: 'vpx', submitted_by_user_id: 'disc-ada',
+    },
+    {
+      rank: 2, discord_user_id: 'atgames:50177', iscored_username: 'CabHero', score: 5100,
+      history_id: 22, source: 'atgames', submitted_by_user_id: null,
+    },
+  ];
+
+  it('offers the owner the trash on their own cabinet score, and says the cabinet will not re-post it', async () => {
+    signInAs('disc-ada');
+    renderPopup({ roomId: 'room-1', lb: { gameName: 'Bad Cats', gameId: 'game-1', rankings: CABINET } });
+
+    fireEvent.click(await screen.findByLabelText('Delete this score (8,366,650)'));
+    expect(screen.getByRole('dialog', { name: 'Delete score' })).toHaveTextContent(
+      'Deleting it also stops the cabinet from posting this same score again.',
+    );
+    // An unlinked AtGames row belongs to nobody a player login can prove.
+    expect(screen.queryByLabelText('Delete this score (5,100)')).not.toBeInTheDocument();
+  });
+
+  it('keeps a typed score\'s confirmation exactly as it was', async () => {
+    signInAs('disc-ada');
+    renderPopup({ roomId: 'room-1' });
+
+    fireEvent.click(await screen.findByLabelText('Delete this score (4,200)'));
+    expect(screen.getByRole('dialog', { name: 'Delete score' })).not.toHaveTextContent(/cabinet/);
+  });
+});
+
 describe('GameQuickView — nested per-player history', () => {
   beforeEach(() => { localStorage.clear(); stubFetch(); });
   afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
