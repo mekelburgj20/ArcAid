@@ -162,9 +162,10 @@ export const nominatepicker: Command = {
                     correlation_id: interaction.id,
                 });
 
-                await interaction.editReply(`You have successfully nominated ${nominatedUser.toString()} to pick the next game for the tournament.`);
+                const tournamentName = tournament?.name ?? 'the tournament';
+                await interaction.editReply(`You have successfully nominated ${nominatedUser.toString()} to pick the next game for **${tournamentName}**.`);
                 if (interaction.channel && 'send' in interaction.channel) {
-                    await interaction.channel.send(`${interaction.user.toString()} has nominated ${nominatedUser.toString()} to pick the next game!`).catch(() => {});
+                    await interaction.channel.send(`${interaction.user.toString()} has nominated ${nominatedUser.toString()} to pick the next game for **${tournamentName}**!`).catch(() => {});
                 }
                 return;
             }

@@ -152,11 +152,11 @@ export class TimeoutManager {
     }
 
     /** Resolves tournament info for embed coloring and terminology. */
-    private async getTournamentInfo(tournamentId: string | undefined): Promise<{ type: string | null; mode: string | null; gameRoomId: string | null }> {
-        if (!tournamentId) return { type: null, mode: null, gameRoomId: null };
+    private async getTournamentInfo(tournamentId: string | undefined): Promise<{ type: string | null; mode: string | null; gameRoomId: string | null; name: string | null }> {
+        if (!tournamentId) return { type: null, mode: null, gameRoomId: null, name: null };
         const db = await getDatabase();
-        const row = await db.get('SELECT type, mode, game_room_id FROM tournaments WHERE id = ?', tournamentId);
-        return { type: row?.type ?? null, mode: row?.mode ?? null, gameRoomId: row?.game_room_id ?? null };
+        const row = await db.get('SELECT type, mode, game_room_id, name FROM tournaments WHERE id = ?', tournamentId);
+        return { type: row?.type ?? null, mode: row?.mode ?? null, gameRoomId: row?.game_room_id ?? null, name: row?.name ?? null };
     }
 
     private async sendReminder(game: Game, minsRemaining: number): Promise<void> {
@@ -170,10 +170,15 @@ export class TimeoutManager {
             if (channelId) {
                 const color = getTournamentColor(info.type);
                 const pickerMention = await resolveUserMention(game.pickerDiscordId!, game.pickerDiscordId!, info.gameRoomId);
+                // Every pick prompt names its tournament (2026-09-30: several
+                // tournaments announce into one channel, and a runner-up picked
+                // for the wrong one because the prompt never said which).
+                const tournamentName = info.name ?? 'the tournament';
                 const embed = new EmbedBuilder()
-                    .setTitle('Pick Reminder')
-                    .setDescription(`${pickerMention.text}, you have **${minsRemaining} minutes** left to pick the next ${term.game}. Use \`/pick-game\` now!`)
+                    .setTitle(`Pick Reminder — ${tournamentName}`)
+                    .setDescription(`${pickerMention.text}, you have **${minsRemaining} minutes** left to pick the next ${term.game} for **${tournamentName}**. Use \`/pick-game\` now!`)
                     .setColor(color)
+                    .setFooter({ text: tournamentName })
                     .setTimestamp();
                 await sendChannelEmbed(channelId, embed, { pingUserIds: pickerMention.pingIds });
             }
@@ -292,12 +297,14 @@ export class TimeoutManager {
                 const channelId = await this.getChannelId(game.tournamentId);
                 if (channelId) {
                     const color = getTournamentColor(info.type);
+                    const tournamentName = info.name ?? 'the tournament';
                     const embed = new EmbedBuilder()
-                        .setTitle('Winner Timed Out')
+                        .setTitle(`Winner Timed Out — ${tournamentName}`)
                         .setDescription(reason
-                            ? `${reason} Auto-selecting a ${term.game}...`
-                            : `No eligible runner-up was found. Auto-selecting a ${term.game}...`)
+                            ? `${reason} Auto-selecting a ${term.game} for **${tournamentName}**...`
+                            : `No eligible runner-up was found. Auto-selecting a ${term.game} for **${tournamentName}**...`)
                         .setColor(color)
+                        .setFooter({ text: tournamentName })
                         .setTimestamp();
                     await sendChannelEmbed(channelId, embed);
                 }
@@ -381,10 +388,15 @@ export class TimeoutManager {
             if (channelId) {
                 const color = getTournamentColor(info.type);
                 const runnerUpMention = await resolveUserMention(runnerUpId, runnerUpName || 'Runner-up', info.gameRoomId);
+                // The tournament is named in the title, the body AND the
+                // footer on purpose: this is the prompt a runner-up read as
+                // "pick for the Daily Grind" when it was the Weekly (2026-09-30).
+                const tournamentName = tournamentRow?.name ?? 'the tournament';
                 const embed = new EmbedBuilder()
-                    .setTitle(`⏰ Winner Timed Out`)
-                    .setDescription(`${runnerUpMention.text} — as the runner-up, you now have **${runnerUpWindowMin} minutes** to pick the next ${term.game}. Use \`/pick-game\`!`)
+                    .setTitle(`⏰ Winner Timed Out — ${tournamentName}`)
+                    .setDescription(`${runnerUpMention.text} — as the runner-up, you now have **${runnerUpWindowMin} minutes** to pick the next ${term.game} for **${tournamentName}**. Use \`/pick-game\`!`)
                     .setColor(color)
+                    .setFooter({ text: tournamentName })
                     .setTimestamp();
                 await sendChannelEmbed(channelId, embed, { pingUserIds: runnerUpMention.pingIds });
             }
