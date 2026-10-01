@@ -44,6 +44,22 @@ function num(v: unknown, fallback = ''): string {
 interface RotationLogPage {
   events: RotationEvent[];
   nextCursor: string | null;
+  /** Player id → label, resolved by the server at read time (v2.157.1). The
+   *  rows store raw ids; a missing entry renders the raw value. */
+  names?: Record<string, string>;
+}
+
+type Names = Record<string, string>;
+
+/** The label for a stored player id — the raw value when nothing resolved. */
+function nameOf(names: Names, v: unknown, fallback = ''): string {
+  const raw = txt(v, '');
+  if (!raw) return fallback;
+  return names[raw] || raw;
+}
+
+function namesFrom(page: RotationLogPage | undefined): Names {
+  return page?.names && typeof page.names === 'object' ? page.names : {};
 }
 
 const PAGE_SIZE = 50;
@@ -90,7 +106,7 @@ const PLACEHOLDER_REASON: Record<string, string> = {
  * Strip the `player:` / `admin:` / `system:` prefix for display. The prefix is
  * what makes the stored value unambiguous; the reader wants the identity.
  */
-function actorLabel(actor: string): string {
+function actorLabel(actor: string, names: Names = {}): string {
   if (actor.startsWith('system:')) {
     const which = actor.slice('system:'.length);
     return which === 'timeout' ? 'the pick timer'
@@ -98,14 +114,15 @@ function actorLabel(actor: string): string {
       : 'the rotation';
   }
   const sep = actor.indexOf(':');
-  return sep < 0 ? actor : actor.slice(sep + 1);
+  const id = sep < 0 ? actor : actor.slice(sep + 1);
+  return names[id] || id;
 }
 
 /**
  * One plain sentence per event. Never ellipsized — long game titles wrap
  * (owner rule); the row is a flex column, not a truncated single line.
  */
-function describe(e: RotationEvent): string {
+function describe(e: RotationEvent, names: Names = {}): string {
   const d = e.details || {};
   const game = e.game_name || 'a game';
   switch (e.event_type) {
@@ -116,24 +133,24 @@ function describe(e: RotationEvent): string {
         : `No scores were on the board for ${txt(d.fromGame, game)} — no winner.`;
     case 'disposition_applied':
       return d.disposition === 'nominate'
-        ? `${actorLabel(e.actor)} handed their pick to ${txt(d.movedTo, 'someone else')}.`
+        ? `${actorLabel(e.actor, names)} handed their pick to ${nameOf(names, d.movedTo, 'someone else')}.`
         : d.disposition === 'forfeit'
-          ? `${actorLabel(e.actor)} forfeited the pick.`
-          : `${actorLabel(e.actor)} rolled the dice — Arcaid picks.`;
+          ? `${actorLabel(e.actor, names)} forfeited the pick.`
+          : `${actorLabel(e.actor, names)} rolled the dice — Arcaid picks.`;
     case 'pick_window_granted':
-      return `${txt(d.pickerLabel, txt(d.picker, 'A player'))} got a `
+      return `${txt(d.pickerLabel, nameOf(names, d.picker, 'A player'))} got a `
         + `${d.pickerType === 'RUNNER_UP' ? 'runner-up' : 'winner'} pick window`
         + `${d.windowMin ? ` of ${txt(d.windowMin)} min` : ''}`
         + `${d.deadline ? `, closing ${fmtTime(txt(d.deadline))}` : ''}.`;
     case 'pick_window_cleared':
       return `An admin cancelled the ${txt(d.pickerType).toLowerCase() || 'pick'} window on ${game}`
-        + `${d.picker ? ` (was ${txt(d.picker)})` : ''}.`;
+        + `${d.picker ? ` (was ${nameOf(names, d.picker)})` : ''}.`;
     case 'game_activated':
       return `Activated ${game} ${SOURCE_PHRASE[e.source || 'unknown'] || SOURCE_PHRASE.unknown}`
-        + `${e.queue_owner ? ` — ${e.queue_owner}'s queue` : ''}`
+        + `${e.queue_owner ? ` — ${nameOf(names, e.queue_owner)}'s queue` : ''}`
         + `${d.replacedGame ? `, replacing ${txt(d.replacedGame)}` : ''}.`;
     case 'placeholder_created':
-      return `Reserved a slot for ${txt(d.picker, 'the picker')} (${txt(d.pickerType, 'WINNER')})`
+      return `Reserved a slot for ${nameOf(names, d.picker, 'the picker')} (${txt(d.pickerType, 'WINNER')})`
         + ` after ${txt(d.wonGameName, 'their win')}.`;
     case 'placeholder_deleted':
       return `Removed a reserved pick slot — `
@@ -148,7 +165,7 @@ function describe(e: RotationEvent): string {
       return `Cleanup (${txt(d.mode, 'unknown mode')}) archived ${txt(d.archived, '0')}`
         + ` of ${txt(d.considered, '0')} completed game(s).`;
     case 'timeout_pivot':
-      return `${txt(d.expiredPicker, 'The picker')}'s ${txt(d.expiredPickerType).toLowerCase() || 'pick'}`
+      return `${nameOf(names, d.expiredPicker, 'The picker')}'s ${txt(d.expiredPickerType).toLowerCase() || 'pick'}`
         + ` window expired — the cascade moved on.`;
     default:
       return JSON.stringify(d);
@@ -166,6 +183,7 @@ export default function RotationLogPanel({ roomId, tournaments }: {
   tournaments: { id: string; name: string }[];
 }) {
   const [events, setEvents] = useState<RotationEvent[]>([]);
+  const [names, setNames] = useState<Names>({});
   const [cursor, setCursor] = useState<string | null>(null);
   const [tournamentId, setTournamentId] = useState<string>('');
   const [loading, setLoading] = useState(true);
@@ -193,6 +211,7 @@ export default function RotationLogPanel({ roomId, tournaments }: {
         // Defensive: an unexpected body shape renders as "nothing yet" rather
         // than throwing inside the Game States page this panel is a guest on.
         setEvents(Array.isArray(page?.events) ? page.events : []);
+        setNames(namesFrom(page));
         setCursor(page?.nextCursor ?? null);
       })
       .catch(() => { if (!cancelled) setError('Failed to load the rotation log'); })
@@ -211,6 +230,7 @@ export default function RotationLogPanel({ roomId, tournaments }: {
     api.get<RotationLogPage>(url(cursor))
       .then(page => {
         setEvents(prev => [...prev, ...(Array.isArray(page?.events) ? page.events : [])]);
+        setNames(prev => ({ ...prev, ...namesFrom(page) }));
         setCursor(page?.nextCursor ?? null);
       })
       .catch(() => setError('Failed to load more'))
@@ -273,11 +293,11 @@ export default function RotationLogPanel({ roomId, tournaments }: {
                 <Icon size={14} className={`${meta.color} mt-0.5 shrink-0`} />
                 <div className="min-w-0 flex-1">
                   {/* break-words, never truncate — a long table title wraps. */}
-                  <div className="text-sm text-primary break-words">{describe(e)}</div>
+                  <div className="text-sm text-primary break-words">{describe(e, names)}</div>
                   <div className="text-[11px] text-faint flex flex-wrap gap-x-2 gap-y-0.5 mt-0.5">
                     <span className={meta.color}>{meta.label}</span>
                     <span>{fmtTime(e.created_at)}</span>
-                    <span>by {actorLabel(e.actor)}</span>
+                    <span>by {actorLabel(e.actor, names)}</span>
                     {e.tournament_name && <span>· {e.tournament_name}</span>}
                   </div>
                 </div>

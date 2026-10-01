@@ -27,9 +27,18 @@ one.
   designate` replies ("to pick the next game for the tournament") name the tournament.
 - **The web Picks page banner** says which tournament(s) the pending pick is for instead of a bare
   "It's your turn to pick!".
+- **The Game States Rotation Log showed raw Discord ids in most sentences** ("698435672586846228's
+  winner window expired", "— 583104017840996363's queue", "by 286041344823001088") because only a
+  few writers attached a label. The rows keep raw ids on purpose (identity-stable, like
+  `leaderboard_cache`); `RotationAuditService.list` now resolves every id the page mentions —
+  `actor`, `queue_owner` and the identity-bearing `details` keys in `IDENTITY_DETAIL_KEYS` — in
+  two batched queries (display name → login username → earliest iScored alias, the same chain as
+  `labelForPlayer`) and ships them as a `names` map; the panel renders through it and falls back
+  to the raw id for anyone it could not resolve.
 
 The lobby-feed prompt, the turn-to-pick DMs and the push body already named the tournament; they
-are unchanged. New test `pick-prompts-name-tournament.test.ts` locks the three channel embeds.
+are unchanged. New test `pick-prompts-name-tournament.test.ts` locks the three channel embeds;
+`rotation-audit.test.ts` + `RotationLogPanel.test.tsx` lock the name resolution.
 
 ---
 
