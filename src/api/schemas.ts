@@ -126,7 +126,11 @@ const TournamentBaseSchema = z.object({
     discord_role_id: discordIdSchema.optional().or(z.literal('')).default(''),
     is_active: z.boolean().default(true),
     display_order: z.number().int().min(0).default(0),
-    max_active_games: z.number().int().min(1).max(10).default(1),
+    // v2.158.1 — ceiling raised 10 -> 100 (owner ruling 2026-10-01: "I don't
+    // want to impose a limit"). A ceiling stays only as a typo guard: every
+    // active slot is an iScored board, a Discord embed and a maintenance pass,
+    // so 1000 by accident would be an incident, 100 is a choice.
+    max_active_games: z.number().int().min(1).max(100).default(1),
     winner_picks: z.boolean().default(true),
     auto_pick: z.boolean().default(true),
     eligibility_days: z.number().int().min(1).max(365).default(120),
