@@ -6,6 +6,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.158.1] — Up to 100 active tables per tournament
+
+### Changed
+- **`max_active_games` ceiling raised from 10 to 100.** Owner ruling 2026-10-01: "I don't want to
+  impose a limit." The tournament form's stepper had no ceiling of its own, so the 10 lived only
+  in the API schema and surfaced as a 400 on save. A ceiling stays at 100 purely as a typo guard:
+  every active slot is an iScored board, a Discord embed and a maintenance pass. Event rounds keep
+  their own limit of 12 per event.
+
+---
+
 ## [2.158.0] — Witness: exit samples verify or stay neutral, never flag; the launcher's name wins a tie
 
 Follow-ups from the v1.0.3 Witness field run (2026-09-30, SPRINT_STATUS #150) and the four
