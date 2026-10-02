@@ -97,6 +97,40 @@ export interface RotationAuditPage {
     events: RotationEventRow[];
     /** Opaque `created_at|id` cursor to pass back as `before`, or null at the end. */
     nextCursor: string | null;
+    /**
+     * Player id → display label for every identity this page mentions
+     * (`actor`, `queue_owner`, and the identity-bearing `details` keys in
+     * `IDENTITY_DETAIL_KEYS`), resolved at READ time — the rows themselves
+     * store raw ids on purpose (identity-stable, same doctrine as
+     * `leaderboard_cache`). Ids that resolve to nothing are absent, and the
+     * panel falls back to the raw value. v2.157.1: the panel was printing
+     * snowflakes in most sentences because only a few writers bothered to
+     * attach a label.
+     */
+    names: Record<string, string>;
+}
+
+/**
+ * The `details` keys whose value is a player id. Writers add keys freely
+ * (`details` is untyped JSON by design), so this list is the one place the
+ * reader learns which of them name a person; a new identity-bearing key must
+ * be added here or it renders as a raw id.
+ */
+export const IDENTITY_DETAIL_KEYS = [
+    'picker', 'expiredPicker', 'movedTo', 'pivotedFrom', 'designatedUser',
+    'nominee', 'nomineeId', 'nomineeDiscordId', 'forUser', 'forUserId',
+    'playerId', 'pickerId', 'winnerId', 'queueOwner', 'queueOwnerId',
+] as const;
+
+const ACTOR_IDENTITY_PREFIXES = ['player:', 'admin:'];
+
+/** The id inside a `player:<id>` / `admin:<id>` actor, else null. */
+export function actorIdentity(actor: string | null | undefined): string | null {
+    if (!actor) return null;
+    for (const p of ACTOR_IDENTITY_PREFIXES) {
+        if (actor.startsWith(p)) return actor.slice(p.length) || null;
+    }
+    return null;
 }
 
 export const ROTATION_LOG_DEFAULT_LIMIT = 50;
@@ -223,7 +257,61 @@ export class RotationAuditService {
         return {
             events: page,
             nextCursor: hasMore && last ? `${last.created_at}|${last.id}` : null,
+            names: await this.resolveNames(page),
         };
+    }
+
+    /**
+     * Batched label lookup for every identity a page mentions. Same chain as
+     * `TournamentEngine.labelForPlayer` — display_name → username → earliest
+     * iScored alias — in two queries instead of three per id. Never throws:
+     * a lookup failure degrades to raw ids, which is what the panel showed
+     * before and strictly better than a 500 on the Game States page.
+     */
+    static async resolveNames(events: RotationEventRow[]): Promise<Record<string, string>> {
+        const ids = new Set<string>();
+        const add = (v: unknown) => {
+            if (typeof v === 'string' && v.trim() && !v.startsWith('system:')) ids.add(v);
+        };
+        for (const e of events) {
+            add(actorIdentity(e.actor));
+            add(e.queue_owner);
+            for (const k of IDENTITY_DETAIL_KEYS) add(e.details?.[k]);
+        }
+        const names: Record<string, string> = {};
+        if (ids.size === 0) return names;
+
+        try {
+            const db = await getDatabase();
+            const list = [...ids];
+            const placeholders = list.map(() => '?').join(',');
+            const profiles = await db.all(
+                `SELECT discord_user_id, display_name, username FROM user_profiles
+                  WHERE discord_user_id IN (${placeholders})`,
+                ...list,
+            ) as Array<{ discord_user_id: string; display_name: string | null; username: string | null }>;
+            for (const p of profiles) {
+                const label = p.display_name || p.username;
+                if (label) names[p.discord_user_id] = label;
+            }
+            const unresolved = list.filter((id) => !names[id]);
+            if (unresolved.length) {
+                const ph = unresolved.map(() => '?').join(',');
+                // Earliest alias wins, matching labelForPlayer's ORDER BY.
+                const aliases = await db.all(
+                    `SELECT discord_user_id, iscored_username FROM user_mappings
+                      WHERE discord_user_id IN (${ph})
+                      ORDER BY created_at ASC`,
+                    ...unresolved,
+                ) as Array<{ discord_user_id: string; iscored_username: string }>;
+                for (const a of aliases) {
+                    if (!names[a.discord_user_id] && a.iscored_username) names[a.discord_user_id] = a.iscored_username;
+                }
+            }
+        } catch (err) {
+            logError('RotationAuditService.resolveNames failed (rendering raw ids):', err);
+        }
+        return names;
     }
 
     /** Drop rows past the retention window. Returns the number deleted. */

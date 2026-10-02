@@ -6,6 +6,42 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.157.1] — Every pick prompt names the tournament it is for
+
+Owner report, 2026-09-30. Daily Grind VPX, Weekly Grind VPX and Weekly Grind VPXS all announce
+into one channel. bofgi was runner-up on the Weekly Grind VPXS; the winner let the window lapse,
+and the channel got "⏰ Winner Timed Out — @bofgi, as the runner-up, you now have 30 minutes to
+pick the next Table. Use /pick-game!" — no tournament named anywhere, not even a footer. He
+assumed it was the Daily Grind, where he thought he had a pick queued, and picked for the wrong
+one.
+
+### Fixed
+- **"Winner Timed Out" (the runner-up's window) now names the tournament** in the title, the body
+  and the footer. The sibling embed for the no-eligible-runner-up auto-pick case names it too.
+- **"Pick Reminder"** (the 15-minute winner / 10-minute runner-up countdown nags) names the
+  tournament in the title, the body and a new footer. It previously carried none of the three.
+- **"Pick Needed"** (the winner's window) carried the tournament only in the footer and said "for
+  this slot" in the body. The title is now `Pick Needed — <tournament>` and the body says "you won
+  *game* in **tournament**… select the next Table for **tournament**".
+- **The nominee onboarding post + DM** ("you have next pick in *room*") and the `/nominate-picker
+  designate` replies ("to pick the next game for the tournament") name the tournament.
+- **The web Picks page banner** says which tournament(s) the pending pick is for instead of a bare
+  "It's your turn to pick!".
+- **The Game States Rotation Log showed raw Discord ids in most sentences** ("698435672586846228's
+  winner window expired", "— 583104017840996363's queue", "by 286041344823001088") because only a
+  few writers attached a label. The rows keep raw ids on purpose (identity-stable, like
+  `leaderboard_cache`); `RotationAuditService.list` now resolves every id the page mentions —
+  `actor`, `queue_owner` and the identity-bearing `details` keys in `IDENTITY_DETAIL_KEYS` — in
+  two batched queries (display name → login username → earliest iScored alias, the same chain as
+  `labelForPlayer`) and ships them as a `names` map; the panel renders through it and falls back
+  to the raw id for anyone it could not resolve.
+
+The lobby-feed prompt, the turn-to-pick DMs and the push body already named the tournament; they
+are unchanged. New test `pick-prompts-name-tournament.test.ts` locks the three channel embeds;
+`rotation-audit.test.ts` + `RotationLogPanel.test.tsx` lock the name resolution.
+
+---
+
 ## [2.157.0] — Drill into a player's Global scores, and chart them over time
 
 Owner, 2026-09-29: "Only your highest score should post to the Global board, but there should be

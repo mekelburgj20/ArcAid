@@ -74,6 +74,31 @@ describe('RotationLogPanel', () => {
     expect(line.textContent).toContain('replacing Bad Cats');
   });
 
+  it('renders names from the page-level `names` map in place of raw ids (v2.157.1)', async () => {
+    const ID_A = '698435672586846228';
+    const ID_B = '583104017840996363';
+    const ID_C = '286041344823001088';
+    const UNKNOWN = '999999999999999999';
+    stubFetch([{
+      events: [
+        ev({ id: 1, source: 'runner_up_queue', queue_owner: ID_B, game_name: "Guns'N Roses LE" }),
+        ev({ id: 2, event_type: 'timeout_pivot', actor: 'system:timeout', details: { expiredPicker: ID_A, expiredPickerType: 'WINNER' } }),
+        ev({ id: 3, event_type: 'placeholder_created', actor: `player:${ID_C}`, details: { picker: ID_C, pickerType: 'WINNER', wonGameName: 'Guardians' } }),
+        ev({ id: 4, event_type: 'pick_window_granted', details: { picker: UNKNOWN, pickerType: 'RUNNER_UP', windowMin: 30 } }),
+      ],
+      nextCursor: null,
+      names: { [ID_A]: 'mekelburgj', [ID_B]: 'bofgi', [ID_C]: 'Krobs' },
+    } as { events: unknown[]; nextCursor: string | null }]);
+    renderPanel();
+
+    expect((await screen.findByText(/Activated Guns'N Roses LE/)).textContent).toContain("bofgi's queue");
+    expect(screen.getByText(/mekelburgj's winner window expired/)).toBeTruthy();
+    expect(screen.getByText(/Reserved a slot for Krobs \(WINNER\)/)).toBeTruthy();
+    expect(screen.getByText(/by Krobs/)).toBeTruthy();
+    // An id the server could not resolve still renders — as itself.
+    expect(screen.getByText(new RegExp(`${UNKNOWN} got a runner-up pick window`))).toBeTruthy();
+  });
+
   it('renders a readable line for winner, hand-off and pick-window rows', async () => {
     stubFetch([{
       events: [

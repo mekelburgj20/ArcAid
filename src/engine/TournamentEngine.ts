@@ -2008,11 +2008,15 @@ export class TournamentEngine {
                 if (channelId) {
                     const color = getTournamentColor(tournamentRow.type);
                     const pickerMention = await resolveUserMention(pickerId, pickerLabel, tournamentRow.game_room_id);
+                    // The tournament is named in the title and the body, not
+                    // only the footer: several tournaments can announce into
+                    // one channel, and "for this slot" told the picker nothing
+                    // about WHICH one (2026-09-30).
                     const desc = announceExtra
-                        ? `${announceExtra} ${pickerMention.text} has **${pickWindowMin} minutes** to use \`/pick-game\` to select the next ${term.game} for this slot.`
-                        : `${pickerMention.text} — you won **${activeGame.name}**! Use \`/pick-game\` within **${pickWindowMin} minutes** to select the next ${term.game} for this slot.`;
+                        ? `${announceExtra} ${pickerMention.text} has **${pickWindowMin} minutes** to use \`/pick-game\` to select the next ${term.game} for **${tournamentRow.name}**.`
+                        : `${pickerMention.text} — you won **${activeGame.name}** in **${tournamentRow.name}**! Use \`/pick-game\` within **${pickWindowMin} minutes** to select the next ${term.game} for **${tournamentRow.name}**.`;
                     const embed = new EmbedBuilder()
-                        .setTitle(`Pick Needed — ${activeGame.name}`)
+                        .setTitle(`Pick Needed — ${tournamentRow.name}`)
                         .setDescription(desc)
                         .setColor(color)
                         .setFooter({ text: tournamentRow.name })
@@ -2294,7 +2298,8 @@ export class TournamentEngine {
                 ? `https://arcaid.app/${room.slug}/picks?t=${tournamentUrlSlug(tournamentRow.name)}`
                 : null;
             const mention = `<@${nomineeId}>`;
-            const copy = `${mention} — you have next pick in **${roomName}**!${link ? ` ${link}` : ''} Log in with your Discord to pick the next ${term.game}.`;
+            const tournamentName = tournamentRow.name ?? 'the tournament';
+            const copy = `${mention} — you have next pick for **${tournamentName}** in **${roomName}**!${link ? ` ${link}` : ''} Log in with your Discord to pick the next ${term.game} for **${tournamentName}**.`;
 
             if (channelId) {
                 await sendChannelMessage(channelId, copy);
@@ -2305,7 +2310,7 @@ export class TournamentEngine {
                 userId: nomineeId,
                 type: 'turnToPick',
                 message: copy,
-                pushBody: `You have next pick in ${roomName}.`,
+                pushBody: `You have next pick for ${tournamentName} in ${roomName}.`,
                 roomId: tournamentRow.game_room_id,
                 tournamentId: tournamentRow.id,
                 pushUrl: link || undefined,

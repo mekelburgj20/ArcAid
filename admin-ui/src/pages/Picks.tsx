@@ -1112,7 +1112,11 @@ export default function Picks() {
         <div className="flex items-center gap-2 px-4 py-2.5 mb-4 rounded-lg bg-neon-green/10 border border-neon-green/30">
           <Crosshair size={16} className="text-neon-green flex-shrink-0" />
           <p className="text-xs text-neon-green">
-            It's your turn to pick! Select an available game below to activate it.
+            It's your turn to pick for{' '}
+            <span className="font-semibold">
+              {[...new Set((pickStatus?.pendingPicks ?? []).map(p => p.tournament_name))].join(', ')}
+            </span>
+            ! Select an available game below to activate it.
           </p>
         </div>
       )}

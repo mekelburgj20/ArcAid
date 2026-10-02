@@ -542,3 +542,61 @@ describe('GET /:roomId/admin/rotation-log', () => {
         expect(res.status).toBe(400);
     });
 });
+
+describe('RotationAuditService.list — names (v2.157.1)', () => {
+    beforeEach(async () => {
+        await setupTestDb();
+    });
+
+    /**
+     * Owner report 2026-09-30: the Game States rotation log printed raw
+     * snowflakes in most sentences ("698435672586846228's winner window
+     * expired", "— 583104017840996363's queue", "by 286041344823001088")
+     * because only a few writers attached a label. Rows keep raw ids on
+     * purpose; the page resolves them at read time, same chain as
+     * `TournamentEngine.labelForPlayer`.
+     */
+    it('resolves actor, queue_owner and identity detail keys through display_name → username → alias', async () => {
+        const roomId = await createTestRoom('rot-names', 'Names');
+        const db = await getDatabase();
+        const DISPLAY = '333333333333333333';
+        const USERNAME = '444444444444444444';
+        const ALIAS = '555555555555555555';
+        const NOBODY = '666666666666666666';
+        await db.run(`INSERT INTO user_profiles (discord_user_id, username, display_name) VALUES (?, 'krobs_login', 'Krobs')`, DISPLAY);
+        await db.run(`INSERT INTO user_profiles (discord_user_id, username, display_name) VALUES (?, 'bofgi', NULL)`, USERNAME);
+        await db.run(`INSERT INTO user_mappings (discord_user_id, iscored_username) VALUES (?, 'WyoAlias')`, ALIAS);
+
+        await RotationAuditService.log({
+            gameRoomId: roomId, eventType: 'game_activated', actor: `player:${DISPLAY}`,
+            source: 'runner_up_queue', queueOwner: USERNAME, gameName: 'Hook',
+        });
+        await RotationAuditService.log({
+            gameRoomId: roomId, eventType: 'timeout_pivot', actor: 'system:timeout',
+            details: { expiredPicker: ALIAS, expiredPickerType: 'WINNER', pivotedFrom: NOBODY },
+        });
+        await drainBackgroundTasks();
+
+        const page = await RotationAuditService.list(roomId, {});
+        expect(page.names[DISPLAY]).toBe('Krobs');
+        expect(page.names[USERNAME]).toBe('bofgi');
+        expect(page.names[ALIAS]).toBe('WyoAlias');
+        // Unresolvable ids are absent — the panel renders the raw value.
+        expect(page.names[NOBODY]).toBeUndefined();
+        // System actors are never looked up.
+        expect(Object.keys(page.names)).not.toContain('system:timeout');
+    });
+
+    it('ships `names` on the HTTP page and an empty map when nothing resolves', async () => {
+        const roomId = await createTestRoom('rot-names-http', 'Names HTTP');
+        await RotationAuditService.log({ gameRoomId: roomId, eventType: 'cleanup_action', actor: 'system:cron' });
+        await drainBackgroundTasks();
+
+        const app = await createTestApp();
+        const res = await request(app)
+            .get(`/api/rooms/${roomId}/admin/rotation-log`)
+            .set('Authorization', `Bearer ${adminToken(roomId)}`);
+        expect(res.status).toBe(200);
+        expect(res.body.names).toEqual({});
+    });
+});
