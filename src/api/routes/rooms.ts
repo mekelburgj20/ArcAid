@@ -4903,6 +4903,12 @@ router.get('/:roomId/events/:id', roomVisibilityGate, optionalDiscordUser, async
         const checkinOpen = state === 'checkin'
             || (state === 'upcoming' && !event.checkin_opens_at);
 
+        // v2.159.0 — the check-in LOBBY: who is in, and whether each has a
+        // witnessed cabinet ready. Public by owner ruling (names are already
+        // public in the standings). Empty once round 1 starts.
+        const { EventLobbyService } = await import('../../services/EventLobbyService.js');
+        const lobby = await EventLobbyService.roster(event, rounds, now);
+
         res.json({
             event: {
                 id: event.id,
@@ -4925,6 +4931,7 @@ router.get('/:roomId/events/:id', roomVisibilityGate, optionalDiscordUser, async
             },
             rounds: boards ?? [],
             standings: standings ?? null,
+            lobby,
             viewer: {
                 canCheckIn: !!viewerId && checkinOpen && !participant,
                 reason: !viewerId ? 'LOGIN_REQUIRED'
@@ -5004,11 +5011,22 @@ router.get('/:roomId/events/:id/participants', requireAuth, requireRoomAccess('r
         const profiles = await resolveProfiles(
             participants.map(p => ({ submitted_by_user_id: p.user_id, discord_user_id: p.user_id })),
         );
+        // v2.159.0 — the host sees the same green light the public lobby does.
+        const { EventLobbyService } = await import('../../services/EventLobbyService.js');
+        const rounds = await EventService.getRounds(event.id);
+        const lobby = await EventLobbyService.roster(event, rounds, new Date());
+        const lobbyByUser = new Map(lobby.map(e => [e.userId, e]));
         res.json(participants.map((p, i) => ({
             ...p,
             display_name: profiles[i]?.display_name ?? null,
             avatar_hash: profiles[i]?.avatar_hash ?? null,
             avatar_url: profiles[i]?.avatar_url ?? null,
+            witness: lobbyByUser.get(p.user_id) ? {
+                status: lobbyByUser.get(p.user_id)!.status,
+                witnessCheckinAt: lobbyByUser.get(p.user_id)!.witnessCheckinAt,
+                openTable: lobbyByUser.get(p.user_id)!.openTable,
+                lastSeenAt: lobbyByUser.get(p.user_id)!.lastSeenAt,
+            } : null,
         })));
     } catch (error) {
         logError('API Error (GET rooms/:roomId/events/:id/participants):', error);

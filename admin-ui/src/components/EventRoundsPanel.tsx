@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import NeonButton from './NeonButton';
+import { LOBBY_STATUS_META, type LobbyStatus } from './EventLobbyRoster';
 import { api } from '../lib/api';
 import { roundStatusLabel, formatRelative } from '../lib/eventDisplay';
 import type { EventRoundRow, Tournament } from '../lib/tournamentFormPayload';
@@ -76,6 +77,13 @@ interface ParticipantRow {
     added_by: string | null;
     /** Resolved server-side at read time — null for an id with no profile yet. */
     display_name: string | null;
+    /** v2.159.0 — the lobby green light; null once round 1 has started. */
+    witness?: {
+        status: LobbyStatus;
+        witnessCheckinAt: string | null;
+        openTable: string | null;
+        lastSeenAt: string | null;
+    } | null;
 }
 
 interface EventRoundsPanelProps {
@@ -407,6 +415,17 @@ export default function EventRoundsPanel({ roomId, roomSlug, tournament, onClose
                                     ? <span className="text-primary">{p.display_name}</span>
                                     : <span className="font-mono text-xs text-muted">{p.user_id}</span>}
                             </span>
+                            {p.witness && (
+                                <span
+                                    className={`inline-flex items-center gap-1.5 text-xs ${LOBBY_STATUS_META[p.witness.status].text}`}
+                                    title={p.witness.openTable
+                                        ? `${LOBBY_STATUS_META[p.witness.status].hint} (${p.witness.openTable})`
+                                        : LOBBY_STATUS_META[p.witness.status].hint}
+                                >
+                                    <span aria-hidden className={`inline-block w-2 h-2 rounded-full ${LOBBY_STATUS_META[p.witness.status].dot}`} />
+                                    {LOBBY_STATUS_META[p.witness.status].label}
+                                </span>
+                            )}
                             {p.source === 'admin' && (
                                 <span className="text-xs px-2 py-0.5 rounded bg-neon-amber/15 text-neon-amber border border-neon-amber/40">added</span>
                             )}

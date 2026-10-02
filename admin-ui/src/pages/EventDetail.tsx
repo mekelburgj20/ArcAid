@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ChevronLeft } from 'lucide-react';
 import { formatScore, scoreTitle } from '../lib/format';
 import ShareButton from '../components/ShareButton';
+import EventLobbyRoster, { type LobbyEntry } from '../components/EventLobbyRoster';
 import { useOptionalRoom } from '../contexts/RoomContext';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { ApiError } from '../lib/api';
@@ -120,6 +121,8 @@ interface EventPayload {
         standings: StandingRow[];
         incomplete: StandingRow[];
     } | null;
+    /** v2.159.0 — the check-in lobby; empty once round 1 starts. Absent from a Throwdown. */
+    lobby?: LobbyEntry[];
     viewer: {
         canCheckIn: boolean;
         reason: 'LOGIN_REQUIRED' | 'ALREADY_CHECKED_IN' | 'CHECKIN_CLOSED' | null;
@@ -504,6 +507,22 @@ export default function EventDetail({ throwdownCode }: EventDetailProps = {}) {
                             )}
                         </div>
                     </div>
+
+                    {/* The lobby (v2.159.0). Public by owner ruling. A cabinet
+                        owner never has to press the button above: opening the
+                        Arcaid Witness tile on a cabinet designated to this
+                        event checks them in and lights them up here. */}
+                    {(data.lobby?.length ?? 0) > 0 && (
+                        <div className="mt-4 pt-3 border-t border-border/40">
+                            <div className="flex items-baseline justify-between gap-2 flex-wrap mb-2">
+                                <h3 className="font-display text-xs font-bold uppercase tracking-wider text-muted">Lobby</h3>
+                                <p className="text-xs text-faint">
+                                    Green = cabinet checked in with no table open. Open the Arcaid Witness tile on your cabinet to check in.
+                                </p>
+                            </div>
+                            <EventLobbyRoster entries={data.lobby!} viewerId={discordUser?.discordId ?? null} />
+                        </div>
+                    )}
                     {error && <p className="text-xs text-neon-magenta mt-2">{error}</p>}
                 </section>
             )}
