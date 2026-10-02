@@ -78,16 +78,18 @@ async function atgamesScore(opts: {
 async function observe(opts: {
     userId: string; table?: string; launchMs: number; exitMs: number; device?: string;
     via?: 'live' | 'retro';
+    kind?: 'session' | 'game';
+    sample?: 'exit' | null;
 }) {
     const db = await getDatabase();
     const launch = Math.floor(opts.launchMs / 1000);
     const exit = Math.floor(opts.exitMs / 1000);
     await db.run(
         `INSERT INTO witness_observations
-            (atgames_unique_id, canonical_user_id, table_name, launch_ts, exit_ts, duration_sec, via)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            (atgames_unique_id, canonical_user_id, table_name, launch_ts, exit_ts, duration_sec, via, kind, sample)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         opts.device ?? DEVICE, opts.userId, opts.table ?? 'aerobatics', launch, exit, exit - launch,
-        opts.via ?? 'live',
+        opts.via ?? 'live', opts.kind ?? 'session', opts.sample ?? null,
     );
 }
 
@@ -165,6 +167,7 @@ describe('WitnessVerifyService — verdicts', () => {
         expect(v).toEqual({
             status: 'unwitnessed', method: null, launchTs: null, exitTs: null,
             durationSec: null, table: null, via: null, checkinTs: null,
+            sample: null,
         });
     });
 
@@ -302,6 +305,7 @@ describe('WitnessVerifyService — tier 2, the check-in attestation', () => {
             // A check-in dates the play; it does not measure it.
             launchTs: null, exitTs: null, durationSec: null, table: null, via: null,
             checkinTs: Math.floor((BASE + 1 * MINUTE) / 1000),
+            sample: null,
         });
     });
 
@@ -513,5 +517,77 @@ describe('Live Event boards — witness verdicts', () => {
         // `leaderboard_cache`.
         expect(row).not.toHaveProperty('display_name');
         expect(row).not.toHaveProperty('avatar_hash');
+    });
+});
+
+/**
+ * v2.158.0 — exit samples (no-ROM tables) and the game-over-session tie-break.
+ *
+ * A no-ROM table gives the cabinet ONE score reading, taken when the player
+ * leaves; the game row it files carries the SESSION's launch because nothing
+ * finer exists. That launch is a lower bound on when the game began: a session
+ * opened inside the round proves the game was too, a session opened before it
+ * proves nothing either way. So an exit sample may be `verified` or
+ * `unwitnessed`, never `flagged` — SPRINT_STATUS #144/#150, owner ruling
+ * 2026-10-01 ("do not try to verify it and do not flag it").
+ */
+describe('WitnessVerifyService — exit samples and tie-breaks (v2.158.0)', () => {
+    beforeEach(async () => { await setupTestDb(); });
+
+    const verdict = (rows: Array<{ identityKey: string; createdEpoch: number | null; source: string | null }>) =>
+        WitnessVerifyService.verdictsForRound({ roundStartEpoch: BASE_EPOCH, rows });
+
+    const at = (ms: number) => Math.floor(ms / 1000);
+
+    it('verifies an exit sample whose session was opened inside the round', async () => {
+        await observe({
+            userId: USER, table: 'Iron Maiden Legacy of the Beast (Stern 2018)',
+            launchMs: BASE + 2 * MINUTE, exitMs: BASE + 9 * MINUTE, kind: 'game', sample: 'exit',
+        });
+        const [v] = await verdict([{ identityKey: USER, createdEpoch: at(BASE + 9 * MINUTE), source: 'vpx' }]);
+        expect(v).toMatchObject({ status: 'verified', method: 'session', sample: 'exit' });
+    });
+
+    it('leaves an exit sample whose session was opened BEFORE the round unwitnessed — never flagged', async () => {
+        await observe({
+            userId: USER, table: 'Iron Maiden Legacy of the Beast (Stern 2018)',
+            launchMs: BASE - 10 * MINUTE, exitMs: BASE + 9 * MINUTE, kind: 'game', sample: 'exit',
+        });
+        const [v] = await verdict([{ identityKey: USER, createdEpoch: at(BASE + 9 * MINUTE), source: 'vpx' }]);
+        expect(v).toMatchObject({ status: 'unwitnessed', method: null, sample: 'exit' });
+        expect(v!.status).not.toBe('flagged');
+    });
+
+    it('a check-in inside the round upgrades an early-session exit sample to verified', async () => {
+        // The cabinet runs one thing at a time: a check-in at BASE+1m proves no
+        // table was open then, so a score that exited at BASE+9m came from a
+        // table opened AFTER the check-in — inside the round — whatever the
+        // journal's session launch says.
+        await observe({
+            userId: USER, table: 'Iron Maiden Legacy of the Beast (Stern 2018)',
+            launchMs: BASE - 10 * MINUTE, exitMs: BASE + 9 * MINUTE, kind: 'game', sample: 'exit',
+        });
+        await checkin({ userId: USER, atMs: BASE + 1 * MINUTE });
+        const [v] = await verdict([{ identityKey: USER, createdEpoch: at(BASE + 9 * MINUTE), source: 'vpx' }]);
+        expect(v).toMatchObject({ status: 'verified', method: 'checkin', sample: 'exit', checkinTs: at(BASE + 1 * MINUTE) });
+    });
+
+    it('a full game observation launched before the round is still flagged (the rule is exit-sample only)', async () => {
+        await observe({
+            userId: USER, launchMs: BASE - 10 * MINUTE, exitMs: BASE + 9 * MINUTE, kind: 'game',
+        });
+        const [v] = await verdict([{ identityKey: USER, createdEpoch: at(BASE + 9 * MINUTE), source: 'vpx' }]);
+        expect(v).toMatchObject({ status: 'flagged', sample: null });
+    });
+
+    it('on a tied exit the GAME row beats the SESSION row (the last game of a sitting)', async () => {
+        // Session opened before the round; its last game started inside it and
+        // ended the instant the session did. Pre-fix the join took whichever
+        // row SQLite returned first — the session, inserted first — and
+        // flagged a clean game on the session's launch.
+        await observe({ userId: USER, launchMs: BASE - 20 * MINUTE, exitMs: BASE + 9 * MINUTE, kind: 'session' });
+        await observe({ userId: USER, launchMs: BASE + 4 * MINUTE, exitMs: BASE + 9 * MINUTE, kind: 'game' });
+        const [v] = await verdict([{ identityKey: USER, createdEpoch: at(BASE + 9 * MINUTE), source: 'vpx' }]);
+        expect(v).toMatchObject({ status: 'verified', method: 'session', launchTs: at(BASE + 4 * MINUTE) });
     });
 });

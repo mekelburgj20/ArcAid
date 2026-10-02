@@ -205,6 +205,40 @@ describe('VPXS auto score collection — ingest', () => {
         });
     });
 
+    it('marks the game observation of an exit sample so the verify join never flags it (v2.158.0)', async () => {
+        await createRotationGame(roomId, 'Bad Cats');
+        await designate(roomId);
+        // The exact shape the cabinet sends for a no-ROM table: the session
+        // launch as the start, the exit as the end, reason=exit_sample.
+        const q = scoreQuery({ reason: 'exit_sample' });
+
+        const res = await request(app).get('/api/witness/score').query({ device: DEVICE, token, ...q });
+        expect(res.body.status).toBe('ingested');
+
+        const db = await getDatabase();
+        const obs = await db.get<{ kind: string; sample: string | null }>(
+            `SELECT kind, sample FROM witness_observations ORDER BY id DESC LIMIT 1`,
+        );
+        expect(obs).toEqual({ kind: 'game', sample: 'exit' });
+
+        // Session opened 5 min before this round started: unwitnessed, not flagged.
+        const [v] = await WitnessVerifyService.verdictsForRound({
+            roundStartEpoch: q.started + 60,
+            rows: [{ identityKey: USER, createdEpoch: q.ended, source: 'vpx' }],
+        });
+        expect(v).toMatchObject({ status: 'unwitnessed', sample: 'exit' });
+
+        // A plain game_over record files no sample marker. A LATER game: the
+        // observation key is (device, table, launch, kind), so a second record
+        // with the same launch second would upsert onto the exit-sample row.
+        const plain = scoreQuery({ score: 1234567, started: q.ended + 60, ended: q.ended + 360 });
+        await request(app).get('/api/witness/score').query({ device: DEVICE, token, ...plain });
+        const obs2 = await db.get<{ sample: string | null }>(
+            `SELECT sample FROM witness_observations ORDER BY id DESC LIMIT 1`,
+        );
+        expect(obs2!.sample).toBeNull();
+    });
+
     it('keeps the FIRST game of a sitting apart from the session that starts at the same second (round 8)', async () => {
         // The beacon files the table SESSION (launch = the moment the table
         // opened, exit = when the player left). Game 1 of that sitting starts

@@ -234,6 +234,16 @@ export class WitnessService {
          * its score and verified as `unwitnessed` (round 8, 2026-09-06).
          */
         kind?: 'session' | 'game';
+        /**
+         * `'exit'` (v2.158.0) — this GAME row is an EXIT SAMPLE: a no-ROM
+         * table's single score reading taken when the player left, with no
+         * game start of its own. Its `launch_ts` is the SESSION's launch (the
+         * earliest the game could have begun), substituted by the cabinet.
+         * The verify join reads it to refuse `flagged` on evidence that
+         * cannot tell a geared-up game from a clean one (ADR 0022 addendum).
+         * NULL = a fully observed game or session.
+         */
+        sample?: 'exit' | null;
     }): Promise<boolean> {
         const deviceId = (input.atgamesUniqueId || '').trim();
         const table = (input.tableName || '').trim();
@@ -250,19 +260,23 @@ export class WitnessService {
             : (exit != null ? exit - launch : null);
         const via = input.via === 'retro' ? 'retro' : 'live';
         const kind = input.kind === 'game' ? 'game' : 'session';
+        const sample = input.sample === 'exit' ? 'exit' : null;
 
         await db.run(
             `INSERT INTO witness_observations
-                (atgames_unique_id, canonical_user_id, table_name, launch_ts, exit_ts, duration_sec, via, kind)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (atgames_unique_id, canonical_user_id, table_name, launch_ts, exit_ts, duration_sec, via, kind, sample)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(atgames_unique_id, table_name, launch_ts, kind) DO UPDATE SET
                 exit_ts = COALESCE(excluded.exit_ts, witness_observations.exit_ts),
-                duration_sec = COALESCE(excluded.duration_sec, witness_observations.duration_sec)`,
+                duration_sec = COALESCE(excluded.duration_sec, witness_observations.duration_sec),
+                sample = COALESCE(witness_observations.sample, excluded.sample)`,
             // `via` is deliberately absent from the DO UPDATE: first writer
             // wins. A retro sweep that re-reports a session the beacon already
             // saw live must not downgrade it, and a live report arriving after
             // a retro row must not overstate what was actually observed.
-            deviceId, device.canonical_user_id, table, launch, exit, duration, via, kind,
+            // `sample` follows the same first-writer rule: once a row is known
+            // to be an exit sample a re-send cannot promote it to a full game.
+            deviceId, device.canonical_user_id, table, launch, exit, duration, via, kind, sample,
         );
         await WitnessService.touchDevice(deviceId);
         return true;
@@ -380,6 +394,13 @@ export class WitnessService {
                 durationSec: input.durationSec ?? null,
                 via: input.via ?? null,
                 kind: 'game',
+                // v2.158.0 — a no-ROM table's exit sample carries the SESSION
+                // launch as its start (the cabinet has nothing finer). Mark the
+                // row so the verify join knows this launch is a bound, not a
+                // measurement; before this the server logged `reason` and
+                // dropped it, and an exit sample from a table opened before
+                // the round read as `flagged` (SPRINT_STATUS #144/#150).
+                sample: input.reason === 'exit_sample' ? 'exit' : null,
             });
         } else if (result.status === 'no_match' || result.status === 'invalid') {
             // A 200 the device will never retry, so this line is the ONLY
