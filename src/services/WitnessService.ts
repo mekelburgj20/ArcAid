@@ -244,6 +244,14 @@ export class WitnessService {
          * NULL = a fully observed game or session.
          */
         sample?: 'exit' | null;
+        /**
+         * v2.160.0 — the launcher's ball-1 restart tally for this GAME
+         * (`restarts=N` on the wire since rc8), and whether the score sent was
+         * a ball-sum FLOOR because the launcher wrote 0 for one ball. Game
+         * rows only; informational, surfaced on the verdict, never a gate.
+         */
+        restarts?: number | null;
+        partial?: boolean | null;
     }): Promise<boolean> {
         const deviceId = (input.atgamesUniqueId || '').trim();
         const table = (input.tableName || '').trim();
@@ -261,22 +269,27 @@ export class WitnessService {
         const via = input.via === 'retro' ? 'retro' : 'live';
         const kind = input.kind === 'game' ? 'game' : 'session';
         const sample = input.sample === 'exit' ? 'exit' : null;
+        const restarts = input.restarts != null && Number.isFinite(input.restarts) && input.restarts >= 0
+            ? Math.floor(input.restarts) : null;
+        const partial = input.partial == null ? null : (input.partial ? 1 : 0);
 
         await db.run(
             `INSERT INTO witness_observations
-                (atgames_unique_id, canonical_user_id, table_name, launch_ts, exit_ts, duration_sec, via, kind, sample)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (atgames_unique_id, canonical_user_id, table_name, launch_ts, exit_ts, duration_sec, via, kind, sample, restarts, partial)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(atgames_unique_id, table_name, launch_ts, kind) DO UPDATE SET
                 exit_ts = COALESCE(excluded.exit_ts, witness_observations.exit_ts),
                 duration_sec = COALESCE(excluded.duration_sec, witness_observations.duration_sec),
-                sample = COALESCE(witness_observations.sample, excluded.sample)`,
+                sample = COALESCE(witness_observations.sample, excluded.sample),
+                restarts = COALESCE(witness_observations.restarts, excluded.restarts),
+                partial = COALESCE(witness_observations.partial, excluded.partial)`,
             // `via` is deliberately absent from the DO UPDATE: first writer
             // wins. A retro sweep that re-reports a session the beacon already
             // saw live must not downgrade it, and a live report arriving after
             // a retro row must not overstate what was actually observed.
             // `sample` follows the same first-writer rule: once a row is known
             // to be an exit sample a re-send cannot promote it to a full game.
-            deviceId, device.canonical_user_id, table, launch, exit, duration, via, kind, sample,
+            deviceId, device.canonical_user_id, table, launch, exit, duration, via, kind, sample, restarts, partial,
         );
         await WitnessService.touchDevice(deviceId);
         return true;
@@ -348,6 +361,8 @@ export class WitnessService {
         durationSec?: number | null;
         reason?: string | null;
         via?: string | null;
+        restarts?: number | null;
+        partial?: boolean | null;
     }): Promise<import('./VpxScoreIngestService.js').VpxIngestResult | null> {
         const deviceId = (input.atgamesUniqueId || '').trim();
         if (!deviceId || !input.token) return null;
@@ -401,6 +416,8 @@ export class WitnessService {
                 // dropped it, and an exit sample from a table opened before
                 // the round read as `flagged` (SPRINT_STATUS #144/#150).
                 sample: input.reason === 'exit_sample' ? 'exit' : null,
+                restarts: input.restarts ?? null,
+                partial: input.partial ?? null,
             });
         } else if (result.status === 'no_match' || result.status === 'invalid') {
             // A 200 the device will never retry, so this line is the ONLY
@@ -443,6 +460,27 @@ export class WitnessService {
             `UPDATE witness_devices SET last_seen_at = datetime('now') WHERE atgames_unique_id = ?`,
             deviceId,
         );
+    }
+
+    /**
+     * The 1.0.4 cabinet's "still here" (v2.160.0). Stamps `heartbeat_at` and
+     * `last_seen_at`; writes nothing else and attests nothing. Its only reader
+     * is the event check-in lobby, which shows a cabinet that has gone quiet
+     * since its check-in as "not responding" — and ONLY for cabinets that have
+     * ever sent one, so a pre-1.0.4 cabinet is never read as offline.
+     */
+    static async recordHeartbeat(atgamesUniqueId: string, token: string): Promise<boolean> {
+        const deviceId = (atgamesUniqueId || '').trim();
+        if (!deviceId || !token) return false;
+        const device = await WitnessService.authenticateDevice(deviceId, token);
+        if (!device) return false;
+        const db = await getDatabase();
+        await db.run(
+            `UPDATE witness_devices SET heartbeat_at = datetime('now'), last_seen_at = datetime('now')
+              WHERE atgames_unique_id = ?`,
+            deviceId,
+        );
+        return true;
     }
 
     /**

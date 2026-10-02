@@ -26,10 +26,12 @@ describe('EventLobbyRoster', () => {
                 entry({ userId: '2', displayName: 'bofgi', status: 'table_open', openTable: 'Attack from Mars (Williams 1995)' }),
                 entry({ userId: '3', displayName: 'Krobs', status: 'no_checkin', witnessCheckinAt: null }),
                 entry({ userId: '4444', displayName: null, status: 'no_cabinet' }),
+                entry({ userId: '5', displayName: 'Pete', status: 'offline' }),
             ]}
         />);
 
         expect(screen.getByText('Ready')).toBeTruthy();
+        expect(screen.getByText('Cabinet not responding')).toBeTruthy();
         expect(screen.getByText('Exit the table')).toBeTruthy();
         expect(screen.getByText('Open the Witness tile')).toBeTruthy();
         expect(screen.getByText('No cabinet')).toBeTruthy();

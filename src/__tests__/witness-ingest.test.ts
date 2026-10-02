@@ -417,3 +417,42 @@ describe('Witness check-in is the event check-in (v2.159.0)', () => {
         expect(res.body.sendingTo).toBe('Global Scoreboard');
     });
 });
+
+describe('Witness heartbeat (v2.160.0, cabinet 1.0.4)', () => {
+    let app: express.Express;
+    beforeEach(async () => { app = await createTestApp(); });
+
+    it('stamps heartbeat_at and last_seen_at on the device row, and nothing else', async () => {
+        const { token } = await pairDevice(app);
+        const db = await getDatabase();
+        const before = await db.get<{ heartbeat_at: string | null }>(
+            'SELECT heartbeat_at FROM witness_devices WHERE atgames_unique_id = ?', DEVICE,
+        );
+        expect(before!.heartbeat_at).toBeNull();
+
+        const res = await request(app).get('/api/witness/heartbeat').query({ device: DEVICE, token });
+        expect(res.status).toBe(200);
+        expect(res.body).toEqual({ ok: true });
+
+        const after = await db.get<{ heartbeat_at: string | null; last_seen_at: string | null }>(
+            'SELECT heartbeat_at, last_seen_at FROM witness_devices WHERE atgames_unique_id = ?', DEVICE,
+        );
+        expect(after!.heartbeat_at).toBeTruthy();
+        expect(after!.last_seen_at).toBeTruthy();
+        // A heartbeat is not an attestation: no check-in, no observation.
+        expect((await db.get<{ n: number }>('SELECT COUNT(*) AS n FROM witness_checkins'))!.n).toBe(0);
+        expect((await db.get<{ n: number }>('SELECT COUNT(*) AS n FROM witness_observations'))!.n).toBe(0);
+    });
+
+    it('answers a bare 401 to a wrong token and stamps nothing', async () => {
+        await pairDevice(app);
+        const res = await request(app).get('/api/witness/heartbeat').query({ device: DEVICE, token: 'nope' });
+        expect(res.status).toBe(401);
+        expect(res.body).toEqual({ ok: false });
+        const db = await getDatabase();
+        const row = await db.get<{ heartbeat_at: string | null }>(
+            'SELECT heartbeat_at FROM witness_devices WHERE atgames_unique_id = ?', DEVICE,
+        );
+        expect(row!.heartbeat_at).toBeNull();
+    });
+});

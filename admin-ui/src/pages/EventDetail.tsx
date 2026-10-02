@@ -53,6 +53,19 @@ interface WitnessVerdict {
      * unwitnessed (table opened before it), never flag.
      */
     sample?: 'exit' | null;
+    /** v2.160.0 — ball-1 restarts in the joined game, and whether the score was a ball-sum floor. */
+    restarts?: number | null;
+    partial?: boolean | null;
+}
+
+/** Trailing notes for a verified-session tooltip: restarts and a partial score. */
+function witnessNotes(witness: WitnessVerdict): string {
+    const notes: string[] = [];
+    if (witness.restarts != null && witness.restarts > 0) {
+        notes.push(`${witness.restarts} ball-1 restart${witness.restarts === 1 ? '' : 's'} in this game`);
+    }
+    if (witness.partial) notes.push('score is a floor — the launcher lost one ball\'s points');
+    return notes.length ? ` · ${notes.join(' · ')}` : '';
 }
 
 interface ScoreRow {
@@ -189,7 +202,7 @@ function WitnessBadge({ witness }: { witness?: WitnessVerdict | null }) {
         return (
             <span
                 className="ml-1 text-neon-green"
-                title={`Witnessed: launched inside the round window${played}`}
+                title={`Witnessed: launched inside the round window${played}${witnessNotes(witness)}`}
             >✓</span>
         );
     }

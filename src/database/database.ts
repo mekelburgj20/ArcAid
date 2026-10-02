@@ -3091,6 +3091,27 @@ async function doInitDatabase(): Promise<Database> {
                 await db.exec(`ALTER TABLE witness_observations ADD COLUMN sample TEXT`);
             }
         } },
+        // v2.160.0 — three cabinet-reported facts the server was dropping:
+        //   witness_devices.heartbeat_at — the 1.0.4 cabinet's "still here"
+        //     (every 2 min while paired). NULL = a cabinet that has never sent
+        //     one (pre-1.0.4), which the lobby must NOT read as offline.
+        //   witness_observations.restarts — the launcher's ball-1 restart tally
+        //     for the game (sent as `restarts=N` since rc8, ignored until now).
+        //   witness_observations.partial — 1 when the cabinet sent a ball-sum
+        //     FLOOR because the launcher wrote a 0 for one ball's points.
+        { name: '180_witness_heartbeat_restarts', handler: async (db) => {
+            const dev = (await db.all(`PRAGMA table_info(witness_devices)`)) as Array<{ name: string }>;
+            if (!dev.some(c => c.name === 'heartbeat_at')) {
+                await db.exec(`ALTER TABLE witness_devices ADD COLUMN heartbeat_at TEXT`);
+            }
+            const obs = (await db.all(`PRAGMA table_info(witness_observations)`)) as Array<{ name: string }>;
+            if (!obs.some(c => c.name === 'restarts')) {
+                await db.exec(`ALTER TABLE witness_observations ADD COLUMN restarts INTEGER`);
+            }
+            if (!obs.some(c => c.name === 'partial')) {
+                await db.exec(`ALTER TABLE witness_observations ADD COLUMN partial INTEGER`);
+            }
+        } },
     ];
 
     for (const migration of migrations) {
