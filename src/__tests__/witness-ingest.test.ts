@@ -372,3 +372,48 @@ describe('WitnessService — direct', () => {
         expect(obs?.duration_sec).toBe(50);
     });
 });
+
+describe('Witness check-in is the event check-in (v2.159.0)', () => {
+    let app: express.Express;
+    beforeEach(async () => { app = await createTestApp(); });
+
+    it('a cabinet designated to an event in its window checks its owner in and prints READY', async () => {
+        const { token } = await pairDevice(app);
+        const { createTestRoom } = await import('./helpers.js');
+        const { getDatabase } = await import('../database/database.js');
+        const { EventService } = await import('../services/EventService.js');
+        const crypto = await import('crypto');
+        const db = await getDatabase();
+        const roomId = await createTestRoom('tile-checkin', 'Tile Check-in');
+        const now = Date.now();
+        const eventId = crypto.randomUUID();
+        await db.run(
+            `INSERT INTO tournaments (id, name, type, mode, cadence, is_active, game_room_id, format, checkin_opens_at, checkin_required)
+             VALUES (?, 'Friday Night', 'DG', 'pinball', '{"timezone":"UTC"}', 1, ?, 'event', ?, 1)`,
+            eventId, roomId, new Date(now - 10 * 60_000).toISOString(),
+        );
+        await db.run(
+            `INSERT INTO games (id, tournament_id, name, status, game_room_id, round_no, scheduled_start_at, scheduled_end_at)
+             VALUES (?, ?, 'Medieval Madness', 'SCHEDULED', ?, 1, ?, ?)`,
+            crypto.randomUUID(), eventId, roomId,
+            new Date(now + 20 * 60_000).toISOString(), new Date(now + 50 * 60_000).toISOString(),
+        );
+        await db.run(`INSERT OR IGNORE INTO room_members (user_id, room_id, source) VALUES (?, ?, 'submission')`, USER, roomId);
+        const { WitnessService } = await import('../services/WitnessService.js');
+        await WitnessService.setDeviceTarget(USER, DEVICE, { roomId, tournamentId: eventId });
+
+        const res = await request(app).get('/api/witness/checkin').query({ device: DEVICE, token });
+        expect(res.status).toBe(200);
+        expect(res.body.ok).toBe(true);
+        expect(res.body.sendingTo).toContain('Friday Night');
+        expect(res.body.sendingTo).toContain('CHECKED IN · READY');
+        expect(await EventService.isParticipant(eventId, USER)).toMatchObject({ source: 'checkin' });
+    });
+
+    it('an undesignated cabinet checks in exactly as before — no event, no suffix', async () => {
+        const { token } = await pairDevice(app);
+        const res = await request(app).get('/api/witness/checkin').query({ device: DEVICE, token });
+        expect(res.status).toBe(200);
+        expect(res.body.sendingTo).toBe('Global Scoreboard');
+    });
+});

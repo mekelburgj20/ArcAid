@@ -309,7 +309,19 @@ router.get('/witness/checkin', witnessIngestLimiter, async (req, res) => {
         // `sendingTo` rides back on the check-in because that is the moment a
         // player is looking at the cabinet: it is how a stale designation gets
         // noticed before the round rather than after it (P9b).
-        const sendingTo = await WitnessService.describeTarget(device).catch(() => '');
+        let sendingTo = await WitnessService.describeTarget(device).catch(() => '');
+        // v2.159.0 — the tile IS the event check-in for a cabinet designated to
+        // an event whose window is open, and the player's green light rides
+        // back on the same line so they see it on the cabinet, not a phone.
+        // Best-effort: a lobby failure must not turn a successful check-in
+        // into an error the device will retry.
+        try {
+            const { EventLobbyService } = await import('../../services/EventLobbyService.js');
+            const lobby = await EventLobbyService.checkinFromWitness(device, result.canonicalUserId);
+            sendingTo += EventLobbyService.cabinetLine(lobby);
+        } catch (err) {
+            logError('Witness check-in: event lobby step failed (check-in itself succeeded)', err);
+        }
         res.json({ ok: true, ts: result.ts, sendingTo });
     } catch (error) {
         logError('API Error (GET /api/witness/checkin)');

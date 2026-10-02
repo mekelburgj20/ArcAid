@@ -301,7 +301,7 @@ export class WitnessService {
      * 401. Repeated check-ins are expected and are NOT deduped: each one is
      * another attestation point, and more of them can only ever help.
      */
-    static async recordCheckin(atgamesUniqueId: string, token: string): Promise<{ ts: string } | null> {
+    static async recordCheckin(atgamesUniqueId: string, token: string): Promise<{ ts: string; canonicalUserId: string } | null> {
         const deviceId = (atgamesUniqueId || '').trim();
         if (!deviceId || !token) return null;
 
@@ -319,7 +319,7 @@ export class WitnessService {
         const stored = await db.get<{ server_ts: string }>(
             'SELECT server_ts FROM witness_checkins WHERE id = ?', res.lastID,
         );
-        return { ts: stored?.server_ts ?? '' };
+        return { ts: stored?.server_ts ?? '', canonicalUserId: device.canonical_user_id };
     }
 
     /**

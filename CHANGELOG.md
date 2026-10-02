@@ -6,6 +6,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.159.0] — The check-in lobby: who is in, and who has a green light
+
+Owner ask, 2026-10-01: "some mechanism during a tournament check-in that shows each player who is
+in the check-in lobby and whether or not they are 'green light' to go — Arcaid Witness is running
+and validated that a game is either not currently active or, if so, happened during check-in."
+Rulings the same day: the roster is public; opening the Witness tile on a cabinet designated to
+the event IS the event check-in; the open-table rule is strict.
+
+### Added
+- **Lobby roster on the event page and the host's rounds panel.** While check-in is open, every
+  checked-in player is listed with one light, computed by the new `EventLobbyService` from what
+  the server already stores (Witness check-ins, live table launches and exits, paired cabinets):
+  **Ready** (green: the cabinet checked in since the window opened and no table has been launched
+  on it since), **Exit the table** (amber: a table was launched after the check-in and is still
+  open — the table is named), **Open the Witness tile** (amber: a cabinet is paired but has not
+  checked in this window), **No cabinet** (grey, neutral: scores will post unverified). A player
+  with several cabinets gets the best of them. A check-in proves no table was open at that
+  instant, so an open-session row launched BEFORE the latest check-in is a missed exit and does
+  not keep anyone amber. The page already polls every 20 s during check-in, so the lights move.
+  The roster empties when round 1 starts; the standings carry per-score verdicts from there.
+- **The Witness tile is the event check-in.** When a cabinet designated to an event checks in
+  while that event's check-in window is open, its owner is checked in to the event (same window
+  rule as the web button, never twice, admin add remains the straggler path) and the cabinet's
+  "SENDING TO" line gains "· CHECKED IN · READY" — the green light shows on the cabinet, not a
+  phone. A cabinet designated to a rotation tournament, or to nothing, checks in exactly as before.
+
+### Known gap
+- The cabinet sends no heartbeat, so a cabinet powered off after checking in reads green until
+  round 1. The green copy says "checked in", not "online", for that reason; a check-in-window
+  heartbeat is queued for the 1.0.4 cabinet build.
 ## [2.158.1] — Up to 100 active tables per tournament
 
 ### Changed
