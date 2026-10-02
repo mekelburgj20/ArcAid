@@ -46,6 +46,12 @@ interface WitnessVerdict {
     /** `retro` = reconstructed after the fact. Same trust, shown for honesty. */
     via?: 'live' | 'retro' | null;
     checkinTs?: number | null;
+    /**
+     * `'exit'` (v2.158.0) — a no-ROM table's single score reading, taken when
+     * the player left. It can verify (table opened inside the round) or stay
+     * unwitnessed (table opened before it), never flag.
+     */
+    sample?: 'exit' | null;
 }
 
 interface ScoreRow {
@@ -168,6 +174,14 @@ function WitnessBadge({ witness }: { witness?: WitnessVerdict | null }) {
                 >✓ <span className="text-xs">checked in</span></span>
             );
         }
+        if (witness.sample === 'exit') {
+            return (
+                <span
+                    className="ml-1 text-neon-green"
+                    title="Witnessed: this table has no ROM, so the cabinet read the score once when the player left — and the table was opened inside the round window"
+                >✓</span>
+            );
+        }
         const played = witness.durationSec != null ? ` · ${playDuration(witness.durationSec)} of play` : '';
         return (
             <span
@@ -182,6 +196,14 @@ function WitnessBadge({ witness }: { witness?: WitnessVerdict | null }) {
                 className="ml-1 text-neon-amber"
                 title="Witness: this table was launched before the round opened"
             >⚠</span>
+        );
+    }
+    if (witness.sample === 'exit') {
+        return (
+            <span
+                className="ml-1 text-faint text-xs"
+                title="This table has no ROM, so the cabinet read the score once when the player left. The table was opened before the round started, so the cabinet cannot say when this game began. Open the table after the round starts to have it witnessed."
+            >unwitnessed</span>
         );
     }
     return (

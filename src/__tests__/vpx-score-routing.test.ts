@@ -288,6 +288,58 @@ describe('VPXS score routing', () => {
         expect(row!.global_game_id).toBe(williams);
     });
 
+    it('prefers the row whose name equals the launcher display name when maker and year still leave two (Scooby-Doo!, 09-30)', async () => {
+        // Both are "Original 2022", so the parenthetical hint cannot split
+        // them; the folder slug squashes to "scoobydoo" and so matched both.
+        // The display name "Scooby-Doo!" normalises to "scooby-doo", which
+        // only one of the rows shares.
+        const hyphenated = await seedCatalogue('Scooby-Doo!', 'Original', 2022);
+        await seedCatalogue('Scooby Doo', 'Original', 2022);
+
+        const res = await request(app).get('/api/witness/score').query({
+            device: DEVICE, token,
+            ...scoreQuery({ table: 'Scooby-Doo! (Original 2022)', rom: 'Scooby Doo, 2022', slug: 'vpx-scoobydoo', score: 23282790 }),
+        });
+
+        expect(res.body).toMatchObject({ status: 'global' });
+        const db = await getDatabase();
+        const row = await db.get<{ global_game_id: string }>(
+            `SELECT global_game_id FROM global_scores ORDER BY rowid DESC LIMIT 1`,
+        );
+        expect(row!.global_game_id).toBe(hyphenated);
+    });
+
+    it('prefers the display-name row over the one the rom matched (Halloween, 09-30)', async () => {
+        const named = await seedCatalogue('Halloween (Original, 2023)', 'Original', 2023);
+        await seedCatalogue('Halloween MM Edition', 'Original', 2023);
+
+        const res = await request(app).get('/api/witness/score').query({
+            device: DEVICE, token,
+            ...scoreQuery({ table: 'Halloween (Original 2023)', rom: 'Halloween MM Edition', slug: 'vpx-halloweenmmedition', score: 10326850 }),
+        });
+
+        expect(res.body).toMatchObject({ status: 'global' });
+        const db = await getDatabase();
+        const row = await db.get<{ global_game_id: string }>(
+            `SELECT global_game_id FROM global_scores ORDER BY rowid DESC LIMIT 1`,
+        );
+        expect(row!.global_game_id).toBe(named);
+    });
+
+    it('still refuses to guess between two rows that BOTH equal the display name (a true duplicate)', async () => {
+        // The identity index forbids two rows with the same raw name, maker
+        // and year, so a true duplicate differs only in punctuation — which
+        // normalises away, leaving two rows the display name cannot split.
+        await seedCatalogue('Scooby-Doo!', 'Original', 2022);
+        await seedCatalogue('Scooby-Doo', 'Original', 2022);
+
+        const res = await request(app).get('/api/witness/score').query({
+            device: DEVICE, token,
+            ...scoreQuery({ table: 'Scooby-Doo! (Original 2022)', rom: 'Scooby Doo, 2022', slug: 'vpx-scoobydoo' }),
+        });
+        expect(res.body).toMatchObject({ status: 'no_match' });
+    });
+
     it('refuses a designation for a room the player is not in', async () => {
         const strangers = await createTestRoom('strangers-2', 'Strangers');
         const res = await request(app)

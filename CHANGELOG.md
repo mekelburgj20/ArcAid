@@ -6,6 +6,41 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.158.0] — Witness: exit samples verify or stay neutral, never flag; the launcher's name wins a tie
+
+Follow-ups from the v1.0.3 Witness field run (2026-09-30, SPRINT_STATUS #150) and the four
+exit-sample journal files that arrived on 2026-10-01.
+
+### Changed
+- **A no-ROM table's exit sample is never `flagged`.** A table with no ROM gives the cabinet ONE
+  score reading, taken when the player leaves; the game observation it files carries the table
+  SESSION's launch because no game start exists. That launch is a lower bound on when the game
+  began: a session opened inside the round proves the game was too, a session opened before it
+  proves nothing either way. The cabinet already sent `reason=exit_sample`; the server logged it
+  and dropped it, so such a score read as `flagged` whenever the table had been opened before the
+  round. Now the marker is stored (`witness_observations.sample = 'exit'`, migration 179) and
+  `WitnessVerifyService` gives an exit sample `verified` when its session opened inside the round,
+  and otherwise hands it to the check-in tier like any unresolved row — a Witness check-in inside
+  the round and before the exit proves the table was (re)opened after the check-in — and leaves it
+  `unwitnessed` if nothing upgrades it. The verdict carries `sample: 'exit'` so the badge tooltip
+  can say which case it is. Player rule for an event round: exit to the cabinet menu before the
+  round starts, open the Witness tile, then launch the table.
+- **On a tied exit the GAME row beats the SESSION row in the verify join.** The last game of a
+  sitting exits at the same second the session does; with no ORDER BY the join took whichever row
+  SQLite returned first — the session, inserted first — and compared the moment the TABLE was
+  opened to the round start, flagging a clean last game of any sitting that began before the
+  round. Latent since the game observation was introduced in v2.151.0.
+
+### Fixed
+- **Two 09-30 Global Scoreboard losses were catalogue ambiguity.** "Scooby-Doo! (Original 2022)"
+  matched both "Scooby-Doo!" and "Scooby Doo" (the folder slug squashes to either) and "Halloween
+  (Original 2023)" matched "Halloween (Original, 2023)" AND "Halloween MM Edition" through the rom;
+  the maker/year hint could not split either pair, and `recordGlobal` refused to guess. It now
+  prefers the ONE candidate whose normalised name equals the launcher's display name — the normal
+  form only, never the squashed one that blurred the Scooby rows — before giving up. The rom and
+  slug remain fallbacks, not peers. Two rows that both equal the display name (a true duplicate)
+  still refuse; the fix for that is a catalogue merge, which "Scooby-Doo!" / "Scooby Doo" (both
+  Original 2022) still needs.
 ## [2.157.1] — Every pick prompt names the tournament it is for
 
 Owner report, 2026-09-30. Daily Grind VPX, Weekly Grind VPX and Weekly Grind VPXS all announce

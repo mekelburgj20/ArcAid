@@ -3078,6 +3078,19 @@ async function doInitDatabase(): Promise<Database> {
             CREATE UNIQUE INDEX IF NOT EXISTS idx_auto_score_suppressions_play
                 ON auto_score_suppressions(source, owner_key, game_key, score, COALESCE(played_at, ''));
         `); } },
+        // v2.158.0 — a no-ROM table's EXIT SAMPLE (one score reading taken when
+        // the player left; the cabinet substitutes the SESSION launch for the
+        // unknown game start) is marked on the game observation it files, so
+        // `WitnessVerifyService` can refuse to `flag` on a launch that is only
+        // a lower bound. NULL = a fully observed game or session. Same
+        // handler-not-sql shape as 177 for the same reason (a failure must
+        // halt startup, not vanish into the legacy column-exists catch).
+        { name: '179_witness_obs_sample', handler: async (db) => {
+            const cols = (await db.all(`PRAGMA table_info(witness_observations)`)) as Array<{ name: string }>;
+            if (!cols.some(c => c.name === 'sample')) {
+                await db.exec(`ALTER TABLE witness_observations ADD COLUMN sample TEXT`);
+            }
+        } },
     ];
 
     for (const migration of migrations) {

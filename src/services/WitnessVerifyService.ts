@@ -101,6 +101,15 @@ export type WitnessVerdict = {
     via: 'live' | 'retro' | null;
     /** epoch sec of the attestation behind a `'checkin'` verdict. */
     checkinTs: number | null;
+    /**
+     * `'exit'` (v2.158.0) — the joined game row was a no-ROM table's EXIT
+     * SAMPLE: one score reading taken when the player left, whose `launch_ts`
+     * is the table SESSION's launch, not the game's. Such a row can prove the
+     * game started inside the round (the session did) but can never prove it
+     * started before it, so it yields `verified` or `unwitnessed` and never
+     * `flagged`. `null` on every other verdict.
+     */
+    sample: 'exit' | null;
 };
 
 /**
@@ -131,7 +140,15 @@ interface ObservationRow {
     exit_ts: number;
     duration_sec: number | null;
     via: string | null;
+    kind: string | null;
+    sample: string | null;
 }
+
+const UNWITNESSED: WitnessVerdict = {
+    status: 'unwitnessed', method: null,
+    launchTs: null, exitTs: null, durationSec: null, table: null, via: null, checkinTs: null,
+    sample: null,
+};
 
 interface CheckinRow {
     canonical_user_id: string;
@@ -189,7 +206,7 @@ export class WitnessVerifyService {
         const db = await getDatabase();
         const placeholders = allOwners.map(() => '?').join(', ');
         const observations = await db.all<ObservationRow[]>(
-            `SELECT canonical_user_id, table_name, launch_ts, exit_ts, duration_sec, via
+            `SELECT canonical_user_id, table_name, launch_ts, exit_ts, duration_sec, via, kind, sample
                FROM witness_observations
               WHERE exit_ts IS NOT NULL
                 AND exit_ts BETWEEN ? AND ?
@@ -199,6 +216,10 @@ export class WitnessVerifyService {
 
         // --- Tier 1: join a table SESSION -----------------------------------
         const unresolved: Array<{ row: typeof eligible[number]['row']; i: number }> = [];
+        // Exit samples tier 1 could not place (session opened before the
+        // round): they fall through to tier 2 like any unresolved row, but if
+        // nothing upgrades them the neutral verdict still says what it was.
+        const exitSampleEarly = new Set<number>();
         for (const { row, i } of eligible) {
             const owners = ownersByKey.get(row.identityKey)!;
             const createdEpoch = row.createdEpoch!;
@@ -209,7 +230,17 @@ export class WitnessVerifyService {
                 if (!owners.has(obs.canonical_user_id)) continue;
                 const delta = Math.abs(obs.exit_ts - createdEpoch);
                 if (delta > JOIN_TOLERANCE_SEC) continue;
-                if (delta < bestDelta) { best = obs; bestDelta = delta; }
+                // Nearest exit wins. On a TIE the GAME row beats the SESSION
+                // row (v2.158.0): the last game of a sitting exits at the very
+                // second the session does, and the session's launch is the
+                // moment the table was opened — comparing THAT to the round
+                // start flagged every legitimate last game of a sitting that
+                // began before the round. The query has no ORDER BY, so
+                // without this rule the winner was whichever row SQLite
+                // returned first.
+                const better = delta < bestDelta
+                    || (delta === bestDelta && best !== null && obs.kind === 'game' && best.kind !== 'game');
+                if (better) { best = obs; bestDelta = delta; }
             }
 
             if (!best) {
@@ -217,8 +248,23 @@ export class WitnessVerifyService {
                 continue;
             }
 
+            const onTime = best.launch_ts >= roundStartEpoch - LAUNCH_GRACE_SEC;
+            const sample = best.sample === 'exit' ? 'exit' : null;
+            if (!onTime && sample === 'exit') {
+                // An exit sample's launch is the SESSION's, i.e. a lower bound
+                // on when the game began. A session opened before the round
+                // may still hold a game that started inside it, and this row
+                // cannot tell the two apart — so it is never `flagged`. It is
+                // handed to tier 2 instead: a check-in inside the round and
+                // before this exit proves the table was (re)opened after the
+                // check-in, which IS inside the round.
+                unresolved.push({ row, i });
+                exitSampleEarly.add(i);
+                continue;
+            }
+
             verdicts[i] = {
-                status: best.launch_ts >= roundStartEpoch - LAUNCH_GRACE_SEC ? 'verified' : 'flagged',
+                status: onTime ? 'verified' : 'flagged',
                 method: 'session',
                 launchTs: best.launch_ts,
                 exitTs: best.exit_ts,
@@ -229,6 +275,7 @@ export class WitnessVerifyService {
                 // decide anything.
                 via: best.via === 'retro' ? 'retro' : 'live',
                 checkinTs: null,
+                sample,
             };
         }
 
@@ -271,13 +318,9 @@ export class WitnessVerifyService {
                         // and deliberately no duration to report.
                         launchTs: null, exitTs: null, durationSec: null, table: null, via: null,
                         checkinTs: bestTs,
+                        sample: exitSampleEarly.has(i) ? 'exit' : null,
                     }
-                    : {
-                        status: 'unwitnessed',
-                        method: null,
-                        launchTs: null, exitTs: null, durationSec: null, table: null, via: null,
-                        checkinTs: null,
-                    };
+                    : { ...UNWITNESSED, sample: exitSampleEarly.has(i) ? 'exit' : null };
             }
         }
 

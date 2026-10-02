@@ -385,6 +385,25 @@ export class VpxScoreIngestService {
                 if (narrowed.length > 0) candidates = narrowed;
             }
         }
+        if (candidates.length > 1) {
+            // v2.158.0 — the launcher's DISPLAY name is the authority; `rom`
+            // and the folder slug are fallbacks for when it is not what the
+            // catalogue calls the game, not peers of it. Two 09-30 losses
+            // (SPRINT_STATUS #150): "Scooby-Doo! (Original 2022)" matched both
+            // "Scooby-Doo!" and "Scooby Doo" because the SLUG squashes to
+            // either, and "Halloween (Original 2023)" matched "Halloween
+            // (Original, 2023)" AND "Halloween MM Edition" through the rom.
+            // Prefer the one row whose normalised name equals the display
+            // name's — the NORMAL form only, never the squashed one, which is
+            // exactly what blurred the two Scooby rows together. Still two
+            // (true duplicates)? Give up as before: a merge is the fix, not a
+            // guess here.
+            const journal = normalizeGameName(input.tableName || '');
+            if (journal) {
+                const exact = candidates.filter(row => normalizeGameName(row.name) === journal);
+                if (exact.length === 1) candidates = exact;
+            }
+        }
         if (candidates.length !== 1) {
             return {
                 status: 'no_match',
