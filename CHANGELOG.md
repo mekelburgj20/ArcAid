@@ -6,6 +6,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.160.1] — The tournament selector leads the Picks page
+
+### Changed
+- **Picks: the tournament selector is the first thing on the page.** Every section below it — the
+  Mystery Award, "If I win…", Your Picks, the counts and the game list — is scoped to the tournament
+  chosen there, yet the selector sat two screens down, directly over the search bar, after all of
+  them. It now sits straight under the page title. Its text is centered, with the chevron pinned to
+  the right edge so the name is centered on the card rather than on the space beside the chevron.
+  Owner ruling 2026-10-02. The native `<select>` overlay, test ids and behaviour are unchanged.
+
 ## [2.160.0] — Witness heartbeat, and the restart tally the cabinet was already sending
 
 Server half of the Arcaid Witness 1.0.4 build (Defect F, heartbeat, restart tally, exit-sample

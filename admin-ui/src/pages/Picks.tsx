@@ -877,6 +877,51 @@ export default function Picks() {
         </p>
       </div>
 
+      {/* F1 — "Style 1" tournament selector. The FIRST thing on the page
+          (owner ruling 2026-10-02): every section below — Mystery Award,
+          "If I win", Your Picks, the counts and the game list — is scoped to
+          the tournament chosen here, so it sits above all of them rather than
+          directly over the search bar. Text is centered. A real native <select> sits
+          on top (opacity-0, full inset) for keyboard/mobile/screen-reader
+          behavior; the styled block underneath is purely decorative
+          (pointer-events-none) and just renders the current selection. */}
+      {tournaments.length > 0 && (
+        <div
+          data-testid="picks-tournament-selector"
+          className="relative mb-6 rounded-lg border border-neon-cyan/40 bg-gradient-to-br from-neon-cyan/10 to-transparent px-4 py-3"
+          style={{ boxShadow: '0 0 20px color-mix(in oklab, var(--color-neon-cyan) 16%, transparent)' }}
+        >
+          <p className="pointer-events-none font-display text-[10px] text-faint uppercase tracking-wider mb-1 text-center">
+            Queuing a pick for
+          </p>
+          {/* Chevron is pinned to the right edge (absolute) rather than sitting
+              in the flex row, so the name/subtitle are centered on the card,
+              not on the space left of the chevron. Symmetric px-7 keeps the
+              text clear of it on both sides. */}
+          <div className="pointer-events-none relative flex items-center justify-center">
+            <div className="min-w-0 px-7 text-center">
+              <p data-testid="picks-tournament-selector-name" className="font-display text-lg font-bold text-neon-cyan truncate">
+                {selectedTournamentOption?.name ?? 'Select a tournament'}
+              </p>
+              {selectorSubtitle && (
+                <p className="text-xs text-muted mt-0.5 truncate">{selectorSubtitle}</p>
+              )}
+            </div>
+            <ChevronDown size={18} className="text-neon-cyan flex-shrink-0 absolute right-0 top-1/2 -translate-y-1/2" />
+          </div>
+          <select
+            value={selectedTournamentId || ''}
+            onChange={(e) => setSelectedTournamentId(e.target.value)}
+            aria-label="Select tournament to queue for"
+            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+          >
+            {tournaments.map(t => (
+              <option key={t.id} value={t.id}>{t.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
       {/* Guest-login banner (S5). When the viewer isn't logged in with Discord
           the pick/queue UI is gated off, so a guest sees the Mystery Award spin
           and the game list but no way to actually pick. This explains why and
@@ -1421,44 +1466,6 @@ export default function Picks() {
           <p className="font-display font-bold text-sm sm:text-lg text-neon-amber flex-shrink-0 whitespace-nowrap tabular-nums">{cooldownCount}</p>
         </button>
       </div>
-
-      {/* F1 — "Style 1" tournament selector, directly above the search bar so
-          nobody queues for the wrong tournament. A real native <select> sits
-          on top (opacity-0, full inset) for keyboard/mobile/screen-reader
-          behavior; the styled block underneath is purely decorative
-          (pointer-events-none) and just renders the current selection. */}
-      {tournaments.length > 0 && (
-        <div
-          data-testid="picks-tournament-selector"
-          className="relative mb-3 rounded-lg border border-neon-cyan/40 bg-gradient-to-br from-neon-cyan/10 to-transparent px-4 py-3"
-          style={{ boxShadow: '0 0 20px color-mix(in oklab, var(--color-neon-cyan) 16%, transparent)' }}
-        >
-          <p className="pointer-events-none font-display text-[10px] text-faint uppercase tracking-wider mb-1">
-            Queuing a pick for
-          </p>
-          <div className="pointer-events-none flex items-center justify-between gap-2">
-            <div className="min-w-0">
-              <p data-testid="picks-tournament-selector-name" className="font-display text-lg font-bold text-neon-cyan truncate">
-                {selectedTournamentOption?.name ?? 'Select a tournament'}
-              </p>
-              {selectorSubtitle && (
-                <p className="text-xs text-muted mt-0.5 truncate">{selectorSubtitle}</p>
-              )}
-            </div>
-            <ChevronDown size={18} className="text-neon-cyan flex-shrink-0" />
-          </div>
-          <select
-            value={selectedTournamentId || ''}
-            onChange={(e) => setSelectedTournamentId(e.target.value)}
-            aria-label="Select tournament to queue for"
-            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-          >
-            {tournaments.map(t => (
-              <option key={t.id} value={t.id}>{t.name}</option>
-            ))}
-          </select>
-        </div>
-      )}
 
       {/* Search — matches name, manufacturer, year and the row's chip labels,
           so "Bally", "1992" and "VPX" all find something. */}
