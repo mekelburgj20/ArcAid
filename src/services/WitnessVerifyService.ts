@@ -110,6 +110,14 @@ export type WitnessVerdict = {
      * `flagged`. `null` on every other verdict.
      */
     sample: 'exit' | null;
+    /**
+     * v2.160.0 — the launcher's ball-1 restart tally for the joined GAME row
+     * (`null` when the cabinet sent none or the join was a session / check-in),
+     * and whether the score was a ball-sum FLOOR (a ball's points were missing
+     * from the launcher's record). Informational on the badge; never a gate.
+     */
+    restarts: number | null;
+    partial: boolean | null;
 };
 
 /**
@@ -142,12 +150,14 @@ interface ObservationRow {
     via: string | null;
     kind: string | null;
     sample: string | null;
+    restarts: number | null;
+    partial: number | null;
 }
 
 const UNWITNESSED: WitnessVerdict = {
     status: 'unwitnessed', method: null,
     launchTs: null, exitTs: null, durationSec: null, table: null, via: null, checkinTs: null,
-    sample: null,
+    sample: null, restarts: null, partial: null,
 };
 
 interface CheckinRow {
@@ -206,7 +216,7 @@ export class WitnessVerifyService {
         const db = await getDatabase();
         const placeholders = allOwners.map(() => '?').join(', ');
         const observations = await db.all<ObservationRow[]>(
-            `SELECT canonical_user_id, table_name, launch_ts, exit_ts, duration_sec, via, kind, sample
+            `SELECT canonical_user_id, table_name, launch_ts, exit_ts, duration_sec, via, kind, sample, restarts, partial
                FROM witness_observations
               WHERE exit_ts IS NOT NULL
                 AND exit_ts BETWEEN ? AND ?
@@ -276,6 +286,8 @@ export class WitnessVerifyService {
                 via: best.via === 'retro' ? 'retro' : 'live',
                 checkinTs: null,
                 sample,
+                restarts: best.kind === 'game' && best.restarts != null ? best.restarts : null,
+                partial: best.kind === 'game' && best.partial != null ? best.partial === 1 : null,
             };
         }
 
@@ -319,6 +331,7 @@ export class WitnessVerifyService {
                         launchTs: null, exitTs: null, durationSec: null, table: null, via: null,
                         checkinTs: bestTs,
                         sample: exitSampleEarly.has(i) ? 'exit' : null,
+                        restarts: null, partial: null,
                     }
                     : { ...UNWITNESSED, sample: exitSampleEarly.has(i) ? 'exit' : null };
             }

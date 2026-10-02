@@ -168,6 +168,7 @@ describe('WitnessVerifyService — verdicts', () => {
             status: 'unwitnessed', method: null, launchTs: null, exitTs: null,
             durationSec: null, table: null, via: null, checkinTs: null,
             sample: null,
+            restarts: null, partial: null,
         });
     });
 
@@ -306,6 +307,7 @@ describe('WitnessVerifyService — tier 2, the check-in attestation', () => {
             launchTs: null, exitTs: null, durationSec: null, table: null, via: null,
             checkinTs: Math.floor((BASE + 1 * MINUTE) / 1000),
             sample: null,
+            restarts: null, partial: null,
         });
     });
 

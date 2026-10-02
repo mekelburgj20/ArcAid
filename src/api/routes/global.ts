@@ -329,6 +329,25 @@ router.get('/witness/checkin', witnessIngestLimiter, async (req, res) => {
     }
 });
 
+// Device: the 1.0.4 "still here" (v2.160.0). Stamps the device row and nothing
+// else; same device-token auth and same bare 401 as the other device routes.
+// Read only by the event check-in lobby, to show a cabinet that went quiet
+// after it checked in.
+router.get('/witness/heartbeat', witnessIngestLimiter, async (req, res) => {
+    try {
+        const { WitnessService } = await import('../../services/WitnessService.js');
+        const device = typeof req.query.device === 'string' ? req.query.device : '';
+        const token = (typeof req.query.token === 'string' && req.query.token)
+            || (typeof req.headers['x-witness-token'] === 'string' ? req.headers['x-witness-token'] as string : '');
+        const ok = await WitnessService.recordHeartbeat(device, token);
+        if (!ok) return res.status(401).json({ ok: false });
+        res.json({ ok: true });
+    } catch (error) {
+        logError('API Error (GET /api/witness/heartbeat)');
+        res.status(500).json({ ok: false });
+    }
+});
+
 // Device: one VPXS score, read by the Witness out of the VPX launcher's own
 // scoreserver records on the cabinet stick (P9). Same device-token auth and
 // same bare 401 as /witness/report.
@@ -359,6 +378,9 @@ router.get('/witness/score', witnessIngestLimiter, async (req, res) => {
             // files: a score read off disk hours later was reconstructed, not
             // watched (ADR 0021 - same trust, tagged).
             via: typeof req.query.via === 'string' ? req.query.via : null,
+            // v2.160.0 — stored on the game observation; sent since rc8.
+            restarts: req.query.restarts !== undefined ? Number(req.query.restarts) : null,
+            partial: req.query.partial === '1' ? true : (req.query.partial === undefined ? null : false),
         });
         if (!result) return res.status(401).json({ ok: false });
 

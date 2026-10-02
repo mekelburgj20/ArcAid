@@ -55,7 +55,17 @@ import { resolveProfiles } from './PlayerProfileResolver.js';
  * player one trip to the menu.
  */
 
-export type LobbyStatus = 'ready' | 'table_open' | 'no_checkin' | 'no_cabinet';
+export type LobbyStatus = 'ready' | 'table_open' | 'no_checkin' | 'offline' | 'no_cabinet';
+
+/**
+ * v2.160.0 — a 1.0.4 cabinet heartbeats every 2 min while paired. One that
+ * has sent a heartbeat before and has been silent this long is `offline`
+ * ("not responding"), whatever its check-in said: the lobby's one honest gap
+ * (a cabinet powered off after checking in read green) closes here. A cabinet
+ * that has NEVER heartbeated (pre-1.0.4) is exempt — silence from it means
+ * nothing, and reading it as offline would amber every older install.
+ */
+export const HEARTBEAT_STALE_SEC = 5 * 60;
 
 export interface LobbyEntry {
     userId: string;
@@ -76,7 +86,7 @@ export interface LobbyEntry {
 /** Observation rows launched before this many seconds ago are stale, not open. */
 const OPEN_SESSION_MAX_AGE_SEC = 4 * 3600;
 
-const STATUS_RANK: Record<LobbyStatus, number> = { ready: 3, table_open: 2, no_checkin: 1, no_cabinet: 0 };
+const STATUS_RANK: Record<LobbyStatus, number> = { ready: 4, table_open: 3, no_checkin: 2, offline: 1, no_cabinet: 0 };
 
 function toEpoch(iso: string | null | undefined): number | null {
     if (!iso) return null;
@@ -126,8 +136,10 @@ export class EventLobbyService {
         const ids = participants.map(p => p.user_id);
         const placeholders = ids.map(() => '?').join(', ');
 
-        const devices = await db.all<Array<{ atgames_unique_id: string; canonical_user_id: string; last_seen_at: string | null }>>(
-            `SELECT atgames_unique_id, canonical_user_id, last_seen_at
+        const devices = await db.all<Array<{
+            atgames_unique_id: string; canonical_user_id: string; last_seen_at: string | null; heartbeat_at: string | null;
+        }>>(
+            `SELECT atgames_unique_id, canonical_user_id, last_seen_at, heartbeat_at
                FROM witness_devices
               WHERE revoked_at IS NULL AND canonical_user_id IN (${placeholders})`,
             ...ids,
@@ -174,8 +186,10 @@ export class EventLobbyService {
             for (const d of mine) {
                 const checkinTs = checkinByDevice.get(d.atgames_unique_id) ?? null;
                 const session = openByDevice.get(d.atgames_unique_id) ?? null;
+                const heartbeat = toEpoch(d.heartbeat_at);
                 let status: LobbyStatus;
-                if (checkinTs == null) status = 'no_checkin';
+                if (heartbeat != null && nowEpoch - heartbeat > HEARTBEAT_STALE_SEC) status = 'offline';
+                else if (checkinTs == null) status = 'no_checkin';
                 else if (session && session.launch_ts > checkinTs) status = 'table_open';
                 else status = 'ready';
                 const candidate = {

@@ -228,3 +228,42 @@ describe('GET /:roomId/events/:id carries the lobby', () => {
         ]);
     });
 });
+
+describe('EventLobbyService.roster — the 1.0.4 heartbeat (v2.160.0)', () => {
+    beforeEach(async () => { await setupTestDb(); });
+
+    async function setHeartbeat(deviceId: string, at: Date | null) {
+        const db = await getDatabase();
+        await db.run(
+            `UPDATE witness_devices SET heartbeat_at = ? WHERE atgames_unique_id = ?`,
+            at ? at.toISOString().replace('T', ' ').slice(0, 19) : null, deviceId,
+        );
+    }
+
+    it('a cabinet that heartbeated before and has gone quiet reads offline even after a check-in; a fresh one is ready; a pre-1.0.4 one is never offline', async () => {
+        const roomId = await createTestRoom('lobby-hb', 'Heartbeat');
+        const now = new Date();
+        const eventId = await createEvent(roomId, {
+            checkinOpensAt: new Date(now.getTime() - 30 * MINUTE), round1Start: new Date(now.getTime() + 15 * MINUTE),
+        });
+        for (const u of [USER_A, USER_B, USER_C]) await EventService.checkIn(eventId, u);
+
+        // A: checked in 10 min ago, last heartbeat 9 min ago -> powered off since.
+        await pairDevice(USER_A, 'cab-a');
+        await witnessCheckin(USER_A, 'cab-a', new Date(now.getTime() - 10 * MINUTE));
+        await setHeartbeat('cab-a', new Date(now.getTime() - 9 * MINUTE));
+        // B: same check-in, heartbeat 1 min ago -> ready.
+        await pairDevice(USER_B, 'cab-b');
+        await witnessCheckin(USER_B, 'cab-b', new Date(now.getTime() - 10 * MINUTE));
+        await setHeartbeat('cab-b', new Date(now.getTime() - 1 * MINUTE));
+        // C: never heartbeated (older app), checked in 10 min ago -> ready, not offline.
+        await pairDevice(USER_C, 'cab-c');
+        await witnessCheckin(USER_C, 'cab-c', new Date(now.getTime() - 10 * MINUTE));
+        await setHeartbeat('cab-c', null);
+
+        const event = (await EventService.getEvent(eventId))!;
+        const roster = await EventLobbyService.roster(event, await EventService.getRounds(eventId), now);
+        const byUser = Object.fromEntries(roster.map(e => [e.userId, e.status]));
+        expect(byUser).toEqual({ [USER_A]: 'offline', [USER_B]: 'ready', [USER_C]: 'ready' });
+    });
+});

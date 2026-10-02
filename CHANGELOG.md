@@ -6,6 +6,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.160.0] — Witness heartbeat, and the restart tally the cabinet was already sending
+
+Server half of the Arcaid Witness 1.0.4 build (Defect F, heartbeat, restart tally, exit-sample
+harness corpus). Closes the check-in lobby's one stated gap.
+
+### Added
+- **Cabinet heartbeat.** `GET /api/witness/heartbeat` (device-token auth, bare 401) stamps
+  `witness_devices.heartbeat_at` + `last_seen_at` and nothing else. A 1.0.4 cabinet sends one every
+  two minutes while paired. The lobby reads it: a cabinet that has heartbeated before and has been
+  silent for over five minutes is **"Cabinet not responding"** (amber), whatever its check-in said —
+  so a cabinet powered off after checking in no longer reads green until round 1. A cabinet that
+  has NEVER sent a heartbeat (any pre-1.0.4 install) is exempt; silence from it means nothing.
+- **The restart tally and the partial flag are stored.** The cabinet has sent `restarts=N` (ball-1
+  restarts inside the game) since rc8 and `partial=1` (the score is a ball-sum floor because the
+  launcher wrote 0 for one ball) since 1.0.1; the server logged neither. Both now land on the game's
+  `witness_observations` row (migration 180) and ride the verdict, where the ✓ tooltip reads e.g.
+  "2 ball-1 restarts in this game". Informational; never a gate.
+
+### Cabinet (Arcaid Witness 1.0.4, built alongside)
+- **Defect F:** a token VALUE change (re-pair on a revoked token) now runs the same catch-up a first
+  pairing does, and a failed score send is retried on a 60 s clock instead of only when a score file
+  next changes. 2026-09-30: a whole sitting sat on the stick for an hour for want of both.
+- Heartbeat every 120 s while paired. Parser harness gains the four 2026-09-30 no-ROM exit-sample
+  files as a target beside the Iron Maiden block.
+
+---
+
 ## [2.159.0] — The check-in lobby: who is in, and who has a green light
 
 Owner ask, 2026-10-01: "some mechanism during a tournament check-in that shows each player who is
