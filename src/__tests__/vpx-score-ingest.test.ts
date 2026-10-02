@@ -205,6 +205,35 @@ describe('VPXS auto score collection — ingest', () => {
         });
     });
 
+    it('stores the restart tally and the partial flag on the game observation and surfaces them on the verdict (v2.160.0)', async () => {
+        await createRotationGame(roomId, 'Bad Cats');
+        await designate(roomId);
+        const q = scoreQuery({ restarts: 2, partial: 1 });
+
+        const res = await request(app).get('/api/witness/score').query({ device: DEVICE, token, ...q });
+        expect(res.body.status).toBe('ingested');
+
+        const db = await getDatabase();
+        const obs = await db.get<{ kind: string; restarts: number | null; partial: number | null }>(
+            `SELECT kind, restarts, partial FROM witness_observations ORDER BY id DESC LIMIT 1`,
+        );
+        expect(obs).toEqual({ kind: 'game', restarts: 2, partial: 1 });
+
+        const [v] = await WitnessVerifyService.verdictsForRound({
+            roundStartEpoch: q.started - 60,
+            rows: [{ identityKey: USER, createdEpoch: q.ended, source: 'vpx' }],
+        });
+        expect(v).toMatchObject({ status: 'verified', restarts: 2, partial: true });
+
+        // A record that sends neither leaves both NULL — never a fabricated 0.
+        const plain = scoreQuery({ score: 7654321, started: q.ended + 60, ended: q.ended + 360 });
+        await request(app).get('/api/witness/score').query({ device: DEVICE, token, ...plain });
+        const obs2 = await db.get<{ restarts: number | null; partial: number | null }>(
+            `SELECT restarts, partial FROM witness_observations ORDER BY id DESC LIMIT 1`,
+        );
+        expect(obs2).toEqual({ restarts: null, partial: null });
+    });
+
     it('marks the game observation of an exit sample so the verify join never flags it (v2.158.0)', async () => {
         await createRotationGame(roomId, 'Bad Cats');
         await designate(roomId);

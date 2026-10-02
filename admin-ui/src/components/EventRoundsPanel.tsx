@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import NeonButton from './NeonButton';
-import { LOBBY_STATUS_META, type LobbyStatus } from './EventLobbyRoster';
+import { LOBBY_STATUS_META, type LobbyStatus } from '../lib/lobbyStatus';
 import { api } from '../lib/api';
 import { roundStatusLabel, formatRelative } from '../lib/eventDisplay';
 import type { EventRoundRow, Tournament } from '../lib/tournamentFormPayload';
