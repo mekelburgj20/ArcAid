@@ -18,7 +18,17 @@ interface RankingGroup {
   min_games: number;
   is_active: boolean;
   tournament_ids: string[];
+  /** Season format — 1st-place points for best_game_linear (default 100). */
+  points_top?: number;
+  /** Season format — count ARCHIVED games too (default off). */
+  include_archived?: boolean;
+  /** Season format — the season tournament that owns this group; the server
+   *  locks best_n / points_top to its config. */
+  managed_by_season?: { id: string; name: string } | null;
 }
+
+const BEST_N_MAX = 200;
+const POINTS_TOP_DEFAULT = 100;
 
 interface Tournament {
   id: string;
@@ -52,7 +62,7 @@ const RANK_METHODS: Record<RankMethod, { label: string; description: string }> =
   },
   best_game_linear: {
     label: 'Best Game (Linear)',
-    description: 'Awards points based on rank (1st: 100, 2nd: 99, 3rd: 98, each subsequent place is 1 point less). Best N games count toward total.',
+    description: "Awards points based on rank, starting at the group's top value (default 100: 1st 100, 2nd 99, 3rd 98, each subsequent place 1 point less, never below 0). Best N games count toward total.",
   },
 };
 
@@ -92,6 +102,9 @@ export default function Rankings() {
   const [formBestN, setFormBestN] = useState(25);
   const [formMinGames, setFormMinGames] = useState(1);
   const [formTournamentIds, setFormTournamentIds] = useState<string[]>([]);
+  const [formPointsTop, setFormPointsTop] = useState(POINTS_TOP_DEFAULT);
+  const [formIncludeArchived, setFormIncludeArchived] = useState(false);
+  const [formManagedBy, setFormManagedBy] = useState<{ id: string; name: string } | null>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -142,6 +155,9 @@ export default function Rankings() {
     setFormBestN(25);
     setFormMinGames(1);
     setFormTournamentIds([]);
+    setFormPointsTop(POINTS_TOP_DEFAULT);
+    setFormIncludeArchived(false);
+    setFormManagedBy(null);
     setEditingId(null);
     setShowForm(false);
   };
@@ -153,6 +169,9 @@ export default function Rankings() {
     setFormBestN(group.best_n);
     setFormMinGames(group.min_games);
     setFormTournamentIds(group.tournament_ids);
+    setFormPointsTop(group.points_top ?? POINTS_TOP_DEFAULT);
+    setFormIncludeArchived(!!group.include_archived);
+    setFormManagedBy(group.managed_by_season ?? null);
     setEditingId(group.id);
     setShowForm(true);
   };
@@ -162,27 +181,38 @@ export default function Rankings() {
       toast('Name and at least one tournament are required', 'error');
       return;
     }
+    if (!formManagedBy && (!Number.isInteger(formBestN) || formBestN < 1 || formBestN > BEST_N_MAX)) {
+      toast(`Best N Games must be between 1 and ${BEST_N_MAX}`, 'error');
+      return;
+    }
+    if (!formManagedBy && formMethod === 'best_game_linear'
+      && (!Number.isInteger(formPointsTop) || formPointsTop < 1 || formPointsTop > 1000)) {
+      toast('Points for 1st must be between 1 and 1000', 'error');
+      return;
+    }
     setSaving(true);
+    // A season-managed group's best_n / points_top are locked server-side to
+    // the season config (the inputs are disabled; best_n still goes along
+    // because the update schema defaults an omitted one). points_top only
+    // means something for best_game_linear.
+    const payload: Record<string, unknown> = {
+      name: formName.trim(),
+      description: formDescription.trim(),
+      rank_method: formMethod,
+      best_n: formBestN,
+      min_games: formMinGames,
+      include_archived: formIncludeArchived,
+      tournament_ids: formTournamentIds,
+    };
+    if (!formManagedBy && formMethod === 'best_game_linear') payload.points_top = formPointsTop;
     try {
       if (editingId) {
-        await api.put(`/rooms/${room.roomId}/ranking-groups/${editingId}`, {
-          name: formName.trim(),
-          description: formDescription.trim(),
-          rank_method: formMethod,
-          best_n: formBestN,
-          min_games: formMinGames,
-          tournament_ids: formTournamentIds,
-        });
+        await api.put(`/rooms/${room.roomId}/ranking-groups/${editingId}`, payload);
         toast('Ranking group updated', 'success');
       } else {
         await api.post(`/rooms/${room.roomId}/ranking-groups`, {
           id: crypto.randomUUID(),
-          name: formName.trim(),
-          description: formDescription.trim(),
-          rank_method: formMethod,
-          best_n: formBestN,
-          min_games: formMinGames,
-          tournament_ids: formTournamentIds,
+          ...payload,
         });
         toast('Ranking group created', 'success');
       }
@@ -330,19 +360,43 @@ export default function Rankings() {
               <p className="text-xs text-muted mt-1">{RANK_METHODS[formMethod].description}</p>
             </div>
 
+            {formManagedBy && (
+              <p className="text-xs text-neon-amber border border-neon-amber/40 bg-neon-amber/10 rounded px-3 py-2" data-testid="ranking-managed-by">
+                Managed by {formManagedBy.name}. Best N games and points for 1st follow that season's settings; change them on the tournament.
+              </p>
+            )}
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="text-xs text-faint block mb-1">Best N Games</label>
+                <label htmlFor="ranking-best-n" className="text-xs text-faint block mb-1">Best N Games</label>
                 <input
+                  id="ranking-best-n"
                   type="number"
                   value={formBestN}
                   onChange={e => setFormBestN(Number(e.target.value))}
                   min={1}
-                  max={100}
-                  className={inputClass}
+                  max={BEST_N_MAX}
+                  disabled={!!formManagedBy}
+                  className={`${inputClass} disabled:opacity-60 disabled:cursor-not-allowed`}
                 />
                 <p className="text-xs text-muted mt-1">Number of top-scoring games counted toward each player's total.</p>
               </div>
+              {formMethod === 'best_game_linear' && (
+                <div>
+                  <label htmlFor="ranking-points-top" className="text-xs text-faint block mb-1">Points for 1st</label>
+                  <input
+                    id="ranking-points-top"
+                    type="number"
+                    value={formPointsTop}
+                    onChange={e => setFormPointsTop(Number(e.target.value))}
+                    min={1}
+                    max={1000}
+                    disabled={!!formManagedBy}
+                    className={`${inputClass} disabled:opacity-60 disabled:cursor-not-allowed`}
+                  />
+                  <p className="text-xs text-muted mt-1">1st place earns this many points, 2nd one less, and so on (1–1000).</p>
+                </div>
+              )}
               <div>
                 <label className="text-xs text-faint block mb-1">Minimum Games{formMethod === 'average_rank' ? ' (required for Average Rank)' : ''}</label>
                 <input
@@ -360,6 +414,19 @@ export default function Rankings() {
                 </p>
               </div>
             </div>
+
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={formIncludeArchived}
+                onChange={e => setFormIncludeArchived(e.target.checked)}
+                className="accent-neon-cyan mt-0.5"
+              />
+              <span>
+                <span className="text-sm text-primary block">Include archived games</span>
+                <span className="text-xs text-muted">Count games that cleanup has archived, not just active and completed ones. Seasons turn this on so earlier weeks keep their points.</span>
+              </span>
+            </label>
 
             {/* Tournament Selection */}
             <div>
@@ -428,6 +495,9 @@ export default function Rankings() {
                   <div className="flex flex-wrap gap-3 text-xs text-faint">
                     <span>Method: <span className="text-muted">{RANK_METHODS[group.rank_method].label}</span></span>
                     <span>Best {group.best_n} games</span>
+                    {group.rank_method === 'best_game_linear' && <span>1st = {group.points_top ?? POINTS_TOP_DEFAULT} pts</span>}
+                    {group.include_archived && <span>Includes archived</span>}
+                    {group.managed_by_season && <span className="text-neon-amber">Managed by {group.managed_by_season.name}</span>}
                     {group.rank_method === 'average_rank' && <span>Min {group.min_games} games</span>}
                     <span>{group.tournament_ids.length} tournament{group.tournament_ids.length !== 1 ? 's' : ''}</span>
                   </div>
