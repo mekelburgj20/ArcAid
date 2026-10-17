@@ -15,6 +15,7 @@ import GameQuickView from '../components/GameQuickView';
 import SubmissionSheet from '../components/SubmissionSheet';
 import { DISPLAY_SETTINGS_SAVED_EVENT } from '../components/DisplaySettingsHost';
 import { TAB_LABELS } from '../lib/scoresCopy';
+import SeasonPollCards from '../components/SeasonPollCard';
 
 type ScoresTab = 'tournaments' | 'room' | 'global';
 
@@ -67,6 +68,11 @@ export default function Scoreboard() {
   // RoomScoresView / GlobalScoresView own their own modal state for their tabs.
   const [quickViewLb, setQuickViewLb] = useState<GameLeaderboard | null>(null);
   const [tournamentSearch, setTournamentSearch] = useState('');
+  // Season format — bumped by the `season:poll` socket event and by the
+  // live-refresh hook below; SeasonPollCards refetches when it changes, so the
+  // poll card rides this page's liveness wiring instead of owning its own.
+  const [seasonRefreshKey, setSeasonRefreshKey] = useState(0);
+  const bumpSeason = () => setSeasonRefreshKey(k => k + 1);
   const [searchParams, setSearchParams] = useSearchParams();
   // F2 — 3-tab unification: Tournaments | Room Scores | Global. Legacy
   // `all-games` / `games` links (old 2-tab toggle) redirect to `room`.
@@ -221,6 +227,8 @@ export default function Scoreboard() {
     socket.on('leaderboard:updated', onLeaderboard);
     socket.on('game:rotated', onRotated);
     socket.on('settings:updated', onSettings);
+    // Season poll tally/state changed (vote, Discord sync, open, close).
+    socket.on('season:poll', bumpSeason);
 
     return () => {
       socket.emit('leave:room', roomId);
@@ -232,13 +240,14 @@ export default function Scoreboard() {
       socket.off('leaderboard:updated', onLeaderboard);
       socket.off('game:rotated', onRotated);
       socket.off('settings:updated', onSettings);
+      socket.off('season:poll', bumpSeason);
     };
   }, [roomId, playerToken]);
 
   // The socket delivers live updates; this covers the gaps where it cannot —
   // a reconnect that missed events, a phone tab coming back to the
   // foreground, and a socket that died without saying so. See the hook.
-  useLiveRefresh(() => { loadData(); loadRankings(); }, { enabled: !!roomId });
+  useLiveRefresh(() => { loadData(); loadRankings(); bumpSeason(); }, { enabled: !!roomId });
 
   const viewerUsername = discordUser?.username || undefined;
   // Not a rendering derivation — the surface owns every one of those. This one
@@ -317,6 +326,13 @@ export default function Scoreboard() {
                 <TabSwitcher tab={tab} onSelect={selectTab} />
               </div>
             </div>
+            {/* Season format — the open table poll(s), above the cards.
+                Renders nothing when the room has no open poll. */}
+            {roomId && (
+              <div className="mt-3 max-w-2xl mx-auto">
+                <SeasonPollCards roomId={roomId} roomSlug={slug || ''} refreshKey={seasonRefreshKey} />
+              </div>
+            )}
           </div>
         }
         contentOverride={
