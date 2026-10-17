@@ -2185,7 +2185,11 @@ export class TournamentEngine {
             } else if (!winnerPicks && !autoPick) {
                 // Manual only — no pick windows, no auto-select
                 logInfo(`   -> No ${term.game} queued. winner_picks=off, auto_pick=off — waiting for admin.`);
-                if (channelId) {
+                // A season's poll winner (or an admin-queued table) sits in the
+                // tournament queue unowned by the winner, so the cascade above
+                // never fires it — the fill loop does, moments later. Saying
+                // "No Table Queued" right before it activates is false.
+                if (channelId && !(await this.hasRealQueuedGame(db, tournamentId))) {
                     const color = getTournamentColor(tournamentRow.type);
                     const description = pickAwardEnabled
                         ? `Auto-pick is disabled. A moderator should use \`/pick-game\` to select the next ${term.game}.`
@@ -2205,7 +2209,7 @@ export class TournamentEngine {
                     await this.autoPickAndActivate(db, tournamentRow, tournamentId, activeGame, client, term, channelId);
                 } else {
                     logInfo(`   -> No ${term.game} queued and no winner found. auto_pick=off — waiting for admin.`);
-                    if (channelId) {
+                    if (channelId && !(await this.hasRealQueuedGame(db, tournamentId))) {
                         const color = getTournamentColor(tournamentRow.type);
                         const description = pickAwardEnabled
                             ? `A moderator should use \`/pick-game\` or \`/nominate-picker\`.`
@@ -2221,6 +2225,19 @@ export class TournamentEngine {
                 }
             }
         }
+    }
+
+    /**
+     * True when the tournament has a real QUEUED table waiting (placeholders
+     * excluded — the fill loop skips them too). Guards the "No <Table> Queued"
+     * embed, which is only true when the queue is genuinely empty.
+     */
+    private async hasRealQueuedGame(db: any, tournamentId: string): Promise<boolean> {
+        const row = await db.get(
+            `SELECT 1 FROM games WHERE tournament_id = ? AND status = 'QUEUED' AND name != '[Pending Pick]' LIMIT 1`,
+            tournamentId,
+        );
+        return !!row;
     }
 
     /**

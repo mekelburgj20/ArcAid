@@ -150,9 +150,11 @@ export class TournamentService {
         const season = resolveSeason(data, null, data.format, data.cadence);
         // A season forces these (plan §3.1) — normalise, don't reject. The poll
         // is the only queue writer; with both pick flags off the engine's
-        // existing empty-queue behaviour is "wait for admin".
+        // existing empty-queue behaviour is "wait for admin". eligibility_days
+        // is 0 because a community vote overrides cooldown — the fill loop's
+        // cooldown check would otherwise hold the poll winner and stall the week.
         if (season) {
-            data = { ...data, winner_picks: false, auto_pick: false, max_active_games: 1 };
+            data = { ...data, winner_picks: false, auto_pick: false, max_active_games: 1, eligibility_days: 0 };
         }
         await db.run(
             `INSERT INTO tournaments (id, name, type, mode, cadence, platform_rules, guild_id, discord_channel_id, discord_role_id, is_active, display_order, max_active_games, cleanup_rule, game_room_id, winner_picks, auto_pick, eligibility_days, winner_pick_window_min, runnerup_pick_window_min, allow_dynasty)
@@ -209,7 +211,7 @@ export class TournamentService {
         const stored = await db.get('SELECT * FROM tournaments WHERE id = ?', id);
         const season = resolveSeason(data, stored ?? null, data.format, data.cadence);
         if (season) {
-            data = { ...data, winner_picks: false, auto_pick: false, max_active_games: 1 };
+            data = { ...data, winner_picks: false, auto_pick: false, max_active_games: 1, eligibility_days: 0 };
         }
         await db.run(
             `UPDATE tournaments SET name = ?, type = ?, mode = ?, cadence = ?, platform_rules = ?, guild_id = ?, discord_channel_id = ?, discord_role_id = ?, is_active = ?, display_order = ?, max_active_games = ?, cleanup_rule = ?, game_room_id = ?, winner_picks = ?, auto_pick = ?, eligibility_days = ?, winner_pick_window_min = ?, runnerup_pick_window_min = ?, allow_dynasty = ?

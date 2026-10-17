@@ -145,3 +145,57 @@ describe('derived table count', () => {
         expect(await SeasonPollService.countTablesDone(tournamentId)).toBe(0);
     });
 });
+
+describe('"No <Table> Queued" embed', () => {
+    const noQueueEmbeds = () => post.mock.calls
+        .map(c => c[1]?.body)
+        .filter(b => /^No .+ Queued$/.test(b?.embeds?.[0]?.title ?? ''));
+
+    async function manualTournament(roomSlug: string, flags: { winnerPicks: 0 | 1; autoPick: 0 | 1 }) {
+        const { createTestRoom, createTestTournament } = await import('./helpers.js');
+        const { GameRoomSettingsService } = await import('../services/GameRoomSettingsService.js');
+        const roomId = await createTestRoom(roomSlug, roomSlug);
+        await GameRoomSettingsService.set(roomId, 'ISCORED_ENABLED', 'false');
+        const tournamentId = await createTestTournament(roomId);
+        const db = await getDatabase();
+        await db.run(
+            'UPDATE tournaments SET winner_picks = ?, auto_pick = ?, discord_channel_id = ? WHERE id = ?',
+            flags.winnerPicks, flags.autoPick, '900000000000000009', tournamentId,
+        );
+        return tournamentId;
+    }
+
+    it('a season with the poll winner queued posts no "No Table Queued" embed', async () => {
+        const { tournamentId } = await createSeason({ tableCount: 12 });
+        const active = await createTestGame(tournamentId, { name: 'Week One', status: 'ACTIVE' });
+        await createTestSubmission(active, { username: 'Alice', discordUserId: ALICE, score: 500 });
+        const next = await TournamentEngine.getInstance().queueGame(tournamentId, 'Poll Winner');
+
+        await TournamentEngine.getInstance().runMaintenance(tournamentId);
+
+        expect(await statusOf(next.id)).toBe('ACTIVE');
+        expect(noQueueEmbeds()).toHaveLength(0);
+    });
+
+    it('both flags off with a genuinely empty queue still posts the embed', async () => {
+        const tournamentId = await manualTournament('noq-empty', { winnerPicks: 0, autoPick: 0 });
+        await createTestGame(tournamentId, { name: 'Only Table', status: 'ACTIVE' });
+
+        await TournamentEngine.getInstance().runMaintenance(tournamentId);
+
+        expect(noQueueEmbeds()).toHaveLength(1);
+    });
+
+    it('winner picks on, auto-pick off, no winner: a queued table suppresses the embed, an empty queue does not', async () => {
+        const queuedT = await manualTournament('noq-wp-queued', { winnerPicks: 1, autoPick: 0 });
+        await createTestGame(queuedT, { name: 'Unplayed', status: 'ACTIVE' });
+        await TournamentEngine.getInstance().queueGame(queuedT, 'Admin Queued');
+        await TournamentEngine.getInstance().runMaintenance(queuedT);
+        expect(noQueueEmbeds()).toHaveLength(0);
+
+        const emptyT = await manualTournament('noq-wp-empty', { winnerPicks: 1, autoPick: 0 });
+        await createTestGame(emptyT, { name: 'Unplayed Too', status: 'ACTIVE' });
+        await TournamentEngine.getInstance().runMaintenance(emptyT);
+        expect(noQueueEmbeds()).toHaveLength(1);
+    });
+});

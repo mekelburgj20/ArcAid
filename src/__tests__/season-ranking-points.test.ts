@@ -138,6 +138,8 @@ describe('season standings group lifecycle', () => {
         expect(t.winner_picks).toBe(0);
         expect(t.auto_pick).toBe(0);
         expect(t.max_active_games).toBe(1);
+        // A community vote overrides cooldown (owner ruling 2026-10-17).
+        expect(t.eligibility_days).toBe(0);
         expect(t.season_ranking_group_id).toBeTruthy();
 
         const group = await RankingService.getById(t.season_ranking_group_id);
@@ -166,15 +168,15 @@ describe('season standings group lifecycle', () => {
             name: t.name, type: t.type, cadence: JSON.parse(t.cadence), game_room_id: roomId, is_active: true,
             season_points_top: 75, season_table_count: 10,
             // A client that sends the pick flags on can't turn them back on for a season.
-            winner_picks: true, auto_pick: true, max_active_games: 3,
+            winner_picks: true, auto_pick: true, max_active_games: 3, eligibility_days: 120,
         });
         const group = await RankingService.getById(t.season_ranking_group_id);
         expect(group!.points_top).toBe(75);
         expect(group!.best_n).toBe(10);
         const cache = await db.get('SELECT 1 FROM ranking_groups_cache WHERE ranking_group_id = ?', t.season_ranking_group_id);
         expect(cache).toBeUndefined();
-        const after = await db.get('SELECT winner_picks, auto_pick, max_active_games, season_ranking_group_id FROM tournaments WHERE id = ?', tournamentId);
-        expect(after).toMatchObject({ winner_picks: 0, auto_pick: 0, max_active_games: 1, season_ranking_group_id: t.season_ranking_group_id });
+        const after = await db.get('SELECT winner_picks, auto_pick, max_active_games, eligibility_days, season_ranking_group_id FROM tournaments WHERE id = ?', tournamentId);
+        expect(after).toMatchObject({ winner_picks: 0, auto_pick: 0, max_active_games: 1, eligibility_days: 0, season_ranking_group_id: t.season_ranking_group_id });
     });
 
     it('update() without season fields leaves the season untouched', async () => {
