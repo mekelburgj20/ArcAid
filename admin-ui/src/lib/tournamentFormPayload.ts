@@ -5,6 +5,7 @@ import {
   type TournamentFormState,
 } from '../components/TournamentForm';
 import { addMinutes, defaultEventState, durationMinutes, utcIsoToWallTime, wallTimeToUtcIso } from './eventTime';
+import { seasonPayload, seasonStateFromRow } from './seasonForm';
 
 /**
  * Plain functions shared between the Tournaments admin page's create and
@@ -51,6 +52,32 @@ export interface Tournament {
   atgames_invite_code?: string | null;
   /** Embedded by `GET /:roomId/tournaments` for event rows only. */
   rounds?: EventRoundRow[];
+  /** Season block (migration 181, docs/season-format-plan.md §3.1). NULL table count = not a season. */
+  season_table_count?: number | null;
+  season_points_top?: number | null;
+  season_ranking_group_id?: string | null;
+  season_poll_opens_before_h?: number | null;
+  season_poll_closes_before_h?: number | null;
+  season_tie_rule?: string | null;
+  season_tie_fallback?: string | null;
+  season_paused_at?: string | null;
+  season_finished_at?: string | null;
+  /** Compact progress, embedded for season rows only. */
+  season?: SeasonSummary;
+}
+
+/** `GET /:roomId/tournaments` → `season` sub-object on season rows. */
+export interface SeasonSummary {
+  tables_done: number;
+  table_count: number;
+  paused: boolean;
+  finished: boolean;
+  open_poll_id: string | null;
+}
+
+/** True when the row is a Season (a rotation tournament with a season block). */
+export function isSeasonTournament(t: Pick<Tournament, 'format' | 'season_table_count'>): boolean {
+  return t.format !== 'event' && t.season_table_count != null;
 }
 
 /** A round as `GET /:roomId/tournaments` and `EventService.getRounds` ship it. */
@@ -85,6 +112,9 @@ export function lockedRoundNumbers(t: Tournament): number[] {
 export function toPayload(state: TournamentFormState, extra: Record<string, any> = {}) {
   const isEvent = state.format === 'event';
   const tz = state.event.timezone;
+  // A season forces these server-side (TournamentService); sending the forced
+  // values keeps the request honest about what will be stored.
+  const seasonOn = !isEvent && state.season.enabled;
   return {
     name: state.name,
     type: state.tag.trim().toUpperCase(),
@@ -114,14 +144,18 @@ export function toPayload(state: TournamentFormState, extra: Record<string, any>
     platform_rules: state.platformRules,
     discord_channel_id: state.channel,
     display_order: state.displayOrder,
-    max_active_games: state.maxActiveGames,
+    max_active_games: seasonOn ? 1 : state.maxActiveGames,
     cleanup_rule: state.cleanupRule,
-    winner_picks: state.winnerPicks,
-    auto_pick: state.autoPick,
+    winner_picks: seasonOn ? false : state.winnerPicks,
+    auto_pick: seasonOn ? false : state.autoPick,
     eligibility_days: state.eligibilityDays,
     winner_pick_window_min: state.winnerPickWindowMin,
     runnerup_pick_window_min: state.runnerupPickWindowMin,
     allow_dynasty: state.allowDynasty,
+    // Season block: rotation only. `season_table_count: null` switches a
+    // season off; an event omits the keys entirely (the server refuses a
+    // season on an event).
+    ...(isEvent ? {} : seasonPayload(state.season)),
     // is_active is intentionally NOT hardcoded here. `extra` is spread last, so
     // each caller supplies it: handleCreate passes `is_active: true`;
     // handleEditSave passes the row's current value so editing a paused
@@ -176,5 +210,6 @@ export function tournamentToFormState(t: Tournament): TournamentFormState {
     platformRules: parsePlatformRules(t.platform_rules),
     cleanupRule: parseCleanupRule(t.cleanup_rule),
     schedule: parseCadence(t.cadence),
+    season: seasonStateFromRow(t),
   };
 }
