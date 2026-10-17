@@ -67,8 +67,10 @@ Extract the handler to `src/database/migrations/seasonFormat.ts`.
 Validation (Zod + `TournamentService.create/update`, both): `season_table_count` 1..200;
 `season_points_top` 1..1000; `closes_before_h` ≥ 1 (Discord's minimum poll duration is 1 h);
 `opens_before_h` > `closes_before_h`; a season requires `format = 'rotation'` AND a cadence
-with a cron. **A season forces `winner_picks = 0`, `auto_pick = 0`, `max_active_games = 1`** on
-save (normalise, don't reject — the form shows them locked with a note). The poll is the only
+with a cron. **A season forces `winner_picks = 0`, `auto_pick = 0`, `max_active_games = 1`,
+`eligibility_days = 0`** on save (normalise, don't reject — the form shows them locked with a
+note). `eligibility_days = 0` because a community vote overrides cooldown — the fill loop's
+cooldown check would otherwise hold the poll winner and stall the week. The poll is the only
 queue writer; with both pick flags off the engine's existing empty-queue behaviour is "wait for
 admin", which is exactly the hold-and-alert outcome a season wants. Do not add a new fallback.
 
@@ -358,3 +360,36 @@ season-created group is editable like any other but shows "Managed by <tournamen
 - No per-player "you voted" notification. The link is the notification.
 - `season_ranking_group_id` is a pseudo-FK like the other ALTER-added references.
 - The reminder posts to the channel, not as a DM — admins read the channel anyway.
+
+## 12. Implementation notes (Slice A, 2026-10-17)
+
+The truth as built, for the UI slices and later sessions.
+
+- **Audit.** `auditMiddleware` is not mounted, so season writes call `AuditService.log` directly:
+  `season.poll_create`, `season.poll_update`, `season.poll_<action>`, `season.pause`, `season.resume`.
+- **Ranking.** The SQL `ROW_NUMBER()` in `RankingService.computeRankings` is the best-score-per-player
+  dedup and stays; RANK() placement (ties share a place) is done in the JS loop.
+- **The poll bound** counts resolved polls that actually queued a table
+  (`SeasonPollService.countResolvedWithResult`) — a poll that resolved with no eligible winner does
+  not use up a week. Season END is the separate derived count of COMPLETED/ARCHIVED rotation games
+  (`countTablesDone`, event rounds excluded).
+- **One poll per rotation.** No draft is derived or posted while a poll is open, or while a resolved
+  winner is still QUEUED.
+- **Explicit poll times** are validated against the next rotation after max(now, `opens_at`); a
+  `closes_at` in the past is refused.
+- **Post-failure strikes.** The 3-strikes counter for failed Discord posts is in memory (resets on
+  restart).
+- **Season lock.** The server refuses edits to `best_n` / `points_top` on the season-managed ranking
+  group; they follow the tournament's season block.
+- **Candidate picker** also filters by tournament `mode`, and keeps `played_before` as the admin's
+  own repeat guard (cooldown is not applied — see the last ruling below).
+- **Content-line link** points at the room's main page.
+- **`TournamentEngine.removeQueuedGame(id)`** exists for pulling a queued table.
+- **`choose`** posts an updated "Next up" embed.
+- **Ruling: no-queue embed guard.** `processSlotMaintenance` skips the "No <Table> Queued" embed
+  (both the manual-only and the winner-picks-without-winner sites) whenever the tournament has a real
+  QUEUED row (`[Pending Pick]` placeholders excluded). The poll winner is not in the winner's own
+  queue, so the cascade never fires it — the fill loop activates it moments later. A genuinely empty
+  queue still posts the embed, unchanged.
+- **Ruling: `eligibility_days = 0`.** Forced on season save (§3.1) — a community vote overrides
+  cooldown.
