@@ -64,7 +64,24 @@ export interface Tournament {
     minElapsedSec?: number | null;
     endGraceSec?: number;
     eventFinishedAt?: string | null;
+    /**
+     * Season block (docs/season-format-plan.md §3.1). A Season is a rotation
+     * tournament with `seasonTableCount` non-NULL — not a separate format.
+     * NULL/undefined = not a season.
+     */
+    seasonTableCount?: number | null;
+    seasonPointsTop?: number;
+    seasonRankingGroupId?: string | null;
+    seasonPollOpensBeforeH?: number;
+    seasonPollClosesBeforeH?: number;
+    seasonTieRule?: SeasonTieRule;
+    seasonTieFallback?: SeasonTieFallback;
+    seasonPausedAt?: string | null;
+    seasonFinishedAt?: string | null;
 }
+
+export type SeasonTieRule = 'admin' | 'random' | 'first_nominated';
+export type SeasonTieFallback = 'random' | 'first_nominated';
 
 export type TournamentFormat = 'rotation' | 'event';
 

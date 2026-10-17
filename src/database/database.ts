@@ -3112,6 +3112,13 @@ async function doInitDatabase(): Promise<Database> {
                 await db.exec(`ALTER TABLE witness_observations ADD COLUMN partial INTEGER`);
             }
         } },
+        // Season format — a rotation tournament with a season block (bound,
+        // points scale, poll queue, pause). See docs/season-format-plan.md and
+        // src/database/migrations/seasonFormat.ts.
+        { name: '181_season_format', handler: async (db) => {
+            const { seasonFormat } = await import('./migrations/seasonFormat.js');
+            await seasonFormat(db);
+        } },
     ];
 
     for (const migration of migrations) {
