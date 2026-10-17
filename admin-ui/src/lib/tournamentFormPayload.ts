@@ -148,7 +148,7 @@ export function toPayload(state: TournamentFormState, extra: Record<string, any>
     cleanup_rule: state.cleanupRule,
     winner_picks: seasonOn ? false : state.winnerPicks,
     auto_pick: seasonOn ? false : state.autoPick,
-    eligibility_days: state.eligibilityDays,
+    eligibility_days: seasonOn ? 0 : state.eligibilityDays,
     winner_pick_window_min: state.winnerPickWindowMin,
     runnerup_pick_window_min: state.runnerupPickWindowMin,
     allow_dynasty: state.allowDynasty,

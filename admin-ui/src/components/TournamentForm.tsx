@@ -534,6 +534,8 @@ function CleanupRuleEditor({ value, onChange }: { value: CleanupRule; onChange: 
 
 /** One-line note shown beside every field a season locks. */
 const SEASON_LOCK_NOTE = 'Fixed while Season is on: the poll picks each table, one table is live at a time.';
+/** Note under Cooldown Days — the server stores eligibility_days = 0 for a season. */
+const SEASON_COOLDOWN_NOTE = 'Fixed at 0 while Season is on: a community vote overrides cooldown.';
 
 /**
  * Season block (docs/season-format-plan.md §8.1) — a bounded weekly grind: N
@@ -626,7 +628,7 @@ function SeasonSection({ season, onChange, schedule }: {
             )}
           </div>
           <p className="text-xs text-neon-amber">
-            Winner picks, auto-pick and active slots are fixed for a Season (off, off, 1) — the poll chooses every table.
+            Winner picks, auto-pick, active slots and cooldown are fixed for a Season (off, off, 1, 0 days) — the poll chooses every table, and a community vote overrides cooldown.
           </p>
           {errors.length > 0 && (
             <ul className="text-xs text-neon-magenta space-y-0.5" role="alert">
@@ -824,7 +826,8 @@ export default function TournamentFormFields({ state, set, platforms, roomId, lo
               <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">
                 Cooldown Days <InfoTip text="How many days before a game can be picked again for this tournament." />
               </label>
-              <NumberStepper value={state.eligibilityDays} onChange={v => set('eligibilityDays', v)} min={1} />
+              <NumberStepper value={seasonOn ? 0 : state.eligibilityDays} onChange={v => set('eligibilityDays', v)} min={seasonOn ? 0 : 1} disabled={seasonOn} ariaLabel="Cooldown Days" />
+              {seasonOn && <p className="text-xs text-faint mt-1">{SEASON_COOLDOWN_NOTE}</p>}
             </div>
             {!seasonOn && state.winnerPicks && (
               <>

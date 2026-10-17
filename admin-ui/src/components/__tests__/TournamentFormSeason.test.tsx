@@ -9,7 +9,8 @@ import { defaultSeasonState } from '../../lib/seasonForm';
  * Season section of the tournament form (docs/season-format-plan.md §8.1).
  *
  * Locks: the toggle reveals the season fields with the plan's defaults; the
- * three fields a season forces (winner picks, auto-pick, active slots) render
+ * four fields a season forces (winner picks, auto-pick, active slots, cooldown
+ * days) render
  * locked at their forced values; the poll-timing echo; the client-side
  * validation; and the wire shape of the season block.
  */
@@ -45,8 +46,11 @@ describe('TournamentForm — Season section', () => {
     expect((screen.getByLabelText('Winner picks next game') as HTMLInputElement).disabled).toBe(false);
     expect((screen.getByLabelText('Active Slots') as HTMLInputElement).disabled).toBe(false);
     expect((screen.getByLabelText('Active Slots') as HTMLInputElement).value).toBe('3');
+    expect((screen.getByLabelText('Cooldown Days') as HTMLInputElement).disabled).toBe(false);
+    expect((screen.getByLabelText('Cooldown Days') as HTMLInputElement).value).toBe('120');
     expect(payload().season_table_count).toBeNull();
     expect(payload().max_active_games).toBe(3);
+    expect(payload().eligibility_days).toBe(120);
   });
 
   it('toggling on shows the defaults and locks the forced fields at their forced values', () => {
@@ -67,7 +71,11 @@ describe('TournamentForm — Season section', () => {
     expect(auto.checked).toBe(false);
     expect(slots.disabled).toBe(true);
     expect(slots.value).toBe('1');
+    const cooldown = screen.getByLabelText('Cooldown Days') as HTMLInputElement;
+    expect(cooldown.disabled).toBe(true);
+    expect(cooldown.value).toBe('0');
     expect(screen.getAllByText(/Fixed while Season is on/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/a community vote overrides cooldown/).length).toBeGreaterThan(0);
 
     expect(payload()).toMatchObject({
       season_table_count: 12,
@@ -79,14 +87,20 @@ describe('TournamentForm — Season section', () => {
       winner_picks: false,
       auto_pick: false,
       max_active_games: 1,
+      eligibility_days: 0,
     });
   });
 
   it('turning the season back off restores the admin\'s own values', () => {
-    render(<Harness />);
+    render(<Harness initial={{ eligibilityDays: 45 }} />);
     fireEvent.click(screen.getByLabelText('Run as a Season'));
+    expect(payload().eligibility_days).toBe(0);
     fireEvent.click(screen.getByLabelText('Run as a Season'));
     expect((screen.getByLabelText('Active Slots') as HTMLInputElement).value).toBe('3');
+    const cooldown = screen.getByLabelText('Cooldown Days') as HTMLInputElement;
+    expect(cooldown.disabled).toBe(false);
+    expect(cooldown.value).toBe('45');
+    expect(payload().eligibility_days).toBe(45);
     expect((screen.getByLabelText('Winner picks next game') as HTMLInputElement).checked).toBe(true);
     expect(payload().season_table_count).toBeNull();
   });
