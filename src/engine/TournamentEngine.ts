@@ -380,6 +380,82 @@ export class TournamentEngine {
     }
 
     /**
+     * Removes one QUEUED row (Season tie override, docs/season-format-plan.md
+     * §5.4: "TournamentEngine removes the queued row, queueGame the new one").
+     * Guarded on `status = 'QUEUED'` so a row the rotation has already
+     * activated can never be deleted from under the board; returns false then.
+     * The owner's queue is compacted so positions stay a gapless 1..N.
+     */
+    public async removeQueuedGame(gameId: string): Promise<boolean> {
+        const db = await getDatabase();
+        const row = await db.get('SELECT tournament_id, picker_discord_id FROM games WHERE id = ? AND status = ?', gameId, 'QUEUED');
+        if (!row) return false;
+        const res = await db.run(`DELETE FROM games WHERE id = ? AND status = 'QUEUED'`, gameId);
+        if (res.changes !== 1) return false;
+        const { compactQueue } = await import('../services/PickQueueService.js');
+        await compactQueue(row.tournament_id, row.picker_discord_id);
+        return true;
+    }
+
+    /**
+     * Season end (docs/season-format-plan.md §6). The count is DERIVED from
+     * the game rows — COMPLETED or ARCHIVED rotation games, never event rounds —
+     * so a `deleteGameCompletely` ("wrong table") correctly un-counts a week.
+     */
+    private async seasonBoundReached(tournamentRow: any): Promise<boolean> {
+        if (tournamentRow.season_table_count == null) return false;
+        const { SeasonPollService } = await import('../services/SeasonPollService.js');
+        return (await SeasonPollService.countTablesDone(tournamentRow.id)) >= tournamentRow.season_table_count;
+    }
+
+    /**
+     * Stamp `season_finished_at` once (guarded UPDATE, act on `changes === 1`)
+     * and announce the final top 3 from the season's standings group, pinging
+     * the players. The tournament stays `is_active = 1` so the retained cards
+     * and the ticker keep rendering; later maintenance runs skip.
+     */
+    private async finishSeason(tournamentRow: any, channelId: string | null): Promise<void> {
+        const db = await getDatabase();
+        const res = await db.run(
+            'UPDATE tournaments SET season_finished_at = ? WHERE id = ? AND season_finished_at IS NULL',
+            new Date().toISOString(), tournamentRow.id,
+        );
+        if (res.changes !== 1) return;
+        logInfo(`Season finished: ${tournamentRow.name} (${tournamentRow.season_table_count} tables).`);
+        if (!channelId) return;
+
+        let top: Array<{ discord_user_id: string; iscored_username: string; display_name?: string | null; total_points: number }> = [];
+        if (tournamentRow.season_ranking_group_id) {
+            try {
+                const { RankingService } = await import('../services/RankingService.js');
+                top = (await RankingService.getRankings(tournamentRow.season_ranking_group_id)).slice(0, 3);
+            } catch (err) {
+                logError(`Season '${tournamentRow.name}': could not load final standings`, err);
+            }
+        }
+        const medals = ['🥇', '🥈', '🥉'];
+        const pingUserIds: string[] = [];
+        const lines: string[] = [];
+        for (let i = 0; i < top.length; i++) {
+            const entry = top[i]!;
+            const label = entry.display_name || entry.iscored_username || 'Unknown';
+            const mention = await resolveUserMention(entry.discord_user_id, label, tournamentRow.game_room_id);
+            pingUserIds.push(...mention.pingIds);
+            lines.push(`${medals[i]} ${mention.text} — **${entry.total_points.toLocaleString()}** pts`);
+        }
+        const desc = `**${tournamentRow.name}** is complete after ${tournamentRow.season_table_count} table${tournamentRow.season_table_count === 1 ? '' : 's'}.`
+            + (lines.length ? `\n\n${lines.join('\n')}` : '\n\nNo scores were recorded this season.')
+            + '\n\nThanks for playing!';
+        const embed = new EmbedBuilder()
+            .setTitle(`Season Final Standings — ${tournamentRow.name}`)
+            .setDescription(desc)
+            .setColor(getTournamentColor(tournamentRow.type))
+            .setFooter({ text: tournamentRow.name })
+            .setTimestamp();
+        await sendChannelEmbed(channelId, embed, { pingUserIds });
+    }
+
+    /**
      * Deactivates an active game — locks on iScored (preserving the historical
      * record) and marks COMPLETED in DB. Pairs with `deleteGameCompletely()`,
      * which is the destructive variant for "wrong game in wrong tournament"
@@ -934,6 +1010,28 @@ export class TournamentEngine {
     }
 
     private async runMaintenanceInternal(tournamentId: string): Promise<MaintenanceRunOutcome> {
+        // Season pause / finish (docs/season-format-plan.md §6). The cron keeps
+        // firing and keeps skipping; the current table stays ACTIVE and open
+        // while paused (an admin who wants it closed uses the lock affordance).
+        // Recorded in maintenance_runs like any other skip by runMaintenance.
+        {
+            const db = await getDatabase();
+            const season = await db.get(
+                'SELECT season_table_count, season_paused_at, season_finished_at FROM tournaments WHERE id = ?',
+                tournamentId,
+            );
+            if (season?.season_table_count != null) {
+                if (season.season_finished_at) {
+                    logInfo(`Season ${tournamentId} has finished — skipping maintenance.`);
+                    return { outcome: 'skipped', summary: 'season finished' };
+                }
+                if (season.season_paused_at) {
+                    logInfo(`Season ${tournamentId} is paused — skipping maintenance.`);
+                    return { outcome: 'skipped', summary: 'season paused' };
+                }
+            }
+        }
+
         // Pause score poller during maintenance to avoid conflicts
         const { ScoreSyncPoller } = await import('./ScoreSyncPoller.js');
         const poller = ScoreSyncPoller.getInstance();
@@ -1020,6 +1118,7 @@ export class TournamentEngine {
         // Process each active game slot independently.
         // Each active game pairs with the next available queued game (FIFO).
         const queuedQueue = [...queuedRows]; // mutable copy to consume from
+        let seasonFinished = false;
 
         try {
             for (const activeGame of activeGames) {
@@ -1041,6 +1140,16 @@ export class TournamentEngine {
             // someone won, exactly what the pick-delegation contract forbids.
             const pendingPickSlots = await this.countPendingPickSlots(tournamentId);
             let slotsAvailable = maxSlots - currentActive.length - pendingPickSlots;
+
+            // Season end (plan §6): once the bound is reached nothing more is
+            // activated. processSlotMaintenance normally stamps + announces
+            // first; this call is the idempotent backstop for a run that
+            // completed no slot.
+            if (await this.seasonBoundReached(tournamentRow)) {
+                await this.finishSeason(tournamentRow, channelId);
+                seasonFinished = true;
+                slotsAvailable = 0;
+            }
 
             // Consume a FRESH queue here, never the run-start `queuedQueue`
             // snapshot.
@@ -1208,7 +1317,10 @@ export class TournamentEngine {
             }
         }
 
-        return { outcome: 'success', summary: `Completed — ${activeGames.length} active slot(s) processed` };
+        return {
+            outcome: 'success',
+            summary: `Completed — ${activeGames.length} active slot(s) processed${seasonFinished ? ' — season finished' : ''}`,
+        };
     }
 
     /**
@@ -1576,6 +1688,14 @@ export class TournamentEngine {
             if (strippedNarrative) desc += `\n\n${strippedNarrative}`;
             embed.setDescription(desc);
             await sendChannelEmbed(channelId, embed);
+        }
+
+        // Season end (docs/season-format-plan.md §6): the table just completed
+        // counts. At the bound, activate nothing — stamp once and announce the
+        // final standings instead of a pick prompt / "nothing queued" notice.
+        if (await this.seasonBoundReached(tournamentRow)) {
+            await this.finishSeason(tournamentRow, channelId);
+            return;
         }
 
         // --- Decide who gets the pick for this slot ---
