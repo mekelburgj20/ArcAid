@@ -4,6 +4,17 @@ import EventSettingsFields from './EventSettingsFields';
 import { defaultEventState, type EventFormState } from '../lib/eventTime';
 import { InfoTip } from './Tooltip';
 import {
+  defaultSeasonState,
+  describeSeasonPollTimes,
+  getSeasonErrors,
+  SEASON_MAX_OFFSET_H,
+  TIE_FALLBACK_LABEL,
+  TIE_RULE_LABEL,
+  type SeasonFormState,
+  type SeasonTieFallback,
+  type SeasonTieRule,
+} from '../lib/seasonForm';
+import {
   CANONICAL_DEVICES,
   LEGACY_PLATFORM_MAP,
   UNKNOWN,
@@ -77,6 +88,13 @@ export interface TournamentFormState {
   platformRules: PlatformRules;
   cleanupRule: CleanupRule;
   schedule: { cron: string; timezone: string };
+  /**
+   * Season block (docs/season-format-plan.md §3.1). Only meaningful when
+   * `format === 'rotation'`. A season forces winner picks + auto-pick off and
+   * one active slot on the server, so the form shows those locked while it is on
+   * (the admin's own values come back if the season is switched off again).
+   */
+  season: SeasonFormState;
 }
 
 // --- Defaults ---
@@ -106,6 +124,7 @@ export const defaultFormState: TournamentFormState = {
   platformRules: { ...defaultPlatformRules },
   cleanupRule: { ...defaultCleanupRule },
   schedule: { cron: '0 0 * * *', timezone: 'America/Chicago' },
+  season: { ...defaultSeasonState },
 };
 
 // --- Reducer ---
@@ -238,7 +257,17 @@ export function parseCleanupRule(raw: string | undefined): CleanupRule {
  * (empty allowed) while typing; it commits (clamped) on blur, or reverts
  * to the last valid `value` if left empty/invalid.
  */
-export function NumberStepper({ value, onChange, min = 0 }: { value: number; onChange: (v: number) => void; min?: number }) {
+export function NumberStepper({ value, onChange, min = 0, max, disabled, ariaLabel }: {
+  value: number;
+  onChange: (v: number) => void;
+  min?: number;
+  /** Optional upper clamp. */
+  max?: number;
+  /** Locked fields (e.g. the ones a season forces) render read-only. */
+  disabled?: boolean;
+  ariaLabel?: string;
+}) {
+  const clamp = (n: number) => (max === undefined ? Math.max(min, n) : Math.min(max, Math.max(min, n)));
   const [draft, setDraft] = useState<string | null>(null);
   // Tracks the last value *we* emitted via onChange, so the effect below
   // can tell "value changed because our own onChange echoed back" apart
@@ -257,7 +286,7 @@ export function NumberStepper({ value, onChange, min = 0 }: { value: number; onC
     const trimmed = draft.trim();
     const parsed = parseInt(trimmed, 10);
     if (trimmed !== '' && !Number.isNaN(parsed)) {
-      const clamped = Math.max(min, parsed);
+      const clamped = clamp(parsed);
       lastEmitted.current = clamped;
       onChange(clamped);
     }
@@ -273,7 +302,7 @@ export function NumberStepper({ value, onChange, min = 0 }: { value: number; onC
     if (trimmed === '') return;
     const parsed = parseInt(trimmed, 10);
     if (!Number.isNaN(parsed)) {
-      const clamped = Math.max(min, parsed);
+      const clamped = clamp(parsed);
       lastEmitted.current = clamped;
       onChange(clamped);
     }
@@ -281,19 +310,19 @@ export function NumberStepper({ value, onChange, min = 0 }: { value: number; onC
 
   const stepBy = (delta: number) => {
     setDraft(null);
-    const clamped = Math.max(min, value + delta);
+    const clamped = clamp(value + delta);
     lastEmitted.current = clamped;
     onChange(clamped);
   };
 
   return (
     <div className="flex items-center gap-0">
-      <button type="button" onClick={() => stepBy(-1)}
-        className="px-3 py-2 bg-raised border border-border rounded-l text-muted hover:text-neon-cyan hover:border-neon-cyan transition-colors text-sm font-bold">−</button>
-      <input type="number" min={min} value={draft ?? String(value)} onChange={handleChange} onBlur={commit}
-        className="w-14 text-center px-1 py-2 bg-raised border-y border-border text-primary text-sm focus:outline-none focus:border-neon-cyan transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
-      <button type="button" onClick={() => stepBy(1)}
-        className="px-3 py-2 bg-raised border border-border rounded-r text-muted hover:text-neon-cyan hover:border-neon-cyan transition-colors text-sm font-bold">+</button>
+      <button type="button" onClick={() => stepBy(-1)} disabled={disabled} aria-label={ariaLabel ? `Decrease ${ariaLabel}` : undefined}
+        className="px-3 py-2 bg-raised border border-border rounded-l text-muted hover:text-neon-cyan hover:border-neon-cyan transition-colors text-sm font-bold disabled:opacity-50 disabled:pointer-events-none">−</button>
+      <input type="number" min={min} max={max} value={draft ?? String(value)} onChange={handleChange} onBlur={commit} disabled={disabled} aria-label={ariaLabel}
+        className="w-14 text-center px-1 py-2 bg-raised border-y border-border text-primary text-sm focus:outline-none focus:border-neon-cyan transition-colors disabled:opacity-50 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+      <button type="button" onClick={() => stepBy(1)} disabled={disabled} aria-label={ariaLabel ? `Increase ${ariaLabel}` : undefined}
+        className="px-3 py-2 bg-raised border border-border rounded-r text-muted hover:text-neon-cyan hover:border-neon-cyan transition-colors text-sm font-bold disabled:opacity-50 disabled:pointer-events-none">+</button>
     </div>
   );
 }
@@ -503,6 +532,113 @@ function CleanupRuleEditor({ value, onChange }: { value: CleanupRule; onChange: 
   );
 }
 
+/** One-line note shown beside every field a season locks. */
+const SEASON_LOCK_NOTE = 'Fixed while Season is on: the poll picks each table, one table is live at a time.';
+
+/**
+ * Season block (docs/season-format-plan.md §8.1) — a bounded weekly grind: N
+ * tables, points per finishing place, and a community poll queue that picks
+ * each next table. Rotation-only; the poll queue itself is run from the
+ * Season panel on the Tournaments page.
+ */
+function SeasonSection({ season, onChange, schedule }: {
+  season: SeasonFormState;
+  onChange: (s: SeasonFormState) => void;
+  schedule: { cron: string; timezone: string };
+}) {
+  const selectClass = "w-full px-3 py-2 bg-raised border border-border rounded text-primary text-sm focus:outline-none focus:border-neon-cyan transition-colors cursor-pointer";
+  const labelClass = "block text-xs font-display uppercase tracking-wider text-muted mb-1.5";
+  const patch = (p: Partial<SeasonFormState>) => onChange({ ...season, ...p });
+  const errors = getSeasonErrors(season, schedule.cron);
+  const echo = season.enabled
+    ? describeSeasonPollTimes(schedule.cron, schedule.timezone, season.opensBeforeH, season.closesBeforeH)
+    : null;
+
+  return (
+    <div className="mb-4 rounded border border-border/60 p-3" data-testid="season-section">
+      <label className="flex items-center gap-2 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={season.enabled}
+          onChange={e => patch({ enabled: e.target.checked })}
+          className="accent-neon-cyan"
+          aria-label="Run as a Season"
+        />
+        <span className="text-sm text-primary font-medium">Run as a Season</span>
+        <InfoTip text="A Season is a fixed number of tables, one per rotation. Each table's finishing places earn points (1st = the top value, 2nd = one less, and so on) that add up to season standings. Players vote on every next table in a poll posted to Discord and the room page." />
+      </label>
+      {!season.enabled && (
+        <p className="text-xs text-faint mt-1.5 ml-6">Off — this tournament rotates forever.</p>
+      )}
+      {season.enabled && (
+        <div className="mt-3 space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className={labelClass}>
+                Tables in the season <InfoTip text="How many tables the season runs. After the last one it stops rotating and announces the final standings." />
+              </label>
+              <NumberStepper value={season.tableCount} onChange={v => patch({ tableCount: v })} min={1} max={200} ariaLabel="Tables in the season" />
+            </div>
+            <div>
+              <label className={labelClass}>
+                Points for 1st <InfoTip text="2nd place gets one less, 3rd two less, down to zero. Tied scores share the higher place." />
+              </label>
+              <NumberStepper value={season.pointsTop} onChange={v => patch({ pointsTop: v })} min={1} max={1000} ariaLabel="Points for 1st" />
+            </div>
+            <div>
+              <label className={labelClass}>
+                Poll opens (hours before rotation) <InfoTip text="When each poll opens, counted back from the rotation that starts the table it picks. 96 = Monday for a Friday rotation." />
+              </label>
+              <NumberStepper value={season.opensBeforeH} onChange={v => patch({ opensBeforeH: v })} min={2} max={SEASON_MAX_OFFSET_H} ariaLabel="Poll opens hours before rotation" />
+            </div>
+            <div>
+              <label className={labelClass}>
+                Poll closes (hours before rotation) <InfoTip text="When voting ends. At least 1 hour (Discord's minimum), and before the table starts so a tie can be settled in time." />
+              </label>
+              <NumberStepper value={season.closesBeforeH} onChange={v => patch({ closesBeforeH: v })} min={1} max={SEASON_MAX_OFFSET_H} ariaLabel="Poll closes hours before rotation" />
+            </div>
+          </div>
+          <p className="text-xs text-muted" data-testid="season-echo">
+            {echo ?? `Each poll opens ${season.opensBeforeH} h and closes ${season.closesBeforeH} h before its rotation.`}
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className={labelClass} htmlFor="season-tie-rule">
+                When the vote ties <InfoTip text="Admin decides: the fallback picks a table straight away so the week is never stuck, and an admin can switch to another tied table until it starts." />
+              </label>
+              <select id="season-tie-rule" value={season.tieRule} onChange={e => patch({ tieRule: e.target.value as SeasonTieRule })} className={selectClass}>
+                {(Object.keys(TIE_RULE_LABEL) as SeasonTieRule[]).map(r => (
+                  <option key={r} value={r}>{TIE_RULE_LABEL[r]}</option>
+                ))}
+              </select>
+            </div>
+            {season.tieRule === 'admin' && (
+              <div>
+                <label className={labelClass} htmlFor="season-tie-fallback">
+                  Until an admin decides <InfoTip text="Applied the moment the poll closes on a tie, so a table is always queued." />
+                </label>
+                <select id="season-tie-fallback" value={season.tieFallback} onChange={e => patch({ tieFallback: e.target.value as SeasonTieFallback })} className={selectClass}>
+                  {(Object.keys(TIE_FALLBACK_LABEL) as SeasonTieFallback[]).map(r => (
+                    <option key={r} value={r}>{TIE_FALLBACK_LABEL[r]}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+          <p className="text-xs text-neon-amber">
+            Winner picks, auto-pick and active slots are fixed for a Season (off, off, 1) — the poll chooses every table.
+          </p>
+          {errors.length > 0 && (
+            <ul className="text-xs text-neon-magenta space-y-0.5" role="alert">
+              {errors.map(e => <li key={e}>{e}</li>)}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // --- Main Form Component ---
 
 interface TournamentFormFieldsProps {
@@ -530,6 +666,9 @@ export default function TournamentFormFields({ state, set, platforms, roomId, lo
   const selectClass = `${inputClass} cursor-pointer`;
 
   const isEvent = state.format === 'event';
+  // A season forces these on the server (TournamentService) — show the forced
+  // values, locked, rather than the admin's own (which return if it is turned off).
+  const seasonOn = !isEvent && state.season.enabled;
   // 'Announcements' select — see the comment at its JSX. Only meaningful while
   // the admin is mid-edit; the stored value is always state.channel.
   const [channelMode, setChannelMode] = useState<'default' | 'custom' | 'none' | null>(null);
@@ -630,7 +769,8 @@ export default function TournamentFormFields({ state, set, platforms, roomId, lo
             <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5 whitespace-nowrap">
               Active Slots <InfoTip text="How many games can be active simultaneously. Each slot rotates independently with its own winner picking the next game." />
             </label>
-            <NumberStepper value={state.maxActiveGames} onChange={v => set('maxActiveGames', v)} min={1} />
+            <NumberStepper value={seasonOn ? 1 : state.maxActiveGames} onChange={v => set('maxActiveGames', v)} min={1} disabled={seasonOn} ariaLabel="Active Slots" />
+            {seasonOn && <p className="text-xs text-faint mt-1">{SEASON_LOCK_NOTE}</p>}
           </div>
         )}
       </div>
@@ -654,22 +794,25 @@ export default function TournamentFormFields({ state, set, platforms, roomId, lo
         </label>
         <div className="space-y-2">
           <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" checked={state.winnerPicks} onChange={e => set('winnerPicks', e.target.checked)} className="accent-neon-cyan" />
+            <input type="checkbox" checked={seasonOn ? false : state.winnerPicks} disabled={seasonOn} aria-label="Winner picks next game" onChange={e => set('winnerPicks', e.target.checked)} className="accent-neon-cyan disabled:opacity-50" />
             <span className="text-sm text-muted">Winner picks next game</span>
             <InfoTip text="When enabled, the winner of a completed game gets a pick window to choose the next game. Runner-up gets a window if the winner doesn't pick." />
           </label>
           <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" checked={state.autoPick} onChange={e => set('autoPick', e.target.checked)} className="accent-neon-cyan" />
+            <input type="checkbox" checked={seasonOn ? false : state.autoPick} disabled={seasonOn} aria-label="Auto-pick if no selection" onChange={e => set('autoPick', e.target.checked)} className="accent-neon-cyan disabled:opacity-50" />
             <span className="text-sm text-muted">Auto-pick if no selection</span>
             <InfoTip text="When enabled, the system automatically picks and activates a random eligible game if no one picks. If winner picks is disabled, auto-pick happens immediately after rotation." />
           </label>
-          {!state.winnerPicks && state.autoPick && (
+          {seasonOn && (
+            <p className="text-xs text-faint ml-6">{SEASON_LOCK_NOTE}</p>
+          )}
+          {!seasonOn && !state.winnerPicks && state.autoPick && (
             <p className="text-xs text-neon-amber ml-6">Games will be auto-picked immediately after completion.</p>
           )}
-          {!state.winnerPicks && !state.autoPick && (
+          {!seasonOn && !state.winnerPicks && !state.autoPick && (
             <p className="text-xs text-neon-magenta ml-6">An admin must manually activate games after completion.</p>
           )}
-          {state.winnerPicks && (
+          {!seasonOn && state.winnerPicks && (
             <label className="flex items-center gap-2 cursor-pointer">
               <input type="checkbox" checked={state.allowDynasty} onChange={e => set('allowDynasty', e.target.checked)} className="accent-neon-cyan" />
               <span className="text-sm text-muted">Allow Dynasty (a back-to-back winner keeps pick rights)</span>
@@ -683,7 +826,7 @@ export default function TournamentFormFields({ state, set, platforms, roomId, lo
               </label>
               <NumberStepper value={state.eligibilityDays} onChange={v => set('eligibilityDays', v)} min={1} />
             </div>
-            {state.winnerPicks && (
+            {!seasonOn && state.winnerPicks && (
               <>
                 <div>
                   <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">
@@ -702,6 +845,9 @@ export default function TournamentFormFields({ state, set, platforms, roomId, lo
           </div>
         </div>
       </div>
+      )}
+      {!isEvent && (
+        <SeasonSection season={state.season} onChange={s => set('season', s)} schedule={state.schedule} />
       )}
       <div className="mb-4">
         <label className="block text-xs font-display uppercase tracking-wider text-muted mb-2">

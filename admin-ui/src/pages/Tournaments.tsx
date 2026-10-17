@@ -13,10 +13,12 @@ import TournamentFormFields, {
   useTournamentForm,
   getPlatformRuleConflicts,
 } from '../components/TournamentForm';
-import { toPayload, tournamentToFormState, lockedRoundNumbers, type Tournament } from '../lib/tournamentFormPayload';
+import { toPayload, tournamentToFormState, lockedRoundNumbers, isSeasonTournament, type Tournament } from '../lib/tournamentFormPayload';
+import { getSeasonErrors } from '../lib/seasonForm';
 import { deriveEventState, eventStateLabel, currentOrNextRound, formatRelative } from '../lib/eventDisplay';
 import { hasRoundErrors } from '../lib/eventTime';
 import EventRoundsPanel from '../components/EventRoundsPanel';
+import SeasonPanel from '../components/SeasonPanel';
 import { relativeTimeFrom } from '../lib/format';
 
 export type { Tournament };
@@ -104,6 +106,7 @@ export default function Tournaments() {
   const [editTarget, setEditTarget] = useState<Tournament | null>(null);
   /** v2.135.0 — the run-an-event panel (rounds + check-in roster). */
   const [roundsTarget, setRoundsTarget] = useState<Tournament | null>(null);
+  const [seasonTarget, setSeasonTarget] = useState<Tournament | null>(null);
   const [platforms, setPlatforms] = useState<string[]>([]);
   const [activeGames, setActiveGames] = useState<ActiveGame[]>([]);
   const [retainedCompleted, setRetainedCompleted] = useState<RetainedCompletedGame[]>([]);
@@ -433,6 +436,13 @@ export default function Tournaments() {
                   {chip && (
                     <span className={`ml-2 text-xs px-2 py-0.5 rounded border ${tone}`}>{chip.text}</span>
                   )}
+                  {t.season && (
+                    <span className="ml-2 text-xs px-2 py-0.5 rounded border bg-neon-purple/15 text-neon-purple border-neon-purple/40 whitespace-nowrap">
+                      {t.season.finished
+                        ? 'Season finished'
+                        : `Season ${Math.min(t.season.tables_done + 1, t.season.table_count)}/${t.season.table_count}${t.season.paused ? ' · paused' : ''}`}
+                    </span>
+                  )}
                 </span>
               );
             }},
@@ -501,6 +511,9 @@ export default function Tournaments() {
                   <NeonButton variant="ghost" onClick={() => handlePauseToggle(t)} disabled={pausingId === t.id} className="text-xs px-2 py-1">
                     {pausingId === t.id ? '...' : (t.is_active === 0 ? 'Resume' : 'Pause')}
                   </NeonButton>
+                )}
+                {isSeasonTournament(t) && (
+                  <NeonButton variant="ghost" onClick={() => setSeasonTarget(t)} className="text-xs px-2 py-1">Season</NeonButton>
                 )}
                 <NeonButton variant="ghost" onClick={() => openEdit(t)} className="text-xs px-2 py-1">Edit</NeonButton>
                 <NeonButton variant="danger" onClick={() => { setDeleteTarget(t); setDeleteBlockers([]); setAutoDeactivate(false); }} className="text-xs px-2 py-1">Delete</NeonButton>
@@ -620,6 +633,7 @@ export default function Tournaments() {
             // A misconfigured round can only be rejected server-side, so gate
             // here rather than letting the admin discover it on save.
             || (createForm.state.format === 'event' && hasRoundErrors(createForm.state.event))
+            || (createForm.state.format === 'rotation' && getSeasonErrors(createForm.state.season, createForm.state.schedule.cron).length > 0)
           }
         >
           Create Tournament
@@ -788,6 +802,17 @@ export default function Tournaments() {
         />
       )}
 
+      {/* Season poll queue (docs/season-format-plan.md §8.2) */}
+      {seasonTarget && (
+        <SeasonPanel
+          roomId={room.roomId}
+          tournament={seasonTarget}
+          onClose={() => setSeasonTarget(null)}
+          onChanged={fetchTournaments}
+          toast={toast}
+        />
+      )}
+
       {/* Edit Modal */}
       {editTarget && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
@@ -810,6 +835,7 @@ export default function Tournaments() {
                   || !editForm.state.tag.trim()
                   || getPlatformRuleConflicts(editForm.state.platformRules).length > 0
                   || (editForm.state.format === 'event' && hasRoundErrors(editForm.state.event))
+                  || (editForm.state.format === 'rotation' && getSeasonErrors(editForm.state.season, editForm.state.schedule.cron).length > 0)
                 }
               >
                 {editSaving ? 'Saving...' : 'Save Changes'}
