@@ -56,3 +56,4 @@ You do **not** need an ADR for routine bug fixes, code style preferences, or any
 | 0022 | [VPXS scores come from the launcher, and the game files its own observation](0022-vpxs-scores-from-the-launcher.md) | accepted | 2026-08-31 |
 | 0023 | [Every score reaches the Global Scoreboard, unless the player opts out](0023-every-score-reaches-the-global-scoreboard.md) | accepted | 2026-09-01 |
 | 0024 | [Auto-posted scores are deletable, and the delete survives the replay](0024-auto-posted-scores-are-deletable.md) | accepted | 2026-09-28 |
+| 0025 | [A Season is a rotation option with a poll queue, and Arcaid owns the poll](0025-season-is-a-rotation-option-with-a-poll-queue.md) | accepted | 2026-10-17 |
