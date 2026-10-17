@@ -140,6 +140,20 @@ const TournamentBaseSchema = z.object({
     // winner may take the slot back-to-back). OFF blocks their 'use-my-queue'
     // path only; nominate/forfeit dispositions still honored either way.
     allow_dynasty: z.boolean().default(true),
+    /**
+     * Season block (docs/season-format-plan.md §3.1). `season_table_count`:
+     * omitted = leave the stored season as it is (update) / not a season
+     * (create); null = switch the season off; N = a season of N tables. The
+     * other season fields are optional and fall back to the stored value, then
+     * the column default. A season forces winner_picks/auto_pick off and
+     * max_active_games = 1 — `TournamentService` normalises those on save.
+     */
+    season_table_count: z.number().int().min(1).max(200).nullable().optional(),
+    season_points_top: z.number().int().min(1).max(1000).optional(),
+    season_poll_opens_before_h: z.number().int().min(2).max(24 * 32).optional(),
+    season_poll_closes_before_h: z.number().int().min(1).max(24 * 32).optional(),
+    season_tie_rule: z.enum(['admin', 'random', 'first_nominated']).optional(),
+    season_tie_fallback: z.enum(['random', 'first_nominated']).optional(),
     cleanup_rule: z.discriminatedUnion('mode', [
         z.object({ mode: z.literal('immediate') }),
         z.object({ mode: z.literal('retain'), count: z.number().int().min(0).max(50) }),
@@ -170,6 +184,23 @@ const tournamentFormatRefine = (
         if (value.event) {
             ctx.addIssue({ code: 'custom', path: ['event'], message: '`event` configuration is only valid when format is "event".' });
         }
+    }
+    // Season block (plan §3.1). Only the fields present in the body can be
+    // checked here; `TournamentService` re-validates the MERGED block.
+    if (value.season_table_count != null) {
+        if (value.format !== 'rotation') {
+            ctx.addIssue({ code: 'custom', path: ['season_table_count'], message: 'A season must be a rotation tournament.' });
+        }
+        if (!value.cadence?.cron) {
+            ctx.addIssue({ code: 'custom', path: ['cadence', 'cron'], message: 'A season needs a rotation schedule (cron).' });
+        }
+    }
+    if (
+        value.season_poll_opens_before_h !== undefined
+        && value.season_poll_closes_before_h !== undefined
+        && value.season_poll_opens_before_h <= value.season_poll_closes_before_h
+    ) {
+        ctx.addIssue({ code: 'custom', path: ['season_poll_opens_before_h'], message: 'The poll must open earlier than it closes (opens-before hours must exceed closes-before hours).' });
     }
 };
 
@@ -211,9 +242,15 @@ export const CreateRankingGroupSchema = z.object({
     name: z.string().min(1, 'Name required').max(100),
     description: z.string().max(500).default(''),
     rank_method: z.enum(['max_10', 'average_rank', 'best_game_papa', 'best_game_linear']),
-    best_n: z.number().int().min(1).max(100).default(25),
+    // max 200 = the season table-count cap (a season group's best_n is its table count).
+    best_n: z.number().int().min(1).max(200).default(25),
     min_games: z.number().int().min(1).max(100).default(1),
     tournament_ids: z.array(z.string()).min(1, 'At least one tournament required'),
+    /** Season format (migration 181) — best_game_linear's 1st-place value.
+     *  Omitted = 100 on create, unchanged on update. */
+    points_top: z.number().int().min(1).max(1000).optional(),
+    /** true = ARCHIVED games count too. Omitted = off on create, unchanged on update. */
+    include_archived: z.boolean().optional(),
 });
 
 export const UpdateRankingGroupSchema = CreateRankingGroupSchema.omit({ id: true });
@@ -847,3 +884,48 @@ export const CalloutPatchSchema = z.object({
         || body.category !== undefined,
     { message: 'Provide at least one of enabled, triggers, responses, action, category' },
 );
+
+// ---------------------------------------------------------------------------
+// Season poll queue (docs/season-format-plan.md §5, §7)
+// ---------------------------------------------------------------------------
+
+const seasonPollCandidateSchema = z.object({
+    game_name: z.string().min(1).max(200),
+    global_game_id: z.string().max(100).nullish(),
+});
+
+const seasonTieRuleSchema = z.enum(['admin', 'random', 'first_nominated']);
+
+/**
+ * Create a draft. Candidates are in "first nominated" order (position 1..10).
+ * `opens_at`/`closes_at` are an absolute override and come as a pair; omit
+ * both to have the scheduler derive them from the season defaults.
+ */
+export const SeasonPollCreateSchema = z.object({
+    candidates: z.array(seasonPollCandidateSchema).max(10, 'At most 10 candidates (Discord cap)').default([]),
+    question: z.string().max(300).nullish(),
+    opens_at: isoDateTime.nullish(),
+    closes_at: isoDateTime.nullish(),
+    discord_channel_id: discordIdSchema.nullish().or(z.literal('')),
+    tie_rule: seasonTieRuleSchema.nullish(),
+});
+
+/** Edit a poll. On an OPEN poll only `closes_at` (earlier) is accepted. */
+export const SeasonPollUpdateSchema = z.object({
+    candidates: z.array(seasonPollCandidateSchema).max(10, 'At most 10 candidates (Discord cap)').optional(),
+    question: z.string().max(300).nullish(),
+    opens_at: isoDateTime.nullish(),
+    closes_at: isoDateTime.nullish(),
+    discord_channel_id: discordIdSchema.nullish().or(z.literal('')),
+    tie_rule: seasonTieRuleSchema.nullish(),
+});
+
+export const SeasonPollReorderSchema = z.object({ slot_no: z.number().int().min(1).max(100000) });
+
+export const SeasonPollPositionSchema = z.object({ position: z.number().int().min(1).max(10) });
+
+export const SeasonCandidatesQuerySchema = z.object({
+    q: z.string().max(100).optional(),
+    unplayed: z.enum(['0', '1', 'true', 'false']).optional(),
+    limit: z.coerce.number().int().min(1).max(200).optional(),
+});

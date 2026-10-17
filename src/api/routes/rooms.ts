@@ -44,7 +44,14 @@ import {
     AdminSetPickDispositionSchema,
     AdminQueueOnBehalfSchema,
     RotationLogQuerySchema,
+    SeasonPollCreateSchema,
+    SeasonPollUpdateSchema,
+    SeasonPollReorderSchema,
+    SeasonPollPositionSchema,
+    SeasonCandidatesQuerySchema,
 } from '../schemas.js';
+import { SeasonPollService, SeasonPollError, type SeasonTournamentRow } from '../../services/SeasonPollService.js';
+import { SeasonConfigError } from '../../services/TournamentService.js';
 import { RotationAuditService } from '../../services/RotationAuditService.js';
 import { writeLimiter, pickLimiter, pickAlertsLimiter, guestContentLimiter } from '../rateLimit.js';
 import { isAllowedImage } from '../uploadValidation.js';
@@ -4788,6 +4795,13 @@ router.get('/:roomId/tournaments', async (req, res) => {
             ));
             for (const row of events) (row as any).rounds = byId.get(row.id) ?? [];
         }
+        // Season format — a compact `season` sub-object so the scoreboard can
+        // decide whether to render the poll card without a second round trip.
+        // Non-season rows get no `season` key at all.
+        for (const row of rows as any[]) {
+            if (row.season_table_count == null) continue;
+            row.season = await SeasonPollService.listSummary(row as SeasonTournamentRow);
+        }
         res.json(rows);
     } catch (error) {
         logError('API Error (GET rooms/:roomId/tournaments):', error);
@@ -4800,7 +4814,12 @@ router.post('/:roomId/tournaments', requireAuth, requireRoomAccess('roomId'), re
         const validationResult = validate(CreateTournamentSchema, req.body);
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
         const data = { ...validationResult.data, game_room_id: req.params.roomId as string };
-        await TournamentService.create(data);
+        try {
+            await TournamentService.create(data);
+        } catch (err) {
+            if (err instanceof SeasonConfigError) return res.status(400).json({ error: err.message, code: err.code });
+            throw err;
+        }
 
         // v2.135.0 (ADR 0017) — an event's rounds and window config live in
         // EventService, which also FLIPS `format` to 'event'. Ordering matters:
@@ -4835,7 +4854,12 @@ router.put('/:roomId/tournaments/:id', requireAuth, requireRoomAccess('roomId'),
         const validationResult = validate(UpdateTournamentSchema, req.body);
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
         const data = { ...validationResult.data, game_room_id: req.params.roomId as string };
-        await TournamentService.update(req.params.id as string, data);
+        try {
+            await TournamentService.update(req.params.id as string, data);
+        } catch (err) {
+            if (err instanceof SeasonConfigError) return res.status(400).json({ error: err.message, code: err.code });
+            throw err;
+        }
 
         // Unlike POST there is nothing to roll back — the tournament already
         // existed, so a rejected round edit simply leaves it as it was.
@@ -4858,6 +4882,193 @@ router.put('/:roomId/tournaments/:id', requireAuth, requireRoomAccess('roomId'),
     } catch (error) {
         logError('API Error (PUT rooms/:roomId/tournaments/:id):', error);
         res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// ============================================================================
+// Season format (docs/season-format-plan.md §7)
+//
+// A Season is a rotation tournament with a season block. Admin surfaces sit
+// behind requireAuth + requireRoomAccess; every route 404s when the tournament
+// is not a season in THIS room, so ids cannot be probed across rooms. Admin
+// writes are audited explicitly (auditMiddleware is not mounted — see
+// src/api/auditMiddleware.ts).
+// ============================================================================
+
+async function auditSeason(req: any, action: string, targetId: string, details: Record<string, unknown>): Promise<void> {
+    await AuditService.log({
+        actor: req.user?.discordId || req.user?.username || req.user?.localAdminId || 'admin',
+        action,
+        target_type: 'tournament',
+        target_id: targetId,
+        details: JSON.stringify(details),
+        ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+        correlation_id: req.correlationId || '',
+    }).catch(() => {});
+}
+
+function seasonErrorResponse(res: any, err: unknown, label: string) {
+    if (err instanceof SeasonPollError) return res.status(err.status).json({ error: err.message, code: err.code });
+    logError(`API Error (${label}):`, err);
+    return res.status(500).json({ error: 'Internal Server Error' });
+}
+
+// Public season summary — config, progress, paused/finished, the open poll
+// (candidates + tally + my_vote when logged in), next derived poll open time.
+router.get('/:roomId/tournaments/:tournamentId/season', optionalDiscordUser, async (req, res) => {
+    try {
+        const t = await SeasonPollService.getSeasonTournament(req.params.tournamentId as string, req.params.roomId as string);
+        if (!t) return res.status(404).json({ error: 'Season not found' });
+        res.json(await SeasonPollService.publicSummary(t, req.user?.discordId ?? null));
+    } catch (error) {
+        return seasonErrorResponse(res, error, 'GET rooms/:roomId/tournaments/:tournamentId/season');
+    }
+});
+
+// Admin poll queue.
+router.get('/:roomId/tournaments/:tournamentId/season/polls', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const t = await SeasonPollService.getSeasonTournament(req.params.tournamentId as string, req.params.roomId as string);
+        if (!t) return res.status(404).json({ error: 'Season not found' });
+        res.json(await SeasonPollService.adminList(t));
+    } catch (error) {
+        return seasonErrorResponse(res, error, 'GET rooms/:roomId/tournaments/:tournamentId/season/polls');
+    }
+});
+
+// Candidate picker (plan §5.5).
+router.get('/:roomId/tournaments/:tournamentId/season/candidates', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const parsed = validate(SeasonCandidatesQuerySchema, req.query);
+        if ('error' in parsed) return res.status(400).json({ error: parsed.error });
+        const t = await SeasonPollService.getSeasonTournament(req.params.tournamentId as string, req.params.roomId as string);
+        if (!t) return res.status(404).json({ error: 'Season not found' });
+        const unplayed = parsed.data.unplayed === '1' || parsed.data.unplayed === 'true';
+        const candidates = await SeasonPollService.listCandidates(t, { q: parsed.data.q, unplayed, limit: parsed.data.limit });
+        res.json({ candidates });
+    } catch (error) {
+        return seasonErrorResponse(res, error, 'GET rooms/:roomId/tournaments/:tournamentId/season/candidates');
+    }
+});
+
+// Create a draft poll. Registered BEFORE `/season/:action` so 'polls' is never read as an action.
+router.post('/:roomId/tournaments/:tournamentId/season/polls', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const parsed = validate(SeasonPollCreateSchema, req.body ?? {});
+        if ('error' in parsed) return res.status(400).json({ error: parsed.error });
+        const t = await SeasonPollService.getSeasonTournament(req.params.tournamentId as string, req.params.roomId as string);
+        if (!t) return res.status(404).json({ error: 'Season not found' });
+        const poll = await SeasonPollService.createDraft(t, parsed.data);
+        await auditSeason(req, 'season.poll_create', t.id, { pollId: poll.id, slotNo: poll.slot_no, candidates: (parsed.data.candidates ?? []).map(c => c.game_name) });
+        res.status(201).json({ success: true, poll });
+    } catch (error) {
+        return seasonErrorResponse(res, error, 'POST rooms/:roomId/tournaments/:tournamentId/season/polls');
+    }
+});
+
+// Edit a poll (draft: anything; open: closes_at earlier only).
+router.put('/:roomId/tournaments/:tournamentId/season/polls/:pollId', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const parsed = validate(SeasonPollUpdateSchema, req.body ?? {});
+        if ('error' in parsed) return res.status(400).json({ error: parsed.error });
+        const t = await SeasonPollService.getSeasonTournament(req.params.tournamentId as string, req.params.roomId as string);
+        if (!t) return res.status(404).json({ error: 'Season not found' });
+        // Only forward the keys the client actually sent: `undefined` means
+        // "unchanged", and Zod's nullish keeps an explicit null distinct.
+        const body = (req.body ?? {}) as Record<string, unknown>;
+        const input: Record<string, unknown> = {};
+        for (const key of ['candidates', 'question', 'opens_at', 'closes_at', 'discord_channel_id', 'tie_rule'] as const) {
+            if (key in body) input[key] = (parsed.data as Record<string, unknown>)[key] ?? null;
+        }
+        const poll = await SeasonPollService.updatePoll(t, req.params.pollId as string, input);
+        await auditSeason(req, 'season.poll_update', t.id, { pollId: poll.id, keys: Object.keys(input) });
+        res.json({ success: true, poll });
+    } catch (error) {
+        return seasonErrorResponse(res, error, 'PUT rooms/:roomId/tournaments/:tournamentId/season/polls/:pollId');
+    }
+});
+
+// Poll actions: close | cancel | repost | reorder {slot_no} | choose {position}.
+router.post('/:roomId/tournaments/:tournamentId/season/polls/:pollId/:action', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const t = await SeasonPollService.getSeasonTournament(req.params.tournamentId as string, req.params.roomId as string);
+        if (!t) return res.status(404).json({ error: 'Season not found' });
+        const pollId = req.params.pollId as string;
+        const action = req.params.action as string;
+        let poll;
+        let details: Record<string, unknown> = { pollId };
+        switch (action) {
+            case 'close':
+                poll = await SeasonPollService.closeNow(t, pollId);
+                break;
+            case 'cancel':
+                poll = await SeasonPollService.cancelPoll(t, pollId);
+                break;
+            case 'repost':
+                poll = await SeasonPollService.repostPoll(t, pollId);
+                details = { pollId, newPollId: poll.id };
+                break;
+            case 'reorder': {
+                const parsed = validate(SeasonPollReorderSchema, req.body ?? {});
+                if ('error' in parsed) return res.status(400).json({ error: parsed.error });
+                poll = await SeasonPollService.reorderPoll(t, pollId, parsed.data.slot_no);
+                details = { pollId, slotNo: parsed.data.slot_no };
+                break;
+            }
+            case 'choose': {
+                const parsed = validate(SeasonPollPositionSchema, req.body ?? {});
+                if ('error' in parsed) return res.status(400).json({ error: parsed.error });
+                poll = await SeasonPollService.choose(t, pollId, parsed.data.position);
+                details = { pollId, position: parsed.data.position, game: poll.result_game_name };
+                break;
+            }
+            default:
+                return res.status(404).json({ error: 'Unknown action' });
+        }
+        await auditSeason(req, `season.poll_${action}`, t.id, details);
+        res.json({ success: true, poll });
+    } catch (error) {
+        return seasonErrorResponse(res, error, 'POST rooms/:roomId/tournaments/:tournamentId/season/polls/:pollId/:action');
+    }
+});
+
+// Season actions: pause | resume.
+router.post('/:roomId/tournaments/:tournamentId/season/:action', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const action = req.params.action as string;
+        if (action !== 'pause' && action !== 'resume') return res.status(404).json({ error: 'Unknown action' });
+        const t = await SeasonPollService.getSeasonTournament(req.params.tournamentId as string, req.params.roomId as string);
+        if (!t) return res.status(404).json({ error: 'Season not found' });
+        await SeasonPollService.setPaused(t, action === 'pause');
+        await auditSeason(req, `season.${action}`, t.id, {});
+        const fresh = (await SeasonPollService.getSeasonTournament(t.id))!;
+        res.json({ success: true, paused: !!fresh.season_paused_at, paused_at: fresh.season_paused_at });
+    } catch (error) {
+        return seasonErrorResponse(res, error, 'POST rooms/:roomId/tournaments/:tournamentId/season/:action');
+    }
+});
+
+// Player vote (plan §5.4). Room membership is NOT required — the Discord
+// poll has no such gate either. roomVisibilityGate applies via router.use.
+router.post('/:roomId/season-polls/:pollId/vote', writeLimiter, requireDiscordUser, requireNotBanned, async (req, res) => {
+    try {
+        const parsed = validate(SeasonPollPositionSchema, req.body ?? {});
+        if ('error' in parsed) return res.status(400).json({ error: parsed.error });
+        const result = await SeasonPollService.vote(
+            req.params.roomId as string, req.params.pollId as string, req.user!.discordId!, parsed.data.position,
+        );
+        res.json({ success: true, ...result });
+    } catch (error) {
+        return seasonErrorResponse(res, error, 'POST rooms/:roomId/season-polls/:pollId/vote');
+    }
+});
+
+router.delete('/:roomId/season-polls/:pollId/vote', writeLimiter, requireDiscordUser, requireNotBanned, async (req, res) => {
+    try {
+        await SeasonPollService.withdrawVote(req.params.roomId as string, req.params.pollId as string, req.user!.discordId!);
+        res.json({ success: true, my_vote: null });
+    } catch (error) {
+        return seasonErrorResponse(res, error, 'DELETE rooms/:roomId/season-polls/:pollId/vote');
     }
 });
 
