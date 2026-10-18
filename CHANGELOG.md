@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.162.5] — 2026-10-18 — Wider "Edit Tournament" dialog on desktop
+
+### Changed
+- **The Edit Tournament modal is 896 px wide on desktop** (`max-w-4xl`, was `max-w-2xl` = 672 px).
+  Owner, Seasons demo: "the pop up on desktop is only like mobile width … doesn't need to be full
+  screen, but wider." The form already lays its schedule, rotation and cleanup rows out in up to four
+  columns, so the extra width is used; phones are unchanged (`w-full` inside the 16 px gutter).
 ## [2.162.4] — 2026-10-18 — The poll's merged tally is its own line on Discord
 
 Owner, first Seasons demo: "I don't see a Discord message 'Combined' update … make it its own line."
