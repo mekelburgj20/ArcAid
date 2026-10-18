@@ -13,8 +13,8 @@ The inline `· Combined: …` suffix sat in the question line and was missed bec
 Discord's own bars — which can only ever count Discord clicks (there is no vote-on-behalf API).
 
 ### Changed
-- **Poll message content is two lines.** Line 1: the question and the web link. Line 2:
-  `🗳️ **Combined tally (web + Discord): Blackbelt 1 · Blackbelt 2018 1 — 2 votes** · the bars below
+- **Poll message content is two lines.** Line 1: the question and a link to the room's LOBBY, where the web ballot lives (it pointed at the room root before). Line 2:
+  `🗳️ **Arcaid Lobby + Discord combined tally: Blackbelt 1 · Blackbelt 2018 1 — 2 votes** · the bars below
   count Discord votes only` (`SeasonPollService.buildContent`). Same edit cadence as before: rewritten
   on the next minute tick whenever the merged tally changes. Plan §5.3 updated.
 ## [2.162.3] — 2026-10-18 — The table poll card lives on the Lobby

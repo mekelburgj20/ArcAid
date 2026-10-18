@@ -847,7 +847,7 @@ export class SeasonPollService {
 
     /**
      * The message content above the native poll: line 1 is the question + web
-     * link, line 2 is the MERGED tally (web + Discord, one vote per person,
+     * link, line 2 is the MERGED tally (Arcaid Lobby + Discord, one vote per person,
      * web wins) as its own bold line — owner ruling 2026-10-18 after the demo:
      * the inline "Combined:" suffix was missed because the eye goes to
      * Discord's bars, which can only ever count Discord clicks (there is no
@@ -855,7 +855,8 @@ export class SeasonPollService {
      */
     static buildContent(t: SeasonTournamentRow, poll: SeasonPollRow, candidates: SeasonPollCandidateRow[], tally: Map<number, number>): string {
         const question = poll.question || this.defaultQuestion(t.name, poll.slot_no);
-        const link = t.room_slug ? ` — vote here or at ${roomUrl(t.room_slug)}` : ' — vote here';
+        // The web ballot lives on the room's LOBBY (v2.162.3), so the link goes there, not to the room root.
+        const link = t.room_slug ? ` — vote here or in the Arcaid Lobby: ${roomUrl(t.room_slug)}/lobby` : ' — vote here';
         const counted = candidates
             .map(c => ({ name: c.game_name, n: tally.get(c.position) ?? 0 }))
             .filter(c => c.n > 0)
@@ -864,7 +865,7 @@ export class SeasonPollService {
         const combined = counted.length
             ? `${counted.map(c => `${c.name} ${c.n}`).join(' · ')} — ${total} vote${total === 1 ? '' : 's'}`
             : 'no votes yet';
-        return `**${question}**${link}\n🗳️ **Combined tally (web + Discord): ${combined}** · the bars below count Discord votes only`;
+        return `**${question}**${link}\n🗳️ **Arcaid Lobby + Discord combined tally: ${combined}** · the bars below count Discord votes only`;
     }
 
     /**
