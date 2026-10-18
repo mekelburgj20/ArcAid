@@ -59,7 +59,8 @@ async function seasonViaApi(app: any) {
             id, name: 'Mox Season', type: 'WG',
             cadence: { cron: '0 0 * * 5', timezone: 'America/New_York' },
             season_table_count: 12,
-            winner_picks: true, auto_pick: true, max_active_games: 2,
+            // The form sends cooldown 0 explicitly for a season (v2.161.2  min(1) rejected it).
+            winner_picks: true, auto_pick: true, max_active_games: 2, eligibility_days: 0,
         });
     expect(res.status).toBe(200);
     return { roomId, tournamentId: id };
@@ -71,7 +72,7 @@ describe('season routes', () => {
         const { roomId, tournamentId } = await seasonViaApi(app);
         const list = await request(app).get(`/api/rooms/${roomId}/tournaments`);
         const row = list.body.find((t: any) => t.id === tournamentId);
-        expect(row).toMatchObject({ winner_picks: 0, auto_pick: 0, max_active_games: 1, season_table_count: 12 });
+        expect(row).toMatchObject({ winner_picks: 0, auto_pick: 0, max_active_games: 1, eligibility_days: 0, season_table_count: 12 });
         expect(row.season).toEqual({ tables_done: 0, table_count: 12, paused: false, finished: false, open_poll_id: null });
     });
 

@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.161.2]  2026-10-18  Season create no longer 400s on cooldown 0
+
+### Fixed
+- **`eligibility_days: Too small: expected number to be >=1` on every Season create/update.** The form sends
+  cooldown 0 for a season (the server forces it anyway  a community vote overrides cooldown) but the API
+  schema still required e 1. The schema now accepts 0; every runtime reader already treats 0 as "no
+  lookback" (the `?? 120` fallbacks fire on NULL only). Found on the first demo-room create.
+
 ## [2.161.1] — 2026-10-17 — Season points live on the ranking group; "Countdown"
 
 Owner ruling 2026-10-17: a season's scoring belongs on its ranking group, next to every other
