@@ -89,16 +89,23 @@ export default function ScoreboardTicker({ roomId }: ScoreboardTickerProps) {
     return { id: e.id, title: e.title, ago, Icon: TICKER_ICONS[e.type] || Target };
   }), [events]);
 
-  // s21 — distance-based marquee speed. The animation travels half the track
-  // width (the doubled item set), so a fixed 60s duration crawled when the
-  // feed had few items and raced when full. Constant px/s instead.
+  // s21 — distance-based marquee speed: a fixed 60s duration crawled when the
+  // feed had few items and raced when full. Constant px/s instead, over the
+  // FULL track width (offsetWidth includes the 100% left padding, i.e. strip
+  // width + content width). Recomputed on resize because that padding tracks
+  // the strip's width.
   const trackRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const track = trackRef.current;
     if (!track) return;
-    const distance = track.scrollWidth / 2;
-    const seconds = Math.min(90, Math.max(15, distance / 70));
-    track.style.setProperty('--ticker-duration', `${seconds}s`);
+    const update = () => {
+      const distance = track.offsetWidth;
+      const seconds = Math.min(90, Math.max(15, distance / 70));
+      track.style.setProperty('--ticker-duration', `${seconds}s`);
+    };
+    update();
+    window.addEventListener('resize', update, { passive: true });
+    return () => window.removeEventListener('resize', update);
   }, [tickerItems]);
 
   if (tickerItems.length === 0) return null;
@@ -108,12 +115,16 @@ export default function ScoreboardTicker({ roomId }: ScoreboardTickerProps) {
     // Privacy/Terms footer). PublicLayout mounts this above the footer; the
     // footer now owns the safe-area inset, so the s20 height-calc hack is gone.
     <div className="flex-shrink-0 h-9 bg-deep/90 border-t border-border/30 overflow-hidden">
-      <div ref={trackRef} className="scoreboard-ticker-track flex items-center gap-10 whitespace-nowrap h-full px-4">
-        {/* Double the items for a seamless loop */}
-        {[...tickerItems, ...tickerItems].map((item, i) => {
+      <div ref={trackRef} className="scoreboard-ticker-track flex items-center gap-10 whitespace-nowrap h-full pr-4">
+        {/* News-ticker contract (owner report 2026-10-18): ONE copy of the
+            items, entering from fully off the strip's right edge and exiting
+            fully off its left before repeating. The old doubled track +
+            translateX(-50%) only looked right when the content was wider
+            than the strip; with a few items it popped up mid-screen. */}
+        {tickerItems.map((item) => {
           const Icon = item.Icon;
           return (
-            <span key={`${item.id}-${i}`} className="inline-flex items-center gap-1.5 text-xs">
+            <span key={item.id} className="inline-flex items-center gap-1.5 text-xs">
               <Icon size={12} className="text-neon-cyan flex-shrink-0" />
               <span className="text-primary/80">{item.title}</span>
               <span className="text-faint ml-1">{item.ago}</span>
@@ -124,9 +135,12 @@ export default function ScoreboardTicker({ roomId }: ScoreboardTickerProps) {
       <style>{`
         @keyframes scoreboard-ticker-scroll {
           from { transform: translateX(0); }
-          to { transform: translateX(-50%); }
+          to { transform: translateX(-100%); }
         }
         .scoreboard-ticker-track {
+          width: max-content;
+          box-sizing: content-box;
+          padding-left: 100%;
           animation: scoreboard-ticker-scroll var(--ticker-duration, 60s) linear infinite;
         }
         .scoreboard-ticker-track:hover {
@@ -135,6 +149,7 @@ export default function ScoreboardTicker({ roomId }: ScoreboardTickerProps) {
         @media (prefers-reduced-motion: reduce) {
           .scoreboard-ticker-track {
             animation: none;
+            padding-left: 0;
             overflow-x: auto;
           }
         }
