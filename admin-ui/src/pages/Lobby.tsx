@@ -4,6 +4,8 @@ import { MessageSquare, RefreshCw } from 'lucide-react';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { useRoom } from '../contexts/RoomContext';
 import { getSocket } from '../lib/websocket';
+import { useLiveRefresh } from '../hooks/useLiveRefresh';
+import SeasonPollCards from '../components/SeasonPollCard';
 import SocialLinksBar from '../components/lobby/SocialLinksBar';
 import PinnedMessage from '../components/lobby/PinnedMessage';
 import AnnouncementsRail from '../components/lobby/AnnouncementsRail';
@@ -144,6 +146,30 @@ export default function Lobby() {
     };
   }, [roomId]);
 
+  // Season format — the table poll card lives here (owner ruling 2026-10-18).
+  // `season:poll` is emitted to `room:<id>`, not `lobby:<id>`, so this page
+  // joins the room channel too, re-joining on every (re)connect since
+  // socket.io room membership is per-connection.
+  const [seasonRefreshKey, setSeasonRefreshKey] = useState(0);
+  const bumpSeason = useCallback(() => setSeasonRefreshKey(k => k + 1), []);
+  useEffect(() => {
+    if (!roomId) return;
+    const socket = getSocket();
+    socket.emit('join:room', roomId);
+    const onConnect = () => socket.emit('join:room', roomId);
+    socket.on('connect', onConnect);
+    socket.on('season:poll', bumpSeason);
+    return () => {
+      socket.emit('leave:room', roomId);
+      // Handler refs: the socket is a shared singleton.
+      socket.off('connect', onConnect);
+      socket.off('season:poll', bumpSeason);
+    };
+  }, [roomId, bumpSeason]);
+  // Any page that joins `room:<id>` needs this (CLAUDE.md, v2.154.0): covers
+  // reconnect gaps, a backgrounded tab and iOS bfcache.
+  useLiveRefresh(() => { bumpSeason(); }, { enabled: !!roomId });
+
   // Filter out self-activity (keep friend_score, tournament events, admin messages, etc.)
   const SELF_EVENT_TYPES = new Set(['score_posted', 'new_high_score', 'rank_change', 'player_milestone']);
   const myId = discordUser?.discordId;
@@ -163,6 +189,13 @@ export default function Lobby() {
           {hasPinnedMessage && roomId && (
             <PinnedMessage content={config!.pinnedMessage!.content} roomId={roomId} />
           )}
+        </div>
+      )}
+
+      {/* Season table poll — renders nothing when the room has no open poll. */}
+      {roomId && (
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 pt-4 empty:hidden">
+          <SeasonPollCards roomId={roomId} roomSlug={slug || ''} refreshKey={seasonRefreshKey} />
         </div>
       )}
 
