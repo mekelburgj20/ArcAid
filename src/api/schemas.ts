@@ -133,7 +133,9 @@ const TournamentBaseSchema = z.object({
     max_active_games: z.number().int().min(1).max(100).default(1),
     winner_picks: z.boolean().default(true),
     auto_pick: z.boolean().default(true),
-    eligibility_days: z.number().int().min(1).max(365).default(120),
+    // 0 is legal: a Season forces it (a community vote overrides cooldown) and
+    // the form sends it explicitly  min(1) 400'd every season create (v2.161.2).
+    eligibility_days: z.number().int().min(0).max(365).default(120),
     winner_pick_window_min: z.number().int().min(1).max(1440).default(60),
     runnerup_pick_window_min: z.number().int().min(1).max(1440).default(30),
     // Next-win disposition (v2.9x) — default ON = today's behavior (the same
