@@ -1629,7 +1629,7 @@ export function RankingsRow({ rankingGroups, cardOpacity, scoreboardStyle, showc
  *
  * NOT the same component as `components/ScoreboardTicker.tsx` (the S14
  * lobby-feed activity marquee shown at the bottom of every public Scoreboard
- * tab) — same marquee mechanics (doubled track, distance-based duration,
+ * tab) — same marquee mechanics (single-copy news-ticker track, distance-based duration,
  * pause-on-hover, reduced-motion-safe), different data source and different
  * mount point. Keep them separate; a shared name would be actively confusing
  * given both can be visible on the same page at once.
@@ -1668,15 +1668,22 @@ export function RankingsTicker({ rankingGroups, slug, topN = 5 }: {
       return { id: group.id, name: group.name, text: entries.join('   ·   '), color };
     }), [rankingGroups, topN]);
 
-  // Distance-based duration (same idiom as ScoreboardTicker.tsx s21): the
-  // animation travels half the doubled track width, so a fixed duration
-  // would crawl with few groups and race with many.
+  // Distance-based duration (same idiom as ScoreboardTicker.tsx s21): constant
+  // px/s over the FULL track width (offsetWidth includes the 100% left
+  // padding, i.e. strip width + content width), so a fixed duration would
+  // neither crawl with few groups nor race with many. Recomputed on resize
+  // because the padding tracks the strip's width.
   useEffect(() => {
     const track = trackRef.current;
     if (!track) return;
-    const distance = track.scrollWidth / 2;
-    const seconds = Math.min(120, Math.max(20, distance / 55));
-    track.style.setProperty('--rankings-ticker-duration', `${seconds}s`);
+    const update = () => {
+      const distance = track.offsetWidth;
+      const seconds = Math.min(120, Math.max(20, distance / 55));
+      track.style.setProperty('--rankings-ticker-duration', `${seconds}s`);
+    };
+    update();
+    window.addEventListener('resize', update, { passive: true });
+    return () => window.removeEventListener('resize', update);
   }, [segments]);
 
   if (segments.length === 0) return null;
@@ -1705,16 +1712,22 @@ export function RankingsTicker({ rankingGroups, slug, topN = 5 }: {
   return (
     <div className="w-full border-b border-border/40 bg-deep/95 backdrop-blur-sm rankings-ticker-strip" style={{ overflow: 'hidden' }}>
       <div ref={trackRef} className="rankings-ticker-track flex items-center h-11">
-        {/* Doubled for a seamless loop, same as ScoreboardTicker.tsx */}
-        {[...segments, ...segments].map((seg, i) => renderSegment(seg, `${seg.id}-${i}`))}
+        {/* News-ticker contract (owner report 2026-10-18): ONE copy of the
+            segments, entering from fully off the strip's right edge and
+            exiting fully off its left before repeating. The old doubled
+            track + translateX(-50%) only looked right when the content was
+            wider than the strip; with one group it started on screen. */}
+        {segments.map((seg) => renderSegment(seg, seg.id))}
       </div>
       <style>{`
         @keyframes rankings-ticker-scroll {
           from { transform: translateX(0); }
-          to { transform: translateX(-50%); }
+          to { transform: translateX(-100%); }
         }
         .rankings-ticker-track {
           width: max-content;
+          box-sizing: content-box;
+          padding-left: 100%;
           animation: rankings-ticker-scroll var(--rankings-ticker-duration, 40s) linear infinite;
         }
         .rankings-ticker-strip:hover .rankings-ticker-track {
@@ -1723,6 +1736,7 @@ export function RankingsTicker({ rankingGroups, slug, topN = 5 }: {
         @media (prefers-reduced-motion: reduce) {
           .rankings-ticker-track {
             animation: none;
+            padding-left: 0;
           }
           .rankings-ticker-strip {
             overflow-x: auto !important;

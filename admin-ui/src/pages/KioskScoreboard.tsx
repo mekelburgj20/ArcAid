@@ -155,14 +155,20 @@ export default function KioskScoreboard() {
   }), [feedEvents]);
 
   // s21 — distance-based ticker speed (constant px/s); a fixed 60s duration
-  // crawled when the feed had few items. Mirrors ScoreboardTicker.tsx.
+  // crawled when the feed had few items. Distance = the FULL track width
+  // (offsetWidth includes the 100% left padding). Mirrors ScoreboardTicker.tsx.
   const tickerTrackRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const track = tickerTrackRef.current;
     if (!track) return;
-    const distance = track.scrollWidth / 2;
-    const seconds = Math.min(90, Math.max(15, distance / 70));
-    track.style.setProperty('--ticker-duration', `${seconds}s`);
+    const update = () => {
+      const distance = track.offsetWidth;
+      const seconds = Math.min(90, Math.max(15, distance / 70));
+      track.style.setProperty('--ticker-duration', `${seconds}s`);
+    };
+    update();
+    window.addEventListener('resize', update, { passive: true });
+    return () => window.removeEventListener('resize', update);
   }, [tickerItems]);
 
   // v2.90.0 — the horizontal-scroll card rail now lives inside
@@ -316,12 +322,14 @@ export default function KioskScoreboard() {
           className="fixed bottom-0 left-0 right-0 z-40 bg-deep/90 border-t border-border/30 backdrop-blur-sm overflow-hidden"
           style={{ height: 'calc(46px + max(0px, env(safe-area-inset-bottom)))', paddingBottom: 'max(0px, env(safe-area-inset-bottom))' }}
         >
-          <div ref={tickerTrackRef} className="kiosk-ticker flex items-center gap-10 whitespace-nowrap h-full px-4">
-            {/* Double the items for seamless loop */}
-            {[...tickerItems, ...tickerItems].map((item, i) => {
+          <div ref={tickerTrackRef} className="kiosk-ticker flex items-center gap-10 whitespace-nowrap h-full pr-4">
+            {/* News-ticker contract (owner report 2026-10-18): ONE copy of
+                the items, entering from fully off the right edge and exiting
+                fully off the left before repeating. Same as ScoreboardTicker. */}
+            {tickerItems.map((item) => {
               const Icon = item.Icon;
               return (
-                <span key={`${item.id}-${i}`} className="inline-flex items-center gap-2 text-base">
+                <span key={item.id} className="inline-flex items-center gap-2 text-base">
                   <Icon size={16} className="text-neon-cyan flex-shrink-0" />
                   <span className="text-primary/80">{item.title}</span>
                   <span className="text-faint ml-1">{item.ago}</span>
@@ -335,14 +343,18 @@ export default function KioskScoreboard() {
       <style>{`
         @keyframes kiosk-ticker-scroll {
           from { transform: translateX(0); }
-          to { transform: translateX(-50%); }
+          to { transform: translateX(-100%); }
         }
         .kiosk-ticker {
+          width: max-content;
+          box-sizing: content-box;
+          padding-left: 100%;
           animation: kiosk-ticker-scroll var(--ticker-duration, 60s) linear infinite;
         }
         @media (prefers-reduced-motion: reduce) {
           .kiosk-ticker {
             animation: none;
+            padding-left: 0;
             overflow-x: auto;
           }
         }
