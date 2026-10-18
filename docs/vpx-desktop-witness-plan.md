@@ -7,6 +7,16 @@
 >
 > Status: **design locked, first probes proven, awaiting the owner's live tests (Round A/B).**
 > Nothing is built yet. Last updated 2026-08-30.
+>
+> **Status (2026-10-18).** The Windows desktop producer now ships inside the **Castcade** companion
+> (https://github.com/mekelburgj20/castcade, GPLv3 — Castcade ADR 0003), not from this repo; see §4
+> and §6 below. Castcade's Phase 0 ran the Round A/B equivalents on the owner's rig on 2026-10-17 and
+> **all gates passed**: live NVRAM capture through a per-table script hook on WPC (`mm_109c`) and
+> Data East (`tftc_400`) with the same indexing as the on-disk `.nv`; a script-only original (Iron
+> Maiden, VPW) reporting `current_scores` / `ball_end` / `game_end` through the same hook; the
+> same-basename sidecar `.vbs` auto-loading on VPX 10.8.0 with no dialog; every run launched by the
+> `VPinballX64.exe -Play <table>` command line that basic mode's process watch keys on. Results and
+> the findings the implementation must absorb are in castcade `docs/phase-0-spike.md` §8.
 
 ## 1. What this is
 
@@ -71,6 +81,16 @@ VPX 10.8.0, 134 tables, VPinMAME 3.7.0.222) on 2026-08-30.
 
 ## 4. Architecture
 
+> **Where this ships (Castcade ADR 0003, 2026-10-17).** The Windows desktop producer — process
+> watch, basic-mode decode, live-mode journal tailing, pairing, heartbeat, check-in and score
+> reporting — is the `witness` module of the Castcade companion
+> (https://github.com/mekelburgj20/castcade, GPLv3). The AtGames cabinet app and the server
+> contract (pairing, `/api/witness/*`, verification, routing, `witness_devices`) stay in ArcAid.
+> What is shared is the wire contract, the event vocabulary and the maps corpus — never code — so
+> §2's "reuses `scripts/witness-agent.ts`" consequence no longer holds: the companion is
+> TypeScript but shares no source with ArcAid. ArcAid's share of the work is listed in castcade
+> `docs/arcaid-side-changes.md`.
+
 ### Two modes, and the second is optional
 
 **Basic mode — the default, modifies nothing.**
@@ -80,13 +100,29 @@ table identity and a launch timestamp), then on exit decode the `.nv` file and d
 changes to the user's Visual Pinball**. Granularity matches the AtGames exit-to-submit model,
 so round windows and coarse gear-up detection work on day one.
 
-**Live mode — one-click opt-in, offered after basic mode has proven itself.**
-Adds `arcaid.vbs` to the VPX `scripts/` folder plus **one `ExecuteGlobal` line** in `core.vbs`.
-The hook is pure VBScript and does exactly one thing: append changed NVRAM bytes to a journal
-file. The agent maintains the shadow NVRAM, decodes with the maps, and derives real per-game
-and per-ball events. This is what makes exact Best-of-5 and precise gear-up detection possible.
+**Live mode — opt-in, two install paths (Castcade ADR 0004, 2026-10-17).**
+The hook is pure VBScript and does exactly one thing: append changed NVRAM bytes (or, on a
+script-only original, the table's own score variables) to a journal file. The companion maintains
+the shadow NVRAM, decodes with the maps, and derives real per-game and per-ball events. This is
+what makes exact Best-of-5 and precise gear-up detection possible. The hook reaches a table one
+of two ways:
 
-We never ask a stranger to let us edit their pinball setup as a precondition of installing.
+- **Import a table — primary.** The player picks a `.vpx` (or a folder); the companion extracts
+  the script, classifies the table, applies a recipe and writes a same-basename sidecar `.vbs`
+  beside the untouched `.vpx` (hash manifest, verification run, registry entry). It is the only
+  path that covers **originals** (their score never passes through `core.vbs`) and the only one
+  that provides Castcade's turn lock, which is why it is primary. The design is castcade
+  `docs/design/table-import-and-patching.md`; it is not restated here.
+- **Shared `core.vbs` patch — a setup-wizard forced-choice opt-in bulk mode.** The shared
+  `castcade.vbs` library (this plan's `arcaid.vbs`) in the VPX `scripts/` folder plus **one
+  `ExecuteGlobal` line** in `core.vbs`, instrumenting every ROM table at once (~98% of the owner's
+  tables). The first-run wizard asks, with no pre-selection: patch VPX so every ROM table reports
+  scores, or import tables one at a time; the question is re-offerable from Settings and by a
+  contextual nudge. A bulk-patched table is *witnessed*, never *Castcade-ready* — the two states
+  are never conflated.
+
+We never ask a stranger to let us edit their pinball setup as a precondition of installing: the
+default install still modifies nothing, and both paths show exactly what changes and carry a Revert.
 
 ### Deliberate exclusions
 
@@ -158,6 +194,16 @@ unchanged. Same split as the cabinet's beacon/reporter.
 | **P6** | Originals support (after reading `superhac/score-server`'s second channel) | P5 |
 
 Code signing (§8) must be resolved before P3 ships to anyone outside the test group.
+
+> **Where these phases now run (2026-10-18, Castcade ADR 0003).** P0's Round A/B equivalents passed
+> on 2026-10-17 (castcade `docs/phase-0-spike.md` §8). P1 is Castcade's journal format, its product
+> boundary between the in-VPX script and the companion. **P2–P5 map to Castcade Phases 2–3:** Phase 2
+> is basic mode, pairing (the desktop device type — castcade `docs/arcaid-side-changes.md` item 1),
+> installer and signing (P2, P3 and P5's server half); Phase 3 is live mode through *Import a table*
+> and the opt-in bulk patch (P4). **P6 (originals) is covered by the per-table recipes** of
+> `docs/design/table-import-and-patching.md` rather than a separate phase — the Phase 0 Iron Maiden
+> run already reported an original's scores through the same hook. The ArcAid-side server items that
+> remain are in castcade `docs/arcaid-side-changes.md`.
 
 ## 7. Tests the owner needs to run
 
