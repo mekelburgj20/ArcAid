@@ -1,17 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { Check, ExternalLink, Vote } from 'lucide-react';
 import { useViewerAuth, usePlayerHeaders } from '../contexts/ViewerAuthContext';
 import LoginButtons from './LoginButtons';
 import { applyVote, closesInLabel, type SeasonOpenPoll, type SeasonSummary } from '../lib/seasonPoll';
 
 /**
- * Season table poll on the room's public scoreboard (Season format, plan §8.3).
+ * Season table poll on the room's public LOBBY (Season format, plan §8.3).
  *
  * A Season is a rotation tournament whose next table is chosen by a community
  * poll. Arcaid posts the poll to Discord and mirrors it here so a player who
- * never opens Discord can still vote. This card is a NOTICE above the score
- * cards, not a hero: one bordered block, single column, quiet colours.
+ * never opens Discord can still vote. This card is a NOTICE at the top of the
+ * Lobby, not a hero: one bordered block, single column, quiet colours.
+ *
+ * Mount points (owner ruling 2026-10-18, first Seasons demo — "it belongs in
+ * the Lobby"; on the Scores page it pushed the card rail down):
+ *   - `SeasonPollCards` (default export) — the voting card, on `pages/Lobby.tsx`.
+ *   - `SeasonPollLobbyNudge` — a one-line "Vote in the Lobby →" pointer on
+ *     `pages/Scoreboard.tsx`, so the poll is still discoverable from Scores.
+ *   Both share `fetchOpenSeasonPolls`, so they cannot disagree about whether a
+ *   poll is open.
  *
  * Data flow:
  *   - `GET /tournaments` decides whether to render at all (`season.open_poll_id`).
@@ -20,9 +28,9 @@ import { applyVote, closesInLabel, type SeasonOpenPoll, type SeasonSummary } fro
  *     (the player token is sent so `my_vote` fills).
  *   - Vote = POST `{position}`, withdraw = DELETE. Tapping a different row
  *     re-votes; tapping the chosen row withdraws. Optimistic, rolled back on error.
- *   - The PAGE owns liveness: `refreshKey` is bumped by Scoreboard's
- *     `season:poll` socket handler and by its `useLiveRefresh` callback, so
- *     there is no second socket subscription or refresh hook in here.
+ *   - The PAGE owns liveness: `refreshKey` is bumped by the mounting page's
+ *     `season:poll` socket handler (on `room:<id>`) and by its `useLiveRefresh`
+ *     callback, so there is no second socket subscription or refresh hook in here.
  *
  * Raw `fetch` with the player token (not `lib/api`), same as every other
  * public-page call: `api.*` carries the admin token and bounces a 401 to the
@@ -147,6 +155,78 @@ type OpenSummary = SeasonSummary & { open_poll: SeasonOpenPoll };
 const MINUTE_MS = 60_000;
 
 /**
+ * Open-poll discovery shared by the card container and the Scores-page nudge.
+ * Returns null when the tournament list itself could not be read (callers keep
+ * whatever they had); a failed per-season fetch just drops that season.
+ */
+async function fetchOpenSeasonPolls(roomId: string, headers: Record<string, string>): Promise<OpenSummary[] | null> {
+    try {
+        const res = await fetch(`/api/rooms/${roomId}/tournaments`, { headers });
+        if (!res.ok) return null;
+        const rows = (await res.json()) as TournamentListRow[];
+        const ids = (Array.isArray(rows) ? rows : []).filter(t => t.season?.open_poll_id).map(t => t.id);
+        const found = await Promise.all(ids.map(async id => {
+            try {
+                const r = await fetch(`/api/rooms/${roomId}/tournaments/${id}/season`, { headers });
+                if (!r.ok) return null;
+                const s = (await r.json()) as SeasonSummary;
+                return s.open_poll ? (s as OpenSummary) : null;
+            } catch {
+                return null;
+            }
+        }));
+        return found.filter((s): s is OpenSummary => s !== null);
+    } catch {
+        // Decoration, never a dependency.
+        return null;
+    }
+}
+
+/** "Week 6 table poll is open" for a Season (progress present), else generic. */
+function nudgeLabel(summaries: OpenSummary[]): string {
+    if (summaries.length > 1) return `${summaries.length} table polls are open`;
+    const s = summaries[0];
+    const isSeason = s.progress !== null && s.progress !== undefined;
+    return isSeason && s.open_poll.slot_no ? `Week ${s.open_poll.slot_no} table poll is open` : 'Table poll is open';
+}
+
+/**
+ * One slim line on the Scores page pointing at the Lobby, where the voting
+ * card lives (owner ruling 2026-10-18). Renders nothing without an open poll.
+ * Liveness is the page's, exactly as for the card: bump `refreshKey`.
+ */
+export function SeasonPollLobbyNudge({ roomId, roomSlug, refreshKey = 0 }: { roomId: string; roomSlug: string; refreshKey?: number }) {
+    const { playerToken } = useViewerAuth();
+    const playerHeaders = usePlayerHeaders();
+    const headersRef = useRef(playerHeaders);
+    useEffect(() => { headersRef.current = playerHeaders; });
+    const [summaries, setSummaries] = useState<OpenSummary[]>([]);
+
+    useEffect(() => {
+        if (!roomId) return;
+        let cancelled = false;
+        fetchOpenSeasonPolls(roomId, headersRef.current).then(found => {
+            if (!cancelled && found) setSummaries(found);
+        });
+        return () => { cancelled = true; };
+    }, [roomId, refreshKey, playerToken]);
+
+    if (summaries.length === 0 || !roomSlug) return null;
+    return (
+        <div
+            className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-border/60 bg-surface px-3 py-1.5 text-xs text-muted"
+            data-testid="season-poll-lobby-nudge"
+        >
+            <Vote size={14} className="text-neon-cyan flex-shrink-0" aria-hidden />
+            <span className="break-words">{nudgeLabel(summaries)}</span>
+            <Link to={`/${roomSlug}/lobby`} className="ml-auto inline-flex items-center min-h-11 sm:min-h-0 text-neon-cyan hover:underline">
+                Vote in the Lobby →
+            </Link>
+        </div>
+    );
+}
+
+/**
  * Container: finds every season with an open poll in the room and renders one
  * card per poll. Renders nothing when there is none (or when a fetch fails —
  * a public page never breaks over a missing notice).
@@ -167,25 +247,8 @@ export default function SeasonPollCards({ roomId, roomSlug, refreshKey = 0 }: { 
 
     const load = useCallback(async (signal: { cancelled: boolean }) => {
         if (!roomId) return;
-        try {
-            const res = await fetch(`/api/rooms/${roomId}/tournaments`, { headers: headersRef.current });
-            if (!res.ok) return;
-            const rows = (await res.json()) as TournamentListRow[];
-            const ids = (Array.isArray(rows) ? rows : []).filter(t => t.season?.open_poll_id).map(t => t.id);
-            const found = await Promise.all(ids.map(async id => {
-                try {
-                    const r = await fetch(`/api/rooms/${roomId}/tournaments/${id}/season`, { headers: headersRef.current });
-                    if (!r.ok) return null;
-                    const s = (await r.json()) as SeasonSummary;
-                    return s.open_poll ? (s as OpenSummary) : null;
-                } catch {
-                    return null;
-                }
-            }));
-            if (!signal.cancelled) setSummaries(found.filter((s): s is OpenSummary => s !== null));
-        } catch {
-            // Decoration, never a dependency.
-        }
+        const found = await fetchOpenSeasonPolls(roomId, headersRef.current);
+        if (found && !signal.cancelled) setSummaries(found);
     }, [roomId]);
 
     useEffect(() => {

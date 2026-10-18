@@ -337,6 +337,13 @@ countdown. Refreshes through `useLiveRefresh` plus a `season:poll` socket event 
 tally change (`getIO()` → `room:<id>`). Mobile first: single column, 44 px targets. Theme tokens
 only.
 
+**Moved 2026-10-18 (owner ruling at the first Seasons demo: "I think it belongs in the Lobby").**
+The voting card now mounts on `Lobby.tsx`, directly under the social links / pinned message;
+the Lobby joins `room:<id>` for `season:poll` and uses `useLiveRefresh`. On the Scores page it
+pushed the active-game card rail down, so `Scoreboard.tsx` keeps only a one-line
+`SeasonPollLobbyNudge` ("Week N table poll is open · Vote in the Lobby →") that renders nothing
+without an open poll. Both share one open-poll discovery function.
+
 ### 8.4 Rankings admin page
 `points_top` input (only for `best_game_linear`), "Include archived games" checkbox. The
 season-created group is editable like any other but shows "Managed by <tournament>" and locks

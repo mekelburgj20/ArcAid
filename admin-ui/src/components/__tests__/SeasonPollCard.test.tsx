@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import SeasonPollCards from '../SeasonPollCard';
+import SeasonPollCards, { SeasonPollLobbyNudge } from '../SeasonPollCard';
 import { ViewerAuthProvider } from '../../contexts/ViewerAuthContext';
 import { applyVote, closesInLabel, type SeasonOpenPoll } from '../../lib/seasonPoll';
 
@@ -49,7 +49,10 @@ function mockFetch(opts: { open?: boolean; myVote?: number | null; voteStatus?: 
             return json({ success: true, my_vote: init?.method === 'DELETE' ? null : JSON.parse(String(init?.body)).position });
         }
         if (url.endsWith('/season')) {
-            return json({ tournament_id: 't1', name: 'Mox Season 3', open_poll: open ? poll({ my_vote: myVote }) : null });
+            return json({
+                tournament_id: 't1', name: 'Mox Season 3', progress: { tables_done: 5, table_count: 12 },
+                open_poll: open ? poll({ my_vote: myVote }) : null,
+            });
         }
         if (url.endsWith('/tournaments')) {
             return json([
@@ -159,6 +162,39 @@ describe('SeasonPollCards', () => {
         fireEvent.click(await screen.findByRole('button', { name: /Medieval Madness/ }));
         expect(screen.getByText(/Log in to vote/)).toBeTruthy();
         expect(fn.mock.calls.some(c => (c[0] as string).endsWith('/vote'))).toBe(false);
+    });
+});
+
+describe('SeasonPollLobbyNudge (Scores page pointer, owner ruling 2026-10-18)', () => {
+    beforeEach(() => { localStorage.clear(); });
+    afterEach(() => { vi.unstubAllGlobals(); });
+
+    function renderNudge() {
+        return render(
+            <MemoryRouter initialEntries={['/mox/']}>
+                <ViewerAuthProvider>
+                    <SeasonPollLobbyNudge roomId="room-1" roomSlug="mox" />
+                </ViewerAuthProvider>
+            </MemoryRouter>,
+        );
+    }
+
+    it('with an open poll, renders one line linking to the Lobby', async () => {
+        mockFetch();
+        renderNudge();
+        const link = await screen.findByRole('link', { name: /Vote in the Lobby/ });
+        expect(link.getAttribute('href')).toBe('/mox/lobby');
+        expect(screen.getByText('Week 6 table poll is open')).toBeTruthy();
+        // A pointer, not the card: no candidate buttons here.
+        expect(screen.queryByRole('button', { name: /Medieval Madness/ })).toBeNull();
+    });
+
+    it('renders nothing when there is no open poll', async () => {
+        const fn = mockFetch({ open: false });
+        const { container } = renderNudge();
+        await waitFor(() => expect(fn).toHaveBeenCalled());
+        await new Promise(r => setTimeout(r, 0));
+        expect(container.innerHTML).toBe('');
     });
 });
 

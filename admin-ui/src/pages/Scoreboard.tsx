@@ -15,7 +15,7 @@ import GameQuickView from '../components/GameQuickView';
 import SubmissionSheet from '../components/SubmissionSheet';
 import { DISPLAY_SETTINGS_SAVED_EVENT } from '../components/DisplaySettingsHost';
 import { TAB_LABELS } from '../lib/scoresCopy';
-import SeasonPollCards from '../components/SeasonPollCard';
+import { SeasonPollLobbyNudge } from '../components/SeasonPollCard';
 
 type ScoresTab = 'tournaments' | 'room' | 'global';
 
@@ -69,8 +69,9 @@ export default function Scoreboard() {
   const [quickViewLb, setQuickViewLb] = useState<GameLeaderboard | null>(null);
   const [tournamentSearch, setTournamentSearch] = useState('');
   // Season format — bumped by the `season:poll` socket event and by the
-  // live-refresh hook below; SeasonPollCards refetches when it changes, so the
-  // poll card rides this page's liveness wiring instead of owning its own.
+  // live-refresh hook below; the Lobby nudge refetches when it changes, so it
+  // rides this page's liveness wiring instead of owning its own. (The voting
+  // card itself lives on the Lobby — owner ruling 2026-10-18.)
   const [seasonRefreshKey, setSeasonRefreshKey] = useState(0);
   const bumpSeason = () => setSeasonRefreshKey(k => k + 1);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -326,11 +327,12 @@ export default function Scoreboard() {
                 <TabSwitcher tab={tab} onSelect={selectTab} />
               </div>
             </div>
-            {/* Season format — the open table poll(s), above the cards.
-                Renders nothing when the room has no open poll. */}
-            {roomId && (
+            {/* Season format — a one-line pointer to the Lobby, where the
+                voting card lives (owner ruling 2026-10-18: the full card
+                pushed the card rail down). Renders nothing with no open poll. */}
+            {roomId && slug && (
               <div className="mt-3 max-w-2xl mx-auto">
-                <SeasonPollCards roomId={roomId} roomSlug={slug || ''} refreshKey={seasonRefreshKey} />
+                <SeasonPollLobbyNudge roomId={roomId} roomSlug={slug} refreshKey={seasonRefreshKey} />
               </div>
             )}
           </div>
