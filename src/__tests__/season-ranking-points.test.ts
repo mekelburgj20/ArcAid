@@ -131,8 +131,8 @@ describe('include_archived', () => {
 });
 
 describe('season standings group lifecycle', () => {
-    it('create() makes the group and normalises the pick flags', async () => {
-        const { tournamentId } = await createSeason({ tableCount: 12, pointsTop: 50 });
+    it('create() makes the group (seeded Countdown, 50 for 1st) and normalises the pick flags', async () => {
+        const { tournamentId } = await createSeason({ tableCount: 12 });
         const db = await getDatabase();
         const t = await db.get('SELECT * FROM tournaments WHERE id = ?', tournamentId);
         expect(t.winner_picks).toBe(0);
@@ -155,10 +155,13 @@ describe('season standings group lifecycle', () => {
         });
     });
 
-    it('update() propagates points_top / table count and invalidates the cache', async () => {
-        const { tournamentId, roomId } = await createSeason({ tableCount: 12, pointsTop: 50 });
+    it('update() propagates the table count only and invalidates the cache', async () => {
+        const { tournamentId, roomId } = await createSeason({ tableCount: 12 });
         const db = await getDatabase();
         const t = await db.get('SELECT * FROM tournaments WHERE id = ?', tournamentId);
+        // The group's scoring is edited on the Rankings page; a season save
+        // must never overwrite it.
+        await db.run('UPDATE ranking_groups SET points_top = 75 WHERE id = ?', t.season_ranking_group_id);
         await db.run(
             `INSERT INTO ranking_groups_cache (ranking_group_id, rankings, generated_at, data_watermark) VALUES (?, '[]', ?, 'x')`,
             t.season_ranking_group_id, new Date().toISOString(),
@@ -166,12 +169,13 @@ describe('season standings group lifecycle', () => {
 
         await TournamentService.update(tournamentId, {
             name: t.name, type: t.type, cadence: JSON.parse(t.cadence), game_room_id: roomId, is_active: true,
-            season_points_top: 75, season_table_count: 10,
+            season_table_count: 10,
             // A client that sends the pick flags on can't turn them back on for a season.
             winner_picks: true, auto_pick: true, max_active_games: 3, eligibility_days: 120,
         });
         const group = await RankingService.getById(t.season_ranking_group_id);
         expect(group!.points_top).toBe(75);
+        expect(group!.rank_method).toBe('best_game_linear');
         expect(group!.best_n).toBe(10);
         const cache = await db.get('SELECT 1 FROM ranking_groups_cache WHERE ranking_group_id = ?', t.season_ranking_group_id);
         expect(cache).toBeUndefined();
@@ -190,8 +194,8 @@ describe('season standings group lifecycle', () => {
         expect(after).toMatchObject({ season_table_count: 12, winner_picks: 0 });
     });
 
-    it('a season-managed group keeps best_n / points_top locked to the season', async () => {
-        const { tournamentId } = await createSeason({ tableCount: 12, pointsTop: 50 });
+    it('a season-managed group keeps best_n locked to the season; points_top is editable', async () => {
+        const { tournamentId } = await createSeason({ tableCount: 12 });
         const db = await getDatabase();
         const t = await db.get('SELECT season_ranking_group_id FROM tournaments WHERE id = ?', tournamentId);
         await RankingService.update(t.season_ranking_group_id, {
@@ -199,7 +203,7 @@ describe('season standings group lifecycle', () => {
         });
         const group = await RankingService.getById(t.season_ranking_group_id);
         expect(group!.best_n).toBe(12);
-        expect(group!.points_top).toBe(50);
+        expect(group!.points_top).toBe(999);
     });
 
     it('delete() removes the group', async () => {

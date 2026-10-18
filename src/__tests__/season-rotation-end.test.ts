@@ -59,7 +59,7 @@ async function statusOf(gameId: string) {
 
 describe('season end', () => {
     it('stamps once, announces the top 3 once with pings, activates nothing after the bound', async () => {
-        const { tournamentId, season } = await createSeason({ tableCount: 2, pointsTop: 50 });
+        const { tournamentId, season } = await createSeason({ tableCount: 2 });
         const week1 = await createTestGame(tournamentId, { name: 'Week One', status: 'ARCHIVED' });
         await createTestSubmission(week1, { username: 'Alice', discordUserId: ALICE, score: 900 });
         await createTestSubmission(week1, { username: 'Bob', discordUserId: BOB, score: 800 });

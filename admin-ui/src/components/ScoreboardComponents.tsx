@@ -165,7 +165,7 @@ export const METHOD_LABELS: Record<string, { label: string; scoreLabel: string }
   max_10: { label: 'Max 10', scoreLabel: 'Points' },
   average_rank: { label: 'Average Rank', scoreLabel: 'Avg Rank' },
   best_game_papa: { label: 'Best Game (PAPA)', scoreLabel: 'Points' },
-  best_game_linear: { label: 'Best Game (Linear)', scoreLabel: 'Points' },
+  best_game_linear: { label: 'Countdown', scoreLabel: 'Points' },
 };
 
 // --- Helper functions ---

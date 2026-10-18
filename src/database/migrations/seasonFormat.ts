@@ -31,6 +31,7 @@ export async function seasonFormat(db: Db): Promise<void> {
         // NULL = not a season. N = a season of N tables.
         ['season_table_count', 'INTEGER'],
         // Points for 1st place; 2nd = top-1 ... floor 0.
+        // UNREAD since v2.161.1 — points live on ranking_groups.points_top.
         ['season_points_top', 'INTEGER NOT NULL DEFAULT 50'],
         // The auto-created standings group. Pseudo-FK (no constraint — SQLite
         // cannot add an enforced FK via ALTER TABLE).

@@ -42,6 +42,10 @@ wants, so no new fallback exists. A community vote overrides cooldown by definit
 `ranking_groups.points_top` (default 100, so existing groups are unchanged) parameterises
 `best_game_linear`; the season auto-creates its group with `points_top = season_points_top` and
 `best_n = season_table_count`, and keeps both locked to the season config.
+**Amended v2.161.1 (owner ruling 2026-10-17: scoring lives with the other methods):** the points
+moved to the group — it is seeded `points_top = 50`, edited on the Rankings page, and only `best_n`
+stays locked to the season; `season_points_top` is unread, and `best_game_linear` is labelled
+"Countdown".
 `ranking_groups.include_archived` (default 0; the season sets 1) admits `ARCHIVED` games. It
 defaults off because flipping every room's standings on deploy is a separate decision.
 

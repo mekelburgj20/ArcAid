@@ -18,12 +18,12 @@ interface RankingGroup {
   min_games: number;
   is_active: boolean;
   tournament_ids: string[];
-  /** Season format — 1st-place points for best_game_linear (default 100). */
+  /** Season format — 1st-place points for best_game_linear / Countdown (default 100). */
   points_top?: number;
   /** Season format — count ARCHIVED games too (default off). */
   include_archived?: boolean;
   /** Season format — the season tournament that owns this group; the server
-   *  locks best_n / points_top to its config. */
+   *  locks best_n to its table count. */
   managed_by_season?: { id: string; name: string } | null;
 }
 
@@ -61,8 +61,8 @@ const RANK_METHODS: Record<RankMethod, { label: string; description: string }> =
     description: 'Awards points based on rank (1st: 100, 2nd: 90, 3rd: 85, then each subsequent place is 1 point less). Best N games count toward total.',
   },
   best_game_linear: {
-    label: 'Best Game (Linear)',
-    description: "Awards points based on rank, starting at the group's top value (default 100: 1st 100, 2nd 99, 3rd 98, each subsequent place 1 point less, never below 0). Best N games count toward total.",
+    label: 'Countdown',
+    description: "1st = the group's top value, 2nd one less, 3rd two less … floored at 0. Tied scores share the place. Best N games count toward total.",
   },
 };
 
@@ -185,16 +185,17 @@ export default function Rankings() {
       toast(`Best N Games must be between 1 and ${BEST_N_MAX}`, 'error');
       return;
     }
-    if (!formManagedBy && formMethod === 'best_game_linear'
+    if (formMethod === 'best_game_linear'
       && (!Number.isInteger(formPointsTop) || formPointsTop < 1 || formPointsTop > 1000)) {
       toast('Points for 1st must be between 1 and 1000', 'error');
       return;
     }
     setSaving(true);
-    // A season-managed group's best_n / points_top are locked server-side to
-    // the season config (the inputs are disabled; best_n still goes along
-    // because the update schema defaults an omitted one). points_top only
-    // means something for best_game_linear.
+    // A season-managed group's best_n is locked server-side to the season's
+    // table count (the input is disabled; best_n still goes along because the
+    // update schema defaults an omitted one). Its scoring — method and
+    // points_top — is edited here like any other group's (v2.161.1).
+    // points_top only means something for best_game_linear (Countdown).
     const payload: Record<string, unknown> = {
       name: formName.trim(),
       description: formDescription.trim(),
@@ -204,7 +205,7 @@ export default function Rankings() {
       include_archived: formIncludeArchived,
       tournament_ids: formTournamentIds,
     };
-    if (!formManagedBy && formMethod === 'best_game_linear') payload.points_top = formPointsTop;
+    if (formMethod === 'best_game_linear') payload.points_top = formPointsTop;
     try {
       if (editingId) {
         await api.put(`/rooms/${room.roomId}/ranking-groups/${editingId}`, payload);
@@ -362,7 +363,7 @@ export default function Rankings() {
 
             {formManagedBy && (
               <p className="text-xs text-neon-amber border border-neon-amber/40 bg-neon-amber/10 rounded px-3 py-2" data-testid="ranking-managed-by">
-                Managed by {formManagedBy.name}. Best N games and points for 1st follow that season's settings; change them on the tournament.
+                Managed by {formManagedBy.name}. Best N games follows the season's table count; change it on the tournament.
               </p>
             )}
 
@@ -391,8 +392,7 @@ export default function Rankings() {
                     onChange={e => setFormPointsTop(Number(e.target.value))}
                     min={1}
                     max={1000}
-                    disabled={!!formManagedBy}
-                    className={`${inputClass} disabled:opacity-60 disabled:cursor-not-allowed`}
+                    className={inputClass}
                   />
                   <p className="text-xs text-muted mt-1">1st place earns this many points, 2nd one less, and so on (1–1000).</p>
                 </div>

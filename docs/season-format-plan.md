@@ -55,7 +55,7 @@ Extract the handler to `src/database/migrations/seasonFormat.ts`.
 | Column | Type | Meaning |
 |---|---|---|
 | `season_table_count` | `INTEGER` | NULL = not a season. N = season of N tables. |
-| `season_points_top` | `INTEGER NOT NULL DEFAULT 50` | Points for 1st place; 2nd = top−1, etc. Floor 0. |
+| `season_points_top` | `INTEGER NOT NULL DEFAULT 50` | **Unread since v2.161.1** — points live on the group's `ranking_groups.points_top` (seeded 50 on create, edited on the Rankings page). Originally: points for 1st place; 2nd = top−1, etc. Floor 0. |
 | `season_ranking_group_id` | `TEXT` | The auto-created standings group. Pseudo-FK (no constraint, like the other ALTER-added refs). |
 | `season_poll_opens_before_h` | `INTEGER NOT NULL DEFAULT 96` | Default poll open = next rotation − 96 h (Monday for a Friday rotation). |
 | `season_poll_closes_before_h` | `INTEGER NOT NULL DEFAULT 3` | Default poll close = next rotation − 3 h. |
@@ -65,7 +65,7 @@ Extract the handler to `src/database/migrations/seasonFormat.ts`.
 | `season_finished_at` | `TEXT` | ISO UTC. Idempotency stamp for the season-end announcement. |
 
 Validation (Zod + `TournamentService.create/update`, both): `season_table_count` 1..200;
-`season_points_top` 1..1000; `closes_before_h` ≥ 1 (Discord's minimum poll duration is 1 h);
+`closes_before_h` ≥ 1 (Discord's minimum poll duration is 1 h);
 `opens_before_h` > `closes_before_h`; a season requires `format = 'rotation'` AND a cadence
 with a cron. **A season forces `winner_picks = 0`, `auto_pick = 0`, `max_active_games = 1`,
 `eligibility_days = 0`** on save (normalise, don't reject — the form shows them locked with a
@@ -145,11 +145,11 @@ bake a display name in; resolve with `resolveProfiles` at read.
 
 - `TournamentService.create/update` with a season block and no `season_ranking_group_id`
   creates a ranking group: name `"<tournament name> — Season"`, `rank_method = 'best_game_linear'`,
-  `points_top = season_points_top`, `best_n = season_table_count`, `min_games = 1`,
+  `points_top = 50` (a seed since v2.161.1 — was `season_points_top`), `best_n = season_table_count`, `min_games = 1`,
   `include_archived = 1`, bound to the tournament via `ranking_group_tournaments`, same
   `game_room_id`. Stores the id back.
-- Later edits to `season_points_top` / `season_table_count` propagate to the group's
-  `points_top` / `best_n` and call `RankingService.invalidate` for that group (config change,
+- Later edits to `season_table_count` propagate to the group's `best_n` (since v2.161.1 the
+  group's `points_top` is never touched by a season save) and call `RankingService.invalidate` for that group (config change,
   not data change — the watermark does not cover these columns).
 - `RankingService.calculatePoints('best_game_linear', rank)` becomes `points_top + 1 − rank`,
   floored at 0. `RANK_METHOD_INFO.best_game_linear.description` is rewritten to say "starts at
@@ -302,10 +302,11 @@ the scoreboard can decide whether to render the poll card without a second round
 ## 8. UI
 
 ### 8.1 Admin — `TournamentForm.tsx`
-A "Season" section under the rotation settings: enable toggle, table count, points for 1st,
-poll opens/closes (hours before rotation, with the derived "Monday 12:00 AM ET → Thursday 9:00 PM
+A "Season" section under the rotation settings: enable toggle, table count, poll opens/closes (hours before rotation, with the derived "Monday 12:00 AM ET → Thursday 9:00 PM
 ET" echo computed from the cadence), tie rule + fallback, and a note that winner-picks /
-auto-pick / max-active are fixed for seasons (fields shown disabled).
+auto-pick / max-active are fixed for seasons (fields shown disabled). **No points field (v2.161.1)**
+— the season's scoring lives on its ranking group (Rankings page, Countdown, 50 for 1st by
+default); the section's InfoTip says so.
 
 ### 8.2 Admin — `TournamentDetail.tsx` → new `SeasonPanel.tsx`
 Progress ("Week 6 of 12"), pause/resume, the poll queue as an ordered list (status chip, times,
@@ -325,7 +326,9 @@ only.
 ### 8.4 Rankings admin page
 `points_top` input (only for `best_game_linear`), "Include archived games" checkbox. The
 season-created group is editable like any other but shows "Managed by <tournament>" and locks
-`best_n` / `points_top` to the season config.
+`best_n` to the season's table count. **As of v2.161.1 only `best_n` is locked** — the method and
+`points_top` are the group's own and edited here (owner ruling 2026-10-17: scoring lives with the
+other methods).
 
 ## 9. Tests (vitest, `src/__tests__/`)
 
@@ -379,8 +382,8 @@ The truth as built, for the UI slices and later sessions.
   `closes_at` in the past is refused.
 - **Post-failure strikes.** The 3-strikes counter for failed Discord posts is in memory (resets on
   restart).
-- **Season lock.** The server refuses edits to `best_n` / `points_top` on the season-managed ranking
-  group; they follow the tournament's season block.
+- **Season lock.** The server refuses edits to `best_n` on the season-managed ranking group; it
+  follows the tournament's table count. (Until v2.161.1 `points_top` was locked too.)
 - **Candidate picker** also filters by tournament `mode`, and keeps `played_before` as the admin's
   own repeat guard (cooldown is not applied — see the last ruling below).
 - **Content-line link** points at the room's main page.
@@ -393,3 +396,10 @@ The truth as built, for the UI slices and later sessions.
   queue still posts the embed, unchanged.
 - **Ruling: `eligibility_days = 0`.** Forced on season save (§3.1) — a community vote overrides
   cooldown.
+- **v2.161.1 — points moved to the ranking group** (owner ruling 2026-10-17: scoring lives with
+  the other methods on the Rankings page). The form's "Points for 1st" field is gone and
+  `season_points_top` is unread (column kept, no migration; Zod strips it from old clients). The
+  auto-created group is SEEDED `best_game_linear` / `points_top = 50`; later season saves sync only
+  `best_n` (= table count) and never touch the method or points. `RankingService.update` locks
+  only `best_n` for a managed group. The `best_game_linear` LABEL is now "Countdown" everywhere it
+  is shown (the id is unchanged).

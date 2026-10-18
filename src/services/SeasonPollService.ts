@@ -52,7 +52,6 @@ export interface SeasonTournamentRow {
     is_active: number;
     format: string;
     season_table_count: number;
-    season_points_top: number;
     season_ranking_group_id: string | null;
     season_poll_opens_before_h: number;
     season_poll_closes_before_h: number;
@@ -1043,7 +1042,6 @@ export class SeasonPollService {
             name: t.name,
             config: {
                 table_count: t.season_table_count,
-                points_top: t.season_points_top,
                 poll_opens_before_h: t.season_poll_opens_before_h,
                 poll_closes_before_h: t.season_poll_closes_before_h,
                 tie_rule: t.season_tie_rule,

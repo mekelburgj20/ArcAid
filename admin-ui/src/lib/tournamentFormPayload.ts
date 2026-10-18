@@ -54,7 +54,6 @@ export interface Tournament {
   rounds?: EventRoundRow[];
   /** Season block (migration 181, docs/season-format-plan.md §3.1). NULL table count = not a season. */
   season_table_count?: number | null;
-  season_points_top?: number | null;
   season_ranking_group_id?: string | null;
   season_poll_opens_before_h?: number | null;
   season_poll_closes_before_h?: number | null;

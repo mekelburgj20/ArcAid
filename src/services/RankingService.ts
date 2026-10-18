@@ -20,13 +20,13 @@ export interface RankingGroup {
      *  (a style might exist but only carry a header/logo image). Null when
      *  bg_style_id is unset. */
     bg_has_bg: number | null;
-    /** Season format (migration 181) — best_game_linear only: 1st = points_top,
+    /** Season format (migration 181) — best_game_linear ("Countdown") only: 1st = points_top,
      *  2nd = points_top-1 ... floored at 0. Existing groups default to 100. */
     points_top: number;
     /** true = ARCHIVED games count too (season groups). Default off. */
     include_archived: boolean;
-    /** The season tournament that manages this group (its best_n/points_top
-     *  follow the season config), or null for an ordinary group. */
+    /** The season tournament that manages this group (its best_n follows the
+     *  season's table count), or null for an ordinary group. */
     managed_by_season: { id: string; name: string } | null;
 }
 
@@ -65,8 +65,8 @@ export const RANK_METHOD_INFO: Record<RankMethod, { label: string; description: 
         description: 'Awards points based on rank (1st: 100, 2nd: 90, 3rd: 85, then each subsequent place is 1 point less). Best N games count toward total.',
     },
     best_game_linear: {
-        label: 'Best Game (Linear)',
-        description: "Awards points based on rank, starting at the group's top value (default 100): 1st gets the top value, 2nd one less, and so on, floored at 0. Tied scores share the place. Best N games count toward total.",
+        label: 'Countdown',
+        description: "1st = the group's top value, 2nd one less, 3rd two less … floored at 0. Tied scores share the place. Best N games count toward total.",
     },
 };
 
@@ -218,14 +218,16 @@ export class RankingService {
         include_archived?: boolean;
     }): Promise<void> {
         const db = await getDatabase();
-        // A season-managed group keeps best_n / points_top locked to the
-        // season config (plan §8.4) — the season edit is the one writer.
+        // A season-managed group keeps best_n locked to the season's table
+        // count (plan §8.4) — the season edit is its one writer. The scoring
+        // (rank_method, points_top) is the group's own, edited here like any
+        // other group (v2.161.1).
         const season = await db.get(
-            'SELECT season_table_count, season_points_top FROM tournaments WHERE season_ranking_group_id = ? AND season_table_count IS NOT NULL LIMIT 1',
+            'SELECT season_table_count FROM tournaments WHERE season_ranking_group_id = ? AND season_table_count IS NOT NULL LIMIT 1',
             id
         );
         if (season) {
-            data = { ...data, best_n: season.season_table_count, points_top: season.season_points_top };
+            data = { ...data, best_n: season.season_table_count };
         }
         await db.run(
             `UPDATE ranking_groups SET name = ?, description = ?, rank_method = ?, best_n = ?, min_games = ?,

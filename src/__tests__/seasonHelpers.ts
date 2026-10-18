@@ -15,7 +15,6 @@ let counter = 0;
 
 export async function createSeason(opts: {
     tableCount?: number;
-    pointsTop?: number;
     tieRule?: 'admin' | 'random' | 'first_nominated';
     tieFallback?: 'random' | 'first_nominated';
     channelId?: string | null;
@@ -35,7 +34,6 @@ export async function createSeason(opts: {
         is_active: true,
         game_room_id: roomId,
         season_table_count: opts.tableCount ?? 12,
-        season_points_top: opts.pointsTop ?? 50,
         season_tie_rule: opts.tieRule ?? 'admin',
         season_tie_fallback: opts.tieFallback ?? 'random',
     });

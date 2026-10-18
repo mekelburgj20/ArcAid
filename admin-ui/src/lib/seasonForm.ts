@@ -14,7 +14,6 @@ export interface SeasonFormState {
   /** Off = not a season (`season_table_count: null` on save). */
   enabled: boolean;
   tableCount: number;
-  pointsTop: number;
   opensBeforeH: number;
   closesBeforeH: number;
   tieRule: SeasonTieRule;
@@ -24,7 +23,6 @@ export interface SeasonFormState {
 export const defaultSeasonState: SeasonFormState = {
   enabled: false,
   tableCount: 12,
-  pointsTop: 50,
   opensBeforeH: 96,
   closesBeforeH: 3,
   tieRule: 'admin',
@@ -56,9 +54,6 @@ export function getSeasonErrors(season: SeasonFormState, cron: string | undefine
   const isInt = (n: number) => Number.isInteger(n);
   if (!isInt(season.tableCount) || season.tableCount < 1 || season.tableCount > 200) {
     errs.push('A season must have between 1 and 200 tables.');
-  }
-  if (!isInt(season.pointsTop) || season.pointsTop < 1 || season.pointsTop > 1000) {
-    errs.push('Points for 1st must be between 1 and 1000.');
   }
   if (!isInt(season.closesBeforeH) || season.closesBeforeH < 1) {
     errs.push('The poll must close at least 1 hour before the rotation (Discord\'s shortest poll is 1 hour).');
@@ -141,7 +136,6 @@ export function seasonPayload(season: SeasonFormState): Record<string, unknown> 
   if (!season.enabled) return { season_table_count: null };
   return {
     season_table_count: season.tableCount,
-    season_points_top: season.pointsTop,
     season_poll_opens_before_h: season.opensBeforeH,
     season_poll_closes_before_h: season.closesBeforeH,
     season_tie_rule: season.tieRule,
@@ -152,7 +146,6 @@ export function seasonPayload(season: SeasonFormState): Record<string, unknown> 
 /** Raw `season_*` columns as `GET /:roomId/tournaments` ships them. */
 export interface SeasonColumns {
   season_table_count?: number | null;
-  season_points_top?: number | null;
   season_poll_opens_before_h?: number | null;
   season_poll_closes_before_h?: number | null;
   season_tie_rule?: string | null;
@@ -165,7 +158,6 @@ export function seasonStateFromRow(t: SeasonColumns): SeasonFormState {
   return {
     enabled: t.season_table_count != null,
     tableCount: t.season_table_count ?? defaultSeasonState.tableCount,
-    pointsTop: t.season_points_top ?? defaultSeasonState.pointsTop,
     opensBeforeH: t.season_poll_opens_before_h ?? defaultSeasonState.opensBeforeH,
     closesBeforeH: t.season_poll_closes_before_h ?? defaultSeasonState.closesBeforeH,
     tieRule: rule === 'random' || rule === 'first_nominated' || rule === 'admin' ? rule : defaultSeasonState.tieRule,

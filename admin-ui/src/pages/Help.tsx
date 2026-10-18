@@ -874,8 +874,8 @@ export default function Help() {
                   <Td>PAPA-style points: 100, 90, 85, 84, 83, 82... Final score is the sum of the player's best N games.</Td>
                 </tr>
                 <tr>
-                  <Td><strong className="text-neon-magenta">Best Game (Linear)</strong></Td>
-                  <Td>Linear points: 100, 99, 98, 97... Final score is the sum of the player's best N games.</Td>
+                  <Td><strong className="text-neon-magenta">Countdown</strong></Td>
+                  <Td>Countdown points from the group's top value (default 100): 100, 99, 98, 97... floored at 0; tied scores share the place. Final score is the sum of the player's best N games.</Td>
                 </tr>
               </tbody>
             </table>
