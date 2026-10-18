@@ -1,52 +1,36 @@
 import { describe, it, expect } from 'vitest';
-import { defaultSeasonState, describeSeasonPollTimes, getSeasonErrors, seasonPayload } from '../seasonForm';
+import { defaultSeasonState, getSeasonErrors, seasonPayload, seasonStateFromRow } from '../seasonForm';
+
+/** A Season is the bound only as of v2.162.0 (ADR 0026) — the poll lives in pollForm. */
 
 describe('getSeasonErrors', () => {
   const on = { ...defaultSeasonState, enabled: true };
 
   it('is empty for the defaults and for a season that is off', () => {
-    expect(getSeasonErrors(on, '0 0 * * 5')).toEqual([]);
-    expect(getSeasonErrors({ ...on, enabled: false, tableCount: 0 }, '')).toEqual([]);
+    expect(getSeasonErrors(on)).toEqual([]);
+    expect(getSeasonErrors({ ...on, enabled: false, tableCount: 0 })).toEqual([]);
   });
 
-  it('mirrors the server rules', () => {
-    expect(getSeasonErrors({ ...on, tableCount: 0 }, '0 0 * * 5')).toHaveLength(1);
-    expect(getSeasonErrors({ ...on, tableCount: 201 }, '0 0 * * 5')).toHaveLength(1);
-    expect(getSeasonErrors({ ...on, closesBeforeH: 0, opensBeforeH: 5 }, '0 0 * * 5')).toHaveLength(1);
-    expect(getSeasonErrors({ ...on, opensBeforeH: 3, closesBeforeH: 3 }, '0 0 * * 5')[0]).toMatch(/open earlier/);
-    expect(getSeasonErrors({ ...on, opensBeforeH: 800 }, '0 0 * * 5')[0]).toMatch(/at most 768/);
-    expect(getSeasonErrors(on, '')[0]).toMatch(/rotation schedule/);
-  });
-});
-
-describe('describeSeasonPollTimes', () => {
-  it('describes the worked example (Friday midnight ET, 96 h / 3 h)', () => {
-    const text = describeSeasonPollTimes('0 0 * * 5', 'America/New_York', 96, 3)!;
-    expect(text).toMatch(/^Opens Monday 12:00 AM \S+ · closes Thursday 9:00 PM \S+ · table starts Friday 12:00 AM \S+$/);
-  });
-
-  it('wraps across the week boundary', () => {
-    expect(describeSeasonPollTimes('30 18 * * 1', 'UTC', 48, 1)).toMatch(/^Opens Saturday 6:30 PM .* closes Monday 5:30 PM .* table starts Monday 6:30 PM/);
-  });
-
-  it('treats cron day 7 as Sunday', () => {
-    expect(describeSeasonPollTimes('0 12 * * 7', 'UTC', 24, 2)).toMatch(/table starts Sunday 12:00 PM/);
-  });
-
-  it('notes an offset longer than a week', () => {
-    expect(describeSeasonPollTimes('0 0 * * 5', 'UTC', 200, 3)).toMatch(/\(1 week earlier\)/);
-  });
-
-  it('returns null for cadences it cannot describe', () => {
-    expect(describeSeasonPollTimes('0 0 * * *', 'UTC', 96, 3)).toBeNull();
-    expect(describeSeasonPollTimes('0 0 1 * *', 'UTC', 96, 3)).toBeNull();
-    expect(describeSeasonPollTimes('0 0 * * 1-5', 'UTC', 96, 3)).toBeNull();
-    expect(describeSeasonPollTimes(undefined, 'UTC', 96, 3)).toBeNull();
+  it('checks only the table count (1..200)', () => {
+    expect(getSeasonErrors({ ...on, tableCount: 0 })).toHaveLength(1);
+    expect(getSeasonErrors({ ...on, tableCount: 201 })).toHaveLength(1);
+    expect(getSeasonErrors({ ...on, tableCount: 200 })).toEqual([]);
   });
 });
 
 describe('seasonPayload', () => {
   it('sends null to switch a season off', () => {
     expect(seasonPayload(defaultSeasonState)).toEqual({ season_table_count: null });
+  });
+
+  it('sends only the table count when on — no poll keys', () => {
+    expect(seasonPayload({ enabled: true, tableCount: 8 })).toEqual({ season_table_count: 8 });
+  });
+});
+
+describe('seasonStateFromRow', () => {
+  it('reads the table count', () => {
+    expect(seasonStateFromRow({ season_table_count: 8 })).toEqual({ enabled: true, tableCount: 8 });
+    expect(seasonStateFromRow({})).toEqual(defaultSeasonState);
   });
 });

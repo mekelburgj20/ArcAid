@@ -13,8 +13,9 @@ import TournamentFormFields, {
   useTournamentForm,
   getPlatformRuleConflicts,
 } from '../components/TournamentForm';
-import { toPayload, tournamentToFormState, lockedRoundNumbers, isSeasonTournament, type Tournament } from '../lib/tournamentFormPayload';
+import { toPayload, tournamentToFormState, lockedRoundNumbers, isSeasonTournament, isPollTournament, type Tournament } from '../lib/tournamentFormPayload';
 import { getSeasonErrors } from '../lib/seasonForm';
+import { getPollErrors } from '../lib/pollForm';
 import { deriveEventState, eventStateLabel, currentOrNextRound, formatRelative } from '../lib/eventDisplay';
 import { hasRoundErrors } from '../lib/eventTime';
 import EventRoundsPanel from '../components/EventRoundsPanel';
@@ -436,12 +437,15 @@ export default function Tournaments() {
                   {chip && (
                     <span className={`ml-2 text-xs px-2 py-0.5 rounded border ${tone}`}>{chip.text}</span>
                   )}
-                  {t.season && (
+                  {t.season && t.season.table_count != null && (
                     <span className="ml-2 text-xs px-2 py-0.5 rounded border bg-neon-purple/15 text-neon-purple border-neon-purple/40 whitespace-nowrap">
                       {t.season.finished
                         ? 'Season finished'
-                        : `Season ${Math.min(t.season.tables_done + 1, t.season.table_count)}/${t.season.table_count}${t.season.paused ? ' · paused' : ''}`}
+                        : `Season ${Math.min((t.season.tables_done ?? 0) + 1, t.season.table_count)}/${t.season.table_count}${t.season.paused ? ' · paused' : ''}`}
                     </span>
+                  )}
+                  {t.season && t.season.table_count == null && t.season.poll_picks && (
+                    <span className="ml-2 text-xs px-2 py-0.5 rounded border bg-neon-purple/15 text-neon-purple border-neon-purple/40 whitespace-nowrap">Poll</span>
                   )}
                 </span>
               );
@@ -512,8 +516,8 @@ export default function Tournaments() {
                     {pausingId === t.id ? '...' : (t.is_active === 0 ? 'Resume' : 'Pause')}
                   </NeonButton>
                 )}
-                {isSeasonTournament(t) && (
-                  <NeonButton variant="ghost" onClick={() => setSeasonTarget(t)} className="text-xs px-2 py-1">Season</NeonButton>
+                {(isSeasonTournament(t) || isPollTournament(t)) && (
+                  <NeonButton variant="ghost" onClick={() => setSeasonTarget(t)} className="text-xs px-2 py-1">{isSeasonTournament(t) ? 'Season' : 'Polls'}</NeonButton>
                 )}
                 <NeonButton variant="ghost" onClick={() => openEdit(t)} className="text-xs px-2 py-1">Edit</NeonButton>
                 <NeonButton variant="danger" onClick={() => { setDeleteTarget(t); setDeleteBlockers([]); setAutoDeactivate(false); }} className="text-xs px-2 py-1">Delete</NeonButton>
@@ -633,7 +637,7 @@ export default function Tournaments() {
             // A misconfigured round can only be rejected server-side, so gate
             // here rather than letting the admin discover it on save.
             || (createForm.state.format === 'event' && hasRoundErrors(createForm.state.event))
-            || (createForm.state.format === 'rotation' && getSeasonErrors(createForm.state.season, createForm.state.schedule.cron).length > 0)
+            || (createForm.state.format === 'rotation' && (getSeasonErrors(createForm.state.season).length > 0 || getPollErrors(createForm.state.poll, createForm.state.schedule.cron).length > 0))
           }
         >
           Create Tournament
@@ -835,7 +839,7 @@ export default function Tournaments() {
                   || !editForm.state.tag.trim()
                   || getPlatformRuleConflicts(editForm.state.platformRules).length > 0
                   || (editForm.state.format === 'event' && hasRoundErrors(editForm.state.event))
-                  || (editForm.state.format === 'rotation' && getSeasonErrors(editForm.state.season, editForm.state.schedule.cron).length > 0)
+                  || (editForm.state.format === 'rotation' && (getSeasonErrors(editForm.state.season).length > 0 || getPollErrors(editForm.state.poll, editForm.state.schedule.cron).length > 0))
                 }
               >
                 {editSaving ? 'Saving...' : 'Save Changes'}

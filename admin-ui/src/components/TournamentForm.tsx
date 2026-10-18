@@ -3,17 +3,17 @@ import ScheduleBuilder from './ScheduleBuilder';
 import EventSettingsFields from './EventSettingsFields';
 import { defaultEventState, type EventFormState } from '../lib/eventTime';
 import { InfoTip } from './Tooltip';
+import { defaultSeasonState, getSeasonErrors, type SeasonFormState } from '../lib/seasonForm';
 import {
-  defaultSeasonState,
-  describeSeasonPollTimes,
-  getSeasonErrors,
-  SEASON_MAX_OFFSET_H,
-  TIE_FALLBACK_LABEL,
+  defaultPollState,
+  describePollTimes,
+  getPollErrors,
+  POLL_LOCK_NOTE,
+  POLL_MAX_OFFSET_H,
   TIE_RULE_LABEL,
-  type SeasonFormState,
-  type SeasonTieFallback,
-  type SeasonTieRule,
-} from '../lib/seasonForm';
+  type PollFormState,
+  type PollTieRule,
+} from '../lib/pollForm';
 import {
   CANONICAL_DEVICES,
   LEGACY_PLATFORM_MAP,
@@ -89,12 +89,17 @@ export interface TournamentFormState {
   cleanupRule: CleanupRule;
   schedule: { cron: string; timezone: string };
   /**
-   * Season block (docs/season-format-plan.md §3.1). Only meaningful when
-   * `format === 'rotation'`. A season forces winner picks + auto-pick off and
-   * one active slot on the server, so the form shows those locked while it is on
-   * (the admin's own values come back if the season is switched off again).
+   * Season block (docs/season-format-plan.md §3.1) — the bound only. Only
+   * meaningful when `format === 'rotation'`. Forces nothing (ADR 0026).
    */
   season: SeasonFormState;
+  /**
+   * Pick by poll (ADR 0026) — a Game Rotation method. Only meaningful when
+   * `format === 'rotation'`. Forces winner picks + auto-pick off, one active
+   * slot and a 0-day cooldown on the server, so the form shows those locked
+   * while it is on (the admin's own values come back if it is switched off).
+   */
+  poll: PollFormState;
 }
 
 // --- Defaults ---
@@ -125,6 +130,7 @@ export const defaultFormState: TournamentFormState = {
   cleanupRule: { ...defaultCleanupRule },
   schedule: { cron: '0 0 * * *', timezone: 'America/Chicago' },
   season: { ...defaultSeasonState },
+  poll: { ...defaultPollState },
 };
 
 // --- Reducer ---
@@ -532,29 +538,21 @@ function CleanupRuleEditor({ value, onChange }: { value: CleanupRule; onChange: 
   );
 }
 
-/** One-line note shown beside every field a season locks. */
-const SEASON_LOCK_NOTE = 'Fixed while Season is on: the poll picks each table, one table is live at a time.';
-/** Note under Cooldown Days — the server stores eligibility_days = 0 for a season. */
-const SEASON_COOLDOWN_NOTE = 'Fixed at 0 while Season is on: a community vote overrides cooldown.';
-
 /**
- * Season block (docs/season-format-plan.md §8.1) — a bounded weekly grind: N
- * tables, points per finishing place, and a community poll queue that picks
- * each next table. Rotation-only; the poll queue itself is run from the
- * Season panel on the Tournaments page.
+ * Season block (docs/season-format-plan.md §8.1, §13) — a bounded grind: N
+ * tables, each table's finishing places earning Countdown points on the
+ * season's ranking group. Rotation-only. As of v2.162.0 (ADR 0026) this is the
+ * bound ONLY — how each table is chosen is the Game Rotation section's job
+ * (winner picks, auto-pick, an admin, or Pick by poll), and a Season forces
+ * nothing.
  */
-function SeasonSection({ season, onChange, schedule }: {
+function SeasonSection({ season, onChange }: {
   season: SeasonFormState;
   onChange: (s: SeasonFormState) => void;
-  schedule: { cron: string; timezone: string };
 }) {
-  const selectClass = "w-full px-3 py-2 bg-raised border border-border rounded text-primary text-sm focus:outline-none focus:border-neon-cyan transition-colors cursor-pointer";
   const labelClass = "block text-xs font-display uppercase tracking-wider text-muted mb-1.5";
   const patch = (p: Partial<SeasonFormState>) => onChange({ ...season, ...p });
-  const errors = getSeasonErrors(season, schedule.cron);
-  const echo = season.enabled
-    ? describeSeasonPollTimes(schedule.cron, schedule.timezone, season.opensBeforeH, season.closesBeforeH)
-    : null;
+  const errors = getSeasonErrors(season);
 
   return (
     <div className="mb-4 rounded border border-border/60 p-3" data-testid="season-section">
@@ -567,7 +565,7 @@ function SeasonSection({ season, onChange, schedule }: {
           aria-label="Run as a Season"
         />
         <span className="text-sm text-primary font-medium">Run as a Season</span>
-        <InfoTip text="A Season is a fixed number of tables, one per rotation. Each table's finishing places earn Countdown points that add up to season standings, scored by the season's ranking group on the Rankings page (50 for 1st by default, editable there). Players vote on every next table in a poll posted to Discord and the room page." />
+        <InfoTip text="A Season is a fixed number of tables, one per rotation. Each table's finishing places earn Countdown points that add up to season standings, scored by the season's ranking group on the Rankings page (50 for 1st by default, editable there)." />
       </label>
       {!season.enabled && (
         <p className="text-xs text-faint mt-1.5 ml-6">Off — this tournament rotates forever.</p>
@@ -581,55 +579,69 @@ function SeasonSection({ season, onChange, schedule }: {
               </label>
               <NumberStepper value={season.tableCount} onChange={v => patch({ tableCount: v })} min={1} max={200} ariaLabel="Tables in the season" />
             </div>
-            <div>
-              <label className={labelClass}>
-                Poll opens (hours before rotation) <InfoTip text="When each poll opens, counted back from the rotation that starts the table it picks. 96 = Monday for a Friday rotation." />
-              </label>
-              <NumberStepper value={season.opensBeforeH} onChange={v => patch({ opensBeforeH: v })} min={2} max={SEASON_MAX_OFFSET_H} ariaLabel="Poll opens hours before rotation" />
-            </div>
-            <div>
-              <label className={labelClass}>
-                Poll closes (hours before rotation) <InfoTip text="When voting ends. At least 1 hour (Discord's minimum), and before the table starts so a tie can be settled in time." />
-              </label>
-              <NumberStepper value={season.closesBeforeH} onChange={v => patch({ closesBeforeH: v })} min={1} max={SEASON_MAX_OFFSET_H} ariaLabel="Poll closes hours before rotation" />
-            </div>
           </div>
-          <p className="text-xs text-muted" data-testid="season-echo">
-            {echo ?? `Each poll opens ${season.opensBeforeH} h and closes ${season.closesBeforeH} h before its rotation.`}
-          </p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className={labelClass} htmlFor="season-tie-rule">
-                When the vote ties <InfoTip text="Admin decides: the fallback picks a table straight away so the week is never stuck, and an admin can switch to another tied table until it starts." />
-              </label>
-              <select id="season-tie-rule" value={season.tieRule} onChange={e => patch({ tieRule: e.target.value as SeasonTieRule })} className={selectClass}>
-                {(Object.keys(TIE_RULE_LABEL) as SeasonTieRule[]).map(r => (
-                  <option key={r} value={r}>{TIE_RULE_LABEL[r]}</option>
-                ))}
-              </select>
-            </div>
-            {season.tieRule === 'admin' && (
-              <div>
-                <label className={labelClass} htmlFor="season-tie-fallback">
-                  Until an admin decides <InfoTip text="Applied the moment the poll closes on a tie, so a table is always queued." />
-                </label>
-                <select id="season-tie-fallback" value={season.tieFallback} onChange={e => patch({ tieFallback: e.target.value as SeasonTieFallback })} className={selectClass}>
-                  {(Object.keys(TIE_FALLBACK_LABEL) as SeasonTieFallback[]).map(r => (
-                    <option key={r} value={r}>{TIE_FALLBACK_LABEL[r]}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-          </div>
-          <p className="text-xs text-neon-amber">
-            Winner picks, auto-pick, active slots and cooldown are fixed for a Season (off, off, 1, 0 days) — the poll chooses every table, and a community vote overrides cooldown.
-          </p>
           {errors.length > 0 && (
             <ul className="text-xs text-neon-magenta space-y-0.5" role="alert">
               {errors.map(e => <li key={e}>{e}</li>)}
             </ul>
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Pick by poll (ADR 0026) — the poll settings shown under the "Pick by poll"
+ * checkbox in the Game Rotation section. The poll queue itself is run from the
+ * Polls / Season panel on the Tournaments page.
+ */
+function PollSettings({ poll, onChange, schedule }: {
+  poll: PollFormState;
+  onChange: (p: PollFormState) => void;
+  schedule: { cron: string; timezone: string };
+}) {
+  const selectClass = "w-full px-3 py-2 bg-raised border border-border rounded text-primary text-sm focus:outline-none focus:border-neon-cyan transition-colors cursor-pointer";
+  const labelClass = "block text-xs font-display uppercase tracking-wider text-muted mb-1.5";
+  const patch = (p: Partial<PollFormState>) => onChange({ ...poll, ...p });
+  const errors = getPollErrors(poll, schedule.cron);
+  const echo = describePollTimes(schedule.cron, schedule.timezone, poll.opensBeforeH, poll.closesBeforeH);
+
+  return (
+    <div className="ml-6 mt-2 space-y-4 rounded border border-border/60 p-3" data-testid="poll-settings">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <label className={labelClass}>
+            Poll opens (hours before rotation) <InfoTip text="When each poll opens, counted back from the rotation that starts the table it picks. 96 = Monday for a Friday rotation." />
+          </label>
+          <NumberStepper value={poll.opensBeforeH} onChange={v => patch({ opensBeforeH: v })} min={2} max={POLL_MAX_OFFSET_H} ariaLabel="Poll opens hours before rotation" />
+        </div>
+        <div>
+          <label className={labelClass}>
+            Poll closes (hours before rotation) <InfoTip text="When voting ends. At least 1 hour (Discord's minimum), and before the table starts so a tie can be settled in time." />
+          </label>
+          <NumberStepper value={poll.closesBeforeH} onChange={v => patch({ closesBeforeH: v })} min={1} max={POLL_MAX_OFFSET_H} ariaLabel="Poll closes hours before rotation" />
+        </div>
+      </div>
+      <p className="text-xs text-muted" data-testid="poll-echo">
+        {echo ?? `Each poll opens ${poll.opensBeforeH} h and closes ${poll.closesBeforeH} h before its rotation.`}
+      </p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <label className={labelClass} htmlFor="poll-tie-rule">
+            Poll Tie-breaker <InfoTip text="What happens when two or more tables tie for the most votes. Admin decides: nothing is queued and the rotation waits until an admin picks one of the tied tables on the Polls panel." />
+          </label>
+          <select id="poll-tie-rule" value={poll.tieRule} onChange={e => patch({ tieRule: e.target.value as PollTieRule })} className={selectClass}>
+            {(Object.keys(TIE_RULE_LABEL) as PollTieRule[]).map(r => (
+              <option key={r} value={r}>{TIE_RULE_LABEL[r]}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+      {errors.length > 0 && (
+        <ul className="text-xs text-neon-magenta space-y-0.5" role="alert">
+          {errors.map(e => <li key={e}>{e}</li>)}
+        </ul>
       )}
     </div>
   );
@@ -662,9 +674,10 @@ export default function TournamentFormFields({ state, set, platforms, roomId, lo
   const selectClass = `${inputClass} cursor-pointer`;
 
   const isEvent = state.format === 'event';
-  // A season forces these on the server (TournamentService) — show the forced
-  // values, locked, rather than the admin's own (which return if it is turned off).
-  const seasonOn = !isEvent && state.season.enabled;
+  // Pick by poll forces these on the server (TournamentService, ADR 0026) —
+  // show the forced values, locked, rather than the admin's own (which return
+  // if it is turned off). A Season alone forces nothing.
+  const pollOn = !isEvent && state.poll.enabled;
   // 'Announcements' select — see the comment at its JSX. Only meaningful while
   // the admin is mid-edit; the stored value is always state.channel.
   const [channelMode, setChannelMode] = useState<'default' | 'custom' | 'none' | null>(null);
@@ -765,8 +778,8 @@ export default function TournamentFormFields({ state, set, platforms, roomId, lo
             <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5 whitespace-nowrap">
               Active Slots <InfoTip text="How many games can be active simultaneously. Each slot rotates independently with its own winner picking the next game." />
             </label>
-            <NumberStepper value={seasonOn ? 1 : state.maxActiveGames} onChange={v => set('maxActiveGames', v)} min={1} disabled={seasonOn} ariaLabel="Active Slots" />
-            {seasonOn && <p className="text-xs text-faint mt-1">{SEASON_LOCK_NOTE}</p>}
+            <NumberStepper value={pollOn ? 1 : state.maxActiveGames} onChange={v => set('maxActiveGames', v)} min={1} disabled={pollOn} ariaLabel="Active Slots" />
+            {pollOn && <p className="text-xs text-faint mt-1">Fixed at 1 while Pick by poll is on.</p>}
           </div>
         )}
       </div>
@@ -790,25 +803,33 @@ export default function TournamentFormFields({ state, set, platforms, roomId, lo
         </label>
         <div className="space-y-2">
           <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" checked={seasonOn ? false : state.winnerPicks} disabled={seasonOn} aria-label="Winner picks next game" onChange={e => set('winnerPicks', e.target.checked)} className="accent-neon-cyan disabled:opacity-50" />
+            <input type="checkbox" checked={pollOn ? false : state.winnerPicks} disabled={pollOn} aria-label="Winner picks next game" onChange={e => set('winnerPicks', e.target.checked)} className="accent-neon-cyan disabled:opacity-50" />
             <span className="text-sm text-muted">Winner picks next game</span>
             <InfoTip text="When enabled, the winner of a completed game gets a pick window to choose the next game. Runner-up gets a window if the winner doesn't pick." />
           </label>
           <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" checked={seasonOn ? false : state.autoPick} disabled={seasonOn} aria-label="Auto-pick if no selection" onChange={e => set('autoPick', e.target.checked)} className="accent-neon-cyan disabled:opacity-50" />
+            <input type="checkbox" checked={pollOn ? false : state.autoPick} disabled={pollOn} aria-label="Auto-pick if no selection" onChange={e => set('autoPick', e.target.checked)} className="accent-neon-cyan disabled:opacity-50" />
             <span className="text-sm text-muted">Auto-pick if no selection</span>
             <InfoTip text="When enabled, the system automatically picks and activates a random eligible game if no one picks. If winner picks is disabled, auto-pick happens immediately after rotation." />
           </label>
-          {seasonOn && (
-            <p className="text-xs text-faint ml-6">{SEASON_LOCK_NOTE}</p>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={state.poll.enabled} aria-label="Pick by poll" onChange={e => set('poll', { ...state.poll, enabled: e.target.checked })} className="accent-neon-cyan" />
+            <span className="text-sm text-muted">Pick by poll</span>
+            <InfoTip text="The community picks each next table in a poll Arcaid posts to Discord and the room page. You curate the candidates on the Polls panel (Tournaments page); the winner is queued when the poll closes." />
+          </label>
+          {pollOn && (
+            <>
+              <p className="text-xs text-faint ml-6">{POLL_LOCK_NOTE}</p>
+              <PollSettings poll={state.poll} onChange={p => set('poll', p)} schedule={state.schedule} />
+            </>
           )}
-          {!seasonOn && !state.winnerPicks && state.autoPick && (
+          {!pollOn && !state.winnerPicks && state.autoPick && (
             <p className="text-xs text-neon-amber ml-6">Games will be auto-picked immediately after completion.</p>
           )}
-          {!seasonOn && !state.winnerPicks && !state.autoPick && (
+          {!pollOn && !state.winnerPicks && !state.autoPick && (
             <p className="text-xs text-neon-magenta ml-6">An admin must manually activate games after completion.</p>
           )}
-          {!seasonOn && state.winnerPicks && (
+          {!pollOn && state.winnerPicks && (
             <label className="flex items-center gap-2 cursor-pointer">
               <input type="checkbox" checked={state.allowDynasty} onChange={e => set('allowDynasty', e.target.checked)} className="accent-neon-cyan" />
               <span className="text-sm text-muted">Allow Dynasty (a back-to-back winner keeps pick rights)</span>
@@ -820,10 +841,10 @@ export default function TournamentFormFields({ state, set, platforms, roomId, lo
               <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">
                 Cooldown Days <InfoTip text="How many days before a game can be picked again for this tournament." />
               </label>
-              <NumberStepper value={seasonOn ? 0 : state.eligibilityDays} onChange={v => set('eligibilityDays', v)} min={seasonOn ? 0 : 1} disabled={seasonOn} ariaLabel="Cooldown Days" />
-              {seasonOn && <p className="text-xs text-faint mt-1">{SEASON_COOLDOWN_NOTE}</p>}
+              <NumberStepper value={pollOn ? 0 : state.eligibilityDays} onChange={v => set('eligibilityDays', v)} min={pollOn ? 0 : 1} disabled={pollOn} ariaLabel="Cooldown Days" />
+              {pollOn && <p className="text-xs text-faint mt-1">Fixed at 0 while Pick by poll is on.</p>}
             </div>
-            {!seasonOn && state.winnerPicks && (
+            {!pollOn && state.winnerPicks && (
               <>
                 <div>
                   <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">
@@ -844,7 +865,7 @@ export default function TournamentFormFields({ state, set, platforms, roomId, lo
       </div>
       )}
       {!isEvent && (
-        <SeasonSection season={state.season} onChange={s => set('season', s)} schedule={state.schedule} />
+        <SeasonSection season={state.season} onChange={s => set('season', s)} />
       )}
       <div className="mb-4">
         <label className="block text-xs font-display uppercase tracking-wider text-muted mb-2">

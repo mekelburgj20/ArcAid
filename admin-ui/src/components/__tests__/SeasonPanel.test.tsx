@@ -28,7 +28,7 @@ const tournament: Tournament = {
   platform_rules: '{}', is_active: 1, display_order: 0, max_active_games: 1,
   cleanup_rule: '{"mode":"retain","count":1}', winner_picks: 0, auto_pick: 0,
   eligibility_days: 0, winner_pick_window_min: 60, runnerup_pick_window_min: 30,
-  format: 'rotation', season_table_count: 12, season_tie_rule: 'admin',
+  format: 'rotation', season_table_count: 12, poll_picks: 1, poll_tie_rule: 'admin',
 };
 
 function poll(over: Partial<SeasonPoll>): SeasonPoll {
@@ -44,7 +44,7 @@ function poll(over: Partial<SeasonPoll>): SeasonPoll {
 }
 
 const QUEUE: SeasonQueue = {
-  tournament_id: TID, table_count: 12, tables_done: 5, resolved_count: 6, bound_reached: false,
+  tournament_id: TID, poll_picks: true, table_count: 12, tables_done: 5, resolved_count: 6, bound_reached: false,
   paused: false, finished: false,
   polls: [
     poll({
@@ -82,9 +82,9 @@ const CANDIDATES = {
   ],
 };
 
-function renderPanel() {
+function renderPanel(t: Tournament = tournament) {
   return render(
-    <SeasonPanel roomId={ROOM} tournament={tournament} onClose={vi.fn()} onChanged={vi.fn()} toast={vi.fn()} />,
+    <SeasonPanel roomId={ROOM} tournament={t} onClose={vi.fn()} onChanged={vi.fn()} toast={vi.fn()} />,
   );
 }
 
@@ -189,7 +189,7 @@ describe('SeasonPanel', () => {
     const editor = screen.getByRole('region', { name: 'Poll editor' });
     expect((within(editor).getByLabelText(/Question/) as HTMLInputElement).disabled).toBe(true);
     expect((within(editor).getByLabelText(/Discord channel/) as HTMLInputElement).disabled).toBe(true);
-    expect((within(editor).getByLabelText('Tie rule') as HTMLSelectElement).disabled).toBe(true);
+    expect((within(editor).getByLabelText('Poll Tie-breaker') as HTMLSelectElement).disabled).toBe(true);
     expect(within(editor).queryByLabelText('Search candidates')).toBeNull();
     expect(within(editor).queryByRole('button', { name: /Remove/ })).toBeNull();
 
@@ -216,6 +216,53 @@ describe('SeasonPanel', () => {
     expect(within(resolved).queryByRole('button', { name: 'Play Twilight Zone' })).toBeNull();
     fireEvent.click(within(resolved).getByRole('button', { name: 'Play Medieval Madness' }));
     await waitFor(() => expect(apiMock.post).toHaveBeenCalledWith(`${BASE}/polls/p-res/choose`, { position: 2 }));
+  });
+
+  it('an "admin decides" tie with nothing queued says so and offers every tied table', async () => {
+    const held = poll({
+      id: 'p-held', slot_no: 6, status: 'resolved', tied: true, tied_positions: [1, 2], can_choose: true,
+      candidates: [
+        { position: 1, game_name: 'Attack from Mars', global_game_id: 'g1', discord_answer_id: 1, votes: 3 },
+        { position: 2, game_name: 'Medieval Madness', global_game_id: 'g2', discord_answer_id: 2, votes: 3 },
+      ],
+      total_votes: 6,
+    });
+    apiMock.get.mockImplementation((path: string) =>
+      path === `${BASE}/polls` ? Promise.resolve({ ...QUEUE, polls: [held] }) : Promise.reject(new Error(path)));
+    renderPanel();
+    const card = await screen.findByTestId('poll-p-held');
+    expect(within(card).getByText(/No table queued — choose one/)).toBeTruthy();
+    expect(within(card).queryByText(/fallback/i)).toBeNull();
+    expect(within(card).queryByText(/No eligible winner/)).toBeNull();
+    fireEvent.click(within(card).getByRole('button', { name: 'Play Attack from Mars' }));
+    await waitFor(() => expect(apiMock.post).toHaveBeenCalledWith(`${BASE}/polls/p-held/choose`, { position: 1 }));
+    expect(within(card).getByRole('button', { name: 'Play Medieval Madness' })).toBeTruthy();
+  });
+
+  it('a poll-only tournament shows the queue but no season progress or pause', async () => {
+    apiMock.get.mockImplementation((path: string) =>
+      path === `${BASE}/polls`
+        ? Promise.resolve({ ...QUEUE, table_count: null, tables_done: null, polls: [QUEUE.polls[1]] })
+        : Promise.reject(new Error(path)));
+    renderPanel({ ...tournament, season_table_count: null });
+    expect(await screen.findByTestId('poll-p-open')).toBeTruthy();
+    expect(screen.getByTestId('poll-heading')).toHaveTextContent('Pick by poll');
+    expect(screen.queryByTestId('season-progress')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Pause season' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'New poll' })).toBeTruthy();
+  });
+
+  it('a Season without Pick by poll shows progress and pause but no poll queue', async () => {
+    apiMock.get.mockImplementation((path: string) =>
+      path === `${BASE}/polls`
+        ? Promise.resolve({ ...QUEUE, poll_picks: false, polls: [] })
+        : Promise.reject(new Error(path)));
+    renderPanel({ ...tournament, poll_picks: 0 });
+    expect(await screen.findByTestId('season-progress')).toHaveTextContent('Week 6 of 12');
+    await waitFor(() => expect(screen.getByText(/Pick by poll is off for this season/)).toBeTruthy());
+    expect(screen.getByRole('button', { name: 'Pause season' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'New poll' })).toBeNull();
+    expect(screen.queryByRole('list', { name: 'Poll queue' })).toBeNull();
   });
 
   it('poll actions hit their routes', async () => {

@@ -1,18 +1,19 @@
 import { describe, it, expect } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import { useState } from 'react';
 import TournamentFormFields, { defaultFormState, type TournamentFormState } from '../TournamentForm';
 import { toPayload, tournamentToFormState, type Tournament } from '../../lib/tournamentFormPayload';
 import { defaultSeasonState } from '../../lib/seasonForm';
+import { defaultPollState } from '../../lib/pollForm';
 
 /**
- * Season section of the tournament form (docs/season-format-plan.md §8.1).
+ * Season section + "Pick by poll" in Game Rotation (ADR 0026, plan §8.1, §13).
  *
- * Locks: the toggle reveals the season fields with the plan's defaults; the
- * four fields a season forces (winner picks, auto-pick, active slots, cooldown
- * days) render
- * locked at their forced values; the poll-timing echo; the client-side
- * validation; and the wire shape of the season block.
+ * Locks: "Pick by poll" is a third Game Rotation checkbox that unticks and
+ * disables winner picks + auto-pick and locks Active Slots (1) and Cooldown
+ * Days (0); its poll fields, plain-language echo and the three-option "Poll
+ * Tie-breaker" live under it; the Season section holds only the table count
+ * and forces nothing; and the wire shape of both blocks.
  */
 
 const WEEKLY: TournamentFormState['schedule'] = { cron: '0 0 * * 5', timezone: 'America/New_York' };
@@ -37,113 +38,140 @@ function Harness({ initial }: { initial?: Partial<TournamentFormState> }) {
 }
 
 const payload = () => JSON.parse(screen.getByTestId('payload').textContent || '{}');
+const box = (label: string) => screen.getByLabelText(label) as HTMLInputElement;
 
-describe('TournamentForm — Season section', () => {
+describe('TournamentForm — Pick by poll (Game Rotation)', () => {
   it('is off by default and the rotation fields are editable', () => {
     render(<Harness />);
-    const toggle = screen.getByLabelText('Run as a Season') as HTMLInputElement;
-    expect(toggle.checked).toBe(false);
-    expect((screen.getByLabelText('Winner picks next game') as HTMLInputElement).disabled).toBe(false);
-    expect((screen.getByLabelText('Active Slots') as HTMLInputElement).disabled).toBe(false);
-    expect((screen.getByLabelText('Active Slots') as HTMLInputElement).value).toBe('3');
-    expect((screen.getByLabelText('Cooldown Days') as HTMLInputElement).disabled).toBe(false);
-    expect((screen.getByLabelText('Cooldown Days') as HTMLInputElement).value).toBe('120');
-    expect(payload().season_table_count).toBeNull();
-    expect(payload().max_active_games).toBe(3);
-    expect(payload().eligibility_days).toBe(120);
+    expect(box('Pick by poll').checked).toBe(false);
+    expect(box('Winner picks next game').disabled).toBe(false);
+    expect(box('Active Slots').disabled).toBe(false);
+    expect(box('Active Slots').value).toBe('3');
+    expect(box('Cooldown Days').disabled).toBe(false);
+    expect(box('Cooldown Days').value).toBe('120');
+    expect(screen.queryByLabelText('Poll opens hours before rotation')).toBeNull();
+    expect(payload()).toMatchObject({ poll_picks: false, max_active_games: 3, eligibility_days: 120 });
   });
 
-  it('toggling on shows the defaults and locks the forced fields at their forced values', () => {
+  it('turning it on unticks + disables the other two, locks slots/cooldown, and shows the poll fields', () => {
     render(<Harness />);
-    fireEvent.click(screen.getByLabelText('Run as a Season'));
+    fireEvent.click(box('Pick by poll'));
 
-    expect((screen.getByLabelText('Tables in the season') as HTMLInputElement).value).toBe('12');
-    // Points live on the season's ranking group (Rankings page), not here.
-    expect(screen.queryByLabelText('Points for 1st')).toBeNull();
-    expect((screen.getByLabelText('Poll opens hours before rotation') as HTMLInputElement).value).toBe('96');
-    expect((screen.getByLabelText('Poll closes hours before rotation') as HTMLInputElement).value).toBe('3');
+    expect(box('Winner picks next game').disabled).toBe(true);
+    expect(box('Winner picks next game').checked).toBe(false);
+    expect(box('Auto-pick if no selection').disabled).toBe(true);
+    expect(box('Auto-pick if no selection').checked).toBe(false);
+    expect(box('Active Slots').disabled).toBe(true);
+    expect(box('Active Slots').value).toBe('1');
+    expect(box('Cooldown Days').disabled).toBe(true);
+    expect(box('Cooldown Days').value).toBe('0');
+    expect(screen.getByText(
+      'Fixed while Pick by poll is on: the poll picks each table, one table is live at a time; a community vote overrides cooldown.',
+    )).toBeTruthy();
 
-    const winner = screen.getByLabelText('Winner picks next game') as HTMLInputElement;
-    const auto = screen.getByLabelText('Auto-pick if no selection') as HTMLInputElement;
-    const slots = screen.getByLabelText('Active Slots') as HTMLInputElement;
-    expect(winner.disabled).toBe(true);
-    expect(winner.checked).toBe(false);
-    expect(auto.disabled).toBe(true);
-    expect(auto.checked).toBe(false);
-    expect(slots.disabled).toBe(true);
-    expect(slots.value).toBe('1');
-    const cooldown = screen.getByLabelText('Cooldown Days') as HTMLInputElement;
-    expect(cooldown.disabled).toBe(true);
-    expect(cooldown.value).toBe('0');
-    expect(screen.getAllByText(/Fixed while Season is on/).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/a community vote overrides cooldown/).length).toBeGreaterThan(0);
-
+    expect(box('Poll opens hours before rotation').value).toBe('96');
+    expect(box('Poll closes hours before rotation').value).toBe('3');
     expect(payload()).toMatchObject({
-      season_table_count: 12,
-      season_poll_opens_before_h: 96,
-      season_poll_closes_before_h: 3,
-      season_tie_rule: 'admin',
-      season_tie_fallback: 'random',
+      poll_picks: true,
+      poll_opens_before_h: 96,
+      poll_closes_before_h: 3,
+      poll_tie_rule: 'admin',
       winner_picks: false,
       auto_pick: false,
       max_active_games: 1,
       eligibility_days: 0,
+      season_table_count: null,
     });
+    expect('poll_tie_fallback' in payload()).toBe(false);
+    expect('season_tie_fallback' in payload()).toBe(false);
   });
 
-  it('turning the season back off restores the admin\'s own values', () => {
+  it('turning it back off restores the admin\'s own values', () => {
     render(<Harness initial={{ eligibilityDays: 45 }} />);
-    fireEvent.click(screen.getByLabelText('Run as a Season'));
+    fireEvent.click(box('Pick by poll'));
     expect(payload().eligibility_days).toBe(0);
-    fireEvent.click(screen.getByLabelText('Run as a Season'));
-    expect((screen.getByLabelText('Active Slots') as HTMLInputElement).value).toBe('3');
-    const cooldown = screen.getByLabelText('Cooldown Days') as HTMLInputElement;
-    expect(cooldown.disabled).toBe(false);
-    expect(cooldown.value).toBe('45');
-    expect(payload().eligibility_days).toBe(45);
-    expect((screen.getByLabelText('Winner picks next game') as HTMLInputElement).checked).toBe(true);
-    expect(payload().season_table_count).toBeNull();
+    fireEvent.click(box('Pick by poll'));
+    expect(box('Active Slots').value).toBe('3');
+    expect(box('Cooldown Days').disabled).toBe(false);
+    expect(box('Cooldown Days').value).toBe('45');
+    expect(box('Winner picks next game').checked).toBe(true);
+    expect(payload()).toMatchObject({ poll_picks: false, eligibility_days: 45, winner_picks: true });
   });
 
   it('echoes the poll times in plain language for a weekly rotation', () => {
     render(<Harness />);
-    fireEvent.click(screen.getByLabelText('Run as a Season'));
-    expect(screen.getByTestId('season-echo').textContent).toMatch(
+    fireEvent.click(box('Pick by poll'));
+    expect(screen.getByTestId('poll-echo').textContent).toMatch(
       /Opens Monday 12:00 AM .+ · closes Thursday 9:00 PM .+ · table starts Friday 12:00 AM/,
     );
   });
 
   it('falls back to the offsets for a cadence it cannot describe', () => {
     render(<Harness initial={{ schedule: { cron: '0 0 1 * *', timezone: 'America/New_York' } }} />);
-    fireEvent.click(screen.getByLabelText('Run as a Season'));
-    expect(screen.getByTestId('season-echo').textContent).toBe('Each poll opens 96 h and closes 3 h before its rotation.');
+    fireEvent.click(box('Pick by poll'));
+    expect(screen.getByTestId('poll-echo').textContent).toBe('Each poll opens 96 h and closes 3 h before its rotation.');
   });
 
   it('validates: the poll must open earlier than it closes', () => {
     render(<Harness />);
-    fireEvent.click(screen.getByLabelText('Run as a Season'));
+    fireEvent.click(box('Pick by poll'));
     expect(screen.queryByRole('alert')).toBeNull();
-    fireEvent.change(screen.getByLabelText('Poll closes hours before rotation'), { target: { value: '100' } });
+    fireEvent.change(box('Poll closes hours before rotation'), { target: { value: '100' } });
     expect(screen.getByRole('alert').textContent).toMatch(/must open earlier than it closes/);
   });
 
-  it('shows the tie fallback only when the rule is "admin"', () => {
+  it('"Poll Tie-breaker" has exactly three options and no fallback select', () => {
     render(<Harness />);
-    fireEvent.click(screen.getByLabelText('Run as a Season'));
-    expect(screen.getByLabelText(/Until an admin decides/)).toBeTruthy();
-    fireEvent.change(screen.getByLabelText(/When the vote ties/), { target: { value: 'random' } });
+    fireEvent.click(box('Pick by poll'));
+    const select = screen.getByLabelText(/Poll Tie-breaker/) as HTMLSelectElement;
+    expect(within(select).getAllByRole('option').map(o => o.textContent)).toEqual([
+      'Admin decides — no table is queued until an admin chooses',
+      'Random pick among the tied',
+      'First nominated wins',
+    ]);
     expect(screen.queryByLabelText(/Until an admin decides/)).toBeNull();
-    expect(payload().season_tie_rule).toBe('random');
-  });
-
-  it('is not offered on an event', () => {
-    render(<Harness initial={{ format: 'event' }} />);
-    expect(screen.queryByLabelText('Run as a Season')).toBeNull();
-    expect('season_table_count' in payload()).toBe(false);
+    expect(screen.queryByText(/When the vote ties/)).toBeNull();
+    fireEvent.change(select, { target: { value: 'random' } });
+    expect(payload().poll_tie_rule).toBe('random');
   });
 });
 
-describe('tournamentToFormState — season columns', () => {
+describe('TournamentForm — Season section', () => {
+  it('holds only the table count, forces nothing, and has no poll fields', () => {
+    render(<Harness />);
+    const season = screen.getByTestId('season-section');
+    fireEvent.click(box('Run as a Season'));
+
+    expect(box('Tables in the season').value).toBe('12');
+    expect(within(season).queryByLabelText('Poll opens hours before rotation')).toBeNull();
+    expect(within(season).queryByLabelText(/Tie-breaker/)).toBeNull();
+    expect(screen.queryByText(/fixed for a Season/)).toBeNull();
+    // A Season alone forces nothing.
+    expect(box('Winner picks next game').disabled).toBe(false);
+    expect(box('Active Slots').disabled).toBe(false);
+    expect(box('Cooldown Days').disabled).toBe(false);
+    expect(payload()).toMatchObject({
+      season_table_count: 12, poll_picks: false, max_active_games: 3, eligibility_days: 120, winner_picks: true,
+    });
+  });
+
+  it('a poll-picked Season sends both blocks', () => {
+    render(<Harness />);
+    fireEvent.click(box('Run as a Season'));
+    fireEvent.click(box('Pick by poll'));
+    expect(payload()).toMatchObject({ season_table_count: 12, poll_picks: true, max_active_games: 1 });
+  });
+
+  it('neither is offered on an event', () => {
+    render(<Harness initial={{ format: 'event' }} />);
+    expect(screen.queryByLabelText('Run as a Season')).toBeNull();
+    expect(screen.queryByLabelText('Pick by poll')).toBeNull();
+    expect('season_table_count' in payload()).toBe(false);
+    expect('poll_picks' in payload()).toBe(false);
+  });
+});
+
+describe('tournamentToFormState — season + poll columns', () => {
   const base: Tournament = {
     id: 't1', name: 'Grind', type: 'WG', mode: 'pinball',
     cadence: JSON.stringify({ cron: '0 0 * * 5', timezone: 'America/New_York' }),
@@ -152,19 +180,19 @@ describe('tournamentToFormState — season columns', () => {
     eligibility_days: 0, winner_pick_window_min: 60, runnerup_pick_window_min: 30,
   };
 
-  it('reads a stored season', () => {
+  it('reads a stored poll-picked season', () => {
     const state = tournamentToFormState({
       ...base,
-      season_table_count: 8, season_poll_opens_before_h: 72,
-      season_poll_closes_before_h: 6, season_tie_rule: 'first_nominated', season_tie_fallback: 'first_nominated',
+      season_table_count: 8, poll_picks: 1, poll_opens_before_h: 72,
+      poll_closes_before_h: 6, poll_tie_rule: 'first_nominated',
     });
-    expect(state.season).toEqual({
-      enabled: true, tableCount: 8, opensBeforeH: 72, closesBeforeH: 6,
-      tieRule: 'first_nominated', tieFallback: 'first_nominated',
-    });
+    expect(state.season).toEqual({ enabled: true, tableCount: 8 });
+    expect(state.poll).toEqual({ enabled: true, opensBeforeH: 72, closesBeforeH: 6, tieRule: 'first_nominated' });
   });
 
-  it('a row without a season is off with the defaults ready', () => {
-    expect(tournamentToFormState(base).season).toEqual(defaultSeasonState);
+  it('a row with neither is off with the defaults ready', () => {
+    const state = tournamentToFormState(base);
+    expect(state.season).toEqual(defaultSeasonState);
+    expect(state.poll).toEqual(defaultPollState);
   });
 });
