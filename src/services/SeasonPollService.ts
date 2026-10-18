@@ -15,7 +15,7 @@ import { roomUrl } from '../utils/publicLinks.js';
 import { IdentityLinkService } from './IdentityLinkService.js';
 import { RoomGameTagsService } from './RoomGameTagsService.js';
 import { GameRoomSettingsService } from './GameRoomSettingsService.js';
-import { resolveProfiles } from './PlayerProfileResolver.js';
+import { resolveUserLabels } from './PlayerProfileResolver.js';
 import { getIO } from '../api/websocket.js';
 
 /**
@@ -1115,7 +1115,10 @@ export class SeasonPollService {
             const voteRows = await db.all<Array<{ user_id: string; position: number; source: string; voted_at: string }>>(
                 'SELECT user_id, position, source, voted_at FROM season_poll_votes WHERE poll_id = ? ORDER BY voted_at ASC', poll.id,
             );
-            const profiles = await resolveProfiles(voteRows.map(v => ({ submitted_by_user_id: v.user_id, discord_user_id: v.user_id })));
+            // v2.162.2 — a voter is a bare user id, so the id-keyed label rule
+            // (display_name → username → earliest alias) applies; a voter with
+            // no chosen display name rendered as a raw snowflake before.
+            const voterLabels = await resolveUserLabels(voteRows.map(v => v.user_id));
             const rule = (poll.tie_rule ?? t.poll_tie_rule) as SeasonTieRule;
             const ranked = this.rankCandidates(poll.id, candidates, tally, rule);
             const queued = poll.result_queued_game_id
@@ -1157,9 +1160,9 @@ export class SeasonPollService {
                     votes: tally.get(c.position) ?? 0,
                 })),
                 total_votes: voteRows.length,
-                voters: voteRows.map((v, i) => ({
+                voters: voteRows.map((v) => ({
                     user_id: v.user_id,
-                    display_name: profiles[i]?.display_name ?? null,
+                    display_name: voterLabels[v.user_id] ?? null,
                     position: v.position,
                     source: v.source,
                     voted_at: v.voted_at,

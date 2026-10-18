@@ -5226,10 +5226,14 @@ router.get('/:roomId/events/:id/participants', requireAuth, requireRoomAccess('r
         // Resolve names at READ time, the same doctrine every leaderboard uses.
         // A check-in roster of raw Discord snowflakes is unusable to the host
         // running the night — they know "Wyo", not 184627390012.
-        const { resolveProfiles } = await import('../../services/PlayerProfileResolver.js');
+        const { resolveProfiles, resolveUserLabels } = await import('../../services/PlayerProfileResolver.js');
         const profiles = await resolveProfiles(
             participants.map(p => ({ submitted_by_user_id: p.user_id, discord_user_id: p.user_id })),
         );
+        // v2.162.2 — a participant is a bare user id: display_name → username
+        // → earliest alias, so a player who never chose a display name still
+        // reads as a name rather than a snowflake.
+        const labels = await resolveUserLabels(participants.map(p => p.user_id));
         // v2.159.0 — the host sees the same green light the public lobby does.
         const { EventLobbyService } = await import('../../services/EventLobbyService.js');
         const rounds = await EventService.getRounds(event.id);
@@ -5237,7 +5241,7 @@ router.get('/:roomId/events/:id/participants', requireAuth, requireRoomAccess('r
         const lobbyByUser = new Map(lobby.map(e => [e.userId, e]));
         res.json(participants.map((p, i) => ({
             ...p,
-            display_name: profiles[i]?.display_name ?? null,
+            display_name: labels[p.user_id] ?? null,
             avatar_hash: profiles[i]?.avatar_hash ?? null,
             avatar_url: profiles[i]?.avatar_url ?? null,
             witness: lobbyByUser.get(p.user_id) ? {
@@ -7238,7 +7242,10 @@ router.get('/:roomId/admin/members', requireAuth, requireRoomAccess('roomId'), a
         // username stored on every login, then the room's own claimed name.
         // `username` ships alongside so the FE can disambiguate two members who
         // resolve to the same label.
-        const memberLabel = `COALESCE(NULLIF(TRIM(up.display_name), ''), NULLIF(TRIM(up.username), ''), NULLIF(TRIM(rm.display_name), ''))`;
+        // v2.162.2 — the earliest iScored alias is the last leg before the raw
+        // id, same as the shared `resolveUserLabels` rule.
+        const memberLabel = `COALESCE(NULLIF(TRIM(up.display_name), ''), NULLIF(TRIM(up.username), ''), NULLIF(TRIM(rm.display_name), ''),
+            (SELECT um.iscored_username FROM user_mappings um WHERE um.discord_user_id = rm.user_id ORDER BY um.created_at ASC LIMIT 1))`;
         const rows = await db.all(
             `SELECT rm.user_id AS userId, rm.joined_at AS joinedAt, rm.source AS source,
                     ${memberLabel} AS displayName, up.username AS username,
@@ -8213,8 +8220,8 @@ router.get('/:roomId/admin/game-states', requireAuth, requireRoomAccess('roomId'
         // picker_name (v2.133.2): the page used to render only `picker_type`
         // (blank for web picks) + the reminder count, so every queued row read
         // as an anonymous "(0r)". Same order as `resolveSubmitName`: this
-        // room's claimed name → global display name → Discord username; the
-        // FE falls back to the raw id.
+        // room's claimed name → global display name → Discord username →
+        // (v2.162.2) earliest iScored alias; the FE falls back to the raw id.
         let query = `
             SELECT g.id, g.name, g.status, g.iscored_id, g.picker_discord_id,
                    g.picker_type, g.picker_designated_at, g.reminder_count,
@@ -8224,7 +8231,10 @@ router.get('/:roomId/admin/game-states', requireAuth, requireRoomAccess('roomId'
                    COALESCE(t.type, '') as tournament_type,
                    t.id as tournament_id,
                    CASE WHEN g.tournament_id IS NULL THEN 1 ELSE 0 END as is_pinned,
-                   COALESCE(rm.display_name, up.display_name, up.username) as picker_name
+                   COALESCE(rm.display_name, up.display_name, up.username,
+                            (SELECT um.iscored_username FROM user_mappings um
+                              WHERE um.discord_user_id = g.picker_discord_id
+                              ORDER BY um.created_at ASC LIMIT 1)) as picker_name
             FROM games g
             LEFT JOIN tournaments t ON g.tournament_id = t.id
             LEFT JOIN room_members rm ON rm.user_id = g.picker_discord_id AND rm.room_id = ?

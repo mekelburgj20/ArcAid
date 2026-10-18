@@ -1,6 +1,7 @@
 import { getDatabase } from '../database/database.js';
 import { logInfo } from '../utils/logger.js';
 import { invalidateIdentityCaches } from './IdentityAliasEffectsService.js';
+import { resolveUserLabels } from './PlayerProfileResolver.js';
 
 /**
  * P7 — attaching an AtGames account to an Arcaid one.
@@ -144,7 +145,17 @@ export class AtGamesIdentityService {
                 linkedDisplayName: r.display_name,
             });
         }
-        return [...byProvider.values()].sort((a, b) => b.scoreCount - a.scoreCount);
+        // v2.162.2 — the linked account is a bare user id: resolve it with the
+        // shared id-keyed rule (display_name → username → earliest alias), so
+        // a player who never chose a display name is not shown as a snowflake.
+        const accounts = [...byProvider.values()];
+        const labels = await resolveUserLabels(
+            accounts.map(a => a.linkedUserId).filter((id): id is string => !!id),
+        );
+        for (const a of accounts) {
+            if (a.linkedUserId) a.linkedDisplayName = labels[a.linkedUserId] ?? a.linkedDisplayName ?? null;
+        }
+        return accounts.sort((a, b) => b.scoreCount - a.scoreCount);
     }
 
     /**

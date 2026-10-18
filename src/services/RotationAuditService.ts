@@ -1,6 +1,7 @@
 import { getDatabase } from '../database/database.js';
 import { logError } from '../utils/logger.js';
 import { trackBackground } from '../utils/backgroundTasks.js';
+import { resolveUserLabels } from './PlayerProfileResolver.js';
 
 /**
  * The decisions a rotation makes. Deliberately NOT a log of queue traffic —
@@ -278,40 +279,8 @@ export class RotationAuditService {
             add(e.queue_owner);
             for (const k of IDENTITY_DETAIL_KEYS) add(e.details?.[k]);
         }
-        const names: Record<string, string> = {};
-        if (ids.size === 0) return names;
-
-        try {
-            const db = await getDatabase();
-            const list = [...ids];
-            const placeholders = list.map(() => '?').join(',');
-            const profiles = await db.all(
-                `SELECT discord_user_id, display_name, username FROM user_profiles
-                  WHERE discord_user_id IN (${placeholders})`,
-                ...list,
-            ) as Array<{ discord_user_id: string; display_name: string | null; username: string | null }>;
-            for (const p of profiles) {
-                const label = p.display_name || p.username;
-                if (label) names[p.discord_user_id] = label;
-            }
-            const unresolved = list.filter((id) => !names[id]);
-            if (unresolved.length) {
-                const ph = unresolved.map(() => '?').join(',');
-                // Earliest alias wins, matching labelForPlayer's ORDER BY.
-                const aliases = await db.all(
-                    `SELECT discord_user_id, iscored_username FROM user_mappings
-                      WHERE discord_user_id IN (${ph})
-                      ORDER BY created_at ASC`,
-                    ...unresolved,
-                ) as Array<{ discord_user_id: string; iscored_username: string }>;
-                for (const a of aliases) {
-                    if (!names[a.discord_user_id] && a.iscored_username) names[a.discord_user_id] = a.iscored_username;
-                }
-            }
-        } catch (err) {
-            logError('RotationAuditService.resolveNames failed (rendering raw ids):', err);
-        }
-        return names;
+        // v2.162.2 — the lookup is the shared id-keyed label rule.
+        return resolveUserLabels(ids);
     }
 
     /** Drop rows past the retention window. Returns the number deleted. */

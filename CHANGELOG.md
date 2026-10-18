@@ -6,6 +6,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.162.2] — 2026-10-18 — Every rendered user id resolves to a name
+
+Owner report 2026-10-18: the admin Season panel's "Show voters" list showed `1342178162058068048`
+for a voter who had never chosen a display name but had a login username (and an iScored alias).
+Owner ruling: "These need to auto resolve all throughout Arcaid app. I'm tired of looking IDs up."
+
+### Fixed
+- **One shared rule for anything rendered from a bare user id.** `resolveUserLabels(ids)` in
+  `PlayerProfileResolver.ts` — `user_profiles.display_name` → `user_profiles.username` → the
+  EARLIEST `user_mappings.iscored_username`, two batched queries, never throws — extracted from
+  `RotationAuditService.resolveNames` (which now delegates to it), plus the pure
+  `labelForProfile(p)` (`display_name || username`). `resolveProfiles` now also returns `username`.
+  The raw id is the LAST resort, only when the account has none of the three.
+- **Surfaces now on that rule:** the Season/poll admin voter list (the reported bug); the host's
+  event participants roster and the public check-in lobby (`EventLobbyService`); the AtGames
+  "Who is who" linked-account label; the admin member picker (`/admin/members` gains the
+  earliest-alias leg; the picker and Admin pick-on-behalf render `displayName || username ||
+  userId`); the Picks page nominee chip (threads `username`); the Game States picker name (gains
+  the alias leg); and the cached friend label written on follow (gains the username leg).
+- **Unchanged on purpose:** score-row surfaces (leaderboards, tournament/event boards, score
+  detail) keep `display_name ?? iscored_username` — their output is identical.
+
+---
+
 ## [2.162.1] — 2026-10-18 — Tickers enter from the right edge
 
 Owner report from the first Seasons demo (2026-10-18): the top rankings ticker "starts in an odd
