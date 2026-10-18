@@ -6,6 +6,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.162.3] — 2026-10-18 — The table poll card lives on the Lobby
+
+Owner ruling from the first Seasons demo (2026-10-18): "The web vote poll shows up on the Scores
+page, but I think it belongs in the Lobby." On Scores it also pushed the active-card rail down.
+
+### Changed
+- **`SeasonPollCards` is mounted on the Lobby** (`pages/Lobby.tsx`), directly under the social links
+  and pinned message. The Lobby now joins the `room:<id>` socket channel (re-joined on every
+  reconnect), bumps the card on `season:poll`, and runs `useLiveRefresh` like every other page that
+  joins a room, so a vote cast on Discord still shows up without a reload.
+- **Scores shows a one-line pointer instead of the card** while a poll is open: a ballot icon,
+  "Week N table poll is open" (or "Table poll is open" for a poll-only rotation, "N table polls are
+  open" when several are), and a "Vote in the Lobby →" link. The pointer and the card share one
+  open-poll lookup (`fetchOpenSeasonPolls`), so they cannot disagree about whether a poll is open.
+- Docs: CLAUDE.md Seasons surfaces + the `useLiveRefresh` page list; `docs/season-format-plan.md` §8.3.
 ## [2.162.2] — 2026-10-18 — Every rendered user id resolves to a name
 
 Owner report 2026-10-18: the admin Season panel's "Show voters" list showed `1342178162058068048`
