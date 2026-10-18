@@ -149,7 +149,7 @@ export default function AdminPickOnBehalf({ roomId, tournaments }: Props) {
     [members, player],
   );
 
-  const playerLabel = player ? (player.displayName || player.userId) : '';
+  const playerLabel = player ? (player.displayName || player.username || player.userId) : '';
 
   const handleQueue = async (gameName: string) => {
     if (!player || !tournamentId) return;

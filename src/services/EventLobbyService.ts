@@ -1,7 +1,7 @@
 import { getDatabase } from '../database/database.js';
 import { logInfo } from '../utils/logger.js';
 import { EventService, type EventTournamentRow, type EventRoundRow } from './EventService.js';
-import { resolveProfiles } from './PlayerProfileResolver.js';
+import { resolveProfiles, resolveUserLabels } from './PlayerProfileResolver.js';
 
 /**
  * The check-in LOBBY (v2.159.0) — who is checked in to an event, and whether
@@ -178,6 +178,8 @@ export class EventLobbyService {
         const profiles = await resolveProfiles(
             participants.map(p => ({ submitted_by_user_id: p.user_id, discord_user_id: p.user_id })),
         );
+        // v2.162.2 — id-keyed label rule (display_name → username → alias).
+        const labels = await resolveUserLabels(participants.map(p => p.user_id));
 
         return participants.map((p, i) => {
             const mine = devices.filter(d => d.canonical_user_id === p.user_id);
@@ -207,7 +209,7 @@ export class EventLobbyService {
             const profile = profiles[i];
             return {
                 userId: p.user_id,
-                displayName: profile?.display_name ?? null,
+                displayName: labels[p.user_id] ?? null,
                 avatarHash: profile?.avatar_hash ?? null,
                 avatarUrl: profile?.avatar_url ?? null,
                 checkedInAt: p.checked_in_at,

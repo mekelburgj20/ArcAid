@@ -1,4 +1,5 @@
 import { getDatabase } from '../database/database.js';
+import { logError } from '../utils/logger.js';
 
 /**
  * Read-time display resolution for leaderboard rows — v2.74.0 (S24.1).
@@ -57,6 +58,12 @@ export interface ResolvedProfile {
     /** `COALESCE(submitted_by_user_id, user_mappings.discord_user_id, raw)`. */
     discord_user_id: string;
     display_name: string | null;
+    /**
+     * v2.162.2 — the account's login username (`user_profiles.username`).
+     * Score-row surfaces keep rendering `display_name ?? iscored_username`;
+     * id-keyed surfaces use it as the second leg of `labelForProfile`.
+     */
+    username: string | null;
     avatar_hash: string | null;
     /**
      * v2.74.0 — full avatar URL (Google-linked users). `PlayerAvatar` prefers
@@ -143,18 +150,19 @@ export async function resolveProfiles(
         });
     }
 
-    const profileById = new Map<string, { display_name: string | null; avatar_hash: string | null; avatar_url: string | null }>();
+    const profileById = new Map<string, { display_name: string | null; username: string | null; avatar_hash: string | null; avatar_url: string | null }>();
     if (profileKeys.size > 0) {
         const list = [...profileKeys];
         const ph = list.map(() => '?').join(',');
         const profileRows = await db.all(
-            `SELECT discord_user_id, display_name, avatar_hash, avatar_url
+            `SELECT discord_user_id, display_name, username, avatar_hash, avatar_url
              FROM user_profiles WHERE discord_user_id IN (${ph})`,
             ...list,
         );
         for (const p of profileRows) {
             profileById.set(p.discord_user_id, {
                 display_name: p.display_name ?? null,
+                username: p.username ?? null,
                 avatar_hash: p.avatar_hash ?? null,
                 avatar_url: p.avatar_url ?? null,
             });
@@ -166,8 +174,80 @@ export async function resolveProfiles(
         return {
             discord_user_id: displayedId,
             display_name: profile?.display_name || null,
+            username: profile?.username || null,
             avatar_hash: profile?.avatar_hash || null,
             avatar_url: profile?.avatar_url || null,
         };
     });
+}
+
+/**
+ * The label an id-keyed surface renders for a profile: `display_name`, else
+ * the login `username`, else null (the caller then tries an alias, and only
+ * as the LAST resort the raw id). v2.162.2.
+ */
+export function labelForProfile(
+    p: { display_name?: string | null; username?: string | null } | null | undefined,
+): string | null {
+    if (!p) return null;
+    return p.display_name || p.username || null;
+}
+
+/**
+ * THE label rule for anything that renders a player from a bare user id
+ * (voters, participants, members, pickers, reporters, rotation-log actors) —
+ * as opposed to a score row, which already carries `iscored_username`.
+ * v2.162.2, extracted from `RotationAuditService.resolveNames`.
+ *
+ *   `user_profiles.display_name` → `user_profiles.username` → the EARLIEST
+ *   `user_mappings.iscored_username` (`ORDER BY created_at ASC`).
+ *
+ * Ids with none of the three are ABSENT from the map — the caller falls back
+ * to the raw id, and only then. Empty ids and `system:`/`iscored:` sentinels
+ * are skipped. Two batched queries at most. Never throws: a lookup failure is
+ * logged and whatever resolved so far is returned, because a raw id is
+ * strictly better than a 500.
+ */
+export async function resolveUserLabels(ids: Iterable<string>): Promise<Record<string, string>> {
+    const set = new Set<string>();
+    for (const v of ids) {
+        if (typeof v !== 'string' || !v.trim()) continue;
+        const lower = v.toLowerCase();
+        if (lower.startsWith('system:') || lower.startsWith('iscored:')) continue;
+        set.add(v);
+    }
+    const names: Record<string, string> = {};
+    if (set.size === 0) return names;
+
+    try {
+        const db = await getDatabase();
+        const list = [...set];
+        const placeholders = list.map(() => '?').join(',');
+        const profiles = await db.all(
+            `SELECT discord_user_id, display_name, username FROM user_profiles
+              WHERE discord_user_id IN (${placeholders})`,
+            ...list,
+        ) as Array<{ discord_user_id: string; display_name: string | null; username: string | null }>;
+        for (const p of profiles) {
+            const label = labelForProfile(p);
+            if (label) names[p.discord_user_id] = label;
+        }
+        const unresolved = list.filter((id) => !names[id]);
+        if (unresolved.length) {
+            const ph = unresolved.map(() => '?').join(',');
+            // Earliest alias wins (TournamentEngine.labelForPlayer's ORDER BY).
+            const aliases = await db.all(
+                `SELECT discord_user_id, iscored_username FROM user_mappings
+                  WHERE discord_user_id IN (${ph})
+                  ORDER BY created_at ASC`,
+                ...unresolved,
+            ) as Array<{ discord_user_id: string; iscored_username: string }>;
+            for (const a of aliases) {
+                if (!names[a.discord_user_id] && a.iscored_username) names[a.discord_user_id] = a.iscored_username;
+            }
+        }
+    } catch (err) {
+        logError('resolveUserLabels failed (rendering raw ids):', err);
+    }
+    return names;
 }

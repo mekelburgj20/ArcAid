@@ -28,14 +28,19 @@ export interface PickableMember {
   userId: string;
   /**
    * Resolved server-side: global display name -> provider username -> the
-   * room's claimed name. Still nullable (a member with none of the three),
-   * which is why every render keeps its `|| userId` fallback.
+   * room's claimed name -> earliest iScored alias. Still nullable (a member
+   * with none of them), which is why every render goes through `memberLabel`.
    */
   displayName: string | null;
   /** Provider username, for disambiguating two members with the same label. */
   username?: string | null;
   avatarHash: string | null;
   avatarUrl: string | null;
+}
+
+/** display name → username → raw id (the raw id only as the LAST resort). */
+function memberLabel(m: PickableMember): string {
+  return m.displayName || m.username || m.userId;
 }
 
 interface MemberAdminPickerProps {
@@ -92,9 +97,9 @@ export default function MemberAdminPicker({
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return pickable;
-    const found = pickable.filter(m => (m.displayName || m.userId).toLowerCase().includes(q));
+    const found = pickable.filter(m => memberLabel(m).toLowerCase().includes(q));
     // Search-relevance work package (2026-08-13): nearest-exact-match first.
-    found.sort(compareByRank(query.trim(), m => m.displayName || m.userId));
+    found.sort(compareByRank(query.trim(), m => memberLabel(m)));
     return found;
   }, [pickable, query]);
 
@@ -159,13 +164,13 @@ export default function MemberAdminPicker({
               className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-border/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               <PlayerAvatar
-                username={m.displayName || m.userId}
+                username={memberLabel(m)}
                 discordUserId={m.userId}
                 avatarHash={m.avatarHash}
                 avatarUrl={m.avatarUrl}
                 size={24}
               />
-              <span className="text-sm text-primary truncate flex-1">{m.displayName || m.userId}</span>
+              <span className="text-sm text-primary truncate flex-1">{memberLabel(m)}</span>
               {addingId === m.userId && <span className="text-xs text-faint flex-shrink-0">Adding…</span>}
             </button>
           ))

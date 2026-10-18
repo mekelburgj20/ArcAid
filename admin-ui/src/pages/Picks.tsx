@@ -416,6 +416,7 @@ export default function Picks() {
         setRoomMembers(list.map((m): PickableMember => ({
           userId: String(m.userId),
           displayName: (m.displayName as string | null) ?? (m.username as string | null) ?? null,
+          username: (m.username as string | null) ?? null,
           avatarHash: (m.avatarHash as string | null) ?? null,
           avatarUrl: (m.avatarUrl as string | null) ?? null,
         })));
@@ -1013,13 +1014,13 @@ export default function Picks() {
                 {resolved ? (
                   <span className="inline-flex items-center gap-1.5">
                     <PlayerAvatar
-                      username={resolved.displayName || resolved.userId}
+                      username={resolved.displayName || resolved.username || resolved.userId}
                       discordUserId={resolved.userId}
                       avatarHash={resolved.avatarHash}
                       avatarUrl={resolved.avatarUrl}
                       size={16}
                     />
-                    <span className="text-primary font-medium">{resolved.displayName || resolved.userId}</span>
+                    <span className="text-primary font-medium">{resolved.displayName || resolved.username || resolved.userId}</span>
                   </span>
                 ) : (
                   <span className="text-primary font-medium">&lt;@{disposition.nomineeDiscordId}&gt;</span>

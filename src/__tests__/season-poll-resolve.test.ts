@@ -297,3 +297,25 @@ describe('closeAndResolve', () => {
         await expect(SeasonPollService.createDraft(ctx.season, { candidates: [{ game_name: 'VPX Only' }] })).resolves.toBeTruthy();
     });
 });
+
+describe('admin voter list labels (v2.162.2)', () => {
+    it('a voter with no display name renders as their username, then their earliest alias — never the raw id when either exists', async () => {
+        const { season, roomId, pollId } = await seasonWithPoll(['Attack from Mars', 'Medieval Madness']);
+        const db = await getDatabase();
+        // The 2026-10-18 owner report: display_name NULL, username set.
+        await db.run('INSERT INTO user_profiles (discord_user_id, display_name, username) VALUES (?, NULL, ?)', VOTER_A, 'LeonSpeegle');
+        // No profile at all, two aliases — the EARLIEST wins.
+        await db.run(`INSERT INTO user_mappings (discord_user_id, iscored_username, created_at) VALUES (?, 'FirstAlias', '2026-01-01 00:00:00')`, VOTER_B);
+        await db.run(`INSERT INTO user_mappings (discord_user_id, iscored_username, created_at) VALUES (?, 'LaterAlias', '2026-06-01 00:00:00')`, VOTER_B);
+        await SeasonPollService.vote(roomId, pollId, VOTER_A, 1);
+        await SeasonPollService.vote(roomId, pollId, VOTER_B, 2);
+        await SeasonPollService.vote(roomId, pollId, VOTER_C, 1);
+
+        const list = await SeasonPollService.adminList(season);
+        const poll = list.polls.find((p: { id: string }) => p.id === pollId)!;
+        const byId = Object.fromEntries(poll.voters.map((v: { user_id: string; display_name: string | null }) => [v.user_id, v.display_name]));
+        expect(byId[VOTER_A]).toBe('LeonSpeegle');
+        expect(byId[VOTER_B]).toBe('FirstAlias');
+        expect(byId[VOTER_C]).toBeNull();
+    });
+});

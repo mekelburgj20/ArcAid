@@ -104,10 +104,11 @@ export class FriendsService {
         }
 
         // Resolve a display name for the friend_discord_username cache column:
-        // the friend's chosen global display name first, else any iScored
-        // alias they hold, else null (caller falls back further at render time).
-        const profile = await db.get('SELECT display_name FROM user_profiles WHERE discord_user_id = ?', friendUserId);
-        let friendDisplayName: string | null = profile?.display_name ?? null;
+        // the friend's chosen global display name first, else (v2.162.2) their
+        // login username, else any iScored alias they hold, else null (caller
+        // falls back further at render time) — the shared id-keyed label rule.
+        const profile = await db.get('SELECT display_name, username FROM user_profiles WHERE discord_user_id = ?', friendUserId);
+        let friendDisplayName: string | null = profile?.display_name || profile?.username || null;
         if (!friendDisplayName) {
             const alias = await db.get(
                 'SELECT iscored_username FROM user_mappings WHERE discord_user_id = ? ORDER BY created_at, rowid LIMIT 1',
