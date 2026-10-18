@@ -1,6 +1,8 @@
 # ADR 0025 — A Season is a rotation option with a poll queue, and Arcaid owns the poll
 
-**Status:** Accepted (2026-10-17)
+**Status:** Accepted (2026-10-17) — **amended by ADR 0026 (2026-10-18):** the poll is a rotation
+method gated on `poll_picks`, independent of the Season; the forcing moved to the poll; the `admin`
+tie rule now HOLDS (no fallback). §1's forcing, §3's gate and §4 below are superseded there.
 **Relates to:** ADR 0013 (ranking cache watermark), ADR 0017 (Live Event format — the other
 bounded tournament shape, deliberately NOT reused here).
 
@@ -76,6 +78,8 @@ tick. No gateway intent was added; `GuildMessagePolls` events are a later upgrad
 mirror, not a requirement.
 
 ### 4. Tie rule `admin` applies the fallback immediately
+
+> Superseded by ADR 0026 §4: `admin` now holds with nothing queued until an admin chooses.
 
 The owner's tie rule is "I pick". A cron that fires at midnight cannot wait on a human, so
 `admin` resolves NOW with `season_tie_fallback` (`random`, seeded on the poll id, or
