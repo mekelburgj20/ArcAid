@@ -6,6 +6,7 @@ import {
 } from '../components/TournamentForm';
 import { addMinutes, defaultEventState, durationMinutes, utcIsoToWallTime, wallTimeToUtcIso } from './eventTime';
 import { seasonPayload, seasonStateFromRow } from './seasonForm';
+import { pollPayload, pollStateFromRow } from './pollForm';
 
 /**
  * Plain functions shared between the Tournaments admin page's create and
@@ -55,20 +56,23 @@ export interface Tournament {
   /** Season block (migration 181, docs/season-format-plan.md §3.1). NULL table count = not a season. */
   season_table_count?: number | null;
   season_ranking_group_id?: string | null;
-  season_poll_opens_before_h?: number | null;
-  season_poll_closes_before_h?: number | null;
-  season_tie_rule?: string | null;
-  season_tie_fallback?: string | null;
   season_paused_at?: string | null;
   season_finished_at?: string | null;
-  /** Compact progress, embedded for season rows only. */
+  /** Pick by poll (migration 182, ADR 0026) — a rotation method, independent of seasons. */
+  poll_picks?: number | null;
+  poll_opens_before_h?: number | null;
+  poll_closes_before_h?: number | null;
+  poll_tie_rule?: string | null;
+  /** Compact progress, embedded for season and poll-picked rows only. */
   season?: SeasonSummary;
 }
 
-/** `GET /:roomId/tournaments` → `season` sub-object on season rows. */
+/** `GET /:roomId/tournaments` → `season` sub-object on season / poll-picked rows. */
 export interface SeasonSummary {
-  tables_done: number;
-  table_count: number;
+  poll_picks: boolean;
+  /** null for a poll-only (season-less) tournament. */
+  tables_done: number | null;
+  table_count: number | null;
   paused: boolean;
   finished: boolean;
   open_poll_id: string | null;
@@ -77,6 +81,11 @@ export interface SeasonSummary {
 /** True when the row is a Season (a rotation tournament with a season block). */
 export function isSeasonTournament(t: Pick<Tournament, 'format' | 'season_table_count'>): boolean {
   return t.format !== 'event' && t.season_table_count != null;
+}
+
+/** True when the row's tables are picked by a community poll (ADR 0026). */
+export function isPollTournament(t: Pick<Tournament, 'format' | 'poll_picks'>): boolean {
+  return t.format !== 'event' && !!t.poll_picks;
 }
 
 /** A round as `GET /:roomId/tournaments` and `EventService.getRounds` ship it. */
@@ -111,9 +120,10 @@ export function lockedRoundNumbers(t: Tournament): number[] {
 export function toPayload(state: TournamentFormState, extra: Record<string, any> = {}) {
   const isEvent = state.format === 'event';
   const tz = state.event.timezone;
-  // A season forces these server-side (TournamentService); sending the forced
-  // values keeps the request honest about what will be stored.
-  const seasonOn = !isEvent && state.season.enabled;
+  // Pick by poll forces these server-side (TournamentService, ADR 0026);
+  // sending the forced values keeps the request honest about what will be
+  // stored. A Season alone forces nothing.
+  const pollOn = !isEvent && state.poll.enabled;
   return {
     name: state.name,
     type: state.tag.trim().toUpperCase(),
@@ -143,18 +153,19 @@ export function toPayload(state: TournamentFormState, extra: Record<string, any>
     platform_rules: state.platformRules,
     discord_channel_id: state.channel,
     display_order: state.displayOrder,
-    max_active_games: seasonOn ? 1 : state.maxActiveGames,
+    max_active_games: pollOn ? 1 : state.maxActiveGames,
     cleanup_rule: state.cleanupRule,
-    winner_picks: seasonOn ? false : state.winnerPicks,
-    auto_pick: seasonOn ? false : state.autoPick,
-    eligibility_days: seasonOn ? 0 : state.eligibilityDays,
+    winner_picks: pollOn ? false : state.winnerPicks,
+    auto_pick: pollOn ? false : state.autoPick,
+    eligibility_days: pollOn ? 0 : state.eligibilityDays,
     winner_pick_window_min: state.winnerPickWindowMin,
     runnerup_pick_window_min: state.runnerupPickWindowMin,
     allow_dynasty: state.allowDynasty,
-    // Season block: rotation only. `season_table_count: null` switches a
-    // season off; an event omits the keys entirely (the server refuses a
-    // season on an event).
+    // Season + Pick by poll: rotation only. `season_table_count: null` /
+    // `poll_picks: false` switch them off; an event omits the keys entirely
+    // (the server refuses either on an event).
     ...(isEvent ? {} : seasonPayload(state.season)),
+    ...(isEvent ? {} : pollPayload(state.poll)),
     // is_active is intentionally NOT hardcoded here. `extra` is spread last, so
     // each caller supplies it: handleCreate passes `is_active: true`;
     // handleEditSave passes the row's current value so editing a paused
@@ -210,5 +221,6 @@ export function tournamentToFormState(t: Tournament): TournamentFormState {
     cleanupRule: parseCleanupRule(t.cleanup_rule),
     schedule: parseCadence(t.cadence),
     season: seasonStateFromRow(t),
+    poll: pollStateFromRow(t),
   };
 }

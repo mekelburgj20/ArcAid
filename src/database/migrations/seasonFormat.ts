@@ -37,11 +37,15 @@ export async function seasonFormat(db: Db): Promise<void> {
         // cannot add an enforced FK via ALTER TABLE).
         ['season_ranking_group_id', 'TEXT'],
         // Default poll window, relative to the NEXT rotation.
+        // RENAMED by migration 182 → poll_opens_before_h / poll_closes_before_h.
         ['season_poll_opens_before_h', 'INTEGER NOT NULL DEFAULT 96'],
         ['season_poll_closes_before_h', 'INTEGER NOT NULL DEFAULT 3'],
         // admin | random | first_nominated
+        // RENAMED by migration 182 → poll_tie_rule.
         ['season_tie_rule', `TEXT NOT NULL DEFAULT 'admin'`],
         // random | first_nominated — applied immediately when the rule is admin.
+        // UNREAD since v2.162.0 (ADR 0026): the admin tie rule HOLDS, there is
+        // no fallback. Column kept, nothing reads or writes it.
         ['season_tie_fallback', `TEXT NOT NULL DEFAULT 'random'`],
         // ISO UTC. Non-NULL = paused: no polls post, no rotation fires.
         ['season_paused_at', 'TEXT'],

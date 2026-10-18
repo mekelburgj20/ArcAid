@@ -226,6 +226,58 @@ describe('SeasonScheduler.tick', () => {
         expect(list.polls.find(p => p.id === pollId)!.beyond_bound).toBe(true);
     });
 
+    it('a poll-only rotation (no Season) derives and posts its draft, with no bound (ADR 0026)', async () => {
+        const { pollId, season, tournamentId } = await seasonWithDraft({ tableCount: null, pollPicks: true });
+        expect(season.season_table_count).toBeNull();
+        // Resolved polls far past any table count would stop a Season — not this.
+        const db = await getDatabase();
+        for (let i = 0; i < 3; i++) {
+            await db.run(
+                `INSERT INTO season_polls (id, tournament_id, slot_no, status, result_game_name) VALUES (?, ?, ?, 'resolved', 'Old')`,
+                `old-${i}`, tournamentId, 90 + i,
+            );
+        }
+        await SeasonScheduler.getInstance().tick(WED_NOON);
+        expect((await SeasonPollService.getPoll(pollId))!).toMatchObject({ status: 'open', opens_at: DERIVED_OPEN, closes_at: DERIVED_CLOSE });
+        expect(pollPosts()).toHaveLength(1);
+        const list = await SeasonPollService.adminList(season);
+        expect(list).toMatchObject({ poll_picks: true, table_count: null, tables_done: null, bound_reached: false });
+        const summary = await SeasonPollService.listSummary(await refreshSeason(tournamentId));
+        expect(summary).toMatchObject({ poll_picks: true, table_count: null, tables_done: null, open_poll_id: pollId });
+    });
+
+    it('a Season without Pick by poll gets no poll, no reminder, and refuses drafts (ADR 0026)', async () => {
+        const { season, tournamentId } = await createSeason({ pollPicks: false });
+        await addCatalogueGame('Attack from Mars');
+        await expect(SeasonPollService.createDraft(season, { candidates: [{ game_name: 'Attack from Mars' }] }))
+            .rejects.toMatchObject({ code: 'POLL_PICKS_OFF' });
+        await SeasonScheduler.getInstance().tick(new Date('2026-10-11T05:00:00.000Z'));
+        await SeasonScheduler.getInstance().tick(WED_NOON);
+        const db = await getDatabase();
+        expect(await db.all('SELECT id FROM season_polls WHERE tournament_id = ?', tournamentId)).toHaveLength(0);
+        expect(post).not.toHaveBeenCalled();
+    });
+
+    it('an "admin decides" tie holds the next poll until the rotation it fed has passed', async () => {
+        const { pollId, roomId, season } = await seasonWithDraft({ tieRule: 'admin' });
+        await SeasonScheduler.getInstance().tick(WED_NOON);
+        await SeasonPollService.vote(roomId, pollId, '100000000000000001', 1);
+        await SeasonPollService.vote(roomId, pollId, '100000000000000002', 2);
+        const next = await SeasonPollService.createDraft(season, { candidates: [{ game_name: 'Medieval Madness' }] });
+
+        await SeasonScheduler.getInstance().tick(new Date('2026-10-16T01:00:30.000Z'));
+        expect((await SeasonPollService.getPoll(pollId))!).toMatchObject({ status: 'resolved', tied: 1, result_game_name: null });
+        expect((await SeasonPollService.getPoll(next.id))!.opens_at).toBeNull();
+
+        // Still before the rotation — held.
+        await SeasonScheduler.getInstance().tick(new Date('2026-10-16T03:59:00.000Z'));
+        expect((await SeasonPollService.getPoll(next.id))!.opens_at).toBeNull();
+
+        // The rotation passed with nothing chosen: the queue moves on.
+        await SeasonScheduler.getInstance().tick(new Date('2026-10-16T04:01:00.000Z'));
+        expect((await SeasonPollService.getPoll(next.id))!.opens_at).toBe('2026-10-19T04:00:00.000Z');
+    });
+
     it('sends ONE reminder a day before a derived open with no draft prepared', async () => {
         const { tournamentId } = await createSeason();
         const db = await getDatabase();

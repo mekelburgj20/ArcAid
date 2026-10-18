@@ -4795,11 +4795,12 @@ router.get('/:roomId/tournaments', async (req, res) => {
             ));
             for (const row of events) (row as any).rounds = byId.get(row.id) ?? [];
         }
-        // Season format — a compact `season` sub-object so the scoreboard can
-        // decide whether to render the poll card without a second round trip.
-        // Non-season rows get no `season` key at all.
+        // Season / Pick by poll — a compact `season` sub-object so the
+        // scoreboard can decide whether to render the poll card without a
+        // second round trip. Built for a Season OR a poll-picked tournament
+        // (ADR 0026); every other row gets no `season` key at all.
         for (const row of rows as any[]) {
-            if (row.season_table_count == null) continue;
+            if (row.season_table_count == null && !row.poll_picks) continue;
             row.season = await SeasonPollService.listSummary(row as SeasonTournamentRow);
         }
         res.json(rows);
@@ -4888,9 +4889,12 @@ router.put('/:roomId/tournaments/:id', requireAuth, requireRoomAccess('roomId'),
 // ============================================================================
 // Season format (docs/season-format-plan.md §7)
 //
-// A Season is a rotation tournament with a season block. Admin surfaces sit
+// A Season is a rotation tournament with a season block; Pick by poll is a
+// rotation method any rotation tournament may switch on (ADR 0026, v2.162.0).
+// The `/season` paths are historical and serve both. Admin surfaces sit
 // behind requireAuth + requireRoomAccess; every route 404s when the tournament
-// is not a season in THIS room, so ids cannot be probed across rooms. Admin
+// is neither a season nor poll-picked in THIS room, so ids cannot be probed
+// across rooms. Pause/resume are Season-only (409 otherwise). Admin
 // writes are audited explicitly (auditMiddleware is not mounted — see
 // src/api/auditMiddleware.ts).
 // ============================================================================
@@ -5039,6 +5043,10 @@ router.post('/:roomId/tournaments/:tournamentId/season/:action', requireAuth, re
         if (action !== 'pause' && action !== 'resume') return res.status(404).json({ error: 'Unknown action' });
         const t = await SeasonPollService.getSeasonTournament(req.params.tournamentId as string, req.params.roomId as string);
         if (!t) return res.status(404).json({ error: 'Season not found' });
+        // Pause is a Season control (ADR 0026) — a poll-only rotation has none.
+        if (!SeasonPollService.isSeason(t)) {
+            return res.status(409).json({ error: 'Only a Season can be paused.', code: 'NOT_A_SEASON' });
+        }
         await SeasonPollService.setPaused(t, action === 'pause');
         await auditSeason(req, `season.${action}`, t.id, {});
         const fresh = (await SeasonPollService.getSeasonTournament(t.id))!;

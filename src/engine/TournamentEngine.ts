@@ -2185,7 +2185,7 @@ export class TournamentEngine {
             } else if (!winnerPicks && !autoPick) {
                 // Manual only — no pick windows, no auto-select
                 logInfo(`   -> No ${term.game} queued. winner_picks=off, auto_pick=off — waiting for admin.`);
-                // A season's poll winner (or an admin-queued table) sits in the
+                // A poll winner (Pick by poll, ADR 0026) or an admin-queued table sits in the
                 // tournament queue unowned by the winner, so the cascade above
                 // never fires it — the fill loop does, moments later. Saying
                 // "No Table Queued" right before it activates is false.

@@ -134,7 +134,7 @@ const TournamentBaseSchema = z.object({
     winner_picks: z.boolean().default(true),
     auto_pick: z.boolean().default(true),
     // 0 is legal: a Season forces it (a community vote overrides cooldown) and
-    // the form sends it explicitly  min(1) 400'd every season create (v2.161.2).
+    // the form sends it explicitly — min(1) 400'd every season create (v2.161.2).
     eligibility_days: z.number().int().min(0).max(365).default(120),
     winner_pick_window_min: z.number().int().min(1).max(1440).default(60),
     runnerup_pick_window_min: z.number().int().min(1).max(1440).default(30),
@@ -145,16 +145,22 @@ const TournamentBaseSchema = z.object({
     /**
      * Season block (docs/season-format-plan.md §3.1). `season_table_count`:
      * omitted = leave the stored season as it is (update) / not a season
-     * (create); null = switch the season off; N = a season of N tables. The
-     * other season fields are optional and fall back to the stored value, then
-     * the column default. A season forces winner_picks/auto_pick off and
-     * max_active_games = 1 — `TournamentService` normalises those on save.
+     * (create); null = switch the season off; N = a season of N tables. A
+     * Season alone forces nothing (ADR 0026, v2.162.0).
      */
     season_table_count: z.number().int().min(1).max(200).nullable().optional(),
-    season_poll_opens_before_h: z.number().int().min(2).max(24 * 32).optional(),
-    season_poll_closes_before_h: z.number().int().min(1).max(24 * 32).optional(),
-    season_tie_rule: z.enum(['admin', 'random', 'first_nominated']).optional(),
-    season_tie_fallback: z.enum(['random', 'first_nominated']).optional(),
+    /**
+     * Pick by poll — a rotation method, independent of Seasons (ADR 0026,
+     * plan §13). `poll_picks` omitted = leave as stored (update) / off
+     * (create). The poll fields fall back to the stored value, then the column
+     * default. Poll on forces winner_picks/auto_pick off, max_active_games = 1
+     * and eligibility_days = 0 — `TournamentService` normalises those on save.
+     * Old `season_poll_*` / `season_tie_*` keys are stripped as unknown.
+     */
+    poll_picks: z.boolean().optional(),
+    poll_opens_before_h: z.number().int().min(2).max(24 * 32).optional(),
+    poll_closes_before_h: z.number().int().min(1).max(24 * 32).optional(),
+    poll_tie_rule: z.enum(['admin', 'random', 'first_nominated']).optional(),
     cleanup_rule: z.discriminatedUnion('mode', [
         z.object({ mode: z.literal('immediate') }),
         z.object({ mode: z.literal('retain'), count: z.number().int().min(0).max(50) }),
@@ -186,22 +192,26 @@ const tournamentFormatRefine = (
             ctx.addIssue({ code: 'custom', path: ['event'], message: '`event` configuration is only valid when format is "event".' });
         }
     }
-    // Season block (plan §3.1). Only the fields present in the body can be
-    // checked here; `TournamentService` re-validates the MERGED block.
-    if (value.season_table_count != null) {
+    // Season + Pick by poll (plan §3.1, §13). Only the fields present in the
+    // body can be checked here; `TournamentService` re-validates the MERGED
+    // blocks. Both ride the rotation clock, so both need a rotation + cron.
+    if (value.season_table_count != null && value.format !== 'rotation') {
+        ctx.addIssue({ code: 'custom', path: ['season_table_count'], message: 'A season must be a rotation tournament.' });
+    }
+    if (value.poll_picks === true) {
         if (value.format !== 'rotation') {
-            ctx.addIssue({ code: 'custom', path: ['season_table_count'], message: 'A season must be a rotation tournament.' });
+            ctx.addIssue({ code: 'custom', path: ['poll_picks'], message: 'Pick by poll needs a rotation tournament.' });
         }
         if (!value.cadence?.cron) {
-            ctx.addIssue({ code: 'custom', path: ['cadence', 'cron'], message: 'A season needs a rotation schedule (cron).' });
+            ctx.addIssue({ code: 'custom', path: ['cadence', 'cron'], message: 'Pick by poll needs a rotation schedule (cron).' });
         }
     }
     if (
-        value.season_poll_opens_before_h !== undefined
-        && value.season_poll_closes_before_h !== undefined
-        && value.season_poll_opens_before_h <= value.season_poll_closes_before_h
+        value.poll_opens_before_h !== undefined
+        && value.poll_closes_before_h !== undefined
+        && value.poll_opens_before_h <= value.poll_closes_before_h
     ) {
-        ctx.addIssue({ code: 'custom', path: ['season_poll_opens_before_h'], message: 'The poll must open earlier than it closes (opens-before hours must exceed closes-before hours).' });
+        ctx.addIssue({ code: 'custom', path: ['poll_opens_before_h'], message: 'The poll must open earlier than it closes (opens-before hours must exceed closes-before hours).' });
     }
 };
 

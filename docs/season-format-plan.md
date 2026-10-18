@@ -5,7 +5,7 @@
 > The originating conversation is a Discord DM thread between the owner and GamerDad89
 > (mox_s_vpx_tournaments room), 2026-10-17.
 >
-> Status: **design locked, build in progress on `feature/season-format`.** Last updated 2026-10-17.
+> Status: **shipped v2.161.0; amended v2.162.0 — see §13 (Pick by poll is a rotation method).** Last updated 2026-10-18.
 
 ## 1. What this is
 
@@ -57,12 +57,19 @@ Extract the handler to `src/database/migrations/seasonFormat.ts`.
 | `season_table_count` | `INTEGER` | NULL = not a season. N = season of N tables. |
 | `season_points_top` | `INTEGER NOT NULL DEFAULT 50` | **Unread since v2.161.1** — points live on the group's `ranking_groups.points_top` (seeded 50 on create, edited on the Rankings page). Originally: points for 1st place; 2nd = top−1, etc. Floor 0. |
 | `season_ranking_group_id` | `TEXT` | The auto-created standings group. Pseudo-FK (no constraint, like the other ALTER-added refs). |
+
+> Superseded by §13: the three poll rows below are renamed `poll_opens_before_h` / `poll_closes_before_h` / `poll_tie_rule` (migration 182) and `season_tie_fallback` is unread.
+
+| Column | Type | Meaning |
+|---|---|---|
 | `season_poll_opens_before_h` | `INTEGER NOT NULL DEFAULT 96` | Default poll open = next rotation − 96 h (Monday for a Friday rotation). |
 | `season_poll_closes_before_h` | `INTEGER NOT NULL DEFAULT 3` | Default poll close = next rotation − 3 h. |
 | `season_tie_rule` | `TEXT NOT NULL DEFAULT 'admin'` | `admin` / `random` / `first_nominated`. |
 | `season_tie_fallback` | `TEXT NOT NULL DEFAULT 'random'` | Applied immediately when rule is `admin` (see §5.4). `random` / `first_nominated`. |
 | `season_paused_at` | `TEXT` | ISO UTC. Non-NULL = paused: no polls post, no rotation fires. |
 | `season_finished_at` | `TEXT` | ISO UTC. Idempotency stamp for the season-end announcement. |
+
+> Superseded by §13: the forcing below belongs to `poll_picks`, not the season; a Season alone forces nothing.
 
 Validation (Zod + `TournamentService.create/update`, both): `season_table_count` 1..200;
 `closes_before_h` ≥ 1 (Discord's minimum poll duration is 1 h);
@@ -160,6 +167,8 @@ bake a display name in; resolve with `resolveProfiles` at read.
 - A player who misses a week scores 0 for it, by absence. No explicit zero rows.
 
 ## 5. The poll queue
+
+> Superseded by §13 in part: the queue is gated on `tournaments.poll_picks`, not on the season; the bound (§5.2) applies only to a poll-picked Season; the `admin` tie (§5.4) holds instead of applying a fallback.
 
 ### 5.1 Lifecycle
 
@@ -265,6 +274,8 @@ this room's `games` rows of ANY status (including ARCHIVED). `unplayed=1` filter
 
 ## 6. Rotation, pause, season end (`TournamentEngine`)
 
+> Note (§13): pause and season end stay Season-only; a poll-only rotation has neither.
+
 - **Pause.** `runMaintenanceInternal` early-returns `skipped` with summary
   `season paused` when `season_paused_at IS NOT NULL` (recorded in `maintenance_runs` like any
   other skip). The current table stays ACTIVE and open; an admin who wants it closed uses the
@@ -302,6 +313,9 @@ the scoreboard can decide whether to render the poll card without a second round
 ## 8. UI
 
 ### 8.1 Admin — `TournamentForm.tsx`
+
+> Superseded by §13: the poll fields and the tie-breaker moved to Game Rotation under a "Pick by poll" checkbox; the Season section keeps only the table count.
+
 A "Season" section under the rotation settings: enable toggle, table count, poll opens/closes (hours before rotation, with the derived "Monday 12:00 AM ET → Thursday 9:00 PM
 ET" echo computed from the cadence), tie rule + fallback, and a note that winner-picks /
 auto-pick / max-active are fixed for seasons (fields shown disabled). **No points field (v2.161.1)**
@@ -403,3 +417,61 @@ The truth as built, for the UI slices and later sessions.
   `best_n` (= table count) and never touch the method or points. `RankingService.update` locks
   only `best_n` for a managed group. The `best_game_linear` LABEL is now "Countdown" everywhere it
   is shown (the id is unchanged).
+
+## 13. Pick by poll is a rotation method (v2.162.0)
+
+Owner ruling 2026-10-18; decision record ADR 0026. This section supersedes the lines marked
+"superseded by §13" above; everything else in this plan stands.
+
+- **The gate.** The poll queue runs on `tournaments.poll_picks INTEGER NOT NULL DEFAULT 0`
+  (migration `182_pick_by_poll`, `src/database/migrations/pickByPoll.ts`), NOT on
+  `season_table_count`. A standard endless rotation can be poll-picked; a Season can run without a
+  poll (admin- or winner-queued tables). Every season that existed before v2.162.0 was backfilled
+  to `poll_picks = 1`.
+- **Renamed columns** (`ALTER TABLE … RENAME COLUMN`, each guarded by `PRAGMA table_info`):
+  `season_poll_opens_before_h` → `poll_opens_before_h`, `season_poll_closes_before_h` →
+  `poll_closes_before_h`, `season_tie_rule` → `poll_tie_rule`. API field names follow the columns.
+  `season_tie_fallback` stays as an unread column.
+- **Historical names kept on purpose:** `SeasonPollService`, `SeasonScheduler`, the `season_polls`
+  / `season_poll_candidates` / `season_poll_votes` tables, `SeasonPanel`, `SeasonPollCard`, the
+  `season:poll` socket event and the `/season` route paths. They serve poll-only tournaments too;
+  renaming them would be churn with no behaviour.
+- **The form.** "Pick by poll" is a third checkbox in **Game Rotation** beside "Winner picks next
+  game" and "Auto-pick if no selection". On, it unticks and disables those two plus Active Slots
+  (forced 1) and Cooldown Days (forced 0), with the note "Fixed while Pick by poll is on: the poll
+  picks each table, one table is live at a time; a community vote overrides cooldown." Under it:
+  "Poll opens (hours before rotation)", "Poll closes (hours before rotation)", the plain-language
+  echo and the **Poll Tie-breaker** select. "Run as a Season" keeps only the checkbox, "Tables in
+  the season" and its InfoTip; it forces nothing and has no amber note.
+- **The forcing** (`winner_picks = 0`, `auto_pick = 0`, `max_active_games = 1`,
+  `eligibility_days = 0`) is applied by `TournamentService` when `poll_picks = 1`, never because of
+  a season. The poll columns are written whenever the poll is on (defaults 96 / 3 / `admin`).
+- **Poll Tie-breaker — three options, no fallback.** `admin` = "Admin decides — no table is queued
+  until an admin chooses"; `random` = "Random pick among the tied"; `first_nominated` = "First
+  nominated wins". `admin` is a **hold**: the poll resolves with `tied = 1` and NULL
+  `result_game_name` / `result_queued_game_id`, nothing is queued, and the channel is told the vote
+  tied between the named tables, that an admin must choose on the admin page, and that no table
+  starts until then. The rotation's existing empty-queue behaviour ("No Table Queued", wait for
+  admin) is the admin alert — nothing new was built. `can_choose` = tied AND (nothing queued yet OR
+  the queued row is still `QUEUED`); `POST …/polls/:pollId/choose {position}` queues the chosen
+  tied candidate through `TournamentEngine.queueGame` (replacing a still-QUEUED choice via
+  `removeQueuedGame`) and fills the result fields. A held tie keeps the scheduler from deriving the
+  next poll until the rotation it fed has passed; after that the queue moves on. The per-poll
+  `tie_rule` override stays.
+- **Gating, site by site.** `SeasonScheduler` selects `poll_picks = 1 AND is_active = 1 AND
+  season_paused_at IS NULL AND season_finished_at IS NULL`; the bound ("polls stop once resolved
+  polls reach the table count") applies only when the tournament is ALSO a Season.
+  `SeasonPollService.getSeasonTournament` loads `poll_picks = 1 OR season_table_count IS NOT NULL`;
+  creating a draft requires `poll_picks`; pause/resume are Season-only (409 `NOT_A_SEASON`).
+  Season end and the `runMaintenance` pause/finish skip stay on `season_table_count`. The
+  "No Table Queued" suppression (`hasRealQueuedGame`) was never season-gated, so it already covers
+  poll-picked tournaments.
+- **Payloads.** The tournaments-list `season` sub-object is built for `poll_picks = 1 OR
+  season_table_count IS NOT NULL` and carries `poll_picks`; `table_count` / `tables_done` are null
+  for a poll-only tournament. `GET /tournaments/:id/season` config gains `poll_picks`, loses
+  `tie_fallback`; `progress` is null for a poll-only tournament. The admin poll list carries
+  `poll_picks`; `bound_reached` / `beyond_bound` are false without a season.
+- **Admin page.** The row chip reads "Season N/M" only for a season and "Poll" for a poll-only
+  rotation; the panel button reads "Season" or "Polls". `SeasonPanel` renders progress + pause only
+  for a season and the poll queue only when `poll_picks`; a held tie reads "No table queued —
+  choose one" with a button per tied table.

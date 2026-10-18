@@ -6,13 +6,15 @@ import { parseCadence } from './TournamentForm';
 import { api } from '../lib/api';
 import { getSocket } from '../lib/websocket';
 import { utcIsoToWallTime, wallTimeToUtcIso } from '../lib/eventTime';
-import { TIE_RULE_LABEL, zoneLabel, type SeasonTieRule } from '../lib/seasonForm';
+import { TIE_RULE_LABEL, zoneLabel, type PollTieRule as SeasonTieRule } from '../lib/pollForm';
 import type { Tournament } from '../lib/tournamentFormPayload';
 
 /**
- * Season panel (docs/season-format-plan.md §8.2) — the admin's control surface
- * for a Season: progress, pause/resume, and the poll QUEUE that picks each
- * next table.
+ * Season / Polls panel (docs/season-format-plan.md §8.2, §13) — the admin's
+ * control surface for a Season (progress, pause/resume) and for Pick by poll
+ * (the poll QUEUE that picks each next table). Since v2.162.0 (ADR 0026) the
+ * two are independent: a Season renders progress + pause only, a poll-picked
+ * tournament renders the queue only, a poll-picked Season renders both.
  *
  * Every poll is a row in `season_polls`; the server's `SeasonScheduler` posts a
  * draft when its open time arrives, closes and resolves it, and queues the
@@ -75,8 +77,10 @@ export interface SeasonPoll {
 
 export interface SeasonQueue {
     tournament_id: string;
-    table_count: number;
-    tables_done: number;
+    poll_picks: boolean;
+    /** null for a poll-only (season-less) tournament. */
+    table_count: number | null;
+    tables_done: number | null;
     resolved_count: number;
     bound_reached: boolean;
     paused: boolean;
@@ -394,7 +398,7 @@ function PollEditor({ roomId, tournamentId, tz, defaultTieRule, editor, setEdito
                             className={`${inputClass} cursor-pointer sm:max-w-sm`}
                         >
                             {editor.pollId !== null && <option value="keep">Keep the current times</option>}
-                            <option value="derived">Season defaults (hours before the rotation)</option>
+                            <option value="derived">Poll defaults (hours before the rotation)</option>
                             <option value="exact">Exact open and close times</option>
                         </select>
                         {editor.timeMode === 'exact' && (
@@ -425,13 +429,13 @@ function PollEditor({ roomId, tournamentId, tz, defaultTieRule, editor, setEdito
                     />
                 </div>
                 <div>
-                    <label className={labelClass} htmlFor="season-poll-tie">Tie rule</label>
+                    <label className={labelClass} htmlFor="season-poll-tie">Poll Tie-breaker</label>
                     <select
                         id="season-poll-tie" value={editor.tieRule} disabled={locked}
                         onChange={e => patch({ tieRule: e.target.value as EditorState['tieRule'] })}
                         className={`${inputClass} cursor-pointer disabled:opacity-60`}
                     >
-                        <option value="">Season default — {TIE_RULE_LABEL[defaultTieRule]}</option>
+                        <option value="">Tournament default — {TIE_RULE_LABEL[defaultTieRule]}</option>
                         {(Object.keys(TIE_RULE_LABEL) as SeasonTieRule[]).map(r => (
                             <option key={r} value={r}>{TIE_RULE_LABEL[r]}</option>
                         ))}
@@ -460,7 +464,7 @@ interface SeasonPanelProps {
 
 export default function SeasonPanel({ roomId, tournament, onClose, onChanged, toast }: SeasonPanelProps) {
     const tz = useMemo(() => parseCadence(tournament.cadence).timezone, [tournament.cadence]);
-    const defaultTieRule = (tournament.season_tie_rule as SeasonTieRule) || 'admin';
+    const defaultTieRule = (tournament.poll_tie_rule as SeasonTieRule) || 'admin';
     const base = `/rooms/${roomId}/tournaments/${tournament.id}/season`;
 
     const [queue, setQueue] = useState<SeasonQueue | null>(null);
@@ -557,6 +561,8 @@ export default function SeasonPanel({ roomId, tournament, onClose, onChanged, to
     };
 
     const polls = queue?.polls ?? [];
+    const isSeason = (queue ? queue.table_count : tournament.season_table_count) != null;
+    const pollPicks = queue ? queue.poll_picks : !!tournament.poll_picks;
     const tableCount = queue?.table_count ?? tournament.season_table_count ?? 0;
     const tablesDone = queue?.tables_done ?? 0;
     const finished = !!queue?.finished;
@@ -569,6 +575,7 @@ export default function SeasonPanel({ roomId, tournament, onClose, onChanged, to
                 <div className="flex items-start justify-between mb-4 gap-3">
                     <div className="min-w-0">
                         <h2 className="font-display text-lg font-bold break-words">{tournament.name}</h2>
+                        {isSeason && (
                         <div className="flex flex-wrap items-center gap-2 mt-1">
                             <span className="text-sm text-primary font-medium" data-testid="season-progress">
                                 {finished ? `Season finished · ${tablesDone} of ${tableCount} tables` : `Week ${week} of ${tableCount}`}
@@ -583,14 +590,20 @@ export default function SeasonPanel({ roomId, tournament, onClose, onChanged, to
                                 <span className="text-xs px-2 py-0.5 rounded border bg-neon-cyan/10 text-neon-cyan border-neon-cyan/40">Every table chosen</span>
                             )}
                         </div>
+                        )}
+                        {!isSeason && (
+                            <p className="text-sm text-primary font-medium mt-1" data-testid="poll-heading">Pick by poll</p>
+                        )}
                         <p className="text-xs text-muted mt-1">
-                            {paused
+                            {isSeason && paused
                                 ? 'Paused: no poll posts and the table does not rotate until you resume.'
-                                : 'Polls post, close and queue their winner on their own. Use these controls only to change the plan.'}
+                                : pollPicks
+                                    ? 'Polls post, close and queue their winner on their own. Use these controls only to change the plan.'
+                                    : 'Pick by poll is off for this season — its tables are chosen by the Game Rotation settings. Turn it on in Edit to run polls.'}
                         </p>
                     </div>
                     <div className="flex flex-col sm:flex-row gap-2 flex-shrink-0">
-                        {!finished && (
+                        {isSeason && !finished && (
                             <NeonButton
                                 variant={paused ? 'primary' : 'ghost'} className={smallBtn}
                                 disabled={busy === 'pause' || busy === 'resume'}
@@ -603,7 +616,7 @@ export default function SeasonPanel({ roomId, tournament, onClose, onChanged, to
                     </div>
                 </div>
 
-                {loading ? (
+                {!pollPicks ? null : loading ? (
                     <p className="text-sm text-muted py-6 text-center">Loading the poll queue…</p>
                 ) : (
                     <div className="space-y-3">
@@ -686,10 +699,10 @@ function PollCard({ poll, tz, busy, prev, next, onEdit, onAction, onReorder, onC
             </div>
             <p className="text-sm text-primary mt-1 break-words">{poll.question}</p>
             <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-2 text-xs text-muted">
-                <dt className="text-faint">Opens</dt><dd>{opens ?? 'From the season defaults when it is next in line'}</dd>
+                <dt className="text-faint">Opens</dt><dd>{opens ?? 'From the poll defaults when it is next in line'}</dd>
                 <dt className="text-faint">Closes</dt><dd>{closes ?? '—'}</dd>
                 {posted && (<><dt className="text-faint">Posted</dt><dd>{posted}</dd></>)}
-                {poll.tie_rule && (<><dt className="text-faint">Tie rule</dt><dd>{TIE_RULE_LABEL[poll.tie_rule]}</dd></>)}
+                {poll.tie_rule && (<><dt className="text-faint">Tie-breaker</dt><dd>{TIE_RULE_LABEL[poll.tie_rule]}</dd></>)}
             </dl>
 
             {poll.beyond_bound && (
@@ -733,7 +746,7 @@ function PollCard({ poll, tz, busy, prev, next, onEdit, onAction, onReorder, onC
                         {poll.result_queued_status && <span className="text-faint"> · {poll.result_queued_status.toLowerCase()}</span>}
                     </span>
                 )}
-                {poll.status === 'resolved' && !poll.result_game_name && (
+                {poll.status === 'resolved' && !poll.result_game_name && !poll.tied && (
                     <span className="text-neon-magenta">No eligible winner — the rotation will hold until a table is activated.</span>
                 )}
             </div>
@@ -741,8 +754,12 @@ function PollCard({ poll, tz, busy, prev, next, onEdit, onAction, onReorder, onC
             {poll.tied && poll.tied_positions.length > 0 && (
                 <div className="mt-3 rounded border border-neon-amber/40 bg-neon-amber/5 p-2">
                     <p className="text-xs text-neon-amber">
-                        Tie between {poll.tied_positions.map(nameAt).join(', ')}. The fallback picked {poll.result_game_name ?? '—'}.
-                        {poll.can_choose ? ' You can pick a different tied table until it starts.' : ' The table has started, so it can no longer be changed.'}
+                        Tie between {poll.tied_positions.map(nameAt).join(', ')}.
+                        {!poll.result_game_name
+                            ? ' No table queued — choose one. The rotation waits until you do.'
+                            : poll.can_choose
+                                ? ` You chose ${poll.result_game_name}; you can switch to another tied table until it starts.`
+                                : ` You chose ${poll.result_game_name}; it has started, so it can no longer be changed.`}
                     </p>
                     {poll.can_choose && (
                         <div className="flex flex-wrap gap-2 mt-2">

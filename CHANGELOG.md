@@ -6,12 +6,52 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
-## [2.161.2]  2026-10-18  Season create no longer 400s on cooldown 0
+## [2.162.0] — 2026-10-18 — Pick by poll is a rotation method; "admin decides" holds
+
+Owner ruling 2026-10-18 (ADR 0026, plan §13): a Season is the bound, picking by poll is how each
+table is chosen — two independent switches, not one.
+
+### Added
+- **"Pick by poll" — a Game Rotation method.** A third checkbox in the tournament form's Game
+  Rotation section, beside "Winner picks next game" and "Auto-pick if no selection". Any rotation
+  tournament can now be poll-picked without being a Season. Turning it on unticks and disables the
+  other two and locks Active Slots at 1 and Cooldown Days at 0 ("Fixed while Pick by poll is on: the
+  poll picks each table, one table is live at a time; a community vote overrides cooldown."); the
+  poll open/close hours, the plain-language timing echo and the tie-breaker sit under it.
+- **`tournaments.poll_picks`** (migration `182_pick_by_poll`) gates the whole poll queue. Every
+  existing season is backfilled to `poll_picks = 1`, so live seasons behave exactly as before.
+- **Poll-only tournaments on the admin page:** a "Poll" chip and a "Polls" button that opens the
+  poll queue (no progress, no pause — those are Season controls).
+
+### Changed
+- **"Admin decides" now holds — there is no fallback.** "When the vote ties" is renamed **Poll
+  Tie-breaker** with three options: "Admin decides — no table is queued until an admin chooses",
+  "Random pick among the tied", "First nominated wins". On an `admin` tie nothing is queued, the
+  poll is marked tied, and the channel is told the vote tied, that an admin must choose on the
+  admin page, and that no table starts until then; the rotation's existing "No Table Queued" hold
+  is the admin alert. The panel shows "No table queued — choose one" with a button per tied table;
+  choosing queues it (and can be changed while it is still queued). `season_tie_fallback` is gone
+  from the API, the form, the status payload and the tests (the column stays, unread).
+- **A Season alone forces nothing.** The `winner_picks` / `auto_pick` / `max_active_games` /
+  `eligibility_days` forcing moved from the season to Pick by poll. "Run as a Season" keeps only
+  "Tables in the season" and its InfoTip; its amber "fixed for a Season" note is gone. A season
+  without a poll still creates and locks its Countdown ranking group, still pauses, still ends after
+  N tables and still announces the top 3. The season's poll bound applies only when both are on.
+- **Poll columns renamed** (`ALTER TABLE … RENAME COLUMN`, idempotent):
+  `season_poll_opens_before_h` → `poll_opens_before_h`, `season_poll_closes_before_h` →
+  `poll_closes_before_h`, `season_tie_rule` → `poll_tie_rule`; the API fields follow. Old clients
+  sending the `season_poll_*` / `season_tie_*` keys are silently stripped.
+- **Payloads:** the tournaments-list `season` sub-object (now also on poll-only rows) carries
+  `poll_picks`, and its `table_count` / `tables_done` are null without a season;
+  `GET /tournaments/:id/season` gains `config.poll_picks`, drops `config.tie_fallback`, and its
+  `progress` is null without a season. Pause/resume on a poll-only tournament answer 409.
+- **`eligibility_days` accepts 0** in the tournament schema (same line as the v2.161.2 hotfix).
+## [2.161.2] — 2026-10-18 — Season create no longer 400s on cooldown 0
 
 ### Fixed
 - **`eligibility_days: Too small: expected number to be >=1` on every Season create/update.** The form sends
-  cooldown 0 for a season (the server forces it anyway  a community vote overrides cooldown) but the API
-  schema still required e 1. The schema now accepts 0; every runtime reader already treats 0 as "no
+  cooldown 0 for a season (the server forces it anyway — a community vote overrides cooldown) but the API
+  schema still required ≥ 1. The schema now accepts 0; every runtime reader already treats 0 as "no
   lookback" (the `?? 120` fallbacks fire on NULL only). Found on the first demo-room create.
 
 ## [2.161.1] — 2026-10-17 — Season points live on the ranking group; "Countdown"

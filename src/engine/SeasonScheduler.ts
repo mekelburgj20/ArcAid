@@ -1,12 +1,16 @@
 import { getDatabase } from '../database/database.js';
 import { logError, logWarn } from '../utils/logger.js';
+import { nextRotationIso } from '../utils/cronUtils.js';
 import { SeasonPollService, type SeasonPollRow, type SeasonTournamentRow } from '../services/SeasonPollService.js';
 
 /**
- * Season poll clock (docs/season-format-plan.md §5).
+ * Pick-by-poll clock (docs/season-format-plan.md §5, §13; ADR 0026). The name
+ * is historical: since v2.162.0 it drives every POLL-PICKED rotation
+ * tournament (`poll_picks = 1`), Season or not.
  *
  * A per-minute tick registered beside `EventScheduler` in `Scheduler`. For
- * every active, unpaused, unfinished season it: mirrors Discord votes into
+ * every active, poll-picked tournament (a Season additionally unpaused and
+ * unfinished) it: mirrors Discord votes into
  * open polls, closes + resolves polls whose `closes_at` has passed, derives
  * and posts the next draft, and sends the one-day reminder when no draft is
  * prepared.
@@ -43,7 +47,7 @@ export class SeasonScheduler {
             const seasons = await db.all<SeasonTournamentRow[]>(
                 `SELECT t.*, r.slug AS room_slug FROM tournaments t
                    LEFT JOIN game_rooms r ON r.id = t.game_room_id
-                  WHERE t.season_table_count IS NOT NULL
+                  WHERE t.poll_picks = 1
                     AND t.is_active = 1
                     AND t.season_paused_at IS NULL
                     AND t.season_finished_at IS NULL`,
@@ -80,8 +84,10 @@ export class SeasonScheduler {
             }
         }
 
-        // 2. The bound: polls stop once the season's tables are all chosen.
-        if (await SeasonPollService.countResolvedWithResult(t.id) >= t.season_table_count) return;
+        // 2. The bound: a poll-picked SEASON stops polling once its tables are
+        //    all chosen. A poll-only rotation has no bound.
+        if (t.season_table_count != null
+            && await SeasonPollService.countResolvedWithResult(t.id) >= t.season_table_count) return;
 
         // 3. One poll per rotation (see class doc).
         const stillOpen = await db.get(
@@ -94,6 +100,19 @@ export class SeasonScheduler {
             t.id,
         );
         if (waiting) return;
+        // A poll that tied under "Admin decides" HOLDS with nothing queued
+        // (ADR 0026). It still owns its rotation: no next poll is derived until
+        // that rotation has passed, chosen or not — after that the hold is the
+        // rotation's own ("No Table Queued") and the queue moves on.
+        const held = await db.all<Array<{ closes_at: string | null }>>(
+            `SELECT closes_at FROM season_polls
+              WHERE tournament_id = ? AND status = 'resolved' AND tied = 1 AND result_queued_game_id IS NULL`,
+            t.id,
+        );
+        for (const h of held) {
+            const rotation = h.closes_at ? nextRotationIso(t.cadence, new Date(h.closes_at)) : null;
+            if (rotation && nowMs < Date.parse(rotation)) return;
+        }
 
         // 4. The lowest-slot draft: derive its times if needed, post when due.
         const draft = await db.get<SeasonPollRow>(

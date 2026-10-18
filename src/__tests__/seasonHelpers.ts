@@ -13,10 +13,15 @@ export const FRIDAY_CRON = '0 0 * * 5';
 
 let counter = 0;
 
+/**
+ * A rotation tournament with a Season and/or Pick by poll (ADR 0026). Defaults
+ * to BOTH on — the pre-v2.162.0 shape every season had. `tableCount: null` =
+ * a poll-only rotation; `pollPicks: false` = a season-only one.
+ */
 export async function createSeason(opts: {
-    tableCount?: number;
+    tableCount?: number | null;
+    pollPicks?: boolean;
     tieRule?: 'admin' | 'random' | 'first_nominated';
-    tieFallback?: 'random' | 'first_nominated';
     channelId?: string | null;
     platformRules?: unknown;
 } = {}): Promise<{ roomId: string; tournamentId: string; season: SeasonTournamentRow }> {
@@ -33,9 +38,9 @@ export async function createSeason(opts: {
         discord_channel_id: opts.channelId === null ? undefined : (opts.channelId ?? SEASON_CHANNEL),
         is_active: true,
         game_room_id: roomId,
-        season_table_count: opts.tableCount ?? 12,
-        season_tie_rule: opts.tieRule ?? 'admin',
-        season_tie_fallback: opts.tieFallback ?? 'random',
+        season_table_count: opts.tableCount === undefined ? 12 : opts.tableCount,
+        poll_picks: opts.pollPicks ?? true,
+        poll_tie_rule: opts.tieRule ?? 'admin',
     });
     const season = (await SeasonPollService.getSeasonTournament(tournamentId))!;
     return { roomId, tournamentId, season };
