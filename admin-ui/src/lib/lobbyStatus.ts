@@ -26,15 +26,18 @@ export const LOBBY_STATUS_META: Record<LobbyStatus, { label: string; dot: string
         hint: 'A cabinet is paired but has not checked in since check-in opened. Open the Arcaid Witness tile on the cabinet.',
     },
     offline: {
-        label: 'Cabinet not responding',
+        label: 'Witness not responding',
         dot: 'bg-neon-amber',
         text: 'text-neon-amber',
-        hint: 'The cabinet has not been heard from for over five minutes. Is it on and connected? (v1.0.4 cabinets send a heartbeat every two minutes.)',
+        hint: 'The Witness device has not been heard from for over five minutes. Is it on and connected? (v1.0.4 cabinets and the desktop companion send a heartbeat every two minutes.)',
     },
+    // The status is still named `no_cabinet` server-side; the copy is
+    // device-neutral because a Witness device may be a cabinet or a desktop
+    // VPX rig running the Castcade companion (v2.163.0).
     no_cabinet: {
-        label: 'No cabinet',
+        label: 'No Witness device',
         dot: 'bg-faint',
         text: 'text-faint',
-        hint: 'No paired cabinet. Scores will post, unverified.',
+        hint: 'No paired Witness device — cabinet or desktop. Scores will post, unverified.',
     },
 };

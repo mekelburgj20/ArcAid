@@ -6,6 +6,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.163.0] — 2026-10-18 — Witness devices have a type; the Castcade companion pairs as a desktop
+
+The Windows desktop Witness producer ships inside the **Castcade** companion
+(https://github.com/mekelburgj20/castcade, its ADR 0003) and pairs as an ordinary witness device over
+the existing GETs. The cabinet app and the server contract stay here. **No behaviour change for
+cabinets.**
+
+### Added
+- **`witness_devices.device_type`** (migration `183_witness_device_type`): `'atgames'` (the default,
+  and every existing row) or `'desktop'`. `GET /api/witness/pair` takes an optional `type` query;
+  an unknown value is a 400 `DEVICE_TYPE_INVALID`, refused *before* the single-use code is looked
+  up so a companion typo does not burn it. Re-pairing takes the type the device now declares. A
+  desktop device id is a companion-generated UUID — the pairing path never enforced an id shape,
+  and now says so (with a test proving a UUID pairs and its token works on the device routes).
+- **`GET /api/me/witness/devices` returns `deviceType`**, and Account Settings labels each paired
+  device **Cabinet** or **Desktop**.
+
+### Changed
+- **Device-neutral copy where a desktop can now appear.** The check-in lobby's `no_cabinet` status
+  reads "No Witness device" (the status value itself is unchanged — the UI keys on it) and `offline`
+  reads "Witness not responding"; Account Settings says "Arcaid Witness devices" / "No devices
+  paired yet."; the pairing conflict message says "device". The lobby grades a desktop by exactly
+  the cabinet rules — check-in, open session, heartbeat-stale reads `offline` — and never reads
+  `device_type`.
+
 ## [2.162.5] — 2026-10-18 — Wider "Edit Tournament" dialog on desktop
 
 ### Changed

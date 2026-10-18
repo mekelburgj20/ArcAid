@@ -2857,7 +2857,11 @@ async function doInitDatabase(): Promise<Database> {
                 -- Scoreboard instead of dropping them.
                 target_room_id TEXT,
                 target_tournament_id TEXT,
-                global_fallback INTEGER NOT NULL DEFAULT 1
+                global_fallback INTEGER NOT NULL DEFAULT 1,
+                -- 'atgames' (a cabinet) or 'desktop' (the Castcade companion,
+                -- migration 183). A desktop id is a companion-generated UUID,
+                -- stable per install, not an ATGAMES_UNIQUE_ID.
+                device_type TEXT NOT NULL DEFAULT 'atgames'
             );
             CREATE INDEX IF NOT EXISTS idx_witness_devices_user ON witness_devices(canonical_user_id);
 
@@ -3126,6 +3130,18 @@ async function doInitDatabase(): Promise<Database> {
         { name: '182_pick_by_poll', handler: async (db) => {
             const { pickByPoll } = await import('./migrations/pickByPoll.js');
             await pickByPoll(db);
+        } },
+        // v2.163.0 — the Windows desktop Witness producer ships inside the
+        // Castcade companion (https://github.com/mekelburgj20/castcade, its
+        // ADR 0003) and pairs as an ordinary witness device. `device_type`
+        // tells a cabinet ('atgames' — every existing row) from a desktop
+        // ('desktop', whose id is a companion-generated UUID). Informational:
+        // nothing gates on it; the lobby grades both kinds by the same rules.
+        { name: '183_witness_device_type', handler: async (db) => {
+            const cols = (await db.all(`PRAGMA table_info(witness_devices)`)) as Array<{ name: string }>;
+            if (!cols.some(c => c.name === 'device_type')) {
+                await db.exec(`ALTER TABLE witness_devices ADD COLUMN device_type TEXT NOT NULL DEFAULT 'atgames'`);
+            }
         } },
     ];
 

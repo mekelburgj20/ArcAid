@@ -456,3 +456,92 @@ describe('Witness heartbeat (v2.160.0, cabinet 1.0.4)', () => {
         expect(row!.heartbeat_at).toBeNull();
     });
 });
+
+/**
+ * v2.163.0 — the Castcade companion (https://github.com/mekelburgj20/castcade,
+ * its ADR 0003) pairs a Windows VPX rig as a witness device with
+ * `type=desktop` and a companion-generated UUID for its id. What these pin:
+ * a cabinet that sends no type is untouched; a UUID id pairs and its token
+ * works on the device routes; an unknown type is refused BEFORE the single-use
+ * code is consumed; the devices list carries the type.
+ */
+describe('Witness device type — the Castcade companion pairs as a desktop (v2.163.0)', () => {
+    let app: express.Express;
+    beforeEach(async () => { app = await createTestApp(); });
+
+    /** A companion-generated UUID — nothing like an ATGAMES_UNIQUE_ID. */
+    const DESKTOP = '7f0c1a9e-3b2d-4c5e-9f6a-1b2c3d4e5f60';
+
+    async function mintCode(user = USER): Promise<string> {
+        const res = await request(app)
+            .post('/api/me/witness/pairing-code')
+            .set('Authorization', `Bearer ${playerToken(user)}`).send({});
+        return res.body.code as string;
+    }
+
+    it('a cabinet that sends no type is stored and listed as atgames — nothing changes for cabinets', async () => {
+        await pairDevice(app);
+        const db = await getDatabase();
+        const row = await db.get<{ device_type: string }>(
+            'SELECT device_type FROM witness_devices WHERE atgames_unique_id = ?', DEVICE,
+        );
+        expect(row!.device_type).toBe('atgames');
+        const mine = await request(app)
+            .get('/api/me/witness/devices')
+            .set('Authorization', `Bearer ${playerToken(USER)}`);
+        expect(mine.body[0]).toMatchObject({ atgamesUniqueId: DEVICE, deviceType: 'atgames' });
+    });
+
+    it('type=desktop with a UUID device id pairs, stores desktop, and its token works on the device routes', async () => {
+        const code = await mintCode();
+        const pair = await request(app).get('/api/witness/pair')
+            .query({ code, device: DESKTOP, username: 'MY-PC', type: 'desktop' });
+        expect(pair.status).toBe(200);
+        expect(pair.body.ok).toBe(true);
+        expect(typeof pair.body.token).toBe('string');
+
+        const db = await getDatabase();
+        const row = await db.get<{ device_type: string; canonical_user_id: string }>(
+            'SELECT device_type, canonical_user_id FROM witness_devices WHERE atgames_unique_id = ?', DESKTOP,
+        );
+        expect(row).toMatchObject({ device_type: 'desktop', canonical_user_id: USER });
+
+        // The same GETs a cabinet uses, authenticated by the same token rule.
+        const hb = await request(app).get('/api/witness/heartbeat').query({ device: DESKTOP, token: pair.body.token });
+        expect(hb.status).toBe(200);
+        const rep = await request(app).get('/api/witness/report')
+            .query({ device: DESKTOP, token: pair.body.token, table: 'mm_109c', launch: 1000, exit: 1200 });
+        expect(rep.status).toBe(200);
+
+        const mine = await request(app)
+            .get('/api/me/witness/devices')
+            .set('Authorization', `Bearer ${playerToken(USER)}`);
+        expect(mine.body).toHaveLength(1);
+        expect(mine.body[0]).toMatchObject({ atgamesUniqueId: DESKTOP, atgamesUsername: 'MY-PC', deviceType: 'desktop' });
+    });
+
+    it('an unknown type is a 400 DEVICE_TYPE_INVALID that writes nothing and does not burn the code', async () => {
+        const code = await mintCode();
+        const bad = await request(app).get('/api/witness/pair').query({ code, device: DESKTOP, type: 'toaster' });
+        expect(bad.status).toBe(400);
+        expect(bad.body.code).toBe('DEVICE_TYPE_INVALID');
+        const db = await getDatabase();
+        const row = await db.get('SELECT 1 AS x FROM witness_devices WHERE atgames_unique_id = ?', DESKTOP);
+        expect(row).toBeUndefined();
+        // The typo was caught before redemption, so the single-use code is still good.
+        const ok = await request(app).get('/api/witness/pair').query({ code, device: DESKTOP, type: 'desktop' });
+        expect(ok.status).toBe(200);
+    });
+
+    it('re-pairing takes the type the device now declares', async () => {
+        await pairDevice(app, USER, DESKTOP); // no type -> atgames
+        const code = await mintCode();
+        const again = await request(app).get('/api/witness/pair').query({ code, device: DESKTOP, type: 'desktop' });
+        expect(again.status).toBe(200);
+        const db = await getDatabase();
+        const row = await db.get<{ device_type: string }>(
+            'SELECT device_type FROM witness_devices WHERE atgames_unique_id = ?', DESKTOP,
+        );
+        expect(row!.device_type).toBe('desktop');
+    });
+});

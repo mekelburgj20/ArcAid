@@ -143,6 +143,8 @@ export default function AccountSettings() {
   const [witnessCode, setWitnessCode] = useState<string | null>(null);
   const [witnessDevices, setWitnessDevices] = useState<{
     atgamesUniqueId: string; atgamesUsername: string | null; lastSeenAt: string | null;
+    /** 'atgames' (cabinet) or 'desktop' (Castcade companion, v2.163.0); absent = cabinet. */
+    deviceType?: 'atgames' | 'desktop';
     targetRoomId: string | null; targetRoomName: string | null;
     targetTournamentId: string | null; targetTournamentName: string | null;
     globalFallback: boolean;
@@ -1333,7 +1335,7 @@ export default function AccountSettings() {
                   (the anti-gear-up signal). Player mints a code here, types it
                   into the app on the cabinet. */}
               <div className="mt-6 pt-4 border-t border-border">
-                <h3 className="text-sm font-medium mb-1">Arcaid Witness cabinets</h3>
+                <h3 className="text-sm font-medium mb-1">Arcaid Witness devices</h3>
                 <p className="text-xs text-muted mb-3">
                   Pair the Arcaid Witness app on your cabinet so your tournament scores are backed by
                   when you actually started each table. Get a code here, then enter it in the Witness
@@ -1377,7 +1379,13 @@ export default function AccountSettings() {
                       <li key={d.atgamesUniqueId} className="text-sm bg-surface border border-border rounded px-3 py-2">
                         <div className="flex items-center justify-between gap-3">
                         <span className="min-w-0 truncate">
-                          <span className="text-primary">{d.atgamesUsername || 'Cabinet'}</span>
+                          <span className="text-primary">{d.atgamesUsername || (d.deviceType === 'desktop' ? 'Desktop' : 'Cabinet')}</span>
+                          {/* Cabinet vs Desktop — the one visible trace of
+                              `device_type`. Same chip style as the alert
+                              channel tags below. */}
+                          <span className="px-1.5 py-px rounded text-[10px] border border-border text-faint ml-2">
+                            {d.deviceType === 'desktop' ? 'Desktop' : 'Cabinet'}
+                          </span>
                           <span className="font-mono text-xs text-muted ml-2">{d.atgamesUniqueId.slice(0, 8)}…</span>
                           {d.lastSeenAt && <span className="text-xs text-faint ml-2">last seen {new Date(d.lastSeenAt).toLocaleDateString()}</span>}
                         </span>
@@ -1446,7 +1454,7 @@ export default function AccountSettings() {
                         </div>
                         <p className="mt-1 text-xs text-faint">
                           {d.targetRoomId
-                            ? `Scores from this cabinet go to ${d.targetRoomName || 'that room'}${
+                            ? `Scores from this device go to ${d.targetRoomName || 'that room'}${
                                 d.targetTournamentName ? ` → ${d.targetTournamentName}` : ''
                               }. Anything that doesn't match an open game there goes to the Global Scoreboard.`
                             : 'Scores go to your Global Scoreboard record, plus any event you have joined. Pick a room to have them count towards a rotation tournament.'}
@@ -1455,7 +1463,7 @@ export default function AccountSettings() {
                     ))}
                   </ul>
                 ) : (
-                  <p className="text-xs text-muted">No cabinets paired yet.</p>
+                  <p className="text-xs text-muted">No devices paired yet.</p>
                 )}
               </div>
             </section>

@@ -163,10 +163,12 @@ router.post('/me/scoreboard-preferences', requireDiscordUser, async (req, res) =
 //
 // TWO audiences with different auth models:
 //   - PLAYER routes (`/me/witness/*`, requireDiscordUser) — mint a pairing
-//     code, list/unpair cabinets. Normal Bearer auth.
+//     code, list/unpair devices. Normal Bearer auth.
 //   - DEVICE routes (`/witness/*`, witnessIngestLimiter, NO auth) — the
 //     on-device app pairs and reports over synchronous GETs (the AtGames SDK
-//     offers no POST). The device token in the query string IS the auth; it is
+//     offers no POST). The Castcade companion (desktop VPX) speaks the same
+//     GETs and pairs with `type=desktop` (v2.163.0); the cabinet app sends no
+//     type. The device token in the query string IS the auth; it is
 //     never logged (handlers reference codes/ids only), rate-limited per
 //     device id, and only ever grants writes to that device's own trail.
 // The verify-join that scores these observations is a later phase — these
@@ -242,14 +244,17 @@ router.delete('/me/witness/devices/:deviceId', requireDiscordUser, async (req, r
 
 // Device: redeem a pairing code, receive the device token (returned ONCE).
 // `token` accepted via query only here; the device stores what it gets back.
+// `type` is 'atgames' (default — every cabinet build omits it) or 'desktop'
+// (the Castcade companion); anything else is a 400 DEVICE_TYPE_INVALID.
 router.get('/witness/pair', witnessIngestLimiter, async (req, res) => {
     try {
         const { WitnessService, WitnessPairError } = await import('../../services/WitnessService.js');
         const code = typeof req.query.code === 'string' ? req.query.code : '';
         const device = typeof req.query.device === 'string' ? req.query.device : '';
         const username = typeof req.query.username === 'string' ? req.query.username : null;
+        const type = typeof req.query.type === 'string' && req.query.type !== '' ? req.query.type : 'atgames';
         try {
-            const { token } = await WitnessService.redeemPairingCode(code, device, username);
+            const { token } = await WitnessService.redeemPairingCode(code, device, username, type);
             return res.json({ ok: true, token });
         } catch (err) {
             if (err instanceof WitnessPairError) {
