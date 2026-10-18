@@ -12,7 +12,6 @@ import { parseTournamentRules, normalizeTournamentRulesInput } from '../utils/pl
  */
 export interface SeasonInput {
     season_table_count?: number | null;
-    season_points_top?: number;
     season_poll_opens_before_h?: number;
     season_poll_closes_before_h?: number;
     season_tie_rule?: 'admin' | 'random' | 'first_nominated';
@@ -29,12 +28,15 @@ export class SeasonConfigError extends Error {
 
 interface ResolvedSeason {
     table_count: number;
-    points_top: number;
     opens_before_h: number;
     closes_before_h: number;
     tie_rule: string;
     tie_fallback: string;
 }
+
+/** Countdown points for 1st on a season's auto-created ranking group. Only a
+ *  seed: the group's `points_top` is edited on the Rankings page afterwards. */
+const SEASON_POINTS_TOP_SEED = 50;
 
 const SEASON_TIE_RULES = ['admin', 'random', 'first_nominated'];
 const SEASON_TIE_FALLBACKS = ['random', 'first_nominated'];
@@ -58,7 +60,6 @@ function resolveSeason(
 
     const season: ResolvedSeason = {
         table_count: tableCount,
-        points_top: input.season_points_top ?? stored?.season_points_top ?? 50,
         opens_before_h: input.season_poll_opens_before_h ?? stored?.season_poll_opens_before_h ?? 96,
         closes_before_h: input.season_poll_closes_before_h ?? stored?.season_poll_closes_before_h ?? 3,
         tie_rule: input.season_tie_rule ?? stored?.season_tie_rule ?? 'admin',
@@ -68,9 +69,6 @@ function resolveSeason(
     const isInt = (n: unknown) => typeof n === 'number' && Number.isInteger(n);
     if (!isInt(season.table_count) || season.table_count < 1 || season.table_count > 200) {
         throw new SeasonConfigError('SEASON_TABLE_COUNT', 'A season must have between 1 and 200 tables.');
-    }
-    if (!isInt(season.points_top) || season.points_top < 1 || season.points_top > 1000) {
-        throw new SeasonConfigError('SEASON_POINTS_TOP', 'Points for 1st place must be between 1 and 1000.');
     }
     if (!isInt(season.closes_before_h) || season.closes_before_h < 1) {
         throw new SeasonConfigError('SEASON_POLL_CLOSE', 'The poll must close at least 1 hour before the rotation (Discord polls last at least 1 hour).');
@@ -248,9 +246,11 @@ export class TournamentService {
     /**
      * Persist a validated season block and keep its standings group in step
      * (plan §4). Creates the group when the tournament has none (or the stored
-     * id no longer resolves); otherwise propagates points_top/best_n and
+     * id no longer resolves); otherwise propagates best_n (= table count) and
      * invalidates the group's cache — a config change the data watermark does
-     * not cover.
+     * not cover. The group's scoring (`rank_method`, `points_top`) is SEEDED
+     * on create (Countdown, 50 for 1st) and thereafter owned by the Rankings
+     * page — a season save never touches it (owner ruling 2026-10-17, v2.161.1).
      */
     private static async applySeason(
         id: string,
@@ -261,18 +261,18 @@ export class TournamentService {
     ): Promise<void> {
         const db = await getDatabase();
         await db.run(
-            `UPDATE tournaments SET season_table_count = ?, season_points_top = ?,
+            `UPDATE tournaments SET season_table_count = ?,
                     season_poll_opens_before_h = ?, season_poll_closes_before_h = ?,
                     season_tie_rule = ?, season_tie_fallback = ?
               WHERE id = ?`,
-            season.table_count, season.points_top, season.opens_before_h, season.closes_before_h,
+            season.table_count, season.opens_before_h, season.closes_before_h,
             season.tie_rule, season.tie_fallback, id,
         );
 
         const { RankingService } = await import('./RankingService.js');
         const existingGroupId: string | null = stored?.season_ranking_group_id ?? null;
         const existingGroup = existingGroupId
-            ? await db.get('SELECT id, points_top, best_n FROM ranking_groups WHERE id = ?', existingGroupId)
+            ? await db.get('SELECT id, best_n FROM ranking_groups WHERE id = ?', existingGroupId)
             : null;
 
         if (!existingGroup) {
@@ -286,17 +286,17 @@ export class TournamentService {
                 min_games: 1,
                 tournament_ids: [id],
                 game_room_id: gameRoomId ?? undefined,
-                points_top: season.points_top,
+                points_top: SEASON_POINTS_TOP_SEED,
                 include_archived: true,
             });
             await db.run('UPDATE tournaments SET season_ranking_group_id = ? WHERE id = ?', groupId, id);
             return;
         }
 
-        if (existingGroup.points_top !== season.points_top || existingGroup.best_n !== season.table_count) {
+        if (existingGroup.best_n !== season.table_count) {
             await db.run(
-                'UPDATE ranking_groups SET points_top = ?, best_n = ? WHERE id = ?',
-                season.points_top, season.table_count, existingGroup.id,
+                'UPDATE ranking_groups SET best_n = ? WHERE id = ?',
+                season.table_count, existingGroup.id,
             );
             await RankingService.invalidate(existingGroup.id);
         }

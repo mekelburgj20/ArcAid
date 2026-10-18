@@ -298,7 +298,7 @@ Rankings let you aggregate scores across multiple tournaments into a single over
 | **Max 10** | Awards points to top 10 (100, 80, 65, 50, 40, 30, 20, 15, 10, 5). Sum of best N games |
 | **Average Rank** | Average finishing position across all games. Lower is better |
 | **Best Game (PAPA)** | Points: 100, 90, 85, 84, 83... Sum of best N games |
-| **Best Game (Linear)** | Points: 100, 99, 98, 97... Sum of best N games |
+| **Countdown** | Points from the group's top value (default 100): 100, 99, 98, 97... Sum of best N games |
 
 4. Set **Best N Games** — Only the top N scores count toward the ranking (default: 25)
 5. Set **Minimum Games** — Player must have played at least this many games to qualify (default: 1)

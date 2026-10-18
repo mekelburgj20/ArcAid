@@ -70,7 +70,6 @@ export interface Tournament {
      * NULL/undefined = not a season.
      */
     seasonTableCount?: number | null;
-    seasonPointsTop?: number;
     seasonRankingGroupId?: string | null;
     seasonPollOpensBeforeH?: number;
     seasonPollClosesBeforeH?: number;

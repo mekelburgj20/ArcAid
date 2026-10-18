@@ -149,7 +149,6 @@ const TournamentBaseSchema = z.object({
      * max_active_games = 1 — `TournamentService` normalises those on save.
      */
     season_table_count: z.number().int().min(1).max(200).nullable().optional(),
-    season_points_top: z.number().int().min(1).max(1000).optional(),
     season_poll_opens_before_h: z.number().int().min(2).max(24 * 32).optional(),
     season_poll_closes_before_h: z.number().int().min(1).max(24 * 32).optional(),
     season_tie_rule: z.enum(['admin', 'random', 'first_nominated']).optional(),
@@ -246,7 +245,7 @@ export const CreateRankingGroupSchema = z.object({
     best_n: z.number().int().min(1).max(200).default(25),
     min_games: z.number().int().min(1).max(100).default(1),
     tournament_ids: z.array(z.string()).min(1, 'At least one tournament required'),
-    /** Season format (migration 181) — best_game_linear's 1st-place value.
+    /** Season format (migration 181) — best_game_linear's ("Countdown") 1st-place value.
      *  Omitted = 100 on create, unchanged on update. */
     points_top: z.number().int().min(1).max(1000).optional(),
     /** true = ARCHIVED games count too. Omitted = off on create, unchanged on update. */

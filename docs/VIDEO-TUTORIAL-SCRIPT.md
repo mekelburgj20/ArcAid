@@ -152,7 +152,7 @@ Two videos: a 3-minute **Quick Start** to get new room admins running immediatel
 
 **[Fill in name, select method]**
 
-> "Give it a name. Then choose a ranking method. Max 10 awards points to the top 10 finishers — 100 for first, down to 5 for tenth. Average Rank ranks by average finishing position. PAPA and Linear use different point curves."
+> "Give it a name. Then choose a ranking method. Max 10 awards points to the top 10 finishers — 100 for first, down to 5 for tenth. Average Rank ranks by average finishing position. PAPA and Countdown use different point curves."
 
 **[Set Best N Games, select tournaments]**
 

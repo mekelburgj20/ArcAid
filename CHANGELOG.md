@@ -6,6 +6,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.161.1] — 2026-10-17 — Season points live on the ranking group; "Countdown"
+
+Owner ruling 2026-10-17: a season's scoring belongs on its ranking group, next to every other
+scoring method, not on the tournament form.
+
+### Changed
+- **Season points moved to the ranking group.** The auto-created group is still `best_game_linear`
+  with `best_n` = table count and archived weeks counted, but its `points_top = 50` is now only a
+  SEED on create — later season saves sync `best_n` alone and never touch the method or the points.
+- **The Rankings page unlocks a season group's scoring.** "Points for 1st" and the method are
+  editable (and `points_top` is sent) for a season-managed group; only "Best N Games" stays locked,
+  with the note "Best N games follows the season's table count; change it on the tournament".
+  `RankingService.update` now locks only `best_n` for a managed group.
+- **"Points for 1st" removed from the tournament form's Season section.** Its InfoTip now says
+  standings are scored by the season's ranking group on the Rankings page (Countdown, 50 for 1st by
+  default, editable there). `tournaments.season_points_top` stays in the DB but is unread — it is
+  gone from the create/update schema (old clients sending it are silently stripped), the season
+  status payload and the form.
+- **`best_game_linear` is labelled "Countdown"** everywhere it is shown (Rankings page, ranking
+  cards, Help, How-to guide); the id is unchanged in code, DB and API.
+
 ## [2.161.0] — Seasons: a bounded weekly grind with points, a poll queue and a pause
 
 Built for GamerDad89's league (mox_s_vpx_tournaments), from a 2026-10-17 DM thread: one table a

@@ -58,7 +58,8 @@ describe('TournamentForm — Season section', () => {
     fireEvent.click(screen.getByLabelText('Run as a Season'));
 
     expect((screen.getByLabelText('Tables in the season') as HTMLInputElement).value).toBe('12');
-    expect((screen.getByLabelText('Points for 1st') as HTMLInputElement).value).toBe('50');
+    // Points live on the season's ranking group (Rankings page), not here.
+    expect(screen.queryByLabelText('Points for 1st')).toBeNull();
     expect((screen.getByLabelText('Poll opens hours before rotation') as HTMLInputElement).value).toBe('96');
     expect((screen.getByLabelText('Poll closes hours before rotation') as HTMLInputElement).value).toBe('3');
 
@@ -79,7 +80,6 @@ describe('TournamentForm — Season section', () => {
 
     expect(payload()).toMatchObject({
       season_table_count: 12,
-      season_points_top: 50,
       season_poll_opens_before_h: 96,
       season_poll_closes_before_h: 3,
       season_tie_rule: 'admin',
@@ -155,11 +155,11 @@ describe('tournamentToFormState — season columns', () => {
   it('reads a stored season', () => {
     const state = tournamentToFormState({
       ...base,
-      season_table_count: 8, season_points_top: 25, season_poll_opens_before_h: 72,
+      season_table_count: 8, season_poll_opens_before_h: 72,
       season_poll_closes_before_h: 6, season_tie_rule: 'first_nominated', season_tie_fallback: 'first_nominated',
     });
     expect(state.season).toEqual({
-      enabled: true, tableCount: 8, pointsTop: 25, opensBeforeH: 72, closesBeforeH: 6,
+      enabled: true, tableCount: 8, opensBeforeH: 72, closesBeforeH: 6,
       tieRule: 'first_nominated', tieFallback: 'first_nominated',
     });
   });

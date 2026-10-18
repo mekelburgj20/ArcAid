@@ -58,7 +58,7 @@ async function seasonViaApi(app: any) {
         .send({
             id, name: 'Mox Season', type: 'WG',
             cadence: { cron: '0 0 * * 5', timezone: 'America/New_York' },
-            season_table_count: 12, season_points_top: 50,
+            season_table_count: 12,
             winner_picks: true, auto_pick: true, max_active_games: 2,
         });
     expect(res.status).toBe(200);

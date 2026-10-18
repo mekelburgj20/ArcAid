@@ -567,7 +567,7 @@ function SeasonSection({ season, onChange, schedule }: {
           aria-label="Run as a Season"
         />
         <span className="text-sm text-primary font-medium">Run as a Season</span>
-        <InfoTip text="A Season is a fixed number of tables, one per rotation. Each table's finishing places earn points (1st = the top value, 2nd = one less, and so on) that add up to season standings. Players vote on every next table in a poll posted to Discord and the room page." />
+        <InfoTip text="A Season is a fixed number of tables, one per rotation. Each table's finishing places earn Countdown points that add up to season standings, scored by the season's ranking group on the Rankings page (50 for 1st by default, editable there). Players vote on every next table in a poll posted to Discord and the room page." />
       </label>
       {!season.enabled && (
         <p className="text-xs text-faint mt-1.5 ml-6">Off — this tournament rotates forever.</p>
@@ -580,12 +580,6 @@ function SeasonSection({ season, onChange, schedule }: {
                 Tables in the season <InfoTip text="How many tables the season runs. After the last one it stops rotating and announces the final standings." />
               </label>
               <NumberStepper value={season.tableCount} onChange={v => patch({ tableCount: v })} min={1} max={200} ariaLabel="Tables in the season" />
-            </div>
-            <div>
-              <label className={labelClass}>
-                Points for 1st <InfoTip text="2nd place gets one less, 3rd two less, down to zero. Tied scores share the higher place." />
-              </label>
-              <NumberStepper value={season.pointsTop} onChange={v => patch({ pointsTop: v })} min={1} max={1000} ariaLabel="Points for 1st" />
             </div>
             <div>
               <label className={labelClass}>

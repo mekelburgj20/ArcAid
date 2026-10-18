@@ -12,7 +12,6 @@ describe('getSeasonErrors', () => {
   it('mirrors the server rules', () => {
     expect(getSeasonErrors({ ...on, tableCount: 0 }, '0 0 * * 5')).toHaveLength(1);
     expect(getSeasonErrors({ ...on, tableCount: 201 }, '0 0 * * 5')).toHaveLength(1);
-    expect(getSeasonErrors({ ...on, pointsTop: 1001 }, '0 0 * * 5')).toHaveLength(1);
     expect(getSeasonErrors({ ...on, closesBeforeH: 0, opensBeforeH: 5 }, '0 0 * * 5')).toHaveLength(1);
     expect(getSeasonErrors({ ...on, opensBeforeH: 3, closesBeforeH: 3 }, '0 0 * * 5')[0]).toMatch(/open earlier/);
     expect(getSeasonErrors({ ...on, opensBeforeH: 800 }, '0 0 * * 5')[0]).toMatch(/at most 768/);
