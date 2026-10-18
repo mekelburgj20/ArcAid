@@ -135,7 +135,7 @@ describe('SeasonScheduler.tick', () => {
         const body = pollPosts()[0]![1].body;
         expect(body.poll.duration).toBe(37); // ceil(Thu 01:00Z − Wed 12:00Z)
         expect(body.poll.answers.map((a: any) => a.poll_media.text)).toEqual(['Attack from Mars', 'Medieval Madness']);
-        expect(body.content).toContain('Combined: no votes yet');
+        expect(body.content).toContain('\n🗳️ **Arcaid Lobby + Discord combined tally: no votes yet**');
 
         const db = await getDatabase();
         const answers = await db.all('SELECT position, discord_answer_id FROM season_poll_candidates WHERE poll_id = ? ORDER BY position', pollId);
@@ -161,7 +161,7 @@ describe('SeasonScheduler.tick', () => {
         await SeasonPollService.vote(roomId, pollId, '100000000000000001', 2);
         await SeasonScheduler.getInstance().tick(new Date(WED_NOON.getTime() + 60_000));
         expect(patch).toHaveBeenCalledTimes(1);
-        expect(patch.mock.calls[0]![1].body.content).toContain('Combined: Medieval Madness 1');
+        expect(patch.mock.calls[0]![1].body.content).toContain('**Arcaid Lobby + Discord combined tally: Medieval Madness 1 — 1 vote**');
         await SeasonScheduler.getInstance().tick(new Date(WED_NOON.getTime() + 120_000));
         expect(patch).toHaveBeenCalledTimes(1);
     });

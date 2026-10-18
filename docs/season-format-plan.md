@@ -220,7 +220,7 @@ All Discord I/O goes through `@discordjs/rest` exactly like `sendChannelMessage`
 | Edit tally line | `PATCH Routes.channelMessage(channelId, messageId)` `{ content }` | after each tick that changed the merged tally |
 
 The posted message `content` carries the combined tally and the web link, e.g.
-`**Week 5 table poll** — vote here or at <room url>/season · Combined: Attack from Mars 7 · Medieval Madness 3`.
+`**Week 5 table poll** — vote here or in the Arcaid Lobby: <room url>/lobby` on line 1 and `🗳️ **Arcaid Lobby + Discord combined tally: Attack from Mars 7 · Medieval Madness 3 — 10 votes** · the bars below count Discord votes only` on line 2 (v2.162.4, owner ruling 2026-10-18: the tally is its own line because Discord's bars can never include web votes and readers missed the inline suffix).
 The poll widget's own counters will undercount (web votes cannot be injected into Discord — there
 is no API to vote on behalf of a user; verified against discord.js 14.27 typings), which is why
 the content line exists. **Verify on the first live post that message content on a poll message

@@ -6,6 +6,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.162.4] — 2026-10-18 — The poll's merged tally is its own line on Discord
+
+Owner, first Seasons demo: "I don't see a Discord message 'Combined' update … make it its own line."
+The inline `· Combined: …` suffix sat in the question line and was missed because the eye goes to
+Discord's own bars — which can only ever count Discord clicks (there is no vote-on-behalf API).
+
+### Changed
+- **Poll message content is two lines.** Line 1: the question and a link to the room's LOBBY, where the web ballot lives (it pointed at the room root before). Line 2:
+  `🗳️ **Arcaid Lobby + Discord combined tally: Blackbelt 1 · Blackbelt 2018 1 — 2 votes** · the bars below
+  count Discord votes only` (`SeasonPollService.buildContent`). Same edit cadence as before: rewritten
+  on the next minute tick whenever the merged tally changes. Plan §5.3 updated.
 ## [2.162.3] — 2026-10-18 — The table poll card lives on the Lobby
 
 Owner ruling from the first Seasons demo (2026-10-18): "The web vote poll shows up on the Scores
