@@ -20,6 +20,14 @@ export interface RankingGroup {
      *  (a style might exist but only carry a header/logo image). Null when
      *  bg_style_id is unset. */
     bg_has_bg: number | null;
+    /** Season format (migration 181) — best_game_linear only: 1st = points_top,
+     *  2nd = points_top-1 ... floored at 0. Existing groups default to 100. */
+    points_top: number;
+    /** true = ARCHIVED games count too (season groups). Default off. */
+    include_archived: boolean;
+    /** The season tournament that manages this group (its best_n/points_top
+     *  follow the season config), or null for an ordinary group. */
+    managed_by_season: { id: string; name: string } | null;
 }
 
 export interface OverallRanking {
@@ -58,7 +66,7 @@ export const RANK_METHOD_INFO: Record<RankMethod, { label: string; description: 
     },
     best_game_linear: {
         label: 'Best Game (Linear)',
-        description: 'Awards points based on rank (1st: 100, 2nd: 99, 3rd: 98, each subsequent place is 1 point less). Best N games count toward total.',
+        description: "Awards points based on rank, starting at the group's top value (default 100): 1st gets the top value, 2nd one less, and so on, floored at 0. Tied scores share the place. Best N games count toward total.",
     },
 };
 
@@ -102,6 +110,10 @@ export class RankingService {
                 'SELECT tournament_id FROM ranking_group_tournaments WHERE ranking_group_id = ?',
                 g.id
             );
+            const season = await db.get(
+                'SELECT id, name FROM tournaments WHERE season_ranking_group_id = ? AND season_table_count IS NOT NULL LIMIT 1',
+                g.id
+            );
             result.push({
                 id: g.id,
                 name: g.name,
@@ -114,6 +126,9 @@ export class RankingService {
                 tournament_ids: tournamentRows.map((r: any) => r.tournament_id),
                 bg_style_id: g.bg_style_id || null,
                 bg_has_bg: g.bg_has_bg ?? null,
+                points_top: g.points_top ?? 100,
+                include_archived: !!g.include_archived,
+                managed_by_season: season ? { id: season.id, name: season.name } : null,
             });
         }
         return result;
@@ -136,6 +151,10 @@ export class RankingService {
             'SELECT tournament_id FROM ranking_group_tournaments WHERE ranking_group_id = ?',
             g.id
         );
+        const season = await db.get(
+            'SELECT id, name FROM tournaments WHERE season_ranking_group_id = ? AND season_table_count IS NOT NULL LIMIT 1',
+            g.id
+        );
         return {
             id: g.id,
             name: g.name,
@@ -148,6 +167,9 @@ export class RankingService {
             tournament_ids: tournamentRows.map((r: any) => r.tournament_id),
             bg_style_id: g.bg_style_id || null,
             bg_has_bg: g.bg_has_bg ?? null,
+            points_top: g.points_top ?? 100,
+            include_archived: !!g.include_archived,
+            managed_by_season: season ? { id: season.id, name: season.name } : null,
         };
     }
 
@@ -163,11 +185,14 @@ export class RankingService {
         min_games: number;
         tournament_ids: string[];
         game_room_id?: string;
+        points_top?: number;
+        include_archived?: boolean;
     }): Promise<void> {
         const db = await getDatabase();
         await db.run(
-            `INSERT INTO ranking_groups (id, name, description, rank_method, best_n, min_games, game_room_id) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            data.id, data.name, data.description || '', data.rank_method, data.best_n, data.min_games, data.game_room_id || null
+            `INSERT INTO ranking_groups (id, name, description, rank_method, best_n, min_games, game_room_id, points_top, include_archived) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            data.id, data.name, data.description || '', data.rank_method, data.best_n, data.min_games, data.game_room_id || null,
+            data.points_top ?? 100, data.include_archived ? 1 : 0
         );
         for (const tid of data.tournament_ids) {
             await db.run(
@@ -188,11 +213,28 @@ export class RankingService {
         best_n: number;
         min_games: number;
         tournament_ids: string[];
+        /** Omitted = keep the stored value (pre-season callers send neither). */
+        points_top?: number;
+        include_archived?: boolean;
     }): Promise<void> {
         const db = await getDatabase();
+        // A season-managed group keeps best_n / points_top locked to the
+        // season config (plan §8.4) — the season edit is the one writer.
+        const season = await db.get(
+            'SELECT season_table_count, season_points_top FROM tournaments WHERE season_ranking_group_id = ? AND season_table_count IS NOT NULL LIMIT 1',
+            id
+        );
+        if (season) {
+            data = { ...data, best_n: season.season_table_count, points_top: season.season_points_top };
+        }
         await db.run(
-            `UPDATE ranking_groups SET name = ?, description = ?, rank_method = ?, best_n = ?, min_games = ? WHERE id = ?`,
-            data.name, data.description || '', data.rank_method, data.best_n, data.min_games, id
+            `UPDATE ranking_groups SET name = ?, description = ?, rank_method = ?, best_n = ?, min_games = ?,
+                    points_top = COALESCE(?, points_top), include_archived = COALESCE(?, include_archived)
+             WHERE id = ?`,
+            data.name, data.description || '', data.rank_method, data.best_n, data.min_games,
+            data.points_top ?? null,
+            data.include_archived === undefined ? null : (data.include_archived ? 1 : 0),
+            id
         );
         // Replace tournament associations
         await db.run('DELETE FROM ranking_group_tournaments WHERE ranking_group_id = ?', id);
@@ -256,6 +298,7 @@ export class RankingService {
 
         const db = await getDatabase();
         const placeholders = group.tournament_ids.map(() => '?').join(',');
+        const statusList = this.eligibleStatusSql(group);
 
         // v2.13.12 — source from score_history (the per-event log), not
         // submissions (the best-ever-per-game cache). Filter by
@@ -312,7 +355,7 @@ export class RankingService {
                   ON sh.submitted_during_tournament_id = g.tournament_id
                  AND LOWER(sh.game_name) = LOWER(g.name)
                 WHERE g.tournament_id IN (${placeholders})
-                  AND g.status IN ('ACTIVE','COMPLETED')
+                  AND g.status IN (${statusList})
                   AND sh.orphaned_at IS NULL
             ) best
             WHERE best.rn = 1
@@ -337,21 +380,31 @@ export class RankingService {
             iscored_username: string;
             discord_user_id: string;
             submitted_by_user_id: string | null;
+            score: number;
             rank: number;
         }>>();
 
+        // Season format (migration 181): per-game placement is COMPETITION
+        // rank (SQL RANK() semantics), not row position — tied scores share
+        // the place and both receive the higher points (1st, 1st, 3rd).
+        // Breaking a pinball tie alphabetically is indefensible. Deliberate,
+        // global change (CHANGELOG notes it). The ROW_NUMBER() in the SQL
+        // above is the best-per-player dedup and stays as it is.
         for (const row of rows) {
             let list = gameRankings.get(row.game_id);
             if (!list) {
                 list = [];
                 gameRankings.set(row.game_id, list);
             }
+            const prev = list[list.length - 1];
+            const rank = prev && Number(prev.score) === Number(row.score) ? prev.rank : list.length + 1;
             list.push({
                 game_name: row.game_name,
                 iscored_username: row.iscored_username || 'Unknown',
                 discord_user_id: row.discord_user_id || '',
                 submitted_by_user_id: row.submitted_by_user_id || null,
-                rank: list.length + 1,
+                score: row.score,
+                rank,
             });
         }
 
@@ -381,7 +434,7 @@ export class RankingService {
                     player.discord_user_id = entry.discord_user_id;
                 }
 
-                const points = this.calculatePoints(group.rank_method, entry.rank, totalPlayers);
+                const points = this.calculatePoints(group.rank_method, entry.rank, totalPlayers, group.points_top);
                 player.games.push({
                     game_name: entry.game_name,
                     game_rank: entry.rank,
@@ -611,6 +664,7 @@ export class RankingService {
         }
         const db = await getDatabase();
         const placeholders = group.tournament_ids.map(() => '?').join(',');
+        const statusList = this.eligibleStatusSql(group);
         // One round-trip. Backed by idx_games_tournament_id and the covering
         // idx_score_history_tournament (submitted_during_tournament_id,
         // orphaned_at, score) added in migration 103 — the COUNT/SUM are
@@ -619,7 +673,7 @@ export class RankingService {
             SELECT
                 (SELECT COUNT(*) FROM games
                  WHERE tournament_id IN (${placeholders})
-                   AND status IN ('ACTIVE','COMPLETED')) AS eligible_games,
+                   AND status IN (${statusList})) AS eligible_games,
                 (SELECT COUNT(*) FROM score_history
                  WHERE orphaned_at IS NULL
                    AND submitted_during_tournament_id IN (${placeholders})) AS score_count,
@@ -697,9 +751,20 @@ export class RankingService {
     }
 
     /**
-     * Calculate points for a given rank using the specified method.
+     * Game statuses that count toward a group. `include_archived` (season
+     * groups) adds ARCHIVED, because cleanup archives completed tables and a
+     * season's early weeks must not silently vanish from the standings.
+     * A fixed literal list — never user input.
      */
-    private static calculatePoints(method: RankMethod, rank: number, _totalPlayers: number): number {
+    private static eligibleStatusSql(group: Pick<RankingGroup, 'include_archived'>): string {
+        return group.include_archived ? `'ACTIVE','COMPLETED','ARCHIVED'` : `'ACTIVE','COMPLETED'`;
+    }
+
+    /**
+     * Calculate points for a given rank using the specified method.
+     * `pointsTop` is only read by best_game_linear (default 100).
+     */
+    static calculatePoints(method: RankMethod, rank: number, _totalPlayers: number, pointsTop = 100): number {
         switch (method) {
             case 'max_10':
                 // Only top 10 get points
@@ -716,8 +781,9 @@ export class RankingService {
                 return Math.max(papaPoints, 0);
 
             case 'best_game_linear':
-                // 1st: 100, 2nd: 99, 3rd: 98, etc.
-                const linearPoints = 101 - rank;
+                // 1st: points_top, 2nd: points_top-1 ... floored at 0
+                // (points_top defaults to 100 — existing groups unchanged).
+                const linearPoints = pointsTop + 1 - rank;
                 return Math.max(linearPoints, 0);
 
             case 'average_rank':

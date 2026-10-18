@@ -47,7 +47,7 @@ const MINUTE_STEPS = Array.from({ length: 12 }, (_, i) => String(i * 5).padStart
  * about to change anyway beats emitting a half-formed value the validators
  * would bounce.
  */
-function DateTimeField({ value, onChange, disabled, invalid }: {
+export function DateTimeField({ value, onChange, disabled, invalid }: {
     value: string;
     onChange: (v: string) => void;
     disabled?: boolean;

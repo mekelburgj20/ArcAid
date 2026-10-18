@@ -8,6 +8,7 @@ import { RoomEventService } from '../services/RoomEventService.js';
 import { VpsImportService } from '../services/VpsImportService.js';
 import { getNextRunTime } from '../utils/cronUtils.js';
 import { EventScheduler } from './EventScheduler.js';
+import { SeasonScheduler } from './SeasonScheduler.js';
 
 export class Scheduler {
     private static instance: Scheduler;
@@ -81,6 +82,9 @@ export class Scheduler {
 
         // Live Event clock — check-in opens, rounds start/end, standings freeze
         this.startEventScheduler();
+
+        // Season poll clock — post, mirror, close and resolve the poll queue
+        this.startSeasonScheduler();
 
         // Daily cleanup of old room events (3 AM)
         this.startRoomEventCleanup();
@@ -312,6 +316,25 @@ export class Scheduler {
 
         this.tasks.set('__event_scheduler__', task);
         logInfo('Live Event scheduler started (every minute).');
+    }
+
+    /**
+     * Season poll clock (docs/season-format-plan.md §5) — per-minute, beside
+     * the Live Event clock and for the same reasons: stateless and
+     * reentrancy-guarded, so re-registering on every `reload()` costs nothing.
+     */
+    private startSeasonScheduler(): void {
+        const timezone = process.env.BOT_TIMEZONE || 'America/Chicago';
+        const task = cron.schedule('* * * * *', async () => {
+            try {
+                await SeasonScheduler.getInstance().tick();
+            } catch (error) {
+                logError('Season scheduler error:', error);
+            }
+        }, { timezone });
+
+        this.tasks.set('__season_scheduler__', task);
+        logInfo('Season poll scheduler started (every minute).');
     }
 
     /**

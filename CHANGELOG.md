@@ -6,6 +6,70 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.161.0] — Seasons: a bounded weekly grind with points, a poll queue and a pause
+
+Built for GamerDad89's league (mox_s_vpx_tournaments), from a 2026-10-17 DM thread: one table a
+week for twelve weeks, 1st = 50 points, 2nd = 49 …, a Monday-to-Thursday community poll picks each
+week's table, the host breaks ties, the league pauses over Christmas. Plan: `docs/season-format-plan.md`.
+Decision record: ADR 0025.
+
+### Added
+- **Season block on a rotation tournament** (migration 181: `season_table_count`, `season_points_top`,
+  `season_ranking_group_id`, `season_poll_opens_before_h`, `season_poll_closes_before_h`,
+  `season_tie_rule`, `season_tie_fallback`, `season_paused_at`, `season_finished_at`). Not a new
+  format — rotation, announcements, winner pings, the rotation log, retained locked cards and the
+  ranking ticker are reused as they are. A season forces `winner_picks = 0`, `auto_pick = 0`,
+  `max_active_games = 1` and `eligibility_days = 0` on save (the form shows them disabled with the
+  reason): the poll is the only queue writer, an empty queue holds for the admin, and a community
+  vote overrides cooldown.
+- **Season standings group.** Saving a season auto-creates a ranking group (`best_game_linear`,
+  `points_top` = the season's "points for 1st", `best_n` = table count, `include_archived = 1`) bound
+  to the tournament and keeps those two fields locked to the season config.
+- **Poll queue.** `season_polls` / `season_poll_candidates` / `season_poll_votes`. Drafts hold up to
+  ten curated candidates (the candidate picker filters by the tournament's platform rules and mode
+  and flags tables already played in the room); the per-minute `SeasonScheduler` derives each
+  draft's open/close from the next rotation minus the season offsets (per-poll absolute override
+  for a holiday gap), posts a **native Discord poll** through REST, reads voters every tick, expires
+  it at close, resolves immediately on close and queues the winner through `queueGame`. Arcaid holds
+  the merged tally (web + Discord, one vote per canonical identity, **web vote beats Discord vote**)
+  and edits the message line above the poll with the combined count, because Discord cannot accept
+  a vote on a user's behalf. Tie rules: `admin` (applies the fallback now, posts the tie, the admin
+  may swap the queued table from the admin page until the rotation), `random` (seeded on the poll
+  id), `first_nominated`. An ineligible winner falls through to the next candidate and says so.
+  One poll per rotation; polls stop once enough have queued a table; a reminder posts the day before
+  an unprepared poll would open.
+- **Pause / resume and season end.** `season_paused_at` skips both the poll tick and the rotation
+  (recorded as a `skipped` maintenance run; the live table stays open). When completed + archived
+  rotation tables reach the bound, nothing further activates, `season_finished_at` is stamped once
+  and the final top three are announced with pings. The count is derived from the game rows.
+- **Public poll card** on the room scoreboard (`SeasonPollCard`): tappable candidate rows with
+  counts and bars, the viewer's vote highlighted, tap another to re-vote or your own to withdraw,
+  closes-in countdown, "Vote on Discord instead" link, login prompt for guests, live via the new
+  `season:poll` socket event and the page's `useLiveRefresh`.
+- **Admin UI.** A "Run as a Season" section on the tournament form (table count, points for 1st,
+  poll offsets with a plain-language weekly echo, tie rule + fallback) and a `SeasonPanel` on the
+  Tournaments page: "Week N of M", pause/resume, the ordered poll queue with tallies, voters and
+  Discord links, a draft editor with the catalogue picker ("Not yet played" on by default), per-poll
+  Close now / Cancel / Repost / reorder, and the tie override.
+- **Routes** under `/api/rooms/:roomId`: public `GET /tournaments/:id/season`; admin
+  `GET/POST /tournaments/:id/season/polls`, `PUT …/polls/:pollId`,
+  `POST …/polls/:pollId/{close|cancel|repost|reorder|choose}`, `POST …/season/{pause|resume}`,
+  `GET …/season/candidates`; player `POST/DELETE /season-polls/:pollId/vote`. The public tournaments
+  list carries a `season` summary. Admin writes audit as `season.*`.
+
+### Changed
+- **Ranking groups gain `points_top`** (default 100 — existing groups unchanged; used by
+  `best_game_linear`: 1st = top, 2nd = top − 1 …) **and `include_archived`** (default off). Without
+  the latter a season's week-1 points vanished once cleanup archived that table. The Rankings admin
+  page exposes both; `best_n` cap raised 100 → 200.
+- **Tied scores now share a place for points (RANK semantics)** in every ranking group: two equal
+  scores both take the higher points and the next place is skipped. Previously the tie was broken
+  alphabetically.
+- The "No Table Queued — a moderator will queue the next table" embed no longer posts when a real
+  queued row exists (it fired every week for a season right before the poll winner activated).
+
+---
+
 ## [2.160.0] — Witness heartbeat, and the restart tally the cabinet was already sending
 
 Server half of the Arcaid Witness 1.0.4 build (Defect F, heartbeat, restart tally, exit-sample
