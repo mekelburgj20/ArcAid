@@ -6,6 +6,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.162.1] — 2026-10-18 — Tickers enter from the right edge
+
+Owner report from the first Seasons demo (2026-10-18): the top rankings ticker "starts in an odd
+spot" and the bottom activity ticker "pops up with messaging starting about half way".
+
+### Fixed
+- **All three marquees are now true news tickers.** The rankings strip (`RankingsTicker`), the
+  public Scoreboard activity strip (`ScoreboardTicker`) and the kiosk page's activity strip render
+  ONE copy of their items, which enters from fully off the strip's right edge, travels left at the
+  same constant speed as before, exits fully off the left edge and then repeats. The old idiom
+  (items doubled, `translateX(0 → -50%)`) only looked right when the content was wider than the
+  strip; with one ranking group or a few feed items it started on screen. CSS contract: track
+  `width: max-content; box-sizing: content-box; padding-left: 100%` animated to
+  `translateX(-100%)`; duration is computed from the full track width and recomputed on resize;
+  pause-on-hover unchanged; under `prefers-reduced-motion` the padding is dropped and the strip
+  stays hand-scrollable. Locked by `TickerMotion.test.tsx`.
 ## [2.162.0] — 2026-10-18 — Pick by poll is a rotation method; "admin decides" holds
 
 Owner ruling 2026-10-18 (ADR 0026, plan §13): a Season is the bound, picking by poll is how each
