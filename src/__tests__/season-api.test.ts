@@ -58,8 +58,8 @@ async function seasonViaApi(app: any) {
         .send({
             id, name: 'Mox Season', type: 'WG',
             cadence: { cron: '0 0 * * 5', timezone: 'America/New_York' },
-            season_table_count: 12,
-            // The form sends cooldown 0 explicitly for a season (v2.161.2  min(1) rejected it).
+            season_table_count: 12, poll_picks: true,
+            // The form sends cooldown 0 explicitly when the poll is on (v2.161.2: min(1) rejected it).
             winner_picks: true, auto_pick: true, max_active_games: 2, eligibility_days: 0,
         });
     expect(res.status).toBe(200);
@@ -72,8 +72,8 @@ describe('season routes', () => {
         const { roomId, tournamentId } = await seasonViaApi(app);
         const list = await request(app).get(`/api/rooms/${roomId}/tournaments`);
         const row = list.body.find((t: any) => t.id === tournamentId);
-        expect(row).toMatchObject({ winner_picks: 0, auto_pick: 0, max_active_games: 1, eligibility_days: 0, season_table_count: 12 });
-        expect(row.season).toEqual({ tables_done: 0, table_count: 12, paused: false, finished: false, open_poll_id: null });
+        expect(row).toMatchObject({ winner_picks: 0, auto_pick: 0, max_active_games: 1, eligibility_days: 0, season_table_count: 12, poll_picks: 1 });
+        expect(row.season).toEqual({ poll_picks: true, tables_done: 0, table_count: 12, paused: false, finished: false, open_poll_id: null });
     });
 
     it('rejects a season with an inverted poll window', async () => {
@@ -84,7 +84,7 @@ describe('season routes', () => {
             .set('Authorization', `Bearer ${adminToken(roomId)}`)
             .send({
                 id: crypto.randomUUID(), name: 'Bad', type: 'WG', cadence: { cron: '0 0 * * 5' },
-                season_table_count: 12, season_poll_opens_before_h: 2, season_poll_closes_before_h: 3,
+                season_table_count: 12, poll_picks: true, poll_opens_before_h: 2, poll_closes_before_h: 3,
             });
         expect(res.status).toBe(400);
     });
@@ -135,6 +135,8 @@ describe('season routes', () => {
         expect(summary.body.open_poll).toMatchObject({ id: pollId, total_votes: 1, my_vote: 2 });
         expect(summary.body.open_poll.candidates[1]).toMatchObject({ position: 2, game_name: 'Medieval Madness', votes: 1 });
         expect(summary.body.progress).toEqual({ tables_done: 0, table_count: 12 });
+        expect(summary.body.config).toMatchObject({ poll_picks: true, table_count: 12, poll_opens_before_h: 96, poll_closes_before_h: 3, tie_rule: 'admin' });
+        expect(summary.body.config).not.toHaveProperty('tie_fallback');
 
         const anon = await request(app).get(base);
         expect(anon.body.open_poll.my_vote).toBeNull();
@@ -161,6 +163,55 @@ describe('season routes', () => {
         expect(audits.map((a: any) => a.action)).toEqual(expect.arrayContaining([
             'season.poll_create', 'season.poll_update', 'season.pause', 'season.resume', 'season.poll_cancel', 'season.poll_repost',
         ]));
+    });
+
+    it('Zod refuses Pick by poll without a cron', async () => {
+        const app = await createApp();
+        const roomId = await createTestRoom(`nocron-${crypto.randomUUID().slice(0, 6)}`, 'No Cron');
+        const res = await request(app)
+            .post(`/api/rooms/${roomId}/tournaments`)
+            .set('Authorization', `Bearer ${adminToken(roomId)}`)
+            .send({ id: crypto.randomUUID(), name: 'No Cron', type: 'NC', cadence: { timezone: 'UTC' }, poll_picks: true });
+        expect(res.status).toBe(400);
+        expect(JSON.stringify(res.body)).toContain('Pick by poll needs a rotation schedule');
+    });
+
+    it('a poll-only rotation lists a `season` sub-object with no bound, serves the poll routes, and refuses pause', async () => {
+        const app = await createApp();
+        const roomId = await createTestRoom(`pollonly-${crypto.randomUUID().slice(0, 6)}`, 'Poll Only');
+        await GameRoomSettingsService.set(roomId, 'ISCORED_ENABLED', 'false');
+        const id = crypto.randomUUID();
+        const auth = { Authorization: `Bearer ${adminToken(roomId)}` };
+        const created = await request(app).post(`/api/rooms/${roomId}/tournaments`).set(auth).send({
+            id, name: 'Weekly Vote', type: 'WV', cadence: { cron: '0 0 * * 5', timezone: 'America/New_York' },
+            poll_picks: true, poll_tie_rule: 'first_nominated', winner_picks: true, max_active_games: 3, eligibility_days: 0,
+        });
+        expect(created.status).toBe(200);
+        const row = (await request(app).get(`/api/rooms/${roomId}/tournaments`)).body.find((t: any) => t.id === id);
+        expect(row).toMatchObject({ poll_picks: 1, season_table_count: null, winner_picks: 0, max_active_games: 1, poll_tie_rule: 'first_nominated' });
+        expect(row.season).toEqual({ poll_picks: true, tables_done: null, table_count: null, paused: false, finished: false, open_poll_id: null });
+
+        const base = `/api/rooms/${roomId}/tournaments/${id}/season`;
+        const summary = await request(app).get(base);
+        expect(summary.status).toBe(200);
+        expect(summary.body.progress).toBeNull();
+        expect(summary.body.config).toMatchObject({ poll_picks: true, table_count: null, tie_rule: 'first_nominated' });
+        expect((await request(app).get(`${base}/polls`).set(auth)).body).toMatchObject({ poll_picks: true, table_count: null, bound_reached: false });
+        const pause = await request(app).post(`${base}/pause`).set(auth);
+        expect(pause.status).toBe(409);
+        expect(pause.body.code).toBe('NOT_A_SEASON');
+    });
+
+    it('an ordinary rotation gets no `season` key and its /season routes 404', async () => {
+        const app = await createApp();
+        const roomId = await createTestRoom(`plain-${crypto.randomUUID().slice(0, 6)}`, 'Plain');
+        const id = crypto.randomUUID();
+        await request(app).post(`/api/rooms/${roomId}/tournaments`).set('Authorization', `Bearer ${adminToken(roomId)}`)
+            .send({ id, name: 'Plain', type: 'PL', cadence: { cron: '0 0 * * 5' } });
+        const row = (await request(app).get(`/api/rooms/${roomId}/tournaments`)).body.find((t: any) => t.id === id);
+        expect(row).not.toHaveProperty('season');
+        expect(row.poll_picks).toBe(0);
+        expect((await request(app).get(`/api/rooms/${roomId}/tournaments/${id}/season`)).status).toBe(404);
     });
 
     it('admin routes refuse a non-season tournament and other rooms', async () => {

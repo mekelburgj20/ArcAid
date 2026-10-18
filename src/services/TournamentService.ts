@@ -4,21 +4,27 @@ import { PickAwardGate } from './PickAwardGate.js';
 import { parseTournamentRules, normalizeTournamentRulesInput } from '../utils/platformRules.js';
 
 /**
- * Season block input (docs/season-format-plan.md §3.1). Flat snake_case like
- * every other tournament field. On UPDATE, `season_table_count: undefined`
- * means "leave the season block as stored" (so a pre-season client that does
- * not know these fields cannot switch a season off by omission); `null`
- * switches it off; a number switches it on / edits it.
+ * Season + Pick-by-poll input (docs/season-format-plan.md §3.1, §13; ADR 0025 +
+ * 0026). Flat snake_case like every other tournament field.
+ *
+ * The two blocks are INDEPENDENT as of v2.162.0: a Season is the bound (N
+ * tables, a standings group, pause, season end); Pick by poll is a rotation
+ * method (the community poll picks each next table). Either may be on alone.
+ *
+ * On UPDATE, `undefined` means "leave as stored" for both switches (so a client
+ * that does not know these fields cannot switch them off by omission):
+ *   - `season_table_count`: `null` switches the season off, a number sets it.
+ *   - `poll_picks`: `false` switches the poll off, `true` switches it on.
  */
 export interface SeasonInput {
     season_table_count?: number | null;
-    season_poll_opens_before_h?: number;
-    season_poll_closes_before_h?: number;
-    season_tie_rule?: 'admin' | 'random' | 'first_nominated';
-    season_tie_fallback?: 'random' | 'first_nominated';
+    poll_picks?: boolean;
+    poll_opens_before_h?: number;
+    poll_closes_before_h?: number;
+    poll_tie_rule?: 'admin' | 'random' | 'first_nominated';
 }
 
-/** A season configuration the service refuses. Routes map it to a 400. */
+/** A season / poll configuration the service refuses. Routes map it to a 400. */
 export class SeasonConfigError extends Error {
     constructor(public code: string, message: string) {
         super(message);
@@ -28,24 +34,40 @@ export class SeasonConfigError extends Error {
 
 interface ResolvedSeason {
     table_count: number;
+}
+
+interface ResolvedPoll {
     opens_before_h: number;
     closes_before_h: number;
     tie_rule: string;
-    tie_fallback: string;
 }
 
 /** Countdown points for 1st on a season's auto-created ranking group. Only a
  *  seed: the group's `points_top` is edited on the Rankings page afterwards. */
 const SEASON_POINTS_TOP_SEED = 50;
 
-const SEASON_TIE_RULES = ['admin', 'random', 'first_nominated'];
-const SEASON_TIE_FALLBACKS = ['random', 'first_nominated'];
+const POLL_TIE_RULES = ['admin', 'random', 'first_nominated'];
+
+const isInt = (n: unknown) => typeof n === 'number' && Number.isInteger(n);
+
+/** Rotation-only + a cron — shared by the season and the poll (both ride the rotation clock). */
+function requireRotationWithCron(label: string, codePrefix: string, stored: any | null, format: string | undefined, cadence: any): void {
+    if ((format ?? stored?.format ?? 'rotation') !== 'rotation') {
+        throw new SeasonConfigError(`${codePrefix}_FORMAT`, `${label} must be a rotation tournament.`);
+    }
+    let cron: string | undefined;
+    try { cron = (typeof cadence === 'string' ? JSON.parse(cadence) : cadence)?.cron; } catch { cron = undefined; }
+    if (!cron) {
+        throw new SeasonConfigError(`${codePrefix}_CADENCE`, `${label} needs a rotation schedule (cron).`);
+    }
+}
 
 /**
  * Merge the incoming season fields over what is stored, then validate.
  * Returns null when the tournament is (or becomes) not a season.
  * Same rules as the Zod refine in `schemas.ts` — duplicated on purpose so
  * non-HTTP callers are held to them too (plan §3.1: "Zod + service, both").
+ * A Season alone forces nothing (ADR 0026) — the forcing belongs to the poll.
  */
 function resolveSeason(
     input: SeasonInput,
@@ -57,41 +79,52 @@ function resolveSeason(
         ? (stored?.season_table_count ?? null)
         : input.season_table_count;
     if (tableCount === null || tableCount === undefined) return null;
-
-    const season: ResolvedSeason = {
-        table_count: tableCount,
-        opens_before_h: input.season_poll_opens_before_h ?? stored?.season_poll_opens_before_h ?? 96,
-        closes_before_h: input.season_poll_closes_before_h ?? stored?.season_poll_closes_before_h ?? 3,
-        tie_rule: input.season_tie_rule ?? stored?.season_tie_rule ?? 'admin',
-        tie_fallback: input.season_tie_fallback ?? stored?.season_tie_fallback ?? 'random',
-    };
-
-    const isInt = (n: unknown) => typeof n === 'number' && Number.isInteger(n);
-    if (!isInt(season.table_count) || season.table_count < 1 || season.table_count > 200) {
+    if (!isInt(tableCount) || tableCount < 1 || tableCount > 200) {
         throw new SeasonConfigError('SEASON_TABLE_COUNT', 'A season must have between 1 and 200 tables.');
     }
-    if (!isInt(season.closes_before_h) || season.closes_before_h < 1) {
-        throw new SeasonConfigError('SEASON_POLL_CLOSE', 'The poll must close at least 1 hour before the rotation (Discord polls last at least 1 hour).');
-    }
-    if (!isInt(season.opens_before_h) || season.opens_before_h <= season.closes_before_h) {
-        throw new SeasonConfigError('SEASON_POLL_OPEN', 'The poll must open earlier than it closes (opens-before hours must exceed closes-before hours).');
-    }
-    if (!SEASON_TIE_RULES.includes(season.tie_rule)) {
-        throw new SeasonConfigError('SEASON_TIE_RULE', `Tie rule must be one of ${SEASON_TIE_RULES.join(', ')}.`);
-    }
-    if (!SEASON_TIE_FALLBACKS.includes(season.tie_fallback)) {
-        throw new SeasonConfigError('SEASON_TIE_FALLBACK', `Tie fallback must be one of ${SEASON_TIE_FALLBACKS.join(', ')}.`);
-    }
-    if ((format ?? stored?.format ?? 'rotation') !== 'rotation') {
-        throw new SeasonConfigError('SEASON_FORMAT', 'A season must be a rotation tournament.');
-    }
-    let cron: string | undefined;
-    try { cron = (typeof cadence === 'string' ? JSON.parse(cadence) : cadence)?.cron; } catch { cron = undefined; }
-    if (!cron) {
-        throw new SeasonConfigError('SEASON_CADENCE', 'A season needs a rotation schedule (cron).');
-    }
-    return season;
+    requireRotationWithCron('A season', 'SEASON', stored, format, cadence);
+    return { table_count: tableCount };
 }
+
+/**
+ * Merge the incoming Pick-by-poll fields over what is stored, then validate.
+ * Returns null when the tournament is (or becomes) not poll-picked. Defaults
+ * 96 h / 3 h / 'admin' (the column defaults).
+ */
+function resolvePoll(
+    input: SeasonInput,
+    stored: any | null,
+    format: string | undefined,
+    cadence: any,
+): ResolvedPoll | null {
+    const on = input.poll_picks === undefined ? !!stored?.poll_picks : input.poll_picks;
+    if (!on) return null;
+    const poll: ResolvedPoll = {
+        opens_before_h: input.poll_opens_before_h ?? stored?.poll_opens_before_h ?? 96,
+        closes_before_h: input.poll_closes_before_h ?? stored?.poll_closes_before_h ?? 3,
+        tie_rule: input.poll_tie_rule ?? stored?.poll_tie_rule ?? 'admin',
+    };
+    if (!isInt(poll.closes_before_h) || poll.closes_before_h < 1) {
+        throw new SeasonConfigError('POLL_CLOSE', 'The poll must close at least 1 hour before the rotation (Discord polls last at least 1 hour).');
+    }
+    if (!isInt(poll.opens_before_h) || poll.opens_before_h <= poll.closes_before_h) {
+        throw new SeasonConfigError('POLL_OPEN', 'The poll must open earlier than it closes (opens-before hours must exceed closes-before hours).');
+    }
+    if (!POLL_TIE_RULES.includes(poll.tie_rule)) {
+        throw new SeasonConfigError('POLL_TIE_RULE', `Poll tie-breaker must be one of ${POLL_TIE_RULES.join(', ')}.`);
+    }
+    requireRotationWithCron('Pick by poll', 'POLL', stored, format, cadence);
+    return poll;
+}
+
+/**
+ * Pick by poll forces these (ADR 0026; was the season's job until v2.162.0) —
+ * normalise, don't reject. The poll is the only queue writer; with both pick
+ * flags off the engine's existing empty-queue behaviour is "wait for admin".
+ * eligibility_days is 0 because a community vote overrides cooldown — the fill
+ * loop's cooldown check would otherwise hold the poll winner and stall the week.
+ */
+const POLL_FORCED = { winner_picks: false, auto_pick: false, max_active_games: 1, eligibility_days: 0 } as const;
 
 export class TournamentService {
     /**
@@ -146,14 +179,8 @@ export class TournamentService {
     } & SeasonInput): Promise<void> {
         const db = await getDatabase();
         const season = resolveSeason(data, null, data.format, data.cadence);
-        // A season forces these (plan §3.1) — normalise, don't reject. The poll
-        // is the only queue writer; with both pick flags off the engine's
-        // existing empty-queue behaviour is "wait for admin". eligibility_days
-        // is 0 because a community vote overrides cooldown — the fill loop's
-        // cooldown check would otherwise hold the poll winner and stall the week.
-        if (season) {
-            data = { ...data, winner_picks: false, auto_pick: false, max_active_games: 1, eligibility_days: 0 };
-        }
+        const poll = resolvePoll(data, null, data.format, data.cadence);
+        if (poll) data = { ...data, ...POLL_FORCED };
         await db.run(
             `INSERT INTO tournaments (id, name, type, mode, cadence, platform_rules, guild_id, discord_channel_id, discord_role_id, is_active, display_order, max_active_games, cleanup_rule, game_room_id, winner_picks, auto_pick, eligibility_days, winner_pick_window_min, runnerup_pick_window_min, allow_dynasty)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -173,6 +200,7 @@ export class TournamentService {
             data.runnerup_pick_window_min ?? 30,
             (data.allow_dynasty ?? true) ? 1 : 0
         );
+        if (poll) await this.applyPoll(data.id, poll);
         if (season) await this.applySeason(data.id, data.name, data.game_room_id ?? null, season, null);
         // v2.56.0: the room-scoped gate is now "any tournament in this room has
         // winner-picks on", so CREATE can flip it (a room's first winner-picks
@@ -208,9 +236,8 @@ export class TournamentService {
         const db = await getDatabase();
         const stored = await db.get('SELECT * FROM tournaments WHERE id = ?', id);
         const season = resolveSeason(data, stored ?? null, data.format, data.cadence);
-        if (season) {
-            data = { ...data, winner_picks: false, auto_pick: false, max_active_games: 1, eligibility_days: 0 };
-        }
+        const poll = resolvePoll(data, stored ?? null, data.format, data.cadence);
+        if (poll) data = { ...data, ...POLL_FORCED };
         await db.run(
             `UPDATE tournaments SET name = ?, type = ?, mode = ?, cadence = ?, platform_rules = ?, guild_id = ?, discord_channel_id = ?, discord_role_id = ?, is_active = ?, display_order = ?, max_active_games = ?, cleanup_rule = ?, game_room_id = ?, winner_picks = ?, auto_pick = ?, eligibility_days = ?, winner_pick_window_min = ?, runnerup_pick_window_min = ?, allow_dynasty = ?
              WHERE id = ?`,
@@ -231,6 +258,12 @@ export class TournamentService {
             (data.allow_dynasty ?? true) ? 1 : 0,
             id
         );
+        if (poll) {
+            await this.applyPoll(id, poll);
+        } else if (data.poll_picks === false && stored?.poll_picks) {
+            // Switched off. The poll queue rows are kept (a re-enable picks them up).
+            await db.run('UPDATE tournaments SET poll_picks = 0 WHERE id = ?', id);
+        }
         if (season) {
             await this.applySeason(id, data.name, data.game_room_id ?? stored?.game_room_id ?? null, season, stored ?? null);
         } else if (data.season_table_count === null && stored?.season_table_count != null) {
@@ -241,6 +274,16 @@ export class TournamentService {
         // Sprint 13: winner_picks may have flipped — bust cached PickAwardGate
         // entries for this tournament's room so the next consumer hits fresh state.
         if (data.game_room_id) PickAwardGate.invalidate(data.game_room_id);
+    }
+
+    /** Persist a validated Pick-by-poll block (ADR 0026). */
+    private static async applyPoll(id: string, poll: ResolvedPoll): Promise<void> {
+        const db = await getDatabase();
+        await db.run(
+            `UPDATE tournaments SET poll_picks = 1, poll_opens_before_h = ?, poll_closes_before_h = ?, poll_tie_rule = ?
+              WHERE id = ?`,
+            poll.opens_before_h, poll.closes_before_h, poll.tie_rule, id,
+        );
     }
 
     /**
@@ -260,14 +303,7 @@ export class TournamentService {
         stored: any | null,
     ): Promise<void> {
         const db = await getDatabase();
-        await db.run(
-            `UPDATE tournaments SET season_table_count = ?,
-                    season_poll_opens_before_h = ?, season_poll_closes_before_h = ?,
-                    season_tie_rule = ?, season_tie_fallback = ?
-              WHERE id = ?`,
-            season.table_count, season.opens_before_h, season.closes_before_h,
-            season.tie_rule, season.tie_fallback, id,
-        );
+        await db.run('UPDATE tournaments SET season_table_count = ? WHERE id = ?', season.table_count, id);
 
         const { RankingService } = await import('./RankingService.js');
         const existingGroupId: string | null = stored?.season_ranking_group_id ?? null;

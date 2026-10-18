@@ -155,6 +155,41 @@ describe('season standings group lifecycle', () => {
         });
     });
 
+    it('a Season WITHOUT Pick by poll forces nothing but still gets its standings group (ADR 0026)', async () => {
+        const { tournamentId, roomId } = await createSeason({ tableCount: 8, pollPicks: false });
+        const db = await getDatabase();
+        // The helper's create sends no pick flags, so the service defaults apply untouched.
+        let t = await db.get('SELECT * FROM tournaments WHERE id = ?', tournamentId);
+        expect(t).toMatchObject({ poll_picks: 0, winner_picks: 1, auto_pick: 1, max_active_games: 1, eligibility_days: 120, season_table_count: 8 });
+        expect(t.season_ranking_group_id).toBeTruthy();
+        expect((await RankingService.getById(t.season_ranking_group_id))!.best_n).toBe(8);
+
+        await TournamentService.update(tournamentId, {
+            name: t.name, type: t.type, cadence: JSON.parse(t.cadence), game_room_id: roomId, is_active: true,
+            winner_picks: true, auto_pick: false, max_active_games: 2, eligibility_days: 30,
+        });
+        t = await db.get('SELECT * FROM tournaments WHERE id = ?', tournamentId);
+        expect(t).toMatchObject({ poll_picks: 0, winner_picks: 1, auto_pick: 0, max_active_games: 2, eligibility_days: 30, season_table_count: 8 });
+    });
+
+    it('Pick by poll WITHOUT a Season forces the four fields and creates no group (ADR 0026)', async () => {
+        const { tournamentId, roomId } = await createSeason({ tableCount: null, pollPicks: true, tieRule: 'random' });
+        const db = await getDatabase();
+        const t = await db.get('SELECT * FROM tournaments WHERE id = ?', tournamentId);
+        expect(t).toMatchObject({
+            poll_picks: 1, season_table_count: null, season_ranking_group_id: null,
+            winner_picks: 0, auto_pick: 0, max_active_games: 1, eligibility_days: 0,
+            poll_opens_before_h: 96, poll_closes_before_h: 3, poll_tie_rule: 'random',
+        });
+        // Switching the poll off hands the four fields back to the admin.
+        await TournamentService.update(tournamentId, {
+            name: t.name, type: t.type, cadence: JSON.parse(t.cadence), game_room_id: roomId, is_active: true,
+            poll_picks: false, winner_picks: true, auto_pick: true, max_active_games: 2, eligibility_days: 60,
+        });
+        expect(await db.get('SELECT poll_picks, winner_picks, max_active_games, eligibility_days FROM tournaments WHERE id = ?', tournamentId))
+            .toEqual({ poll_picks: 0, winner_picks: 1, max_active_games: 2, eligibility_days: 60 });
+    });
+
     it('update() propagates the table count only and invalidates the cache', async () => {
         const { tournamentId, roomId } = await createSeason({ tableCount: 12 });
         const db = await getDatabase();
@@ -221,8 +256,12 @@ describe('season standings group lifecycle', () => {
             .rejects.toBeInstanceOf(SeasonConfigError);
         await expect(TournamentService.create({
             ...base, id: crypto.randomUUID(), cadence: { cron: '0 0 * * 5' }, season_table_count: 12,
-            season_poll_opens_before_h: 3, season_poll_closes_before_h: 3,
-        })).rejects.toMatchObject({ code: 'SEASON_POLL_OPEN' });
+            poll_picks: true, poll_opens_before_h: 3, poll_closes_before_h: 3,
+        })).rejects.toMatchObject({ code: 'POLL_OPEN' });
+        // Pick by poll rides the rotation clock too — no cron, no poll.
+        await expect(TournamentService.create({
+            ...base, id: crypto.randomUUID(), cadence: { timezone: 'UTC' }, poll_picks: true,
+        })).rejects.toMatchObject({ code: 'POLL_CADENCE' });
         await expect(TournamentService.create({
             ...base, id: crypto.randomUUID(), cadence: { cron: '0 0 * * 5' }, season_table_count: 201,
         })).rejects.toMatchObject({ code: 'SEASON_TABLE_COUNT' });

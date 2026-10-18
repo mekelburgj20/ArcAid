@@ -3119,6 +3119,14 @@ async function doInitDatabase(): Promise<Database> {
             const { seasonFormat } = await import('./migrations/seasonFormat.js');
             await seasonFormat(db);
         } },
+        // Pick by poll is a rotation method (ADR 0026, v2.162.0): the poll
+        // queue's gate moves from `season_table_count` to `poll_picks`, and the
+        // three poll columns lose their `season_` prefix. See
+        // src/database/migrations/pickByPoll.ts.
+        { name: '182_pick_by_poll', handler: async (db) => {
+            const { pickByPoll } = await import('./migrations/pickByPoll.js');
+            await pickByPoll(db);
+        } },
     ];
 
     for (const migration of migrations) {

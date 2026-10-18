@@ -94,6 +94,24 @@ describe('season end', () => {
         expect(await statusOf(leftover.id)).toBe('QUEUED');
     });
 
+    it('a Season WITHOUT Pick by poll still ends after N tables and announces once (ADR 0026)', async () => {
+        const { tournamentId } = await createSeason({ tableCount: 1, pollPicks: false });
+        const db = await getDatabase();
+        // Admin-queued, not poll-queued: both pick flags off by hand.
+        await db.run('UPDATE tournaments SET winner_picks = 0, auto_pick = 0 WHERE id = ?', tournamentId);
+        const only = await createTestGame(tournamentId, { name: 'The Only Table', status: 'ACTIVE' });
+        await createTestSubmission(only, { username: 'Alice', discordUserId: ALICE, score: 900 });
+        const leftover = await TournamentEngine.getInstance().queueGame(tournamentId, 'Never Played');
+
+        await TournamentEngine.getInstance().runMaintenance(tournamentId);
+
+        expect(await statusOf(leftover.id)).toBe('QUEUED');
+        expect((await db.get('SELECT season_finished_at FROM tournaments WHERE id = ?', tournamentId)).season_finished_at).toBeTruthy();
+        expect(standingsEmbeds()).toHaveLength(1);
+        // No poll was ever derived or posted for it.
+        expect(await db.all('SELECT id FROM season_polls WHERE tournament_id = ?', tournamentId)).toHaveLength(0);
+    });
+
     it('before the bound, the poll-queued table activates through the existing path', async () => {
         const { tournamentId } = await createSeason({ tableCount: 12 });
         const active = await createTestGame(tournamentId, { name: 'Week One', status: 'ACTIVE' });
@@ -175,6 +193,29 @@ describe('"No <Table> Queued" embed', () => {
 
         expect(await statusOf(next.id)).toBe('ACTIVE');
         expect(noQueueEmbeds()).toHaveLength(0);
+    });
+
+    it('a poll-only rotation (no Season) with the poll winner queued posts no "No Table Queued" embed', async () => {
+        const { tournamentId } = await createSeason({ tableCount: null, pollPicks: true });
+        const active = await createTestGame(tournamentId, { name: 'This Week', status: 'ACTIVE' });
+        await createTestSubmission(active, { username: 'Alice', discordUserId: ALICE, score: 500 });
+        const next = await TournamentEngine.getInstance().queueGame(tournamentId, 'Poll Winner');
+
+        await TournamentEngine.getInstance().runMaintenance(tournamentId);
+
+        expect(await statusOf(next.id)).toBe('ACTIVE');
+        expect(noQueueEmbeds()).toHaveLength(0);
+        // No season: nothing ever "finishes".
+        expect(standingsEmbeds()).toHaveLength(0);
+    });
+
+    it('a poll-only rotation whose poll tied under "admin decides" posts the "No Table Queued" alert', async () => {
+        const { tournamentId } = await createSeason({ tableCount: null, pollPicks: true });
+        await createTestGame(tournamentId, { name: 'This Week', status: 'ACTIVE' });
+
+        await TournamentEngine.getInstance().runMaintenance(tournamentId);
+
+        expect(noQueueEmbeds()).toHaveLength(1);
     });
 
     it('both flags off with a genuinely empty queue still posts the embed', async () => {

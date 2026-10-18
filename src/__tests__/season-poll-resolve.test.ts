@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
  *   - Merge: a web vote beats a Discord vote for the same (canonical) person;
  *     a Discord voter who disappears loses only their `discord` row.
  *   - Ties: `random` (seeded by poll id, stable), `first_nominated`, and
- *     `admin` (applies the fallback now, `tied = 1`, admin may swap).
+ *     `admin` (HOLDS — nothing queued, `tied = 1`, an admin chooses; ADR 0026).
  *   - Eligibility falls through to the next-ranked candidate; none eligible
  *     resolves with no result and queues nothing.
  *   - `queueGame` runs exactly once, however many times the close replays.
@@ -126,29 +126,30 @@ describe('tie rules', () => {
     const tally = new Map([[1, 2], [2, 2], [3, 2]]);
 
     it('first_nominated picks the lowest position among the tied', () => {
-        const r = SeasonPollService.rankCandidates('poll-x', candidates, tally, 'first_nominated', 'random');
+        const r = SeasonPollService.rankCandidates('poll-x', candidates, tally, 'first_nominated');
         expect(r.order[0]!.position).toBe(1);
         expect(r.tied).toBe(true);
         expect(r.tiedPositions).toEqual([1, 2, 3]);
     });
 
     it('random is seeded by the poll id — a re-run picks the same one', () => {
-        const a = SeasonPollService.rankCandidates('poll-seed-1', candidates, tally, 'random', 'random').order[0]!.position;
+        const a = SeasonPollService.rankCandidates('poll-seed-1', candidates, tally, 'random').order[0]!.position;
         for (let i = 0; i < 5; i++) {
-            expect(SeasonPollService.rankCandidates('poll-seed-1', candidates, tally, 'random', 'random').order[0]!.position).toBe(a);
+            expect(SeasonPollService.rankCandidates('poll-seed-1', candidates, tally, 'random').order[0]!.position).toBe(a);
         }
         const picks = new Set(Array.from({ length: 30 }, (_, i) =>
-            SeasonPollService.rankCandidates(`poll-${i}`, candidates, tally, 'random', 'random').order[0]!.position));
+            SeasonPollService.rankCandidates(`poll-${i}`, candidates, tally, 'random').order[0]!.position));
         expect(picks.size).toBeGreaterThan(1);
     });
 
-    it('admin applies the fallback', () => {
-        const r = SeasonPollService.rankCandidates('poll-x', candidates, tally, 'admin', 'first_nominated');
-        expect(r.order[0]!.position).toBe(1);
+    it('admin reports the tie (no fallback — the caller holds)', () => {
+        const r = SeasonPollService.rankCandidates('poll-x', candidates, tally, 'admin');
+        expect(r.tied).toBe(true);
+        expect(r.tiedPositions).toEqual([1, 2, 3]);
     });
 
     it('no tie when one candidate leads', () => {
-        const r = SeasonPollService.rankCandidates('poll-x', candidates, new Map([[2, 3], [1, 1]]), 'admin', 'random');
+        const r = SeasonPollService.rankCandidates('poll-x', candidates, new Map([[2, 3], [1, 1]]), 'admin');
         expect(r.order.map(c => c.position)).toEqual([2, 1, 3]);
         expect(r.tied).toBe(false);
     });
@@ -180,34 +181,62 @@ describe('closeAndResolve', () => {
         expect(embeds[0].description).toContain(season.name);
     });
 
-    it('admin tie: applies the fallback, marks tied, posts the tie notice; choose swaps the queued row', async () => {
+    it('admin tie HOLDS: nothing queued, tied with no result, channel told; can_choose; choose queues and fills the result', async () => {
         const { roomId, pollId, tournamentId, season } = await seasonWithPoll(
-            ['Attack from Mars', 'Medieval Madness'], { tieRule: 'admin', tieFallback: 'first_nominated' },
+            ['Attack from Mars', 'Medieval Madness'], { tieRule: 'admin' },
         );
         await SeasonPollService.vote(roomId, pollId, VOTER_A, 1);
         await SeasonPollService.vote(roomId, pollId, VOTER_B, 2);
 
         await SeasonPollService.closeAndResolve(season, (await SeasonPollService.getPoll(pollId))!, AFTER_CLOSE);
         let poll = (await SeasonPollService.getPoll(pollId))!;
-        expect(poll).toMatchObject({ result_game_name: 'Attack from Mars', tied: 1 });
-        const notice = post.mock.calls.map(c => c[1]?.body?.content).find(t => typeof t === 'string' && t.includes('tie between'));
-        expect(notice).toContain('Fallback picked Attack from Mars');
+        expect(poll).toMatchObject({ status: 'resolved', tied: 1, result_game_name: null, result_queued_game_id: null });
+        expect(await queuedNames(tournamentId)).toEqual([]);
+        // No "Next up" embed — only the hold notice.
+        expect(post.mock.calls.filter(c => c[1]?.body?.embeds)).toHaveLength(0);
+        const notice = post.mock.calls.map(c => c[1]?.body?.content).find(t => typeof t === 'string' && t.includes('tied between'));
+        expect(notice).toContain('Attack from Mars and Medieval Madness');
+        expect(notice).toContain('An admin must choose');
+        expect(notice).toContain('no table starts until then');
+        expect(notice).not.toMatch(/fallback/i);
 
-        const firstQueued = poll.result_queued_game_id;
+        let listed = (await SeasonPollService.adminList(season)).polls.find(p => p.id === pollId)!;
+        expect(listed).toMatchObject({ tied: true, tied_positions: [1, 2], can_choose: true, result_game_name: null });
+
         poll = await SeasonPollService.choose(season, pollId, 2);
-        expect(poll.result_game_name).toBe('Medieval Madness');
-        expect(poll.result_queued_game_id).not.toBe(firstQueued);
+        expect(poll).toMatchObject({ result_game_name: 'Medieval Madness', tied: 1 });
+        expect(poll.result_queued_game_id).toBeTruthy();
         expect(await queuedNames(tournamentId)).toEqual(['Medieval Madness']);
+        listed = (await SeasonPollService.adminList(season)).polls.find(p => p.id === pollId)!;
+        expect(listed.can_choose).toBe(true);
+
+        // Changing the mind while it is still QUEUED swaps the row.
+        const firstQueued = poll.result_queued_game_id;
+        poll = await SeasonPollService.choose(season, pollId, 1);
+        expect(poll.result_game_name).toBe('Attack from Mars');
+        expect(poll.result_queued_game_id).not.toBe(firstQueued);
+        expect(await queuedNames(tournamentId)).toEqual(['Attack from Mars']);
 
         // Once the queued table has started, the swap is refused.
         const db = await getDatabase();
         await db.run(`UPDATE games SET status = 'ACTIVE' WHERE id = ?`, poll.result_queued_game_id);
-        await expect(SeasonPollService.choose(season, pollId, 1)).rejects.toMatchObject({ code: 'ALREADY_STARTED' });
+        listed = (await SeasonPollService.adminList(season)).polls.find(p => p.id === pollId)!;
+        expect(listed.can_choose).toBe(false);
+        await expect(SeasonPollService.choose(season, pollId, 2)).rejects.toMatchObject({ code: 'ALREADY_STARTED' });
+    });
+
+    it('first_nominated tie queues the lowest position without a hold', async () => {
+        const { roomId, pollId, tournamentId, season } = await seasonWithPoll(['A Table', 'B Table'], { tieRule: 'first_nominated' });
+        await SeasonPollService.vote(roomId, pollId, VOTER_A, 1);
+        await SeasonPollService.vote(roomId, pollId, VOTER_B, 2);
+        await SeasonPollService.closeAndResolve(season, (await SeasonPollService.getPoll(pollId))!, AFTER_CLOSE);
+        expect((await SeasonPollService.getPoll(pollId))!).toMatchObject({ tied: 0, result_game_name: 'A Table' });
+        expect(await queuedNames(tournamentId)).toEqual(['A Table']);
     });
 
     it('choose only accepts a tied candidate', async () => {
         const { roomId, pollId, season } = await seasonWithPoll(
-            ['A Table', 'B Table', 'C Table'], { tieRule: 'admin', tieFallback: 'first_nominated' },
+            ['A Table', 'B Table', 'C Table'], { tieRule: 'admin' },
         );
         await SeasonPollService.vote(roomId, pollId, VOTER_A, 1);
         await SeasonPollService.vote(roomId, pollId, VOTER_B, 2);

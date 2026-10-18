@@ -19,7 +19,12 @@ import { resolveProfiles } from './PlayerProfileResolver.js';
 import { getIO } from '../api/websocket.js';
 
 /**
- * Season poll queue (docs/season-format-plan.md §5).
+ * Pick-by-poll queue (docs/season-format-plan.md §5, §13; ADR 0025 + 0026).
+ *
+ * The names (`SeasonPollService`, `season_polls`, `season:poll`) are
+ * historical: since v2.162.0 the poll is a ROTATION METHOD gated on
+ * `tournaments.poll_picks`, independent of whether the tournament is a Season.
+ * A Season adds the bound (polls stop at `season_table_count`) and the pause.
  *
  * Arcaid owns the poll: Discord is one vote source, the web is the other, and
  * the merged tally in `season_poll_votes` decides. This service owns CRUD,
@@ -51,12 +56,15 @@ export interface SeasonTournamentRow {
     discord_channel_id: string | null;
     is_active: number;
     format: string;
-    season_table_count: number;
+    /** NULL = not a Season (a poll-only rotation tournament). */
+    season_table_count: number | null;
     season_ranking_group_id: string | null;
-    season_poll_opens_before_h: number;
-    season_poll_closes_before_h: number;
-    season_tie_rule: SeasonTieRule;
-    season_tie_fallback: 'random' | 'first_nominated';
+    /** 1 = Pick by poll is on (ADR 0026) — the gate for the whole poll queue. */
+    poll_picks: number;
+    poll_opens_before_h: number;
+    poll_closes_before_h: number;
+    poll_tie_rule: SeasonTieRule;
+    /** Season-only (a poll-only tournament has no pause). */
     season_paused_at: string | null;
     season_finished_at: string | null;
     room_slug?: string | null;
@@ -123,13 +131,17 @@ export class SeasonPollService {
     // Reads
     // ------------------------------------------------------------------
 
-    /** The tournament if it is a season (optionally in `roomId`), else null. */
+    /**
+     * The tournament if it is a Season OR poll-picked (optionally in
+     * `roomId`), else null. Callers that need one or the other check
+     * `isSeason` / `poll_picks` themselves.
+     */
     static async getSeasonTournament(tournamentId: string, roomId?: string): Promise<SeasonTournamentRow | null> {
         const db = await getDatabase();
         const row = await db.get<SeasonTournamentRow>(
             `SELECT t.*, r.slug AS room_slug FROM tournaments t
                LEFT JOIN game_rooms r ON r.id = t.game_room_id
-              WHERE t.id = ? AND t.season_table_count IS NOT NULL`,
+              WHERE t.id = ? AND (t.poll_picks = 1 OR t.season_table_count IS NOT NULL)`,
             tournamentId,
         );
         if (!row) return null;
@@ -202,15 +214,15 @@ export class SeasonPollService {
      * (close already past, or nearly), the following rotation is used — this
      * is also what re-derives a draft whose times went stale during a pause.
      */
-    static deriveTimes(t: Pick<SeasonTournamentRow, 'cadence' | 'season_poll_opens_before_h' | 'season_poll_closes_before_h'>, now: Date):
+    static deriveTimes(t: Pick<SeasonTournamentRow, 'cadence' | 'poll_opens_before_h' | 'poll_closes_before_h'>, now: Date):
         { opensAt: string; closesAt: string; rotationAt: string } | null {
         let from = now;
         for (let i = 0; i < 4; i++) {
             const rotationIso = nextRotationIso(t.cadence, from);
             if (!rotationIso) return null;
             const rotationMs = Date.parse(rotationIso);
-            const opensMs = rotationMs - t.season_poll_opens_before_h * HOUR_MS;
-            const closesMs = rotationMs - t.season_poll_closes_before_h * HOUR_MS;
+            const opensMs = rotationMs - t.poll_opens_before_h * HOUR_MS;
+            const closesMs = rotationMs - t.poll_closes_before_h * HOUR_MS;
             if (closesMs - Math.max(now.getTime(), opensMs) >= HOUR_MS) {
                 return { opensAt: new Date(opensMs).toISOString(), closesAt: new Date(closesMs).toISOString(), rotationAt: rotationIso };
             }
@@ -377,6 +389,9 @@ export class SeasonPollService {
     }
 
     static async createDraft(t: SeasonTournamentRow, input: PollDraftInput, now: Date = new Date()): Promise<SeasonPollRow> {
+        if (!t.poll_picks) {
+            throw new SeasonPollError('POLL_PICKS_OFF', 'Pick by poll is off for this tournament — turn it on in the tournament settings first.', 409);
+        }
         const candidates = await this.normaliseCandidates(t, input.candidates ?? []);
         const hasOpen = input.opens_at != null;
         const hasClose = input.closes_at != null;
@@ -543,7 +558,7 @@ export class SeasonPollService {
     // Votes (plan §5.4)
     // ------------------------------------------------------------------
 
-    /** Load a poll that belongs to a season tournament in `roomId`. */
+    /** Load a poll that belongs to a season / poll-picked tournament in `roomId`. */
     static async getPollInRoom(roomId: string, pollId: string): Promise<{ poll: SeasonPollRow; t: SeasonTournamentRow } | null> {
         const poll = await this.getPoll(pollId);
         if (!poll) return null;
@@ -645,13 +660,16 @@ export class SeasonPollService {
     /**
      * Ordered outcome: `[winner, ...rest]` in the order eligibility is tried,
      * plus whether the top was a tie and which positions tied.
+     *
+     * Under `admin` a tie has NO winner (ADR 0026: "admin decides" holds, there
+     * is no fallback) — `order` is then by position among the tied, and the
+     * caller must not queue `order[0]`.
      */
     static rankCandidates(
         pollId: string,
         candidates: SeasonPollCandidateRow[],
         tally: Map<number, number>,
         rule: SeasonTieRule,
-        fallback: 'random' | 'first_nominated',
     ): { order: SeasonPollCandidateRow[]; tied: boolean; tiedPositions: number[] } {
         if (candidates.length === 0) return { order: [], tied: false, tiedPositions: [] };
         const votes = (c: SeasonPollCandidateRow) => tally.get(c.position) ?? 0;
@@ -659,10 +677,7 @@ export class SeasonPollService {
         const top = candidates.filter(c => votes(c) === max).sort((a, b) => a.position - b.position);
         const tied = top.length > 1;
         let winner = top[0]!;
-        if (tied) {
-            const effective = rule === 'admin' ? fallback : rule;
-            winner = effective === 'random' ? this.seededPick(pollId, top) : top[0]!;
-        }
+        if (tied && rule === 'random') winner = this.seededPick(pollId, top);
         const rest = candidates
             .filter(c => c.position !== winner.position)
             .sort((a, b) => (votes(b) - votes(a)) || (a.position - b.position));
@@ -701,10 +716,28 @@ export class SeasonPollService {
         const db = await getDatabase();
         const candidates = await this.getCandidates(poll.id);
         const tally = await this.tally(poll.id);
-        const rule = (poll.tie_rule ?? t.season_tie_rule) as SeasonTieRule;
-        const { order, tied, tiedPositions } = this.rankCandidates(poll.id, candidates, tally, rule, t.season_tie_fallback);
+        const rule = (poll.tie_rule ?? t.poll_tie_rule) as SeasonTieRule;
+        const { order, tied, tiedPositions } = this.rankCandidates(poll.id, candidates, tally, rule);
         const week = poll.slot_no;
         const channelId = await resolveAnnouncementChannelId(t.game_room_id, t.discord_channel_id);
+
+        // "Admin decides" HOLDS (ADR 0026): queue nothing, mark the poll tied
+        // with no result, tell the channel. The rotation's existing empty-queue
+        // behaviour ("No Table Queued", wait for admin) is the admin alert.
+        if (tied && rule === 'admin') {
+            await db.run(
+                `UPDATE season_polls SET tied = 1, result_game_name = NULL, result_queued_game_id = NULL WHERE id = ?`,
+                poll.id,
+            );
+            const names = candidates.filter(c => tiedPositions.includes(c.position)).map(c => c.game_name);
+            logInfo(`Season poll '${t.name}' week ${week} (${poll.id}) tied between ${names.join(', ')} — holding for an admin to choose.`);
+            if (channelId) {
+                const adminUrl = t.room_slug ? `${roomUrl(t.room_slug)}/admin/tournaments` : '';
+                await sendChannelMessage(channelId,
+                    `**${t.name}** — the week ${week} vote tied between ${names.join(' and ')}. An admin must choose the table on the admin page${adminUrl ? ` (${adminUrl})` : ''}; no table starts until then.`);
+            }
+            return;
+        }
 
         const skipped: string[] = [];
         let chosen: SeasonPollCandidateRow | null = null;
@@ -725,10 +758,9 @@ export class SeasonPollService {
 
         const { TournamentEngine } = await import('../engine/TournamentEngine.js');
         const game = await TournamentEngine.getInstance().queueGame(t.id, chosen.game_name);
-        const adminTie = tied && rule === 'admin';
         await db.run(
-            `UPDATE season_polls SET result_game_name = ?, result_queued_game_id = ?, tied = ? WHERE id = ?`,
-            chosen.game_name, game.id, adminTie ? 1 : 0, poll.id,
+            `UPDATE season_polls SET result_game_name = ?, result_queued_game_id = ?, tied = 0 WHERE id = ?`,
+            chosen.game_name, game.id, poll.id,
         );
         logInfo(`Season '${t.name}' week ${week} poll resolved: ${chosen.game_name} queued (${game.id})${tied ? ` after a tie (${rule})` : ''}.`);
 
@@ -748,29 +780,23 @@ export class SeasonPollService {
             .setColor(getTournamentColor(t.type) || SEASON_COLOR)
             .setFooter({ text: t.name })
             .setTimestamp(now));
-
-        if (adminTie) {
-            const names = candidates.filter(c => tiedPositions.includes(c.position)).map(c => c.game_name);
-            const adminUrl = t.room_slug ? `${roomUrl(t.room_slug)}/admin/tournaments` : '';
-            await sendChannelMessage(channelId,
-                `**${t.name}** — tie between ${names.join(' and ')}. Fallback picked ${chosen.game_name}. Admins can change it before the table starts${adminUrl ? `: ${adminUrl}` : '.'}`);
-        }
     }
 
     /**
-     * Admin tie override (plan §5.4): choose another TIED candidate while the
-     * queued row is still QUEUED. Swaps the queued game — the engine removes
-     * the queued row, `queueGame` adds the new one.
+     * Admin tie decision (ADR 0026): a poll that tied under "admin decides"
+     * holds with nothing queued until an admin picks one of the TIED
+     * candidates here. Choosing again while the chosen row is still QUEUED
+     * swaps it — the engine removes the queued row, `queueGame` adds the new one.
      */
     static async choose(t: SeasonTournamentRow, pollId: string, position: number, now: Date = new Date()): Promise<SeasonPollRow> {
         const poll = await this.requirePoll(t, pollId);
         if (poll.status !== 'resolved' || !poll.tied) {
-            throw new SeasonPollError('POLL_NOT_TIED', 'Only a poll resolved by the tie fallback can be overridden.', 409);
+            throw new SeasonPollError('POLL_NOT_TIED', 'Only a poll that tied under "Admin decides" can be chosen.', 409);
         }
         const candidates = await this.getCandidates(pollId);
         const tally = await this.tally(pollId);
-        const rule = (poll.tie_rule ?? t.season_tie_rule) as SeasonTieRule;
-        const { tiedPositions } = this.rankCandidates(pollId, candidates, tally, rule, t.season_tie_fallback);
+        const rule = (poll.tie_rule ?? t.poll_tie_rule) as SeasonTieRule;
+        const { tiedPositions } = this.rankCandidates(pollId, candidates, tally, rule);
         const pick = candidates.find(c => c.position === position);
         if (!pick || !tiedPositions.includes(position)) {
             throw new SeasonPollError('CANDIDATE_NOT_TIED', 'Choose one of the tied candidates.');
@@ -980,17 +1006,29 @@ export class SeasonPollService {
         return `https://discord.com/channels/${guildId}/${poll.discord_channel_id}/${poll.discord_message_id}`;
     }
 
-    /** The `season` sub-object on the public tournaments list. */
+    /** True when the tournament is a Season (has a bound). */
+    static isSeason(t: Pick<SeasonTournamentRow, 'season_table_count'>): boolean {
+        return t.season_table_count != null;
+    }
+
+    /**
+     * The `season` sub-object on the public tournaments list — built for a
+     * Season OR a poll-picked tournament. `table_count`/`tables_done` are null
+     * for a poll-only tournament (no bound).
+     */
     static async listSummary(t: SeasonTournamentRow): Promise<{
-        tables_done: number; table_count: number; paused: boolean; finished: boolean; open_poll_id: string | null;
+        poll_picks: boolean; tables_done: number | null; table_count: number | null;
+        paused: boolean; finished: boolean; open_poll_id: string | null;
     }> {
         const db = await getDatabase();
         const open = await db.get<{ id: string }>(
             `SELECT id FROM season_polls WHERE tournament_id = ? AND status = 'open' ORDER BY slot_no LIMIT 1`, t.id,
         );
+        const season = this.isSeason(t);
         return {
-            tables_done: await this.countTablesDone(t.id),
-            table_count: t.season_table_count,
+            poll_picks: !!t.poll_picks,
+            tables_done: season ? await this.countTablesDone(t.id) : null,
+            table_count: season ? t.season_table_count : null,
             paused: !!t.season_paused_at,
             finished: !!t.season_finished_at,
             open_poll_id: open?.id ?? null,
@@ -1036,19 +1074,21 @@ export class SeasonPollService {
         const nextDraft = await db.get<SeasonPollRow>(
             `SELECT * FROM season_polls WHERE tournament_id = ? AND status = 'draft' ORDER BY slot_no LIMIT 1`, t.id,
         );
-        const derived = this.deriveTimes(t, now);
+        const derived = t.poll_picks ? this.deriveTimes(t, now) : null;
         return {
             tournament_id: t.id,
             name: t.name,
             config: {
+                poll_picks: !!t.poll_picks,
                 table_count: t.season_table_count,
-                poll_opens_before_h: t.season_poll_opens_before_h,
-                poll_closes_before_h: t.season_poll_closes_before_h,
-                tie_rule: t.season_tie_rule,
-                tie_fallback: t.season_tie_fallback,
+                poll_opens_before_h: t.poll_opens_before_h,
+                poll_closes_before_h: t.poll_closes_before_h,
+                tie_rule: t.poll_tie_rule,
                 ranking_group_id: t.season_ranking_group_id,
             },
-            progress: { tables_done: await this.countTablesDone(t.id), table_count: t.season_table_count },
+            progress: this.isSeason(t)
+                ? { tables_done: await this.countTablesDone(t.id), table_count: t.season_table_count }
+                : null,
             paused: !!t.season_paused_at,
             paused_at: t.season_paused_at,
             finished: !!t.season_finished_at,
@@ -1076,12 +1116,16 @@ export class SeasonPollService {
                 'SELECT user_id, position, source, voted_at FROM season_poll_votes WHERE poll_id = ? ORDER BY voted_at ASC', poll.id,
             );
             const profiles = await resolveProfiles(voteRows.map(v => ({ submitted_by_user_id: v.user_id, discord_user_id: v.user_id })));
-            const rule = (poll.tie_rule ?? t.season_tie_rule) as SeasonTieRule;
-            const ranked = this.rankCandidates(poll.id, candidates, tally, rule, t.season_tie_fallback);
+            const rule = (poll.tie_rule ?? t.poll_tie_rule) as SeasonTieRule;
+            const ranked = this.rankCandidates(poll.id, candidates, tally, rule);
             const queued = poll.result_queued_game_id
                 ? await db.get<{ status: string }>('SELECT status FROM games WHERE id = ?', poll.result_queued_game_id)
                 : null;
-            const beyondBound = poll.status === 'draft' && (resolvedCount + openCount + draftIndex++) >= t.season_table_count;
+            // The bound applies only to a poll-picked SEASON (ADR 0026).
+            const beyondBound = t.season_table_count != null && poll.status === 'draft'
+                && (resolvedCount + openCount + draftIndex++) >= t.season_table_count;
+            // "Admin decides" held this poll: choosable until a chosen table starts.
+            const canChoose = !!poll.tied && (!poll.result_queued_game_id || queued?.status === 'QUEUED');
             out.push({
                 id: poll.id,
                 slot_no: poll.slot_no,
@@ -1101,7 +1145,7 @@ export class SeasonPollService {
                 result_queued_status: queued?.status ?? null,
                 tied: !!poll.tied,
                 tied_positions: poll.tied ? ranked.tiedPositions : [],
-                can_choose: !!poll.tied && queued?.status === 'QUEUED',
+                can_choose: canChoose,
                 resolved_at: poll.resolved_at,
                 created_at: poll.created_at,
                 beyond_bound: beyondBound,
@@ -1122,12 +1166,14 @@ export class SeasonPollService {
                 })),
             });
         }
+        const season = this.isSeason(t);
         return {
             tournament_id: t.id,
+            poll_picks: !!t.poll_picks,
             table_count: t.season_table_count,
-            tables_done: await this.countTablesDone(t.id),
+            tables_done: season ? await this.countTablesDone(t.id) : null,
             resolved_count: resolvedCount,
-            bound_reached: resolvedCount >= t.season_table_count,
+            bound_reached: !!t.poll_picks && season && resolvedCount >= t.season_table_count!,
             paused: !!t.season_paused_at,
             finished: !!t.season_finished_at,
             polls: out,
