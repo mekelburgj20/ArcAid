@@ -182,7 +182,37 @@ Worth stating so the work does not undo it:
 
 ### 6.2 Rendered scan (app running locally)
 
-RENDERED_RESULTS_PLACEHOLDER
+The app was built and booted in the sandbox (no Docker, Discord off, fresh SQLite) with one seeded room, "Neon Alley Pinball" at `/neon_alley`, one Weekly rotation tournament, three active games and six players. 64 full-page screenshots were taken at 1440×900 and 390×844 in dark and light themes, and the detector was run in browser mode against the public URLs it can reach without a login.
+
+| Page | Viewport | Findings | By rule |
+|---|---|---|---|
+| `/` landing | desktop | 13 | low-contrast 7, ai-color-palette 2, undersized-ui-text 2, gradient-text 1, repeating-stripes 1 |
+| `/` landing | mobile | 9 | ai-color-palette 2, low-contrast 3, undersized-ui-text 2, gradient-text 1, repeating-stripes 1 |
+| `/neon_alley` scoreboard | desktop | 24 | low-contrast 13, undersized-ui-text 8, overused-font 1, marquee 1, repeating-stripes 1 |
+| `/neon_alley` scoreboard | mobile | 21 | low-contrast 12, undersized-ui-text 6, overused-font 1, marquee 1, repeating-stripes 1 |
+
+What the rendered findings actually are, and how much weight each deserves:
+
+- **Low contrast (35 hits) is almost one thing.** 24 of them are the white initial letter inside the coloured avatar circle: `#fff` on `#00d390` is 2.0:1, on `#fcb700` 1.8:1, on `#00bafe` 2.2:1, on `#ff627d` 2.9:1. The avatar is an identity glyph rather than reading text, so this is a judgement call, but it is the same glyph on every row of every card and a darker ink on the pale fills would fix it once in the avatar component. The other hits are real: the Discord login label (`#5865f2` on the dark button fill, 3.3:1), the landing-page stat labels (`#7d7e82` on `#27282e`, 3.6:1), white on the amber `#b37100` badges (4.0:1) and two light-theme chip pairs on the landing page at 1.1:1 and 1.5:1 (`#eff2f4` and `#63d297` on `#e4e9ed`), which is text that is effectively invisible in light mode. `contrastAudit.cjs` cannot see any of these because none of them are a `--color-*` text token on a `--color-*` surface token.
+- **Undersized text (18 hits)** is the 10px `WEEKLY` chip and the 10px `2d 21h left` timer on every card, the 10px `Privacy`/`Terms` footer, and the 10px `PLAYERS`/`ACTIVE GAMES` labels on the landing room card. These are the eyebrow-label habit measured.
+- **`ai-color-palette` (4)** fires on the landing page's logo plate (violet gradient) and the "View All Scores" button, which is the violet→pink `--sb-ticker-cta-bg` gradient from section 1. **`gradient-text` (2)** is the chrome logo wordmark. The logo is a brand asset and should be recorded as intentional; the button gradient is not.
+- **`marquee`** is the rankings ticker and **`repeating-stripes-gradient`** is the CRT scanline overlay on every page. Both are deliberate features of the arcade world and are the first two entries for the project's ignore list, with a reason.
+- **`overused-font`** is Inter at 63% of rendered text, as predicted.
+
+Nothing fired for `nested-cards`, `side-tab`, `dark-glow`, `kicker-above-heading` or `monotonous-spacing` on these four pages, which is worth being precise about: the public scoreboard is the surface where those patterns are least present. The pages where the source inventory found them (Picks, GameDetail, Reports, LobbyAdmin, Settings, Tournaments) are behind a login or deeper routes, so the detector could not reach them in this run, while the screenshots could.
+
+### 6.3 What the screenshots show
+
+Looking at the renders rather than the code changes the emphasis of section 1 in one way: **the surfaces are not equally generic, and the gap between them is the finding.**
+
+- **Room Scoreboard, Global Scoreboard, Lobby and the landing page hold together.** The Arcade card (eyebrow chip, Orbitron title, mono timer, gold/silver/bronze podium rows, tabular scores) reads as one designed object, survives the light theme, and the Global Scoreboard's chrome wordmark, "Hottest board" hero and category-neon frames are a committed world. This is where Impeccable's "one signature move" already exists. The AI tells here are small: the repeated `NEON` room chip on every row of every Global card (`repeated-container-text`), the pulsing `LIVE` dot, "HOT" pills, and the tracked mono eyebrow `WILLIAMS · 1997 · 8 SCORES`.
+- **Picks is the textbook page.** Logged in on desktop it is six same-height bordered panels stacked full-width: the Mystery Award panel with an icon in a tinted square, the "If I win…" panel, three identical stat tiles (`TOTAL 3 / AVAILABLE 0 / COOLDOWN 3`), the `QUEUING A PICK FOR` eyebrow panel, then the search box and filter chips, with the actual games table pushed below the fold. On first visit a three-step tour popover and a notification-nudge banner appear at the same time. This page alone exercises `nested-cards`, `hero-metric`, `kicker-above-heading`, `icon-tile-stack`, Impeccable's cognitive-load checklist (more than four competing decision points before the primary task) and its `onboard` guidance (one onboarding layer, contextual, never blocking).
+- **GameDetail opens with the hero-metric template** (`TIMES FEATURED 1 / UNIQUE PLAYERS 6 / AVG SCORE / ALL-TIME HIGH`) and on a phone those four tiles are the entire first screen; the leaderboard, which is why anyone opens the page, starts below the fold. Impeccable's `layout` squint test and `distill` would both move the board up and fold the four numbers into one line under the title.
+- **Admin pages are where the neon world becomes a costume.** Room Settings is ten glow-headed `NeonCard`s in a single scroll (the roadmap already names this), every card title is a tracked Orbitron eyebrow, form labels are set in monospace (craft-floor's "monospace as a costume for technical"), help text is low-contrast, and the same "Integrations disabled for this room — Enable integrations…" line appears twice. Tournaments repeats the pattern with a 40-field create form inside a glow card, where every field label is a 10px tracked eyebrow. This is exactly `operate.md`'s point: the world should lend admin pages type, palette and density, not its decoration, and a category-fluent admin should not have to decode the chrome. These pages would benefit most from `typeset`, `layout`, `quieter` and `distill`, and least from anything bolder.
+- **The mobile submit sheet is clean and conventional** (labels above fields, dashed photo targets, one primary action), but it appears instantly with no slide, the score field shows a literal `0`, and it is the one surface a player touches most, so Emil's sheet recipe (enter from `translateY(100%)` on the drawer curve, press feedback on Submit, 16px inputs so iOS does not zoom) is the highest-leverage motion change in the app.
+- **Empty and logged-out states are bare.** "Log in to see your stats" with two login buttons centred on an empty viewport, "No retained completed games on the public leaderboard." as a lone line in an empty table, "No image" text in every card's art slot. `onboard`'s what-will-be-here / why / one action template applies directly, and the art slot in particular wants a designed placeholder since new rooms will always start without artwork.
+
+Screenshots and detector JSON for this run live in the session scratchpad and are not committed; the seed room and credentials were sandbox-only.
 
 ---
 
@@ -221,5 +251,7 @@ Several of these steps coincide with items already on the roadmap: the Room Sett
 ---
 
 ## 9. Bottom line
+
+The rendered run sharpens the verdict: the public scoreboards are already a designed product and should be protected, not quieted; Picks, GameDetail and the admin pages are where the generic layer lives, and they are Operate surfaces where both skill sets agree the fix is restraint, hierarchy and shared primitives rather than more neon.
 
 Installing the two skill sets would not by itself change a pixel. What they would change is the default output of every future UI edit: the hook stops the bordered-box, eyebrow-label, glow-shadow and gradient-text reflexes at the moment of typing; `DESIGN.md` makes the existing token system enforceable instead of advisory; `critique` turns "it feels AI-generated" into a scored list with file lines; and Emil's skills supply the motion, press-feedback, sheet, toast and phone-platform rules that ArcAid currently has no vocabulary for at all. The highest-leverage first moves are not visual: write `PRODUCT.md` and `DESIGN.md`, turn on the hook, build the six missing primitives, and fix the two broken animations and five undefined token classes that are already shipping.
