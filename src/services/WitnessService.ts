@@ -403,6 +403,10 @@ export class WitnessService {
         const target = await WitnessService.getDeviceTarget(deviceId);
         const result = await VpxScoreIngestService.ingest({
             canonicalUserId: device.canonical_user_id,
+            // v2.163.0 — what kind of machine this is decides the score's
+            // `device`/`platform` provenance (cabinet → atgames/vpxs, desktop →
+            // pc/vpx). Never inferred from the table or the name.
+            deviceType: device.device_type,
             target,
             tableName: (input.tableName || '').trim(),
             rom: input.rom ?? null,
@@ -473,14 +477,22 @@ export class WitnessService {
      */
     private static async authenticateDevice(
         deviceId: string, token: string,
-    ): Promise<{ canonical_user_id: string } | null> {
+    ): Promise<{ canonical_user_id: string; device_type: WitnessDeviceType } | null> {
         const db = await getDatabase();
-        const device = await db.get<{ canonical_user_id: string; token_hash: string; revoked_at: string | null }>(
-            `SELECT canonical_user_id, token_hash, revoked_at FROM witness_devices WHERE atgames_unique_id = ?`,
+        const device = await db.get<{
+            canonical_user_id: string; token_hash: string; revoked_at: string | null; device_type: string | null;
+        }>(
+            `SELECT canonical_user_id, token_hash, revoked_at, device_type FROM witness_devices WHERE atgames_unique_id = ?`,
             deviceId,
         );
         if (!device || device.revoked_at || device.token_hash !== hashToken(token)) return null;
-        return { canonical_user_id: device.canonical_user_id };
+        // The type rides with the auth result because it is PROVENANCE: a
+        // score's `device` column is decided by what kind of machine posted it
+        // (v2.163.0), and the ingest must not have to look the row up again.
+        return {
+            canonical_user_id: device.canonical_user_id,
+            device_type: device.device_type === 'desktop' ? 'desktop' : 'atgames',
+        };
     }
 
     private static async touchDevice(deviceId: string): Promise<void> {

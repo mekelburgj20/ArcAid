@@ -479,3 +479,135 @@ describe('VPXS auto score collection — ingest', () => {
         expect(res.body).toMatchObject({ status: 'invalid' });
     });
 });
+
+/**
+ * v2.163.0 — the Castcade companion (https://github.com/mekelburgj20/castcade,
+ * its ADR 0003) pairs a Windows VPX rig with `type=desktop`. The SAME ingest
+ * path then stamps the score's provenance from the kind of machine, never from
+ * the table or the name (ADR 0016): cabinet → device `atgames` / platform
+ * `vpxs`, desktop → device `pc` / platform `vpx`. Pinned on all three writes
+ * (room board, Global fan-out, Global fallback) and on the tournament
+ * device-exclusion check, which used to test a hard-coded `atgames`.
+ */
+describe('Witness score provenance follows the device type (v2.163.0)', () => {
+    let app: express.Express;
+    let roomId: string;
+    const DESKTOP = '7f0c1a9e-3b2d-4c5e-9f6a-1b2c3d4e5f60';
+
+    async function pairDesktop(): Promise<string> {
+        const codeRes = await request(app)
+            .post('/api/me/witness/pairing-code')
+            .set('Authorization', `Bearer ${playerToken(USER)}`).send({});
+        const pairRes = await request(app)
+            .get('/api/witness/pair')
+            .query({ code: codeRes.body.code, device: DESKTOP, username: 'MY-PC', type: 'desktop' });
+        expect(pairRes.status).toBe(200);
+        return pairRes.body.token as string;
+    }
+
+    async function designateDesktop(roomId: string) {
+        const { WitnessService } = await import('../services/WitnessService.js');
+        await WitnessService.setDeviceTarget(USER, DESKTOP, { roomId, tournamentId: null });
+    }
+
+    async function excludeDevice(tournamentId: string, device: string) {
+        const db = await getDatabase();
+        await db.run(
+            `UPDATE tournaments SET platform_rules = ? WHERE id = ?`,
+            JSON.stringify({ engines: { required: [], excluded: [] },
+                             devices: { required: [], excluded: [device] } }),
+            tournamentId,
+        );
+    }
+
+    beforeEach(async () => {
+        app = await createTestApp();
+        roomId = await createTestRoom();
+        await addMember(roomId, USER);
+    });
+
+    it('a desktop score lands on the room board as pc / vpx, and fans out to Global the same way', async () => {
+        const token = await pairDesktop();
+        const { gameId } = await createRotationGame(roomId, 'Bad Cats');
+        await designateDesktop(roomId);
+        const db = await getDatabase();
+        await db.run(
+            `INSERT INTO global_games (id, name, type, manufacturer, year, status)
+             VALUES (?, 'Bad Cats', 'pinball', 'Williams', 1989, 'approved')`,
+            crypto.randomUUID(),
+        );
+
+        const res = await request(app).get('/api/witness/score')
+            .query({ device: DESKTOP, token, ...scoreQuery() });
+        expect(res.body).toMatchObject({ ok: true, status: 'ingested' });
+
+        const row = await db.get<{ engine: string; device: string; platform: string; source: string; game_id: string }>(
+            `SELECT engine, device, platform, source, game_id FROM score_history ORDER BY id DESC LIMIT 1`,
+        );
+        expect(row).toMatchObject({ engine: 'vpx', device: 'pc', platform: 'vpx', source: 'vpx', game_id: gameId });
+
+        const fanned = await db.get<{ engine: string; device: string; platform: string; source: string }>(
+            `SELECT engine, device, platform, source FROM global_scores WHERE player_id = ? ORDER BY rowid DESC LIMIT 1`, USER,
+        );
+        expect(fanned).toMatchObject({ engine: 'vpx', device: 'pc', platform: 'vpx', source: 'vpx' });
+    });
+
+    it('a cabinet score is unchanged: atgames / vpxs', async () => {
+        const token = await pairDevice(app);
+        await createRotationGame(roomId, 'Bad Cats');
+        await designate(roomId);
+
+        const res = await request(app).get('/api/witness/score')
+            .query({ device: DEVICE, token, ...scoreQuery() });
+        expect(res.body).toMatchObject({ status: 'ingested' });
+
+        const db = await getDatabase();
+        const row = await db.get<{ engine: string; device: string; platform: string }>(
+            `SELECT engine, device, platform FROM score_history ORDER BY id DESC LIMIT 1`,
+        );
+        expect(row).toMatchObject({ engine: 'vpx', device: 'atgames', platform: 'vpxs' });
+    });
+
+    it('an undesignated desktop score reaches the Global Scoreboard as pc / vpx', async () => {
+        const token = await pairDesktop();
+        const db = await getDatabase();
+        await db.run(
+            `INSERT INTO global_games (id, name, type, manufacturer, year, status)
+             VALUES (?, 'Bad Cats', 'pinball', 'Williams', 1989, 'approved')`,
+            crypto.randomUUID(),
+        );
+
+        const res = await request(app).get('/api/witness/score')
+            .query({ device: DESKTOP, token, ...scoreQuery() });
+        expect(res.body).toMatchObject({ ok: true, status: 'global' });
+
+        const row = await db.get<{ engine: string; device: string; platform: string; source: string }>(
+            `SELECT engine, device, platform, source FROM global_scores WHERE player_id = ? ORDER BY rowid DESC LIMIT 1`, USER,
+        );
+        expect(row).toMatchObject({ engine: 'vpx', device: 'pc', platform: 'vpx', source: 'vpx' });
+    });
+
+    it('the tournament device exclusion tests the POSTING device: excluding AtGames keeps a desktop score, excluding PC refuses it', async () => {
+        const token = await pairDesktop();
+        const { tournamentId } = await createRotationGame(roomId, 'Bad Cats');
+        await designateDesktop(roomId);
+
+        await excludeDevice(tournamentId, 'atgames');
+        const kept = await request(app).get('/api/witness/score')
+            .query({ device: DESKTOP, token, ...scoreQuery() });
+        expect(kept.body).toMatchObject({ status: 'ingested' });
+
+        await excludeDevice(tournamentId, 'pc');
+        const refused = await request(app).get('/api/witness/score')
+            .query({ device: DESKTOP, token, ...scoreQuery({ score: 9_999_999 }) });
+        // Nothing else is pointed at, and the room-designated device has
+        // globalFallback on, so the refused score goes to the player's own
+        // record rather than nowhere — the ROOM board is what it stays off.
+        expect(refused.body.status).not.toBe('ingested');
+        const db = await getDatabase();
+        const onBoard = await db.get<{ n: number }>(
+            `SELECT COUNT(*) AS n FROM score_history WHERE score = 9999999 AND game_id IS NOT NULL`,
+        );
+        expect(onBoard!.n).toBe(0);
+    });
+});

@@ -1337,9 +1337,9 @@ export default function AccountSettings() {
               <div className="mt-6 pt-4 border-t border-border">
                 <h3 className="text-sm font-medium mb-1">Arcaid Witness devices</h3>
                 <p className="text-xs text-muted mb-3">
-                  Pair the Arcaid Witness app on your cabinet so your tournament scores are backed by
-                  when you actually started each table. Get a code here, then enter it in the Witness
-                  app on the machine.
+                  Pair the Arcaid Witness app on your cabinet, or the Castcade companion on your
+                  Windows VPX PC, so your tournament scores are backed by when you actually started
+                  each table. Get a code here, then enter it in the Witness app on the machine.
                 </p>
                 {witnessCode ? (
                   <div className="mb-3 p-3 rounded border border-neon-cyan/40 bg-neon-cyan/10">
