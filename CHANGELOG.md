@@ -6,6 +6,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.163.1] - 2026-10-18 - "great game!" is an idiom, not a noun
+
+### Fixed
+
+- **The pick-award-off "Congrats!" embed read "great Table! Thanks for playing." in pinball rooms.** The
+  line was born (Scores/Nav Reorg) as `great ${term.game}!`, so the terminology helper swapped the noun
+  and produced nonsense; "great game!" here means "well played", not the thing you play on. Now a literal.
+  Every other terminology site ("No Table Queued", "pick the next Table") names the object and is unchanged.
+  Noticed by the owner in the Arcaid Seasons Demo channel, 2026-10-18.
+
+---
+
 ## [2.163.0] — 2026-10-18 — Witness devices have a type; the Castcade companion pairs as a desktop
 
 The Windows desktop Witness producer ships inside the **Castcade** companion
