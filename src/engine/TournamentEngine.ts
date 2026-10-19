@@ -1780,12 +1780,14 @@ export class TournamentEngine {
 
         // Pick-award gate off — emit plain "Congrats" (no pick flow, no DM).
         // Next-game selection still honors auto_pick and manual admin paths.
+        // "great game!" is the idiom (well played), not the noun the terminology
+        // helper swaps - "great Table!" read as nonsense in pinball rooms (2026-10-18).
         if (!pickAwardEnabled && winnerId && channelId) {
             const color = getTournamentColor(tournamentRow.type);
             const winnerMention = await resolveUserMention(winnerId, winnerLabel, tournamentRow.game_room_id);
             const embed = new EmbedBuilder()
                 .setTitle('Congrats!')
-                .setDescription(`${winnerMention.text} — great ${term.game}! Thanks for playing.`)
+                .setDescription(`${winnerMention.text} — great game! Thanks for playing.`)
                 .setColor(color)
                 .setFooter({ text: tournamentRow.name })
                 .setTimestamp();
