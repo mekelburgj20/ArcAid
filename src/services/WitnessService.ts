@@ -62,9 +62,25 @@ function hashToken(token: string): string {
     return createHash('sha256').update(token).digest('hex');
 }
 
+/**
+ * What kind of machine a paired witness device is (v2.163.0). `atgames` is a
+ * cabinet running the Arcaid Witness app, keyed on its ATGAMES_UNIQUE_ID;
+ * `desktop` is the Castcade companion on a Windows VPX rig
+ * (https://github.com/mekelburgj20/castcade, its ADR 0003), keyed on a UUID it
+ * generates once per install. Informational — nothing gates on it. The column
+ * stays `atgames_unique_id` for both: renaming it would touch every table and
+ * query in the witness family for no behavioural gain.
+ */
+export type WitnessDeviceType = 'atgames' | 'desktop';
+export const WITNESS_DEVICE_TYPES: readonly WitnessDeviceType[] = ['atgames', 'desktop'];
+export function isWitnessDeviceType(value: unknown): value is WitnessDeviceType {
+    return typeof value === 'string' && (WITNESS_DEVICE_TYPES as readonly string[]).includes(value);
+}
+
 export interface WitnessDevice {
     atgamesUniqueId: string;
     atgamesUsername: string | null;
+    deviceType: WitnessDeviceType;
     pairedAt: string;
     lastSeenAt: string | null;
     /** Score routing (P9b) — a null room means UNDESIGNATED. */
@@ -85,7 +101,7 @@ export class WitnessTargetError extends Error {
 }
 
 export class WitnessPairError extends Error {
-    readonly code: 'CODE_INVALID' | 'CODE_EXPIRED' | 'CODE_USED' | 'DEVICE_CONFLICT';
+    readonly code: 'CODE_INVALID' | 'CODE_EXPIRED' | 'CODE_USED' | 'DEVICE_CONFLICT' | 'DEVICE_TYPE_INVALID';
     constructor(code: WitnessPairError['code'], message: string) {
         super(message);
         this.name = 'WitnessPairError';
@@ -137,16 +153,28 @@ export class WitnessService {
 
     /**
      * Redeem a pairing code from the device (GET). Binds the code's owner to
-     * this `ATGAMES_UNIQUE_ID` and returns a fresh device token (plaintext,
-     * once — only the hash is stored). Re-pairing the SAME device rotates its
-     * token; pairing a device already owned by someone else is refused.
+     * this device id and returns a fresh device token (plaintext, once — only
+     * the hash is stored). Re-pairing the SAME device rotates its token (and
+     * takes the type it now declares); pairing a device already owned by
+     * someone else is refused.
+     *
+     * The device id is opaque here: an ATGAMES_UNIQUE_ID from a cabinet or a
+     * UUID from the Castcade companion. It is trimmed and must be non-empty;
+     * no shape is enforced, so a desktop id needs no special case.
+     * `deviceType` defaults to 'atgames' because every cabinet build omits it;
+     * an unknown value is refused BEFORE the code is looked up, so a typo in
+     * the companion does not burn a single-use code.
      */
     static async redeemPairingCode(
         rawCode: string, atgamesUniqueId: string, atgamesUsername: string | null,
+        deviceType: string = 'atgames',
     ): Promise<{ token: string }> {
         const code = (rawCode || '').trim().toUpperCase();
         const deviceId = (atgamesUniqueId || '').trim();
         if (!code || !deviceId) throw new WitnessPairError('CODE_INVALID', 'A pairing code and device id are required');
+        if (!isWitnessDeviceType(deviceType)) {
+            throw new WitnessPairError('DEVICE_TYPE_INVALID', `Unknown device type; expected one of ${WITNESS_DEVICE_TYPES.join(', ')}`);
+        }
 
         const db = await getDatabase();
         const row = await db.get<{ canonical_user_id: string; consumed_at: string | null; is_expired: number }>(
@@ -167,7 +195,7 @@ export class WitnessService {
             deviceId,
         );
         if (existing && existing.canonical_user_id !== row.canonical_user_id) {
-            throw new WitnessPairError('DEVICE_CONFLICT', 'This cabinet is already linked to a different Arcaid account');
+            throw new WitnessPairError('DEVICE_CONFLICT', 'This device is already linked to a different Arcaid account');
         }
 
         const token = randomBytes(32).toString('base64url');
@@ -176,14 +204,15 @@ export class WitnessService {
         await db.exec('BEGIN');
         try {
             await db.run(
-                `INSERT INTO witness_devices (atgames_unique_id, canonical_user_id, atgames_username, token_hash, revoked_at)
-                 VALUES (?, ?, ?, ?, NULL)
+                `INSERT INTO witness_devices (atgames_unique_id, canonical_user_id, atgames_username, device_type, token_hash, revoked_at)
+                 VALUES (?, ?, ?, ?, ?, NULL)
                  ON CONFLICT(atgames_unique_id) DO UPDATE SET
                     canonical_user_id = excluded.canonical_user_id,
                     atgames_username = excluded.atgames_username,
+                    device_type = excluded.device_type,
                     token_hash = excluded.token_hash,
                     revoked_at = NULL`,
-                deviceId, row.canonical_user_id, atgamesUsername || null, tokenHash,
+                deviceId, row.canonical_user_id, atgamesUsername || null, deviceType, tokenHash,
             );
             await db.run(
                 `UPDATE witness_pairing_codes SET consumed_at = datetime('now'), consumed_device_id = ? WHERE code = ?`,
@@ -195,7 +224,7 @@ export class WitnessService {
             throw err;
         }
 
-        logInfo(`Witness: device ${deviceId} paired to ${row.canonical_user_id}`);
+        logInfo(`Witness: ${deviceType} device ${deviceId} paired to ${row.canonical_user_id}`);
         return { token };
     }
 
@@ -374,6 +403,10 @@ export class WitnessService {
         const target = await WitnessService.getDeviceTarget(deviceId);
         const result = await VpxScoreIngestService.ingest({
             canonicalUserId: device.canonical_user_id,
+            // v2.163.0 — what kind of machine this is decides the score's
+            // `device`/`platform` provenance (cabinet → atgames/vpxs, desktop →
+            // pc/vpx). Never inferred from the table or the name.
+            deviceType: device.device_type,
             target,
             tableName: (input.tableName || '').trim(),
             rom: input.rom ?? null,
@@ -444,14 +477,22 @@ export class WitnessService {
      */
     private static async authenticateDevice(
         deviceId: string, token: string,
-    ): Promise<{ canonical_user_id: string } | null> {
+    ): Promise<{ canonical_user_id: string; device_type: WitnessDeviceType } | null> {
         const db = await getDatabase();
-        const device = await db.get<{ canonical_user_id: string; token_hash: string; revoked_at: string | null }>(
-            `SELECT canonical_user_id, token_hash, revoked_at FROM witness_devices WHERE atgames_unique_id = ?`,
+        const device = await db.get<{
+            canonical_user_id: string; token_hash: string; revoked_at: string | null; device_type: string | null;
+        }>(
+            `SELECT canonical_user_id, token_hash, revoked_at, device_type FROM witness_devices WHERE atgames_unique_id = ?`,
             deviceId,
         );
         if (!device || device.revoked_at || device.token_hash !== hashToken(token)) return null;
-        return { canonical_user_id: device.canonical_user_id };
+        // The type rides with the auth result because it is PROVENANCE: a
+        // score's `device` column is decided by what kind of machine posted it
+        // (v2.163.0), and the ingest must not have to look the row up again.
+        return {
+            canonical_user_id: device.canonical_user_id,
+            device_type: device.device_type === 'desktop' ? 'desktop' : 'atgames',
+        };
     }
 
     private static async touchDevice(deviceId: string): Promise<void> {
@@ -603,15 +644,15 @@ export class WitnessService {
         return tournament?.name ? `${roomName} / ${tournament.name}` : roomName;
     }
 
-    /** The cabinets a player has paired (Account Settings). */
+    /** The devices (cabinets and desktops) a player has paired (Account Settings). */
     static async listDevices(canonicalUserId: string): Promise<WitnessDevice[]> {
         const db = await getDatabase();
         const rows = await db.all<Array<{
-            atgames_unique_id: string; atgames_username: string | null; paired_at: string;
+            atgames_unique_id: string; atgames_username: string | null; device_type: string | null; paired_at: string;
             last_seen_at: string | null; target_room_id: string | null; room_name: string | null;
             target_tournament_id: string | null; tournament_name: string | null; global_fallback: number;
         }>>(
-            `SELECT d.atgames_unique_id, d.atgames_username, d.paired_at, d.last_seen_at,
+            `SELECT d.atgames_unique_id, d.atgames_username, d.device_type, d.paired_at, d.last_seen_at,
                     d.target_room_id, r.name AS room_name,
                     d.target_tournament_id, t.name AS tournament_name,
                     d.global_fallback
@@ -625,6 +666,7 @@ export class WitnessService {
         return rows.map(r => ({
             atgamesUniqueId: r.atgames_unique_id,
             atgamesUsername: r.atgames_username,
+            deviceType: r.device_type === 'desktop' ? 'desktop' : 'atgames',
             pairedAt: r.paired_at,
             lastSeenAt: r.last_seen_at,
             targetRoomId: r.target_room_id,

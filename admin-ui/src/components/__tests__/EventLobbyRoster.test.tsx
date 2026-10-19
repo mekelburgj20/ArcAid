@@ -31,10 +31,10 @@ describe('EventLobbyRoster', () => {
         />);
 
         expect(screen.getByText('Ready')).toBeTruthy();
-        expect(screen.getByText('Cabinet not responding')).toBeTruthy();
+        expect(screen.getByText('Witness not responding')).toBeTruthy();
         expect(screen.getByText('Exit the table')).toBeTruthy();
         expect(screen.getByText('Open the Witness tile')).toBeTruthy();
-        expect(screen.getByText('No cabinet')).toBeTruthy();
+        expect(screen.getByText('No Witness device')).toBeTruthy();
         // The open table is shown so the host can see what is in the way.
         expect(screen.getByText('Attack from Mars (Williams 1995)')).toBeTruthy();
         // The viewer's own row is marked; an unresolved id still renders as itself.

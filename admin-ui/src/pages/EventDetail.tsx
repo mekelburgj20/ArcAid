@@ -225,7 +225,7 @@ function WitnessBadge({ witness }: { witness?: WitnessVerdict | null }) {
     return (
         <span
             className="ml-1 text-faint text-xs"
-            title="No cabinet witness for this score — most players have no paired cabinet"
+            title="No Witness evidence for this score — most players have no paired Witness device (cabinet or desktop)"
         >unwitnessed</span>
     );
 }

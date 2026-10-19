@@ -28,8 +28,11 @@ import { resolveProfiles, resolveUserLabels } from './PlayerProfileResolver.js';
  *
  * ## The status rule (strict)
  *
- *   - `no_cabinet`  — no paired, unrevoked cabinet. Scores will post unverified.
- *                     Neutral, not a fault: most players have no cabinet.
+ *   - `no_cabinet`  — no paired, unrevoked Witness device (cabinet OR desktop).
+ *                     Scores will post unverified. Neutral, not a fault: most
+ *                     players have no device. The enum value keeps its
+ *                     original name because the UI keys on it; the copy the
+ *                     UI shows for it is device-neutral (v2.163.0).
  *   - `no_checkin`  — a cabinet is paired, but it has not checked in since the
  *                     check-in window opened. "Open the Arcaid Witness tile."
  *   - `table_open`  — checked in, but a table has been launched on that
@@ -44,6 +47,15 @@ import { resolveProfiles, resolveUserLabels } from './PlayerProfileResolver.js';
  *
  * A player with several cabinets gets the BEST status across them — the
  * question is "can they play witnessed", and one ready cabinet answers it.
+ *
+ * ## Desktop devices (v2.163.0)
+ *
+ * The Castcade companion pairs a Windows VPX rig as a witness device with
+ * `witness_devices.device_type = 'desktop'`. The roster grades it by exactly
+ * the rules above — check-in, open session, heartbeat — and never reads
+ * `device_type`: a desktop that has heartbeated and gone quiet for
+ * HEARTBEAT_STALE_SEC is `offline` like a cabinet would be. One rule, one
+ * copy, both kinds of machine.
  *
  * ## Why no-ROM tables need the strict rule
  *

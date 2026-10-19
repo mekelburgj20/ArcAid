@@ -266,4 +266,32 @@ describe('EventLobbyService.roster — the 1.0.4 heartbeat (v2.160.0)', () => {
         const byUser = Object.fromEntries(roster.map(e => [e.userId, e.status]));
         expect(byUser).toEqual({ [USER_A]: 'offline', [USER_B]: 'ready', [USER_C]: 'ready' });
     });
+
+    it('a desktop device (Castcade companion, v2.163.0) is graded by the cabinet rules: quiet heartbeat reads offline, a fresh one is ready', async () => {
+        const roomId = await createTestRoom('lobby-desktop', 'Desktop');
+        const now = new Date();
+        const eventId = await createEvent(roomId, {
+            checkinOpensAt: new Date(now.getTime() - 30 * MINUTE), round1Start: new Date(now.getTime() + 15 * MINUTE),
+        });
+        for (const u of [USER_A, USER_B]) await EventService.checkIn(eventId, u);
+        const db = await getDatabase();
+        const DESK_A = '7f0c1a9e-3b2d-4c5e-9f6a-1b2c3d4e5f60';
+        const DESK_B = '0a1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d';
+
+        // A: checked in 10 min ago, last heartbeat 9 min ago -> the PC went away.
+        await pairDevice(USER_A, DESK_A);
+        await db.run(`UPDATE witness_devices SET device_type = 'desktop' WHERE atgames_unique_id = ?`, DESK_A);
+        await witnessCheckin(USER_A, DESK_A, new Date(now.getTime() - 10 * MINUTE));
+        await setHeartbeat(DESK_A, new Date(now.getTime() - 9 * MINUTE));
+        // B: same check-in, heartbeat 1 min ago -> ready.
+        await pairDevice(USER_B, DESK_B);
+        await db.run(`UPDATE witness_devices SET device_type = 'desktop' WHERE atgames_unique_id = ?`, DESK_B);
+        await witnessCheckin(USER_B, DESK_B, new Date(now.getTime() - 10 * MINUTE));
+        await setHeartbeat(DESK_B, new Date(now.getTime() - 1 * MINUTE));
+
+        const event = (await EventService.getEvent(eventId))!;
+        const roster = await EventLobbyService.roster(event, await EventService.getRounds(eventId), now);
+        const byUser = Object.fromEntries(roster.map(e => [e.userId, e.status]));
+        expect(byUser).toEqual({ [USER_A]: 'offline', [USER_B]: 'ready' });
+    });
 });

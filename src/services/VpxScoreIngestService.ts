@@ -4,6 +4,7 @@ import { eventEndGraceSec } from './EventSubmissionGate.js';
 import { normalizeGameName } from '../utils/catalogueUtils.js';
 import { parseTournamentRules } from '../utils/platformRules.js';
 import { logInfo, logWarn } from '../utils/logger.js';
+import type { WitnessDeviceType } from './WitnessService.js';
 
 /**
  * VPXS auto score collection — the Arcaid Witness reads the VPX launcher's own
@@ -69,6 +70,15 @@ import { logInfo, logWarn } from '../utils/logger.js';
 
 export type VpxScoreInput = {
     canonicalUserId: string;
+    /**
+     * What kind of machine posted this (v2.163.0): `'atgames'` is the cabinet
+     * Witness (device `atgames`, legacy platform `vpxs`), `'desktop'` is the
+     * Castcade companion on a Windows VPX rig (device `pc`, legacy platform
+     * `vpx`). Read off `witness_devices.device_type` at authentication and
+     * threaded here so provenance is never inferred from the table or the
+     * name (ADR 0016). Absent = cabinet, the pre-v2.163.0 contract.
+     */
+    deviceType?: WitnessDeviceType;
     /** Best display name the device could resolve (session journal > rom > slug). */
     tableName: string;
     rom?: string | null;
@@ -90,6 +100,13 @@ export type VpxScoreInput = {
         tournamentId: string | null;
         globalFallback: boolean;
     };
+};
+
+/** See `VpxScoreIngestService.provenanceFor`. */
+export type WitnessProvenance = {
+    platform: 'vpxs' | 'vpx';
+    engine: 'vpx';
+    device: 'atgames' | 'pc';
 };
 
 export type VpxIngestResult = {
@@ -233,12 +250,13 @@ export class VpxScoreIngestService {
         }
 
         const routing = input.target ?? { roomId: null, tournamentId: null, globalFallback: true };
+        const provenance = VpxScoreIngestService.provenanceFor(input.deviceType);
         const candidates = (await VpxScoreIngestService.loadCandidates(input.canonicalUserId))
             .filter(row => VpxScoreIngestService.inScope(row, routing));
         const matches = candidates
             .filter(row => [...nameKeys([row.name])].some(key => needles.has(key)))
             .filter(row => VpxScoreIngestService.inWindow(row, input.endedTs))
-            .filter(row => !VpxScoreIngestService.engineExcluded(row));
+            .filter(row => !VpxScoreIngestService.engineExcluded(row, provenance.device));
 
         if (matches.length === 0) {
             // Nothing this cabinet is pointed at wanted the score — so it goes
@@ -292,12 +310,13 @@ export class VpxScoreIngestService {
             score,
             source: 'vpx',
             tournamentId: target.tournament_id ?? null,
-            platform: 'vpxs',
             // Provenance is KNOWN here, unlike an iScored sync: the engine is
-            // VPX by construction (the record came out of the VPX launcher) and
-            // the device is the cabinet the Witness is paired to.
-            engine: 'vpx',
-            device: 'atgames',
+            // VPX by construction (the record came out of VPX) and the device
+            // is whatever kind of machine the Witness that posted it is paired
+            // on — the cabinet, or a Windows rig running the Castcade companion
+            // (v2.163.0). `provenanceFor` is the ONE mapping for all three
+            // writes below and the exclusion check above.
+            ...provenance,
             // The launcher's timestamp, not ours — the same discipline the
             // AtGames path follows, and what makes the witness join possible.
             createdAt: playedAt,
@@ -323,9 +342,7 @@ export class VpxScoreIngestService {
             username,
             score,
             tournamentId: target.tournament_id,
-            platform: 'vpxs',
-            engine: 'vpx',
-            device: 'atgames',
+            ...provenance,
             source: 'vpx',
         });
 
@@ -470,9 +487,7 @@ export class VpxScoreIngestService {
                 iscoredUsername: username,
                 score,
                 originType: 'global',
-                platform: 'vpxs',
-                engine: 'vpx',
-                device: 'atgames',
+                ...VpxScoreIngestService.provenanceFor(input.deviceType),
                 // v2.156.0 — these rows used to be written with a NULL source,
                 // which left them indistinguishable from a typed global entry
                 // and gave a delete nothing to tombstone on (ADR 0024).
@@ -584,11 +599,29 @@ export class VpxScoreIngestService {
      * eligible for the tournament, never which platforms may score on them —
      * so a VPX score is refused exactly when the tournament excludes VPX.
      */
-    private static engineExcluded(row: CandidateRow): boolean {
+    private static engineExcluded(row: CandidateRow, device: WitnessProvenance['device']): boolean {
         const rules = parseTournamentRules(row.platform_rules, row.tournament_id ?? undefined);
         const excludedEngines = rules.engines?.excluded ?? [];
         const excludedDevices = rules.devices?.excluded ?? [];
-        return excludedEngines.includes('vpx') || excludedDevices.includes('atgames');
+        return excludedEngines.includes('vpx') || excludedDevices.includes(device);
+    }
+
+    /**
+     * The (platform, engine, device) a witness score carries, decided by the
+     * KIND of machine that posted it and nothing else (v2.163.0, ADR 0016: never
+     * inferred). The engine is always VPX. The cabinet Witness is the AtGames
+     * device on the legacy `vpxs` platform; the Castcade companion runs on a
+     * Windows PC, so its scores are `pc` on the legacy `vpx` platform — a VR
+     * headset on that PC is a display, not a different machine, and the
+     * companion cannot tell the two apart, so `pc` is the honest value.
+     * Used by the room write, the Global fan-out, the Global-fallback write
+     * AND the tournament exclusion check, so a tournament that excludes
+     * AtGames does not refuse a desktop score and one that excludes PC does.
+     */
+    static provenanceFor(deviceType: WitnessDeviceType | undefined): WitnessProvenance {
+        return deviceType === 'desktop'
+            ? { platform: 'vpx', engine: 'vpx', device: 'pc' }
+            : { platform: 'vpxs', engine: 'vpx', device: 'atgames' };
     }
 
     /**
