@@ -60,6 +60,12 @@ list of such tables would size the gap.
 > Owner rulings locked: 10.8.0 only (10.8.1 is beta), Node/TS agent reusing `scripts/witness-agent.ts`,
 > and near-zero barrier — the default install modifies nothing, the script hook is a one-click opt-in.
 > The plan carries the owner's test list (Rounds A–D); Rounds A and B gate everything.
+>
+> **2026-10-18 — the desktop agent now lives in the Castcade companion**
+> (https://github.com/mekelburgj20/castcade, GPLv3; Castcade ADR 0003). Its Phase 0 passed the Round
+> A/B equivalents on the owner's rig 2026-10-17 (castcade `docs/phase-0-spike.md` §8). ArcAid keeps
+> the cabinet app and the server contract; ArcAid's share is castcade `docs/arcaid-side-changes.md`
+> (items 1 and 9 first). The plan's §4/§6 say where each piece runs.
 
 ## Rotation audit trail — room-admin-visible decision log (owner-asked 2026-08-27)
 
