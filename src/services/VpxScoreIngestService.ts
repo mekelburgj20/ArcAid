@@ -5,6 +5,10 @@ import { normalizeGameName } from '../utils/catalogueUtils.js';
 import { parseTournamentRules } from '../utils/platformRules.js';
 import { logInfo, logWarn } from '../utils/logger.js';
 import type { WitnessDeviceType } from './WitnessService.js';
+import {
+    evaluateSanctioned, normalizeIntegrityMode, normalizeSanctionedRules,
+    type IntegrityMode, type Verdict, type WitnessEvidence,
+} from '../utils/sanctionedRules.js';
 
 /**
  * VPXS auto score collection — the Arcaid Witness reads the VPX launcher's own
@@ -66,6 +70,26 @@ import type { WitnessDeviceType } from './WitnessService.js';
  *      their own record. This is the default, not a failure mode; the only
  *      thing that stops it is the per-cabinet `globalFallback` switch, or a
  *      table the catalogue does not know.
+ *
+ * ## Integrity mode (v2.165.0, ADR 0027; Castcade ADR 0005)
+ *
+ * The Castcade companion sends EVIDENCE with every score (`evidence` below:
+ * the VPS game/table ids, the table hash, the settings in force, the machine
+ * adjustments, the builds). Two things happen with it, in both modes:
+ *
+ * - **Matching prefers the VPS game id.** `vps_game` resolves to the catalogue
+ *   row and that row's names (plus any `games.global_game_id` that points at
+ *   it) are tried BEFORE the device's own names, so a room that called the
+ *   game by a different spelling still matches. The name match stays as the
+ *   fallback, so every pre-0.2.4 companion and every cabinet keeps working.
+ * - **The Sanctioned rules are evaluated and the verdict stored** with the
+ *   score (`witness_evidence`). In an OPEN tournament the verdict is a badge
+ *   for the runner and nothing else. In a SANCTIONED tournament a `flagged`
+ *   verdict means the score is NOT written to that tournament's board — it
+ *   answers `not_sanctioned` with the reasons and falls through to the Global
+ *   record exactly as an unmatched score would. That is the ONE gate in this
+ *   file, it applies only to the auto-ingest into a tournament that opted in,
+ *   and room boards never filter or re-rank on it (ADR 0017/0020/0021).
  */
 
 export type VpxScoreInput = {
@@ -100,6 +124,14 @@ export type VpxScoreInput = {
         tournamentId: string | null;
         globalFallback: boolean;
     };
+    /** The posting device's id — the evidence trail is keyed on it (v2.165.0). */
+    deviceId?: string | null;
+    /**
+     * What the Castcade companion measured for this score (v2.165.0, ADR
+     * 0027): identity, settings, adjustments, builds. Null from a cabinet or
+     * an older companion. Decides nothing on its own; see the class comment.
+     */
+    evidence?: WitnessEvidence | null;
 };
 
 /** See `VpxScoreIngestService.provenanceFor`. */
@@ -122,12 +154,24 @@ export type VpxIngestResult = {
      * wire answer to the device is `'duplicate'` (a status its contract
      * already knows), never a new value.
      */
-    status: 'ingested' | 'duplicate' | 'global' | 'global_duplicate' | 'no_match' | 'invalid' | 'suppressed';
+    /**
+     * `'not_sanctioned'` (v2.165.0, ADR 0027) — the score matched a tournament
+     * in Sanctioned play and failed its rules, so it was NOT written to that
+     * board. `reasons` says why; `fallback` is what happened to it instead
+     * (the Global record, when the device allows it).
+     */
+    status: 'ingested' | 'duplicate' | 'global' | 'global_duplicate' | 'no_match' | 'invalid' | 'suppressed' | 'not_sanctioned';
     reason?: string;
     gameId?: string;
     gameName?: string;
     gameRoomId?: string | null;
     tournamentId?: string | null;
+    /** The integrity verdict when a tournament matched (both modes). */
+    verdict?: 'pass' | 'flagged' | null;
+    reasons?: string[];
+    fallback?: 'global' | 'global_duplicate' | 'no_match' | 'suppressed' | null;
+    /** The Global Scoreboard row this play landed on (fallback or fan-out), when known. */
+    globalScoreId?: string | null;
 };
 
 type CandidateRow = {
@@ -144,6 +188,13 @@ type CandidateRow = {
     end_grace_sec: number | null;
     platform_rules: string | null;
     is_participant: number;
+    /** v2.165.0 — set on pinned games only; rotation/event rows leave it NULL. */
+    global_game_id: string | null;
+    integrity_mode: string | null;
+    sanctioned_rules: string | null;
+    required_vps_table_id: string | null;
+    required_rom: string | null;
+    required_fingerprint: string | null;
 };
 
 /**
@@ -253,10 +304,27 @@ export class VpxScoreIngestService {
         const provenance = VpxScoreIngestService.provenanceFor(input.deviceType);
         const candidates = (await VpxScoreIngestService.loadCandidates(input.canonicalUserId))
             .filter(row => VpxScoreIngestService.inScope(row, routing));
-        const matches = candidates
-            .filter(row => [...nameKeys([row.name])].some(key => needles.has(key)))
+
+        // v2.165.0 — the VPS game id first (the companion resolved the table to
+        // a catalogue game; the room's spelling of the name no longer matters),
+        // then the device's names exactly as before.
+        const catalogue = input.evidence?.vpsGame
+            ? await VpxScoreIngestService.catalogueGame(input.evidence.vpsGame)
+            : null;
+        const byVps = catalogue
+            ? candidates.filter(row =>
+                (row.global_game_id != null && row.global_game_id === catalogue.id)
+                || [...nameKeys([row.name])].some(key => catalogue.keys.has(key)))
+            : [];
+        const byName = candidates.filter(row => [...nameKeys([row.name])].some(key => needles.has(key)));
+        const matches = (byVps.length > 0 ? byVps : byName)
             .filter(row => VpxScoreIngestService.inWindow(row, input.endedTs))
             .filter(row => !VpxScoreIngestService.engineExcluded(row, provenance.device));
+        if (catalogue) {
+            // The catalogue's own names join the suppression and Global keys:
+            // a delete there was keyed on them.
+            for (const key of catalogue.keys) needles.add(key);
+        }
 
         if (matches.length === 0) {
             // Nothing this cabinet is pointed at wanted the score — so it goes
@@ -264,6 +332,7 @@ export class VpxScoreIngestService {
             if (routing.globalFallback) {
                 return VpxScoreIngestService.recordGlobal(input, score, needles);
             }
+            await VpxScoreIngestService.trail(input, score, playedAt, { outcome: 'no_match' });
             return { status: 'no_match', reason: `no open game matched "${input.tableName}"` };
         }
         // An event ROUND is the more specific claim: it has an explicit window
@@ -288,12 +357,50 @@ export class VpxScoreIngestService {
             };
         }
         const target = pool[0]!;
+        const where = {
+            gameId: target.id, gameName: target.name,
+            gameRoomId: target.game_room_id, tournamentId: target.tournament_id,
+        };
 
         if (await VpxScoreIngestService.isSuppressedPlay(input, score, [...deviceNames, target.name], playedAt)) {
+            return { status: 'suppressed', reason: 'the player deleted this score', ...where };
+        }
+
+        // v2.165.0 (ADR 0027) — the rules are evaluated for EVERY tournament
+        // match. Open play: the verdict is stored as a badge and the write goes
+        // ahead. Sanctioned play: a flagged score is held out of this board.
+        const mode: IntegrityMode = normalizeIntegrityMode(target.integrity_mode);
+        const verdict: Verdict = evaluateSanctioned({
+            rules: normalizeSanctionedRules(target.sanctioned_rules),
+            requirements: {
+                requiredVpsTableId: target.required_vps_table_id,
+                requiredRom: target.required_rom,
+                requiredFingerprint: target.required_fingerprint,
+            },
+            evidence: input.evidence ?? null,
+            rom: input.rom ?? null,
+        });
+        if (mode === 'sanctioned' && verdict.verdict === 'flagged') {
+            logInfo(
+                `VPX ingest: not sanctioned — ${input.canonicalUserId} ${score} on "${target.name}" ` +
+                `(tournament ${target.tournament_id}): ${verdict.reasons.join('; ')}`,
+            );
+            // Held out of THIS board only. The play still counts for the
+            // player's own record when the device allows it — the same path an
+            // unmatched score takes — and the refusal is recorded against the
+            // tournament so the runner sees what was held out and why.
+            const fallback = routing.globalFallback
+                ? await VpxScoreIngestService.recordGlobal(input, score, needles, { trail: false })
+                : null;
+            await VpxScoreIngestService.trail(input, score, playedAt, {
+                outcome: 'not_sanctioned', ...where, integrityMode: mode, verdict,
+                globalScoreId: fallback?.globalScoreId ?? null,
+            });
             return {
-                status: 'suppressed', reason: 'the player deleted this score',
-                gameId: target.id, gameName: target.name,
-                gameRoomId: target.game_room_id, tournamentId: target.tournament_id,
+                status: 'not_sanctioned', reason: verdict.reasons.join('; '), ...where,
+                verdict: 'flagged', reasons: verdict.reasons,
+                fallback: fallback ? (fallback.status as VpxIngestResult['fallback']) : null,
+                globalScoreId: fallback?.globalScoreId ?? null,
             };
         }
 
@@ -323,10 +430,8 @@ export class VpxScoreIngestService {
         });
 
         if (id == null) {
-            return {
-                status: 'duplicate', gameId: target.id, gameName: target.name,
-                gameRoomId: target.game_room_id, tournamentId: target.tournament_id,
-            };
+            await VpxScoreIngestService.trail(input, score, playedAt, { outcome: 'duplicate', ...where, integrityMode: mode, verdict });
+            return { status: 'duplicate', ...where, verdict: verdict.verdict, reasons: verdict.reasons };
         }
 
         // v2.153.0 (ADR 0023): landing in a tournament does not keep a score off
@@ -334,7 +439,7 @@ export class VpxScoreIngestService {
         // whether the world sees it — the opt-out is the player's, not the
         // format's.
         const { GlobalScoreService } = await import('./GlobalScoreService.js');
-        await GlobalScoreService.fanOutAutomatedScore({
+        const fanned = await GlobalScoreService.fanOutAutomatedScore({
             gameRoomId: target.game_room_id,
             gameName: target.name,
             gameId: target.id,
@@ -346,15 +451,77 @@ export class VpxScoreIngestService {
             source: 'vpx',
         });
 
+        await VpxScoreIngestService.trail(input, score, playedAt, {
+            outcome: 'ingested', ...where, integrityMode: mode, verdict,
+            scoreHistoryId: id, globalScoreId: fanned?.globalScoreId ?? null,
+        });
+
         logInfo(
             `VPX ingest: ${username} ${score} on "${target.name}" ` +
             `(${target.round_no != null ? `round ${target.round_no}` : 'rotation'}, ` +
-            `tournament ${target.tournament_id ?? 'none'}, reason=${input.reason ?? 'unknown'})`,
+            `tournament ${target.tournament_id ?? 'none'}, reason=${input.reason ?? 'unknown'}, ` +
+            `${mode} play, verdict ${verdict.verdict}${verdict.reasons.length ? `: ${verdict.reasons.join('; ')}` : ''})`,
         );
         return {
-            status: 'ingested', gameId: target.id, gameName: target.name,
-            gameRoomId: target.game_room_id, tournamentId: target.tournament_id,
+            status: 'ingested', ...where,
+            verdict: verdict.verdict, reasons: verdict.reasons,
+            globalScoreId: fanned?.globalScoreId ?? null,
         };
+    }
+
+    /**
+     * The evidence trail (v2.165.0, ADR 0027): one row per witness score the
+     * ingest saw, every outcome, both modes. Best-effort by construction — a
+     * failure here must never cost the score, which is already decided.
+     */
+    private static async trail(
+        input: VpxScoreInput, score: number, playedAt: string,
+        extra: {
+            outcome: import('./WitnessEvidenceService.js').IngestOutcome;
+            gameId?: string | null; tournamentId?: string | null; gameRoomId?: string | null;
+            gameName?: string;
+            integrityMode?: IntegrityMode | null; verdict?: Verdict | null;
+            scoreHistoryId?: number | null; globalScoreId?: string | null;
+        },
+    ): Promise<void> {
+        if (!input.deviceId) return;
+        try {
+            const { WitnessEvidenceService } = await import('./WitnessEvidenceService.js');
+            await WitnessEvidenceService.record({
+                deviceId: input.deviceId,
+                canonicalUserId: input.canonicalUserId,
+                outcome: extra.outcome,
+                gameId: extra.gameId ?? null,
+                tournamentId: extra.tournamentId ?? null,
+                gameRoomId: extra.gameRoomId ?? null,
+                scoreHistoryId: extra.scoreHistoryId ?? null,
+                globalScoreId: extra.globalScoreId ?? null,
+                integrityMode: extra.integrityMode ?? null,
+                verdict: extra.verdict ?? null,
+                tableName: input.tableName,
+                rom: input.rom ?? null,
+                score,
+                playedAt,
+                evidence: input.evidence ?? null,
+            });
+        } catch (err) {
+            logWarn(`VPX ingest: evidence trail not written (${err instanceof Error ? err.message : String(err)})`);
+        }
+    }
+
+    /**
+     * The catalogue game a VPS id names, with the match keys of its names
+     * (`name` and `display_name`), or null when the catalogue has no such
+     * game. One indexed lookup (`idx_global_games_vps`).
+     */
+    private static async catalogueGame(vpsGameId: string): Promise<{ id: string; keys: Set<string> } | null> {
+        const db = await getDatabase();
+        const row = await db.get<{ id: string; name: string; display_name: string | null }>(
+            `SELECT id, name, display_name FROM global_games WHERE vps_id = ? AND status = 'approved' LIMIT 1`,
+            vpsGameId,
+        );
+        if (!row) return null;
+        return { id: row.id, keys: nameKeys([row.name, row.display_name ?? '']) };
     }
 
     /**
@@ -380,6 +547,22 @@ export class VpxScoreIngestService {
      * catalogue row from a launcher's free-text name.
      */
     private static async recordGlobal(
+        input: VpxScoreInput, score: number, needles: Set<string>,
+        opts: { trail?: boolean } = {},
+    ): Promise<VpxIngestResult> {
+        const result = await VpxScoreIngestService.recordGlobalInner(input, score, needles);
+        if (opts.trail !== false) {
+            await VpxScoreIngestService.trail(input, score, toSqliteUtc(Math.floor(input.endedTs)), {
+                outcome: result.status === 'global' || result.status === 'global_duplicate' || result.status === 'suppressed'
+                    ? result.status : 'no_match',
+                gameName: result.gameName,
+                globalScoreId: result.globalScoreId ?? null,
+            });
+        }
+        return result;
+    }
+
+    private static async recordGlobalInner(
         input: VpxScoreInput, score: number, needles: Set<string>,
     ): Promise<VpxIngestResult> {
         const db = await getDatabase();
@@ -480,8 +663,9 @@ export class VpxScoreIngestService {
         }
 
         const { GlobalScoreService } = await import('./GlobalScoreService.js');
+        let globalScoreId: string | null = null;
         try {
-            await GlobalScoreService.submit({
+            const written = await GlobalScoreService.submit({
                 globalGameId: game.id,
                 playerId: input.canonicalUserId,
                 iscoredUsername: username,
@@ -493,6 +677,7 @@ export class VpxScoreIngestService {
                 // and gave a delete nothing to tombstone on (ADR 0024).
                 source: 'vpx',
             });
+            globalScoreId = written?.id ?? null;
         } catch (err) {
             // `submit` throws BANNED for a banned identity (it ban-checks every
             // non-room origin). A banned player's cabinet must fail quietly:
@@ -508,7 +693,7 @@ export class VpxScoreIngestService {
             `VPX ingest -> Global Scoreboard: ${username} ${score} on "${game.name}" ` +
             `(undesignated cabinet, reason=${input.reason ?? 'unknown'})`,
         );
-        return { status: 'global', gameName: game.name };
+        return { status: 'global', gameName: game.name, globalScoreId };
     }
 
     /**
@@ -523,8 +708,9 @@ export class VpxScoreIngestService {
         const db = await getDatabase();
         return db.all<CandidateRow[]>(
             `SELECT g.id, g.name, g.status, g.round_no, g.scheduled_start_at, g.scheduled_end_at,
-                    g.start_date, g.tournament_id, g.game_room_id,
-                    t.format, t.end_grace_sec, t.platform_rules,
+                    g.start_date, g.tournament_id, g.game_room_id, g.global_game_id,
+                    g.required_vps_table_id, g.required_rom, g.required_fingerprint,
+                    t.format, t.end_grace_sec, t.platform_rules, t.integrity_mode, t.sanctioned_rules,
                     EXISTS (
                         SELECT 1 FROM tournament_participants tp
                          WHERE tp.tournament_id = g.tournament_id AND tp.user_id = ?

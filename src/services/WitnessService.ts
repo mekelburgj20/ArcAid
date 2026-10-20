@@ -392,7 +392,9 @@ export class WitnessService {
         via?: string | null;
         restarts?: number | null;
         partial?: boolean | null;
-    }): Promise<import('./VpxScoreIngestService.js').VpxIngestResult | null> {
+        /** v2.165.0 (ADR 0027) — what the Castcade companion measured; null from a cabinet. */
+        evidence?: import('../utils/sanctionedRules.js').WitnessEvidence | null;
+    }): Promise<(import('./VpxScoreIngestService.js').VpxIngestResult & { deviceType: WitnessDeviceType }) | null> {
         const deviceId = (input.atgamesUniqueId || '').trim();
         if (!deviceId || !input.token) return null;
 
@@ -401,13 +403,15 @@ export class WitnessService {
 
         const { VpxScoreIngestService } = await import('./VpxScoreIngestService.js');
         const target = await WitnessService.getDeviceTarget(deviceId);
-        const result = await VpxScoreIngestService.ingest({
+        const ingested = await VpxScoreIngestService.ingest({
             canonicalUserId: device.canonical_user_id,
             // v2.163.0 — what kind of machine this is decides the score's
             // `device`/`platform` provenance (cabinet → atgames/vpxs, desktop →
             // pc/vpx). Never inferred from the table or the name.
             deviceType: device.device_type,
             target,
+            deviceId,
+            evidence: input.evidence ?? null,
             tableName: (input.tableName || '').trim(),
             rom: input.rom ?? null,
             slug: input.slug ?? null,
@@ -417,6 +421,7 @@ export class WitnessService {
             durationSec: input.durationSec ?? null,
             reason: input.reason ?? null,
         });
+        const result = { ...ingested, deviceType: device.device_type };
 
         // A matched VPX score also files its own OBSERVATION, and that is the
         // whole reason the verify layer needs no VPX-specific rule:
@@ -452,7 +457,7 @@ export class WitnessService {
                 restarts: input.restarts ?? null,
                 partial: input.partial ?? null,
             });
-        } else if (result.status === 'no_match' || result.status === 'invalid') {
+        } else if (result.status === 'no_match' || result.status === 'invalid' || result.status === 'not_sanctioned') {
             // A 200 the device will never retry, so this line is the ONLY
             // trace the score leaves. Round 8 (2026-09-06) lost two of six
             // scores to a cabinet-side naming bug (`table=t2_l8`) and the
@@ -638,10 +643,14 @@ export class WitnessService {
         const roomName = room?.name ?? 'your room';
         if (!target.tournamentId) return roomName;
 
-        const tournament = await db.get<{ name: string }>(
-            'SELECT name FROM tournaments WHERE id = ?', target.tournamentId,
+        const tournament = await db.get<{ name: string; integrity_mode: string | null }>(
+            'SELECT name, integrity_mode FROM tournaments WHERE id = ?', target.tournamentId,
         );
-        return tournament?.name ? `${roomName} / ${tournament.name}` : roomName;
+        if (!tournament?.name) return roomName;
+        // v2.165.0 — a player pointed at a Sanctioned tournament should learn it
+        // where they look before playing (the Status line), not from a refusal.
+        const mode = tournament.integrity_mode === 'sanctioned' ? ' (Sanctioned play)' : '';
+        return `${roomName} / ${tournament.name}${mode}`;
     }
 
     /** The devices (cabinets and desktops) a player has paired (Account Settings). */

@@ -143,6 +143,15 @@ const TournamentBaseSchema = z.object({
     // path only; nominate/forfeit dispositions still honored either way.
     allow_dynasty: z.boolean().default(true),
     /**
+     * Integrity mode (v2.165.0, ADR 0027; Castcade ADR 0005). `integrity_mode`
+     * omitted = leave as stored (update) / 'open' (create). `sanctioned_rules`
+     * is a partial rule set: omitted = unchanged, null = back to the defaults;
+     * unknown keys are dropped and values clamped by `normalizeSanctionedRules`
+     * on save, so the stored blob is always a complete, valid rule set.
+     */
+    integrity_mode: z.enum(['open', 'sanctioned']).optional(),
+    sanctioned_rules: z.record(z.string(), z.unknown()).nullable().optional(),
+    /**
      * Season block (docs/season-format-plan.md §3.1). `season_table_count`:
      * omitted = leave the stored season as it is (update) / not a season
      * (create); null = switch the season off; N = a season of N tables. A
@@ -221,6 +230,19 @@ export const CreateTournamentSchema = TournamentBaseSchema
 
 export const UpdateTournamentSchema = TournamentBaseSchema
     .superRefine(tournamentFormatRefine);
+
+/**
+ * v2.165.0 (ADR 0027) — what one tournament game requires in Sanctioned play.
+ * Every key optional; `null` clears it. `required_vps_table_id` is the VPS
+ * table id the companion reports as `vps_table`; `required_rom` the PinMAME
+ * ROM name; `required_fingerprint` the blessed playfield fingerprint (Castcade
+ * F4 — accepted now so a runner can store one as soon as a companion sends it).
+ */
+export const GameRequirementsSchema = z.object({
+    required_vps_table_id: z.string().trim().max(40).nullable().optional(),
+    required_rom: z.string().trim().max(40).nullable().optional(),
+    required_fingerprint: z.string().trim().max(128).nullable().optional(),
+});
 
 // S7 — focused pause/resume toggle. Flips tournaments.is_active without
 // round-tripping the full tournament config (so the FE pause toggle can't

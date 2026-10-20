@@ -6,6 +6,56 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.165.0] - 2026-10-20 - Integrity mode: Open play / Sanctioned play (Castcade F3)
+
+Castcade F3 — item 11 of the Castcade repo's `docs/arcaid-side-changes.md`; Castcade ADR 0005, ArcAid
+**ADR 0027**. The Castcade companion has sent evidence with every witness score since 0.2.4/0.2.5 (the VPS
+game and table ids, the table hash, the settings in force, the ROM's machine adjustments, the VPX / VPinMAME
+builds; 0.2.8 added the accelerometer gain and the analog-tilt sensitivity). This release reads it. Mode
+names are the owner's working names.
+
+### Added
+- **`tournaments.integrity_mode`** (`open`, the default for every existing tournament | `sanctioned`) and
+  **`tournaments.sanctioned_rules`** (partial JSON, normalised on save — migration `184_integrity_mode`).
+  Saved through the ordinary tournament create/update (`integrity_mode`, `sanctioned_rules` on the schemas);
+  an edit that omits them leaves them unchanged. The rules (`src/utils/sanctionedRules.ts`): named table,
+  stock physics, factory adjustments (+ an allow-list, default `Free Play`), known build (**an allow-list,
+  never "official only"**: `official` and `panasony` pass — owner ruling 2026-10-19 — `nightly` passes behind
+  `allow_nightly_builds`, `unknown` only with a blessed SHA-256), `min_tilt_sensitivity` (default 300; VPX's
+  own default is 400, higher tilts sooner), `max_accel_gain` (default 150 %), `require_nudge_filter` (off).
+  VPinMAME's cheat flag is refused unconditionally.
+- **Per-game requirements** — `games.required_vps_table_id` / `required_rom` / `required_fingerprint`, set
+  by `PATCH /api/rooms/:roomId/tournaments/:id/games/:gameId/requirements` (room admin; `null` clears).
+- **`witness_evidence`** — one row per witness score the ingest saw, both modes, every outcome, with the
+  measurements and the pass/fail per rule, keyed to the `score_history` / `global_scores` row it produced.
+  Read by `GET /api/rooms/:roomId/tournaments/:id/evidence` (room admin, the review trail),
+  `GET /api/rooms/:roomId/tournaments/:id/integrity` (public: mode, rules, per-game requirements and a
+  `score_history.id → verdict` map for board badges) and `GET /api/me/witness/evidence/latest` (the
+  player's own latest row — the "bless the one I just played" source).
+- **The ONE gate.** In a **Sanctioned** tournament a failing witness score is not written to that board:
+  the companion is answered `status: 'not_sanctioned'` with `reasons[]` and `fallback`, and the play goes to
+  the player's Global record exactly as an unmatched score does. A **cabinet** (no evidence, no screen for
+  reasons) is told `no_match`, a status its contract already knows. **Open play never refuses** — the verdict
+  is stored as a badge. Room boards never filter or re-rank on any of this (ADR 0017/0020/0021).
+- **`global_game_tables`** — each catalogue game's tables from VPS `tableFiles[]` (filled by the VPS import,
+  `VpsImportService.syncTableFiles`), served by `GET /api/global/games/:id/tables` for the runner's
+  required-table picker.
+- The check-in's `sendingTo` line names Sanctioned play (`Room / Tournament (Sanctioned play)`) so a player
+  learns it on the Status page before a game, not from a refusal.
+
+### Changed
+- **Witness ingest matches by the VPS game id first.** `vps_game` → `global_games.vps_id` → that catalogue
+  row's names (and any `games.global_game_id` that points at it) are tried before the device's own names, so
+  a room's spelling of a table no longer decides whether a companion score is found. The name match stays as
+  the fallback: every pre-0.2.4 companion and every cabinet behaves as before.
+- `VpxIngestResult` carries `verdict`, `reasons`, `fallback` and `globalScoreId`; `WitnessService.recordVpxScore`
+  returns the device type with the result (the route needs it for the cabinet wire mapping).
+
+### Not in this release
+- The admin UI (tournament integrity settings, the required-table picker, the per-score review, board badges)
+  — next PR. The ROM → VPS game map endpoint. Script baselines, diff reports and the preflight endpoint
+  (item 12, Castcade F5).
+
 ## [2.164.0] - 2026-10-20 - Room default timezone
 
 Owner-asked 2026-10-18, surfaced on the first Seasons demo poll: every new tournament's schedule and the

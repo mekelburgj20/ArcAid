@@ -58,3 +58,4 @@ You do **not** need an ADR for routine bug fixes, code style preferences, or any
 | 0024 | [Auto-posted scores are deletable, and the delete survives the replay](0024-auto-posted-scores-are-deletable.md) | accepted | 2026-09-28 |
 | 0025 | [A Season is a rotation option with a poll queue, and Arcaid owns the poll](0025-season-is-a-rotation-option-with-a-poll-queue.md) | accepted | 2026-10-17 |
 | 0026 | [Pick by poll is a rotation method, and "admin decides" holds](0026-pick-by-poll-is-a-rotation-method.md) | accepted | 2026-10-18 |
+| 0027 | [Integrity mode: Open play and Sanctioned play, and the one place evidence gates](0027-integrity-mode-open-and-sanctioned-play.md) | accepted | 2026-10-20 |
