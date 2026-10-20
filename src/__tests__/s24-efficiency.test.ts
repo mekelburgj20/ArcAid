@@ -347,7 +347,9 @@ describe('S24.4 — getActiveLeaderboards has no per-tournament N+1', () => {
             const result = await LeaderboardService.getActiveLeaderboards(roomId);
             // The pre-S24.4 shape: one `SELECT cadence, game_room_id FROM tournaments
             // WHERE id = ?` per tournament (via db.get) plus one TIMEZONE lookup each.
-            const tzQueries = queries.filter(q => q.includes("key = 'TIMEZONE'"));
+            // The ROOM_TIMEZONE lookup is the only db.all over game_room_settings
+            // on this path (roomTimezonesFor → getManyForRooms, batched).
+            const tzQueries = queries.filter(q => q.includes('FROM game_room_settings'));
             expect(tzQueries.length).toBeLessThanOrEqual(1);
             return result;
         });

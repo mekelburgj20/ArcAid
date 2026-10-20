@@ -4,6 +4,7 @@ import {
   parseCleanupRule,
   type TournamentFormState,
 } from '../components/TournamentForm';
+import { DEFAULT_TIMEZONE } from './timezone';
 import { addMinutes, defaultEventState, durationMinutes, utcIsoToWallTime, wallTimeToUtcIso } from './eventTime';
 import { seasonPayload, seasonStateFromRow } from './seasonForm';
 import { pollPayload, pollStateFromRow } from './pollForm';
@@ -177,12 +178,15 @@ export function toPayload(state: TournamentFormState, extra: Record<string, any>
   };
 }
 
-/** Convert Tournament DB row to form state */
-export function tournamentToFormState(t: Tournament): TournamentFormState {
+/**
+ * Convert Tournament DB row to form state. `roomTimezone` fills a cadence that
+ * carries no zone; a saved zone is the tournament's own override and wins.
+ */
+export function tournamentToFormState(t: Tournament, roomTimezone: string = DEFAULT_TIMEZONE): TournamentFormState {
   const format = t.format === 'event' ? 'event' as const : 'rotation' as const;
   // An event's timezone lives in its cadence — the ONE thing an event cadence
   // still carries.
-  const tz = parseCadence(t.cadence).timezone;
+  const tz = parseCadence(t.cadence, roomTimezone).timezone;
   return {
     name: t.name,
     tag: t.type,
@@ -219,7 +223,7 @@ export function tournamentToFormState(t: Tournament): TournamentFormState {
     allowDynasty: t.allow_dynasty !== 0,
     platformRules: parsePlatformRules(t.platform_rules),
     cleanupRule: parseCleanupRule(t.cleanup_rule),
-    schedule: parseCadence(t.cadence),
+    schedule: parseCadence(t.cadence, roomTimezone),
     season: seasonStateFromRow(t),
     poll: pollStateFromRow(t),
   };

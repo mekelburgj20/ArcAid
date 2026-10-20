@@ -12,7 +12,9 @@ import CardStyleEditorSheet from '../components/scoreboard/CardStyleEditorSheet'
 import TournamentFormFields, {
   useTournamentForm,
   getPlatformRuleConflicts,
+  defaultFormStateFor,
 } from '../components/TournamentForm';
+import { useRoomTimezone } from '../hooks/useRoomTimezone';
 import { toPayload, tournamentToFormState, lockedRoundNumbers, isSeasonTournament, isPollTournament, type Tournament } from '../lib/tournamentFormPayload';
 import { getSeasonErrors } from '../lib/seasonForm';
 import { getPollErrors } from '../lib/pollForm';
@@ -147,6 +149,17 @@ export default function Tournaments() {
 
   const createForm = useTournamentForm();
   const editForm = useTournamentForm();
+  const { timezone: roomTz, loaded: roomTzLoaded } = useRoomTimezone(room.roomId);
+
+  // Seed the create form with the ROOM's zone once the settings read lands
+  // (right after mount, before an admin has typed). Only the zone fields are
+  // touched, so anything already typed survives a slow read.
+  useEffect(() => {
+    if (!roomTzLoaded) return;
+    createForm.set('schedule', { ...createForm.state.schedule, timezone: roomTz });
+    createForm.set('event', { ...createForm.state.event, timezone: roomTz });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roomTz, roomTzLoaded]);
 
   const fetchTournaments = async () => {
     try {
@@ -313,7 +326,7 @@ export default function Tournaments() {
     if (!createForm.state.name.trim() || !createForm.state.tag.trim()) return;
     try {
       await api.post(`/rooms/${room.roomId}/tournaments`, toPayload(createForm.state, { id: uuidv4(), is_active: true }));
-      createForm.reset();
+      createForm.reset(defaultFormStateFor(roomTz));
       toast('Tournament created', 'success');
       fetchTournaments();
     } catch (err) {
@@ -375,7 +388,7 @@ export default function Tournaments() {
 
   const openEdit = (t: Tournament) => {
     setEditTarget(t);
-    editForm.reset(tournamentToFormState(t));
+    editForm.reset(tournamentToFormState(t, roomTz));
   };
 
   const handleEditSave = async () => {
@@ -627,6 +640,7 @@ export default function Tournaments() {
           set={createForm.set}
           platforms={platforms}
           roomId={room.roomId}
+          roomTimezone={roomTz}
         />
         <NeonButton
           onClick={handleCreate}
@@ -814,6 +828,7 @@ export default function Tournaments() {
           onClose={() => setSeasonTarget(null)}
           onChanged={fetchTournaments}
           toast={toast}
+          roomTimezone={roomTz}
         />
       )}
 
@@ -827,6 +842,7 @@ export default function Tournaments() {
               set={editForm.set}
               platforms={platforms}
               roomId={room.roomId}
+              roomTimezone={roomTz}
               lockedRounds={lockedRoundNumbers(editTarget)}
             />
             <div className="flex gap-3 justify-end">

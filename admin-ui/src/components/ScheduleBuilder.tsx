@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { DEFAULT_TIMEZONE, zoneLabel } from '../lib/timezone';
 
 type Frequency = 'daily' | 'weekly' | 'monthly';
 
@@ -67,7 +68,9 @@ function buildCron(frequency: Frequency, hour: number, minute: number, dayOfWeek
 
 function formatSchedulePreview(frequency: Frequency, hour: number, minute: number, dayOfWeek: number, dayOfMonth: number | 'L', timezone: string): string {
   const time = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
-  const tz = timezone.split('/').pop()?.replace(/_/g, ' ') || timezone;
+  const city = timezone.split('/').pop()?.replace(/_/g, ' ') || timezone;
+  const label = zoneLabel(timezone);
+  const tz = label && label !== timezone ? `${city} (${label})` : city;
 
   switch (frequency) {
     case 'daily':
@@ -96,7 +99,18 @@ export default function ScheduleBuilder({ value, onChange }: ScheduleBuilderProp
   const [minute, setMinute] = useState(parsed.minute);
   const [dayOfWeek, setDayOfWeek] = useState(parsed.dayOfWeek);
   const [dayOfMonth, setDayOfMonth] = useState<number | 'L'>(parsed.dayOfMonth);
-  const [timezone, setTimezone] = useState(value.timezone || 'America/Chicago');
+  const [timezone, setTimezone] = useState(value.timezone || DEFAULT_TIMEZONE);
+
+  // The parent may change the zone after mount — the create form is seeded
+  // with the ROOM's zone once the settings read lands, after this builder has
+  // already mounted with the default. Follow it, or the select shows one zone
+  // while the form saves another. (Adjusted during render, React's pattern for
+  // state derived from a changed prop.)
+  const [seenValueTz, setSeenValueTz] = useState(value.timezone);
+  if (value.timezone !== seenValueTz) {
+    setSeenValueTz(value.timezone);
+    if (value.timezone && value.timezone !== timezone) setTimezone(value.timezone);
+  }
 
   useEffect(() => {
     const cron = buildCron(frequency, hour, minute, dayOfWeek, dayOfMonth);
@@ -177,6 +191,8 @@ export default function ScheduleBuilder({ value, onChange }: ScheduleBuilderProp
         <div>
           <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">Timezone</label>
           <select value={timezone} onChange={e => setTimezone(e.target.value)} className={selectClass}>
+            {/* A stored zone outside the list must still display as itself. */}
+            {!TIMEZONES.includes(timezone) && <option value={timezone}>{timezone.replace(/_/g, ' ')}</option>}
             {TIMEZONES.map(tz => (
               <option key={tz} value={tz}>{tz.replace(/_/g, ' ')}</option>
             ))}

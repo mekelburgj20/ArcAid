@@ -3,6 +3,7 @@ import ScheduleBuilder from './ScheduleBuilder';
 import EventSettingsFields from './EventSettingsFields';
 import { defaultEventState, type EventFormState } from '../lib/eventTime';
 import { InfoTip } from './Tooltip';
+import { DEFAULT_TIMEZONE } from '../lib/timezone';
 import { defaultSeasonState, getSeasonErrors, type SeasonFormState } from '../lib/seasonForm';
 import {
   defaultPollState,
@@ -128,10 +129,19 @@ export const defaultFormState: TournamentFormState = {
   allowDynasty: true,
   platformRules: { ...defaultPlatformRules },
   cleanupRule: { ...defaultCleanupRule },
-  schedule: { cron: '0 0 * * *', timezone: 'America/Chicago' },
+  schedule: { cron: '0 0 * * *', timezone: DEFAULT_TIMEZONE },
   season: { ...defaultSeasonState },
   poll: { ...defaultPollState },
 };
+
+/** A blank create form seeded with the ROOM's timezone (schedule + event). */
+export function defaultFormStateFor(timezone: string): TournamentFormState {
+  return {
+    ...defaultFormState,
+    event: { ...defaultFormState.event, rounds: [...defaultFormState.event.rounds], timezone },
+    schedule: { ...defaultFormState.schedule, timezone },
+  };
+}
 
 // --- Reducer ---
 
@@ -160,12 +170,16 @@ export function useTournamentForm(initial: TournamentFormState = defaultFormStat
 
 // --- Parsers ---
 
-export function parseCadence(cadenceJson: string): { cron: string; timezone: string } {
+/**
+ * A saved cadence's zone is the per-tournament override; `fallbackTimezone`
+ * (the room's zone) applies only when the cadence carries none.
+ */
+export function parseCadence(cadenceJson: string, fallbackTimezone: string = DEFAULT_TIMEZONE): { cron: string; timezone: string } {
   try {
     const c = JSON.parse(cadenceJson);
-    return { cron: c.cron || '0 0 * * *', timezone: c.timezone || 'America/Chicago' };
+    return { cron: c.cron || '0 0 * * *', timezone: c.timezone || fallbackTimezone };
   } catch {
-    return { cron: '0 0 * * *', timezone: 'America/Chicago' };
+    return { cron: '0 0 * * *', timezone: fallbackTimezone };
   }
 }
 
@@ -502,7 +516,7 @@ function PlatformRulesEditor({ platforms, rules, onChange }: {
   );
 }
 
-function CleanupRuleEditor({ value, onChange }: { value: CleanupRule; onChange: (v: CleanupRule) => void }) {
+function CleanupRuleEditor({ value, onChange, roomTimezone = DEFAULT_TIMEZONE }: { value: CleanupRule; onChange: (v: CleanupRule) => void; roomTimezone?: string }) {
   const selectClass = "w-full px-3 py-2 bg-raised border border-border rounded text-primary text-sm focus:outline-none focus:border-neon-cyan transition-colors cursor-pointer";
 
   return (
@@ -530,7 +544,7 @@ function CleanupRuleEditor({ value, onChange }: { value: CleanupRule; onChange: 
       )}
       {value.mode === 'scheduled' && (
         <ScheduleBuilder
-          value={{ cron: value.cron ?? '0 22 * * 3', timezone: value.timezone ?? 'America/Chicago' }}
+          value={{ cron: value.cron ?? '0 22 * * 3', timezone: value.timezone ?? roomTimezone }}
           onChange={s => onChange({ ...value, cron: s.cron, timezone: s.timezone })}
         />
       )}
@@ -667,9 +681,14 @@ interface TournamentFormFieldsProps {
    * invite a save that can only fail.
    */
   lockedRounds?: number[];
+  /**
+   * The room's default timezone (`ROOM_TIMEZONE`). Seeds the cleanup schedule
+   * when the rule carries no zone of its own.
+   */
+  roomTimezone?: string;
 }
 
-export default function TournamentFormFields({ state, set, platforms, roomId, lockedRounds }: TournamentFormFieldsProps) {
+export default function TournamentFormFields({ state, set, platforms, roomId, lockedRounds, roomTimezone = DEFAULT_TIMEZONE }: TournamentFormFieldsProps) {
   const inputClass = "w-full px-3 py-2 bg-raised border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan transition-colors";
   const selectClass = `${inputClass} cursor-pointer`;
 
@@ -885,7 +904,7 @@ export default function TournamentFormFields({ state, set, platforms, roomId, lo
             <label className="block text-xs font-display uppercase tracking-wider text-muted mb-2">
               Completed Game Cleanup <InfoTip text="Controls when finished games are hidden on iScored. 'Immediate' hides on rotation. 'Keep last N' retains recent games. 'Scheduled' hides all completed games on a cron schedule (e.g. weekly)." />
             </label>
-            <CleanupRuleEditor value={state.cleanupRule} onChange={r => set('cleanupRule', r)} />
+            <CleanupRuleEditor value={state.cleanupRule} onChange={r => set('cleanupRule', r)} roomTimezone={roomTimezone} />
           </div>
         </>
       )}

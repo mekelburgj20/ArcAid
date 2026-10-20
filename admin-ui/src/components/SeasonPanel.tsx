@@ -4,6 +4,7 @@ import NeonButton from './NeonButton';
 import { DateTimeField } from './EventSettingsFields';
 import { parseCadence } from './TournamentForm';
 import { api } from '../lib/api';
+import { DEFAULT_TIMEZONE } from '../lib/timezone';
 import { getSocket } from '../lib/websocket';
 import { utcIsoToWallTime, wallTimeToUtcIso } from '../lib/eventTime';
 import { TIE_RULE_LABEL, zoneLabel, type PollTieRule as SeasonTieRule } from '../lib/pollForm';
@@ -460,10 +461,13 @@ interface SeasonPanelProps {
     /** The tournaments list shows season progress — refresh it after pause/resume. */
     onChanged: () => void;
     toast: (message: string, kind?: 'success' | 'error') => void;
+    /** The room's default zone (`ROOM_TIMEZONE`) — fills a cadence that carries none. */
+    roomTimezone?: string;
 }
 
-export default function SeasonPanel({ roomId, tournament, onClose, onChanged, toast }: SeasonPanelProps) {
-    const tz = useMemo(() => parseCadence(tournament.cadence).timezone, [tournament.cadence]);
+export default function SeasonPanel({ roomId, tournament, onClose, onChanged, toast, roomTimezone: roomTz = DEFAULT_TIMEZONE }: SeasonPanelProps) {
+    // The tournament's own cadence zone wins; the room's zone fills a cadence without one.
+    const tz = useMemo(() => parseCadence(tournament.cadence, roomTz).timezone, [tournament.cadence, roomTz]);
     const defaultTieRule = (tournament.poll_tie_rule as SeasonTieRule) || 'admin';
     const base = `/rooms/${roomId}/tournaments/${tournament.id}/season`;
 

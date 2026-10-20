@@ -1,6 +1,7 @@
 import { getDatabase } from '../database/database.js';
 import CronExpressionParser from 'cron-parser';
 import { logError } from '../utils/logger.js';
+import { roomTimezonesFor, resolveTimezone } from '../utils/roomTimezone.js';
 import { normalizeImageUrl } from './LeaderboardService.js';
 
 interface ActiveTournamentInfo {
@@ -53,6 +54,7 @@ export async function getDashboardData(gameRoomId?: string): Promise<DashboardDa
             t.type AS tournament_type,
             t.cadence,
             t.cleanup_rule,
+            t.game_room_id AS tournament_game_room_id,
             g.id AS game_id,
             g.name AS game_name,
             g.start_date AS game_start_date,
@@ -74,7 +76,11 @@ export async function getDashboardData(gameRoomId?: string): Promise<DashboardDa
     // distinct-player count in a single query at the end.
     const activeTournaments: ActiveTournamentInfo[] = [];
     const allVisibleGameIds: string[] = [];
-    const envTz = process.env.BOT_TIMEZONE || 'America/Chicago';
+    // Room default timezone — one batched lookup over the distinct rooms
+    // (the dashboard may span every room when no gameRoomId is given).
+    const roomTzById = await roomTimezonesFor(
+        (activeGames as any[]).map(r => r.tournament_game_room_id).filter(Boolean),
+    );
 
     for (const row of activeGames) {
         let leaderName: string | null = null;
@@ -138,14 +144,14 @@ export async function getDashboardData(gameRoomId?: string): Promise<DashboardDa
         allVisibleGameIds.push(...visibleGameIds);
 
         // Resolve next rotation time per tournament. Each tournament owns its
-        // timezone via cadence.timezone; the env fallback only kicks in for
-        // legacy rows without one.
+        // timezone via cadence.timezone; a row without one falls back to the
+        // room's ROOM_TIMEZONE, then BOT_TIMEZONE (see utils/roomTimezone.ts).
         let nextRotationAt: string | null = null;
         try {
             if (row.cadence) {
                 const cadenceObj = JSON.parse(row.cadence);
                 if (cadenceObj.cron) {
-                    const tz = cadenceObj.timezone || envTz;
+                    const tz = resolveTimezone(cadenceObj.timezone, roomTzById.get(row.tournament_game_room_id));
                     const expr = CronExpressionParser.parse(cadenceObj.cron, { tz });
                     nextRotationAt = expr.next().toISOString();
                 }

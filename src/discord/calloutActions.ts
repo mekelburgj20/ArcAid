@@ -3,6 +3,7 @@ import { GuildReadScope, buildGuildScopedRoomSqlFilter } from '../utils/discordR
 import { accountSettingsUrl, roomPicksUrl, roomUrl } from '../utils/publicLinks.js';
 import { CalloutAction, CalloutRoomContext } from '../utils/callouts.js';
 import { getNextRunTime } from '../utils/cronUtils.js';
+import { roomTimezonesFor, resolveTimezone } from '../utils/roomTimezone.js';
 import { parseTournamentRules } from '../utils/platformRules.js';
 import { ActiveGameRow, listActiveGamesForScope } from './activeGames.js';
 
@@ -202,13 +203,17 @@ export function formatDuration(ms: number): string {
     return `${minutes}m`;
 }
 
-/** The tournament's own timezone, falling back the way the Scheduler does. */
-function cadenceOf(row: ActiveGameRow): { cron: string | null; timezone: string } {
+/**
+ * The tournament's own timezone, falling back the way the Scheduler does:
+ * the room's ROOM_TIMEZONE (`roomTz`, batched by the caller), then
+ * BOT_TIMEZONE (utils/roomTimezone.ts).
+ */
+function cadenceOf(row: ActiveGameRow, roomTz?: string | null): { cron: string | null; timezone: string } {
     let parsed: { cron?: string; timezone?: string } = {};
     try { parsed = JSON.parse(row.cadence || '{}'); } catch { parsed = {}; }
     return {
         cron: parsed.cron || null,
-        timezone: parsed.timezone || process.env.BOT_TIMEZONE || 'America/Chicago',
+        timezone: resolveTimezone(parsed.timezone, roomTz),
     };
 }
 
@@ -230,13 +235,16 @@ async function renderTimeLeft(
     if (games.length === 0) return NO_ACTIVE_GAMES_MESSAGE;
     const now = ctx.now ?? new Date();
     const first = rooms[0]!;
+    const roomTzById = await roomTimezonesFor(
+        games.map(g => g.game_room_id).filter((id): id is string => !!id),
+    );
 
     const lines: string[] = ['**Time left on the current round:**'];
     for (const [, rows] of groupByTournament(games)) {
         const row = rows[0]!;
         const label = `${roomPrefix(rooms, row.game_room_id)}**${row.tournament_name || 'Manual'}**`;
         const names = rows.map(r => r.game_name).join(', ');
-        const { cron, timezone } = cadenceOf(row);
+        const { cron, timezone } = cadenceOf(row, row.game_room_id ? roomTzById.get(row.game_room_id) : null);
         const next = cron ? getNextRunTime(cron, timezone, now) : null;
         if (!next) {
             lines.push(`${label} (${names}): no scheduled rotation — it runs until an admin changes it.`);

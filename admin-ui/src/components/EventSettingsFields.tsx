@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { InfoTip } from './Tooltip';
 import { TIMEZONES } from './ScheduleBuilder';
 import { api } from '../lib/api';
+import { zoneLabel } from '../lib/timezone';
 import {
     addMinutes,
     validateRoundDrafts,
@@ -235,7 +236,7 @@ export default function EventSettingsFields({ state, onChange, roomId, lockedRou
                 </div>
                 <div>
                     <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">
-                        Check-in opens <InfoTip text="Leave blank to open check-in as soon as the event is saved. Check-in always CLOSES when round 1 starts — after that only an admin can add a player." />
+                        Check-in opens ({zoneLabel(state.timezone)}) <InfoTip text="Leave blank to open check-in as soon as the event is saved. Check-in always CLOSES when round 1 starts — after that only an admin can add a player." />
                     </label>
                     <DateTimeField
                         value={state.checkinOpensLocal}
@@ -296,7 +297,7 @@ export default function EventSettingsFields({ state, onChange, roomId, lockedRou
             <div className="mb-4">
                 <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
                     <label className="block text-xs font-display uppercase tracking-wider text-muted">
-                        Rounds <InfoTip text="Each round is its own game and its own window. Scores only count inside that window, on the server's clock." />
+                        Rounds · start times in {zoneLabel(state.timezone)} <InfoTip text="Each round is its own game and its own window. Scores only count inside that window, on the server's clock." />
                     </label>
                     <label className="flex items-center gap-2 cursor-pointer">
                         <input

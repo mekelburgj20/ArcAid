@@ -6,6 +6,39 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.164.0] - 2026-10-20 - Room default timezone
+
+Owner-asked 2026-10-18, surfaced on the first Seasons demo poll: every new tournament's schedule and the
+Season panel's times defaulted to a hard-coded `America/Chicago`, so an admin in another zone re-picked
+the zone on every tournament and read poll times in a zone they never chose. Ruling: "if I choose Pacific
+Time (PT) in the room settings, everywhere I'm making changes will default to that and show that tz (PT)".
+
+### Added
+- **`ROOM_TIMEZONE` room setting** (Room Settings → Game Room → "Room timezone", an IANA zone from the
+  same list the schedule builder offers). **Default from the room, override per object:** a new
+  tournament's rotation schedule, cleanup schedule and event timezone all seed from it; a saved
+  tournament keeps the zone in its own `cadence` / `cleanup_rule`, so nothing stored changes meaning.
+  No migration and no backfill — an unset room falls through to `BOT_TIMEZONE` then `America/Chicago`
+  exactly as before, so no rotation moves.
+- **One precedence chain on the server** — `src/utils/roomTimezone.ts` (`resolveTimezone`: the
+  object's own zone → the room's `ROOM_TIMEZONE` → `BOT_TIMEZONE` → `America/Chicago`). Every place
+  that interprets a TOURNAMENT time now goes through it: the maintenance + cleanup crons at boot, the
+  inline cleanup match, the T-1h rotation nudge, the "tournament starting" notifier, the dashboard and
+  admin-health next-fire times, `nextRotationIso` (the Picks page "rotates <when>") and the Discord
+  `time_left` chat response. Housekeeping crons stay on the server zone.
+- **The zone is labelled wherever an admin enters or reads a time** — the schedule preview
+  ("Every day at 22:00 Chicago (CT)"), the event check-in and round-start fields, and the Game States +
+  Rotation Log timestamps, which now render in the ROOM's zone with its short name instead of the
+  browser's zone unlabelled.
+
+### Fixed
+- `LeaderboardService.getActiveLeaderboards` read a per-room `TIMEZONE` key that nothing ever wrote,
+  and gave it precedence OVER the tournament's own zone. It now reads `ROOM_TIMEZONE` with the ruling's
+  precedence (tournament zone first).
+- The admin tie-break log said "admin chose X over (none)" when nothing had been queued.
+
+---
+
 ## [2.163.1] - 2026-10-18 - "great game!" is an idiom, not a noun
 
 ### Fixed

@@ -147,14 +147,9 @@ Full plan in that doc — measured baseline, code anchors, sanitize SQL, rejecte
 - **Rejected, do not re-litigate:** blue/green (wrong shape for single-writer SQLite), Postgres migration for deploy safety alone, co-tenanting UAT on prod, synthetic seed data, nightly 4 GB asset syncs.
 - **Routing rule that keeps the cadence:** UAT is for changes touching data, money, or other people's systems — migrations, iScored/AtGames/Discord write paths, auth, scheduler, Dockerfile. Everything else ships from a green PR. ~1 PR in 5.
 
-## Room default timezone — one zone for every admin time control (owner-asked 2026-10-18)
+## Room default timezone — ✅ SHIPPED v2.164.0 (owner-asked 2026-10-18)
 
-Surfaced on the first Seasons demo poll: the Season panel's "Times (CT)" and every new tournament's schedule default to the hard-coded `America/Chicago` in `TournamentForm`'s `parseCadence` fallback / initial state, so an admin in another zone re-picks the zone on every tournament and reads poll times in a zone they did not choose. Owner ruling: **a room setting (e.g. `ROOM_TIMEZONE` in `game_room_settings`, editable on Room Settings) that every admin time input defaults to, and every time control labels the zone it is showing** — "if I choose Pacific Time (PT) in the room settings, everywhere I'm making changes will default to that and show that tz (PT)".
-
-- **Default from the room, override per object.** New tournaments' schedule + cleanup zone, event round / check-in times, and poll open/close inputs all seed from the room zone; a tournament's existing per-cadence `timezone` stays as the override, so nothing stored changes meaning. Existing rooms backfill to `America/Chicago` (today's effective default) so no rotation moves.
-- **Label the zone everywhere a time is shown or entered** — short name (`PT`, `CT`, `HST`) via `Intl.DateTimeFormat` `timeZoneName:'short'`, the way `SeasonPanel.formatWhen` already does; the Season panel's "Times (CT)" header, `ScheduleBuilder`, `EventSettingsFields`' `DateTimeField`s and the Game States / Rotation Log timestamps are the surfaces.
-- **Server reads it too** where a zone is assumed: `nextRotationIso`'s `BOT_TIMEZONE` fallback and the Discord time-left callout should resolve room zone before the server default.
-- Not in scope: per-player display zones on public pages (those render in the viewer's browser zone already).
+`ROOM_TIMEZONE` on Room Settings → Game Room: every admin time control defaults to it and labels its zone; a saved tournament keeps its own zone. One server-side precedence chain in `src/utils/roomTimezone.ts` (object → room → `BOT_TIMEZONE` → `America/Chicago`), no migration/backfill. Deliberately NOT done: per-player display zones on public pages (they render in the viewer's browser zone already).
 
 ## Room Stats - a game room's own history page (owner-asked 2026-10-20)
 

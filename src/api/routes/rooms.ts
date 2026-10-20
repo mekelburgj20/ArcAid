@@ -10,6 +10,7 @@ import { validate } from '../validate.js';
 import { isProviderUserId, isDiscordUserId } from '../../utils/identityProvider.js';
 import { iscoredDeletesAllowed, ISCORED_DELETES_DISABLED_MESSAGE } from '../../utils/iscoredCreds.js';
 import { nextRotationIso } from '../../utils/cronUtils.js';
+import { roomTimezone, resolveTimezone, isValidTimeZone, ROOM_TIMEZONE_KEY } from '../../utils/roomTimezone.js';
 import {
     CreateTournamentSchema, UpdateTournamentSchema, ToggleTournamentActiveSchema,
     SettingsSchema,
@@ -979,6 +980,9 @@ router.get('/:roomId/pick-status', requireDiscordUser, async (req, res) => {
             'SELECT id, name, type, mode, max_active_games, platform_rules, cadence FROM tournaments WHERE game_room_id = ? AND is_active = 1 ORDER BY display_order',
             roomId
         );
+        // Room default timezone: a cadence without its own zone falls back to
+        // the room's ROOM_TIMEZONE before BOT_TIMEZONE (one lookup per request).
+        const pickStatusRoomTz = await roomTimezone(roomId);
         const tournaments = tournamentRows.map((t: any) => ({
             id: t.id,
             name: t.name,
@@ -986,7 +990,7 @@ router.get('/:roomId/pick-status', requireDiscordUser, async (req, res) => {
             mode: t.mode,
             max_active_games: t.max_active_games,
             platform_rules: t.platform_rules,
-            nextRotationAt: nextRotationIso(t.cadence),
+            nextRotationAt: nextRotationIso(t.cadence, undefined, pickStatusRoomTz),
         }));
 
         // Pick-award gate state (plan §5) — room-scoped, controls UI enablement.
@@ -4745,7 +4749,29 @@ router.post('/:roomId/settings', requireAuth, requireRoomAccess('roomId'), requi
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
 
         const roomId = req.params.roomId as string;
+        // Room default timezone: refuse a non-IANA value at save time (an
+        // empty value clears the setting and falls back to BOT_TIMEZONE).
+        const tzChanged = Object.prototype.hasOwnProperty.call(validationResult.data, ROOM_TIMEZONE_KEY);
+        if (tzChanged) {
+            const tz = (validationResult.data[ROOM_TIMEZONE_KEY] ?? '').trim();
+            if (tz !== '' && !isValidTimeZone(tz)) {
+                return res.status(400).json({ error: `'${tz}' is not a valid IANA timezone.`, code: 'ROOM_TIMEZONE_INVALID' });
+            }
+            validationResult.data[ROOM_TIMEZONE_KEY] = tz;
+        }
         await GameRoomSettingsService.saveMany(roomId, validationResult.data);
+
+        // A room-zone change moves every cron of this room's tournaments that
+        // carry no zone of their own - re-register them (the same reload a
+        // tournament save does). A reload failure must not fail the save.
+        if (tzChanged) {
+            try {
+                const { Scheduler } = await import('../../engine/Scheduler.js');
+                await Scheduler.getInstance().reload();
+            } catch (err) {
+                logError('Scheduler reload after ROOM_TIMEZONE change failed:', err);
+            }
+        }
 
         // Log activity event
         const { RoomEventService } = await import('../../services/RoomEventService.js');
@@ -8972,7 +8998,7 @@ router.get('/:roomId/admin/health', requireAuth, requireRoomAccess('roomId'), as
         const { MaintenanceRunService } = await import('../../services/MaintenanceRunService.js');
         const { getNextRunTime } = await import('../../utils/cronUtils.js');
         const latestRuns = await MaintenanceRunService.getLatestPerTournament(roomId);
-        const envTz = process.env.BOT_TIMEZONE || 'America/Chicago';
+        const healthRoomTz = await roomTimezone(roomId);
         const tournamentRows = await db.all(
             'SELECT id, name, is_active, cadence FROM tournaments WHERE game_room_id = ? ORDER BY display_order ASC, name ASC',
             roomId,
@@ -8985,7 +9011,7 @@ router.get('/:roomId/admin/health', requireAuth, requireRoomAccess('roomId'), as
                 try {
                     const c = JSON.parse(t.cadence);
                     if (c.cron) {
-                        const next = getNextRunTime(c.cron, c.timezone || envTz);
+                        const next = getNextRunTime(c.cron, resolveTimezone(c.timezone, healthRoomTz));
                         nextFireAt = next ? next.toISOString() : null;
                     }
                 } catch { /* leave null on malformed cadence */ }

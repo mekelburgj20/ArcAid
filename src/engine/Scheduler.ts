@@ -7,6 +7,7 @@ import { TimeoutManager } from './TimeoutManager.js';
 import { RoomEventService } from '../services/RoomEventService.js';
 import { VpsImportService } from '../services/VpsImportService.js';
 import { getNextRunTime } from '../utils/cronUtils.js';
+import { roomTimezonesFor, resolveTimezone } from '../utils/roomTimezone.js';
 import { EventScheduler } from './EventScheduler.js';
 import { SeasonScheduler } from './SeasonScheduler.js';
 
@@ -40,6 +41,11 @@ export class Scheduler {
             LEFT JOIN game_rooms r ON r.id = t.game_room_id
             WHERE t.is_active = 1
         `);
+        // Room default timezone - one batched lookup before the loop; a
+        // tournament with no zone of its own runs on its room's ROOM_TIMEZONE.
+        const roomTzById = await roomTimezonesFor(
+            (activeTournaments as any[]).map(r => r.game_room_id).filter(Boolean),
+        );
 
         for (const row of activeTournaments) {
             // Guard: a tournament whose game_room_id points to a deleted room
@@ -67,13 +73,14 @@ export class Scheduler {
                 runnerupPickWindowMin: row.runnerup_pick_window_min ?? 30,
             };
 
-            this.scheduleTournament(tournament, row.room_slug ?? null);
+            const roomTz = row.game_room_id ? roomTzById.get(row.game_room_id) ?? null : null;
+            this.scheduleTournament(tournament, row.room_slug ?? null, roomTz);
 
             // Schedule cleanup cron if configured
             let cleanupRule: CleanupRule | null = null;
             try { cleanupRule = JSON.parse(row.cleanup_rule || 'null'); } catch {}
             if (cleanupRule?.mode === 'scheduled') {
-                this.scheduleCleanup(tournament.id, tournament.name, cleanupRule, row.room_slug ?? null);
+                this.scheduleCleanup(tournament.id, tournament.name, cleanupRule, row.room_slug ?? null, roomTz);
             }
         }
 
@@ -550,13 +557,16 @@ export class Scheduler {
                     "SELECT id, name, cadence, game_room_id FROM tournaments WHERE is_active = 1 AND cadence IS NOT NULL"
                 );
                 const now = Date.now();
+                const roomTzById = await roomTimezonesFor(
+                    (tournaments as any[]).map(r => r.game_room_id).filter(Boolean),
+                );
 
                 for (const t of tournaments) {
                     let cadence: CadenceConfig;
                     try { cadence = JSON.parse(t.cadence); } catch { continue; }
                     if (!cadence.cron) continue;
 
-                    const tz = cadence.timezone || process.env.BOT_TIMEZONE || 'America/Chicago';
+                    const tz = resolveTimezone(cadence.timezone, t.game_room_id ? roomTzById.get(t.game_room_id) : null);
                     const nextRun = getNextRunTime(cadence.cron, tz);
                     if (!nextRun) continue;
 
@@ -632,8 +642,12 @@ export class Scheduler {
                     `SELECT id, name, cadence, game_room_id FROM tournaments WHERE is_active = 1 AND cadence IS NOT NULL`,
                 );
                 const { RotationNudgeService } = await import('../services/RotationNudgeService.js');
+                const roomTzById = await roomTimezonesFor(
+                    (tournaments as any[]).map(r => r.game_room_id).filter(Boolean),
+                );
                 for (const t of tournaments) {
-                    await RotationNudgeService.evaluateTournament(t).catch((error) => {
+                    const roomTz = t.game_room_id ? roomTzById.get(t.game_room_id) ?? null : null;
+                    await RotationNudgeService.evaluateTournament(t, roomTz).catch((error) => {
                         logError(`Rotation readiness nudge error for tournament ${t.id}:`, error);
                     });
                 }
@@ -699,8 +713,12 @@ export class Scheduler {
 
     /**
      * Schedules a maintenance task for a specific tournament.
+     *
+     * `roomTz` is the tournament's room `ROOM_TIMEZONE`, already resolved by
+     * the caller (batched in `start()`); it applies only when the cadence
+     * carries no zone of its own (see utils/roomTimezone.ts).
      */
-    public scheduleTournament(tournament: Tournament, roomSlug?: string | null): void {
+    public scheduleTournament(tournament: Tournament, roomSlug?: string | null, roomTz?: string | null): void {
         const { id, name, cadence } = tournament;
         const tag = roomSlug ? ` [${roomSlug}]` : '';
 
@@ -714,7 +732,7 @@ export class Scheduler {
             this.tasks.get(id)?.stop();
         }
 
-        const timezone = cadence.timezone || process.env.BOT_TIMEZONE || 'America/Chicago';
+        const timezone = resolveTimezone(cadence.timezone, roomTz);
         const { cronExpr, isLastDay } = this.resolveCron(cadence.cron);
         logInfo(`Scheduling maintenance for ${name}${tag} using cron: '${cadence.cron}'${isLastDay ? ' (last day of month)' : ''}`);
 
@@ -734,7 +752,7 @@ export class Scheduler {
     /**
      * Schedules a cleanup task for a tournament with 'scheduled' cleanup_rule.
      */
-    private scheduleCleanup(tournamentId: string, name: string, rule: CleanupRule & { mode: 'scheduled' }, roomSlug?: string | null): void {
+    private scheduleCleanup(tournamentId: string, name: string, rule: CleanupRule & { mode: 'scheduled' }, roomSlug?: string | null, roomTz?: string | null): void {
         const taskKey = `__cleanup_${tournamentId}__`;
         const tag = roomSlug ? ` [${roomSlug}]` : '';
 
@@ -742,7 +760,7 @@ export class Scheduler {
             this.tasks.get(taskKey)?.stop();
         }
 
-        const timezone = rule.timezone || process.env.BOT_TIMEZONE || 'America/Chicago';
+        const timezone = resolveTimezone(rule.timezone, roomTz);
         const { cronExpr, isLastDay } = this.resolveCron(rule.cron);
         logInfo(`Scheduling cleanup for ${name}${tag} using cron: '${cronExpr}' (${timezone})${isLastDay ? ' (last day of month)' : ''}`);
 

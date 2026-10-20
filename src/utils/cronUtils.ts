@@ -1,4 +1,5 @@
 import { CronExpressionParser } from 'cron-parser';
+import { resolveTimezone } from './roomTimezone.js';
 
 /**
  * Returns the next run time for a cron expression in the given timezone.
@@ -35,13 +36,18 @@ export function getNextRunTime(cronExpr: string, timezone: string, from?: Date):
  *
  * `null` for: a cadence with no `cron` (Live Events, which don't rotate on a
  * clock), malformed/absent JSON, or an unparseable cron — never throws.
+ *
+ * `roomTz` is the already-resolved room `ROOM_TIMEZONE` (see `roomTimezone.ts`);
+ * the chain is `cadence.timezone` → `roomTz` → BOT_TIMEZONE → America/Chicago.
+ * The season-poll callers (`SeasonPollService`, `SeasonScheduler`) omit it on
+ * purpose: a form-created tournament always carries `cadence.timezone`.
  */
-export function nextRotationIso(cadenceJson: string | null | undefined, from?: Date): string | null {
+export function nextRotationIso(cadenceJson: string | null | undefined, from?: Date, roomTz?: string | null): string | null {
     let parsed: { cron?: string; timezone?: string } = {};
     try { parsed = JSON.parse(cadenceJson || '{}'); } catch { parsed = {}; }
     const cron = parsed.cron || null;
     if (!cron) return null;
-    const timezone = parsed.timezone || process.env.BOT_TIMEZONE || 'America/Chicago';
+    const timezone = resolveTimezone(parsed.timezone, roomTz);
     const next = getNextRunTime(cron, timezone, from);
     return next ? next.toISOString() : null;
 }

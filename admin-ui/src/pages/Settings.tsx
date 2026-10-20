@@ -15,6 +15,8 @@ import { InfoTip } from '../components/Tooltip';
 import MemberAdminPicker from '../components/MemberAdminPicker';
 import ChatResponsesSettings from '../components/ChatResponsesSettings';
 import { PlayerAvatar } from '../components/ScoreboardComponents';
+import { TIMEZONES } from '../components/ScheduleBuilder';
+import { DEFAULT_TIMEZONE, ROOM_TIMEZONE_KEY, zoneLabel } from '../lib/timezone';
 // v2.116.0 (C1) — the Leaderboard Display controls moved to the admin
 // Leaderboard page's display rail, where they edit against the REAL
 // scoreboard. This page still has to CLAIM their keys (see `managedKeys`), so
@@ -937,6 +939,8 @@ export default function Settings() {
     ...Object.keys(SCOREBOARD_TOGGLES),
     ...Object.keys(KIOSK_TOGGLES),
     ...Object.keys(GAME_ROOM_TOGGLES),
+    // Rendered as the Room timezone select inside the Game Room card.
+    ROOM_TIMEZONE_KEY,
     // Rendered as an inline toggle inside the iScored credential card — claimed
     // here so it never leaks into the raw "Other" card.
     ...Object.keys(ISCORED_TOGGLES),
@@ -1525,6 +1529,32 @@ export default function Settings() {
                       </div>
                     );
                   })}
+                  {/* Room default timezone — every admin schedule, poll and
+                      round time in this room seeds from it and is shown in it;
+                      a saved tournament keeps its own cadence zone. */}
+                  {(() => {
+                    const roomTz = settings[ROOM_TIMEZONE_KEY] || DEFAULT_TIMEZONE;
+                    return (
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <p className="text-sm font-medium text-primary">Room timezone</p>
+                          <p className="text-xs text-muted">Every schedule, poll and round time you set in this room defaults to this zone and is shown in it. Tournaments keep the zone they were saved with.</p>
+                        </div>
+                        <select
+                          value={roomTz}
+                          onChange={e => handleChange(ROOM_TIMEZONE_KEY, e.target.value)}
+                          className={`${inputClass} w-auto min-w-[190px]`}
+                        >
+                          {!TIMEZONES.includes(roomTz) && (
+                            <option value={roomTz}>{roomTz.replace(/_/g, ' ')} ({zoneLabel(roomTz)})</option>
+                          )}
+                          {TIMEZONES.map(tz => (
+                            <option key={tz} value={tz}>{tz.replace(/_/g, ' ')} ({zoneLabel(tz)})</option>
+                          ))}
+                        </select>
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
 
