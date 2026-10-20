@@ -156,6 +156,17 @@ Surfaced on the first Seasons demo poll: the Season panel's "Times (CT)" and eve
 - **Server reads it too** where a zone is assumed: `nextRotationIso`'s `BOT_TIMEZONE` fallback and the Discord time-left callout should resolve room zone before the server default.
 - Not in scope: per-player display zones on public pages (those render in the viewer's browser zone already).
 
+## Room Stats - a game room's own history page (owner-asked 2026-10-20)
+
+The public Stats page (`/:slug/stats`, `PublicStats.tsx`) has two tabs, Players and Games, and both are about individual performance. The owner wants a third view that is about the ROOM: what it has played, what it likes, and how much of it there has been. Everything below is derivable from existing tables; no new write path.
+
+- **Most selected tables** - which tables players have CHOSEN most, counted from `games` rows that have a picker (`picker_discord_id` not null, or the poll winner for Pick by poll) rather than every activation, so auto-pick and admin activations do not inflate it. Show the table, the pick count, and the player who picked it most often (resolved through `resolveUserLabels`, never a raw id).
+- **Highest rated tables** - the ROOM's star ratings (`RatingService.getAllRatings(roomId)`, min 2-3 ratings so a single 5-star does not top the list), with a toggle to view global popularity for the same tables (`GlobalRatingService.getBulkRatings`) side by side, so a room can see where its taste differs from everyone else's.
+- **Tables played, lifetime** - distinct table names across the room's `games` rows in COMPLETED/ARCHIVED (plus ACTIVE as "in play"), and the raw activation count beside it ("64 tables, 91 activations") so repeats are visible.
+- **Tournaments played** - a per-tournament breakdown by name: tables rotated through, distinct players who scored, total scores, first/last activation, and a status chip (active / finished / season finished); a total line on top. Seasons get their table count and winner from the Countdown group.
+- **Nice-to-have once the above exists:** busiest day of week / hour from `score_history.created_at`, longest-running table, and the room's all-time top score with its photo.
+
+Shape: one `GET /:roomId/stats/room` endpoint in `StatsService` (room-scoped, cached with the ranking-watermark pattern since it is counts/sums over indexed columns), rendered as a third tab on `PublicStats` so it is public like the other two. Pick resolution and name rendering follow the v2.162.2 id-keyed rule.
 ## Open Followups
 
 - **[HARDENING] Archive-time photo purge is keyed on (game name, room), not on the archived game (surfaced by the v2.155.6 review, 2026-09-10)** — `runCleanup`'s archive loop unlinks and NULLs every `/api/score-photos/` url whose `score_history` / `community_scores` row matches `LOWER(game_name)` + `game_room_id`, so archiving Daily Grind's *Terminator 2* would also strip the photos of a Weekly Grind *Terminator 2* still ACTIVE in the same room (RTX runs one table in two tournaments routinely — Black Rose sat in DG and WG-VR at once on 09-06). Pre-existing since the purge was written; became reachable for native rooms with v2.155.6. Fix = scope the SELECT and the UPDATEs to the archived row (`submitted_during_tournament_id = ? OR game_id = ?`), or skip names ACTIVE elsewhere in the room; test with the same table ACTIVE in a sibling tournament. Not triggered by the 2026-09-10 catch-up (no name overlap between the stranded set and the ACTIVE set at RTX).
