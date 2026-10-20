@@ -2,7 +2,8 @@ import { GlobalGameService, GlobalGameInput } from './GlobalGameService.js';
 import { SyncLogService } from './SyncLogService.js';
 import { VPS_FORMAT_MAP } from '../utils/platformMapping.js';
 import { foldCataloguePlatforms } from '../utils/scoreProvenance.js';
-import { logInfo, logError } from '../utils/logger.js';
+import { logInfo, logError, logWarn } from '../utils/logger.js';
+import { getDatabase } from '../database/database.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -312,7 +313,54 @@ async function downloadImagesInBackground(tables: VpsTable[]): Promise<void> {
     logInfo(`VPS image downloads: complete — ${processed} processed, ${successes} successful.`);
 }
 
+/**
+ * v2.165.0 (ADR 0027) — the game's tables by name, from VPS `tableFiles[]`,
+ * into `global_game_tables`. Keyed by the VPS table id, which is what the
+ * Castcade companion reports as `vps_table` and what a runner names as a
+ * Sanctioned tournament's required table. Rows for table ids VPS no longer
+ * lists under this game are removed, so a merged or deleted entry does not
+ * linger in the picker.
+ */
+async function syncTableFiles(globalGameId: string, table: VpsTable): Promise<void> {
+    const files = (table.tableFiles ?? []).filter(tf => tf.id);
+    const db = await getDatabase();
+    const keep = files.map(tf => tf.id);
+    if (keep.length === 0) {
+        await db.run('DELETE FROM global_game_tables WHERE global_game_id = ?', globalGameId);
+        return;
+    }
+    await db.run(
+        `DELETE FROM global_game_tables WHERE global_game_id = ? AND vps_table_id NOT IN (${keep.map(() => '?').join(',')})`,
+        globalGameId, ...keep,
+    );
+    const updatedAt = table.updatedAt ? new Date(table.updatedAt).toISOString() : null;
+    for (const tf of files) {
+        const authors = (tf.authors ?? []).filter(a => typeof a === 'string');
+        // VPS has no per-file title; the picker shows "authors version edition"
+        // the way the VPS site does, so the row carries a built name.
+        const name = [
+            authors.length > 0 ? authors.join(', ') : null,
+            tf.version ? `v${tf.version}` : null,
+            tf.edition ?? null,
+        ].filter(Boolean).join(' ') || null;
+        const format = tf.tableFormat ? (VPS_FORMAT_MAP[tf.tableFormat] || tf.tableFormat.toLowerCase()) : null;
+        await db.run(
+            `INSERT INTO global_game_tables (vps_table_id, global_game_id, vps_game_id, name, authors, version, table_format, features, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(vps_table_id) DO UPDATE SET
+                global_game_id = excluded.global_game_id, vps_game_id = excluded.vps_game_id,
+                name = excluded.name, authors = excluded.authors, version = excluded.version,
+                table_format = excluded.table_format, features = excluded.features, updated_at = excluded.updated_at`,
+            tf.id, globalGameId, table.id, name, JSON.stringify(authors), tf.version ?? null, format,
+            JSON.stringify((tf.features ?? []).filter(f => typeof f === 'string')), updatedAt,
+        );
+    }
+}
+
 export class VpsImportService {
+    /** Exposed for tests and for a one-off backfill; the import calls it per game. */
+    static syncTableFiles = syncTableFiles;
+
     /**
      * Fetches the VPS database JSON and imports games into the global catalogue.
      */
@@ -386,6 +434,12 @@ export class VpsImportService {
                     if (result.action === 'inserted') inserted++;
                     else if (result.action === 'updated') updated++;
                     else skipped++;
+                    // v2.165.0 — the per-game table list for the Sanctioned
+                    // required-table picker. Best-effort: a failure here must
+                    // not fail the game's import.
+                    await syncTableFiles(result.id, table).catch(err => {
+                        logWarn(`VPS Import: table files for "${table.name}" not stored: ${err}`);
+                    });
                 } catch (err) {
                     const msg = `Failed to import VPS game "${table.name}": ${err}`;
                     logError(msg);

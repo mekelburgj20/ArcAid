@@ -3143,6 +3143,88 @@ async function doInitDatabase(): Promise<Database> {
                 await db.exec(`ALTER TABLE witness_devices ADD COLUMN device_type TEXT NOT NULL DEFAULT 'atgames'`);
             }
         } },
+        // v2.165.0 (ADR 0027) — integrity mode: Open play / Sanctioned play.
+        // A tournament's mode and its Sanctioned rule set; the table a runner
+        // requires per game; the evidence the Castcade companion sends with
+        // every witness score, with the verdict the rules gave it; and the
+        // catalogue's per-game table list (VPS `tableFiles`) so the runner can
+        // pick a required table by name. PRAGMA-guarded ALTERs like 173/183.
+        { name: '184_integrity_mode', handler: async (db) => {
+            const has = async (table: string, col: string) =>
+                ((await db.all(`PRAGMA table_info(${table})`)) as Array<{ name: string }>).some(c => c.name === col);
+            if (!await has('tournaments', 'integrity_mode')) {
+                await db.exec(`ALTER TABLE tournaments ADD COLUMN integrity_mode TEXT NOT NULL DEFAULT 'open'`);
+            }
+            if (!await has('tournaments', 'sanctioned_rules')) {
+                await db.exec(`ALTER TABLE tournaments ADD COLUMN sanctioned_rules TEXT`);
+            }
+            if (!await has('games', 'required_vps_table_id')) {
+                await db.exec(`ALTER TABLE games ADD COLUMN required_vps_table_id TEXT`);
+            }
+            if (!await has('games', 'required_rom')) {
+                await db.exec(`ALTER TABLE games ADD COLUMN required_rom TEXT`);
+            }
+            if (!await has('games', 'required_fingerprint')) {
+                await db.exec(`ALTER TABLE games ADD COLUMN required_fingerprint TEXT`);
+            }
+            await db.exec(`
+                -- One row per witness score the ingest saw, in BOTH modes and
+                -- for every outcome (including a Sanctioned refusal). No FKs:
+                -- the trail outlives the score, game and tournament it describes.
+                CREATE TABLE IF NOT EXISTS witness_evidence (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    device_id TEXT NOT NULL,
+                    canonical_user_id TEXT NOT NULL,
+                    outcome TEXT NOT NULL,
+                    game_id TEXT,
+                    tournament_id TEXT,
+                    game_room_id TEXT,
+                    score_history_id INTEGER,
+                    global_score_id TEXT,
+                    integrity_mode TEXT,
+                    verdict TEXT,
+                    reasons TEXT NOT NULL DEFAULT '[]',
+                    checks TEXT NOT NULL DEFAULT '[]',
+                    table_name TEXT NOT NULL,
+                    rom TEXT,
+                    score INTEGER NOT NULL,
+                    played_at TEXT NOT NULL,
+                    vps_game TEXT,
+                    vps_table TEXT,
+                    table_sha256 TEXT,
+                    table_save_rev INTEGER,
+                    fingerprint TEXT,
+                    ini TEXT,
+                    adjustments TEXT,
+                    build TEXT,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+                );
+                CREATE INDEX IF NOT EXISTS idx_witness_evidence_tournament ON witness_evidence(tournament_id, created_at);
+                CREATE INDEX IF NOT EXISTS idx_witness_evidence_score ON witness_evidence(score_history_id);
+                CREATE INDEX IF NOT EXISTS idx_witness_evidence_user ON witness_evidence(canonical_user_id, created_at);
+
+                -- The catalogue's tables per game, from VPS tableFiles[]
+                -- (VpsImportService). Keyed by the VPS table id the companion
+                -- reports as vps_table.
+                CREATE TABLE IF NOT EXISTS global_game_tables (
+                    vps_table_id TEXT PRIMARY KEY,
+                    global_game_id TEXT NOT NULL,
+                    vps_game_id TEXT NOT NULL,
+                    name TEXT,
+                    authors TEXT NOT NULL DEFAULT '[]',
+                    version TEXT,
+                    table_format TEXT,
+                    features TEXT NOT NULL DEFAULT '[]',
+                    updated_at TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_global_game_tables_game ON global_game_tables(global_game_id);
+            `);
+        } },
+        // v2.165.0 — the witness ingest never cleared `leaderboard_cache`
+        // (see VpxScoreIngestService.ingest), so a board whose newest score
+        // came from a Witness is stale right now. Derived state: one flush,
+        // every board recomputes on its next read.
+        { name: '185_flush_leaderboard_cache', sql: `DELETE FROM leaderboard_cache;` },
     ];
 
     for (const migration of migrations) {

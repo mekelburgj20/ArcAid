@@ -3,6 +3,7 @@ import multer from 'multer';
 import { logError, logInfo } from '../../utils/logger.js';
 import { requireAuth, requireDiscordUser, requireSuperAdmin, requireNotBanned, requireNotBannedGlobal, optionalDiscordUser } from '../middleware.js';
 import { writeLimiter, globalSubmitLimiter, authLimiter, roomCreateLimiter, raSearchLimiter, raImportLimiter, witnessIngestLimiter } from '../rateLimit.js';
+import { parseWitnessEvidence } from '../../utils/sanctionedRules.js';
 import { raSearchHandler, raImportHandler } from '../raCatalogueHandlers.js';
 import { validate } from '../validate.js';
 import { isAllowedImage } from '../uploadValidation.js';
@@ -386,6 +387,14 @@ router.get('/witness/score', witnessIngestLimiter, async (req, res) => {
             // v2.160.0 — stored on the game observation; sent since rc8.
             restarts: req.query.restarts !== undefined ? Number(req.query.restarts) : null,
             partial: req.query.partial === '1' ? true : (req.query.partial === undefined ? null : false),
+            // v2.165.0 (ADR 0027) — the Castcade companion's evidence rides on
+            // the same GET: identity (vps_game, vps_table, table_sha256,
+            // table_save_rev), the settings in force (ini), the machine
+            // adjustments, the builds, later the playfield fingerprint. Every
+            // param is optional and a malformed one is dropped, never a 400:
+            // the score is the record, the evidence is about it. A cabinet
+            // sends none of them.
+            evidence: parseWitnessEvidence(req.query as Record<string, unknown>),
         });
         if (!result) return res.status(401).json({ ok: false });
 
@@ -398,8 +407,19 @@ router.get('/witness/score', witnessIngestLimiter, async (req, res) => {
         // v2.156.0 (ADR 0024) — a play the player deleted answers 'duplicate':
         // the cabinet's contract already knows that status (it stops retrying
         // and moves on), and inventing a new one on the wire would break it.
-        const wireStatus = result.status === 'suppressed' ? 'duplicate' : result.status;
-        res.json({ ok: true, status: wireStatus, game: result.gameName ?? null });
+        // v2.165.0 (ADR 0027) — a Sanctioned refusal is `not_sanctioned` with
+        // its reasons for the companion (it shows them on the Status page). A
+        // CABINET is told `no_match`, the status its contract already knows for
+        // "accepted, not placed"; it has no screen for the reasons anyway.
+        const wireStatus = result.status === 'suppressed' ? 'duplicate'
+            : (result.status === 'not_sanctioned' && result.deviceType !== 'desktop') ? 'no_match'
+            : result.status;
+        res.json({
+            ok: true, status: wireStatus, game: result.gameName ?? null,
+            ...(result.status === 'not_sanctioned' && result.deviceType === 'desktop'
+                ? { reasons: result.reasons ?? [], fallback: result.fallback ?? null }
+                : {}),
+        });
     } catch (error) {
         logError('API Error (GET /api/witness/score)');
         res.status(500).json({ ok: false });
