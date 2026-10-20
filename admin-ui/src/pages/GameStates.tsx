@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import { useRoom } from '../contexts/RoomContext';
+import { useRoomTimezone } from '../hooks/useRoomTimezone';
+import { formatInZone } from '../lib/timezone';
 import NeonCard from '../components/NeonCard';
 import NeonButton from '../components/NeonButton';
 import LoadingState from '../components/LoadingState';
@@ -76,14 +78,14 @@ const STATUS_BADGES: Record<string, { color: string }> = {
   ARCHIVED:  { color: 'bg-faint/15 text-faint border-faint/30' },
 };
 
-function formatDate(iso: string | null): string {
-  if (!iso) return '--';
-  const d = new Date(iso + (iso.includes('Z') ? '' : 'Z'));
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+/** Admin timestamps render in the ROOM's zone, labelled (`ROOM_TIMEZONE`). */
+function formatDate(iso: string | null, timeZone: string): string {
+  return formatInZone(iso, timeZone);
 }
 
 export default function GameStates() {
   const room = useRoom();
+  const { timezone: roomTz } = useRoomTimezone(room.roomId);
   const [games, setGames] = useState<GameState[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<StatusFilter>('ALL');
@@ -494,6 +496,7 @@ export default function GameStates() {
           admin lands when a rotation did something they did not expect. */}
       <RotationLogPanel
         roomId={room.roomId}
+        roomTimezone={roomTz}
         tournaments={tournaments.map(t => ({ id: t.id, name: t.name }))}
       />
 
@@ -584,9 +587,9 @@ export default function GameStates() {
 
                       {/* Date */}
                       <td className="py-2.5 px-2 text-xs text-muted">
-                        {game.status === 'ACTIVE' ? formatDate(game.start_date) :
-                         game.status === 'COMPLETED' ? formatDate(game.end_date) :
-                         formatDate(game.picker_designated_at)}
+                        {game.status === 'ACTIVE' ? formatDate(game.start_date, roomTz) :
+                         game.status === 'COMPLETED' ? formatDate(game.end_date, roomTz) :
+                         formatDate(game.picker_designated_at, roomTz)}
                       </td>
 
                       {/* Actions */}

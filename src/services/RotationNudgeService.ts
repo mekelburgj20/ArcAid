@@ -1,5 +1,6 @@
 import { getDatabase } from '../database/database.js';
 import { getNextRunTime } from '../utils/cronUtils.js';
+import { resolveTimezone, roomTimezone } from '../utils/roomTimezone.js';
 import { PickAwardGate } from './PickAwardGate.js';
 import { PickDispositionService } from './PickDispositionService.js';
 import { resolveTopSubmissionPlayers } from '../utils/submissionAttribution.js';
@@ -39,11 +40,12 @@ interface CadenceLike {
     timezone?: string;
 }
 
-function nextRotationWithinWindow(cadenceJson: string | null | undefined): Date | null {
+/** `roomTz` = the room's ROOM_TIMEZONE, used only when the cadence has no zone. */
+function nextRotationWithinWindow(cadenceJson: string | null | undefined, roomTz: string | null | undefined): Date | null {
     let cadence: CadenceLike;
     try { cadence = JSON.parse(cadenceJson || '{}'); } catch { return null; }
     if (!cadence.cron) return null;
-    const tz = cadence.timezone || process.env.BOT_TIMEZONE || 'America/Chicago';
+    const tz = resolveTimezone(cadence.timezone, roomTz);
     const nextRun = getNextRunTime(cadence.cron, tz);
     if (!nextRun) return null;
     const msUntil = nextRun.getTime() - Date.now();
@@ -55,20 +57,23 @@ export class RotationNudgeService {
     /**
      * T-1h sweep for one tournament row (`id`, `name`, `cadence`,
      * `game_room_id` — the caller's own `SELECT` shape from Scheduler).
+     * `roomTz` is the room's ROOM_TIMEZONE when the caller batched it; left
+     * `undefined`, it is looked up here.
      */
     static async evaluateTournament(tournamentRow: {
         id: string;
         name: string;
         cadence: string | null;
         game_room_id: string | null;
-    }): Promise<void> {
+    }, roomTz?: string | null): Promise<void> {
         try {
             // The nudge deep-links to a room's Picks page — a legacy
             // no-room tournament has nowhere to send the player.
             if (!tournamentRow.game_room_id) return;
             if (!(await PickAwardGate.isEnabled(tournamentRow.game_room_id, tournamentRow.id))) return;
 
-            const nextRun = nextRotationWithinWindow(tournamentRow.cadence);
+            const tz = roomTz !== undefined ? roomTz : await roomTimezone(tournamentRow.game_room_id);
+            const nextRun = nextRotationWithinWindow(tournamentRow.cadence, tz);
             if (!nextRun) return;
 
             const db = await getDatabase();
@@ -133,7 +138,7 @@ export class RotationNudgeService {
             if (!activeGame) return;
             if (!(await PickAwardGate.isEnabled(gameRoomId, activeGame.tournament_id))) return;
 
-            const nextRun = nextRotationWithinWindow(activeGame.cadence);
+            const nextRun = nextRotationWithinWindow(activeGame.cadence, await roomTimezone(gameRoomId));
             if (!nextRun) return;
 
             const top1 = await resolveTopSubmissionPlayers(db, activeGame.game_id, 1);

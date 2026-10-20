@@ -1,6 +1,7 @@
 import { getDatabase } from '../database/database.js';
 import { logInfo, logError } from '../utils/logger.js';
 import { getNextRunTime } from '../utils/cronUtils.js';
+import { roomTimezonesFor, resolveTimezone } from '../utils/roomTimezone.js';
 import {
     UNKNOWN,
     deriveLegacyPlatform,
@@ -899,25 +900,18 @@ export class LeaderboardService {
             } catch { /* malformed cadence JSON — no maintenance countdown */ }
         }
         const tzRoomIds = [...new Set([...cadenceRaw.values()].map(c => c.roomId).filter(Boolean))] as string[];
-        const roomTzById = new Map<string, string>();
-        if (tzRoomIds.length > 0) {
-            const tzPlaceholders = tzRoomIds.map(() => '?').join(',');
-            const tzRows = await db.all(
-                `SELECT game_room_id, value FROM game_room_settings
-                 WHERE key = 'TIMEZONE' AND game_room_id IN (${tzPlaceholders})`,
-                ...tzRoomIds
-            );
-            for (const r of tzRows as any[]) {
-                if (r.value) roomTzById.set(r.game_room_id, r.value);
-            }
-        }
+        // One batched ROOM_TIMEZONE lookup over the distinct rooms (S24.4 —
+        // s24-efficiency.test.ts guards that this stays a single query).
+        const roomTzById = await roomTimezonesFor(tzRoomIds);
         const cadenceMap = new Map<string, { cron: string; timezone: string }>();
         for (const [tid, c] of cadenceRaw) {
-            // Precedence is unchanged: per-room TIMEZONE wins over the cadence's
-            // own timezone, which wins over BOT_TIMEZONE, which wins over the
-            // hardcoded default.
+            // Room default timezone ruling: the cadence's OWN zone wins, then
+            // the room's ROOM_TIMEZONE, then BOT_TIMEZONE, then America/Chicago
+            // ("default from the room, override per object" — utils/roomTimezone.ts).
+            // This used to read an orphan per-room 'TIMEZONE' key nothing
+            // wrote, and claimed the room beat the cadence.
             const roomTz = c.roomId ? roomTzById.get(c.roomId) : undefined;
-            const tz = roomTz || c.timezone || process.env.BOT_TIMEZONE || 'America/Chicago';
+            const tz = resolveTimezone(c.timezone, roomTz);
             cadenceMap.set(tid, { cron: c.cron, timezone: tz });
         }
 

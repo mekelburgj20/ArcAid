@@ -244,6 +244,56 @@ describe('Settings page — ROOM_LISTED, JOIN_POLICY, AUTO_APPROVE_GUILD_MEMBERS
     });
   });
 
+  describe('ROOM_TIMEZONE', () => {
+    it('defaults to America/Chicago when the key is absent', async () => {
+      stubFetch({});
+      renderSettings();
+      await waitForLoaded();
+
+      const select = within(controlFor('Room timezone')).getByRole('combobox') as HTMLSelectElement;
+      expect(select.value).toBe('America/Chicago');
+    });
+
+    it('renders the stored zone', async () => {
+      stubFetch({ ROOM_TIMEZONE: 'Pacific/Honolulu' });
+      renderSettings();
+      await waitForLoaded();
+
+      const select = within(controlFor('Room timezone')).getByRole('combobox') as HTMLSelectElement;
+      expect(select.value).toBe('Pacific/Honolulu');
+    });
+
+    it('keeps a stored zone outside the list as its own option', async () => {
+      stubFetch({ ROOM_TIMEZONE: 'America/Toronto' });
+      renderSettings();
+      await waitForLoaded();
+
+      const select = within(controlFor('Room timezone')).getByRole('combobox') as HTMLSelectElement;
+      expect(select.value).toBe('America/Toronto');
+    });
+
+    it('changing it and saving POSTs the new zone', async () => {
+      const fetchMock = stubFetch({});
+      renderSettings();
+      await waitForLoaded();
+
+      const select = within(controlFor('Room timezone')).getByRole('combobox') as HTMLSelectElement;
+      fireEvent.change(select, { target: { value: 'America/Los_Angeles' } });
+      fireEvent.click(screen.getByRole('button', { name: /Save All Changes/ }));
+
+      await waitFor(() => expect(lastSavePayload(fetchMock)).not.toBeNull());
+      expect(lastSavePayload(fetchMock)!.ROOM_TIMEZONE).toBe('America/Los_Angeles');
+    });
+
+    it('is not duplicated as a raw text input in the Other card', async () => {
+      stubFetch({ ROOM_TIMEZONE: 'America/Denver' });
+      renderSettings();
+      await waitForLoaded();
+
+      expect(screen.queryByText('ROOM_TIMEZONE')).not.toBeInTheDocument();
+    });
+  });
+
   describe('AUTO_APPROVE_GUILD_MEMBERS', () => {
     it('is disabled and dimmed while JOIN_POLICY is "open"', async () => {
       stubFetch({ JOIN_POLICY: 'open' });

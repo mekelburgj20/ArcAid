@@ -819,7 +819,7 @@ export class SeasonPollService {
             'UPDATE season_polls SET result_game_name = ?, result_queued_game_id = ? WHERE id = ?',
             pick.game_name, game.id, pollId,
         );
-        logInfo(`Season '${t.name}' week ${poll.slot_no}: admin chose ${pick.game_name} over ${poll.result_game_name ?? '(none)'}.`);
+        logInfo(`Season '${t.name}' week ${poll.slot_no}: admin chose ${pick.game_name}${poll.result_game_name ? ` over ${poll.result_game_name}` : ' (nothing was queued)'}.`);
         const channelId = await resolveAnnouncementChannelId(t.game_room_id, t.discord_channel_id);
         if (channelId) {
             const rotationIso = nextRotationIso(t.cadence, now);

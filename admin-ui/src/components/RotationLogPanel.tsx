@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../lib/api';
+import { DEFAULT_TIMEZONE, formatInZone } from '../lib/timezone';
 import NeonCard from './NeonCard';
 import {
   Trophy, Shuffle, Timer, Play, Bookmark, BookmarkX, Lock,
@@ -122,7 +123,7 @@ function actorLabel(actor: string, names: Names = {}): string {
  * One plain sentence per event. Never ellipsized — long game titles wrap
  * (owner rule); the row is a flex column, not a truncated single line.
  */
-function describe(e: RotationEvent, names: Names = {}): string {
+function describe(e: RotationEvent, names: Names = {}, timeZone: string = DEFAULT_TIMEZONE): string {
   const d = e.details || {};
   const game = e.game_name || 'a game';
   switch (e.event_type) {
@@ -141,7 +142,7 @@ function describe(e: RotationEvent, names: Names = {}): string {
       return `${txt(d.pickerLabel, nameOf(names, d.picker, 'A player'))} got a `
         + `${d.pickerType === 'RUNNER_UP' ? 'runner-up' : 'winner'} pick window`
         + `${d.windowMin ? ` of ${txt(d.windowMin)} min` : ''}`
-        + `${d.deadline ? `, closing ${fmtTime(txt(d.deadline))}` : ''}.`;
+        + `${d.deadline ? `, closing ${fmtTime(txt(d.deadline), timeZone)}` : ''}.`;
     case 'pick_window_cleared':
       return `An admin cancelled the ${txt(d.pickerType).toLowerCase() || 'pick'} window on ${game}`
         + `${d.picker ? ` (was ${nameOf(names, d.picker)})` : ''}.`;
@@ -172,15 +173,16 @@ function describe(e: RotationEvent, names: Names = {}): string {
   }
 }
 
-function fmtTime(iso: string): string {
-  const d = new Date(iso.includes('Z') || iso.includes('+') ? iso : `${iso}Z`);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+/** Rotation Log times render in the ROOM's zone, labelled (`ROOM_TIMEZONE`). */
+function fmtTime(iso: string, timeZone: string): string {
+  return formatInZone(iso, timeZone);
 }
 
-export default function RotationLogPanel({ roomId, tournaments }: {
+export default function RotationLogPanel({ roomId, tournaments, roomTimezone: roomTz = DEFAULT_TIMEZONE }: {
   roomId: string;
   tournaments: { id: string; name: string }[];
+  /** The room's default zone (`ROOM_TIMEZONE`); every time on the log renders in it. */
+  roomTimezone?: string;
 }) {
   const [events, setEvents] = useState<RotationEvent[]>([]);
   const [names, setNames] = useState<Names>({});
@@ -293,10 +295,10 @@ export default function RotationLogPanel({ roomId, tournaments }: {
                 <Icon size={14} className={`${meta.color} mt-0.5 shrink-0`} />
                 <div className="min-w-0 flex-1">
                   {/* break-words, never truncate — a long table title wraps. */}
-                  <div className="text-sm text-primary break-words">{describe(e, names)}</div>
+                  <div className="text-sm text-primary break-words">{describe(e, names, roomTz)}</div>
                   <div className="text-[11px] text-faint flex flex-wrap gap-x-2 gap-y-0.5 mt-0.5">
                     <span className={meta.color}>{meta.label}</span>
-                    <span>{fmtTime(e.created_at)}</span>
+                    <span>{fmtTime(e.created_at, roomTz)}</span>
                     <span>by {actorLabel(e.actor, names)}</span>
                     {e.tournament_name && <span>· {e.tournament_name}</span>}
                   </div>

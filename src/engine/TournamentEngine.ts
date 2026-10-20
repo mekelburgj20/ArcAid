@@ -28,6 +28,7 @@ import { accountSettingsUrl } from '../utils/publicLinks.js';
 import { resolvePick, MAX_PLACES } from './pickResolution.js';
 import { tournamentUrlSlug } from '../utils/tournamentSlug.js';
 import { QUEUE_ORDER_SQL } from '../utils/queueOrder.js';
+import { resolveTournamentTimezone, serverTimezone } from '../utils/roomTimezone.js';
 import { applyLibraryDefaults } from '../utils/gameLibraryDefaults.js';
 import { RotationAuditService, type RotationSource } from '../services/RotationAuditService.js';
 
@@ -1308,7 +1309,13 @@ export class TournamentEngine {
             } catch (err) {
                 logWarn(`Failed to run cleanup for ${tournamentRow.name}:`, err);
             }
-        } else if (cleanupRule.mode === 'scheduled' && this.cleanupCronMatchesNow(cleanupRule.cron, cleanupRule.timezone)) {
+        } else if (
+            cleanupRule.mode === 'scheduled'
+            // Same zone the scheduled cleanup cron registers with (rule zone ->
+            // room ROOM_TIMEZONE -> BOT_TIMEZONE), or the inline match and the
+            // cron would disagree about "right now".
+            && this.cleanupCronMatchesNow(cleanupRule.cron, await resolveTournamentTimezone(cleanupRule.timezone, tournamentRow.game_room_id))
+        ) {
             try {
                 logInfo(`Running scheduled cleanup inline (cron overlaps with this maintenance run)`);
                 await this.runCleanup(tournamentId, { mode: 'immediate' }, client, creds);
@@ -1338,7 +1345,7 @@ export class TournamentEngine {
      * registered).
      */
     private cleanupCronMatchesNow(cron: string, tz?: string, nowOverride?: Date): boolean {
-        const timezone = tz || process.env.BOT_TIMEZONE || 'America/Chicago';
+        const timezone = tz || serverTimezone();
         const parts = cron.trim().split(/\s+/);
         if (parts.length !== 5) return false;
         const minF = parts[0]!;

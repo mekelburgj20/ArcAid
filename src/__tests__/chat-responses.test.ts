@@ -731,6 +731,21 @@ describe('live answers', () => {
         expect(out).toContain('next rotation <t:');
     });
 
+    it("time_left uses the room's ROOM_TIMEZONE when the cadence carries no zone", async () => {
+        await setupTestDb();
+        const { roomId, tournamentId, rooms, scope: s } = await seed({ cron: '0 22 * * *' });
+        const db = await getDatabase();
+        await db.run('UPDATE tournaments SET cadence = ? WHERE id = ?',
+            JSON.stringify({ cron: '0 22 * * *' }), tournamentId);
+        await GameRoomSettingsService.set(roomId, 'ROOM_TIMEZONE', 'America/Los_Angeles');
+        const now = new Date('2026-08-21T15:48:00Z');
+        const out = await renderCalloutAction('time_left', s, rooms, { now });
+        // 22:00 Los Angeles (PDT) = 05:00 UTC the next day.
+        const expected = Math.floor(Date.parse('2026-08-22T05:00:00Z') / 1000);
+        expect(out).toContain(`<t:${expected}:f>`);
+        expect(out).toContain('ends in **13h 12m**');
+    });
+
     it('time_left says so plainly when a tournament has no cron', async () => {
         await setupTestDb();
         const roomId = await createTestRoom('nocron', 'No Cron');
