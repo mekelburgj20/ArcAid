@@ -3220,6 +3220,11 @@ async function doInitDatabase(): Promise<Database> {
                 CREATE INDEX IF NOT EXISTS idx_global_game_tables_game ON global_game_tables(global_game_id);
             `);
         } },
+        // v2.165.0 — the witness ingest never cleared `leaderboard_cache`
+        // (see VpxScoreIngestService.ingest), so a board whose newest score
+        // came from a Witness is stale right now. Derived state: one flush,
+        // every board recomputes on its next read.
+        { name: '185_flush_leaderboard_cache', sql: `DELETE FROM leaderboard_cache;` },
     ];
 
     for (const migration of migrations) {

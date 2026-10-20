@@ -434,6 +434,18 @@ export class VpxScoreIngestService {
             return { status: 'duplicate', ...where, verdict: verdict.verdict, reasons: verdict.reasons };
         }
 
+        // The room board is served from `leaderboard_cache`, which has no
+        // expiry: the manual submit routes, the per-row delete and the player
+        // merge clear it, and until v2.165.0 this path never did. A witness
+        // score was therefore on the tournament's scores page at once but off
+        // the room page until someone ELSE'S manual submission to the same game
+        // flushed the cache (the owner's Tales from the Crypt game, 2026-10-20).
+        // The score route already pushes `leaderboard:updated` on `ingested`;
+        // the refetch that push triggers re-read the stale cache. Cleared here,
+        // before the fan-out and the trail, so no return path below can skip it.
+        const { LeaderboardService } = await import('./LeaderboardService.js');
+        await LeaderboardService.invalidate(target.id);
+
         // v2.153.0 (ADR 0023): landing in a tournament does not keep a score off
         // the Global Scoreboard. Where you played is not supposed to decide
         // whether the world sees it — the opt-out is the player's, not the

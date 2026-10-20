@@ -178,6 +178,28 @@ describe('Integrity mode — the ingest', () => {
         expect(JSON.parse(row!.reasons)).toEqual(['tilt sensitivity 10 is below the minimum 300']);
     });
 
+    it('the room board shows a witness score at once: the ingest clears the board cache the submit routes clear', async () => {
+        const { tournamentId, gameId } = await createRotationGame(roomId, 'Tales from the Crypt (Data East 1993)');
+        await designate(DESKTOP, roomId);
+        const { LeaderboardService } = await import('../services/LeaderboardService.js');
+
+        // Warm the cache the way a scoreboard visit does: an empty board, cached.
+        expect(await LeaderboardService.getForGame(gameId)).toEqual([]);
+        const db = await getDatabase();
+        expect(await db.get(`SELECT game_id FROM leaderboard_cache WHERE game_id = ?`, gameId)).toBeDefined();
+
+        const res = await request(app).get('/api/witness/score').query({ device: DESKTOP, token, ...scoreQuery(), ...evidence() });
+        expect(res.body).toMatchObject({ ok: true, status: 'ingested' });
+
+        // Before v2.165.0 this read served the warmed (empty) blob: the score
+        // was on the tournament's scores page but not on the room page.
+        const board = await LeaderboardService.getForGame(gameId);
+        expect(board).toHaveLength(1);
+        expect(board[0]).toMatchObject({ score: 107434140, engine: 'vpx', device: 'pc', source: 'vpx' });
+        const pub = await request(app).get(`/api/rooms/${roomId}/tournaments/${tournamentId}/integrity`);
+        expect(Object.keys(pub.body.verdicts)).toHaveLength(1);
+    });
+
     it('Sanctioned play: the same clean evidence lands with a pass', async () => {
         const { gameId } = await createRotationGame(roomId, 'Tales from the Crypt (Data East 1993)', { mode: 'sanctioned' });
         await designate(DESKTOP, roomId);

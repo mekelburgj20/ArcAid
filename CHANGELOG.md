@@ -51,6 +51,14 @@ names are the owner's working names.
 - `VpxIngestResult` carries `verdict`, `reasons`, `fallback` and `globalScoreId`; `WitnessService.recordVpxScore`
   returns the device type with the result (the route needs it for the cabinet wire mapping).
 
+### Fixed
+- **A witness score now shows on the room board at once.** The room leaderboard is served from
+  `leaderboard_cache`, which has no expiry; the manual submit routes, the per-row delete and the player merge
+  clear it, but the witness ingest never did, so a cabinet's or a companion's score sat on the tournament's
+  scores page while the room page waited for somebody else's manual submission to the same game. The ingest
+  now clears the game's cache before returning (the `leaderboard:updated` push it already triggered re-read
+  the stale blob). Migration `185_flush_leaderboard_cache` flushes the boards that are stale today.
+
 ### Not in this release
 - The admin UI (tournament integrity settings, the required-table picker, the per-score review, board badges)
   — next PR. The ROM → VPS game map endpoint. Script baselines, diff reports and the preflight endpoint
