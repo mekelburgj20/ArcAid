@@ -6,6 +6,8 @@ import SubmissionSheet from '../components/SubmissionSheet';
 import ShareButton from '../components/ShareButton';
 import PlayerNameLink from '../components/PlayerNameLink';
 import ProvenanceTags from '../components/ProvenanceTags';
+import IntegrityChip from '../components/IntegrityChip';
+import { integrityChipFor, type IntegrityVerdictMap } from '../lib/integrityBadge';
 import { getEngineCategoryLabel, getEngineDisplay } from '../lib/scoreProvenance';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { useRoom } from '../contexts/RoomContext';
@@ -69,6 +71,11 @@ interface GameLeaderboard {
   gameStatus?: string;
   /** Backend includes this so we can link to the rich global catalogue page. */
   globalGameId?: string | null;
+  /**
+   * v2.166.0 (ADR 0027) — the tournament this board belongs to, so the page
+   * can fetch its integrity verdicts and draw a chip per witnessed row.
+   */
+  tournamentId?: string | null;
 }
 
 interface GameStats {
@@ -238,6 +245,18 @@ export default function GameDetail() {
   const [pendingDeleteRanked, setPendingDeleteRanked] = useState<RankedEntry | null>(null);
   const [stats, setStats] = useState<GameStats | null>(null);
   const [leaderboard, setLeaderboard] = useState<GameLeaderboard | null>(null);
+  /**
+   * v2.166.0 (ADR 0027) — integrity verdicts for this board's tournament,
+   * fetched once per tournament id (public read, no auth) and rendered as a
+   * chip beside each witnessed row. Badge, never gate: the rows and their
+   * order come from the leaderboard alone; this only decorates them.
+   */
+  const [integrityTournamentId, setIntegrityTournamentId] = useState<string | null>(null);
+  const [integrityLoaded, setIntegrityLoaded] =
+    useState<{ tournamentId: string; mode: 'open' | 'sanctioned'; verdicts: IntegrityVerdictMap } | null>(null);
+  // Keyed on the tournament id so a stale map is never drawn on another
+  // board — and no state reset is needed when the id changes.
+  const integrity = integrityLoaded && integrityLoaded.tournamentId === integrityTournamentId ? integrityLoaded : null;
   const [loading, setLoading] = useState(true);
   const [ratingInfo, setRatingInfo] = useState<{ avg_rating: number; rating_count: number; user_rating: number | null } | null>(null);
   // Initial 'community' is the safe pre-data default; the leaderboard tab does
@@ -511,6 +530,26 @@ export default function GameDetail() {
     return () => { cancelled = true; };
   }, [leaderboard?.globalGameId]);
 
+  // v2.166.0 (ADR 0027) — the verdict map, once per tournament. A failure
+  // leaves the board exactly as it was: no chips, nothing else changes.
+  useEffect(() => {
+    if (!roomId || !integrityTournamentId) return;
+    const tournamentId = integrityTournamentId;
+    let cancelled = false;
+    fetch(`/api/rooms/${roomId}/tournaments/${tournamentId}/integrity`)
+      .then(r => r.ok ? r.json() : null)
+      .then((data: { mode?: string; verdicts?: IntegrityVerdictMap } | null) => {
+        if (cancelled || !data) return;
+        setIntegrityLoaded({
+          tournamentId,
+          mode: data.mode === 'sanctioned' ? 'sanctioned' : 'open',
+          verdicts: data.verdicts && typeof data.verdicts === 'object' ? data.verdicts : {},
+        });
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [roomId, integrityTournamentId]);
+
   /**
    * The tournament-board + all-time-rankings load, shared by the initial
    * page load and the live websocket refresh (v2.144.2). Active boards come
@@ -537,9 +576,10 @@ export default function GameDetail() {
           // doesn't include this; the per-game endpoint does.
           fetch(`/api/rooms/${rid}/leaderboard/${match.gameId}`)
             .then(r => r.ok ? r.json() : null)
-            .then((data: { distinctEngines?: string[]; rankings?: RankedEntry[] } | null) => {
+            .then((data: { distinctEngines?: string[]; rankings?: RankedEntry[]; tournamentId?: string | null } | null) => {
               if (!data) return;
               if (Array.isArray(data.distinctEngines)) setDistinctEngines(data.distinctEngines);
+              if (typeof data.tournamentId === 'string' && data.tournamentId) setIntegrityTournamentId(data.tournamentId);
               // The per-game endpoint also returns a fresher rankings array
               // that's been recomputed post-cache-flush, so prefer it.
               if (Array.isArray(data.rankings) && data.rankings.length > 0) {
@@ -1096,6 +1136,10 @@ export default function GameDetail() {
                                 that half there rather than repeating the engine
                                 on every line. */}
                             <ProvenanceTags entry={entry} omitEngine={!!selectedEngine} />
+                            {/* v2.166.0 (ADR 0027): what Castcade measured about
+                                this score against the tournament's conditions.
+                                Decorates the row; never filters or re-ranks. */}
+                            <IntegrityChip chip={integrityChipFor(integrity?.verdicts, entry.history_id, integrity?.mode)} />
                           </div>
                         </div>
                         <div className="flex items-center gap-2 flex-shrink-0 pl-2">

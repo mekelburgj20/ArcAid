@@ -25,7 +25,7 @@ export function SourceChip({ source }: { source: string | null | undefined }) {
         return (
             <span
                 className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400"
-                title="Witnessed — reported by this player's paired Arcaid Witness cabinet, not entered by hand"
+                title="Witnessed — reported by this player's paired Arcaid Witness device (cabinet or PC), not entered by hand"
             >
                 <ShieldCheck size={10} aria-hidden="true" /> AW
             </span>

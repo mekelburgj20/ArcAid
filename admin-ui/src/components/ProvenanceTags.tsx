@@ -115,7 +115,7 @@ function WitnessedChip() {
         <span
             className={WITNESS_CHIP}
             data-testid="witnessed-badge"
-            title="Witnessed — reported by this player's paired Arcaid Witness cabinet, not entered by hand"
+            title="Witnessed — reported by this player's paired Arcaid Witness device (cabinet or PC), not entered by hand"
         >
             <ShieldCheck size={10} aria-hidden="true" />
             AW

@@ -22,6 +22,8 @@ import { deriveEventState, eventStateLabel, currentOrNextRound, formatRelative }
 import { hasRoundErrors } from '../lib/eventTime';
 import EventRoundsPanel from '../components/EventRoundsPanel';
 import SeasonPanel from '../components/SeasonPanel';
+import IntegrityPanel from '../components/IntegrityPanel';
+import { getIntegrityErrors } from '../lib/integrityForm';
 import { relativeTimeFrom } from '../lib/format';
 
 export type { Tournament };
@@ -110,6 +112,8 @@ export default function Tournaments() {
   /** v2.135.0 — the run-an-event panel (rounds + check-in roster). */
   const [roundsTarget, setRoundsTarget] = useState<Tournament | null>(null);
   const [seasonTarget, setSeasonTarget] = useState<Tournament | null>(null);
+  /** v2.166.0 (ADR 0027) — required tables + the Castcade evidence trail. */
+  const [integrityTarget, setIntegrityTarget] = useState<Tournament | null>(null);
   const [platforms, setPlatforms] = useState<string[]>([]);
   const [activeGames, setActiveGames] = useState<ActiveGame[]>([]);
   const [retainedCompleted, setRetainedCompleted] = useState<RetainedCompletedGame[]>([]);
@@ -532,6 +536,10 @@ export default function Tournaments() {
                 {(isSeasonTournament(t) || isPollTournament(t)) && (
                   <NeonButton variant="ghost" onClick={() => setSeasonTarget(t)} className="text-xs px-2 py-1">{isSeasonTournament(t) ? 'Season' : 'Polls'}</NeonButton>
                 )}
+                <NeonButton variant="ghost" onClick={() => setIntegrityTarget(t)} className="text-xs px-2 py-1"
+                  title={t.integrity_mode === 'sanctioned' ? 'Sanctioned play — required tables and evidence' : 'Open play — required tables and evidence'}>
+                  Integrity
+                </NeonButton>
                 <NeonButton variant="ghost" onClick={() => openEdit(t)} className="text-xs px-2 py-1">Edit</NeonButton>
                 <NeonButton variant="danger" onClick={() => { setDeleteTarget(t); setDeleteBlockers([]); setAutoDeactivate(false); }} className="text-xs px-2 py-1">Delete</NeonButton>
               </div>
@@ -652,6 +660,7 @@ export default function Tournaments() {
             // here rather than letting the admin discover it on save.
             || (createForm.state.format === 'event' && hasRoundErrors(createForm.state.event))
             || (createForm.state.format === 'rotation' && (getSeasonErrors(createForm.state.season).length > 0 || getPollErrors(createForm.state.poll, createForm.state.schedule.cron).length > 0))
+            || getIntegrityErrors(createForm.state.integrityMode, createForm.state.sanctionedRules).length > 0
           }
         >
           Create Tournament
@@ -820,6 +829,16 @@ export default function Tournaments() {
         />
       )}
 
+      {/* Integrity panel (v2.166.0, ADR 0027) — required tables + evidence */}
+      {integrityTarget && (
+        <IntegrityPanel
+          roomId={room.roomId}
+          tournament={integrityTarget}
+          onClose={() => setIntegrityTarget(null)}
+          toast={toast}
+        />
+      )}
+
       {/* Season poll queue (docs/season-format-plan.md §8.2) */}
       {seasonTarget && (
         <SeasonPanel
@@ -856,6 +875,7 @@ export default function Tournaments() {
                   || getPlatformRuleConflicts(editForm.state.platformRules).length > 0
                   || (editForm.state.format === 'event' && hasRoundErrors(editForm.state.event))
                   || (editForm.state.format === 'rotation' && (getSeasonErrors(editForm.state.season).length > 0 || getPollErrors(editForm.state.poll, editForm.state.schedule.cron).length > 0))
+                  || getIntegrityErrors(editForm.state.integrityMode, editForm.state.sanctionedRules).length > 0
                 }
               >
                 {editSaving ? 'Saving...' : 'Save Changes'}
