@@ -1,7 +1,6 @@
-# ArcAid — Sprint Status
+# ArcAid — Sprint Status (archive)
 
-> This file is the live work-in-progress tracker. Updated every session.
-> For the roadmap and future plans, see ROADMAP.md.
+> **Frozen 2026-10-21 at resume point #163 (ADR 0028).** The live tracker is `WORK.md` (`/work`, `/wrap`); session narrative now lives in commit messages and `CHANGELOG.md`. This file stays as the history of resume points #1–#163 and the arc summaries. Do not append to it.
 
 ---
 

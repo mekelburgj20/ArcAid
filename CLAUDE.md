@@ -8,8 +8,8 @@ Guidance for Claude Code working in this ArcAid repository.
 - **Always build before committing.** `docker compose build` from repo root, plus `cd admin-ui && npm run build` if UI changed. Never push to `main` without a clean build.
 - **A UI change means running the ADMIN-UI TEST SUITE too** — `cd admin-ui && npx vitest run` — not just its build and lint. CI runs it; a build-clean UI edit can still fail it. The trap that proves the point (2026-08-25): adding a second encrypted settings field made a document-wide `queryByRole('button', {name: 'Show'})` in `Settings.test.tsx` match the NEW field's reveal toggle, failing an assertion about the iScored one. Build passed, lint passed, CI went red.
 - Don't ask permission for `cd`, `git`, or basic file navigation — execute directly.
-- **"Resume" ritual:** read `SPRINT_STATUS.md` → read `ROADMAP.md` → `git branch --show-current` → `npm run build` (and admin-ui build if relevant) → present a status summary → continue last session's work.
-- For **history**, read `CHANGELOG.md`. For **architectural decisions**, read `docs/decisions/`. For **current work**, read `SPRINT_STATUS.md`. Do not duplicate them here.
+- **"Resume" ritual:** `/work` (reads `WORK.md`: the Now block, claims, ready items, blockers) → `git branch --show-current` → `npm run build` (and admin-ui build if relevant) → present a status summary → take or continue an item. End every session with `/wrap`.
+- For **history**, read `CHANGELOG.md`. For **architectural decisions**, read `docs/decisions/`. For **current work**, read `WORK.md` — the only live tracker (ADR 0028); `ROADMAP.md`, `LAUNCH.md` and `SPRINT_STATUS.md` are frozen archives that items point into. Do not duplicate them here, and never write a session narrative here.
 
 ## Stack
 
@@ -290,8 +290,8 @@ After deploy: `docker logs arcaid --tail 50` and verify no restart loop. `JWT_SE
 
 ## Cross-references
 
-- `SPRINT_STATUS.md` — current/last-session work
-- `ROADMAP.md` — outstanding tasks, phantom anon-claim cleanup runbook
+- `WORK.md` — the live tracker: open items by section, claims, the Now block (`npm run work:summary`; grammar in `.claude/commands/work.md`)
+- `ROADMAP.md` / `LAUNCH.md` / `SPRINT_STATUS.md` — frozen archives (2026-10-21): item detail, the phantom anon-claim cleanup runbook, the old resume points
 - `CHANGELOG.md` — version-by-version history (do not duplicate here)
 - `docs/decisions/` — ADRs (0003 secrets, 0004 catalogue identity, 0005 pin-via-NULL, 0006 platform stratification, 0007 library=catalogue, 0008 room game tags, 0009 platform rules orthogonal, 0010 user identity layer, 0011 deleted-score tombstone, 0012 iScored session registry, 0013 cache watermark validation, 0014 manufacturer dedup guard + based_on_ipdb_url, 0015 multi-IdP identity linking, 0016 engine+device score provenance, 0017 Live Event format, 0018 Throwdowns are room-less, 0019 engine-scoped VR availability, 0020 Arcaid Witness verify-join, 0021 Witness three-tier verification, 0022 VPXS scores from the launcher, 0023 every score reaches the Global Scoreboard, 0024 auto-posted scores are deletable, 0025 Season is a rotation option with a poll queue, 0026 Pick by poll is a rotation method, 0027 Integrity mode: Open play / Sanctioned play)
 - `docs/step-2-cleanup-plan.md` — library/catalogue unification cleanup plan (COMPLETE in v2.6.0; deviation noted at the top of the file)

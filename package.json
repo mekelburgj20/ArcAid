@@ -14,7 +14,10 @@
     "generate-vapid-keys": "tsx scripts/generate-vapid-keys.ts",
     "witness-agent": "tsx scripts/witness-agent.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "work:check": "node tools/work-board.mjs --check",
+    "work:summary": "node tools/work-board.mjs --summary",
+    "work:board": "node tools/work-board.mjs"
   },
   "repository": {
     "type": "git",

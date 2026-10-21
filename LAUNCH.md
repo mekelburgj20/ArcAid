@@ -1,6 +1,8 @@
-# Arcaid — Prioritized Tracker
+# Arcaid — Prioritized Tracker (archive, 2026-09-07 order)
 
-> **Purpose:** the single ordered view of everything queued for Arcaid, across ROADMAP.md, SPRINT_STATUS.md, the plan docs and the ADRs.
+> **Frozen 2026-10-21 (ADR 0028).** Superseded by `WORK.md`, which carries each of these entries as an item with `tier: N`. Kept for the reasoning behind the order. Do not check items off here.
+>
+> **Original purpose:** the single ordered view of everything queued for Arcaid, across ROADMAP.md, SPRINT_STATUS.md, the plan docs and the ADRs.
 > This is an INDEX with a one-paragraph tl;dr per item — details live in ROADMAP.md (referenced by entry name), `docs/`, and CLAUDE.md.
 > Created 2026-08-08 as the launch-gate list; **rebuilt 2026-09-07** as the general priority tracker after a full sweep (the old Tier 0/1 lists are collapsed into "Done" at the bottom).
 > Check items off here; keep ROADMAP as the deep backlog. When an item ships, move it to "Done" with its version.
