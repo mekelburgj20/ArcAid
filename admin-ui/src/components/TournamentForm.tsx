@@ -16,6 +16,18 @@ import {
   type PollTieRule,
 } from '../lib/pollForm';
 import {
+  ACCEL_GAIN_MAX,
+  ACCEL_GAIN_MIN,
+  INTEGRITY_MODE_HELP,
+  INTEGRITY_MODE_LABEL,
+  TILT_SENSITIVITY_MAX,
+  TILT_SENSITIVITY_MIN,
+  defaultSanctionedRules,
+  getIntegrityErrors,
+  type IntegrityMode,
+  type SanctionedRulesForm,
+} from '../lib/integrityForm';
+import {
   CANONICAL_DEVICES,
   LEGACY_PLATFORM_MAP,
   UNKNOWN,
@@ -101,6 +113,15 @@ export interface TournamentFormState {
    * while it is on (the admin's own values come back if it is switched off).
    */
   poll: PollFormState;
+  /**
+   * Integrity mode (v2.166.0, ADR 0027; Castcade ADR 0005). Open play (the
+   * default, every tournament before this) accepts any table of the game;
+   * Sanctioned play names the table and adds fairness rules that gate ONLY the
+   * auto-ingest into this tournament. Boards stay badge-never-gate either way.
+   */
+  integrityMode: IntegrityMode;
+  /** Kept (and sent) in both modes so a tuned rule set survives a switch. */
+  sanctionedRules: SanctionedRulesForm;
 }
 
 // --- Defaults ---
@@ -132,6 +153,8 @@ export const defaultFormState: TournamentFormState = {
   schedule: { cron: '0 0 * * *', timezone: DEFAULT_TIMEZONE },
   season: { ...defaultSeasonState },
   poll: { ...defaultPollState },
+  integrityMode: 'open',
+  sanctionedRules: { ...defaultSanctionedRules },
 };
 
 /** A blank create form seeded with the ROOM's timezone (schedule + event). */
@@ -661,6 +684,121 @@ function PollSettings({ poll, onChange, schedule }: {
   );
 }
 
+/**
+ * Integrity section (v2.166.0, ADR 0027; Castcade ADR 0005) — Open play or
+ * Sanctioned play, and the Sanctioned rule set. The rules are measured by the
+ * Castcade companion with every score it posts and judged by the SAME pure
+ * function on the server, the companion's preflight and the runner's review
+ * panel; this section only edits what that function is given. Which TABLE a
+ * game requires is picked per game on the Integrity panel (Tournaments page),
+ * because a tournament's games are not known when its form is filled in.
+ */
+function IntegritySection({ mode, rules, onModeChange, onRulesChange }: {
+  mode: IntegrityMode;
+  rules: SanctionedRulesForm;
+  onModeChange: (m: IntegrityMode) => void;
+  onRulesChange: (r: SanctionedRulesForm) => void;
+}) {
+  const inputClass = "w-full px-3 py-2 bg-raised border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan transition-colors";
+  const labelClass = "block text-xs font-display uppercase tracking-wider text-muted mb-1.5";
+  const patch = (p: Partial<SanctionedRulesForm>) => onRulesChange({ ...rules, ...p });
+  const errors = getIntegrityErrors(mode, rules);
+
+  const check = (key: keyof Pick<SanctionedRulesForm,
+    'requireNamedTable' | 'requireStockPhysics' | 'requireFactoryAdjustments' | 'requireKnownBuild' | 'allowNightlyBuilds' | 'requireNudgeFilter'>,
+    label: string, tip: string, disabled = false) => (
+    <label className="flex items-center gap-2 cursor-pointer">
+      <input type="checkbox" checked={rules[key]} disabled={disabled} aria-label={label}
+        onChange={e => patch({ [key]: e.target.checked } as Partial<SanctionedRulesForm>)}
+        className="accent-neon-cyan disabled:opacity-50" />
+      <span className="text-sm text-muted">{label}</span>
+      <InfoTip text={tip} />
+    </label>
+  );
+
+  return (
+    <div className="mb-4" data-testid="integrity-section">
+      <label className={labelClass.replace('mb-1.5', 'mb-2')}>
+        Integrity <InfoTip text="How strictly a Castcade-reported score has to match this tournament's conditions before it lands on its board. Conditions are measured on the player's PC and sent with every score in both modes; only Sanctioned play holds a failing score out. Room boards never filter or re-rank on a verdict." />
+      </label>
+      <div className="inline-flex rounded border border-border overflow-hidden">
+        {(['open', 'sanctioned'] as const).map(m => (
+          <button
+            key={m}
+            type="button"
+            onClick={() => onModeChange(m)}
+            aria-pressed={mode === m}
+            className={`px-4 py-2 text-sm transition-colors cursor-pointer ${
+              mode === m ? 'bg-neon-cyan/20 text-neon-cyan' : 'bg-raised text-muted hover:text-primary'
+            }`}
+          >{INTEGRITY_MODE_LABEL[m]}</button>
+        ))}
+      </div>
+      <p className="text-xs text-faint mt-1.5">{INTEGRITY_MODE_HELP[mode]}</p>
+
+      {mode === 'sanctioned' && (
+        <div className="mt-3 rounded border border-border/60 p-3 space-y-4" data-testid="sanctioned-rules">
+          <p className="text-xs text-faint">
+            Pick the required table for each game on the Integrity panel once the tournament has games. These rules apply to every game in it.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
+            {check('requireNamedTable', 'Require the named table',
+              'The score must come from the table named for the game on the Integrity panel. With no table named for a game, this rule is skipped for it.')}
+            {check('requireStockPhysics', 'Require stock physics',
+              'No physics-set override on the table file, no flipper physics override, and no difficulty override from the in-game tweak menu.')}
+            {check('requireFactoryAdjustments', 'Require factory adjustments',
+              'ROM machine adjustments at factory values; Free Play is allowed by default')}
+            {check('requireKnownBuild', 'Require a known build',
+              'Official 10.8.0 and the Panasony VR community build pass; nightlies pass when allowed; anything else needs its SHA-256 blessed here')}
+            {check('allowNightlyBuilds', 'Allow nightly builds',
+              'A VPX or VPinMAME nightly build passes the known-build rule. Off = only official, Panasony or blessed builds.', !rules.requireKnownBuild)}
+            {check('requireNudgeFilter', 'Require the nudge filter',
+              'VPX\'s EnableNudgeFilter must be on. Off by default: the 10.8.0 filter blocks little, and many players never touch it.')}
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className={labelClass}>
+                Minimum tilt sensitivity <InfoTip text="VPX Keys/Nudge setting, 0–1000; higher tilts sooner; VPX default 400" />
+              </label>
+              <NumberStepper value={rules.minTiltSensitivity} onChange={v => patch({ minTiltSensitivity: v })}
+                min={TILT_SENSITIVITY_MIN} max={TILT_SENSITIVITY_MAX} ariaLabel="Minimum tilt sensitivity" />
+              <p className="text-xs text-faint mt-1">0 = no minimum. Only checked while the accelerometer is on.</p>
+            </div>
+            <div>
+              <label className={labelClass}>
+                Maximum accelerometer gain (%) <InfoTip text="VPX accelerometer gain in %, 150 is the VPX default" />
+              </label>
+              <NumberStepper value={rules.maxAccelGain} onChange={v => patch({ maxAccelGain: v })}
+                min={ACCEL_GAIN_MIN} max={ACCEL_GAIN_MAX} ariaLabel="Maximum accelerometer gain" />
+            </div>
+          </div>
+          <div>
+            <label className={labelClass} htmlFor="integrity-adjustments-allowed">
+              Allowed adjustments <InfoTip text="Machine adjustment labels (as the ROM names them) that may differ from factory without failing the factory-adjustments rule. Comma-separated, case-insensitive." />
+            </label>
+            <input id="integrity-adjustments-allowed" type="text" placeholder="e.g. Free Play, Balls Per Game" aria-label="Allowed adjustments"
+              value={rules.adjustmentsAllowed} onChange={e => patch({ adjustmentsAllowed: e.target.value })}
+              className={inputClass} disabled={!rules.requireFactoryAdjustments} />
+          </div>
+          <div>
+            <label className={labelClass} htmlFor="integrity-blessed-hashes">
+              Blessed build hashes <InfoTip text="SHA-256 of a VPX or VPinMAME binary that is neither official, Panasony nor a nightly but that you accept for this tournament. One per line; the Castcade Status page shows a player's build hash." />
+            </label>
+            <textarea id="integrity-blessed-hashes" rows={2} placeholder="One SHA-256 (64 hex characters) per line" aria-label="Blessed build hashes"
+              value={rules.blessedBuildHashes} onChange={e => patch({ blessedBuildHashes: e.target.value })}
+              className={`${inputClass} font-mono text-xs`} disabled={!rules.requireKnownBuild} spellCheck={false} />
+          </div>
+          {errors.length > 0 && (
+            <ul className="text-xs text-neon-magenta space-y-0.5" role="alert">
+              {errors.map(e => <li key={e}>{e}</li>)}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // --- Main Form Component ---
 
 interface TournamentFormFieldsProps {
@@ -892,6 +1030,12 @@ export default function TournamentFormFields({ state, set, platforms, roomId, lo
         </label>
         <PlatformRulesEditor platforms={platforms} rules={state.platformRules} onChange={r => set('platformRules', r)} />
       </div>
+      <IntegritySection
+        mode={state.integrityMode}
+        rules={state.sanctionedRules}
+        onModeChange={m => set('integrityMode', m)}
+        onRulesChange={r => set('sanctionedRules', r)}
+      />
       {!isEvent && (
         <>
           <div className="mb-4">

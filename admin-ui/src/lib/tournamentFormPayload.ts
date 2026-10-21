@@ -8,6 +8,7 @@ import { DEFAULT_TIMEZONE } from './timezone';
 import { addMinutes, defaultEventState, durationMinutes, utcIsoToWallTime, wallTimeToUtcIso } from './eventTime';
 import { seasonPayload, seasonStateFromRow } from './seasonForm';
 import { pollPayload, pollStateFromRow } from './pollForm';
+import { integrityModeFromRow, integrityPayload, sanctionedRulesFromRow } from './integrityForm';
 
 /**
  * Plain functions shared between the Tournaments admin page's create and
@@ -66,6 +67,10 @@ export interface Tournament {
   poll_tie_rule?: string | null;
   /** Compact progress, embedded for season and poll-picked rows only. */
   season?: SeasonSummary;
+  /** Integrity mode (migration for v2.165.0, ADR 0027). null / absent = open. */
+  integrity_mode?: 'open' | 'sanctioned' | null;
+  /** The stored Sanctioned rule set as a JSON string; null = the defaults. */
+  sanctioned_rules?: string | null;
 }
 
 /** `GET /:roomId/tournaments` → `season` sub-object on season / poll-picked rows. */
@@ -167,6 +172,9 @@ export function toPayload(state: TournamentFormState, extra: Record<string, any>
     // (the server refuses either on an event).
     ...(isEvent ? {} : seasonPayload(state.season)),
     ...(isEvent ? {} : pollPayload(state.poll)),
+    // Integrity mode + Sanctioned rules, both formats. The rules are sent in
+    // BOTH modes so a tuned set survives a switch to Open play and back.
+    ...integrityPayload(state.integrityMode, state.sanctionedRules),
     // is_active is intentionally NOT hardcoded here. `extra` is spread last, so
     // each caller supplies it: handleCreate passes `is_active: true`;
     // handleEditSave passes the row's current value so editing a paused
@@ -226,5 +234,7 @@ export function tournamentToFormState(t: Tournament, roomTimezone: string = DEFA
     schedule: parseCadence(t.cadence, roomTimezone),
     season: seasonStateFromRow(t),
     poll: pollStateFromRow(t),
+    integrityMode: integrityModeFromRow(t),
+    sanctionedRules: sanctionedRulesFromRow(t.sanctioned_rules),
   };
 }

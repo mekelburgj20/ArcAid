@@ -394,6 +394,8 @@ export class WitnessService {
         partial?: boolean | null;
         /** v2.165.0 (ADR 0027) — what the Castcade companion measured; null from a cabinet. */
         evidence?: import('../utils/sanctionedRules.js').WitnessEvidence | null;
+        /** v2.166.0 — `pc` | `vr_headset` from a desktop; ignored from a cabinet. */
+        playDevice?: import('./VpxScoreIngestService.js').PlayDevice | null;
     }): Promise<(import('./VpxScoreIngestService.js').VpxIngestResult & { deviceType: WitnessDeviceType }) | null> {
         const deviceId = (input.atgamesUniqueId || '').trim();
         if (!deviceId || !input.token) return null;
@@ -412,6 +414,7 @@ export class WitnessService {
             target,
             deviceId,
             evidence: input.evidence ?? null,
+            playDevice: input.playDevice ?? null,
             tableName: (input.tableName || '').trim(),
             rom: input.rom ?? null,
             slug: input.slug ?? null,

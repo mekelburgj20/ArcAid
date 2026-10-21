@@ -42,8 +42,10 @@ async function createTestApp() {
     app.use(express.json());
     const { default: globalRouter } = await import('../api/routes/global.js');
     const { default: integrityRouter } = await import('../api/routes/integrity.js');
+    const { default: roomsRouter } = await import('../api/routes/rooms.js');
     app.use('/api', globalRouter);
     app.use('/api', integrityRouter);
+    app.use('/api/rooms', roomsRouter);
     return app;
 }
 
@@ -198,6 +200,55 @@ describe('Integrity mode — the ingest', () => {
         expect(board[0]).toMatchObject({ score: 107434140, engine: 'vpx', device: 'pc', source: 'vpx' });
         const pub = await request(app).get(`/api/rooms/${roomId}/tournaments/${tournamentId}/integrity`);
         expect(Object.keys(pub.body.verdicts)).toHaveLength(1);
+    });
+
+    it('play_device=vr_headset from a desktop lands as a VR headset score; a cabinet never gets it', async () => {
+        const { gameId } = await createRotationGame(roomId, 'Tales from the Crypt (Data East 1993)');
+        await designate(DESKTOP, roomId);
+        const res = await request(app).get('/api/witness/score')
+            .query({ device: DESKTOP, token, ...scoreQuery(), ...evidence(), play_device: 'vr_headset' });
+        expect(res.body).toMatchObject({ ok: true, status: 'ingested' });
+
+        const db = await getDatabase();
+        const row = await db.get<{ platform: string; engine: string; device: string }>(
+            `SELECT platform, engine, device FROM score_history WHERE game_id = ?`, gameId,
+        );
+        expect(row).toEqual({ platform: 'vpx', engine: 'vpx', device: 'vr_headset' });
+        const global = await db.get<{ device: string }>(`SELECT device FROM global_scores WHERE player_id = ?`, USER);
+        expect(global?.device).toBe('vr_headset');
+
+        // A desktop that says nothing (or something else) is the monitor.
+        const again = await request(app).get('/api/witness/score')
+            .query({ device: DESKTOP, token, ...scoreQuery({ score: 5000, ended: Math.floor(Date.now() / 1000) + 60 }), ...evidence(), play_device: 'couch' });
+        expect(again.body.status).toBe('ingested');
+        expect((await db.get<{ device: string }>(`SELECT device FROM score_history WHERE game_id = ? AND score = 5000`, gameId))?.device).toBe('pc');
+
+        // A cabinet's provenance is fixed by its kind; the param is ignored.
+        const cabToken = await pair(app, CABINET);
+        await designate(CABINET, roomId);
+        const cab = await request(app).get('/api/witness/score')
+            .query({ device: CABINET, token: cabToken, ...scoreQuery({ score: 7000, ended: Math.floor(Date.now() / 1000) + 120 }), play_device: 'vr_headset' });
+        expect(cab.body.status).toBe('ingested');
+        expect(await db.get(`SELECT platform, device FROM score_history WHERE game_id = ? AND score = 7000`, gameId))
+            .toEqual({ platform: 'vpxs', device: 'atgames' });
+    });
+
+    it('the integrity read names the catalogue game for the picker, and the game page learns its tournament', async () => {
+        const { tournamentId, gameId } = await createRotationGame(roomId, 'Tales from the Crypt (Data East 1993)');
+        const { gameId: orphanId } = await createRotationGame(roomId, 'Some Homebrew Nobody Catalogued');
+
+        const pub = await request(app).get(`/api/rooms/${roomId}/tournaments/${tournamentId}/integrity`);
+        expect(pub.status).toBe(200);
+        const db = await getDatabase();
+        const catalogue = await db.get<{ id: string }>(`SELECT id FROM global_games WHERE vps_id = 'fXaQ33KC'`);
+        expect(pub.body.games).toEqual([expect.objectContaining({ gameId, globalGameId: catalogue!.id })]);
+
+        const other = await request(app).get(`/api/rooms/${roomId}/tournaments/${(await db.get<{ tournament_id: string }>(`SELECT tournament_id FROM games WHERE id = ?`, orphanId))!.tournament_id}/integrity`);
+        expect(other.body.games[0]).toMatchObject({ gameId: orphanId, globalGameId: null });
+
+        const board = await request(app).get(`/api/rooms/${roomId}/leaderboard/${gameId}`);
+        expect(board.status).toBe(200);
+        expect(board.body).toMatchObject({ gameId, tournamentId });
     });
 
     it('Sanctioned play: the same clean evidence lands with a pass', async () => {
@@ -386,7 +437,7 @@ describe('Integrity mode — the runner\'s configuration', () => {
 
         const pub = await request(app).get(`/api/rooms/${roomId}/tournaments/${tournamentId}/integrity`);
         expect(pub.body.mode).toBe('sanctioned');
-        expect(pub.body.games).toEqual([{ gameId, name: 'Tales from the Crypt (Data East 1993)', status: 'ACTIVE', requiredVpsTableId: 'uVgZUZdK', requiredRom: 'tftc_400', requiredFingerprint: null }]);
+        expect(pub.body.games).toEqual([{ gameId, name: 'Tales from the Crypt (Data East 1993)', status: 'ACTIVE', globalGameId: null, requiredVpsTableId: 'uVgZUZdK', requiredRom: 'tftc_400', requiredFingerprint: null }]);
 
         res = await request(app).patch(url).set('Authorization', `Bearer ${admin}`).send({ required_rom: null });
         expect(res.body.game).toMatchObject({ requiredVpsTableId: 'uVgZUZdK', requiredRom: null });

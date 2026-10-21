@@ -1337,13 +1337,13 @@ export default function AccountSettings() {
               <div className="mt-6 pt-4 border-t border-border">
                 <h3 className="text-sm font-medium mb-1">Arcaid Witness devices</h3>
                 <p className="text-xs text-muted mb-3">
-                  Pair the Arcaid Witness app on your cabinet, or the Castcade companion on your
-                  Windows VPX PC, so your tournament scores are backed by when you actually started
-                  each table. Get a code here, then enter it in the Witness app on the machine.
+                  Pair Arcaid Witness on your cabinet, or the Castcade companion on your Windows VPX PC,
+                  so your tournament scores are backed by when you actually started each table. Get a
+                  code here, then enter it in Arcaid Witness on the cabinet or in Castcade on the PC.
                 </p>
                 {witnessCode ? (
                   <div className="mb-3 p-3 rounded border border-neon-cyan/40 bg-neon-cyan/10">
-                    <p className="text-xs text-muted mb-1">Enter this in the Witness app (expires in ~10 min):</p>
+                    <p className="text-xs text-muted mb-1">Enter this code in Arcaid Witness on your cabinet, or in Castcade on your PC (expires in ~10 min):</p>
                     <p className="font-mono text-2xl font-bold tracking-[0.3em] text-neon-cyan">{witnessCode}</p>
                   </div>
                 ) : null}
@@ -1368,7 +1368,7 @@ export default function AccountSettings() {
                   }}
                   className="mb-3 px-4 py-1.5 rounded border border-neon-cyan/40 bg-neon-cyan/10 text-neon-cyan text-sm font-medium hover:bg-neon-cyan/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer inline-flex items-center gap-1.5"
                 >
-                  <Link2 size={14} /> {witnessBusy ? 'Working…' : witnessCode ? 'New code' : 'Pair a cabinet'}
+                  <Link2 size={14} /> {witnessBusy ? 'Working…' : witnessCode ? 'New code' : 'Pair a device'}
                 </button>
                 {witnessError && (
                   <p className="mb-2 text-xs text-rose-400 inline-flex items-center gap-1"><AlertCircle size={12} /> {witnessError}</p>
@@ -1379,12 +1379,12 @@ export default function AccountSettings() {
                       <li key={d.atgamesUniqueId} className="text-sm bg-surface border border-border rounded px-3 py-2">
                         <div className="flex items-center justify-between gap-3">
                         <span className="min-w-0 truncate">
-                          <span className="text-primary">{d.atgamesUsername || (d.deviceType === 'desktop' ? 'Desktop' : 'Cabinet')}</span>
-                          {/* Cabinet vs Desktop — the one visible trace of
-                              `device_type`. Same chip style as the alert
-                              channel tags below. */}
+                          <span className="text-primary">{d.atgamesUsername || (d.deviceType === 'desktop' ? 'PC' : 'Cabinet')}</span>
+                          {/* Cabinet vs PC — the one visible trace of
+                              `device_type` (the wire value stays 'desktop').
+                              Same chip style as the alert channel tags below. */}
                           <span className="px-1.5 py-px rounded text-[10px] border border-border text-faint ml-2">
-                            {d.deviceType === 'desktop' ? 'Desktop' : 'Cabinet'}
+                            {d.deviceType === 'desktop' ? 'PC' : 'Cabinet'}
                           </span>
                           <span className="font-mono text-xs text-muted ml-2">{d.atgamesUniqueId.slice(0, 8)}…</span>
                           {d.lastSeenAt && <span className="text-xs text-faint ml-2">last seen {new Date(d.lastSeenAt).toLocaleDateString()}</span>}

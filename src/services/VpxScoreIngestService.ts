@@ -103,6 +103,8 @@ export type VpxScoreInput = {
      * name (ADR 0016). Absent = cabinet, the pre-v2.163.0 contract.
      */
     deviceType?: WitnessDeviceType;
+    /** v2.166.0 — `pc` or `vr_headset` from a desktop witness; null/absent = `pc`. Ignored from a cabinet. */
+    playDevice?: PlayDevice | null;
     /** Best display name the device could resolve (session journal > rom > slug). */
     tableName: string;
     rom?: string | null;
@@ -138,8 +140,22 @@ export type VpxScoreInput = {
 export type WitnessProvenance = {
     platform: 'vpxs' | 'vpx';
     engine: 'vpx';
-    device: 'atgames' | 'pc';
+    device: 'atgames' | 'pc' | 'vr_headset';
 };
+
+/**
+ * v2.166.0 — how a DESKTOP witness says the game was displayed: on the monitor
+ * (`pc`) or in a headset (`vr_headset`). The Castcade companion measures it
+ * (the VR build only turns VR on when a headset is present, so the companion
+ * looks for the OpenVR runtime inside the VPX process plus the SteamVR
+ * compositor beside it) and sends `play_device`. Same trust as the rest of
+ * what the companion reports; a cabinet never sends it and it is ignored
+ * from one.
+ */
+export type PlayDevice = 'pc' | 'vr_headset';
+export function parsePlayDevice(value: unknown): PlayDevice | null {
+    return value === 'pc' || value === 'vr_headset' ? value : null;
+}
 
 export type VpxIngestResult = {
     /**
@@ -301,7 +317,7 @@ export class VpxScoreIngestService {
         }
 
         const routing = input.target ?? { roomId: null, tournamentId: null, globalFallback: true };
-        const provenance = VpxScoreIngestService.provenanceFor(input.deviceType);
+        const provenance = VpxScoreIngestService.provenanceFor(input.deviceType, input.playDevice);
         const candidates = (await VpxScoreIngestService.loadCandidates(input.canonicalUserId))
             .filter(row => VpxScoreIngestService.inScope(row, routing));
 
@@ -683,7 +699,7 @@ export class VpxScoreIngestService {
                 iscoredUsername: username,
                 score,
                 originType: 'global',
-                ...VpxScoreIngestService.provenanceFor(input.deviceType),
+                ...VpxScoreIngestService.provenanceFor(input.deviceType, input.playDevice),
                 // v2.156.0 — these rows used to be written with a NULL source,
                 // which left them indistinguishable from a typed global entry
                 // and gave a delete nothing to tombstone on (ADR 0024).
@@ -816,9 +832,12 @@ export class VpxScoreIngestService {
      * AND the tournament exclusion check, so a tournament that excludes
      * AtGames does not refuse a desktop score and one that excludes PC does.
      */
-    static provenanceFor(deviceType: WitnessDeviceType | undefined): WitnessProvenance {
+    static provenanceFor(deviceType: WitnessDeviceType | undefined, playDevice?: PlayDevice | null): WitnessProvenance {
+        // v2.166.0: a desktop may say the game was played in a headset. The
+        // device axis is what the badge and the tournament device rules read,
+        // so `vr_headset` lands there; the legacy platform stays `vpx`.
         return deviceType === 'desktop'
-            ? { platform: 'vpx', engine: 'vpx', device: 'pc' }
+            ? { platform: 'vpx', engine: 'vpx', device: playDevice === 'vr_headset' ? 'vr_headset' : 'pc' }
             : { platform: 'vpxs', engine: 'vpx', device: 'atgames' };
     }
 

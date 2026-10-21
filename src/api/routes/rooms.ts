@@ -444,7 +444,7 @@ router.get('/:roomId/leaderboard/:gameId', async (req, res) => {
 
         const db = await getDatabase();
         const game = await db.get(`
-            SELECT g.name as game_name, t.name as tournament_name,
+            SELECT g.name as game_name, t.name as tournament_name, g.tournament_id,
                    COALESCE(gg.local_image_path, gg.wheel_image_path, gg.image_url) AS image_url
             FROM games g
             LEFT JOIN tournaments t ON g.tournament_id = t.id
@@ -456,6 +456,9 @@ router.get('/:roomId/leaderboard/:gameId', async (req, res) => {
             gameId,
             gameName: game?.game_name || 'Unknown',
             tournamentName: game?.tournament_name || 'Untracked',
+            // v2.166.0 — so the game page can fetch the tournament's public
+            // integrity read (mode + verdict map) for the board badges.
+            tournamentId: game?.tournament_id ?? null,
             imageUrl: game?.image_url || null,
             rankings,
             /**

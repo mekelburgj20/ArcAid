@@ -4,6 +4,7 @@ import { logError, logInfo } from '../../utils/logger.js';
 import { requireAuth, requireDiscordUser, requireSuperAdmin, requireNotBanned, requireNotBannedGlobal, optionalDiscordUser } from '../middleware.js';
 import { writeLimiter, globalSubmitLimiter, authLimiter, roomCreateLimiter, raSearchLimiter, raImportLimiter, witnessIngestLimiter } from '../rateLimit.js';
 import { parseWitnessEvidence } from '../../utils/sanctionedRules.js';
+import { parsePlayDevice } from '../../services/VpxScoreIngestService.js';
 import { raSearchHandler, raImportHandler } from '../raCatalogueHandlers.js';
 import { validate } from '../validate.js';
 import { isAllowedImage } from '../uploadValidation.js';
@@ -395,6 +396,10 @@ router.get('/witness/score', witnessIngestLimiter, async (req, res) => {
             // the score is the record, the evidence is about it. A cabinet
             // sends none of them.
             evidence: parseWitnessEvidence(req.query as Record<string, unknown>),
+            // v2.166.0 — `play_device=vr_headset` from the companion when the
+            // game ran in a headset (Castcade 0.2.10). Anything else reads as
+            // the monitor; a cabinet's value is ignored by the ingest.
+            playDevice: parsePlayDevice(req.query.play_device),
         });
         if (!result) return res.status(401).json({ ok: false });
 

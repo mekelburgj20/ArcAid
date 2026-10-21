@@ -71,7 +71,17 @@ export type TournamentIntegrity = {
     tournamentId: string;
     mode: IntegrityMode;
     rules: SanctionedRules;
-    games: Array<{ gameId: string; name: string; status: string } & GameRequirements>;
+    games: Array<{
+        gameId: string; name: string; status: string;
+        /**
+         * v2.166.0 — the catalogue game this room game is (for the required-table
+         * picker, which lists `global_game_tables` by catalogue id): the pinned
+         * `games.global_game_id` when there is one, else the approved catalogue
+         * row with exactly this name (the join the room leaderboard uses), else
+         * null — "not linked to the catalogue".
+         */
+        globalGameId: string | null;
+    } & GameRequirements>;
 };
 
 type DbRow = {
@@ -216,12 +226,15 @@ export class WitnessEvidenceService {
         );
         if (!t) return null;
         const games = await db.all<Array<{
-            id: string; name: string; status: string;
+            id: string; name: string; status: string; global_game_id: string | null;
             required_vps_table_id: string | null; required_rom: string | null; required_fingerprint: string | null;
         }>>(
-            `SELECT id, name, status, required_vps_table_id, required_rom, required_fingerprint
-               FROM games WHERE tournament_id = ?
-              ORDER BY CASE status WHEN 'ACTIVE' THEN 0 WHEN 'SCHEDULED' THEN 1 WHEN 'QUEUED' THEN 2 ELSE 3 END, start_date DESC, created_at DESC`,
+            `SELECT g.id, g.name, g.status, g.required_vps_table_id, g.required_rom, g.required_fingerprint,
+                    COALESCE(g.global_game_id,
+                             (SELECT gg.id FROM global_games gg
+                               WHERE LOWER(gg.name) = LOWER(g.name) AND gg.status = 'approved' LIMIT 1)) AS global_game_id
+               FROM games g WHERE g.tournament_id = ?
+              ORDER BY CASE g.status WHEN 'ACTIVE' THEN 0 WHEN 'SCHEDULED' THEN 1 WHEN 'QUEUED' THEN 2 ELSE 3 END, g.start_date DESC, g.created_at DESC`,
             tournamentId,
         );
         return {
@@ -229,7 +242,7 @@ export class WitnessEvidenceService {
             mode: normalizeIntegrityMode(t.integrity_mode),
             rules: normalizeSanctionedRules(t.sanctioned_rules),
             games: games.map(g => ({
-                gameId: g.id, name: g.name, status: g.status,
+                gameId: g.id, name: g.name, status: g.status, globalGameId: g.global_game_id,
                 requiredVpsTableId: g.required_vps_table_id, requiredRom: g.required_rom, requiredFingerprint: g.required_fingerprint,
             })),
         };

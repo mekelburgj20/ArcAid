@@ -6,6 +6,42 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.166.0] - 2026-10-21 - Integrity mode in the admin UI; VR headset provenance for desktop witnesses (Castcade F3 part 2)
+
+The second half of Castcade F3 (item 11 of the Castcade repo's `docs/arcaid-side-changes.md`; ADR 0027). The
+backend shipped in 2.165.0; this release lets a runner use it without the API, and lets a desktop witness say
+the game was played in a headset.
+
+### Added
+- **Integrity on the tournament form** (`admin-ui/src/components/TournamentForm.tsx`): Open play / Sanctioned
+  play toggle with one line of what each means, and the Sanctioned rules (named table, stock physics, factory
+  adjustments + allow-list, known build + nightlies + blessed hashes, minimum tilt sensitivity, maximum
+  accelerometer gain, nudge filter) with the backend defaults. The payload always carries `integrity_mode` and
+  the full `sanctioned_rules`, so a runner's tuned rules survive a switch to Open play and back.
+- **Integrity panel** per tournament (`admin-ui/src/components/IntegrityPanel.tsx`, the "Integrity" button on
+  the Tournaments page): the required table per game, picked from the catalogue's tables for that game
+  (`GET /api/global/games/:id/tables`), a required ROM, and the evidence review — every witness score the
+  ingest saw with its verdict, the reasons, the pass/fail per rule and the key measurements.
+- **Board badges** on the public game page: a score with a stored verdict shows *Sanctioned* / *Conditions
+  verified* (pass) or *Flagged* with the reasons (flagged), keyed by `score_history.id` from the public
+  integrity read. Badge, never gate: nothing is filtered or re-ranked.
+- **`play_device` on `GET /api/witness/score`** (`pc` | `vr_headset`, desktop witnesses only): a desktop that
+  says `vr_headset` lands with device `vr_headset` on the room board and the Global record, so the badge says
+  VR when the game was played in a headset. Anything else, or nothing, is `pc`; a cabinet's value is ignored
+  (`VpxScoreIngestService.provenanceFor`). Castcade 0.2.10 sends it.
+- `GET /api/rooms/:roomId/tournaments/:id/integrity` games carry `globalGameId` (the pinned catalogue id, else
+  the approved catalogue row with exactly that name, else null) for the picker; `GET /api/rooms/:roomId/leaderboard/:gameId`
+  carries `tournamentId` so the game page can fetch the verdict map.
+
+### Changed
+- Account Settings, Witness block: "Pair a cabinet" is now **"Pair a device"**, the help text names both Arcaid
+  Witness on a cabinet and Castcade on a PC, and a desktop device is labelled **PC**. The Witness chip tooltips
+  say "paired Arcaid Witness device (cabinet or PC)".
+
+### Not in this release
+- Badges on the scoreboard cards and the tournament scores page (those rows carry no `score_history.id` yet).
+  The ROM → VPS game map endpoint. Script baselines, diff reports and the preflight endpoint (item 12, Castcade F5).
+
 ## [2.165.0] - 2026-10-20 - Integrity mode: Open play / Sanctioned play (Castcade F3)
 
 Castcade F3 — item 11 of the Castcade repo's `docs/arcaid-side-changes.md`; Castcade ADR 0005, ArcAid
