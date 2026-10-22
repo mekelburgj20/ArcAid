@@ -17,7 +17,7 @@ import { execSync } from 'node:child_process';
 
 // ---------------------------------------------------------------- parser (shared with the page)
 const PARSER_SOURCE = String.raw`
-const STATUSES = ['idea', 'ready', 'claimed', 'blocked', 'review', 'done', 'parked'];
+const STATUSES = ['idea', 'ready', 'claimed', 'blocked', 'review', 'done', 'parked', 'dropped'];
 const ITEM_RE = /^(\s*)- \*\*([A-Z]{1,2}\d+(?:\.\d+)*)\*\* \x60([a-z]+)(?: ([^\x60]+))?\x60 ?(.*)$/;
 const SECTION_RE = /^## ([A-Z]{1,2})\. (.+)$/;
 const NOW_RE = /^## Now\s*$/;
@@ -140,7 +140,7 @@ if (has('summary')) {
   for (const s of model.sections) {
     const all = model.items.filter(i => i.section === s.letter);
     const ready = all.filter(i => i.status === 'ready');
-    const counts = ['ready', 'claimed', 'blocked', 'review', 'idea', 'parked', 'done'].map(st => { const n = all.filter(i => i.status === st).length; return n ? n + ' ' + st : null; }).filter(Boolean).join(', ');
+    const counts = ['ready', 'claimed', 'blocked', 'review', 'idea', 'parked', 'done', 'dropped'].map(st => { const n = all.filter(i => i.status === st).length; return n ? n + ' ' + st : null; }).filter(Boolean).join(', ');
     console.log('  ' + s.letter + '. ' + s.title + '  (' + counts + ')');
     for (const i of ready) console.log('     ' + pad(i.id, 7) + (i.fields.tier ? 'T' + i.fields.tier + ' ' : '') + i.title + (i.fields.needs ? '  [needs ' + i.fields.needs + ']' : ''));
   }
@@ -164,7 +164,7 @@ const html = `<title>${esc(model.title.replace(/ — Work$/, ''))} Work Board</t
 :root {
   --bg: #f6f5f1; --panel: #ffffff; --fg: #1d1c19; --muted: #6b6861; --rule: #dedbd3;
   --accent: #b5491c; --accent-ink: #ffffff;
-  --idea: #8a8477; --ready: #1f6f8b; --claimed: #b5491c; --blocked: #a1242b; --review: #7b4fa6; --done: #3a7d44; --parked: #9c8a5a;
+  --idea: #8a8477; --ready: #1f6f8b; --claimed: #b5491c; --blocked: #a1242b; --review: #7b4fa6; --done: #3a7d44; --parked: #9c8a5a; --dropped: #6e6a64;
   --chip-bg: #eeece6;
   --sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
   --mono: "IBM Plex Mono", "Cascadia Mono", Consolas, monospace;
@@ -172,13 +172,13 @@ const html = `<title>${esc(model.title.replace(/ — Work$/, ''))} Work Board</t
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
   --bg: #15161a; --panel: #1e2026; --fg: #ebe8e1; --muted: #9a978f; --rule: #2f323a;
   --accent: #e8794a; --accent-ink: #15161a;
-  --idea: #8e8a82; --ready: #5fb3d0; --claimed: #e8794a; --blocked: #e06570; --review: #b58ee6; --done: #6fc27c; --parked: #c8b37a;
+  --idea: #8e8a82; --ready: #5fb3d0; --claimed: #e8794a; --blocked: #e06570; --review: #b58ee6; --done: #6fc27c; --parked: #c8b37a; --dropped: #8e8a82;
   --chip-bg: #2a2d35; color-scheme: dark;
 } }
 :root[data-theme="dark"] {
   --bg: #15161a; --panel: #1e2026; --fg: #ebe8e1; --muted: #9a978f; --rule: #2f323a;
   --accent: #e8794a; --accent-ink: #15161a;
-  --idea: #8e8a82; --ready: #5fb3d0; --claimed: #e8794a; --blocked: #e06570; --review: #b58ee6; --done: #6fc27c; --parked: #c8b37a;
+  --idea: #8e8a82; --ready: #5fb3d0; --claimed: #e8794a; --blocked: #e06570; --review: #b58ee6; --done: #6fc27c; --parked: #c8b37a; --dropped: #8e8a82;
   --chip-bg: #2a2d35; color-scheme: dark;
 }
 * { box-sizing: border-box; }
@@ -209,12 +209,13 @@ section.sec > h2 .counts { font-size: 12px; color: var(--muted); font-weight: 40
 .items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .items .items { margin: 6px 0 0 28px; }
 .item { background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; padding: 8px 12px; display: grid; grid-template-columns: auto auto 1fr; gap: 4px 12px; align-items: start; min-width: 0; }
-.item.s-done { opacity: 0.72; }
+.item.s-done, .item.s-dropped { opacity: 0.72; }
+.item.s-dropped .title { text-decoration: line-through; text-decoration-color: var(--muted); }
 .id { font-family: var(--mono); font-size: 13px; font-weight: 500; cursor: pointer; border: none; background: none; color: var(--fg); padding: 2px 4px; border-radius: 4px; }
 .id:hover, .id:focus-visible { background: var(--chip-bg); outline: 2px solid var(--accent); outline-offset: 0; }
 .st { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; padding: 3px 7px; border-radius: 4px; color: var(--accent-ink); white-space: nowrap; align-self: center; }
 .s-idea .st { background: var(--idea); } .s-ready .st { background: var(--ready); } .s-claimed .st { background: var(--claimed); }
-.s-blocked .st { background: var(--blocked); } .s-review .st { background: var(--review); } .s-done .st { background: var(--done); } .s-parked .st { background: var(--parked); }
+.s-blocked .st { background: var(--blocked); } .s-review .st { background: var(--review); } .s-done .st { background: var(--done); } .s-parked .st { background: var(--parked); } .s-dropped .st { background: var(--dropped); }
 .body { min-width: 0; }
 .title { font-weight: 500; overflow-wrap: anywhere; }
 .detail { color: var(--muted); overflow-wrap: anywhere; }
@@ -250,9 +251,9 @@ ${PARSER_SOURCE}
 const SNAPSHOT = ${JSON.stringify(text)};
 const RAW_URL = ${JSON.stringify(rawUrl)};
 const BLOB_BASE = ${JSON.stringify(blobBase)};
-const ORDER = ['claimed', 'review', 'blocked', 'ready', 'idea', 'parked', 'done'];
+const ORDER = ['claimed', 'review', 'blocked', 'ready', 'idea', 'parked', 'done', 'dropped'];
 let model = parseWork(SNAPSHOT);
-let active = new Set(ORDER.filter(s => s !== 'done'));
+let active = new Set(ORDER.filter(s => s !== 'done' && s !== 'dropped'));
 let query = '';
 try { const s = JSON.parse(localStorage.getItem('wb.filters') || 'null'); if (Array.isArray(s)) active = new Set(s); } catch {}
 

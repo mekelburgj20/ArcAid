@@ -28,8 +28,10 @@ Lane: `path/one/**`, `path/two/**`. One line on what the section covers.
   two spaces under its parent and its ID starts with the parent's ID. **IDs are never reused and never
   renumbered**; a finished item stays as a one-line `done` entry so its number stays taken.
 - **status** is one of `idea` (not committed to), `ready` (committed, unclaimed), `claimed`, `blocked`,
-  `review` (PR open), `done`, `parked`. The qualifier says the version for `done`, the PR for `review`,
-  the blocking ID or reason for `blocked`: `` `done 0.2.4` ``, `` `review #371` ``, `` `blocked B3` ``.
+  `review` (PR open), `done`, `parked` (deferred, may come back), `dropped` (will not be done: shipped
+  another way, superseded by a ruling, or no longer wanted). The qualifier says the version for `done`, the PR
+  for `review`, the blocking ID or reason for `blocked`, the reason or ruling for `dropped`: `` `done 0.2.4` ``,
+  `` `review #371` ``, `` `blocked B3` ``, `` `dropped ADR 0027` ``. A dropped item keeps its line and its number.
 - **text** = title, then optional ` — detail` (one line), then ` · key: value` fields. Known keys:
   `owner`, `since`, `branch`, `pr`, `needs` (comma-separated IDs), `touches` (paths outside the lane),
   `spec` (where the detail lives), `due`, `gate` (what proves it done). Other keys are allowed and shown as-is.

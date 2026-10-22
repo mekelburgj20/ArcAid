@@ -20,6 +20,8 @@ For every item you claimed this session, set the status that is true now:
 - continuing next session → stay `` `claimed` ``, and add ONE indented note line under it that says
   where to resume (the one thing a fresh agent needs: branch, failing test, next sub-step);
 - stopped → `` `ready` `` with the note, and drop `owner`/`since`.
+- will not be done (shipped another way, superseded by a ruling, no longer wanted) → `` `dropped <reason>` ``; the line
+  and the number stay.
 
 Add every follow-up, bug or idea the session surfaced as a new item (`idea` or `ready`) at the end of
 the right section, with `spec:` pointing at where the detail lives (a doc you wrote, a commit, an

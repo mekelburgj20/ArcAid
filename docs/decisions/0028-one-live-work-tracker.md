@@ -39,8 +39,9 @@ the LAUNCH tier as a `tier:` field, and corrected the stale ones against the CHA
 ### 2. A grammar, checked in CI
 
 `- **ID** \`status qualifier\` Title — detail · key: value`. IDs are section letters plus a number, dotted
-for sub-items, never reused, never renumbered. Seven statuses: `idea`, `ready`, `claimed`, `blocked`,
-`review`, `done`, `parked`. `npm run work:check` (`tools/work-board.mjs --check`, also a step in the
+for sub-items, never reused, never renumbered. Eight statuses: `idea`, `ready`, `claimed`, `blocked`,
+`review`, `done`, `parked`, and `dropped` (added 2026-10-21 after the first audit: will not be done, with the
+ruling or reason as qualifier; the line and number stay). `npm run work:check` (`tools/work-board.mjs --check`, also a step in the
 `deploy.yml` test job) fails on duplicate IDs, unknown statuses, dangling `needs:` and claims without
 `owner`/`since`. The full grammar is `.claude/commands/work.md`.
 
