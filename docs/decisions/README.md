@@ -60,3 +60,4 @@ You do **not** need an ADR for routine bug fixes, code style preferences, or any
 | 0026 | [Pick by poll is a rotation method, and "admin decides" holds](0026-pick-by-poll-is-a-rotation-method.md) | accepted | 2026-10-18 |
 | 0027 | [Integrity mode: Open play and Sanctioned play, and the one place evidence gates](0027-integrity-mode-open-and-sanctioned-play.md) | accepted | 2026-10-20 |
 | 0028 | [One live work tracker: `WORK.md`, lanes, claims, a board](0028-one-live-work-tracker.md) | accepted | 2026-10-21 |
+| 0029 | [Limited attempts: N game starts per player per table, witnessed by Castcade](0029-limited-attempts.md) | accepted | 2026-10-22 |
