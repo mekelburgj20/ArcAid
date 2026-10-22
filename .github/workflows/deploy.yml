@@ -54,6 +54,9 @@ jobs:
       - name: Run backend tests
         run: npm test
 
+      - name: WORK.md is well-formed (the live tracker; grammar in .claude/commands/work.md)
+        run: npm run work:check
+
       - name: Install admin-ui deps
         working-directory: admin-ui
         run: npm ci

@@ -26,8 +26,8 @@ Relevant Documentation:
 **Active (update regularly):**
 - `README.md` — Public-facing functional summary: what the app is, what it can do (Features), how to use it (Quick Start, URL Structure, Auth, Discord Commands, Configuration, Tech Stack, Deployment). Carries a one-line CHANGELOG pointer; do NOT add version-specific sections.
 - `CHANGELOG.md` — **Single source of truth** for release history. Per-version entry in Keep-a-Changelog format with full detail (problem, fix, files touched, migration notes, SW cache bumps). Bumped with every release.
-- `ROADMAP.md` — Completed work, future plans, sprint history
-- `SPRINT_STATUS.md` — Live progress tracker, last session notes, blockers
+- `WORK.md` — **The only live tracker** (ADR 0028): one line per item with a stable ID, sections as lanes, claims, a `## Now` block; grammar in `.claude/commands/work.md`; board link on its first line.
+- `ROADMAP.md`, `LAUNCH.md`, `SPRINT_STATUS.md` — Frozen archives (2026-10-21); `WORK.md` items point into them. Never appended to.
 - `CLAUDE.md` (ArcAid root) — Architecture tables, key patterns, database schema, session checklist
 - `../CLAUDE.md` (parent repo root) — Repository overview, architecture tables shared across projects
 - `docs/decisions/` — Architecture Decision Records (ADRs). One file per load-bearing decision. Index in `docs/decisions/README.md`; template in `0000-template.md`.
@@ -42,15 +42,16 @@ Relevant Documentation:
 
 **Reference (update occasionally):**
 - `.claude/commands/deploy.md` — Production deployment checklist slash command
-- `.claude/commands/update-docs.md` — Mid-sprint doc audit slash command (drift detection, ADR check). **Does NOT bump versions or roll release-arc copy** — that's `/release-docs`.
-- `.claude/commands/release-docs.md` — Per-release doc sweep slash command (`/release-docs <version>`). Bumps `package.json`, appends `CHANGELOG.md`, rolls `SPRINT_STATUS.md` arc markers (`<!-- LATEST_ARC_START -->` / `<!-- LATEST_ARC_END -->`), bumps `admin-ui/public/sw.js` `CACHE_NAME`.
+- `.claude/commands/work.md` — `/work [ID]`: session start (tracker summary) or claim one item; holds the `WORK.md` grammar and the claiming rule.
+- `.claude/commands/wrap.md` — `/wrap`: session end (item statuses, new items, Now block, diff-scoped drift check, board republish, commit). Replaced `/update-docs`.
+- `.claude/commands/release-docs.md` — Per-release doc sweep (`/release-docs <version>`): CHANGELOG entry, `package.json` bump, `WORK.md` items flipped to `done`.
 - `.claude/commands/review-orchestrator.md` — Multi-pass review orchestrator
 - `.claude/commands/review-ux.md` — UX review agent
 - `.claude/commands/review-design-fidelity.md` — Design fidelity review agent
 - `.claude/commands/review-code-quality.md` — Code quality review agent
 
 **Local-only (gitignored, `tmp/` folder):**
-- `tmp/various_bug_fixes.md` — Current bug/fix tracking list
+- (no local bug list: bugs are `WORK.md` items)
 - Other temp files (planning docs, screenshots, bug images) — not tracked in git
 
 Remember, your goal is to enhance Claude's performance and consistency while maintaining the core functionality and purpose of the AI assistant. Be thorough in your analysis, clear in your explanations, and precise in your implementations.

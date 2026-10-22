@@ -1,6 +1,6 @@
 Production deployment checklist for ArcAid.
 
-> **Note:** For major deploys (new features, architecture changes), run `/update-docs` first to keep documentation in sync. For rapid UI iteration deploys, skip straight to step 1.
+> **Note:** `/wrap` at the end of the session keeps `WORK.md` and the docs in sync; `/release-docs <version>` after the deploy is verified writes the CHANGELOG entry. Neither is a pre-deploy step.
 
 1. **Verify local build and tests:**
    - Run `npm run build` (backend TypeScript)

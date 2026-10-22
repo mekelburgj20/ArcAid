@@ -1,7 +1,6 @@
-# ArcAid — Roadmap
+# ArcAid — Roadmap (archive)
 
-> See SPRINT_STATUS.md for live progress; CHANGELOG.md for shipped versions.
-> **Priority order: see LAUNCH.md** — the single ordered tracker over this backlog (rebuilt 2026-09-07), with a tl;dr per item.
+> **Frozen 2026-10-21 (ADR 0028).** The live tracker is `WORK.md`; its items point into this file with `spec: ROADMAP.md §"heading"` for the detail. Do not add or update entries here; add an item to `WORK.md` instead. Shipped versions: `CHANGELOG.md`.
 
 ---
 

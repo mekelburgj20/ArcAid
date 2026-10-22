@@ -2,7 +2,7 @@ Per-release doc sweep. Mechanical updates that align the docs with a freshly-shi
 
 **Usage:** `/release-docs <version>` — e.g. `/release-docs 2.9.0`. The version arg is the release being documented (already shipped or about to ship). Don't run this for an unfinished arc — wait until the code lands and the deploy is healthy, otherwise you'll have to amend the CHANGELOG entry.
 
-This command does the four things `/update-docs` deliberately doesn't: bump `package.json`, append to `CHANGELOG.md`, roll the SPRINT_STATUS arc markers, and bump the SW cache. For doc audits *between* releases (CLAUDE.md drift, README features list, ADRs), use `/update-docs`.
+This command does the things `/wrap` deliberately doesn't: bump `package.json`, append to `CHANGELOG.md`, and flip the shipped items in `WORK.md` to `done`. Doc drift between releases is `/wrap`'s job (diff-scoped, every session).
 
 ## Steps
 
@@ -22,7 +22,7 @@ The hardest part. Order matters:
 4. **Files touched section** — list every file with a one-line note on what changed. Helps future readers who hit a regression and want to find the implicated diff fast.
 5. **Migration notes** — call out any new migration number, any data backfills, any one-time prod cleanup the user had to do manually. If the release adds a column to a hot table, note the lock semantics.
 6. **Tests** — the count, plus mention of any new test files. If 129/129 pass and you didn't add tests, say "no new test files this release — paths covered by existing route smoke tests" with a one-line reason why.
-7. **Known followups (in ROADMAP)** — anything you punted on that's tracked in ROADMAP under "Open Followups". Names and short descriptions; don't duplicate the ROADMAP detail.
+7. **Known followups** — anything you punted on, by `WORK.md` item ID (add the item if it is not there yet). Names and IDs; don't duplicate the detail.
 
 Place the new entry **immediately after** the `## [<previous>] — <date>` line. Match the existing voice — terse, specific, drops file paths and table names freely.
 
@@ -30,16 +30,11 @@ Place the new entry **immediately after** the `## [<previous>] — <date>` line.
 
 Single field: `"version": "<old>"` → `"version": "<new>"`. Don't touch anything else.
 
-### 4. Roll the SPRINT_STATUS arc markers
+### 4. Flip the shipped items in `WORK.md`
 
-`SPRINT_STATUS.md` carries `<!-- LATEST_ARC_START -->` / `<!-- LATEST_ARC_END -->` HTML comments delimiting the current "Most recent arc" block. Mechanical move:
-
-1. Read everything between the markers (the soon-to-be-old arc).
-2. Insert that block as a new `- **Earlier arc (v<previous> — <previous arc title>):**` entry immediately *after* the `<!-- LATEST_ARC_END -->` line. Demote the heading line from "Most recent arc" to "Earlier arc". Drop any "Build state" line at the bottom of the demoted arc — that line only ever describes the *current* state, and we're about to write a new one.
-3. Replace the inter-marker content with the new arc, written in the same shape as the demoted one (3–8 bullets, last bullet always "Tests" or "Build state").
-4. Update the top-of-file lines: `**Current version:** **v<new>**` and the `Build state` line.
-
-If `<!-- LATEST_ARC_START -->` is missing (file from before the markers landed), insert both markers around the current "Most recent arc" block first, then proceed.
+Every item the release finishes becomes `` `done <version>` `` on one line (title only; the CHANGELOG
+entry carries the detail). Items it partly finishes keep their status and get a sub-item for the rest.
+Update the version line in `## Now`. Never renumber or delete an item. `npm run work:check` must pass.
 
 ### 5. Service worker — no action
 
@@ -47,7 +42,7 @@ Since v2.28.0 the SW's static cache name (`arcaid-static-${BUILD_ID}`) is derive
 
 ### 6. ADR check
 
-Same as `/update-docs` step 3. For each new load-bearing decision in the arc, ask before drafting `docs/decisions/NNNN-{slug}.md`. Update `docs/decisions/README.md` index when ADRs are added.
+Same as `/wrap` step 2. For each new load-bearing decision in the arc, ask before drafting `docs/decisions/NNNN-{slug}.md`. Update `docs/decisions/README.md` index when ADRs are added.
 
 ### 7. Commit
 
@@ -57,7 +52,7 @@ Single commit, message:
 docs: v<version> doc sweep — <brief arc summary>
 
 CHANGELOG entry for v<version>. package.json bumped <prev> → <version>.
-SPRINT_STATUS most-recent-arc rolled; <prev> moved to "Earlier arc".
+WORK.md: <ids> done.
 
 [Optional: ADR additions, CLAUDE.md updates, etc.]
 ```
@@ -66,8 +61,8 @@ Don't push automatically — the user pushes when they're ready. Doc-only commit
 
 ### What this command does NOT do
 
-- **Audit drift in CLAUDE.md, README features, ROADMAP, etc.** — that's `/update-docs`. Run it *before* `/release-docs` if you suspect mid-sprint drift.
-- **Touch ADRs without asking** — same as `/update-docs`.
+- **Audit drift in CLAUDE.md, README features, specs, etc.** — that's `/wrap`, at the end of every session.
+- **Touch ADRs without asking** — same as `/wrap`.
 - **Run the deploy pipeline** — `/deploy` does that. `/release-docs` runs after the deploy is verified healthy.
 - **Decide the version number** — the version arg is mandatory. SemVer judgment is the user's call (patch / minor / major).
 
@@ -75,5 +70,5 @@ Don't push automatically — the user pushes when they're ready. Doc-only commit
 
 - **Writing the CHANGELOG entry from memory of "what we did this session" instead of from `git log`.** You'll miss things. Pull the commit bodies; let them anchor the entry.
 - **Bumping `package.json` first.** Do it after the CHANGELOG entry exists, so a partial run doesn't leave the version ahead of the docs.
-- **Demoting more than one arc per run.** Each `/release-docs` rolls exactly one arc forward. If two releases shipped between sweeps, run the command twice.
-- **Touching files outside the inventory in step 4 of `/update-docs`.** If you find drift in CLAUDE.md or README, surface it in the commit message but apply the fix in a separate `/update-docs` invocation — don't conflate audit work with the release sweep.
+- **Documenting more than one release per run.** If two releases shipped between sweeps, run the command twice so each gets its own entry.
+- **Mixing a drift fix into the release sweep.** If you find drift in CLAUDE.md or README, note it in the commit message and fix it in `/wrap` — don't conflate audit work with the release sweep.
