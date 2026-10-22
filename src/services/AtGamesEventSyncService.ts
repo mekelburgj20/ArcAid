@@ -96,6 +96,8 @@ interface TournamentRow {
     format: string | null;
     atgames_tournament_id: string | null;
     end_grace_sec: number | null;
+    /** v2.167.0 (ADR 0029) — a limited tournament refuses the pull. */
+    max_attempts: number | null;
 }
 
 interface RoundRow {
@@ -108,7 +110,7 @@ interface RoundRow {
 
 /** Raised when the caller asked for something this sync cannot do. */
 export class AtGamesSyncError extends Error {
-    readonly code: 'NOT_LINKED' | 'NO_CREDENTIALS' | 'NOT_FOUND' | 'NO_ROOM';
+    readonly code: 'NOT_LINKED' | 'NO_CREDENTIALS' | 'NOT_FOUND' | 'NO_ROOM' | 'ATTEMPTS_LIMITED';
     constructor(code: AtGamesSyncError['code'], message: string) {
         super(message);
         this.name = 'AtGamesSyncError';
@@ -179,12 +181,21 @@ export class AtGamesEventSyncService {
         const db = await getDatabase();
 
         const tournament = await db.get<TournamentRow>(
-            `SELECT id, game_room_id, format, atgames_tournament_id, end_grace_sec
+            `SELECT id, game_room_id, format, atgames_tournament_id, end_grace_sec, max_attempts
              FROM tournaments WHERE id = ?`,
             tournamentId,
         );
         if (!tournament) {
             throw new AtGamesSyncError('NOT_FOUND', 'Tournament not found');
+        }
+        // v2.167.0 (ADR 0029) — Limited attempts are counted at game START;
+        // AtGames reports finished scores only, so it cannot feed a limited
+        // board. Refused for the preview (dry run) and the real pull alike.
+        if (tournament.max_attempts != null && tournament.max_attempts >= 1) {
+            throw new AtGamesSyncError(
+                'ATTEMPTS_LIMITED',
+                'This tournament limits attempts per table; scores come from Arcaid Witness only, so AtGames scores cannot be pulled into it',
+            );
         }
         if (!tournament.atgames_tournament_id) {
             throw new AtGamesSyncError(

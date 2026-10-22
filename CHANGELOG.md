@@ -6,6 +6,48 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.167.0] - 2026-10-22 - Limited attempts: N game starts per player per table (ADR 0029)
+
+### Added
+- **Limited attempts.** A tournament can now give every player a fixed number of attempts on each table
+  (`tournaments.max_attempts`, migration 186; blank = unlimited, today's behaviour). Every game START
+  counts, however it ends, so quitting a bad game before it finishes no longer makes it "never happen".
+  Independent of Open / Sanctioned play. Set on the tournament form ("Limited attempts").
+- **`GET /api/witness/attempt`** — the Castcade companion reports a game start the moment it happens
+  (same device-token auth, limiter and bare 401 as `/witness/score`) and gets back `counted` /
+  `over_limit` / `unlimited` / `no_match` with "attempt n of N". Matching is the score call's own,
+  extracted into `VpxScoreIngestService.match` so an attempt and its score can never land on different
+  games. Idempotent on `(device, key)`; a start reported more than 120 s late still counts, and its score
+  will not. New `attempts` table (no FKs), `AttemptService`.
+- **The score binds to its attempt.** On a limited tournament a Castcade score lands only when its
+  `attempt=<key>` names a counted, on-time start; otherwise it is refused (`late`, `over_limit`, `void`,
+  `reused`, `unreported`) exactly like a Sanctioned refusal — held off the board, Global Scoreboard
+  fall-through when the device allows it, `attempt_refused` on the evidence trail — and the companion is
+  answered `not_sanctioned` with the reason. A score with no reported start records an attempt anyway and
+  tells the player to import the table in Castcade so live mode can count it. An accepted score's answer
+  carries `attempt: {n, of, remaining}`.
+- **Cabinets count at report time.** The cabinet Witness has no live start call, so each game it reports
+  IS the attempt (key `cab:<started>`, so a replayed record never uses a second one), plus one attempt per
+  ball-one restart before it in the same sitting (`restarts=N`). Cabinet 1.0.4 also reports games it
+  cannot score (zero points, under 20 s) on `/witness/attempt`, on the same key. A no-ROM table's exit
+  sample (one reading per sitting) cannot be counted and is refused. A refused cabinet is answered
+  `no_match`, its own vocabulary.
+- **Runner and player views.** The Integrity panel gets an Attempts table per game with a Void action
+  (gives an attempt back; a scored attempt cannot be voided — delete the score instead), via
+  `GET/POST /api/rooms/:roomId/admin/tournaments/:id/attempts[/:attemptId/void]` (audited). The public
+  integrity read carries `maxAttempts` and per-game usage; the game page shows "Limited to N attempts per
+  player", "You have k attempts left" for a logged-in viewer, and "n of N attempts" beside each player.
+
+### Changed
+- **A limited tournament takes witnessed scores only.** The web submit routes, the legacy community route,
+  the OAuth draft commit, the Throwdown submit and Discord `/submit-score` refuse it with
+  `409 ATTEMPTS_WITNESS_ONLY` through one helper, `checkAttemptLimitSubmission` ("scores come from Arcaid
+  Witness only"). `ScoreSyncPoller` skips its games (one WARN per game), the iScored final sync at
+  rotation skips them too, and the AtGames pull / preview refuses it — none of those sources can know
+  about game starts.
+- **The Integrity panel's evidence table names the player** (resolved server-side through
+  `resolveUserLabels`) instead of showing the raw account id.
+
 ## [2.166.2] - 2026-10-22 - No integrity badge for a score that carried no evidence
 
 ### Fixed

@@ -134,6 +134,18 @@ export type VpxScoreInput = {
      * an older companion. Decides nothing on its own; see the class comment.
      */
     evidence?: WitnessEvidence | null;
+    /**
+     * v2.167.0 (ADR 0029) — the `key` of the game START the companion
+     * reported over `/witness/attempt` for this game (`attempt=<key>` on the
+     * score call). Only consulted when the matched tournament limits attempts.
+     */
+    attemptKey?: string | null;
+    /**
+     * v2.167.0 — a CABINET report's `restarts=N`: ball-one restarts before
+     * this game in the same sitting, each an abandoned game start. Only read
+     * when the matched tournament limits attempts.
+     */
+    restarts?: number | null;
 };
 
 /** See `VpxScoreIngestService.provenanceFor`. */
@@ -176,7 +188,13 @@ export type VpxIngestResult = {
      * board. `reasons` says why; `fallback` is what happened to it instead
      * (the Global record, when the device allows it).
      */
-    status: 'ingested' | 'duplicate' | 'global' | 'global_duplicate' | 'no_match' | 'invalid' | 'suppressed' | 'not_sanctioned';
+    /**
+     * `'attempt_refused'` (v2.167.0, ADR 0029) — the score matched a tournament
+     * that limits attempts and did not belong to a counted, on-time game
+     * start. Wired exactly like `not_sanctioned`: `reasons` says why for the
+     * player, `reason` is the machine reason, `fallback` what happened instead.
+     */
+    status: 'ingested' | 'duplicate' | 'global' | 'global_duplicate' | 'no_match' | 'invalid' | 'suppressed' | 'not_sanctioned' | 'attempt_refused';
     reason?: string;
     gameId?: string;
     gameName?: string;
@@ -188,6 +206,8 @@ export type VpxIngestResult = {
     fallback?: 'global' | 'global_duplicate' | 'no_match' | 'suppressed' | null;
     /** The Global Scoreboard row this play landed on (fallback or fan-out), when known. */
     globalScoreId?: string | null;
+    /** v2.167.0 — on an accepted score in a limited tournament: which attempt it was. */
+    attempt?: { n: number; of: number; remaining: number };
 };
 
 type CandidateRow = {
@@ -211,7 +231,25 @@ type CandidateRow = {
     required_vps_table_id: string | null;
     required_rom: string | null;
     required_fingerprint: string | null;
+    /** v2.167.0 (ADR 0029) — the tournament's attempt limit; null = unlimited. */
+    max_attempts: number | null;
 };
+
+/** What `VpxScoreIngestService.match` decided. Shared by the score and the attempt calls. */
+export type VpxMatchResult = {
+    needles: Set<string>;
+    routing: { roomId: string | null; tournamentId: string | null; globalFallback: boolean };
+    provenance: WitnessProvenance;
+    catalogue: { id: string; keys: Set<string> } | null;
+} & (
+    | {
+        kind: 'target';
+        target: CandidateRow;
+        where: { gameId: string; gameName: string; gameRoomId: string | null; tournamentId: string | null };
+    }
+    | { kind: 'none' }
+    | { kind: 'ambiguous'; count: number }
+);
 
 /**
  * Match keys for one or more names: the catalogue normal form, plus a
@@ -298,8 +336,7 @@ export class VpxScoreIngestService {
         // three and accepting a hit on any is what makes the match survive
         // that heterogeneity.
         const deviceNames = VpxScoreIngestService.deviceNames(input);
-        const needles = nameKeys(deviceNames);
-        if (needles.size === 0) {
+        if (nameKeys(deviceNames).size === 0) {
             return { status: 'no_match', reason: 'no usable table name on the record' };
         }
 
@@ -316,67 +353,94 @@ export class VpxScoreIngestService {
             return { status: 'suppressed', reason: 'the player deleted this score' };
         }
 
-        const routing = input.target ?? { roomId: null, tournamentId: null, globalFallback: true };
-        const provenance = VpxScoreIngestService.provenanceFor(input.deviceType, input.playDevice);
-        const candidates = (await VpxScoreIngestService.loadCandidates(input.canonicalUserId))
-            .filter(row => VpxScoreIngestService.inScope(row, routing));
+        const matched = await VpxScoreIngestService.match(input);
+        const { needles: matchNeedles, routing } = matched;
 
-        // v2.165.0 — the VPS game id first (the companion resolved the table to
-        // a catalogue game; the room's spelling of the name no longer matters),
-        // then the device's names exactly as before.
-        const catalogue = input.evidence?.vpsGame
-            ? await VpxScoreIngestService.catalogueGame(input.evidence.vpsGame)
-            : null;
-        const byVps = catalogue
-            ? candidates.filter(row =>
-                (row.global_game_id != null && row.global_game_id === catalogue.id)
-                || [...nameKeys([row.name])].some(key => catalogue.keys.has(key)))
-            : [];
-        const byName = candidates.filter(row => [...nameKeys([row.name])].some(key => needles.has(key)));
-        const matches = (byVps.length > 0 ? byVps : byName)
-            .filter(row => VpxScoreIngestService.inWindow(row, input.endedTs))
-            .filter(row => !VpxScoreIngestService.engineExcluded(row, provenance.device));
-        if (catalogue) {
-            // The catalogue's own names join the suppression and Global keys:
-            // a delete there was keyed on them.
-            for (const key of catalogue.keys) needles.add(key);
-        }
-
-        if (matches.length === 0) {
+        if (matched.kind === 'none') {
             // Nothing this cabinet is pointed at wanted the score — so it goes
             // to the player's own Global Scoreboard record instead of nowhere.
             if (routing.globalFallback) {
-                return VpxScoreIngestService.recordGlobal(input, score, needles);
+                return VpxScoreIngestService.recordGlobal(input, score, matchNeedles);
             }
             await VpxScoreIngestService.trail(input, score, playedAt, { outcome: 'no_match' });
             return { status: 'no_match', reason: `no open game matched "${input.tableName}"` };
         }
-        // An event ROUND is the more specific claim: it has an explicit window
-        // this score fell inside, where a rotation game is merely open. When
-        // both match the same table, the round wins.
-        const rounds = matches.filter(m => m.round_no != null);
-        const pool = rounds.length > 0 ? rounds : matches;
-        if (pool.length > 1) {
+        if (matched.kind === 'ambiguous') {
             // Still ambiguous even inside the designated scope. The designation
             // exists to make this vanishingly rare; when it happens anyway the
             // score is not thrown away, it goes to the global record.
             if (routing.globalFallback) {
                 logWarn(
-                    `VPX ingest: "${input.tableName}" matched ${pool.length} open games for ` +
+                    `VPX ingest: "${input.tableName}" matched ${matched.count} open games for ` +
                     `${input.canonicalUserId} — sending to the Global Scoreboard instead of guessing`,
                 );
-                return VpxScoreIngestService.recordGlobal(input, score, needles);
+                return VpxScoreIngestService.recordGlobal(input, score, matchNeedles);
             }
             return {
                 status: 'no_match',
-                reason: `"${input.tableName}" matches ${pool.length} open games — not guessing which`,
+                reason: `"${input.tableName}" matches ${matched.count} open games — not guessing which`,
             };
         }
-        const target = pool[0]!;
-        const where = {
-            gameId: target.id, gameName: target.name,
-            gameRoomId: target.game_room_id, tournamentId: target.tournament_id,
-        };
+        const { target, where, provenance } = matched;
+
+        // v2.167.0 (ADR 0029) — Limited attempts. On a limited tournament a
+        // score lands only when it belongs to a counted, on-time game START the
+        // Castcade companion reported over `/witness/attempt`. A refusal is
+        // wired exactly like a Sanctioned one (below): held off this board,
+        // Global fall-through when the device allows it, trail row.
+        let attemptAccepted: { attemptId: number; attempt: { n: number; of: number; remaining: number } } | null = null;
+        if (target.max_attempts != null && target.max_attempts >= 1 && target.tournament_id) {
+            const { AttemptService, ATTEMPT_REFUSAL_TEXT } = await import('./AttemptService.js');
+            const refusal = (reason: 'device' | 'exit_sample') =>
+                ({ ok: false as const, reason, text: ATTEMPT_REFUSAL_TEXT[reason] });
+            const bound = !input.deviceId
+                ? refusal('device')
+                : input.deviceType !== 'desktop'
+                // A CABINET has no live start call: each game report IS the
+                // attempt, counted at report time (owner ruling 2026-10-22).
+                // A no-ROM table's exit sample is one reading per SITTING, so
+                // its games cannot be counted at all.
+                ? (input.reason === 'exit_sample'
+                    ? refusal('exit_sample')
+                    : await AttemptService.recordStartAndBind({
+                        tournamentId: target.tournament_id, gameId: target.id, gameRoomId: target.game_room_id,
+                        canonicalUserId: input.canonicalUserId, deviceId: input.deviceId,
+                        limit: target.max_attempts,
+                        score, startedTs: input.startedTs, endedTs: input.endedTs,
+                        tableName: input.tableName, rom: input.rom ?? null,
+                        restarts: input.restarts ?? null,
+                    }))
+                : await AttemptService.bindScore({
+                    tournamentId: target.tournament_id, gameId: target.id, gameRoomId: target.game_room_id,
+                    canonicalUserId: input.canonicalUserId, deviceId: input.deviceId,
+                    attemptKey: input.attemptKey ?? null, limit: target.max_attempts,
+                    score, startedTs: input.startedTs, endedTs: input.endedTs,
+                    tableName: input.tableName, rom: input.rom ?? null,
+                });
+            if (!bound.ok) {
+                logInfo(
+                    `VPX ingest: attempt refused (${bound.reason}) — ${input.canonicalUserId} ${score} on ` +
+                    `"${target.name}" (tournament ${target.tournament_id}, ${target.max_attempts} attempts)`,
+                );
+                const fallback = routing.globalFallback
+                    ? await VpxScoreIngestService.recordGlobal(input, score, matchNeedles, { trail: false })
+                    : null;
+                await VpxScoreIngestService.trail(input, score, playedAt, {
+                    outcome: 'attempt_refused', ...where,
+                    integrityMode: normalizeIntegrityMode(target.integrity_mode),
+                    reasons: [bound.reason],
+                    globalScoreId: fallback?.globalScoreId ?? null,
+                });
+                return {
+                    status: 'attempt_refused', reason: bound.reason, ...where,
+                    reasons: [bound.text],
+                    fallback: fallback ? (fallback.status as VpxIngestResult['fallback']) : null,
+                    globalScoreId: fallback?.globalScoreId ?? null,
+                };
+            }
+            attemptAccepted = { attemptId: bound.attemptId, attempt: bound.attempt };
+        }
+        const needles = matchNeedles;
 
         if (await VpxScoreIngestService.isSuppressedPlay(input, score, [...deviceNames, target.name], playedAt)) {
             return { status: 'suppressed', reason: 'the player deleted this score', ...where };
@@ -483,6 +547,13 @@ export class VpxScoreIngestService {
             source: 'vpx',
         });
 
+        if (attemptAccepted) {
+            const { AttemptService } = await import('./AttemptService.js');
+            await AttemptService.markScored(attemptAccepted.attemptId, {
+                scoreHistoryId: id, score, endedTs: input.endedTs,
+            });
+        }
+
         await VpxScoreIngestService.trail(input, score, playedAt, {
             outcome: 'ingested', ...where, integrityMode: mode, verdict: badge,
             scoreHistoryId: id, globalScoreId: fanned?.globalScoreId ?? null,
@@ -492,6 +563,9 @@ export class VpxScoreIngestService {
             `VPX ingest: ${username} ${score} on "${target.name}" ` +
             `(${target.round_no != null ? `round ${target.round_no}` : 'rotation'}, ` +
             `tournament ${target.tournament_id ?? 'none'}, reason=${input.reason ?? 'unknown'}, ` +
+            (attemptAccepted
+                ? `attempt ${attemptAccepted.attempt.n} of ${attemptAccepted.attempt.of}, `
+                : '') +
             `${mode} play, ` +
             (badge
                 ? `verdict ${badge.verdict}${badge.reasons.length ? `: ${badge.reasons.join('; ')}` : ''}`
@@ -502,7 +576,68 @@ export class VpxScoreIngestService {
             status: 'ingested', ...where,
             verdict: badge?.verdict ?? null, reasons: badge?.reasons ?? [],
             globalScoreId: fanned?.globalScoreId ?? null,
+            ...(attemptAccepted ? { attempt: attemptAccepted.attempt } : {}),
         };
+    }
+
+    /**
+     * Which open game a witness play belongs to (extracted v2.167.0 so the
+     * score call AND the attempt call of ADR 0029 share one answer — an
+     * attempt and its score can never land on different games).
+     *
+     * Routing by designation or participation, the VPS game id first then the
+     * device's names, the window (the play's END for a score; the START for an
+     * attempt, passed in as `endedTs`), the device-exclusion rule, the
+     * round-beats-rotation tie-break, and ambiguity is never a guess.
+     *
+     * `needles` comes back with the catalogue game's names folded in, which is
+     * what the Global fall-through and the suppression check key on.
+     */
+    static async match(input: VpxScoreInput): Promise<VpxMatchResult> {
+        const needles = nameKeys(VpxScoreIngestService.deviceNames(input));
+        const routing = input.target ?? { roomId: null, tournamentId: null, globalFallback: true };
+        const provenance = VpxScoreIngestService.provenanceFor(input.deviceType, input.playDevice);
+        const candidates = (await VpxScoreIngestService.loadCandidates(input.canonicalUserId))
+            .filter(row => VpxScoreIngestService.inScope(row, routing));
+
+        // v2.165.0 — the VPS game id first (the companion resolved the table to
+        // a catalogue game; the room's spelling of the name no longer matters),
+        // then the device's names exactly as before.
+        const catalogue = input.evidence?.vpsGame
+            ? await VpxScoreIngestService.catalogueGame(input.evidence.vpsGame)
+            : null;
+        const byVps = catalogue
+            ? candidates.filter(row =>
+                (row.global_game_id != null && row.global_game_id === catalogue.id)
+                || [...nameKeys([row.name])].some(key => catalogue.keys.has(key)))
+            : [];
+        const byName = candidates.filter(row => [...nameKeys([row.name])].some(key => needles.has(key)));
+        const matches = (byVps.length > 0 ? byVps : byName)
+            .filter(row => VpxScoreIngestService.inWindow(row, input.endedTs))
+            .filter(row => !VpxScoreIngestService.engineExcluded(row, provenance.device));
+        if (catalogue) {
+            // The catalogue's own names join the suppression and Global keys:
+            // a delete there was keyed on them.
+            for (const key of catalogue.keys) needles.add(key);
+        }
+
+        if (matches.length === 0) {
+            return { kind: 'none', needles, routing, provenance, catalogue };
+        }
+        // An event ROUND is the more specific claim: it has an explicit window
+        // this score fell inside, where a rotation game is merely open. When
+        // both match the same table, the round wins.
+        const rounds = matches.filter(m => m.round_no != null);
+        const pool = rounds.length > 0 ? rounds : matches;
+        if (pool.length > 1) {
+            return { kind: 'ambiguous', count: pool.length, needles, routing, provenance, catalogue };
+        }
+        const target = pool[0]!;
+        const where = {
+            gameId: target.id, gameName: target.name,
+            gameRoomId: target.game_room_id, tournamentId: target.tournament_id,
+        };
+        return { kind: 'target', target, where, needles, routing, provenance, catalogue };
     }
 
     /**
@@ -547,6 +682,8 @@ export class VpxScoreIngestService {
             gameName?: string;
             integrityMode?: IntegrityMode | null; verdict?: Verdict | null;
             scoreHistoryId?: number | null; globalScoreId?: string | null;
+            /** v2.167.0 — stored reasons when there is no verdict (an attempt refusal's machine reason). */
+            reasons?: string[];
         },
     ): Promise<void> {
         if (!input.deviceId) return;
@@ -563,6 +700,7 @@ export class VpxScoreIngestService {
                 globalScoreId: extra.globalScoreId ?? null,
                 integrityMode: extra.integrityMode ?? null,
                 verdict: extra.verdict ?? null,
+                ...(extra.reasons ? { reasons: extra.reasons } : {}),
                 tableName: input.tableName,
                 rom: input.rom ?? null,
                 score,
@@ -776,6 +914,7 @@ export class VpxScoreIngestService {
                     g.start_date, g.tournament_id, g.game_room_id, g.global_game_id,
                     g.required_vps_table_id, g.required_rom, g.required_fingerprint,
                     t.format, t.end_grace_sec, t.platform_rules, t.integrity_mode, t.sanctioned_rules,
+                    t.max_attempts,
                     EXISTS (
                         SELECT 1 FROM tournament_participants tp
                          WHERE tp.tournament_id = g.tournament_id AND tp.user_id = ?

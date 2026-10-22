@@ -325,6 +325,17 @@ export const submitscore: Command = {
                 }
             }
 
+            // v2.167.0 (ADR 0029) — a tournament that limits attempts takes
+            // Castcade scores only; a typed score has no game start to count.
+            {
+                const { checkAttemptLimitSubmission } = await import('../../services/EventSubmissionGate.js');
+                const attemptGate = await checkAttemptLimitSubmission(game.tournament_id);
+                if (!attemptGate.ok) {
+                    await interaction.editReply(attemptGate.message);
+                    return;
+                }
+            }
+
             // v2.53.0 (ADR 0016): resolve the engine + device scope for this
             // game. `resolveForTournamentGame` unions the room's game tags —
             // pre-v2.53.0 this command read `global_games.platforms` alone while

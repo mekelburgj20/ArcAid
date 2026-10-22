@@ -90,6 +90,64 @@ router.patch('/rooms/:roomId/tournaments/:id/games/:gameId/requirements', requir
     }
 });
 
+// Runner: Limited attempts (v2.167.0, ADR 0029) — every recorded game start of
+// one tournament, newest first, names resolved (never a raw id). `?gameId=`
+// narrows to one game.
+router.get('/rooms/:roomId/admin/tournaments/:id/attempts', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const tournamentId = req.params.id as string;
+        if (!await tournamentInRoom(roomId, tournamentId)) return res.status(404).json({ error: 'Tournament not found' });
+        const gameId = typeof req.query.gameId === 'string' && req.query.gameId ? req.query.gameId : null;
+        const { AttemptService } = await import('../../services/AttemptService.js');
+        const [attempts, maxAttempts] = await Promise.all([
+            AttemptService.listForAdmin(tournamentId, gameId),
+            AttemptService.limitFor(tournamentId),
+        ]);
+        res.json({ maxAttempts, attempts });
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/admin/tournaments/:id/attempts):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Runner: give an attempt back (a crashed companion, an honest mistake). Only a
+// counted / over_limit / unreported row; a scored row is a 409 — voiding never
+// removes a score. Audited explicitly (the audit middleware is not mounted).
+router.post('/rooms/:roomId/admin/tournaments/:id/attempts/:attemptId/void', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const tournamentId = req.params.id as string;
+        const attemptId = Number(req.params.attemptId as string);
+        if (!Number.isInteger(attemptId) || attemptId <= 0) return res.status(400).json({ error: 'Invalid attempt id' });
+        if (!await tournamentInRoom(roomId, tournamentId)) return res.status(404).json({ error: 'Tournament not found' });
+        const { AttemptService, AttemptVoidError } = await import('../../services/AttemptService.js');
+        const actor = req.user!.discordId || req.user!.username || req.user!.localAdminId || 'admin';
+        try {
+            await AttemptService.void(attemptId, String(actor), tournamentId);
+        } catch (err) {
+            if (err instanceof AttemptVoidError) {
+                return res.status(err.httpStatus).json({ error: err.message, code: err.code });
+            }
+            throw err;
+        }
+        const { AuditService } = await import('../../services/AuditService.js');
+        await AuditService.log({
+            actor: String(actor),
+            action: 'attempt.void',
+            target_type: 'tournament',
+            target_id: tournamentId,
+            details: JSON.stringify({ roomId, attemptId }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        }).catch(() => { /* the void stands; an audit failure is logged by the service */ });
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/admin/tournaments/:id/attempts/:attemptId/void):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 // Player: their own most recent evidence row — "bless the one I just played".
 // `?vps_game=` narrows to the game the runner is configuring.
 router.get('/me/witness/evidence/latest', requireDiscordUser, async (req, res) => {

@@ -22,21 +22,33 @@ integer = each player gets that many attempts on **each `games` row** of the tou
 table, each event round). It is independent of `integrity_mode`; a limited tournament may be Open or
 Sanctioned. The create/update API carries it like `integrity_mode`: omitted on update = unchanged.
 
-### Only Castcade scores land on a limited board
+### Only Arcaid Witness scores land on a limited board
 
 When `max_attempts` is set on the tournament a game belongs to:
 
 - The three web submit routes, the legacy community route, the OAuth draft commit and Discord
   `/submit-score` refuse with `409 { code: 'ATTEMPTS_WITNESS_ONLY' }` and the message *"This tournament
-  limits attempts per table; scores come from Castcade only."* The check sits beside the
+  limits attempts per table; scores come from Arcaid Witness only."* The check sits beside the
   `checkEventSubmission` call at every site, as one helper `checkAttemptLimitSubmission`, so a new
   submit path has one more call to copy, not a rule to rediscover.
 - `ScoreSyncPoller` skips the game (WARN once per game per process). `AtGamesEventSyncService` refuses
   a pull for a limited tournament. Neither source can know about game starts.
-- A **cabinet** witness score is refused (trail outcome `attempt_refused`, reason `device`), falls
-  through to the Global Scoreboard exactly as a Sanctioned refusal does, and the cabinet is answered
-  `no_match` (its vocabulary). Cabinet support is a later ADR: the launcher does record every game,
-  but nothing reports a start live.
+- A **cabinet** counts at REPORT time (owner ruling 2026-10-22, superseding the first draft's
+  "cabinets are refused"). It has no live start call, so each game report IS the attempt, keyed
+  `(device, 'cab:' + started)`: idempotent (the cabinet replays up to 7 days of records; a replay
+  returns the same row), never `late` (cabinet reports are after the fact by design), numbered by the
+  count of the player's existing non-void rows on the game (report order; out-of-order edge cases are
+  accepted for v1), and bound in the same insert: within the limit the row is `scored`, past it
+  `over_limit` and the score is refused. A report's `restarts=N` (ball-one restarts the launcher
+  recorded before this game in the same sitting, each an abandoned start) first inserts N rows keyed
+  `cab:<started>:r<i>` (note `restart`), counted or over_limit by the running count. **Cabinet 1.0.4**
+  also reports games it detected but cannot score (abandoned at zero, or under 20 s) on
+  `/witness/attempt` with `key=cab:<started>`, `ended` and `reason=no_score|short_game` (stored in
+  `note`); that is the same key its score report uses, so one start is one row whichever arrives
+  first. A no-ROM table's **exit sample** (`reason=exit_sample`, one reading per sitting) cannot be
+  counted and is refused, reason `exit_sample`. A refused cabinet score falls through to the Global
+  Scoreboard as a Sanctioned refusal does and is answered `no_match` (its vocabulary); a landed one is
+  answered `ingested` with `attempt`, like a desktop.
 
 ### Attempts are counted at game START, over the wire
 
@@ -80,7 +92,7 @@ and before the suppression and Sanctioned checks, when the target's tournament h
 | `over_limit` | refused, reason `over_limit` |
 | `void` | refused, reason `void` |
 | `scored` already | the ordinary duplicate path (a resend of the same score dedups; a different score on a used key is refused, reason `reused`) |
-| none | a row is created now as `unreported` (counts as an attempt, `late = 1`) and the score is refused, reason `unreported` |
+| none | a row is created now as `unreported` (counts as an attempt, `late = 1`) and the score is refused, reason `unreported`; the player is told "no game start was reported for this score — import this table in Castcade so live mode can count attempts" (a table played in Castcade's basic mode can only ever produce unreported starts) |
 
 A refusal is wired exactly like a Sanctioned refusal: trail outcome `attempt_refused` with the reason,
 Global Scoreboard fall-through when the device allows it, and the desktop is answered `not_sanctioned`
@@ -118,7 +130,7 @@ the row inserted in one transaction so two simultaneous starts cannot both be at
 
 - The public `GET /rooms/:roomId/tournaments/:id/integrity` read gains `maxAttempts` and
   `attempts: { [gameId]: { [canonicalUserId]: used } }` (void rows excluded). The game page shows a
-  banner ("Limited to N attempts per player · scores come from Castcade", plus "You have k left" for a
+  banner ("Limited to N attempts per player · scores come from Arcaid Witness", plus "You have k left" for a
   logged-in viewer) and "n of N attempts" beside each player's name.
 - Room admin: `GET /:roomId/admin/tournaments/:id/attempts?gameId=` lists rows with names resolved
   through `resolveUserLabels` (never a raw id); `POST /:roomId/admin/tournaments/:id/attempts/:attemptId/void`
@@ -148,7 +160,11 @@ the row inserted in one transaction so two simultaneous starts cannot both be at
   That is the correct side to err on, and the admin void exists for the honest cases.
 - Two-player games count as an attempt for the paired account (the start happened); the companion
   skips their score anyway.
-- Cabinets are out until a start can be reported live or reconstructed from the launcher's records; the
-  refusal is explicit, never silent.
+- Cabinets count at report time, which leaves two holes: a zero-score or sub-20 s quit is not reported
+  by a cabinet older than 1.0.4 (from 1.0.4 it is reported as an attempt with no score), and a
+  launcher record can be deleted from the stick before the Witness reads it (the record's signature
+  prevents forging, not deletion).
+- Cabinet attempts are numbered by arrival order (the order reports reach the server, not start order),
+  and a cabinet score held off the board by the Sanctioned gate or a suppression still used its attempt.
 - Sealed-bid (A10) and Strikes (A12) compose with this: attempts bound the inputs, those decide what
   the board shows.

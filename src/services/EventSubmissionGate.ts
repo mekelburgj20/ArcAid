@@ -284,3 +284,32 @@ export async function checkThrowdownSubmission(params: {
         },
     };
 }
+
+/** The ONE message a manual submit to a limited tournament is refused with (ADR 0029). */
+export const ATTEMPTS_WITNESS_ONLY_MESSAGE =
+    'This tournament limits attempts per table; scores come from Arcaid Witness only.';
+
+/**
+ * Limited attempts (v2.167.0, ADR 0029). A tournament with `max_attempts` set
+ * takes scores from Arcaid Witness (the Castcade companion and the cabinet Witness) ONLY —
+ * attempts are counted per game played, and a typed score has no game to
+ * count. Every MANUAL submit path calls this right after it knows the target
+ * tournament (beside its `checkEventSubmission` / `checkThrowdownSubmission`
+ * call): the three web routes, the OAuth draft commit, the Throwdown submit
+ * and Discord `/submit-score`. A new submit path is one more call to copy.
+ *
+ * `tournamentId` null (no tournament: a pinned or freeplay board) passes.
+ */
+export async function checkAttemptLimitSubmission(
+    tournamentId: string | null | undefined,
+): Promise<{ ok: true } | { ok: false; code: 'ATTEMPTS_WITNESS_ONLY'; message: string }> {
+    if (!tournamentId) return { ok: true };
+    const db = await getDatabase();
+    const row = await db.get<{ max_attempts: number | null }>(
+        'SELECT max_attempts FROM tournaments WHERE id = ?', tournamentId,
+    );
+    if (row?.max_attempts != null && row.max_attempts >= 1) {
+        return { ok: false, code: 'ATTEMPTS_WITNESS_ONLY', message: ATTEMPTS_WITNESS_ONLY_MESSAGE };
+    }
+    return { ok: true };
+}

@@ -71,6 +71,8 @@ export interface Tournament {
   integrity_mode?: 'open' | 'sanctioned' | null;
   /** The stored Sanctioned rule set as a JSON string; null = the defaults. */
   sanctioned_rules?: string | null;
+  /** Limited attempts (migration 186, ADR 0029). null = unlimited. */
+  max_attempts?: number | null;
 }
 
 /** `GET /:roomId/tournaments` → `season` sub-object on season / poll-picked rows. */
@@ -175,6 +177,9 @@ export function toPayload(state: TournamentFormState, extra: Record<string, any>
     // Integrity mode + Sanctioned rules, both formats. The rules are sent in
     // BOTH modes so a tuned set survives a switch to Open play and back.
     ...integrityPayload(state.integrityMode, state.sanctionedRules),
+    // Limited attempts (ADR 0029): always sent; null = unlimited, so blanking
+    // the field switches the limit off.
+    max_attempts: state.maxAttempts ?? null,
     // is_active is intentionally NOT hardcoded here. `extra` is spread last, so
     // each caller supplies it: handleCreate passes `is_active: true`;
     // handleEditSave passes the row's current value so editing a paused
@@ -236,5 +241,6 @@ export function tournamentToFormState(t: Tournament, roomTimezone: string = DEFA
     poll: pollStateFromRow(t),
     integrityMode: integrityModeFromRow(t),
     sanctionedRules: sanctionedRulesFromRow(t.sanctioned_rules),
+    maxAttempts: typeof t.max_attempts === 'number' && t.max_attempts >= 1 ? t.max_attempts : null,
   };
 }

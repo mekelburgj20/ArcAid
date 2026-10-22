@@ -396,6 +396,8 @@ export class WitnessService {
         evidence?: import('../utils/sanctionedRules.js').WitnessEvidence | null;
         /** v2.166.0 — `pc` | `vr_headset` from a desktop; ignored from a cabinet. */
         playDevice?: import('./VpxScoreIngestService.js').PlayDevice | null;
+        /** v2.167.0 (ADR 0029) — the game START's key from `/witness/attempt`. */
+        attemptKey?: string | null;
     }): Promise<(import('./VpxScoreIngestService.js').VpxIngestResult & { deviceType: WitnessDeviceType }) | null> {
         const deviceId = (input.atgamesUniqueId || '').trim();
         if (!deviceId || !input.token) return null;
@@ -415,6 +417,8 @@ export class WitnessService {
             deviceId,
             evidence: input.evidence ?? null,
             playDevice: input.playDevice ?? null,
+            attemptKey: input.attemptKey ?? null,
+            restarts: input.restarts ?? null,
             tableName: (input.tableName || '').trim(),
             rom: input.rom ?? null,
             slug: input.slug ?? null,
@@ -460,7 +464,7 @@ export class WitnessService {
                 restarts: input.restarts ?? null,
                 partial: input.partial ?? null,
             });
-        } else if (result.status === 'no_match' || result.status === 'invalid' || result.status === 'not_sanctioned') {
+        } else if (result.status === 'no_match' || result.status === 'invalid' || result.status === 'not_sanctioned' || result.status === 'attempt_refused') {
             // A 200 the device will never retry, so this line is the ONLY
             // trace the score leaves. Round 8 (2026-09-06) lost two of six
             // scores to a cabinet-side naming bug (`table=t2_l8`) and the
@@ -476,6 +480,111 @@ export class WitnessService {
 
         await WitnessService.touchDevice(deviceId);
         return result;
+    }
+
+    /**
+     * Limited attempts (v2.167.0, ADR 0029): the companion reports a game
+     * START the moment it happens. Same device-token auth as the score call
+     * and the same `null` = bare 401 contract. The game is decided by the
+     * score call's own matching (`VpxScoreIngestService.match`), so an attempt
+     * and its score cannot land on different games; the window is tested
+     * against the START.
+     *
+     * Answers `counted` / `over_limit` (AttemptService), `unlimited` when
+     * the matched game's tournament has no limit (nothing recorded), or
+     * `no_match` (no open game, or two — never a guess).
+     */
+    static async recordAttempt(input: {
+        atgamesUniqueId: string;
+        token: string;
+        tableName: string;
+        rom?: string | null;
+        slug?: string | null;
+        startedTs: number;
+        key: string;
+        players?: number | null;
+        evidence?: import('../utils/sanctionedRules.js').WitnessEvidence | null;
+        playDevice?: import('./VpxScoreIngestService.js').PlayDevice | null;
+        /** Cabinet only (1.0.4): the end of a game it detected but cannot score. */
+        endedTs?: number | null;
+        /** Cabinet only: `no_score` | `short_game` — stored as the row's note. */
+        reason?: string | null;
+    }): Promise<{
+        status: 'counted' | 'over_limit' | 'unlimited' | 'no_match' | 'invalid';
+        game: string | null;
+        attempt: number | null;
+        of: number | null;
+        remaining: number | null;
+        late: boolean;
+        reason?: string;
+    } | null> {
+        const deviceId = (input.atgamesUniqueId || '').trim();
+        if (!deviceId || !input.token) return null;
+
+        const device = await WitnessService.authenticateDevice(deviceId, input.token);
+        if (!device) return null;
+
+        const empty = { game: null, attempt: null, of: null, remaining: null, late: false };
+        const startedTs = Math.floor(Number(input.startedTs));
+        const key = (input.key || '').trim();
+        if (!Number.isFinite(startedTs) || startedTs <= 0 || !key) {
+            await WitnessService.touchDevice(deviceId);
+            return { status: 'invalid', ...empty, reason: !key ? 'key missing' : 'start timestamp missing' };
+        }
+
+        const { VpxScoreIngestService } = await import('./VpxScoreIngestService.js');
+        const target = await WitnessService.getDeviceTarget(deviceId);
+        const tableName = (input.tableName || '').trim();
+        const matched = await VpxScoreIngestService.match({
+            canonicalUserId: device.canonical_user_id,
+            deviceType: device.device_type,
+            target,
+            deviceId,
+            evidence: input.evidence ?? null,
+            playDevice: input.playDevice ?? null,
+            tableName,
+            rom: input.rom ?? null,
+            slug: input.slug ?? null,
+            score: 0,
+            startedTs,
+            // The window is tested against the START: an attempt is a start.
+            endedTs: startedTs,
+        });
+        await WitnessService.touchDevice(deviceId);
+        if (matched.kind !== 'target') {
+            return {
+                status: 'no_match', ...empty,
+                reason: matched.kind === 'ambiguous'
+                    ? `"${tableName}" matches ${matched.count} open games — not guessing which`
+                    : `no open game matched "${tableName}"`,
+            };
+        }
+        const game = matched.target;
+        const limit = game.max_attempts;
+        if (limit == null || limit < 1 || !game.tournament_id) {
+            return { status: 'unlimited', ...empty, game: game.name };
+        }
+        const { AttemptService } = await import('./AttemptService.js');
+        const started = await AttemptService.recordStart({
+            tournamentId: game.tournament_id, gameId: game.id, gameRoomId: game.game_room_id,
+            canonicalUserId: device.canonical_user_id, deviceId, key, limit,
+            startedTs, players: input.players ?? null, tableName, rom: input.rom ?? null,
+            // A cabinet reports after the fact by design (an abandoned or short
+            // game it could not score), so it is never late; its reason and
+            // end ride on the row.
+            cabinet: device.device_type !== 'desktop',
+            endedTs: device.device_type !== 'desktop' ? (input.endedTs ?? null) : null,
+            note: device.device_type !== 'desktop' ? (input.reason ?? null) : null,
+        });
+        if (!started) return { status: 'invalid', ...empty, reason: 'key missing' };
+        logInfo(
+            `Witness attempt: ${device.canonical_user_id} ${started.status} ${started.attempt} of ${started.of} ` +
+            `on "${game.name}" (tournament ${game.tournament_id}${started.late ? ', LATE' : ''}${started.resent ? ', resend' : ''})`,
+        );
+        return {
+            status: started.status, game: game.name,
+            attempt: started.attempt, of: started.of, remaining: started.remaining, late: started.late,
+        };
     }
 
     /**

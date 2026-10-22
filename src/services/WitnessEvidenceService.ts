@@ -20,7 +20,9 @@ import {
 
 export type IngestOutcome =
     | 'ingested' | 'duplicate' | 'global' | 'global_duplicate' | 'no_match'
-    | 'invalid' | 'suppressed' | 'not_sanctioned';
+    | 'invalid' | 'suppressed' | 'not_sanctioned'
+    /** v2.167.0 (ADR 0029) — refused by Limited attempts; `reasons` holds the machine reason. */
+    | 'attempt_refused';
 
 export type EvidenceRecordInput = {
     deviceId: string;
@@ -36,6 +38,8 @@ export type EvidenceRecordInput = {
     integrityMode?: IntegrityMode | null;
     /** null = not evaluated (no tournament matched). */
     verdict?: Verdict | null;
+    /** v2.167.0 — stored instead of the verdict's reasons when given (an attempt refusal has no verdict). */
+    reasons?: string[];
     tableName: string;
     rom?: string | null;
     score: number;
@@ -48,6 +52,13 @@ export type EvidenceRow = {
     id: number;
     deviceId: string;
     canonicalUserId: string;
+    /**
+     * v2.167.0 — the player's name for the runner's table, resolved through
+     * `resolveUserLabels` (display name → username → earliest alias), batched
+     * per page. Never the raw id; "Unknown player" when nothing resolves.
+     * Set by `listForTournament` only.
+     */
+    playerLabel?: string;
     outcome: IngestOutcome;
     gameId: string | null;
     gameName: string | null;
@@ -82,6 +93,10 @@ export type TournamentIntegrity = {
          */
         globalGameId: string | null;
     } & GameRequirements>;
+    /** v2.167.0 (ADR 0029) — attempts per player per table; null = unlimited. */
+    maxAttempts: number | null;
+    /** v2.167.0 — `{ [gameId]: { [canonicalUserId]: used } }`, void rows excluded. Empty when unlimited. */
+    attempts: Record<string, Record<string, number>>;
 };
 
 type DbRow = {
@@ -147,7 +162,7 @@ export class WitnessEvidenceService {
             input.scoreHistoryId ?? null, input.globalScoreId ?? null,
             input.integrityMode ?? null,
             input.verdict?.verdict ?? null,
-            JSON.stringify(input.verdict?.reasons ?? []),
+            JSON.stringify(input.reasons ?? input.verdict?.reasons ?? []),
             JSON.stringify(input.verdict?.checks ?? []),
             input.tableName, input.rom ?? null, input.score, input.playedAt,
             e?.vpsGame ?? null, e?.vpsTable ?? null, e?.tableSha256 ?? null, e?.tableSaveRev ?? null,
@@ -173,7 +188,12 @@ export class WitnessEvidenceService {
               LIMIT ?`,
             ...(opts.gameId ? [tournamentId, opts.gameId, limit] : [tournamentId, limit]),
         );
-        return rows.map(rowToEvidence);
+        const { resolveUserLabels } = await import('./PlayerProfileResolver.js');
+        const labels = await resolveUserLabels(rows.map(r => r.canonical_user_id));
+        return rows.map(r => ({
+            ...rowToEvidence(r),
+            playerLabel: labels[r.canonical_user_id] ?? 'Unknown player',
+        }));
     }
 
     /**
@@ -221,8 +241,8 @@ export class WitnessEvidenceService {
     /** A tournament's mode, its (normalised) rules and each game's requirements. */
     static async getIntegrity(tournamentId: string): Promise<TournamentIntegrity | null> {
         const db = await getDatabase();
-        const t = await db.get<{ id: string; integrity_mode: string | null; sanctioned_rules: string | null }>(
-            'SELECT id, integrity_mode, sanctioned_rules FROM tournaments WHERE id = ?', tournamentId,
+        const t = await db.get<{ id: string; integrity_mode: string | null; sanctioned_rules: string | null; max_attempts: number | null }>(
+            'SELECT id, integrity_mode, sanctioned_rules, max_attempts FROM tournaments WHERE id = ?', tournamentId,
         );
         if (!t) return null;
         const games = await db.all<Array<{
@@ -237,8 +257,13 @@ export class WitnessEvidenceService {
               ORDER BY CASE g.status WHEN 'ACTIVE' THEN 0 WHEN 'SCHEDULED' THEN 1 WHEN 'QUEUED' THEN 2 ELSE 3 END, g.start_date DESC, g.created_at DESC`,
             tournamentId,
         );
+        const maxAttempts = typeof t.max_attempts === 'number' && t.max_attempts >= 1 ? t.max_attempts : null;
+        const { AttemptService } = await import('./AttemptService.js');
+        const attempts = maxAttempts != null ? await AttemptService.usedByGame(tournamentId) : {};
         return {
             tournamentId,
+            maxAttempts,
+            attempts,
             mode: normalizeIntegrityMode(t.integrity_mode),
             rules: normalizeSanctionedRules(t.sanctioned_rules),
             games: games.map(g => ({

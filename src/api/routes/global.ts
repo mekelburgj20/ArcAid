@@ -400,6 +400,10 @@ router.get('/witness/score', witnessIngestLimiter, async (req, res) => {
             // game ran in a headset (Castcade 0.2.10). Anything else reads as
             // the monitor; a cabinet's value is ignored by the ingest.
             playDevice: parsePlayDevice(req.query.play_device),
+            // v2.167.0 (ADR 0029) — the key of the game START this score
+            // belongs to, as sent on /witness/attempt. Only a tournament that
+            // limits attempts reads it.
+            attemptKey: typeof req.query.attempt === 'string' ? req.query.attempt : null,
         });
         if (!result) return res.status(401).json({ ok: false });
 
@@ -416,17 +420,80 @@ router.get('/witness/score', witnessIngestLimiter, async (req, res) => {
         // its reasons for the companion (it shows them on the Status page). A
         // CABINET is told `no_match`, the status its contract already knows for
         // "accepted, not placed"; it has no screen for the reasons anyway.
+        // v2.167.0 (ADR 0029) — a Limited-attempts refusal is wired the same
+        // way: the companion already shows `not_sanctioned` + `reasons`, so
+        // the desktop is told exactly that (no new wire status); a cabinet,
+        // which can never hold an attempt, is told `no_match`.
+        const refused = result.status === 'not_sanctioned' || result.status === 'attempt_refused';
         const wireStatus = result.status === 'suppressed' ? 'duplicate'
-            : (result.status === 'not_sanctioned' && result.deviceType !== 'desktop') ? 'no_match'
+            : (refused && result.deviceType !== 'desktop') ? 'no_match'
+            : refused ? 'not_sanctioned'
             : result.status;
         res.json({
             ok: true, status: wireStatus, game: result.gameName ?? null,
-            ...(result.status === 'not_sanctioned' && result.deviceType === 'desktop'
+            ...(refused && result.deviceType === 'desktop'
                 ? { reasons: result.reasons ?? [], fallback: result.fallback ?? null }
                 : {}),
+            ...(result.attempt ? { attempt: result.attempt } : {}),
         });
     } catch (error) {
         logError('API Error (GET /api/witness/score)');
+        res.status(500).json({ ok: false });
+    }
+});
+
+// Device: a game START (v2.167.0, ADR 0029 — Limited attempts). The Castcade
+// companion calls this the moment a game starts, with a `key` unique per
+// device per start that the later score call repeats as `attempt=<key>`.
+// Same device-token auth, limiter and bare 401 as /witness/score; matching is
+// the score call's own (`VpxScoreIngestService.match`). Every other answer is
+// a 200 the device treats as final:
+//   counted     a slot was used (attempt n of `of`, `remaining` left)
+//   over_limit  no slot left; recorded anyway, its score will not count
+//   unlimited   the matched tournament has no limit; nothing recorded
+//   no_match    no open game of the player's matched
+// A resend of the same key returns the stored answer. `late` = the start
+// reached us more than 120 s after it happened: it counts, its score will not.
+// A CABINET (1.0.4) calls it too, after the fact, for a game it detected but
+// cannot score (`reason=no_score|short_game`, `ended`, key `cab:<started>`) —
+// never late, and the same key its score report would use, so one start is
+// one row whichever call arrives first.
+router.get('/witness/attempt', witnessIngestLimiter, async (req, res) => {
+    try {
+        const { WitnessService } = await import('../../services/WitnessService.js');
+        const device = typeof req.query.device === 'string' ? req.query.device : '';
+        const token = (typeof req.query.token === 'string' && req.query.token)
+            || (typeof req.headers['x-witness-token'] === 'string' ? req.headers['x-witness-token'] as string : '');
+        const players = req.query.players !== undefined ? Number(req.query.players) : null;
+
+        const result = await WitnessService.recordAttempt({
+            atgamesUniqueId: device,
+            token,
+            tableName: typeof req.query.table === 'string' ? req.query.table : '',
+            rom: typeof req.query.rom === 'string' ? req.query.rom : null,
+            slug: typeof req.query.slug === 'string' ? req.query.slug : null,
+            startedTs: Number(req.query.started),
+            key: typeof req.query.key === 'string' ? req.query.key : '',
+            players: players != null && Number.isFinite(players) ? Math.floor(players) : null,
+            // Only `vps_game` matters here (matching prefers it, as on the
+            // score call); the rest of the evidence parser is reused so the two
+            // calls read the identity the same way.
+            evidence: parseWitnessEvidence(req.query as Record<string, unknown>),
+            playDevice: parsePlayDevice(req.query.play_device),
+            // Cabinet 1.0.4: a game it detected but cannot score (abandoned at
+            // zero, or under 20 s) is reported here after the fact with its
+            // end and why. Ignored from a desktop.
+            endedTs: req.query.ended !== undefined && Number.isFinite(Number(req.query.ended)) ? Number(req.query.ended) : null,
+            reason: typeof req.query.reason === 'string' ? req.query.reason : null,
+        });
+        if (!result) return res.status(401).json({ ok: false });
+        res.json({
+            ok: true, status: result.status, game: result.game,
+            attempt: result.attempt, of: result.of, remaining: result.remaining, late: result.late,
+            ...(result.reason ? { reason: result.reason } : {}),
+        });
+    } catch (error) {
+        logError('API Error (GET /api/witness/attempt)');
         res.status(500).json({ ok: false });
     }
 });
@@ -1576,6 +1643,14 @@ router.post('/submission-drafts/:stateParam/commit', requireDiscordUser, require
             : null;
         const resolvedTournamentId = resolvedGame && resolvedGame.status === 'ACTIVE' ? resolvedGame.tournament_id : null;
 
+        // v2.167.0 (ADR 0029) — a tournament that limits attempts takes
+        // Castcade scores only; the delayed submit is still a typed score.
+        {
+            const { checkAttemptLimitSubmission } = await import('../../services/EventSubmissionGate.js');
+            const attemptGate = await checkAttemptLimitSubmission(resolvedTournamentId);
+            if (!attemptGate.ok) return res.status(409).json({ error: attemptGate.message, code: attemptGate.code });
+        }
+
         // v2.53.0 (ADR 0016) — BOTH draft-commit paths previously skipped
         // validation entirely: whatever the stage endpoint stored went straight
         // to the DB, so a stale or hand-crafted draft could write a platform the
@@ -2048,13 +2123,16 @@ router.post('/throwdowns/:code/scores', globalSubmitLimiter, requireDiscordUser,
         const event = await ThrowdownService.getByCode(req.params.code as string);
         if (!event) return res.status(404).json({ error: 'Throwdown not found' });
 
-        const { checkThrowdownSubmission } = await import('../../services/EventSubmissionGate.js');
+        const { checkThrowdownSubmission, checkAttemptLimitSubmission } = await import('../../services/EventSubmissionGate.js');
         const gate = await checkThrowdownSubmission({
             tournamentId: event.id, userId: req.user!.discordId!,
         });
         if (!gate.ok || !gate.event) {
             return res.status(409).json({ error: gate.message, code: gate.code });
         }
+        // v2.167.0 (ADR 0029) — Limited attempts: Castcade scores only.
+        const attemptGate = await checkAttemptLimitSubmission(gate.event.tournamentId);
+        if (!attemptGate.ok) return res.status(409).json({ error: attemptGate.message, code: attemptGate.code });
 
         // Display name comes from the player's global profile — there is no room
         // to run a first-claim-wins name check against.

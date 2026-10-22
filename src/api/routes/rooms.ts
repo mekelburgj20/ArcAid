@@ -88,7 +88,7 @@ import { RoomScoresService } from '../../services/RoomScoresService.js';
 import { TournamentScoresService } from '../../services/TournamentScoresService.js';
 import { ScoreProvenanceService } from '../../services/ScoreProvenanceService.js';
 import { AuditService } from '../../services/AuditService.js';
-import { checkEventSubmission } from '../../services/EventSubmissionGate.js';
+import { checkEventSubmission, checkAttemptLimitSubmission } from '../../services/EventSubmissionGate.js';
 import { EventService, EventConfigError } from '../../services/EventService.js';
 import { PreferencesService } from '../../services/PreferencesService.js';
 
@@ -2981,6 +2981,11 @@ router.post('/:roomId/community-scores/:gameName', writeLimiter, requireDiscordU
             ? gate.event.tournamentId
             : (resolvedGame?.status === 'ACTIVE' ? resolvedGame.tournament_id : null);
 
+        // v2.167.0 (ADR 0029) — a tournament that limits attempts takes
+        // Castcade scores only; a typed score has no game start to count.
+        const attemptGate = await checkAttemptLimitSubmission(resolvedTournamentId);
+        if (!attemptGate.ok) return res.status(409).json({ error: attemptGate.message, code: attemptGate.code });
+
         // v2.53.0: re-validate the engine/device pair server-side against the
         // game's resolved scope, and DERIVE the legacy platform from it (any
         // client-supplied `platform` is ignored — the pair is authoritative).
@@ -3105,6 +3110,11 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, requireDiscordUser,
         const resolvedTournamentId = gate.event
             ? gate.event.tournamentId
             : (resolvedGame?.status === 'ACTIVE' ? resolvedGame.tournament_id : null);
+
+        // v2.167.0 (ADR 0029) — a tournament that limits attempts takes
+        // Castcade scores only; a typed score has no game start to count.
+        const attemptGate = await checkAttemptLimitSubmission(resolvedTournamentId);
+        if (!attemptGate.ok) return res.status(409).json({ error: attemptGate.message, code: attemptGate.code });
 
         // v2.53.0: engine/device validated + legacy platform derived (see the
         // community-scores handler above). v2.155.2 — validated against the
@@ -3311,6 +3321,11 @@ router.post('/:roomId/freeplay-score', writeLimiter, requireDiscordUser, require
         const resolvedTournamentId = gate.event
             ? gate.event.tournamentId
             : (resolvedGame?.status === 'ACTIVE' ? resolvedGame.tournament_id : null);
+
+        // v2.167.0 (ADR 0029) — a tournament that limits attempts takes
+        // Castcade scores only; a typed score has no game start to count.
+        const attemptGate = await checkAttemptLimitSubmission(resolvedTournamentId);
+        if (!attemptGate.ok) return res.status(409).json({ error: attemptGate.message, code: attemptGate.code });
 
         // v2.53.0: validate engine/device + derive the legacy platform for this
         // game in this room (uses the canonical name, since freeplay catalogue

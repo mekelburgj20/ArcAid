@@ -152,6 +152,11 @@ const TournamentBaseSchema = z.object({
     integrity_mode: z.enum(['open', 'sanctioned']).optional(),
     sanctioned_rules: z.record(z.string(), z.unknown()).nullable().optional(),
     /**
+     * Limited attempts (v2.167.0, ADR 0029): game starts per player per table.
+     * Omitted = leave as stored (update) / unlimited (create); null = unlimited.
+     */
+    max_attempts: z.number().int().min(1).max(999).nullable().optional(),
+    /**
      * Season block (docs/season-format-plan.md §3.1). `season_table_count`:
      * omitted = leave the stored season as it is (update) / not a season
      * (create); null = switch the season off; N = a season of N tables. A
