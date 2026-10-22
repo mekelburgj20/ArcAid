@@ -66,6 +66,8 @@ export class ScoreSyncPoller {
     private _paused = false;
     private intervalMs = DEFAULT_INTERVAL_MS;
     private consecutiveErrors = 0;
+    /** v2.167.0 — game ids already WARNed about as attempt-limited (once per game per process). */
+    private static attemptLimitWarned = new Set<string>();
     private _lastPollSucceeded = false;
     private _pollCount = 0;
     private _lastPollAt: number | null = null;
@@ -369,8 +371,11 @@ export class ScoreSyncPoller {
             //
             // ADR 0016 P2 §3b: `t.iscored_default_engine` / `_device` are NOT
             // selected. Synced scores are always unknown/unknown — no inference.
+            //
+            // v2.167.0 (ADR 0029): `t.max_attempts` rides along so the poll
+            // loop can skip a tournament that limits attempts.
             `SELECT g.id, g.tournament_id, g.name, t.game_room_id,
-                    t.iscored_default_platform AS platform
+                    t.iscored_default_platform AS platform, t.max_attempts
              FROM games g
              JOIN tournaments t ON t.id = g.tournament_id
              WHERE g.iscored_id = ? AND t.game_room_id IN (${placeholders})
@@ -422,6 +427,21 @@ export class ScoreSyncPoller {
             // row-selection contract is regression-locked (v2.7.2 duplicate-DM).
             const localGame = await ScoreSyncPoller.findLocalGameForIscoredId(db, gameData.GameID, roomIds);
             if (!localGame) continue;
+
+            // v2.167.0 (ADR 0029) — a tournament that limits attempts takes
+            // Castcade scores only: iScored cannot know about game starts, so a
+            // synced score could never be bound to an attempt. Skipped, with
+            // one WARN per game per process.
+            if (localGame.max_attempts != null && localGame.max_attempts >= 1) {
+                if (!ScoreSyncPoller.attemptLimitWarned.has(localGame.id)) {
+                    ScoreSyncPoller.attemptLimitWarned.add(localGame.id);
+                    logWarn(
+                        `ScoreSyncPoller[${creds.gameroomName}]: skipping "${localGame.name}" (game ${localGame.id}) — ` +
+                        `its tournament limits attempts, so scores come from Castcade only (ADR 0029)`,
+                    );
+                }
+                continue;
+            }
 
             const existingRows = await db.all(
                 'SELECT id, score, discord_user_id FROM submissions WHERE game_id = ?',

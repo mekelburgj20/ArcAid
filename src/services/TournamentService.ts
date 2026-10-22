@@ -125,6 +125,12 @@ function resolvePoll(
  * eligibility_days is 0 because a community vote overrides cooldown — the fill
  * loop's cooldown check would otherwise hold the poll winner and stall the week.
  */
+/** ADR 0029 — a positive integer limit, or null (unlimited). Anything else reads as unlimited. */
+function normalizeMaxAttempts(value: unknown): number | null {
+    const n = typeof value === 'string' && value.trim() !== '' ? Number(value) : value;
+    return typeof n === 'number' && Number.isInteger(n) && n >= 1 && n <= 999 ? n : null;
+}
+
 const POLL_FORCED = { winner_picks: false, auto_pick: false, max_active_games: 1, eligibility_days: 0 } as const;
 
 export class TournamentService {
@@ -181,14 +187,16 @@ export class TournamentService {
         integrity_mode?: 'open' | 'sanctioned';
         /** v2.165.0 — a partial Sanctioned rule set; normalised on save. */
         sanctioned_rules?: Record<string, unknown> | null;
+        /** v2.167.0 (ADR 0029) — attempts per player per table; null = unlimited, omitted (update) = unchanged. */
+        max_attempts?: number | null;
     } & SeasonInput): Promise<void> {
         const db = await getDatabase();
         const season = resolveSeason(data, null, data.format, data.cadence);
         const poll = resolvePoll(data, null, data.format, data.cadence);
         if (poll) data = { ...data, ...POLL_FORCED };
         await db.run(
-            `INSERT INTO tournaments (id, name, type, mode, cadence, platform_rules, guild_id, discord_channel_id, discord_role_id, is_active, display_order, max_active_games, cleanup_rule, game_room_id, winner_picks, auto_pick, eligibility_days, winner_pick_window_min, runnerup_pick_window_min, allow_dynasty, integrity_mode, sanctioned_rules)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO tournaments (id, name, type, mode, cadence, platform_rules, guild_id, discord_channel_id, discord_role_id, is_active, display_order, max_active_games, cleanup_rule, game_room_id, winner_picks, auto_pick, eligibility_days, winner_pick_window_min, runnerup_pick_window_min, allow_dynasty, integrity_mode, sanctioned_rules, max_attempts)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             data.id, data.name, data.type, data.mode || 'pinball',
             JSON.stringify(data.cadence),
             // ADR 0016 P2 §2 — every writer emits the two-axis shape. Normalising
@@ -206,6 +214,7 @@ export class TournamentService {
             (data.allow_dynasty ?? true) ? 1 : 0,
             normalizeIntegrityMode(data.integrity_mode),
             data.sanctioned_rules ? JSON.stringify(normalizeSanctionedRules(data.sanctioned_rules)) : null,
+            normalizeMaxAttempts(data.max_attempts),
         );
         if (poll) await this.applyPoll(data.id, poll);
         if (season) await this.applySeason(data.id, data.name, data.game_room_id ?? null, season, null);
@@ -243,6 +252,8 @@ export class TournamentService {
         integrity_mode?: 'open' | 'sanctioned';
         /** v2.165.0 — omitted = unchanged, null = back to the defaults. */
         sanctioned_rules?: Record<string, unknown> | null;
+        /** v2.167.0 (ADR 0029) — attempts per player per table; null = unlimited, omitted (update) = unchanged. */
+        max_attempts?: number | null;
     } & SeasonInput): Promise<void> {
         const db = await getDatabase();
         const stored = await db.get('SELECT * FROM tournaments WHERE id = ?', id);
@@ -258,8 +269,13 @@ export class TournamentService {
         const sanctionedRules = data.sanctioned_rules === undefined
             ? (stored?.sanctioned_rules ?? null)
             : (data.sanctioned_rules === null ? null : JSON.stringify(normalizeSanctionedRules(data.sanctioned_rules)));
+        // Limited attempts (ADR 0029): same omission rule — omitted keeps the
+        // stored limit, null switches it off.
+        const maxAttempts = data.max_attempts === undefined
+            ? normalizeMaxAttempts(stored?.max_attempts)
+            : normalizeMaxAttempts(data.max_attempts);
         await db.run(
-            `UPDATE tournaments SET name = ?, type = ?, mode = ?, cadence = ?, platform_rules = ?, guild_id = ?, discord_channel_id = ?, discord_role_id = ?, is_active = ?, display_order = ?, max_active_games = ?, cleanup_rule = ?, game_room_id = ?, winner_picks = ?, auto_pick = ?, eligibility_days = ?, winner_pick_window_min = ?, runnerup_pick_window_min = ?, allow_dynasty = ?, integrity_mode = ?, sanctioned_rules = ?
+            `UPDATE tournaments SET name = ?, type = ?, mode = ?, cadence = ?, platform_rules = ?, guild_id = ?, discord_channel_id = ?, discord_role_id = ?, is_active = ?, display_order = ?, max_active_games = ?, cleanup_rule = ?, game_room_id = ?, winner_picks = ?, auto_pick = ?, eligibility_days = ?, winner_pick_window_min = ?, runnerup_pick_window_min = ?, allow_dynasty = ?, integrity_mode = ?, sanctioned_rules = ?, max_attempts = ?
              WHERE id = ?`,
             data.name, data.type, data.mode || 'pinball',
             JSON.stringify(data.cadence),
@@ -278,6 +294,7 @@ export class TournamentService {
             (data.allow_dynasty ?? true) ? 1 : 0,
             integrityMode,
             sanctionedRules,
+            maxAttempts,
             id
         );
         if (poll) {

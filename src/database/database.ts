@@ -3225,6 +3225,46 @@ async function doInitDatabase(): Promise<Database> {
         // came from a Witness is stale right now. Derived state: one flush,
         // every board recomputes on its next read.
         { name: '185_flush_leaderboard_cache', sql: `DELETE FROM leaderboard_cache;` },
+        // v2.167.0 (ADR 0029) — Limited attempts. `tournaments.max_attempts`
+        // NULL = unlimited; a positive integer = that many game STARTS per
+        // player per games row, counted over the wire by `/witness/attempt`
+        // (AttemptService). No FKs: the trail outlives what it describes, same
+        // doctrine as `witness_evidence`.
+        { name: '186_limited_attempts', handler: async (db) => {
+            const has = async (table: string, col: string) =>
+                ((await db.all(`PRAGMA table_info(${table})`)) as Array<{ name: string }>).some(c => c.name === col);
+            if (!await has('tournaments', 'max_attempts')) {
+                await db.exec(`ALTER TABLE tournaments ADD COLUMN max_attempts INTEGER`);
+            }
+            await db.exec(`
+                CREATE TABLE IF NOT EXISTS attempts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    tournament_id TEXT NOT NULL,
+                    game_id TEXT NOT NULL,
+                    game_room_id TEXT,
+                    canonical_user_id TEXT NOT NULL,
+                    device_id TEXT NOT NULL,
+                    attempt_key TEXT NOT NULL,
+                    attempt_no INTEGER NOT NULL,
+                    status TEXT NOT NULL,
+                    started_ts INTEGER NOT NULL,
+                    received_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    late INTEGER NOT NULL DEFAULT 0,
+                    ended_ts INTEGER,
+                    score INTEGER,
+                    score_history_id INTEGER,
+                    players INTEGER,
+                    table_name TEXT,
+                    rom TEXT,
+                    voided_by TEXT,
+                    voided_at TEXT,
+                    note TEXT
+                );
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_attempts_key ON attempts(device_id, attempt_key);
+                CREATE INDEX IF NOT EXISTS idx_attempts_game_user ON attempts(game_id, canonical_user_id);
+                CREATE INDEX IF NOT EXISTS idx_attempts_tournament ON attempts(tournament_id, received_at);
+            `);
+        } },
     ];
 
     for (const migration of migrations) {

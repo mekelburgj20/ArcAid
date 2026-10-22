@@ -253,10 +253,26 @@ export default function GameDetail() {
    */
   const [integrityTournamentId, setIntegrityTournamentId] = useState<string | null>(null);
   const [integrityLoaded, setIntegrityLoaded] =
-    useState<{ tournamentId: string; mode: 'open' | 'sanctioned'; verdicts: IntegrityVerdictMap } | null>(null);
+    useState<{
+      tournamentId: string; mode: 'open' | 'sanctioned'; verdicts: IntegrityVerdictMap;
+      /** v2.167.0 (ADR 0029) — attempts per player per table; null = unlimited. */
+      maxAttempts: number | null;
+      /** v2.167.0 — `{ [gameId]: { [canonicalUserId]: used } }`. */
+      attempts: Record<string, Record<string, number>>;
+    } | null>(null);
   // Keyed on the tournament id so a stale map is never drawn on another
   // board — and no state reset is needed when the id changes.
   const integrity = integrityLoaded && integrityLoaded.tournamentId === integrityTournamentId ? integrityLoaded : null;
+  // v2.167.0 (ADR 0029) — attempts used on THIS board's game, keyed by the
+  // canonical user id the witness writes under (= `submitted_by_user_id`).
+  const boardAttempts = (integrity?.maxAttempts != null && leaderboard?.gameId)
+    ? (integrity.attempts[leaderboard.gameId] ?? {})
+    : null;
+  const attemptsUsedFor = (userId: string | null | undefined): number | null =>
+    boardAttempts && userId ? (boardAttempts[userId] ?? null) : null;
+  const viewerAttemptsLeft = (integrity?.maxAttempts != null && boardAttempts && viewerClaims?.discordId)
+    ? Math.max(0, integrity.maxAttempts - (boardAttempts[viewerClaims.discordId] ?? 0))
+    : null;
   const [loading, setLoading] = useState(true);
   const [ratingInfo, setRatingInfo] = useState<{ avg_rating: number; rating_count: number; user_rating: number | null } | null>(null);
   // Initial 'community' is the safe pre-data default; the leaderboard tab does
@@ -538,12 +554,17 @@ export default function GameDetail() {
     let cancelled = false;
     fetch(`/api/rooms/${roomId}/tournaments/${tournamentId}/integrity`)
       .then(r => r.ok ? r.json() : null)
-      .then((data: { mode?: string; verdicts?: IntegrityVerdictMap } | null) => {
+      .then((data: {
+        mode?: string; verdicts?: IntegrityVerdictMap;
+        maxAttempts?: number | null; attempts?: Record<string, Record<string, number>>;
+      } | null) => {
         if (cancelled || !data) return;
         setIntegrityLoaded({
           tournamentId,
           mode: data.mode === 'sanctioned' ? 'sanctioned' : 'open',
           verdicts: data.verdicts && typeof data.verdicts === 'object' ? data.verdicts : {},
+          maxAttempts: typeof data.maxAttempts === 'number' && data.maxAttempts >= 1 ? data.maxAttempts : null,
+          attempts: data.attempts && typeof data.attempts === 'object' ? data.attempts : {},
         });
       })
       .catch(() => {});
@@ -1049,6 +1070,19 @@ export default function GameDetail() {
         {/* Tab Content */}
         {activeTab === 'leaderboard' && (
           <>
+            {/* v2.167.0 (ADR 0029) — Limited attempts banner. */}
+            {leaderboard && integrity?.maxAttempts != null && (
+              <div className="mb-4 rounded border border-neon-cyan/40 bg-neon-cyan/5 px-4 py-3 text-sm" data-testid="attempts-banner">
+                <p className="text-primary">
+                  Limited to {integrity.maxAttempts} attempt{integrity.maxAttempts === 1 ? '' : 's'} per player · scores come from Castcade live mode
+                </p>
+                {viewerAttemptsLeft != null && (
+                  <p className="text-muted text-xs mt-1">
+                    You have {viewerAttemptsLeft} attempt{viewerAttemptsLeft === 1 ? '' : 's'} left
+                  </p>
+                )}
+              </div>
+            )}
             {/* Active Leaderboard */}
             {leaderboard && leaderboard.rankings.length > 0 && (() => {
               // v2.58.0 (ADR 0016): pick the rendered ranking set from the
@@ -1140,6 +1174,16 @@ export default function GameDetail() {
                                 this score against the tournament's conditions.
                                 Decorates the row; never filters or re-ranks. */}
                             <IntegrityChip chip={integrityChipFor(integrity?.verdicts, entry.history_id, integrity?.mode)} />
+                            {/* v2.167.0 (ADR 0029): attempts used on this table. */}
+                            {(() => {
+                              const used = attemptsUsedFor(entry.submitted_by_user_id);
+                              if (used == null || !integrity?.maxAttempts) return null;
+                              return (
+                                <span className="text-[11px] text-muted whitespace-nowrap" data-testid="attempts-used">
+                                  {used} of {integrity.maxAttempts} attempts
+                                </span>
+                              );
+                            })()}
                           </div>
                         </div>
                         <div className="flex items-center gap-2 flex-shrink-0 pl-2">

@@ -40,7 +40,143 @@ type IntegrityResponse = {
     rules: Record<string, unknown>;
     games: IntegrityGame[];
     verdicts: Record<string, { verdict: 'pass' | 'flagged'; reasons: string[] }>;
+    /** v2.167.0 (ADR 0029) — attempts per player per table; null / absent = unlimited. */
+    maxAttempts?: number | null;
 };
+
+/** One row of `GET .../admin/tournaments/:id/attempts` (`AttemptAdminRow` in `AttemptService.ts`). */
+export type AttemptRow = {
+    id: number;
+    gameId: string;
+    gameName: string | null;
+    userId: string;
+    /** Resolved server-side (display name → username → alias); never a raw id. */
+    playerLabel: string;
+    attemptNo: number;
+    status: 'counted' | 'over_limit' | 'scored' | 'void' | 'unreported';
+    late: boolean;
+    startedTs: number;
+    receivedAt: string;
+    endedTs: number | null;
+    score: number | null;
+    scoreHistoryId: number | null;
+    tableName: string | null;
+    voidedAt: string | null;
+    voidable: boolean;
+};
+
+/** Plain-English attempt status, as a runner reads it. */
+const ATTEMPT_STATUS_LABEL: Record<AttemptRow['status'], string> = {
+    counted: 'started, no score yet',
+    scored: 'scored',
+    over_limit: 'over the limit',
+    unreported: 'start not reported',
+    void: 'voided',
+};
+
+function AttemptsSection({ base, maxAttempts, games, toast }: {
+    base: string;
+    maxAttempts: number;
+    games: IntegrityGame[];
+    toast: IntegrityPanelProps['toast'];
+}) {
+    const [rows, setRows] = useState<AttemptRow[] | null>(null);
+    const [failed, setFailed] = useState(false);
+    const [voiding, setVoiding] = useState<number | null>(null);
+
+    useEffect(() => {
+        let cancelled = false;
+        api.get<{ attempts: AttemptRow[] }>(`${base}/attempts`)
+            .then(r => { if (!cancelled) setRows(r.attempts ?? []); })
+            .catch(() => { if (!cancelled) { setRows([]); setFailed(true); } });
+        return () => { cancelled = true; };
+    }, [base]);
+
+    const voidAttempt = async (row: AttemptRow) => {
+        setVoiding(row.id);
+        try {
+            await api.post(`${base}/attempts/${row.id}/void`, {});
+            setRows(prev => (prev ?? []).map(r => r.id === row.id ? { ...r, status: 'void', voidable: false } : r));
+            toast(`Attempt ${row.attemptNo} given back to ${row.playerLabel}`, 'success');
+        } catch (err) {
+            toast((err as Error)?.message || 'Could not void the attempt', 'error');
+        } finally {
+            setVoiding(null);
+        }
+    };
+
+    const byGame = new Map<string, AttemptRow[]>();
+    for (const r of rows ?? []) {
+        const list = byGame.get(r.gameId) ?? [];
+        list.push(r);
+        byGame.set(r.gameId, list);
+    }
+    const nameOf = (gameId: string, fallback: string | null) =>
+        games.find(g => g.gameId === gameId)?.name ?? fallback ?? 'Unknown game';
+
+    return (
+        <section className="mb-6" data-testid="attempts-section">
+            <h3 className="text-xs font-display uppercase tracking-wider text-muted mb-2">Attempts</h3>
+            <p className="text-xs text-faint mb-3">
+                Each player gets {maxAttempts} game start{maxAttempts === 1 ? '' : 's'} per table, counted by Castcade when the game starts.
+                Void gives an attempt back (a crashed companion, an honest mistake); an attempt that already has a score cannot be voided — delete the score instead.
+            </p>
+            {rows === null ? (
+                <p className="text-xs text-muted">Loading…</p>
+            ) : failed ? (
+                <p className="text-xs text-neon-magenta" role="alert">Could not load attempts.</p>
+            ) : byGame.size === 0 ? (
+                <p className="text-xs text-faint">No game starts recorded yet.</p>
+            ) : (
+                <div className="space-y-4">
+                    {[...byGame.entries()].map(([gameId, list]) => (
+                        <div key={gameId} data-testid={`attempts-game-${gameId}`}>
+                            <p className="text-sm text-primary mb-1">{nameOf(gameId, list[0]?.gameName ?? null)}</p>
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-xs">
+                                    <thead>
+                                        <tr className="text-left text-faint font-display uppercase tracking-wider">
+                                            <th className="py-1 pr-2">Player</th>
+                                            <th className="py-1 pr-2">Attempt</th>
+                                            <th className="py-1 pr-2">Status</th>
+                                            <th className="py-1 pr-2">Started</th>
+                                            <th className="py-1 pr-2 text-right">Score</th>
+                                            <th className="py-1"></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {list.map(r => (
+                                            <tr key={r.id} className="border-t border-border/60 align-top" data-testid={`attempt-row-${r.id}`}>
+                                                <td className="py-1.5 pr-2 text-primary break-words">{r.playerLabel}</td>
+                                                <td className="py-1.5 pr-2 text-muted whitespace-nowrap">{r.attemptNo} of {maxAttempts}</td>
+                                                <td className={`py-1.5 pr-2 ${r.status === 'scored' ? 'text-neon-cyan' : r.status === 'void' ? 'text-faint' : r.status === 'counted' ? 'text-muted' : 'text-neon-magenta'}`}>
+                                                    {ATTEMPT_STATUS_LABEL[r.status] ?? r.status}
+                                                    {r.late && r.status !== 'void' && <span className="block text-[10px] text-faint">reported late</span>}
+                                                </td>
+                                                <td className="py-1.5 pr-2 text-muted whitespace-nowrap">{formatWhen(new Date(r.startedTs * 1000).toISOString())}</td>
+                                                <td className="py-1.5 pr-2 text-right font-display text-primary whitespace-nowrap">{r.score != null ? formatScore(r.score) : '—'}</td>
+                                                <td className="py-1.5 text-right">
+                                                    {r.voidable && (
+                                                        <NeonButton variant="ghost" className="text-xs px-2 py-0.5"
+                                                            disabled={voiding === r.id}
+                                                            onClick={() => void voidAttempt(r)}
+                                                            aria-label={`Void attempt ${r.attemptNo} for ${r.playerLabel}`}>
+                                                            Void
+                                                        </NeonButton>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </section>
+    );
+}
 
 type CatalogueTable = {
     vpsTableId: string;
@@ -111,6 +247,7 @@ const OUTCOME_LABEL: Record<string, string> = {
     invalid: 'invalid',
     suppressed: 'suppressed',
     not_sanctioned: 'held out (Sanctioned)',
+    attempt_refused: 'held out (attempts)',
 };
 
 const CHECK_TONE: Record<RuleCheck['status'], string> = {
@@ -227,6 +364,7 @@ export default function IntegrityPanel({ roomId, tournament, onClose, toast }: I
     const [savingGame, setSavingGame] = useState<string | null>(null);
     const [romDrafts, setRomDrafts] = useState<Record<string, string>>({});
     const [expanded, setExpanded] = useState<number | null>(null);
+    const [maxAttempts, setMaxAttempts] = useState<number | null>(null);
 
     const base = `/rooms/${roomId}/tournaments/${tournament.id}`;
 
@@ -243,6 +381,7 @@ export default function IntegrityPanel({ roomId, tournament, onClose, toast }: I
                 if (cancelled) return;
                 setMode(normalizeIntegrityMode(integrity.mode));
                 setGames(integrity.games);
+                setMaxAttempts(typeof integrity.maxAttempts === 'number' && integrity.maxAttempts >= 1 ? integrity.maxAttempts : null);
                 setRomDrafts(Object.fromEntries(integrity.games.map(g => [g.gameId, g.requiredRom ?? ''])));
                 setEvidence(ev.evidence ?? []);
                 // One table list per catalogue game, shared by games that resolve
@@ -368,6 +507,11 @@ export default function IntegrityPanel({ roomId, tournament, onClose, toast }: I
                                 </div>
                             )}
                         </section>
+
+                        {/* Section A2 — Limited attempts (ADR 0029), only when the tournament has a limit */}
+                        {maxAttempts != null && (
+                            <AttemptsSection base={`/rooms/${roomId}/admin/tournaments/${tournament.id}`} maxAttempts={maxAttempts} games={games} toast={toast} />
+                        )}
 
                         {/* Section B — evidence */}
                         <section>

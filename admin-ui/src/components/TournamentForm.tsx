@@ -122,6 +122,12 @@ export interface TournamentFormState {
   integrityMode: IntegrityMode;
   /** Kept (and sent) in both modes so a tuned rule set survives a switch. */
   sanctionedRules: SanctionedRulesForm;
+  /**
+   * Limited attempts (v2.167.0, ADR 0029): game starts per player per table.
+   * null = unlimited (blank field). Always sent, so blanking it switches the
+   * limit off.
+   */
+  maxAttempts: number | null;
 }
 
 // --- Defaults ---
@@ -155,6 +161,7 @@ export const defaultFormState: TournamentFormState = {
   poll: { ...defaultPollState },
   integrityMode: 'open',
   sanctionedRules: { ...defaultSanctionedRules },
+  maxAttempts: null,
 };
 
 /** A blank create form seeded with the ROOM's timezone (schedule + event). */
@@ -685,6 +692,46 @@ function PollSettings({ poll, onChange, schedule }: {
 }
 
 /**
+ * Limited attempts (v2.167.0, ADR 0029). Blank = unlimited. A positive whole
+ * number turns the tournament into a Castcade-only one: every game start
+ * counts, and manual (phone / Discord) entry is refused by the server.
+ */
+function LimitedAttemptsField({ value, onChange }: { value: number | null; onChange: (v: number | null) => void }) {
+  return (
+    <div className="mb-4" data-testid="limited-attempts">
+      <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5" htmlFor="tournament-max-attempts">
+        Limited attempts <InfoTip text="Each player gets this many game starts per table. Every start counts, however it ends. Scores come only from Castcade live mode (tables imported in Castcade); phone and Discord entry are off for this tournament." />
+      </label>
+      <input
+        id="tournament-max-attempts"
+        type="number"
+        inputMode="numeric"
+        min={1}
+        max={999}
+        step={1}
+        placeholder="Unlimited"
+        aria-label="Limited attempts"
+        value={value ?? ''}
+        onChange={e => {
+          // Blank = unlimited; anything that is not a whole number 1–999 is
+          // ignored (the field keeps its last valid value).
+          const raw = e.target.value;
+          if (raw.trim() === '') { onChange(null); return; }
+          const n = Number(raw);
+          if (Number.isInteger(n) && n >= 1 && n <= 999) onChange(n);
+        }}
+        className="w-32 px-3 py-2 bg-raised border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan transition-colors"
+      />
+      <p className="text-xs text-faint mt-1">
+        {value == null
+          ? 'Blank = unlimited: players may play as often as they like and the best score counts.'
+          : `Each player gets ${value} game start${value === 1 ? '' : 's'} per table. Scores come only from Castcade.`}
+      </p>
+    </div>
+  );
+}
+
+/**
  * Integrity section (v2.166.0, ADR 0027; Castcade ADR 0005) — Open play or
  * Sanctioned play, and the Sanctioned rule set. The rules are measured by the
  * Castcade companion with every score it posts and judged by the SAME pure
@@ -1036,6 +1083,7 @@ export default function TournamentFormFields({ state, set, platforms, roomId, lo
         onModeChange={m => set('integrityMode', m)}
         onRulesChange={r => set('sanctionedRules', r)}
       />
+      <LimitedAttemptsField value={state.maxAttempts} onChange={v => set('maxAttempts', v)} />
       {!isEvent && (
         <>
           <div className="mb-4">
