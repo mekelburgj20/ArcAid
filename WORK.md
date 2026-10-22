@@ -10,7 +10,7 @@ priority tier from `LAUNCH.md`. Pick an item with `/work <ID>`; end a session wi
 ## Now
 
 - ArcAid 2.166.1 on prod (2026-10-21). Integrity mode is live: #370 backend (2.165.0, ADR 0027) + #371 admin UI and VR-headset provenance (2.166.0); #354 put the tournament selector first on Picks (2.166.1); Dependabot groups #355/#356 merged.
-- In flight: nothing claimed by an agent.
+- In flight: A16 Limited attempts (fable@wt-a16, ADR 0029, claimed 2026-10-22) — the Castcade half (attempt call at game start, `attempt=` on the score) is in castcade's lane.
 - Owner steps: A3 configure GamerDad89's real Season in mox_s_vpx_tournaments (room zone America/New_York first, then the cron) · re-pair the owner's rig from Castcade Settings so its device row reads desktop, not cabinet (tracked in castcade `WORK.md`).
 - Next by LAUNCH tier — tier 1: C1 manifest adoption (cabinet half; the desktop half shipped with ADR 0027), B1 "Also count this score in…", B2 cheap parity riders · tier 2: B5 submit-moment rank on pinned games, E1 Discord `/submit-score` through the shared resolver, A8 one cooldown rule.
 - Newest owner ask: B7 Room Stats page (2026-10-20).
@@ -42,6 +42,7 @@ Lane: `src/engine/**`, `src/services/{Tournament,PickQueue,PickDisposition,PickA
 - **A13** `done 2.141.0` Private room-scoped tournaments — satisfied by the Events/Throwdowns arc (ADR 0018 Consequences); nothing remains for the hosted case
 - **A14** `idea` Picks page richer available-games list, remainder — image/logo in the row, whole entry clickable (title-only today), pick frequency / last picker, catalogue rating, "View full game page" on `GameQuickView`; mfg·year, last-played and cooldown chips already render; natural home for the My Tables filter (C2); screenshot loop · tier: 5 · spec: ROADMAP.md §"[UI ARC] Picks page redesign"
 - **A15** `done 2.141.0` Tournament Events & Throwdowns arc (2.135.0 → 2.141.0, ADRs 0017/0018); P8 became the Arcaid Witness (W1)
+- **A16** `claimed` Limited attempts — `tournaments.max_attempts` (N game STARTS per player per games row, counted live over `GET /api/witness/attempt`, the score binds with `attempt=<key>`); when set, only Castcade scores land (web/Discord submit 409 `ATTEMPTS_WITNESS_ONLY`, poller + AtGames pull skip, cabinets refused to Global); late/over-limit/unreported starts count and their score is refused like a Sanctioned refusal; `attempts` table (migration 186), public counts on the integrity read + game-page banner and "n of N", admin list + void; owner ask 2026-10-22 ("wire this up as soon as possible") · owner: fable@wt-a16 · since: 2026-10-22 · spec: docs/decisions/0029-limited-attempts.md · touches: src/services/VpxScoreIngestService.ts, src/api/routes/{global,rooms,integrity}.ts, src/engine/ScoreSyncPoller.ts, admin-ui/src/pages/GameDetail.tsx, admin-ui/src/components/IntegrityPanel.tsx · gate: two starts + one score on a 1-attempt tournament from the owner's rig: score 1 lands with "1 of 1", the second start answers over_limit and its score is refused with the reason on the companion
 
 ## B. Scores, submission, leaderboards, Global Scoreboard, cards, styles, stats
 
@@ -159,7 +160,7 @@ Lane: `src/services/{Witness,WitnessVerify,WitnessEvidence,VpxScoreIngest,EventL
   - **W8.4** `ready` Item 4: `join:match` + `match:relay` opaque relay in `websocket.ts`, rate-limited, roster-checked
   - **W8.5** `ready` Item 5: `source='castcade'` via `rebuildScoreHistorySource`, `castcade_matches` table, `witness_devices.public_key`
   - **W8.6** `ready` Item 6: `RESULT` ingest with N signatures — mismatch is stored and badged `flagged`, never rejected · needs: W8.5
-  - **W8.7** `ready` Item 7: ArcAid ADR "Castcade matches are Throwdowns" (next free number 0029; castcade `arcaid-side-changes.md` §7 updated 2026-10-21) · needs: W8.2
+  - **W8.7** `ready` Item 7: ArcAid ADR "Castcade matches are Throwdowns" (next free number 0030 — 0029 went to Limited attempts, A16; castcade `arcaid-side-changes.md` §7 updated 2026-10-21) · needs: W8.2
 - **W9** `done 2.158.0` Cabinet ingest follow-ups from the 1.0.x field runs — exit samples verify or stay neutral, never flag (migration 179); `recordGlobal` prefers the exact journal display name; the ADR 0022 addendum moved to H3
 - **W10** `done 1.0.4` Cabinet Witness 1.0.4 kit — Defect F (any token VALUE change runs the catch-up; failed sends retried after 60 s), heartbeat every 120 s, the four exit-sample files as a harness target; SDK image rebuilt, built + harness-passed 2026-10-21 (`tmp/witness-build/arcaid-witness-kit-v1.0.4.zip`, buildlogs/v1.0.4-*.log); owner step: bench on the Micro, send to ChalataLove · spec: SPRINT_STATUS.md #152–#153 · touches: tmp/witness-build/** (gitignored)
 - **W11** `idea` Quiet-cabinet nudge (a designated cabinet that has not checked in as the round opens) · spec: SPRINT_STATUS.md #149
