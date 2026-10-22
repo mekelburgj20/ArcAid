@@ -304,6 +304,19 @@ describe('witness routes on a limited tournament', () => {
             expect(JSON.parse(trail!.reasons)).toEqual(['over_limit']);
         });
 
+        it('the runner\'s evidence list names the player (resolved label), never the raw id', async () => {
+            const { tournamentId } = await createLimitedGame(roomId, 3);
+            const db = await getDatabase();
+            await db.run(
+                `INSERT OR REPLACE INTO user_profiles (discord_user_id, display_name) VALUES (?, 'Mox')`, USER,
+            );
+            await request(app).get('/api/witness/score').query({ device: DESKTOP, token, ...scoreQuery() });
+            const { WitnessEvidenceService } = await import('../services/WitnessEvidenceService.js');
+            const rows = await WitnessEvidenceService.listForTournament(tournamentId);
+            expect(rows.length).toBeGreaterThan(0);
+            expect(rows[0]!.playerLabel).toBe('Mox');
+        });
+
         it('a score with no reported start is refused as unreported', async () => {
             const { gameId } = await createLimitedGame(roomId, 3);
             const res = await request(app).get('/api/witness/score')

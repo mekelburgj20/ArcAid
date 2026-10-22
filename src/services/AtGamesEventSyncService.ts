@@ -194,7 +194,7 @@ export class AtGamesEventSyncService {
         if (tournament.max_attempts != null && tournament.max_attempts >= 1) {
             throw new AtGamesSyncError(
                 'ATTEMPTS_LIMITED',
-                'This tournament limits attempts per table; scores come from Castcade only, so AtGames scores cannot be pulled into it',
+                'This tournament limits attempts per table; scores come from Arcaid Witness only, so AtGames scores cannot be pulled into it',
             );
         }
         if (!tournament.atgames_tournament_id) {

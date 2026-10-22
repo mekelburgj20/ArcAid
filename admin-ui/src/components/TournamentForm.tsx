@@ -693,14 +693,15 @@ function PollSettings({ poll, onChange, schedule }: {
 
 /**
  * Limited attempts (v2.167.0, ADR 0029). Blank = unlimited. A positive whole
- * number turns the tournament into a Castcade-only one: every game start
- * counts, and manual (phone / Discord) entry is refused by the server.
+ * number turns the tournament into an Arcaid-Witness-only one (Castcade on a
+ * PC, the Witness app on a cabinet): every game start counts, and manual
+ * (phone / Discord) entry is refused by the server.
  */
 function LimitedAttemptsField({ value, onChange }: { value: number | null; onChange: (v: number | null) => void }) {
   return (
     <div className="mb-4" data-testid="limited-attempts">
       <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5" htmlFor="tournament-max-attempts">
-        Limited attempts <InfoTip text="Each player gets this many game starts per table. Every start counts, however it ends. Scores come only from Castcade live mode (tables imported in Castcade); phone and Discord entry are off for this tournament." />
+        Limited attempts <InfoTip text="Each player gets this many game starts per table. Every start counts, however it ends. Scores come only from Arcaid Witness: Castcade live mode on a PC, the Witness app on an AtGames cabinet. Phone and Discord entry are off for this tournament." />
       </label>
       <input
         id="tournament-max-attempts"
@@ -725,7 +726,7 @@ function LimitedAttemptsField({ value, onChange }: { value: number | null; onCha
       <p className="text-xs text-faint mt-1">
         {value == null
           ? 'Blank = unlimited: players may play as often as they like and the best score counts.'
-          : `Each player gets ${value} game start${value === 1 ? '' : 's'} per table. Scores come only from Castcade.`}
+          : `Each player gets ${value} game start${value === 1 ? '' : 's'} per table. Scores come only from Arcaid Witness.`}
       </p>
     </div>
   );

@@ -41,9 +41,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 ### Changed
 - **A limited tournament takes witnessed scores only.** The web submit routes, the legacy community route,
   the OAuth draft commit, the Throwdown submit and Discord `/submit-score` refuse it with
-  `409 ATTEMPTS_WITNESS_ONLY` through one helper, `checkAttemptLimitSubmission`. `ScoreSyncPoller` skips
-  its games (one WARN per game) and the AtGames pull / preview refuses it — neither source can know about
-  game starts.
+  `409 ATTEMPTS_WITNESS_ONLY` through one helper, `checkAttemptLimitSubmission` ("scores come from Arcaid
+  Witness only"). `ScoreSyncPoller` skips its games (one WARN per game), the iScored final sync at
+  rotation skips them too, and the AtGames pull / preview refuses it — none of those sources can know
+  about game starts.
+- **The Integrity panel's evidence table names the player** (resolved server-side through
+  `resolveUserLabels`) instead of showing the raw account id.
 
 ## [2.166.2] - 2026-10-22 - No integrity badge for a score that carried no evidence
 

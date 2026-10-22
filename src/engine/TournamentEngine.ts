@@ -103,6 +103,9 @@ export function queueSourceForPlace(placeIndex: number): RotationSource {
     return 'third_place_queue';
 }
 
+/** v2.167.0 — game ids whose skipped final sync was already logged (once per game per process). */
+const finalSyncAttemptLimitLogged = new Set<string>();
+
 export class TournamentEngine {
     private static instance: TournamentEngine;
 
@@ -715,6 +718,23 @@ export class TournamentEngine {
     }): Promise<number> {
         if (!row.iscored_id || !row.game_room_id) return 0;
         const db = await getDatabase();
+
+        // v2.167.0 (ADR 0029) — a tournament that limits attempts takes
+        // witnessed scores only; iScored cannot know about game starts, so the
+        // final sync must not pull its scores in at rotation either (the
+        // ScoreSyncPoller skips these games for the same reason).
+        if (row.tournament_id) {
+            const limited = await db.get<{ max_attempts: number | null }>(
+                'SELECT max_attempts FROM tournaments WHERE id = ?', row.tournament_id,
+            );
+            if (limited?.max_attempts != null && limited.max_attempts >= 1) {
+                if (!finalSyncAttemptLimitLogged.has(row.id)) {
+                    finalSyncAttemptLimitLogged.add(row.id);
+                    logInfo(`finalSyncScoresForGame(${row.name}): skipping iScored final sync: limited-attempts tournament`);
+                }
+                return 0;
+            }
+        }
 
         const { getIScoredCredsForRoom } = await import('../utils/iscoredCreds.js');
         const creds = await getIScoredCredsForRoom(row.game_room_id);

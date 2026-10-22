@@ -49,7 +49,7 @@ const TABLES = {
 
 const EVIDENCE: EvidenceRow[] = [
   {
-    id: 7, deviceId: 'dev-1', canonicalUserId: '123456789012345678', outcome: 'not_sanctioned',
+    id: 7, deviceId: 'dev-1', canonicalUserId: '123456789012345678', playerLabel: 'Mox', outcome: 'not_sanctioned',
     gameId: 'g-mb', gameName: 'Monster Bash', scoreHistoryId: null, globalScoreId: 'gs-1', integrityMode: 'sanctioned',
     verdict: 'flagged', reasons: ['tilt sensitivity 200 is below the minimum 300'],
     checks: [
@@ -129,6 +129,9 @@ describe('IntegrityPanel', () => {
     expect(within(flagged).getByText('tilt sensitivity 200 is below the minimum 300')).toBeInTheDocument();
     expect(within(flagged).getByText('held out (Sanctioned)')).toBeInTheDocument();
     expect(within(flagged).getByText('123,456,780')).toBeInTheDocument();
+    // The player is shown by NAME (resolved server-side), never the raw id.
+    expect(within(flagged).getByText('Mox')).toBeInTheDocument();
+    expect(within(flagged).queryByText('123456789012345678')).toBeNull();
     const passed = screen.getByTestId('evidence-row-6');
     expect(within(passed).getByTestId('evidence-verdict-pass')).toBeInTheDocument();
     expect(within(passed).getByText('on the board')).toBeInTheDocument();

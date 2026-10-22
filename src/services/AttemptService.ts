@@ -50,7 +50,7 @@ export const ATTEMPT_REFUSAL_TEXT: Record<AttemptRefusalReason, string> = {
     void: 'this attempt was voided by an admin — this score does not count',
     reused: 'this attempt already has a different score — this score does not count',
     unreported: 'no game start was reported for this score — import this table in Castcade so live mode can count attempts',
-    device: 'this tournament limits attempts per table; scores come from Castcade only',
+    device: 'this tournament limits attempts per table; scores come from Arcaid Witness only',
     exit_sample: 'this table reports one score per sitting on the cabinet, so attempts cannot be counted on it',
 };
 

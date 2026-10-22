@@ -1074,7 +1074,7 @@ export default function GameDetail() {
             {leaderboard && integrity?.maxAttempts != null && (
               <div className="mb-4 rounded border border-neon-cyan/40 bg-neon-cyan/5 px-4 py-3 text-sm" data-testid="attempts-banner">
                 <p className="text-primary">
-                  Limited to {integrity.maxAttempts} attempt{integrity.maxAttempts === 1 ? '' : 's'} per player · scores come from Castcade live mode
+                  Limited to {integrity.maxAttempts} attempt{integrity.maxAttempts === 1 ? '' : 's'} per player · scores come from Arcaid Witness
                 </p>
                 {viewerAttemptsLeft != null && (
                   <p className="text-muted text-xs mt-1">

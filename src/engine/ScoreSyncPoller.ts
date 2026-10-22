@@ -429,7 +429,7 @@ export class ScoreSyncPoller {
             if (!localGame) continue;
 
             // v2.167.0 (ADR 0029) — a tournament that limits attempts takes
-            // Castcade scores only: iScored cannot know about game starts, so a
+            // Arcaid Witness scores only: iScored cannot know about game starts, so a
             // synced score could never be bound to an attempt. Skipped, with
             // one WARN per game per process.
             if (localGame.max_attempts != null && localGame.max_attempts >= 1) {
@@ -437,7 +437,7 @@ export class ScoreSyncPoller {
                     ScoreSyncPoller.attemptLimitWarned.add(localGame.id);
                     logWarn(
                         `ScoreSyncPoller[${creds.gameroomName}]: skipping "${localGame.name}" (game ${localGame.id}) — ` +
-                        `its tournament limits attempts, so scores come from Castcade only (ADR 0029)`,
+                        `its tournament limits attempts, so scores come from Arcaid Witness only (ADR 0029)`,
                     );
                 }
                 continue;

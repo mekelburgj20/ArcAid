@@ -287,11 +287,11 @@ export async function checkThrowdownSubmission(params: {
 
 /** The ONE message a manual submit to a limited tournament is refused with (ADR 0029). */
 export const ATTEMPTS_WITNESS_ONLY_MESSAGE =
-    'This tournament limits attempts per table; scores come from Castcade only.';
+    'This tournament limits attempts per table; scores come from Arcaid Witness only.';
 
 /**
  * Limited attempts (v2.167.0, ADR 0029). A tournament with `max_attempts` set
- * takes scores from the Castcade companion (and the cabinet Witness) ONLY —
+ * takes scores from Arcaid Witness (the Castcade companion and the cabinet Witness) ONLY —
  * attempts are counted per game played, and a typed score has no game to
  * count. Every MANUAL submit path calls this right after it knows the target
  * tournament (beside its `checkEventSubmission` / `checkThrowdownSubmission`

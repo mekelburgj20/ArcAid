@@ -210,6 +210,23 @@ describe('§3b — synced scores are always unknown/unknown', () => {
         expect(hist).toMatchObject({ source: 'sync', engine: UNKNOWN, device: UNKNOWN });
     });
 
+    it('finalSyncScoresForGame skips a limited-attempts tournament (ADR 0029: witnessed scores only)', async () => {
+        const { db, roomId, gameId, tournamentId } = await seedSingleEngineTournamentRoom('finalsync-limited');
+        await db.run(`UPDATE tournaments SET max_attempts = 3 WHERE id = ?`, tournamentId);
+        iscored.gameScores = { scores: [{ name: 'FinalPlayer', score: '9000' }] };
+
+        const captured = await (TournamentEngine.getInstance() as unknown as {
+            finalSyncScoresForGame: (row: unknown) => Promise<number>;
+        }).finalSyncScoresForGame({
+            id: gameId, name: 'WHO dunnit', iscored_id: '95570',
+            tournament_id: tournamentId, game_room_id: roomId,
+            iscored_default_platform: 'vpx',
+        });
+        expect(captured).toBe(0);
+        expect(await db.get(`SELECT id FROM submissions WHERE game_id = ?`, gameId)).toBeUndefined();
+        expect(await db.get(`SELECT id FROM score_history WHERE game_id = ?`, gameId)).toBeUndefined();
+    });
+
     /**
      * REGRESSION — prod, rtx_pinball / Blackbelt 2018, 2026-08-17.
      *

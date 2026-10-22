@@ -22,13 +22,13 @@ integer = each player gets that many attempts on **each `games` row** of the tou
 table, each event round). It is independent of `integrity_mode`; a limited tournament may be Open or
 Sanctioned. The create/update API carries it like `integrity_mode`: omitted on update = unchanged.
 
-### Only Castcade scores land on a limited board
+### Only Arcaid Witness scores land on a limited board
 
 When `max_attempts` is set on the tournament a game belongs to:
 
 - The three web submit routes, the legacy community route, the OAuth draft commit and Discord
   `/submit-score` refuse with `409 { code: 'ATTEMPTS_WITNESS_ONLY' }` and the message *"This tournament
-  limits attempts per table; scores come from Castcade only."* The check sits beside the
+  limits attempts per table; scores come from Arcaid Witness only."* The check sits beside the
   `checkEventSubmission` call at every site, as one helper `checkAttemptLimitSubmission`, so a new
   submit path has one more call to copy, not a rule to rediscover.
 - `ScoreSyncPoller` skips the game (WARN once per game per process). `AtGamesEventSyncService` refuses
@@ -130,7 +130,7 @@ the row inserted in one transaction so two simultaneous starts cannot both be at
 
 - The public `GET /rooms/:roomId/tournaments/:id/integrity` read gains `maxAttempts` and
   `attempts: { [gameId]: { [canonicalUserId]: used } }` (void rows excluded). The game page shows a
-  banner ("Limited to N attempts per player · scores come from Castcade live mode", plus "You have k left" for a
+  banner ("Limited to N attempts per player · scores come from Arcaid Witness", plus "You have k left" for a
   logged-in viewer) and "n of N attempts" beside each player's name.
 - Room admin: `GET /:roomId/admin/tournaments/:id/attempts?gameId=` lists rows with names resolved
   through `resolveUserLabels` (never a raw id); `POST /:roomId/admin/tournaments/:id/attempts/:attemptId/void`
@@ -164,5 +164,7 @@ the row inserted in one transaction so two simultaneous starts cannot both be at
   by a cabinet older than 1.0.4 (from 1.0.4 it is reported as an attempt with no score), and a
   launcher record can be deleted from the stick before the Witness reads it (the record's signature
   prevents forging, not deletion).
+- Cabinet attempts are numbered by arrival order (the order reports reach the server, not start order),
+  and a cabinet score held off the board by the Sanctioned gate or a suppression still used its attempt.
 - Sealed-bid (A10) and Strikes (A12) compose with this: attempts bound the inputs, those decide what
   the board shows.

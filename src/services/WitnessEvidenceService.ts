@@ -52,6 +52,13 @@ export type EvidenceRow = {
     id: number;
     deviceId: string;
     canonicalUserId: string;
+    /**
+     * v2.167.0 — the player's name for the runner's table, resolved through
+     * `resolveUserLabels` (display name → username → earliest alias), batched
+     * per page. Never the raw id; "Unknown player" when nothing resolves.
+     * Set by `listForTournament` only.
+     */
+    playerLabel?: string;
     outcome: IngestOutcome;
     gameId: string | null;
     gameName: string | null;
@@ -181,7 +188,12 @@ export class WitnessEvidenceService {
               LIMIT ?`,
             ...(opts.gameId ? [tournamentId, opts.gameId, limit] : [tournamentId, limit]),
         );
-        return rows.map(rowToEvidence);
+        const { resolveUserLabels } = await import('./PlayerProfileResolver.js');
+        const labels = await resolveUserLabels(rows.map(r => r.canonical_user_id));
+        return rows.map(r => ({
+            ...rowToEvidence(r),
+            playerLabel: labels[r.canonical_user_id] ?? 'Unknown player',
+        }));
     }
 
     /**

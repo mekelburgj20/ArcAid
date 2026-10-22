@@ -118,7 +118,7 @@ function AttemptsSection({ base, maxAttempts, games, toast }: {
         <section className="mb-6" data-testid="attempts-section">
             <h3 className="text-xs font-display uppercase tracking-wider text-muted mb-2">Attempts</h3>
             <p className="text-xs text-faint mb-3">
-                Each player gets {maxAttempts} game start{maxAttempts === 1 ? '' : 's'} per table, counted by Castcade when the game starts.
+                Each player gets {maxAttempts} game start{maxAttempts === 1 ? '' : 's'} per table, counted by Arcaid Witness (Castcade when the game starts, a cabinet when it reports the game).
                 Void gives an attempt back (a crashed companion, an honest mistake); an attempt that already has a score cannot be voided — delete the score instead.
             </p>
             {rows === null ? (
@@ -196,7 +196,10 @@ type Binary = { sha256: string | null; version: string | null; known: string | n
 export type EvidenceRow = {
     id: number;
     deviceId: string;
+    /** Identity only — never rendered (no raw user ids on any surface). */
     canonicalUserId: string;
+    /** v2.167.0 — resolved server-side via `resolveUserLabels`. */
+    playerLabel?: string;
     outcome: string;
     gameId: string | null;
     gameName: string | null;
@@ -544,7 +547,8 @@ export default function IntegrityPanel({ roomId, tournament, onClose, toast }: I
                                                             {formatWhen(row.playedAt)}
                                                             <span className="block text-[10px] text-faint">{relativeTimeFrom(row.playedAt)}</span>
                                                         </td>
-                                                        <td className="py-1.5 pr-2 font-mono text-muted truncate max-w-[10rem]" title={row.canonicalUserId}>{row.canonicalUserId}</td>
+                                                        {/* v2.167.0 — the resolved name, never the raw id (feedback: no raw user ids). */}
+                                                        <td className="py-1.5 pr-2 text-primary break-words">{row.playerLabel || 'Unknown player'}</td>
                                                         <td className="py-1.5 pr-2 text-primary">
                                                             {row.tableName}
                                                             {row.rom && <span className="block text-[10px] text-faint font-mono">{row.rom}</span>}
