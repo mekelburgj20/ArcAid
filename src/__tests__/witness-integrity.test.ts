@@ -352,14 +352,50 @@ describe('Integrity mode — the ingest', () => {
         expect(row!.ini).toBeNull();
     });
 
-    it('a cabinet in Open play is untouched: ingested, with an evidence row that only says "no evidence"', async () => {
+    it('a cabinet in Open play is untouched: ingested, trail row stored, NO verdict and NO chip (v2.166.2)', async () => {
         const cabinetToken = await pair(app, CABINET);
-        const { gameId } = await createRotationGame(roomId, 'Tales from the Crypt (Data East 1993)');
+        const { tournamentId, gameId } = await createRotationGame(roomId, 'Tales from the Crypt (Data East 1993)');
         await designate(CABINET, roomId);
         const res = await request(app).get('/api/witness/score').query({ device: CABINET, token: cabinetToken, ...scoreQuery() });
         expect(res.body).toMatchObject({ ok: true, status: 'ingested' });
         const db = await getDatabase();
-        expect(await db.get(`SELECT outcome, verdict FROM witness_evidence WHERE game_id = ?`, gameId)).toMatchObject({ outcome: 'ingested', verdict: 'flagged' });
+        const score = await db.get<{ id: number }>(`SELECT id FROM score_history WHERE game_id = ?`, gameId);
+        // The trail still records the play (outcome, raw fields, the score row it produced) —
+        // only the judgement is withheld: a cabinet has no evidence the desktop rules can read.
+        expect(await db.get(`SELECT outcome, verdict, reasons, score_history_id, integrity_mode FROM witness_evidence WHERE game_id = ?`, gameId))
+            .toEqual({ outcome: 'ingested', verdict: null, reasons: '[]', score_history_id: score!.id, integrity_mode: 'open' });
+        // ...so the public board draws nothing beside the row: an absence of badge, not a badge of absence.
+        const pub = await request(app).get(`/api/rooms/${roomId}/tournaments/${tournamentId}/integrity`);
+        expect(pub.body.verdicts).toEqual({});
+    });
+
+    it('a cabinet that sends evidence of its own (a 1.0.5 build: VPS ids, hashes) still gets no verdict until a cabinet profile exists', async () => {
+        // Partial evidence run through the DESKTOP rules would fail "settings were not reported" and
+        // "builds were not reported" — every cabinet score painted Flagged. Owner ruling 2026-10-21:
+        // store what it sent, judge nothing. The Sanctioned gate for a cabinet is pinned above.
+        const cabinetToken = await pair(app, CABINET);
+        const { tournamentId, gameId } = await createRotationGame(roomId, 'Tales from the Crypt (Data East 1993)', { requiredVpsTableId: 'uVgZUZdK' });
+        await designate(CABINET, roomId);
+        const res = await request(app).get('/api/witness/score').query({
+            device: CABINET, token: cabinetToken, ...scoreQuery(), vps_game: 'fXaQ33KC', vps_table: 'uVgZUZdK', table_sha256: SHA,
+        });
+        expect(res.body).toMatchObject({ ok: true, status: 'ingested' });
+        const db = await getDatabase();
+        expect(await db.get(`SELECT verdict, vps_table, table_sha256, ini, build FROM witness_evidence WHERE game_id = ?`, gameId))
+            .toEqual({ verdict: null, vps_table: 'uVgZUZdK', table_sha256: SHA, ini: null, build: null });
+        const pub = await request(app).get(`/api/rooms/${roomId}/tournaments/${tournamentId}/integrity`);
+        expect(pub.body.verdicts).toEqual({});
+    });
+
+    it('a desktop with NO evidence (a Castcade older than 0.2.5) in Open play lands with no verdict and no chip', async () => {
+        const { tournamentId, gameId } = await createRotationGame(roomId, 'Tales from the Crypt (Data East 1993)');
+        await designate(DESKTOP, roomId);
+        const res = await request(app).get('/api/witness/score').query({ device: DESKTOP, token, ...scoreQuery(), ...evidence({ omit: true }) });
+        expect(res.body).toMatchObject({ ok: true, status: 'ingested' });
+        const db = await getDatabase();
+        expect(await db.get(`SELECT outcome, verdict FROM witness_evidence WHERE game_id = ?`, gameId)).toEqual({ outcome: 'ingested', verdict: null });
+        const pub = await request(app).get(`/api/rooms/${roomId}/tournaments/${tournamentId}/integrity`);
+        expect(pub.body.verdicts).toEqual({});
     });
 
     it('an undesignated desktop score still goes to Global, and leaves a trail with no tournament and no verdict', async () => {

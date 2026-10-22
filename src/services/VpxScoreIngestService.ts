@@ -445,9 +445,13 @@ export class VpxScoreIngestService {
             createdAt: playedAt,
         });
 
+        // v2.166.2 — what the trail STORES (and the board shows) for a score
+        // that LANDED. The gate above has already acted on the raw verdict.
+        const badge = VpxScoreIngestService.badgeVerdict(input, verdict);
+
         if (id == null) {
-            await VpxScoreIngestService.trail(input, score, playedAt, { outcome: 'duplicate', ...where, integrityMode: mode, verdict });
-            return { status: 'duplicate', ...where, verdict: verdict.verdict, reasons: verdict.reasons };
+            await VpxScoreIngestService.trail(input, score, playedAt, { outcome: 'duplicate', ...where, integrityMode: mode, verdict: badge });
+            return { status: 'duplicate', ...where, verdict: badge?.verdict ?? null, reasons: badge?.reasons ?? [] };
         }
 
         // The room board is served from `leaderboard_cache`, which has no
@@ -480,7 +484,7 @@ export class VpxScoreIngestService {
         });
 
         await VpxScoreIngestService.trail(input, score, playedAt, {
-            outcome: 'ingested', ...where, integrityMode: mode, verdict,
+            outcome: 'ingested', ...where, integrityMode: mode, verdict: badge,
             scoreHistoryId: id, globalScoreId: fanned?.globalScoreId ?? null,
         });
 
@@ -488,13 +492,46 @@ export class VpxScoreIngestService {
             `VPX ingest: ${username} ${score} on "${target.name}" ` +
             `(${target.round_no != null ? `round ${target.round_no}` : 'rotation'}, ` +
             `tournament ${target.tournament_id ?? 'none'}, reason=${input.reason ?? 'unknown'}, ` +
-            `${mode} play, verdict ${verdict.verdict}${verdict.reasons.length ? `: ${verdict.reasons.join('; ')}` : ''})`,
+            `${mode} play, ` +
+            (badge
+                ? `verdict ${badge.verdict}${badge.reasons.length ? `: ${badge.reasons.join('; ')}` : ''}`
+                : `no verdict stored (${input.deviceType === 'desktop' ? 'no evidence' : 'cabinet'})`) +
+            ')',
         );
         return {
             status: 'ingested', ...where,
-            verdict: verdict.verdict, reasons: verdict.reasons,
+            verdict: badge?.verdict ?? null, reasons: badge?.reasons ?? [],
             globalScoreId: fanned?.globalScoreId ?? null,
         };
+    }
+
+    /**
+     * v2.166.2 — the verdict the trail stores for a score that LANDED (Open
+     * play, or a Sanctioned pass). `evaluateSanctioned` judged the score and
+     * the Sanctioned gate has already acted on that judgement; this decides
+     * whether it is also a BADGE anyone should see on the board.
+     *
+     * - **A cabinet never gets one.** It sends no evidence today, and whatever
+     *   a later cabinet build sends (table / script / ROM / engine hashes, the
+     *   VPS ids) is for a cabinet evidence profile that does not exist yet.
+     *   Running a cabinet's partial evidence through the DESKTOP rules would
+     *   fail "settings were not reported" and "builds were not reported" and
+     *   paint every cabinet score Flagged. Owner ruling 2026-10-21: store what
+     *   it sent, verdict NULL, no chip. (In Sanctioned play the gate still
+     *   refuses it as `no_match`, and THAT trail row keeps its flagged verdict
+     *   so the runner's review says what was held out and why.)
+     * - **A desktop with no evidence** (a Castcade older than 0.2.5) gets none
+     *   either. "No evidence" is an absence of badge, never a badge of absence
+     *   — `admin-ui/src/lib/integrityBadge.ts` said so from the start; until
+     *   v2.166.2 the ingest stored `flagged: no evidence` and the board drew it.
+     * - A desktop WITH evidence keeps the verdict as before: `pass` is the
+     *   Sanctioned / Conditions-verified badge, `flagged` in Open play is the
+     *   badge that says what was measured.
+     */
+    private static badgeVerdict(input: VpxScoreInput, verdict: Verdict): Verdict | null {
+        if (input.deviceType !== 'desktop') return null;
+        if (!input.evidence) return null;
+        return verdict;
     }
 
     /**

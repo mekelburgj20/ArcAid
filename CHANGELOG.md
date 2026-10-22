@@ -6,6 +6,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.166.2] - 2026-10-22 - No integrity badge for a score that carried no evidence
+
+### Fixed
+- **A cabinet score no longer wears a red "Flagged" chip in Open play.** The Sanctioned rules run for every
+  tournament match in both modes (ADR 0027) and the verdict is stored as the board badge. With no evidence
+  the rules fail "no evidence came with this score", so every score from an Arcaid Witness cabinet — which
+  sends none — was stored `flagged` and drawn as *Flagged* on the public game page, against what the badge
+  code itself says a cabinet row should get (nothing). Found while preparing the first cross-platform test
+  event (cabinets and Castcade desktops on one board); prod had not shown it yet only because the one
+  active cabinet's scores predate migration 184. `VpxScoreIngestService.badgeVerdict` now decides what the
+  trail STORES for a score that landed: a cabinet never gets a verdict, and neither does a desktop that
+  sent no evidence (a Castcade older than 0.2.5). The trail row itself is still written — outcome, the raw
+  fields, whatever evidence came — so the runner's review keeps the play; only the judgement is withheld.
+  The Sanctioned gate is unchanged: a cabinet is still answered `no_match`, and that refusal row keeps its
+  flagged verdict so the review says what was held out and why. `evaluateSanctioned` is untouched.
+- **Also forward-proofed for the cabinet's next build.** Cabinet evidence (VPS ids, table / script / ROM /
+  engine hashes — the shape decided 2026-10-21) is stored when it arrives but never judged by the desktop
+  rules, which would fail "settings were not reported" and "builds were not reported" and paint every
+  cabinet score Flagged. A cabinet evidence profile in `evaluateSanctioned` is the item that lifts this.
+
 ## [2.166.1] - 2026-10-21 - The tournament selector leads the Picks page
 
 ### Changed
