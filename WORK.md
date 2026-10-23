@@ -41,6 +41,7 @@ Lane: `src/engine/**`, `src/services/{Tournament,PickQueue,PickDisposition,PickA
 - **A13** `done 2.141.0` Private room-scoped tournaments — satisfied by the Events/Throwdowns arc (ADR 0018 Consequences); nothing remains for the hosted case
 - **A14** `idea` Picks page richer available-games list, remainder — image/logo in the row, whole entry clickable (title-only today), pick frequency / last picker, catalogue rating, "View full game page" on `GameQuickView`; mfg·year, last-played and cooldown chips already render; natural home for the My Tables filter (C2); screenshot loop · tier: 5 · spec: ROADMAP.md §"[UI ARC] Picks page redesign"
 - **A15** `done 2.141.0` Tournament Events & Throwdowns arc (2.135.0 → 2.141.0, ADRs 0017/0018); P8 became the Arcaid Witness (W1)
+- **A17** `done 2.167.2` Event rounds editor: labelled Game / Starts / Ends date-time pickers per round, duration as a caption (owner ruling 2026-10-22, first multi-day event config) · spec: CHANGELOG 2.167.2
 - **A16** `done 2.167.0` Limited attempts — N game starts per player per games row, counted live over `GET /api/witness/attempt` (ADR 0029, #374); cabinets count at report time (cabinet 1.0.4 reports abandoned/short games as attempts, restarts ride the score); only Witness scores land; admin list + void; prod-verified 2026-10-22 · gate: owner-rig run once Castcade 0.2.11 ships the attempt call (still owed)
 
 ## B. Scores, submission, leaderboards, Global Scoreboard, cards, styles, stats

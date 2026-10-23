@@ -32,8 +32,8 @@ const eventState = (overrides: Partial<typeof defaultEventState> = {}) => ({
     minElapsedSec: 120,
     endGraceSec: 180,
     rounds: [
-      { roundNo: 1, gameName: 'Medieval Madness', startLocal: '2026-09-01T20:00', durationMin: 25 },
-      { roundNo: 2, gameName: 'Attack from Mars', startLocal: '2026-09-01T20:30', durationMin: 25 },
+      { roundNo: 1, gameName: 'Medieval Madness', startLocal: '2026-09-01T20:00', endLocal: '2026-09-01T20:25' },
+      { roundNo: 2, gameName: 'Attack from Mars', startLocal: '2026-09-01T20:30', endLocal: '2026-09-01T20:55' },
     ],
     ...overrides,
   },
@@ -71,7 +71,7 @@ describe('toPayload — event', () => {
 
   it('trims round game names', () => {
     const payload = toPayload(eventState({
-      rounds: [{ roundNo: 1, gameName: '  Medieval Madness  ', startLocal: '2026-09-01T20:00', durationMin: 25 }],
+      rounds: [{ roundNo: 1, gameName: '  Medieval Madness  ', startLocal: '2026-09-01T20:00', endLocal: '2026-09-01T20:25' }],
     }), {}) as any;
     expect(payload.event.rounds[0].gameName).toBe('Medieval Madness');
   });
@@ -115,7 +115,7 @@ describe('tournamentToFormState', () => {
     ],
   };
 
-  it('hydrates rounds back into local wall-clock plus duration', () => {
+  it('hydrates rounds back into local wall-clock start and end', () => {
     const state = tournamentToFormState(row);
     expect(state.format).toBe('event');
     expect(state.event.timezone).toBe('America/Chicago');
@@ -125,8 +125,8 @@ describe('tournamentToFormState', () => {
     expect(state.event.minElapsedSec).toBe(90);
     expect(state.event.endGraceSec).toBe(150);
     expect(state.event.rounds).toEqual([
-      { roundNo: 1, gameName: 'Medieval Madness', startLocal: '2026-09-01T20:00', durationMin: 25 },
-      { roundNo: 2, gameName: 'Attack from Mars', startLocal: '2026-09-01T20:30', durationMin: 25 },
+      { roundNo: 1, gameName: 'Medieval Madness', startLocal: '2026-09-01T20:00', endLocal: '2026-09-01T20:25' },
+      { roundNo: 2, gameName: 'Attack from Mars', startLocal: '2026-09-01T20:30', endLocal: '2026-09-01T20:55' },
     ]);
   });
 

@@ -100,7 +100,14 @@ export interface RoundDraft {
     gameName: string;
     /** datetime-local, in the event's timezone. */
     startLocal: string;
-    durationMin: number;
+    /**
+     * datetime-local, in the event's timezone. v2.167.2: rounds are edited as
+     * start + END (two labelled pickers), not start + duration — owner ruling
+     * 2026-10-22 after configuring the first multi-day event ("unlabelled
+     * boxes and a box at the end that is the duration"). The wire shape
+     * (`scheduledStartAt` / `scheduledEndAt`) never carried a duration anyway.
+     */
+    endLocal: string;
 }
 
 /**
@@ -123,14 +130,15 @@ export function validateRoundDrafts(
     for (const r of sorted) {
         if (!r.gameName.trim()) errors[r.roundNo] = 'Pick a game for this round.';
         else if (!r.startLocal) errors[r.roundNo] = 'Set a start time.';
-        else if (!(r.durationMin > 0)) errors[r.roundNo] = 'Duration must be at least a minute.';
+        else if (!r.endLocal) errors[r.roundNo] = 'Set an end time.';
+        else if (!(parseNaive(r.endLocal) > parseNaive(r.startLocal))) errors[r.roundNo] = 'Must end after it starts.';
     }
 
     for (let i = 1; i < sorted.length; i++) {
         const prev = sorted[i - 1]!;
         const cur = sorted[i]!;
         if (errors[prev.roundNo] || errors[cur.roundNo]) continue;
-        const prevEnd = parseNaive(addMinutes(prev.startLocal, prev.durationMin));
+        const prevEnd = parseNaive(prev.endLocal);
         const curStart = parseNaive(cur.startLocal);
         if (Number.isNaN(prevEnd) || Number.isNaN(curStart)) continue;
         if (curStart < prevEnd) {
@@ -179,7 +187,7 @@ export const defaultEventState: EventFormState = {
     aggregateMethod: 'best',
     minElapsedSec: 0,
     endGraceSec: 60,
-    rounds: [{ roundNo: 1, gameName: '', startLocal: '', durationMin: 30 }],
+    rounds: [{ roundNo: 1, gameName: '', startLocal: '', endLocal: '' }],
     sameGameForAllRounds: false,
 };
 

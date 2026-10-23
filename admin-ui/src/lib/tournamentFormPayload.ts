@@ -5,7 +5,7 @@ import {
   type TournamentFormState,
 } from '../components/TournamentForm';
 import { DEFAULT_TIMEZONE } from './timezone';
-import { addMinutes, defaultEventState, durationMinutes, utcIsoToWallTime, wallTimeToUtcIso } from './eventTime';
+import { defaultEventState, utcIsoToWallTime, wallTimeToUtcIso } from './eventTime';
 import { seasonPayload, seasonStateFromRow } from './seasonForm';
 import { pollPayload, pollStateFromRow } from './pollForm';
 import { integrityModeFromRow, integrityPayload, sanctionedRulesFromRow } from './integrityForm';
@@ -146,7 +146,7 @@ export function toPayload(state: TournamentFormState, extra: Record<string, any>
           roundNo: r.roundNo,
           gameName: r.gameName.trim(),
           scheduledStartAt: wallTimeToUtcIso(r.startLocal, tz),
-          scheduledEndAt: wallTimeToUtcIso(addMinutes(r.startLocal, r.durationMin), tz),
+          scheduledEndAt: wallTimeToUtcIso(r.endLocal, tz),
         })),
         checkinOpensAt: state.event.checkinOpensLocal
           ? wallTimeToUtcIso(state.event.checkinOpensLocal, tz)
@@ -214,15 +214,12 @@ export function tournamentToFormState(t: Tournament, roomTimezone: string = DEFA
       minElapsedSec: t.min_elapsed_sec ?? 0,
       endGraceSec: t.end_grace_sec ?? 60,
       rounds: (t.rounds ?? []).length > 0
-        ? t.rounds!.map(r => {
-          const startLocal = utcIsoToWallTime(r.scheduled_start_at, tz);
-          return {
-            roundNo: r.round_no,
-            gameName: r.name,
-            startLocal,
-            durationMin: durationMinutes(startLocal, utcIsoToWallTime(r.scheduled_end_at, tz)) ?? 30,
-          };
-        })
+        ? t.rounds!.map(r => ({
+          roundNo: r.round_no,
+          gameName: r.name,
+          startLocal: utcIsoToWallTime(r.scheduled_start_at, tz),
+          endLocal: utcIsoToWallTime(r.scheduled_end_at, tz),
+        }))
         : [...defaultEventState.rounds],
     },
     channel: t.discord_channel_id || '',

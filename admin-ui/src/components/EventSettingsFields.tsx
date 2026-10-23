@@ -5,6 +5,7 @@ import { api } from '../lib/api';
 import { zoneLabel } from '../lib/timezone';
 import {
     addMinutes,
+    durationMinutes,
     validateRoundDrafts,
     type EventFormState,
     type RoundDraft,
@@ -21,14 +22,27 @@ export type { EventFormState };
  * nothing carries over, which is why this is a separate component rather than
  * conditional fields sprinkled through `TournamentFormFields`.
  *
- * Rounds are edited as **start + duration**, never start + end. Hosts think in
- * durations ("three 25-minute rounds"), and it makes the two ways to get a
- * window wrong — an end before its start, and a round that runs into the next —
- * structurally harder to type.
+ * Rounds are edited as a labelled **Start + End** pair of date-time pickers
+ * (v2.167.2). They were start + a minutes box until the owner configured the
+ * first multi-day event (2026-10-22): "unlabelled boxes and a box at the end
+ * that is the duration". The two ways to get a window wrong — an end before
+ * its start, and a round that runs into the next — are caught while typing by
+ * `validateRoundDrafts`; the duration is shown as a caption, never typed.
  */
 
 const inputClass = 'w-full px-3 py-2 bg-raised border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan transition-colors';
 const selectClass = `${inputClass} cursor-pointer`;
+
+const fieldLabelClass = 'block text-[10px] font-display uppercase tracking-wider text-faint mb-1';
+
+/** "18 h", "1 h 30 min", "25 min" — the read-only duration caption under a round. Null when the window is incomplete or not positive. */
+function formatLasts(minutes: number | null): string | null {
+    if (minutes == null || minutes <= 0) return null;
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    if (h === 0) return `${m} min`;
+    return m === 0 ? `${h} h` : `${h} h ${m} min`;
+}
 
 const HOURS = Array.from({ length: 24 }, (_, h) => String(h).padStart(2, '0'));
 const MINUTE_STEPS = Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, '0'));
@@ -48,11 +62,13 @@ const MINUTE_STEPS = Array.from({ length: 12 }, (_, i) => String(i * 5).padStart
  * about to change anyway beats emitting a half-formed value the validators
  * would bounce.
  */
-export function DateTimeField({ value, onChange, disabled, invalid }: {
+export function DateTimeField({ value, onChange, disabled, invalid, label }: {
     value: string;
     onChange: (v: string) => void;
     disabled?: boolean;
     invalid?: boolean;
+    /** Names the date input for assistive tech ("Round 1 start date"); the hour/minute selects keep their own labels. */
+    label?: string;
 }) {
     const [datePart, timePart] = value ? value.split('T') : ['', ''];
     const [hh, mm] = timePart ? timePart.split(':') : ['', ''];
@@ -70,6 +86,7 @@ export function DateTimeField({ value, onChange, disabled, invalid }: {
                 type="date" value={datePart} disabled={disabled}
                 onChange={e => emit(e.target.value, hh, mm)}
                 className={`${cls} min-w-0 flex-[1.6]`}
+                aria-label={label ? `${label} date` : undefined}
             />
             <select
                 value={hh} disabled={disabled || !datePart}
@@ -206,15 +223,18 @@ export default function EventSettingsFields({ state, onChange, roomId, lockedRou
         const last = state.rounds[state.rounds.length - 1];
         const nextNo = state.rounds.reduce((max, r) => Math.max(max, r.roundNo), 0) + 1;
         // Default the new round to start where the previous one ends, with a
-        // 5-minute changeover — the shape almost every multi-round night takes.
-        const start = last ? addMinutes(last.startLocal, last.durationMin + 5) : '';
+        // 5-minute changeover, and to last as long as the previous one — the
+        // shape almost every multi-round night takes.
+        const lastMinutes = last ? (durationMinutes(last.startLocal, last.endLocal) ?? 30) : 30;
+        const start = last ? addMinutes(last.endLocal, 5) : '';
+        const end = start ? addMinutes(start, Math.max(1, lastMinutes)) : '';
         onChange({
             ...state,
             rounds: [...state.rounds, {
                 roundNo: nextNo,
                 gameName: state.sameGameForAllRounds ? (last?.gameName ?? '') : '',
                 startLocal: start,
-                durationMin: last?.durationMin ?? 30,
+                endLocal: end,
             }],
         });
     };
@@ -297,7 +317,7 @@ export default function EventSettingsFields({ state, onChange, roomId, lockedRou
             <div className="mb-4">
                 <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
                     <label className="block text-xs font-display uppercase tracking-wider text-muted">
-                        Rounds · start times in {zoneLabel(state.timezone)} <InfoTip text="Each round is its own game and its own window. Scores only count inside that window, on the server's clock." />
+                        Rounds · times in {zoneLabel(state.timezone)} <InfoTip text="Each round is its own game and its own window, from its start to its end. Scores only count inside that window, on the server's clock." />
                     </label>
                     <label className="flex items-center gap-2 cursor-pointer">
                         <input
@@ -323,16 +343,18 @@ export default function EventSettingsFields({ state, onChange, roomId, lockedRou
                     {state.rounds.map(round => {
                         const locked = isLocked(round.roundNo);
                         const error = errorFor(round.roundNo);
+                        const lasts = formatLasts(durationMinutes(round.startLocal, round.endLocal));
                         return (
                             <div
                                 key={round.roundNo}
                                 className={`p-3 rounded border ${error ? 'border-neon-magenta/60' : 'border-border'} bg-surface`}
                             >
-                                <div className="grid grid-cols-1 md:grid-cols-[3rem_1fr_1fr_7rem_2.5rem] gap-2 items-end">
+                                <div className="grid grid-cols-1 md:grid-cols-[3rem_1fr_1.3fr_1.3fr_2.5rem] gap-2 items-end">
                                     <div className="text-xs font-display uppercase tracking-wider text-muted pb-2">
                                         R{round.roundNo}
                                     </div>
                                     <div>
+                                        <div className={fieldLabelClass}>Game</div>
                                         {locked ? (
                                             <div className={`${inputClass} opacity-60`}>{round.gameName}</div>
                                         ) : (
@@ -344,19 +366,22 @@ export default function EventSettingsFields({ state, onChange, roomId, lockedRou
                                         )}
                                     </div>
                                     <div>
+                                        <div className={fieldLabelClass}>Starts ({zoneLabel(state.timezone)})</div>
                                         <DateTimeField
                                             value={round.startLocal} disabled={locked}
                                             onChange={v => updateRound(round.roundNo, { startLocal: v })}
                                             invalid={!!error}
+                                            label={`Round ${round.roundNo} start`}
                                         />
                                     </div>
-                                    <div className="flex items-center gap-1">
-                                        <input
-                                            type="number" min={1} value={round.durationMin} disabled={locked}
-                                            onChange={e => updateRound(round.roundNo, { durationMin: Math.max(1, Number(e.target.value) || 1) })}
-                                            className={`${inputClass} ${locked ? 'opacity-60' : ''}`}
+                                    <div>
+                                        <div className={fieldLabelClass}>Ends ({zoneLabel(state.timezone)})</div>
+                                        <DateTimeField
+                                            value={round.endLocal} disabled={locked}
+                                            onChange={v => updateRound(round.roundNo, { endLocal: v })}
+                                            invalid={!!error}
+                                            label={`Round ${round.roundNo} end`}
                                         />
-                                        <span className="text-xs text-faint whitespace-nowrap">min</span>
                                     </div>
                                     <div>
                                         {!locked && state.rounds.length > 1 && (
@@ -369,10 +394,8 @@ export default function EventSettingsFields({ state, onChange, roomId, lockedRou
                                     </div>
                                 </div>
                                 <div className="mt-1.5 flex items-center gap-3 flex-wrap">
-                                    {round.startLocal && round.durationMin > 0 && (
-                                        <span className="text-xs text-faint">
-                                            Ends {addMinutes(round.startLocal, round.durationMin).replace('T', ' ')}
-                                        </span>
+                                    {lasts && (
+                                        <span className="text-xs text-faint">Lasts {lasts}</span>
                                     )}
                                     {locked && (
                                         <span className="text-xs text-neon-amber">
