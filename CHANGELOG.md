@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.167.2] - 2026-10-23 - Event rounds are edited as labelled Start and End pickers
+
+### Changed
+- **Event rounds editor.** Each round on the tournament form is now a labelled Game, Starts (zone) and
+  Ends (zone) row, both times entered with the same date + hour + minute picker the check-in field uses,
+  with the duration shown as a caption ("Lasts 18 h") instead of typed into an unlabelled minutes box.
+  Owner ruling 2026-10-22, from configuring the first multi-day event: the start + minutes layout was
+  "unlabelled boxes and a box at the end that is the duration". `RoundDraft` carries `endLocal` instead of
+  `durationMin`; the wire shape (`scheduledStartAt` / `scheduledEndAt`) is unchanged, so nothing on the
+  server moved. Validation while typing now says "Set an end time." / "Must end after it starts." beside
+  the existing overlap and check-in checks. "+ Add round" still defaults the next round to start five
+  minutes after the previous one ends and to last as long as it did.
+
 ## [2.167.1] - 2026-10-22 - A repeat of a witness score that landed is told it landed
 
 ### Fixed

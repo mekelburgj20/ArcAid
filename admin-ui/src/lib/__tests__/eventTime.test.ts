@@ -78,8 +78,10 @@ describe('durationMinutes / addMinutes', () => {
 });
 
 describe('validateRoundDrafts', () => {
+  // Drafts carry start + END (v2.167.2); the helper still takes a duration so
+  // the cases below read as windows.
   const round = (roundNo: number, startLocal: string, durationMin = 25, gameName = 'Medieval Madness'): RoundDraft =>
-    ({ roundNo, gameName, startLocal, durationMin });
+    ({ roundNo, gameName, startLocal, endLocal: startLocal ? addMinutes(startLocal, durationMin) : '' });
 
   it('accepts a clean two-round schedule', () => {
     const errors = validateRoundDrafts(
@@ -106,15 +108,28 @@ describe('validateRoundDrafts', () => {
     expect(errors).toEqual({});
   });
 
-  it('flags missing game, missing start and a non-positive duration', () => {
+  it('flags missing game, missing start, missing end, and an end at or before the start', () => {
     const errors = validateRoundDrafts([
       round(1, '2026-09-01T20:00', 25, '   '),
       round(2, '', 25),
       round(3, '2026-09-01T22:00', 0),
+      { roundNo: 4, gameName: 'Medieval Madness', startLocal: '2026-09-02T08:00', endLocal: '' },
+      { roundNo: 5, gameName: 'Medieval Madness', startLocal: '2026-09-02T10:00', endLocal: '2026-09-02T09:30' },
     ], '');
     expect(errors[1]).toContain('game');
     expect(errors[2]).toContain('start time');
-    expect(errors[3]).toContain('Duration');
+    expect(errors[3]).toContain('end after');
+    expect(errors[4]).toContain('end time');
+    expect(errors[5]).toContain('end after');
+  });
+
+  it('accepts a multi-day window (the Friday-to-Sunday test event shape)', () => {
+    const errors = validateRoundDrafts([
+      { roundNo: 1, gameName: 'Monster Bash', startLocal: '2026-10-23T18:00', endLocal: '2026-10-24T12:00' },
+      { roundNo: 2, gameName: 'Tales from the Crypt', startLocal: '2026-10-24T12:00', endLocal: '2026-10-25T06:00' },
+      { roundNo: 3, gameName: 'Terminator 2', startLocal: '2026-10-25T06:00', endLocal: '2026-10-25T18:00' },
+    ], '2026-10-23T12:00');
+    expect(errors).toEqual({});
   });
 
   it('flags check-in opening at or after round 1', () => {
