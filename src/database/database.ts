@@ -3265,6 +3265,14 @@ async function doInitDatabase(): Promise<Database> {
                 CREATE INDEX IF NOT EXISTS idx_attempts_tournament ON attempts(tournament_id, received_at);
             `);
         } },
+        // v2.168.0 — the companion's `engine` evidence (castcade hook 0.4.0: what VPX had in force
+        // during the game, sampled inside the table) is stored raw beside ini/adjustments/build.
+        { name: '187_witness_evidence_engine', handler: async (db) => {
+            const cols = (await db.all(`PRAGMA table_info(witness_evidence)`)) as Array<{ name: string }>;
+            if (!cols.some(c => c.name === 'engine')) {
+                await db.exec(`ALTER TABLE witness_evidence ADD COLUMN engine TEXT`);
+            }
+        } },
     ];
 
     for (const migration of migrations) {

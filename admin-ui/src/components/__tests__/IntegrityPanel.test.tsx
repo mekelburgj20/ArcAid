@@ -63,6 +63,7 @@ const EVIDENCE: EvidenceRow[] = [
       ini: { stock: true, accel: true, tilt_sens: 200, accel_gain_x: 150, accel_gain_y: 150, nudge_filter: false },
       adjustments: { total: 40, non_factory: [] },
       build: { vpx: { sha256: null, version: '10.8.0', known: 'vpx-10.8.0', family: 'official' }, vpinmame: { sha256: null, version: '3.6.0', known: null, family: 'nightly' }, cheat: false },
+      engine: { start: { t: 0.5, difficulty: 0.2, slope_min: 6.5, slope_max: 6.5, physics_set: 0, nudge: { tilt: 200 } }, changes: [{ t: 300, difficulty: 0.8, slope_min: 6.5, slope_max: 6.5, physics_set: 0, nudge: { tilt: 200 } }] },
     },
     createdAt: '2026-10-20 18:00:05',
   },
@@ -192,6 +193,9 @@ describe('IntegrityPanel', () => {
     expect(screen.getByText('200')).toBeInTheDocument();
     expect(screen.getByText('150 / 150%')).toBeInTheDocument();
     expect(screen.getByText('10.8.0 (official)')).toBeInTheDocument();
+    // v2.168.0: what was in force inside the table, and that it changed mid-game.
+    expect(screen.getByText('difficulty 20% · slope 6.50° · physics set 0 · tilt 200')).toBeInTheDocument();
+    expect(screen.getByText('1 change → difficulty 80% · slope 6.50° · physics set 0 · tilt 200')).toBeInTheDocument();
     expect(screen.getByText('3.6.0 (nightly)')).toBeInTheDocument();
     expect(screen.getByText('tbl-vr')).toBeInTheDocument();
     expect(screen.getByText('Named table')).toBeInTheDocument();

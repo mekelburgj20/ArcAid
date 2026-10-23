@@ -222,9 +222,31 @@ export type EvidenceRow = {
         ini: Record<string, unknown> | null;
         adjustments: { total?: number; non_factory?: string[] } | null;
         build: { vpx: Binary; vpinmame: Binary; cheat: boolean | null } | null;
+        /** v2.168.0 — in force during the game, from inside the table (castcade hook 0.4.0). */
+        engine?: { start: EngineSample | null; changes: EngineSample[] } | null;
     } | null;
     createdAt: string;
 };
+
+type EngineSample = {
+    t?: number | null;
+    difficulty?: number | null;
+    slope_min?: number | null;
+    slope_max?: number | null;
+    physics_set?: number | null;
+    nudge?: { tilt?: number | null } | null;
+};
+
+/** "difficulty 20% · slope 6.50° · physics set 0 · tilt 400" for one engine sample. */
+function describeEngine(s: EngineSample | null | undefined): string | null {
+    if (!s) return null;
+    const parts: string[] = [];
+    if (s.difficulty != null) parts.push(`difficulty ${Math.round(s.difficulty * 100)}%`);
+    if (s.slope_min != null && s.slope_max != null && s.difficulty != null) parts.push(`slope ${(s.slope_min + s.difficulty * (s.slope_max - s.slope_min)).toFixed(2)}°`);
+    if (s.physics_set != null) parts.push(`physics set ${s.physics_set}`);
+    if (s.nudge?.tilt != null) parts.push(`tilt ${s.nudge.tilt}`);
+    return parts.length > 0 ? parts.join(' · ') : null;
+}
 
 const RULE_LABEL: Record<string, string> = {
     evidence: 'Evidence',
@@ -238,6 +260,7 @@ const RULE_LABEL: Record<string, string> = {
     tilt_sensitivity: 'Tilt sensitivity',
     accel_gain: 'Accelerometer gain',
     nudge_filter: 'Nudge filter',
+    engine: 'In the game',
 };
 
 /** Plain-English outcome of the ingest, as a runner reads it. */
@@ -343,6 +366,13 @@ function EvidenceDetails({ row }: { row: EvidenceRow }) {
                         <Measurement label="VPX build" value={describeBinary(ev.build?.vpx ?? null)} />
                         <Measurement label="VPinMAME build" value={describeBinary(ev.build?.vpinmame ?? null)} />
                         <Measurement label="VPinMAME cheat" value={ev.build?.cheat == null ? null : ev.build.cheat ? 'ON' : 'off'} />
+                        <Measurement label="In the game" value={describeEngine(ev.engine?.start)} />
+                        {ev.engine && ev.engine.changes.length > 0 && (
+                            <Measurement
+                                label="Changed in-game"
+                                value={`${ev.engine.changes.length} change${ev.engine.changes.length === 1 ? '' : 's'}${describeEngine(ev.engine.changes[ev.engine.changes.length - 1]) ? ` → ${describeEngine(ev.engine.changes[ev.engine.changes.length - 1])}` : ''}`}
+                            />
+                        )}
                     </div>
                 )}
             </div>

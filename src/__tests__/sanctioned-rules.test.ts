@@ -40,6 +40,16 @@ function rigEvidence(over: Partial<{ ini: Record<string, unknown>; build: Record
     })!;
 }
 
+/** A hook 0.4.0 `engine` object: the owner's Monster Bash as sampled 2026-10-22, optionally with in-game changes. */
+function engineOf(start: Partial<Record<string, unknown>> = {}, changes: Array<Partial<Record<string, unknown>>> = []): string {
+    const sample = (over: Partial<Record<string, unknown>>) => ({
+        t: 0.5, difficulty: 0.56, slope_min: 6.2, slope_max: 6.2, physics_set: 0, gravity: 0.97, friction: 0.075, elasticity: 0.25,
+        elasticity_falloff: 0, scatter: 0, nudge_time: 5, nudge: { xmax: 700, ymax: 700, xgain: 115, ygain: 115, dead_zone: 0, tilt: 500 },
+        ...over,
+    });
+    return JSON.stringify({ start: sample(start), changes: changes.map(sample) });
+}
+
 const run = (evidence: WitnessEvidence | null, rules: Partial<Parameters<typeof normalizeSanctionedRules>[0] & object> = {}, requirements = NONE, rom: string | null = 'tftc_400') =>
     evaluateSanctioned({ rules: normalizeSanctionedRules(rules), requirements, evidence, rom });
 
@@ -150,5 +160,49 @@ describe('evaluateSanctioned', () => {
         expect(run(rigEvidence(), {}, { ...NONE, requiredRom: 'TFTC_400' }).verdict).toBe('pass');
         expect(run(rigEvidence(), {}, { ...NONE, requiredRom: 'tftc_303' }).reasons[0]).toMatch(/ROM tftc_400 is not the required tftc_303/);
         expect(run(rigEvidence(), {}, { ...NONE, requiredFingerprint: 'fp1' }).reasons[0]).toMatch(/no playfield fingerprint/);
+    });
+});
+
+describe('engine evidence (v2.168.0, castcade hook 0.4.0): what was in force during the game', () => {
+    const withEngine = (engine: string | null, over: Parameters<typeof rigEvidence>[0] = {}): WitnessEvidence => {
+        const e = rigEvidence(over);
+        return { ...e, engine: engine === null ? null : parseWitnessEvidence({ engine })!.engine };
+    };
+
+    it('parses the hook object and drops junk; absent engine is skipped, never a failure', () => {
+        expect(parseWitnessEvidence({ engine: engineOf() })!.engine).toMatchObject({ start: { difficulty: 0.56, physics_set: 0, nudge: { tilt: 500 } }, changes: [] });
+        expect(parseWitnessEvidence({ engine: '{"start":"nope","changes":"nope"}' })).toBeNull();
+        expect(parseWitnessEvidence({ engine: 'not json' })).toBeNull();
+        const v = run(withEngine(null));
+        expect(v.verdict).toBe('pass');
+        expect(v.checks.find(c => c.rule === 'engine')).toMatchObject({ status: 'skipped' });
+    });
+
+    it('a quiet game with the file values in force passes and says so', () => {
+        const v = run(withEngine(engineOf()));
+        expect(v.verdict).toBe('pass');
+        expect(v.checks.find(c => c.rule === 'engine')).toMatchObject({ status: 'pass', detail: 'in force for the whole game: difficulty 56%, slope 6.20°, physics set 0, tilt sensitivity 500' });
+        expect(v.checks.find(c => c.rule === 'tilt_sensitivity')).toMatchObject({ status: 'pass', detail: 'tilt sensitivity 500 (live)' });
+    });
+
+    it('an in-game change (the tweak menu) flags the game and names what moved', () => {
+        const v = run(withEngine(engineOf({}, [{ t: 412.3, difficulty: 0.9 }, { t: 500, difficulty: 0.9, nudge: { xmax: 700, ymax: 700, xgain: 115, ygain: 115, dead_zone: 0, tilt: 10 } }])));
+        expect(v.verdict).toBe('flagged');
+        expect(v.reasons).toEqual(['physics or difficulty changed during the game (2 changes: difficulty 56% → 90%, tilt sensitivity 500 → 10)']);
+    });
+
+    it('a live physics set, or a live difficulty that differs from the table file, fails even when the ini looked stock', () => {
+        expect(run(withEngine(engineOf({ physics_set: 3 }))).reasons).toEqual(['physics set 3 was in force']);
+        expect(run(withEngine(engineOf({ difficulty: 0.9 }))).reasons).toEqual(['difficulty in force 90% differs from the table\'s 56%']);
+        // A saved override is the stock_physics rule's job; the engine rule does not double-report it.
+        const v = run(withEngine(engineOf({ difficulty: 0.9 }), { ini: { difficulty_override: 0.9, difficulty: 0.9 } }));
+        expect(v.checks.find(c => c.rule === 'stock_physics')).toMatchObject({ status: 'fail' });
+        expect(v.checks.find(c => c.rule === 'engine')).toMatchObject({ status: 'pass' });
+    });
+
+    it('the live tilt sensitivity beats the ini for the minimum (the ini may be a session stale)', () => {
+        const v = run(withEngine(engineOf({ nudge: { xmax: 700, ymax: 700, xgain: 115, ygain: 115, dead_zone: 0, tilt: 10 } })));
+        expect(v.reasons).toEqual(['tilt sensitivity 10 (live) is below the minimum 300']);
+        expect(run(withEngine(engineOf()), { require_stock_physics: false }).checks.find(c => c.rule === 'engine')).toMatchObject({ status: 'skipped', detail: 'rule off' });
     });
 });
