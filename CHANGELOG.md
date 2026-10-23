@@ -6,6 +6,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.168.0] - 2026-10-23 - Engine evidence: what VPX had in force during the game
+
+### Added
+- **`engine` on `GET /api/witness/score`** (Castcade 0.2.12, hook 0.4.0; castcade F6/B6, ArcAid W18). The ini
+  says what VPX *loaded*; the tweak menu and a community build's own pages change difficulty, slope and nudge in
+  memory without touching a file. The companion's hook now samples those values inside the table at game start and
+  at every key press, writes only on change, and the score carries `engine = { start, changes[] }` (difficulty,
+  slope min/max, physics set, table physics, nudge calibration incl. tilt sensitivity). `parseWitnessEvidence`
+  reads it under the usual rule (optional, malformed = dropped, never a 400); it is stored raw in
+  `witness_evidence.engine` (migration 187).
+- **Sanctioned rule `engine`** in `evaluateSanctioned` (under `require_stock_physics`): any in-game change fails
+  the game ("physics or difficulty changed during the game (2 changes: difficulty 56% → 90%, tilt sensitivity
+  500 → 10)"); a live physics set ≠ 0 fails; a live difficulty that differs from the table file's fails (a saved
+  override stays the stock-physics rule's job); absent `engine` is skipped, never a failure — the same treatment
+  the adjustments map gets. The tilt-sensitivity rule now prefers the live value over the ini's (the ini may be
+  one session stale), labelled "(live)".
+- **Integrity panel**: the evidence review shows "In the game: difficulty 20% · slope 6.50° · physics set 0 ·
+  tilt 400" and "Changed in-game: N changes → …" when the hook saw a change. Badge text unchanged; room boards
+  still never filter or re-rank.
+
 ## [2.167.2] - 2026-10-23 - Event rounds are edited as labelled Start and End pickers
 
 ### Changed
