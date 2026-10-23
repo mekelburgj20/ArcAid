@@ -442,7 +442,7 @@ describe('VPXS auto score collection — ingest', () => {
         expect(res.body).toMatchObject({ status: 'no_match' });
     });
 
-    it('is idempotent — a re-sent record adds nothing', async () => {
+    it('is idempotent — a re-sent record adds nothing, and a repeat of a live play is told it landed (v2.167.1)', async () => {
         await createRotationGame(roomId, 'Bad Cats');
         await designate(roomId);
         const q = scoreQuery();
@@ -451,10 +451,51 @@ describe('VPXS auto score collection — ingest', () => {
         const second = await request(app).get('/api/witness/score').query({ device: DEVICE, token, ...q });
 
         expect(first.body.status).toBe('ingested');
-        expect(second.body.status).toBe('duplicate');
+        // The play ended seconds ago and is on the board: the repeat gets the
+        // first answer, not 'duplicate' (the companion showed that for a score
+        // that had landed, prod 2026-10-22).
+        expect(second.body.status).toBe('ingested');
         const db = await getDatabase();
         const count = await db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM score_history`);
         expect(count!.n).toBe(1);
+        const row = await db.get<{ id: number }>(`SELECT id FROM score_history`);
+        const trail = await db.all<{ outcome: string; score_history_id: number | null }[]>(
+            `SELECT outcome, score_history_id FROM witness_evidence ORDER BY id`,
+        );
+        // The trail still says what the server DID: one write, one repeat of it.
+        expect(trail.map(t => t.outcome)).toEqual(['ingested', 'duplicate']);
+        expect(trail.map(t => t.score_history_id)).toEqual([row!.id, row!.id]);
+    });
+
+    it('a replayed OLD record (outside the repeat window) is still answered duplicate', async () => {
+        await createRotationGame(roomId, 'Bad Cats', Date.now() - 3 * 60 * MINUTE);
+        await designate(roomId);
+        const ended = Math.floor((Date.now() - 30 * MINUTE) / 1000);
+        const q = scoreQuery({ started: ended - 300, ended });
+
+        const first = await request(app).get('/api/witness/score').query({ device: DEVICE, token, ...q });
+        const replay = await request(app).get('/api/witness/score').query({ device: DEVICE, token, ...q });
+
+        expect(first.body.status).toBe('ingested');
+        expect(replay.body.status).toBe('duplicate');
+        const db = await getDatabase();
+        expect((await db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM score_history`))!.n).toBe(1);
+    });
+
+    it('four concurrent sends of one live play: one row, every answer says ingested', async () => {
+        await createRotationGame(roomId, 'Bad Cats');
+        await designate(roomId);
+        const q = scoreQuery();
+
+        const answers = await Promise.all(
+            [1, 2, 3, 4].map(() => request(app).get('/api/witness/score').query({ device: DEVICE, token, ...q })),
+        );
+
+        expect(answers.map(a => a.body.status)).toEqual(['ingested', 'ingested', 'ingested', 'ingested']);
+        const db = await getDatabase();
+        expect((await db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM score_history`))!.n).toBe(1);
+        const outcomes = (await db.all<{ outcome: string }[]>(`SELECT outcome FROM witness_evidence`)).map(t => t.outcome).sort();
+        expect(outcomes).toEqual(['duplicate', 'duplicate', 'duplicate', 'ingested']);
     });
 
     it('writes nothing for a wrong token, and says only 401', async () => {

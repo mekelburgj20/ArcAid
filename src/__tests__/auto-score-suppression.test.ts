@@ -334,9 +334,11 @@ describe('auto-posted VPX scores on the Global Scoreboard', () => {
         expect(await count(`SELECT COUNT(*) AS n FROM auto_score_suppressions`)).toBe(0);
 
         // Not suppressed any more — it reaches the Global dedup, which sees the
-        // restored row.
+        // restored row (written seconds ago, so the repeat is answered as the
+        // original was, v2.167.1) and writes nothing.
         const again = await request(app).get('/api/witness/score').query({ device: DEVICE, token, ...scoreQuery() });
-        expect(again.body.status).toBe('global_duplicate');
+        expect(again.body.status).toBe('global');
+        expect(await count(`SELECT COUNT(*) AS n FROM global_scores`)).toBe(1);
 
         // And with the restored row gone again via a hard delete, the play
         // stays suppressed (hardDelete tombstones too).
@@ -386,8 +388,10 @@ describe('legacy cabinet rows on the Global Scoreboard (source NULL, pre-v2.156.
         expect(result.status).toBe('suppressed');
 
         expect(await GlobalScoreService.restore(legacy.id)).toBe(true);
+        // The restored row was written seconds ago, so the repeat is answered
+        // 'global' (v2.167.1) — and still writes nothing.
         const again = await request(app).get('/api/witness/score').query({ device: DEVICE, token, ...scoreQuery() });
-        expect(again.body.status).toBe('global_duplicate');
+        expect(again.body.status).toBe('global');
         expect(await count(`SELECT COUNT(*) AS n FROM global_scores`)).toBe(1);
     });
 
