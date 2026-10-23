@@ -320,6 +320,28 @@ export class VpxScoreIngestService {
     }
 
     static async ingest(input: VpxScoreInput): Promise<VpxIngestResult> {
+        // v2.167.1 — one device's reports run one at a time. The dedup in
+        // `ScoreHistoryService.log` is a SELECT then an INSERT with no unique
+        // index behind it, so four copies of one score arriving in the same
+        // tick all pass the check and all write (the prod copies of
+        // 2026-10-22 were 1–2 s apart and three were caught — luck, not
+        // design). Chained per device, the second copy runs after the first
+        // has written and is answered as the repeat it is. Different devices
+        // never wait on each other; a failure releases the chain.
+        const key = input.deviceId ?? `user:${input.canonicalUserId}`;
+        const previous = VpxScoreIngestService.inflight.get(key) ?? Promise.resolve();
+        const run = previous.then(() => VpxScoreIngestService.ingestNow(input));
+        const link: Promise<void> = run.then(() => undefined, () => undefined).finally(() => {
+            if (VpxScoreIngestService.inflight.get(key) === link) VpxScoreIngestService.inflight.delete(key);
+        });
+        VpxScoreIngestService.inflight.set(key, link);
+        return run;
+    }
+
+    /** v2.167.1 — the tail of each device's in-flight chain (see `ingest`). */
+    private static readonly inflight = new Map<string, Promise<void>>();
+
+    private static async ingestNow(input: VpxScoreInput): Promise<VpxIngestResult> {
         const score = Math.floor(Number(input.score));
         if (!Number.isFinite(score) || score <= 0) {
             return { status: 'invalid', reason: 'score is not a positive number' };
@@ -382,6 +404,25 @@ export class VpxScoreIngestService {
             };
         }
         const { target, where, provenance } = matched;
+
+        // v2.167.1 — a REPEAT of a play that already landed on this board
+        // answers like the first time. On 2026-10-22 prod saw the same desktop
+        // score arrive four times inside two seconds; one landed, three were
+        // answered `duplicate`, and the companion showed whichever answer
+        // finished first — "duplicate" for a score that was on the board.
+        // Nothing is written here (the dedup below would refuse it anyway);
+        // the trail records the repeat against the row it repeats. Decided
+        // BEFORE the attempt binding, the suppression check and the gate, so a
+        // repeat on a limited tournament is not refused as `reused` either.
+        const repeat = await VpxScoreIngestService.landedRepeat(input, target, score, playedAt);
+        if (repeat) {
+            await VpxScoreIngestService.trail(input, score, playedAt, {
+                outcome: 'duplicate', ...where,
+                integrityMode: normalizeIntegrityMode(target.integrity_mode),
+                scoreHistoryId: repeat.id,
+            });
+            return { status: 'ingested', ...where, verdict: null, reasons: [] };
+        }
 
         // v2.167.0 (ADR 0029) — Limited attempts. On a limited tournament a
         // score lands only when it belongs to a counted, on-time game START the
@@ -670,6 +711,50 @@ export class VpxScoreIngestService {
     }
 
     /**
+     * v2.167.1 — how recent a play (or a Global write) must be for a repeat of
+     * it to be answered as the original was. Two minutes covers the companion
+     * re-sending a live score and the cabinet's 60 s send retry (1.0.4); a
+     * cabinet replaying days of score files on restart or re-pair stays
+     * `duplicate`, which its contract treats the same way.
+     */
+    static readonly REPEAT_WINDOW_SEC = 120;
+
+    /**
+     * The `score_history` row this exact play already wrote to this board, if
+     * the play ended inside `REPEAT_WINDOW_SEC`: same game row, same room,
+     * same tournament stamp, same player, same score, witness source, and the
+     * launcher's own end time as `created_at` (which is what makes it the
+     * SAME play rather than the same score again later). Keyed on the row the
+     * dedup saw, not on the trail, because in the concurrent case the first
+     * run's trail is written after its row — the row is the only thing the
+     * repeat can be sure already exists.
+     */
+    private static async landedRepeat(
+        input: VpxScoreInput, target: CandidateRow, score: number, playedAt: string,
+    ): Promise<{ id: number } | null> {
+        if (Date.now() / 1000 - input.endedTs > VpxScoreIngestService.REPEAT_WINDOW_SEC) return null;
+        const db = await getDatabase();
+        const row = await db.get<{ id: number }>(
+            `SELECT id FROM score_history
+              WHERE game_id = ? AND game_room_id IS ? AND submitted_during_tournament_id IS ?
+                AND discord_user_id = ? AND score = ? AND source = 'vpx' AND created_at = ?
+              LIMIT 1`,
+            target.id, target.game_room_id, target.tournament_id ?? null,
+            input.canonicalUserId, score, playedAt,
+        );
+        return row ?? null;
+    }
+
+    /** v2.167.1 — true when an ISO / SQLite UTC stamp is inside `REPEAT_WINDOW_SEC` of now. */
+    private static withinRepeatWindow(stamp: string | null | undefined): boolean {
+        if (!stamp) return false;
+        const iso = /[zZ]$|[+-]\d\d:?\d\d$/.test(stamp) ? stamp : stamp.replace(' ', 'T') + 'Z';
+        const ms = Date.parse(iso);
+        if (!Number.isFinite(ms)) return false;
+        return Date.now() - ms <= VpxScoreIngestService.REPEAT_WINDOW_SEC * 1000;
+    }
+
+    /**
      * The evidence trail (v2.165.0, ADR 0027): one row per witness score the
      * ingest saw, every outcome, both modes. Best-effort by construction — a
      * failure here must never cost the score, which is already decided.
@@ -855,13 +940,19 @@ export class VpxScoreIngestService {
         // and a re-pull re-reads the same jsonl lines. Global has no
         // ScoreHistoryService.isDuplicate of its own, so the same predicate is
         // spelled out here — (player, game, score) already present is a no-op.
-        const existing = await db.get<{ id: string }>(
-            `SELECT id FROM global_scores
+        const existing = await db.get<{ id: string; submitted_at: string | null }>(
+            `SELECT id, submitted_at FROM global_scores
               WHERE global_game_id = ? AND player_id = ? AND score = ? AND deleted_at IS NULL
               LIMIT 1`,
             game.id, input.canonicalUserId, score,
         );
         if (existing) {
+            // v2.167.1 — a repeat inside the window is told what the first
+            // send was told: it landed. `submitted_at` is the INGEST time of
+            // the row, so this is literally "answered within two minutes".
+            if (VpxScoreIngestService.withinRepeatWindow(existing.submitted_at)) {
+                return { status: 'global', gameName: game.name, globalScoreId: existing.id };
+            }
             return { status: 'global_duplicate', gameName: game.name };
         }
 

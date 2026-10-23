@@ -248,7 +248,7 @@ describe('VPXS score routing', () => {
         expect(row!.game_id).toBe(second.gameId);
     });
 
-    it('does not record the same global score twice', async () => {
+    it('does not record the same global score twice; a repeat inside the window is told it landed (v2.167.1)', async () => {
         await seedCatalogue('Bad Cats', 'Williams', 1989);
         const q = scoreQuery();
 
@@ -256,7 +256,7 @@ describe('VPXS score routing', () => {
         const second = await request(app).get('/api/witness/score').query({ device: DEVICE, token, ...q });
 
         expect(first.body.status).toBe('global');
-        expect(second.body.status).toBe('global_duplicate');
+        expect(second.body.status).toBe('global');
         const db = await getDatabase();
         const count = await db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM global_scores`);
         expect(count!.n).toBe(1);

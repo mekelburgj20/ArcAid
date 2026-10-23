@@ -6,6 +6,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.167.1] - 2026-10-22 - A repeat of a witness score that landed is told it landed
+
+### Fixed
+- **A repeat of a play that already landed is answered like the first time.** On 2026-10-22 prod ran the
+  Witness score ingest four times for each of two Castcade live-mode scores inside two seconds: one run
+  wrote the row, three were answered `duplicate`, and the companion showed whichever answer finished
+  first — "duplicate" for a score that was on the board. The server was not the multiplier (the route is
+  mounted once, Caddy is the bare default with no retries and no access log, and all four runs answered
+  200, which rules out a proxy retry; the sender side is Castcade's to find), but it can answer better:
+  `GET /api/witness/score` now looks for the SAME play — same game row, room, tournament stamp, player,
+  score, witness source and launcher end time — already in `score_history` before anything else, and when
+  the play ended inside the last two minutes (`VpxScoreIngestService.REPEAT_WINDOW_SEC`) answers
+  `ingested` with nothing written. The check runs before the attempt binding, the suppression check and
+  the Sanctioned gate, so a repeat on a limited tournament is no longer refused as `reused` either. The
+  Global path does the same: a `(player, game, score)` row written inside the window answers `global`
+  with its id instead of `global_duplicate`. The evidence trail still records what the server did
+  (`duplicate`, now pointing at the row it repeats). A cabinet replaying days of score files still gets
+  `duplicate`, and the repeat answer carries no `attempt` count. No migration.
+- **One device's reports now run one at a time** (an in-process per-device chain in
+  `VpxScoreIngestService.ingest`). The dedup in `ScoreHistoryService.log` is a SELECT followed by an INSERT
+  with no unique index behind it, so copies of one score arriving in the same tick all passed the check
+  and all wrote — the four prod copies were 1–2 s apart and three were caught by timing alone. Chained,
+  the second copy runs after the first has written and is answered as the repeat it is. Different devices
+  never wait on each other.
+
 ## [2.167.0] - 2026-10-22 - Limited attempts: N game starts per player per table (ADR 0029)
 
 ### Added

@@ -266,6 +266,22 @@ describe('witness routes on a limited tournament', () => {
             expect(row!.score_history_id).not.toBeNull();
         });
 
+        it('a repeat of a live score with the same key is told it landed and uses no second attempt (v2.167.1)', async () => {
+            const { gameId, tournamentId } = await createLimitedGame(roomId, 2);
+            const q = scoreQuery();
+            await request(app).get('/api/witness/attempt')
+                .query({ device: DESKTOP, token, table: q.table, rom: q.rom, slug: q.slug, started: Math.floor(Date.now() / 1000), key: 'sess-1' });
+            const first = await request(app).get('/api/witness/score').query({ device: DESKTOP, token, ...q, attempt: 'sess-1' });
+            const again = await request(app).get('/api/witness/score').query({ device: DESKTOP, token, ...q, attempt: 'sess-1' });
+            expect(first.body).toMatchObject({ status: 'ingested', attempt: { n: 1, of: 2, remaining: 1 } });
+            // Pre-v2.167.1 the repeat hit the attempt binding first and was
+            // refused as `reused` — "not sanctioned" for a score on the board.
+            expect(again.body).toMatchObject({ ok: true, status: 'ingested' });
+            expect(again.body.reasons).toBeUndefined();
+            expect(await boardRows(gameId)).toHaveLength(1);
+            expect((await AttemptService.usedByGame(tournamentId))[gameId]![USER]).toBe(1);
+        });
+
         it('/witness/attempt answers unlimited (and records nothing) when the tournament has no limit', async () => {
             await createLimitedGame(roomId, null);
             const att = await request(app).get('/api/witness/attempt')
