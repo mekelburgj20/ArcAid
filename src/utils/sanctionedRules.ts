@@ -212,6 +212,40 @@ export type WitnessEvidence = {
     ini: IniEvidence | null;
     adjustments: AdjustmentsEvidence | null;
     build: BuildEvidence | null;
+    /**
+     * v2.168.0 (castcade F6 / B6, hook 0.4.0): what VPX had IN FORCE during the game, read inside
+     * the table — the sample at game start and every in-game change. The ini says what VPX loaded;
+     * the tweak menu changes difficulty, slope and nudge in memory without touching a file, and
+     * this is the only evidence of that. Null from basic mode, a cabinet, or a hook before 0.4.0.
+     */
+    engine: EngineEvidence | null;
+};
+
+/** One `engine` sample from the hook (four-decimal floats; a field is null when that read failed in VPX). */
+export type EngineSample = {
+    /** Seconds since the hook initialised (the journal clock). */
+    t: number | null;
+    /** `GlobalDifficulty` 0–1: the live slope sits at slope_min + difficulty × (slope_max − slope_min). */
+    difficulty: number | null;
+    slope_min: number | null;
+    slope_max: number | null;
+    /** `OverridePhysics`: 0 = the table's own physics, 1–8 = a global physics set in force. */
+    physics_set: number | null;
+    gravity: number | null;
+    friction: number | null;
+    elasticity: number | null;
+    elasticity_falloff: number | null;
+    scatter: number | null;
+    nudge_time: number | null;
+    /** `NudgeGetCalibration`: the in-memory nudge gains, maxima, dead zone and tilt sensitivity. */
+    nudge: { xmax: number | null; ymax: number | null; xgain: number | null; ygain: number | null; dead_zone: number | null; tilt: number | null } | null;
+};
+
+export type EngineEvidence = {
+    /** In force when the game started (the hook's last sample before `game_start`). */
+    start: EngineSample | null;
+    /** Every sample the hook wrote while the game ran — each one is a change (the hook writes only on change). */
+    changes: EngineSample[];
 };
 
 /** Largest JSON blob accepted for one evidence param (the companion's `ini` is ~400 bytes). */
@@ -287,6 +321,36 @@ export function parseIniEvidence(raw: unknown): IniEvidence | null {
     };
 }
 
+function parseEngineSample(raw: unknown): EngineSample | null {
+    const o = asObject(raw);
+    if (!o) return null;
+    const n = asObject(o.nudge);
+    return {
+        t: nOrNull(o.t),
+        difficulty: nOrNull(o.difficulty),
+        slope_min: nOrNull(o.slope_min),
+        slope_max: nOrNull(o.slope_max),
+        physics_set: nOrNull(o.physics_set),
+        gravity: nOrNull(o.gravity),
+        friction: nOrNull(o.friction),
+        elasticity: nOrNull(o.elasticity),
+        elasticity_falloff: nOrNull(o.elasticity_falloff),
+        scatter: nOrNull(o.scatter),
+        nudge_time: nOrNull(o.nudge_time),
+        nudge: n ? { xmax: nOrNull(n.xmax), ymax: nOrNull(n.ymax), xgain: nOrNull(n.xgain), ygain: nOrNull(n.ygain), dead_zone: nOrNull(n.dead_zone), tilt: nOrNull(n.tilt) } : null,
+    };
+}
+
+/** `engine` (castcade `engineWire`): `{ start, changes[] }`; same rule as every evidence param — malformed = dropped. */
+export function parseEngineEvidence(raw: unknown): EngineEvidence | null {
+    const o = asObject(typeof raw === 'string' ? parseJsonParam(raw) : raw);
+    if (!o) return null;
+    const start = parseEngineSample(o.start);
+    const changes = Array.isArray(o.changes) ? o.changes.slice(0, 64).map(parseEngineSample).filter((x): x is EngineSample => x !== null) : [];
+    if (!start && changes.length === 0) return null;
+    return { start, changes };
+}
+
 export function parseAdjustmentsEvidence(raw: unknown): AdjustmentsEvidence | null {
     const o = asObject(typeof raw === 'string' ? parseJsonParam(raw) : raw);
     if (!o) return null;
@@ -323,13 +387,14 @@ export function parseWitnessEvidence(query: Record<string, unknown>): WitnessEvi
     const ini = parseIniEvidence(query.ini);
     const adjustments = parseAdjustmentsEvidence(query.adjustments);
     const build = parseBuildEvidence(query.build);
-    if (!vpsGame && !vpsTable && !sha && !fingerprint && !ini && !adjustments && !build) return null;
+    const engine = parseEngineEvidence(query.engine);
+    if (!vpsGame && !vpsTable && !sha && !fingerprint && !ini && !adjustments && !build && !engine) return null;
     return {
         vpsGame, vpsTable,
         tableSha256: sha && /^[0-9a-f]{64}$/i.test(sha) ? sha.toLowerCase() : null,
         tableSaveRev: Number.isFinite(rev) ? Math.floor(rev) : null,
         fingerprint,
-        ini, adjustments, build,
+        ini, adjustments, build, engine,
     };
 }
 
@@ -346,7 +411,9 @@ export type GameRequirements = {
 
 export type RuleId =
     | 'evidence' | 'named_table' | 'rom' | 'fingerprint' | 'stock_physics'
-    | 'factory_adjustments' | 'known_build' | 'cheat' | 'tilt_sensitivity' | 'accel_gain' | 'nudge_filter';
+    | 'factory_adjustments' | 'known_build' | 'cheat' | 'tilt_sensitivity' | 'accel_gain' | 'nudge_filter'
+    /** v2.168.0: the values in force during the game, from inside the table (castcade hook 0.4.0). */
+    | 'engine';
 
 export type RuleCheck = {
     rule: RuleId;
@@ -446,6 +513,45 @@ export function evaluateSanctioned(input: EvaluateInput): Verdict {
     }
 
     // --- machine adjustments ---------------------------------------------------
+    // --- engine: what was IN FORCE while the game ran (v2.168.0) ----------------------
+    // The ini is what VPX loaded; the tweak menu and a community build's own pages change
+    // difficulty, slope and nudge in memory. The hook samples at game start and at every key
+    // press and writes only on change, so any `changes` means an in-game edit. Absent =
+    // unverifiable (basic mode, a cabinet, a hook before 0.4.0): skipped, never a failure —
+    // the same treatment the adjustments map gets.
+    const engine = evidence.engine;
+    if (!rules.require_stock_physics) {
+        skip('engine', 'rule off');
+    } else if (!engine || !engine.start) {
+        skip('engine', 'in-game values were not reported (basic mode or a hook before 0.4.0)');
+    } else {
+        const st = engine.start;
+        const pct = (v: number | null) => (v == null ? '?' : `${Math.round(v * 100)}%`);
+        const problems: string[] = [];
+        if (engine.changes.length > 0) {
+            const last = engine.changes[engine.changes.length - 1] as EngineSample;
+            const what: string[] = [];
+            if (last.difficulty != null && st.difficulty != null && Math.abs(last.difficulty - st.difficulty) > 0.005) what.push(`difficulty ${pct(st.difficulty)} → ${pct(last.difficulty)}`);
+            if (last.physics_set != null && last.physics_set !== st.physics_set) what.push(`physics set ${st.physics_set ?? '?'} → ${last.physics_set}`);
+            const t0 = st.nudge?.tilt ?? null;
+            const t1 = last.nudge?.tilt ?? null;
+            if (t1 != null && t1 !== t0) what.push(`tilt sensitivity ${t0 ?? '?'} → ${t1}`);
+            if ((last.nudge?.xgain ?? null) !== (st.nudge?.xgain ?? null) || (last.nudge?.ygain ?? null) !== (st.nudge?.ygain ?? null)) what.push('nudge gain changed');
+            problems.push(`physics or difficulty changed during the game (${engine.changes.length} change${engine.changes.length === 1 ? '' : 's'}${what.length > 0 ? `: ${what.join(', ')}` : ''})`);
+        }
+        if (st.physics_set != null && st.physics_set !== 0) problems.push(`physics set ${st.physics_set} was in force`);
+        // The live difficulty against what the table file says (the ini's `difficulty` with no override
+        // IS the file's value); a saved override already fails stock_physics above.
+        if (ini && ini.difficulty_override == null && ini.difficulty != null && st.difficulty != null && Math.abs(st.difficulty - ini.difficulty) > 0.005) {
+            problems.push(`difficulty in force ${pct(st.difficulty)} differs from the table's ${pct(ini.difficulty)}`);
+        }
+        if (problems.length > 0) fail('engine', problems.join('; '));
+        else {
+            const slope = st.slope_min != null && st.slope_max != null && st.difficulty != null ? st.slope_min + st.difficulty * (st.slope_max - st.slope_min) : null;
+            pass('engine', `in force for the whole game: difficulty ${pct(st.difficulty)}${slope != null ? `, slope ${slope.toFixed(2)}°` : ''}, physics set ${st.physics_set ?? '?'}${st.nudge?.tilt != null ? `, tilt sensitivity ${st.nudge.tilt}` : ''}`);
+        }
+    }
+
     const adj = evidence.adjustments;
     if (!rules.require_factory_adjustments) {
         skip('factory_adjustments', 'rule off');
@@ -507,16 +613,20 @@ export function evaluateSanctioned(input: EvaluateInput): Verdict {
         skip('accel_gain', 'accelerometer off');
         skip('nudge_filter', 'accelerometer off');
     } else {
+        // v2.168.0: the live value from inside the table beats the ini's (the ini may be one session stale).
+        const liveTilt = evidence.engine?.start?.nudge?.tilt ?? null;
+        const tilt = liveTilt ?? ini.tilt_sens;
+        const live = liveTilt != null ? ' (live)' : '';
         if (rules.min_tilt_sensitivity <= 0) {
             skip('tilt_sensitivity', 'no minimum set');
-        } else if (ini.tilt_sens == null) {
+        } else if (tilt == null) {
             fail('tilt_sensitivity', 'tilt sensitivity was not reported');
-        } else if (ini.tilt_sens === 0) {
-            fail('tilt_sensitivity', `analog tilt is off (tilt sensitivity 0; minimum ${rules.min_tilt_sensitivity})`);
-        } else if (ini.tilt_sens < rules.min_tilt_sensitivity) {
-            fail('tilt_sensitivity', `tilt sensitivity ${ini.tilt_sens} is below the minimum ${rules.min_tilt_sensitivity}`);
+        } else if (tilt === 0) {
+            fail('tilt_sensitivity', `analog tilt is off (tilt sensitivity 0${live}; minimum ${rules.min_tilt_sensitivity})`);
+        } else if (tilt < rules.min_tilt_sensitivity) {
+            fail('tilt_sensitivity', `tilt sensitivity ${tilt}${live} is below the minimum ${rules.min_tilt_sensitivity}`);
         } else {
-            pass('tilt_sensitivity', `tilt sensitivity ${ini.tilt_sens}`);
+            pass('tilt_sensitivity', `tilt sensitivity ${tilt}${live}`);
         }
 
         const gains = [ini.accel_gain_x, ini.accel_gain_y].filter((g): g is number => g != null);

@@ -107,6 +107,8 @@ type DbRow = {
     table_name: string; rom: string | null; score: number; played_at: string;
     vps_game: string | null; vps_table: string | null; table_sha256: string | null; table_save_rev: number | null;
     fingerprint: string | null; ini: string | null; adjustments: string | null; build: string | null;
+    /** v2.168.0 (migration 187) */
+    engine: string | null;
     created_at: string;
 };
 
@@ -116,7 +118,7 @@ function parseJson<T>(s: string | null, fallback: T): T {
 }
 
 function rowToEvidence(r: DbRow): EvidenceRow {
-    const hasEvidence = r.vps_game || r.vps_table || r.table_sha256 || r.fingerprint || r.ini || r.adjustments || r.build;
+    const hasEvidence = r.vps_game || r.vps_table || r.table_sha256 || r.fingerprint || r.ini || r.adjustments || r.build || r.engine;
     return {
         id: r.id,
         deviceId: r.device_id,
@@ -140,6 +142,7 @@ function rowToEvidence(r: DbRow): EvidenceRow {
             vpsGame: r.vps_game, vpsTable: r.vps_table, tableSha256: r.table_sha256, tableSaveRev: r.table_save_rev,
             fingerprint: r.fingerprint,
             ini: parseJson(r.ini, null), adjustments: parseJson(r.adjustments, null), build: parseJson(r.build, null),
+            engine: parseJson(r.engine, null),
         } : null,
         createdAt: r.created_at,
     };
@@ -155,8 +158,8 @@ export class WitnessEvidenceService {
                 device_id, canonical_user_id, outcome, game_id, tournament_id, game_room_id,
                 score_history_id, global_score_id, integrity_mode, verdict, reasons, checks,
                 table_name, rom, score, played_at,
-                vps_game, vps_table, table_sha256, table_save_rev, fingerprint, ini, adjustments, build
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                vps_game, vps_table, table_sha256, table_save_rev, fingerprint, ini, adjustments, build, engine
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             input.deviceId, input.canonicalUserId, input.outcome,
             input.gameId ?? null, input.tournamentId ?? null, input.gameRoomId ?? null,
             input.scoreHistoryId ?? null, input.globalScoreId ?? null,
@@ -170,6 +173,7 @@ export class WitnessEvidenceService {
             e?.ini ? JSON.stringify(e.ini) : null,
             e?.adjustments ? JSON.stringify(e.adjustments) : null,
             e?.build ? JSON.stringify(e.build) : null,
+            e?.engine ? JSON.stringify(e.engine) : null,
         );
         return typeof res.lastID === 'number' ? res.lastID : null;
     }
