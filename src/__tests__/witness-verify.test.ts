@@ -413,7 +413,7 @@ describe('WitnessVerifyService — tier 2, the check-in attestation', () => {
     });
 });
 
-describe('Live Event boards — witness verdicts', () => {
+describe('Live Event boards — witness verdicts (flag only mode)', () => {
     let roomId: string;
     let tid: string;
     let r1: string;
@@ -423,6 +423,10 @@ describe('Live Event boards — witness verdicts', () => {
         await setupTestDb();
         roomId = await createTestRoom();
         tid = await makeEventTournament(roomId);
+        // v2.169.0 (W20): 'prevent' is the default now; these tests pin the
+        // opt-out, where a flag is a badge and never a gate (ADR 0020).
+        const db = await getDatabase();
+        await db.run(`UPDATE tournaments SET witness_flag_mode = 'flag' WHERE id = ?`, tid);
         const rounds = await EventService.createOrUpdateEvent(tid, {
             rounds: [
                 round(1, 'Medieval Madness', BASE, 20),
@@ -519,6 +523,98 @@ describe('Live Event boards — witness verdicts', () => {
         // `leaderboard_cache`.
         expect(row).not.toHaveProperty('display_name');
         expect(row).not.toHaveProperty('avatar_hash');
+    });
+});
+
+/**
+ * v2.169.0 (W20, owner ruling 2026-10-23) — 'prevent', the default: a score
+ * whose game started before the round opened does not count. The player's best
+ * UNflagged score ranks instead, and the flagged one is listed as not counted.
+ * Born from TomatoGrass gearing up round 1 of Witness Weekend Showdown and
+ * taking first place with a game started an hour early.
+ */
+describe('Live Event boards — prevent mode (the default)', () => {
+    let roomId: string;
+    let tid: string;
+    let r1: string;
+
+    beforeEach(async () => {
+        await setupTestDb();
+        roomId = await createTestRoom();
+        tid = await makeEventTournament(roomId);
+        const rounds = await EventService.createOrUpdateEvent(tid, {
+            rounds: [round(1, 'Medieval Madness', BASE, 30)],
+            checkinRequired: false,
+        });
+        r1 = rounds[0]!.id;
+    });
+
+    const score = (username: string, userId: string, value: number, atMin: number) => atgamesScore({
+        roomId, tournamentId: tid, gameId: r1, gameName: 'Medieval Madness',
+        username, userId, score: value, at: new Date(BASE + atMin * MINUTE),
+    });
+
+    async function board() {
+        const event = (await EventService.getEvent(tid))!;
+        const rounds = await EventService.getRounds(tid);
+        return EventResultService.getRoundBoard(event, rounds[0]!);
+    }
+
+    it('is the default for a tournament that never chose', async () => {
+        const db = await getDatabase();
+        const row = await db.get<{ witness_flag_mode: string }>(
+            'SELECT witness_flag_mode FROM tournaments WHERE id = ?', tid,
+        );
+        expect(row!.witness_flag_mode).toBe('prevent');
+        expect((await board()).witnessFlagMode).toBe('prevent');
+    });
+
+    it('ranks the best UNflagged score and sets the geared-up one aside', async () => {
+        await score('Ann', USER, 900, 10);           // geared up: launched 15 min early
+        await observe({ userId: USER, launchMs: BASE - 15 * MINUTE, exitMs: BASE + 10 * MINUTE });
+        await score('Ann', USER, 300, 20);           // clean: launched inside the round
+        await observe({ userId: USER, launchMs: BASE + 12 * MINUTE, exitMs: BASE + 20 * MINUTE });
+        await score('Bob', OTHER, 500, 15);
+
+        const b = await board();
+        expect(b.scores.map(s => [s.iscored_username, s.score, s.rank])).toEqual([
+            ['Bob', 500, 1],
+            ['Ann', 300, 2],
+        ]);
+        expect(b.notCounted.map(s => [s.iscored_username, s.score])).toEqual([['Ann', 900]]);
+        expect(b.notCounted[0]!.witness?.status).toBe('flagged');
+    });
+
+    it('leaves a player with only flagged scores off the board and out of the standings', async () => {
+        await score('Ann', USER, 900, 10);
+        await observe({ userId: USER, launchMs: BASE - 15 * MINUTE, exitMs: BASE + 10 * MINUTE });
+        await score('Bob', OTHER, 500, 15);
+
+        const b = await board();
+        expect(b.scores.map(s => s.iscored_username)).toEqual(['Bob']);
+        expect(b.notCounted.map(s => s.iscored_username)).toEqual(['Ann']);
+
+        const standings = (await EventResultService.computeStandings(tid))!;
+        expect(standings.standings.map(r => r.iscored_username)).toEqual(['Bob']);
+    });
+
+    it('does not list a flagged score that sits BELOW the player`s counted best', async () => {
+        await score('Ann', USER, 900, 20);           // clean best
+        await observe({ userId: USER, launchMs: BASE + 12 * MINUTE, exitMs: BASE + 20 * MINUTE });
+        await score('Ann', USER, 100, 5);            // an early, flagged, lower game
+        await observe({ userId: USER, launchMs: BASE - 10 * MINUTE, exitMs: BASE + 5 * MINUTE });
+
+        const b = await board();
+        expect(b.scores.map(s => s.score)).toEqual([900]);
+        expect(b.notCounted).toEqual([]);
+    });
+
+    it('never sets aside an unwitnessed score — only a positive flag is excluded', async () => {
+        await score('Ann', USER, 900, 10);           // no observation at all
+        const b = await board();
+        expect(b.scores.map(s => s.score)).toEqual([900]);
+        expect(b.scores[0]!.witness?.status).toBe('unwitnessed');
+        expect(b.notCounted).toEqual([]);
     });
 });
 

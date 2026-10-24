@@ -4,6 +4,7 @@ import { IdentityLinkService } from './IdentityLinkService.js';
 import { EventService, type EventRoundRow, type EventTournamentRow } from './EventService.js';
 import { eventEndGraceSec } from './EventSubmissionGate.js';
 import { WitnessVerifyService, type WitnessVerdict } from './WitnessVerifyService.js';
+import { normalizeWitnessFlagMode } from '../utils/witnessFlagMode.js';
 import type { EventAggregateMethod } from '../types/index.js';
 
 /**
@@ -78,6 +79,18 @@ export interface EventRoundBoard {
     startedAt: string | null;
     endedAt: string | null;
     scores: EventScoreRow[];
+    /**
+     * v2.169.0 (W20) — the event's rule for `flagged` witness verdicts.
+     * 'prevent': such a score is left out of `scores` (the player's best
+     * unflagged score ranks instead) and listed in `notCounted`.
+     */
+    witnessFlagMode: 'prevent' | 'flag';
+    /**
+     * Prevent mode only: per player, the best flagged score that would have
+     * outranked what they have on the board (or their best flagged score when
+     * they have nothing that counts). Shown, never ranked. Empty under 'flag'.
+     */
+    notCounted: Array<Omit<EventScoreRow, 'rank'>>;
 }
 
 export interface EventStandingRow {
@@ -218,7 +231,6 @@ export class EventResultService {
                                       <= CAST(strftime('%s', ?) AS INTEGER) + ?)
                        )
                )
-              WHERE rn = 1
               ORDER BY score DESC, created_at ASC`,
             round.scheduled_start_at,
             event.id,
@@ -228,12 +240,6 @@ export class EventResultService {
             round.scheduled_end_at,
             graceSec,
         );
-
-        const profiles = await resolveProfiles(rows as Array<{
-            submitted_by_user_id?: string | null;
-            discord_user_id?: string | null;
-            iscored_username?: string | null;
-        }>);
 
         // The witness verify-join, batched for the whole board (v2.145.0, P8).
         // `scheduled_start_at` is stored ISO, so the epoch conversion is done in
@@ -249,11 +255,43 @@ export class EventResultService {
             })),
         });
 
+        // v2.169.0 (W20) — choose each player's row. `rows` holds EVERY score
+        // of the round, best first, so the verdict exists for all of them.
+        // 'flag': the player's best row, exactly as before (badge, never gate).
+        // 'prevent': the player's best row whose verdict is NOT `flagged`; a
+        // flagged row above it is kept aside as `notCounted`.
+        const flagMode = normalizeWitnessFlagMode(event.witness_flag_mode);
+        const chosen: number[] = [];
+        const setAside: number[] = [];
+        const decided = new Set<string>();
+        const asideFor = new Set<string>();
+        rows.forEach((row, i) => {
+            if (decided.has(row.identity_key)) return;
+            const isFlagged = witnessVerdicts[i]?.status === 'flagged';
+            if (flagMode === 'prevent' && isFlagged) {
+                if (!asideFor.has(row.identity_key)) {
+                    asideFor.add(row.identity_key);
+                    setAside.push(i);
+                }
+                return;
+            }
+            decided.add(row.identity_key);
+            chosen.push(i);
+        });
+
+        const picked = [...chosen, ...setAside];
+        const profiles = await resolveProfiles(picked.map(i => rows[i]!) as Array<{
+            submitted_by_user_id?: string | null;
+            discord_user_id?: string | null;
+            iscored_username?: string | null;
+        }>);
+        const profileOf = new Map(picked.map((rowIndex, p) => [rowIndex, profiles[p]!]));
+
         const minElapsed = event.min_elapsed_sec;
-        const scores: EventScoreRow[] = rows.map((row, i) => {
-            const profile = profiles[i]!;
+        const toRow = (i: number): Omit<EventScoreRow, 'rank'> => {
+            const row = rows[i]!;
+            const profile = profileOf.get(i)!;
             return {
-                rank: i + 1,
                 identity_key: row.identity_key,
                 discord_user_id: profile.discord_user_id,
                 iscored_username: row.iscored_username ?? '',
@@ -274,7 +312,9 @@ export class EventResultService {
                 participant: event.checkin_required !== 1 || roster.has(row.identity_key),
                 witness: witnessVerdicts[i] ?? null,
             };
-        });
+        };
+        const scores: EventScoreRow[] = chosen.map((i, n) => ({ rank: n + 1, ...toRow(i) }));
+        const notCounted = setAside.map(toRow);
 
         return {
             roundNo: round.round_no,
@@ -286,6 +326,8 @@ export class EventResultService {
             startedAt: round.start_date,
             endedAt: round.end_date,
             scores,
+            witnessFlagMode: flagMode,
+            notCounted,
         };
     }
 

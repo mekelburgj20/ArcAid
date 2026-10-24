@@ -128,6 +128,12 @@ export interface TournamentFormState {
    * limit off.
    */
   maxAttempts: number | null;
+  /**
+   * v2.169.0 (W20) — events only: a score whose game the Arcaid Witness saw
+   * start before the round opened. 'prevent' (default) = it does not count;
+   * 'flag' = it counts with a warning badge. Always sent.
+   */
+  witnessFlagMode: 'prevent' | 'flag';
 }
 
 // --- Defaults ---
@@ -162,6 +168,7 @@ export const defaultFormState: TournamentFormState = {
   integrityMode: 'open',
   sanctionedRules: { ...defaultSanctionedRules },
   maxAttempts: null,
+  witnessFlagMode: 'prevent',
 };
 
 /** A blank create form seeded with the ROOM's timezone (schedule + event). */
@@ -733,6 +740,35 @@ function LimitedAttemptsField({ value, onChange }: { value: number | null; onCha
 }
 
 /**
+ * v2.169.0 (W20, owner ruling 2026-10-23) — events only. What happens to a score
+ * whose game the Arcaid Witness saw START before the round opened (gearing up).
+ */
+function WitnessFlagModeField({ value, onChange }: { value: 'prevent' | 'flag'; onChange: (v: 'prevent' | 'flag') => void }) {
+  return (
+    <div className="mb-4" data-testid="witness-flag-mode">
+      <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5" htmlFor="tournament-witness-flag-mode">
+        Games started before the round <InfoTip text="The Arcaid Witness sees when a game started. A game started before its round opened (gearing up) can be left out of the standings, or counted with a warning. Only games the Witness timed can be caught: AtGames cabinet tables with a ROM, and PC tables imported into Castcade. A no-ROM cabinet table or a PC table that was not imported reports one reading at exit and is never flagged." />
+      </label>
+      <select
+        id="tournament-witness-flag-mode"
+        aria-label="Games started before the round"
+        value={value}
+        onChange={e => onChange(e.target.value === 'flag' ? 'flag' : 'prevent')}
+        className="px-3 py-2 bg-raised border border-border rounded text-primary text-sm focus:outline-none focus:border-neon-cyan transition-colors"
+      >
+        <option value="prevent">Don't count them (recommended)</option>
+        <option value="flag">Count them, with a warning</option>
+      </select>
+      <p className="text-xs text-faint mt-1">
+        {value === 'prevent'
+          ? "A game started early is shown as not counted; the player's best game started inside the round counts instead."
+          : 'A game started early counts and shows a warning. Use this if a cabinet clock is known to be wrong.'}
+      </p>
+    </div>
+  );
+}
+
+/**
  * Integrity section (v2.166.0, ADR 0027; Castcade ADR 0005) — Open play or
  * Sanctioned play, and the Sanctioned rule set. The rules are measured by the
  * Castcade companion with every score it posts and judged by the SAME pure
@@ -1085,6 +1121,9 @@ export default function TournamentFormFields({ state, set, platforms, roomId, lo
         onRulesChange={r => set('sanctionedRules', r)}
       />
       <LimitedAttemptsField value={state.maxAttempts} onChange={v => set('maxAttempts', v)} />
+      {isEvent && (
+        <WitnessFlagModeField value={state.witnessFlagMode} onChange={v => set('witnessFlagMode', v)} />
+      )}
       {!isEvent && (
         <>
           <div className="mb-4">

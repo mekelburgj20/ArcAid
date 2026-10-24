@@ -73,6 +73,8 @@ export interface Tournament {
   sanctioned_rules?: string | null;
   /** Limited attempts (migration 186, ADR 0029). null = unlimited. */
   max_attempts?: number | null;
+  /** Flagged witness scores in an event (migration 188, W20). Absent = 'prevent'. */
+  witness_flag_mode?: 'prevent' | 'flag' | null;
 }
 
 /** `GET /:roomId/tournaments` → `season` sub-object on season / poll-picked rows. */
@@ -180,6 +182,8 @@ export function toPayload(state: TournamentFormState, extra: Record<string, any>
     // Limited attempts (ADR 0029): always sent; null = unlimited, so blanking
     // the field switches the limit off.
     max_attempts: state.maxAttempts ?? null,
+    // W20: always sent; only an event reads it.
+    witness_flag_mode: state.witnessFlagMode,
     // is_active is intentionally NOT hardcoded here. `extra` is spread last, so
     // each caller supplies it: handleCreate passes `is_active: true`;
     // handleEditSave passes the row's current value so editing a paused
@@ -239,5 +243,6 @@ export function tournamentToFormState(t: Tournament, roomTimezone: string = DEFA
     integrityMode: integrityModeFromRow(t),
     sanctionedRules: sanctionedRulesFromRow(t.sanctioned_rules),
     maxAttempts: typeof t.max_attempts === 'number' && t.max_attempts >= 1 ? t.max_attempts : null,
+    witnessFlagMode: t.witness_flag_mode === 'flag' ? 'flag' : 'prevent',
   };
 }

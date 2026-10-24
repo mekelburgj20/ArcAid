@@ -157,6 +157,12 @@ const TournamentBaseSchema = z.object({
      */
     max_attempts: z.number().int().min(1).max(999).nullable().optional(),
     /**
+     * v2.169.0 (W20) — an event score whose witness verdict is `flagged`:
+     * 'prevent' = not counted (default), 'flag' = counted with the badge.
+     * Omitted = leave as stored (update) / 'prevent' (create).
+     */
+    witness_flag_mode: z.enum(['prevent', 'flag']).optional(),
+    /**
      * Season block (docs/season-format-plan.md §3.1). `season_table_count`:
      * omitted = leave the stored season as it is (update) / not a season
      * (create); null = switch the season off; N = a season of N tables. A

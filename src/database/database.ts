@@ -3273,6 +3273,17 @@ async function doInitDatabase(): Promise<Database> {
                 await db.exec(`ALTER TABLE witness_evidence ADD COLUMN engine TEXT`);
             }
         } },
+        // v2.169.0 (W20, owner ruling 2026-10-23) — what an event does with a
+        // score whose witness verdict is `flagged` (the game started before the
+        // round opened). 'prevent' (default, existing events included): it
+        // does not count, the player's best unflagged score ranks instead.
+        // 'flag': it counts and wears the badge (ADR 0020's badge-never-gate).
+        { name: '188_witness_flag_mode', handler: async (db) => {
+            const cols = (await db.all(`PRAGMA table_info(tournaments)`)) as Array<{ name: string }>;
+            if (!cols.some(c => c.name === 'witness_flag_mode')) {
+                await db.exec(`ALTER TABLE tournaments ADD COLUMN witness_flag_mode TEXT NOT NULL DEFAULT 'prevent'`);
+            }
+        } },
     ];
 
     for (const migration of migrations) {

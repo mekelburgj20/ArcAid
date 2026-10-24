@@ -1,4 +1,5 @@
 import { getDatabase } from '../database/database.js';
+import { normalizeWitnessFlagMode } from '../utils/witnessFlagMode.js';
 import { normalizeIntegrityMode, normalizeSanctionedRules } from '../utils/sanctionedRules.js';
 import { logError } from '../utils/logger.js';
 import { PickAwardGate } from './PickAwardGate.js';
@@ -189,14 +190,16 @@ export class TournamentService {
         sanctioned_rules?: Record<string, unknown> | null;
         /** v2.167.0 (ADR 0029) — attempts per player per table; null = unlimited, omitted (update) = unchanged. */
         max_attempts?: number | null;
+        /** v2.169.0 (W20) — flagged event scores: 'prevent' (default) or 'flag'. */
+        witness_flag_mode?: 'prevent' | 'flag';
     } & SeasonInput): Promise<void> {
         const db = await getDatabase();
         const season = resolveSeason(data, null, data.format, data.cadence);
         const poll = resolvePoll(data, null, data.format, data.cadence);
         if (poll) data = { ...data, ...POLL_FORCED };
         await db.run(
-            `INSERT INTO tournaments (id, name, type, mode, cadence, platform_rules, guild_id, discord_channel_id, discord_role_id, is_active, display_order, max_active_games, cleanup_rule, game_room_id, winner_picks, auto_pick, eligibility_days, winner_pick_window_min, runnerup_pick_window_min, allow_dynasty, integrity_mode, sanctioned_rules, max_attempts)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO tournaments (id, name, type, mode, cadence, platform_rules, guild_id, discord_channel_id, discord_role_id, is_active, display_order, max_active_games, cleanup_rule, game_room_id, winner_picks, auto_pick, eligibility_days, winner_pick_window_min, runnerup_pick_window_min, allow_dynasty, integrity_mode, sanctioned_rules, max_attempts, witness_flag_mode)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             data.id, data.name, data.type, data.mode || 'pinball',
             JSON.stringify(data.cadence),
             // ADR 0016 P2 §2 — every writer emits the two-axis shape. Normalising
@@ -215,6 +218,7 @@ export class TournamentService {
             normalizeIntegrityMode(data.integrity_mode),
             data.sanctioned_rules ? JSON.stringify(normalizeSanctionedRules(data.sanctioned_rules)) : null,
             normalizeMaxAttempts(data.max_attempts),
+            normalizeWitnessFlagMode(data.witness_flag_mode),
         );
         if (poll) await this.applyPoll(data.id, poll);
         if (season) await this.applySeason(data.id, data.name, data.game_room_id ?? null, season, null);
@@ -254,6 +258,8 @@ export class TournamentService {
         sanctioned_rules?: Record<string, unknown> | null;
         /** v2.167.0 (ADR 0029) — attempts per player per table; null = unlimited, omitted (update) = unchanged. */
         max_attempts?: number | null;
+        /** v2.169.0 (W20) — omitted = unchanged. */
+        witness_flag_mode?: 'prevent' | 'flag';
     } & SeasonInput): Promise<void> {
         const db = await getDatabase();
         const stored = await db.get('SELECT * FROM tournaments WHERE id = ?', id);
@@ -274,8 +280,11 @@ export class TournamentService {
         const maxAttempts = data.max_attempts === undefined
             ? normalizeMaxAttempts(stored?.max_attempts)
             : normalizeMaxAttempts(data.max_attempts);
+        const witnessFlagMode = data.witness_flag_mode === undefined
+            ? normalizeWitnessFlagMode(stored?.witness_flag_mode)
+            : normalizeWitnessFlagMode(data.witness_flag_mode);
         await db.run(
-            `UPDATE tournaments SET name = ?, type = ?, mode = ?, cadence = ?, platform_rules = ?, guild_id = ?, discord_channel_id = ?, discord_role_id = ?, is_active = ?, display_order = ?, max_active_games = ?, cleanup_rule = ?, game_room_id = ?, winner_picks = ?, auto_pick = ?, eligibility_days = ?, winner_pick_window_min = ?, runnerup_pick_window_min = ?, allow_dynasty = ?, integrity_mode = ?, sanctioned_rules = ?, max_attempts = ?
+            `UPDATE tournaments SET name = ?, type = ?, mode = ?, cadence = ?, platform_rules = ?, guild_id = ?, discord_channel_id = ?, discord_role_id = ?, is_active = ?, display_order = ?, max_active_games = ?, cleanup_rule = ?, game_room_id = ?, winner_picks = ?, auto_pick = ?, eligibility_days = ?, winner_pick_window_min = ?, runnerup_pick_window_min = ?, allow_dynasty = ?, integrity_mode = ?, sanctioned_rules = ?, max_attempts = ?, witness_flag_mode = ?
              WHERE id = ?`,
             data.name, data.type, data.mode || 'pinball',
             JSON.stringify(data.cadence),
@@ -295,6 +304,7 @@ export class TournamentService {
             integrityMode,
             sanctionedRules,
             maxAttempts,
+            witnessFlagMode,
             id
         );
         if (poll) {
