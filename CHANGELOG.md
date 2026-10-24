@@ -6,6 +6,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.169.0] - 2026-10-23 - A game started before the round no longer counts (events)
+
+### Changed
+- **Witness flag mode per event (W20, ADR 0031, owner ruling 2026-10-23).** New tournament setting
+  `witness_flag_mode` (migration 188): `prevent` (default, existing events included) or `flag`. Under
+  `prevent`, a score whose Arcaid Witness verdict is `flagged` (the game started before its round opened)
+  does not count: each round board ranks the player's best UNflagged score, and the flagged one is listed
+  struck through as "Not counted: started before the round opened" on the event page. Nothing is deleted;
+  `flag` restores the badge-only behaviour of ADR 0020. Standings, the frozen result and Re-verify all
+  follow, because they read the same round board. Tournament form: "Games started before the round"
+  (events only). Born from TomatoGrass gearing up round 1 of Witness Weekend Showdown and taking first.
+
 ## [2.168.0] - 2026-10-23 - Engine evidence: what VPX had in force during the game
 
 ### Added

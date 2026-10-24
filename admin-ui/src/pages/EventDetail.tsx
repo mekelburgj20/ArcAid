@@ -89,6 +89,11 @@ interface RoundBoard {
     scheduledStartAt: string;
     scheduledEndAt: string;
     scores: ScoreRow[];
+    /**
+     * v2.169.0 (W20) — prevent mode: per player, a game the Witness saw start
+     * before the round opened, left out of `scores`. Absent on older servers.
+     */
+    notCounted?: Array<Omit<ScoreRow, 'rank'>>;
 }
 
 interface StandingRow {
@@ -741,6 +746,25 @@ export default function EventDetail({ throwdownCode }: EventDetailProps = {}) {
                                     ))}
                                 </tbody>
                             </table>
+                            </div>
+                        )}
+                        {/* W20 — prevent mode: shown so the player sees WHY a score is
+                            missing, never ranked. */}
+                        {(round.notCounted?.length ?? 0) > 0 && (
+                            <div className="border-t border-border bg-surface/50" data-testid="not-counted">
+                                {round.notCounted!.map(row => (
+                                    <div
+                                        key={`nc-${row.identity_key}`}
+                                        className="flex items-center gap-2 px-3 py-2 text-sm opacity-60"
+                                        title="The Arcaid Witness saw this game start before the round opened"
+                                    >
+                                        <span className="text-primary truncate">{name(row)}</span>
+                                        <span className="text-xs text-neon-amber whitespace-nowrap">Not counted: started before the round opened</span>
+                                        <span className="ml-auto font-mono text-faint line-through" title={scoreTitle(row.score)}>
+                                            {formatScore(row.score)}
+                                        </span>
+                                    </div>
+                                ))}
                             </div>
                         )}
                     </div>

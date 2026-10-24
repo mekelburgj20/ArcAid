@@ -95,6 +95,12 @@ export interface EventTournamentRow {
     throwdown_code?: string | null;
     rematch_of_tournament_id?: string | null;
     created_by_user_id?: string | null;
+    /**
+     * v2.169.0 (W20) — 'prevent' (default): a score whose witness verdict is
+     * `flagged` does not count; 'flag': it counts with the badge. Read through
+     * `normalizeWitnessFlagMode`, so a missing value is 'prevent'.
+     */
+    witness_flag_mode?: string | null;
 }
 
 export type EventState =

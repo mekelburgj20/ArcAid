@@ -66,8 +66,11 @@ async function makeEventTournament(roomId: string, format = 'event') {
     const db = await getDatabase();
     const id = crypto.randomUUID();
     await db.run(
-        `INSERT INTO tournaments (id, name, type, mode, cadence, is_active, game_room_id, format)
-         VALUES (?, 'Stream Night', 'DG', 'pinball', '{"timezone":"UTC"}', 1, ?, ?)`,
+        // witness_flag_mode 'flag' (v2.169.0, W20): these tests are about a late
+        // flag re-freezing into the result as a BADGE; under the 'prevent'
+        // default the flagged score would leave the standings instead.
+        `INSERT INTO tournaments (id, name, type, mode, cadence, is_active, game_room_id, format, witness_flag_mode)
+         VALUES (?, 'Stream Night', 'DG', 'pinball', '{"timezone":"UTC"}', 1, ?, ?, 'flag')`,
         id, roomId, format,
     );
     return id;
