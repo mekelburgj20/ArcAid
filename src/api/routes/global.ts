@@ -340,7 +340,7 @@ router.get('/witness/checkin', witnessIngestLimiter, async (req, res) => {
 // device-token auth and same bare 401 as the other device routes. Read by the
 // event check-in lobby, to show a cabinet that went quiet after it checked in.
 //
-// W28 (v2.172.0): it also answers with the current `sendingTo` line, so the
+// W28 (v2.173.0): it also answers with the current `sendingTo` line, so the
 // cabinet's "SENDING TO" refreshes within a heartbeat of a designation change
 // instead of only at check-in (players thought a change needed a Witness
 // restart). Same `describeTarget` as the check-in, plus the event lobby suffix

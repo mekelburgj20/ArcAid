@@ -257,7 +257,7 @@ export class EventLobbyService {
     }
 
     /**
-     * W28 (v2.172.0): the same answer for a HEARTBEAT, with NO check-in.
+     * W28 (v2.173.0): the same answer for a HEARTBEAT, with NO check-in.
      *
      * The heartbeat runs in the cabinet's background while tables are played,
      * so it must never write a participant row — a check-in is the proof that
