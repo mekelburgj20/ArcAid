@@ -11,6 +11,7 @@ import {
 import { resolveProfiles } from './PlayerProfileResolver.js';
 import { CardOrderService } from './CardOrderService.js';
 import { openCardSql } from '../utils/openCard.js';
+import { gameRunWindowByIdSql } from '../utils/gameRunWindow.js';
 
 /**
  * v2.0.3: translate stored catalogue paths (`data/catalogue-images/…`) to the
@@ -179,6 +180,8 @@ function parseCacheEnvelope(raw: string): CachedRankedRow[] | null {
  * verified flag can never disagree with the predicate that produced the row.
  */
 interface ScoreWindow {
+    /** The game whose run bounds the window (`gameRunWindow.ts`). */
+    game_id: string;
     game_room_id: string | null;
     tournament_id: string | null;
     game_name: string;
@@ -264,6 +267,7 @@ export class LeaderboardService {
         `, ...gameIds);
         for (const r of rows as any[]) {
             map.set(r.id, {
+                game_id: r.id,
                 game_room_id: r.game_room_id ?? null,
                 tournament_id: r.tournament_id ?? null,
                 game_name: r.name,
@@ -303,40 +307,42 @@ export class LeaderboardService {
         if (rows.length === 0) return [];
         const db = await getDatabase();
 
-        const windowKey = (w: ScoreWindow) => `${w.game_room_id ?? ''}\u0000${w.tournament_id ?? ''}\u0000${w.game_name.toLowerCase()}`;
+        // v2.172.0 — keyed per GAME, not per (room, tournament, name): two runs
+        // of one table in one tournament share the latter but not their run
+        // window (`gameRunWindow.ts`), so one SELECT per game, UNIONed.
         const uniqueWindows = new Map<string, ScoreWindow>();
         for (const w of windows) {
-            if (w) uniqueWindows.set(windowKey(w), w);
+            if (w) uniqueWindows.set(w.game_id, w);
         }
         if (uniqueWindows.size === 0) return rows.map(() => false);
 
-        const clauses: string[] = [];
+        const selects: string[] = [];
         const params: any[] = [];
         for (const w of uniqueWindows.values()) {
-            clauses.push('(game_room_id = ? AND submitted_during_tournament_id = ? AND LOWER(game_name) = LOWER(?))');
-            params.push(w.game_room_id, w.tournament_id, w.game_name);
+            selects.push(`
+                SELECT ? AS window_game_id, LOWER(iscored_username) as uname, score,
+                       MAX(CASE WHEN verified_at IS NOT NULL THEN 1 ELSE 0 END) as is_verified
+                FROM score_history
+                WHERE orphaned_at IS NULL
+                  AND game_room_id = ? AND submitted_during_tournament_id = ? AND LOWER(game_name) = LOWER(?)
+                  AND ${gameRunWindowByIdSql('score_history')}
+                GROUP BY LOWER(iscored_username), score`);
+            params.push(w.game_id, w.game_room_id, w.tournament_id, w.game_name, w.game_id);
         }
 
-        const verifiedRows = await db.all(`
-            SELECT game_room_id, submitted_during_tournament_id, LOWER(game_name) as game_name,
-                   LOWER(iscored_username) as uname, score,
-                   MAX(CASE WHEN verified_at IS NOT NULL THEN 1 ELSE 0 END) as is_verified
-            FROM score_history
-            WHERE orphaned_at IS NULL AND (${clauses.join(' OR ')})
-            GROUP BY game_room_id, submitted_during_tournament_id, LOWER(game_name), LOWER(iscored_username), score
-        `, ...params);
+        const verifiedRows = await db.all(selects.join('\n            UNION ALL'), ...params);
 
         const verifiedSet = new Set<string>();
         for (const r of verifiedRows as any[]) {
             if (r.is_verified) {
-                verifiedSet.add(`${r.game_room_id ?? ''}\u0000${r.submitted_during_tournament_id ?? ''}\u0000${r.game_name}\u0000${r.uname}\u0000${r.score}`);
+                verifiedSet.add(`${r.window_game_id}\u0000${r.uname}\u0000${r.score}`);
             }
         }
 
         return rows.map((row, i) => {
             const w = windows[i];
             if (!w) return false;
-            const key = `${w.game_room_id ?? ''}\u0000${w.tournament_id ?? ''}\u0000${w.game_name.toLowerCase()}\u0000${row.iscored_username.toLowerCase()}\u0000${row.score}`;
+            const key = `${w.game_id}\u0000${row.iscored_username.toLowerCase()}\u0000${row.score}`;
             return verifiedSet.has(key);
         });
     }
@@ -425,7 +431,7 @@ export class LeaderboardService {
      * are both projected because the read-time resolver needs both legs.
      */
     private static async queryRankedRows(
-        gameMeta: { name: string; tournament_id: string | null; game_room_id: string | null },
+        gameMeta: { id: string; name: string; tournament_id: string | null; game_room_id: string | null },
         extraClauses: string[],
         extraParams: any[],
     ): Promise<CachedRankedRow[]> {
@@ -467,11 +473,13 @@ export class LeaderboardService {
                   AND submitted_during_tournament_id = ?
                   AND LOWER(game_name) = LOWER(?)
                   AND orphaned_at IS NULL
+                  -- v2.172.0: this RUN of the table only (gameRunWindow.ts).
+                  AND ${gameRunWindowByIdSql('score_history')}
                   ${extraClauses.join('\n                  ')}
             ) best
             WHERE best.rn = 1
             ORDER BY best.score DESC
-        `, gameMeta.game_room_id, gameMeta.tournament_id, gameMeta.name, ...extraParams);
+        `, gameMeta.game_room_id, gameMeta.tournament_id, gameMeta.name, gameMeta.id, ...extraParams);
 
         return entries.map((e: any, i: number) => ({
             rank: i + 1,
@@ -633,7 +641,8 @@ export class LeaderboardService {
               AND submitted_during_tournament_id = ?
               AND LOWER(game_name) = LOWER(?)
               AND orphaned_at IS NULL
-        `, UNKNOWN, UNKNOWN, gameMeta.game_room_id, gameMeta.tournament_id, gameMeta.name);
+              AND ${gameRunWindowByIdSql('score_history')}
+        `, UNKNOWN, UNKNOWN, gameMeta.game_room_id, gameMeta.tournament_id, gameMeta.name, gameId);
 
         const engines: string[] = [];
         const devices: string[] = [];

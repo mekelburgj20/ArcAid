@@ -6,6 +6,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.172.0] - 2026-10-25 - A table that comes back round starts with an empty card
+
+Born from rtx_pinball Daily Grind, 2026-10-25: WHO dunnit became active at 22:00 CT and its card already
+showed seven scores. Five were from the table's previous Daily Grind run (2026-08-22 → 08-23); only
+Zelnar and BenjyCohen had played it this run.
+
+Why: tournament boards read `score_history` by (room, `submitted_during_tournament_id`, game name), and
+web rows carry no `game_id`. That key cannot tell two runs of the same table in the same tournament
+apart. The rotation winner was never affected — it reads `submissions` by the game's own id — so the
+card and the winner disagreed.
+
+### Fixed
+- **One run-window rule** (`src/utils/gameRunWindow.ts`): a score belongs to a game's run when it was
+  logged at or after that game started and before the next run of the same table in the same
+  tournament started (both edges 60 s early, for whole-second timestamps and cabinet clocks). Scores
+  logged after a run ended but before the next began (iScored final sync, late reports) stay with it.
+  A game with no `start_date` keeps the old unbounded window.
+- Applied to the room card and game page (`LeaderboardService`: ranked rows, the verified tick, the
+  engine/device tabs), the submit-moment "You are #N of M" card (`ScoreRankService`), and ranking-group
+  points (`RankingService`, which credited a re-run table's scores to both runs).
+- Deliberately unchanged: the per-tournament scores page (`TournamentScoresService`), which merges
+  every run of a table on purpose ("featured N×").
+
+Checked against production before shipping: the rule changes only the live WHO dunnit board (11 rows
+→ 2) and its archived August run; no other board loses a score. Three tables queued in Daily Grind
+(World Cup Soccer, Monster Bash, Sorcerer's Lair) carry 8–15 previous-run scores each and would have
+opened the same way.
+
+---
+
 ## [2.171.0] - 2026-10-25 - An event is never rotated; a finished event leaves no live card
 
 Born from the Witness Weekend Showdown (W33/W34): TWR Tournament #1 was an event saved with a rotation

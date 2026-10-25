@@ -1,5 +1,6 @@
 import { getDatabase } from '../database/database.js';
 import { logInfo, logError } from '../utils/logger.js';
+import { gameRunWindowSql } from '../utils/gameRunWindow.js';
 
 export type RankMethod = 'max_10' | 'average_rank' | 'best_game_papa' | 'best_game_linear';
 
@@ -356,6 +357,10 @@ export class RankingService {
                 JOIN score_history sh
                   ON sh.submitted_during_tournament_id = g.tournament_id
                  AND LOWER(sh.game_name) = LOWER(g.name)
+                 /* v2.172.0 -- and only THIS run of the table: a table the
+                    tournament ran twice must not score either run off the
+                    other's scores (gameRunWindow.ts). */
+                 AND ${gameRunWindowSql('sh', 'g')}
                 WHERE g.tournament_id IN (${placeholders})
                   AND g.status IN (${statusList})
                   AND sh.orphaned_at IS NULL

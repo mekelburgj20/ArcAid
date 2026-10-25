@@ -1,5 +1,6 @@
 import { getDatabase } from '../database/database.js';
 import { logError } from '../utils/logger.js';
+import { gameRunWindowByIdSql } from '../utils/gameRunWindow.js';
 
 /**
  * Submit-moment rank computation ("you are #N of M").
@@ -143,6 +144,18 @@ export class ScoreRankService {
     }): Promise<SubmitRankResult> {
         const { gameRoomId, gameName, partitionKey, submittedScore, tournamentId, excludeHistoryId } = args;
         const db = await getDatabase();
+        // v2.172.0 — the card is ONE run of the table (gameRunWindow.ts); rank
+        // against that run, not every run this tournament ever had of it. The
+        // ACTIVE row is the run being submitted to; else the newest.
+        const runGame = await db.get<{ id: string }>(
+            `SELECT id FROM games
+             WHERE tournament_id = ? AND LOWER(name) = LOWER(?)
+             ORDER BY CASE WHEN status = 'ACTIVE' THEN 0 ELSE 1 END, julianday(start_date) DESC
+             LIMIT 1`,
+            tournamentId, gameName,
+        );
+        const runClause = runGame ? `AND ${gameRunWindowByIdSql('score_history')}` : '';
+        const runParams = runGame ? [runGame.id] : [];
         const row = await db.get<RankAggregateRow>(
             `
             WITH best_per_player AS (
@@ -156,6 +169,7 @@ export class ScoreRankService {
                       AND submitted_during_tournament_id = ?
                       AND LOWER(game_name) = LOWER(?)
                       AND orphaned_at IS NULL
+                      ${runClause}
                 )
                 GROUP BY player_key
             ),
@@ -170,7 +184,7 @@ export class ScoreRankService {
                 (SELECT COUNT(*) + 1 FROM best_per_player WHERE best_score > (SELECT my_best FROM me)) AS my_rank,
                 (SELECT MIN(best_score) FROM best_per_player WHERE best_score > (SELECT my_best FROM me)) AS next_higher_score
             `,
-            gameRoomId, tournamentId, gameName,
+            gameRoomId, tournamentId, gameName, ...runParams,
             partitionKey, submittedScore, partitionKey,
         );
         const prevRow = await db.get<{ prev_best: number | null }>(
@@ -181,10 +195,11 @@ export class ScoreRankService {
               AND submitted_during_tournament_id = ?
               AND LOWER(game_name) = LOWER(?)
               AND orphaned_at IS NULL
+              ${runClause}
               AND COALESCE(submitted_by_user_id, 'iscored:' || LOWER(iscored_username)) = ?
               AND (? IS NULL OR id <> ?)
             `,
-            gameRoomId, tournamentId, gameName, partitionKey,
+            gameRoomId, tournamentId, gameName, ...runParams, partitionKey,
             excludeHistoryId, excludeHistoryId,
         );
         return interpret(row, submittedScore, prevRow?.prev_best ?? null);
