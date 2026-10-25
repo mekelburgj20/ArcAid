@@ -63,3 +63,4 @@ You do **not** need an ADR for routine bug fixes, code style preferences, or any
 | 0029 | [Limited attempts: N game starts per player per table, witnessed by Castcade](0029-limited-attempts.md) | accepted | 2026-10-22 |
 | 0031 | [In an event, a game the Witness saw start before the round opened does not count (by default)](0031-witness-flag-prevents-in-events.md) | accepted | 2026-10-23 |
 | 0032 | [A device set to "Global Scoreboard only" sends to the Global Scoreboard only](0032-global-only-means-global-only.md) | accepted (not built, W26) | 2026-10-24 |
+| 0033 | [Room membership is tournament entry; misses go to Global with a reason](0033-room-membership-is-tournament-entry.md) | accepted (not built, W37–W39) | 2026-10-25 |
