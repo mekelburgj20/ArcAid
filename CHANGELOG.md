@@ -6,6 +6,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.173.0] - 2026-10-25 - The heartbeat carries the "Sending to" line (W28)
+
+A WWS tester (TomatoGrass) believed a change of score destination needed a Witness restart, in a
+particular order. It never did: the server reads a device's target fresh for every score. But the
+cabinet's "SENDING TO" line came only from the check-in response, so it looked stale until the next
+check-in.
+
+### Changed
+- **`GET /api/witness/heartbeat` answers `{ ok, sendingTo }`.** `sendingTo` is the same line the check-in
+  sends (`WitnessService.describeTarget`), plus the event lobby suffix ("· CHECKED IN · READY" / "· CHECKED
+  IN · EXIT TABLE") computed **read-only** by the new `EventLobbyService.lobbyFromHeartbeat`. It shares one
+  code path with `checkinFromWitness` but never writes a participant row: a heartbeat runs in the
+  background while tables are played, and a check-in is the proof that none was open. A player who has
+  not checked in gets no suffix. Best-effort: if building the line fails the heartbeat still answers ok,
+  with an empty line, and the device keeps the one it has. Cabinet 1.0.4 ignores the field; cabinet 1.0.5
+  (`mekelburgj20/arcaid-witness`) shows it.
+- `WitnessService.recordHeartbeat` returns the device owner (`{ canonicalUserId } | null`) instead of a
+  boolean.
+- **Account Settings → paired devices**: the routing caption adds "A change applies to the very next score;
+  no Witness restart needed."
+
 ## [2.172.0] - 2026-10-25 - A table that comes back round starts with an empty card
 
 Born from rtx_pinball Daily Grind, 2026-10-25: WHO dunnit became active at 22:00 CT and its card already

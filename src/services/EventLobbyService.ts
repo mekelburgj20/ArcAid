@@ -253,6 +253,27 @@ export class EventLobbyService {
     static async checkinFromWitness(
         deviceId: string, canonicalUserId: string, now: Date = new Date(),
     ): Promise<{ tournamentId: string; eventName: string; alreadyCheckedIn: boolean; status: LobbyStatus } | null> {
+        return EventLobbyService.lobbyForDevice(deviceId, canonicalUserId, now, true);
+    }
+
+    /**
+     * W28 (v2.172.0): the same answer for a HEARTBEAT, with NO check-in.
+     *
+     * The heartbeat runs in the cabinet's background while tables are played,
+     * so it must never write a participant row — a check-in is the proof that
+     * no table was open. A player who has not checked in gets null (no suffix);
+     * one who has gets their live lobby status, so the cabinet's line can say
+     * "EXIT TABLE" mid-session as truthfully as the check-in says "READY".
+     */
+    static async lobbyFromHeartbeat(
+        deviceId: string, canonicalUserId: string, now: Date = new Date(),
+    ): Promise<{ tournamentId: string; eventName: string; alreadyCheckedIn: boolean; status: LobbyStatus } | null> {
+        return EventLobbyService.lobbyForDevice(deviceId, canonicalUserId, now, false);
+    }
+
+    private static async lobbyForDevice(
+        deviceId: string, canonicalUserId: string, now: Date, checkIn: boolean,
+    ): Promise<{ tournamentId: string; eventName: string; alreadyCheckedIn: boolean; status: LobbyStatus } | null> {
         const { WitnessService } = await import('./WitnessService.js');
         const target = await WitnessService.getDeviceTarget(deviceId);
         if (!target.tournamentId) return null;
@@ -265,6 +286,7 @@ export class EventLobbyService {
         if (!windowOpen) return null;
 
         const existing = await EventService.isParticipant(event.id, canonicalUserId);
+        if (!existing && !checkIn) return null;
         if (!existing) {
             await EventService.checkIn(event.id, canonicalUserId, 'checkin');
             logInfo(`Witness: ${canonicalUserId} checked in to event "${event.name}" from cabinet ${deviceId}`);

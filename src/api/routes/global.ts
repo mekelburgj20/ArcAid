@@ -336,19 +336,36 @@ router.get('/witness/checkin', witnessIngestLimiter, async (req, res) => {
     }
 });
 
-// Device: the 1.0.4 "still here" (v2.160.0). Stamps the device row and nothing
-// else; same device-token auth and same bare 401 as the other device routes.
-// Read only by the event check-in lobby, to show a cabinet that went quiet
-// after it checked in.
+// Device: the 1.0.4 "still here" (v2.160.0). Stamps the device row; same
+// device-token auth and same bare 401 as the other device routes. Read by the
+// event check-in lobby, to show a cabinet that went quiet after it checked in.
+//
+// W28 (v2.172.0): it also answers with the current `sendingTo` line, so the
+// cabinet's "SENDING TO" refreshes within a heartbeat of a designation change
+// instead of only at check-in (players thought a change needed a Witness
+// restart). Same `describeTarget` as the check-in, plus the event lobby suffix
+// READ-ONLY — a heartbeat runs while tables are played and must never check
+// anyone in. Best-effort: a failure here still answers ok, with no line, and a
+// cabinet keeps the line it has (1.0.4 cabinets ignore the field).
 router.get('/witness/heartbeat', witnessIngestLimiter, async (req, res) => {
     try {
         const { WitnessService } = await import('../../services/WitnessService.js');
         const device = typeof req.query.device === 'string' ? req.query.device : '';
         const token = (typeof req.query.token === 'string' && req.query.token)
             || (typeof req.headers['x-witness-token'] === 'string' ? req.headers['x-witness-token'] as string : '');
-        const ok = await WitnessService.recordHeartbeat(device, token);
-        if (!ok) return res.status(401).json({ ok: false });
-        res.json({ ok: true });
+        const beat = await WitnessService.recordHeartbeat(device, token);
+        if (!beat) return res.status(401).json({ ok: false });
+        let sendingTo = '';
+        try {
+            sendingTo = await WitnessService.describeTarget(device);
+            const { EventLobbyService } = await import('../../services/EventLobbyService.js');
+            sendingTo += EventLobbyService.cabinetLine(
+                await EventLobbyService.lobbyFromHeartbeat(device, beat.canonicalUserId),
+            );
+        } catch (err) {
+            logError('Witness heartbeat: sendingTo step failed (heartbeat itself succeeded)', err);
+        }
+        res.json({ ok: true, sendingTo });
     } catch (error) {
         logError('API Error (GET /api/witness/heartbeat)');
         res.status(500).json({ ok: false });

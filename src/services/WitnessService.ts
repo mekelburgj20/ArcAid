@@ -628,18 +628,18 @@ export class WitnessService {
      * since its check-in as "not responding" — and ONLY for cabinets that have
      * ever sent one, so a pre-1.0.4 cabinet is never read as offline.
      */
-    static async recordHeartbeat(atgamesUniqueId: string, token: string): Promise<boolean> {
+    static async recordHeartbeat(atgamesUniqueId: string, token: string): Promise<{ canonicalUserId: string } | null> {
         const deviceId = (atgamesUniqueId || '').trim();
-        if (!deviceId || !token) return false;
+        if (!deviceId || !token) return null;
         const device = await WitnessService.authenticateDevice(deviceId, token);
-        if (!device) return false;
+        if (!device) return null;
         const db = await getDatabase();
         await db.run(
             `UPDATE witness_devices SET heartbeat_at = datetime('now'), last_seen_at = datetime('now')
               WHERE atgames_unique_id = ?`,
             deviceId,
         );
-        return true;
+        return { canonicalUserId: device.canonical_user_id };
     }
 
     /**
