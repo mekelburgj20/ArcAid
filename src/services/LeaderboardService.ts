@@ -10,6 +10,7 @@ import {
 } from '../utils/scoreProvenance.js';
 import { resolveProfiles } from './PlayerProfileResolver.js';
 import { CardOrderService } from './CardOrderService.js';
+import { openCardSql } from '../utils/openCard.js';
 
 /**
  * v2.0.3: translate stored catalogue paths (`data/catalogue-images/…`) to the
@@ -731,7 +732,10 @@ export class LeaderboardService {
             LEFT JOIN style_catalogue sc_logo ON g.logo_style_id = sc_logo.id
             LEFT JOIN style_catalogue sc_cat ON g.catalogue_style_id = sc_cat.id
             LEFT JOIN game_room_game_library rl ON rl.game_room_id = g.game_room_id AND LOWER(rl.game_name) = LOWER(g.name)
-            WHERE g.status = 'ACTIVE'${roomFilter}
+            -- W33: the shared open-card rule — a finished event's leftover
+            -- ACTIVE game is not a live card (it leaves the board like the
+            -- event's own completed rounds do).
+            WHERE ${openCardSql('g', 't')}${roomFilter}
             GROUP BY COALESCE(g.tournament_id, g.id), g.name
             ORDER BY display_order ASC, g.start_date ASC
         `, ...roomParams);

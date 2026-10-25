@@ -166,8 +166,10 @@ export default function AccountSettings() {
       const rows = await res.json();
       setWitnessTournaments(prev => ({
         ...prev,
+        // W33 open-card rule: a FINISHED event takes no scores, so it is not a
+        // target; a PAUSED rotation still does (pause only stops rotating).
         [roomId]: (Array.isArray(rows) ? rows : [])
-          .filter((t: { is_active?: number | boolean }) => t.is_active !== 0 && t.is_active !== false)
+          .filter((t: { event_finished_at?: string | null }) => !t.event_finished_at)
           .map((t: { id: string; name: string }) => ({ id: t.id, name: t.name })),
       }));
     } catch { /* the picker degrades to "any tournament in this room" */ }
@@ -1449,13 +1451,25 @@ export default function AccountSettings() {
                               {(witnessTournaments[d.targetRoomId] ?? []).map(t => (
                                 <option key={t.id} value={t.id}>{t.name}</option>
                               ))}
+                              {/* A pointer at a tournament that has since ENDED: shown for
+                                  what it is (the server already treats it as "any
+                                  tournament"), not silently re-rendered as another option. */}
+                              {d.targetTournamentId && witnessTournaments[d.targetRoomId]
+                                && !witnessTournaments[d.targetRoomId]!.some(t => t.id === d.targetTournamentId) && (
+                                <option value={d.targetTournamentId}>{d.targetTournamentName || 'Tournament'} (ended)</option>
+                              )}
                             </select>
                           )}
                         </div>
                         <p className="mt-1 text-xs text-faint">
                           {d.targetRoomId
                             ? `Scores from this device go to ${d.targetRoomName || 'that room'}${
-                                d.targetTournamentName ? ` → ${d.targetTournamentName}` : ''
+                                d.targetTournamentName
+                                  ? (d.targetTournamentId && witnessTournaments[d.targetRoomId]
+                                      && !witnessTournaments[d.targetRoomId]!.some(t => t.id === d.targetTournamentId)
+                                      ? ` (${d.targetTournamentName} has ended, so any open tournament there)`
+                                      : ` → ${d.targetTournamentName}`)
+                                  : ''
                               }. Anything that doesn't match an open game there goes to the Global Scoreboard.`
                             : 'Scores go to your Global Scoreboard record, plus any event you have joined. Pick a room to have them count towards a rotation tournament.'}
                         </p>

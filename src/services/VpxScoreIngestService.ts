@@ -5,6 +5,7 @@ import { normalizeGameName } from '../utils/catalogueUtils.js';
 import { parseTournamentRules } from '../utils/platformRules.js';
 import { logInfo, logWarn } from '../utils/logger.js';
 import type { WitnessDeviceType } from './WitnessService.js';
+import { tournamentFinishedSql } from '../utils/openCard.js';
 import {
     evaluateSanctioned, normalizeIntegrityMode, normalizeSanctionedRules,
     type IntegrityMode, type Verdict, type WitnessEvidence,
@@ -1012,7 +1013,9 @@ export class VpxScoreIngestService {
                     ) AS is_participant
                FROM games g
                JOIN tournaments t ON t.id = g.tournament_id
-              WHERE t.is_active = 1
+              -- W33 open-card rule: a FINISHED event is out; a PAUSED rotation
+              -- (is_active = 0) is not — pause only stops the rotation.
+              WHERE NOT ${tournamentFinishedSql('t')}
                 AND (
                         (t.format = 'event' AND g.round_no IS NOT NULL)
                      OR (g.status = 'ACTIVE' AND (t.format IS NULL OR t.format = 'rotation'))

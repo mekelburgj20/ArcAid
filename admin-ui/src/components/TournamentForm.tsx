@@ -908,9 +908,15 @@ interface TournamentFormFieldsProps {
    * when the rule carries no zone of its own.
    */
   roomTimezone?: string;
+  /**
+   * W33 (owner ruling 2026-10-25): an existing tournament's format can't be
+   * changed — the server answers 409 FORMAT_LOCKED. The edit modal sets this
+   * so the toggle reads as fixed rather than inviting a save that fails.
+   */
+  formatLocked?: boolean;
 }
 
-export default function TournamentFormFields({ state, set, platforms, roomId, lockedRounds, roomTimezone = DEFAULT_TIMEZONE }: TournamentFormFieldsProps) {
+export default function TournamentFormFields({ state, set, platforms, roomId, lockedRounds, roomTimezone = DEFAULT_TIMEZONE, formatLocked = false }: TournamentFormFieldsProps) {
   const inputClass = "w-full px-3 py-2 bg-raised border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan transition-colors";
   const selectClass = `${inputClass} cursor-pointer`;
 
@@ -935,15 +941,20 @@ export default function TournamentFormFields({ state, set, platforms, roomId, lo
               key={fmt}
               type="button"
               onClick={() => set('format', fmt)}
-              className={`px-4 py-2 text-sm transition-colors cursor-pointer ${
+              disabled={formatLocked && state.format !== fmt}
+              aria-pressed={state.format === fmt}
+              className={`px-4 py-2 text-sm transition-colors ${
                 state.format === fmt
                   ? 'bg-neon-cyan/20 text-neon-cyan'
-                  : 'bg-raised text-muted hover:text-primary'
+                  : formatLocked
+                    ? 'bg-raised text-faint cursor-not-allowed'
+                    : 'bg-raised text-muted hover:text-primary cursor-pointer'
               }`}
             >{fmt === 'rotation' ? 'Rotation' : 'Event'}</button>
           ))}
         </div>
         <p className="text-xs text-faint mt-1.5">
+          {formatLocked && <>The format can't be changed after a tournament is created. To switch, create a new tournament. </>}
           {isEvent
             ? 'Time-boxed rounds on the server clock. Scores before a round opens or after it closes are refused.'
             : 'Runs continuously — the winner picks the next game and the schedule rotates it.'}

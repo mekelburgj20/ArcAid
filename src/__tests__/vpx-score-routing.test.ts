@@ -233,7 +233,13 @@ describe('VPXS score routing', () => {
         const { tournamentId } = await createRotationGame(roomId, 'Bad Cats');
         await designate(roomId, tournamentId);
         const db = await getDatabase();
-        await db.run(`UPDATE tournaments SET is_active = 0 WHERE id = ?`, tournamentId);
+        // FINISHED = the W33 open-card rule (`utils/openCard.ts`): an event
+        // whose clock has ended. A rotation cannot finish; `is_active = 0` on
+        // one is a PAUSE (next test).
+        await db.run(
+            `UPDATE tournaments SET format = 'event', is_active = 0, event_finished_at = datetime('now') WHERE id = ?`,
+            tournamentId,
+        );
         const second = await createRotationGame(roomId, 'Bad Cats');
 
         const res = await request(app).get('/api/witness/score')
@@ -246,6 +252,23 @@ describe('VPXS score routing', () => {
             `SELECT game_id FROM score_history ORDER BY id DESC LIMIT 1`,
         );
         expect(row!.game_id).toBe(second.gameId);
+    });
+
+    it('W33: a designated tournament that is PAUSED still takes the score (pause only stops rotating)', async () => {
+        const { tournamentId, gameId } = await createRotationGame(roomId, 'Bad Cats');
+        await designate(roomId, tournamentId);
+        const db = await getDatabase();
+        await db.run(`UPDATE tournaments SET is_active = 0 WHERE id = ?`, tournamentId);
+        await createRotationGame(roomId, 'Bad Cats'); // a same-named game elsewhere: the designation decides
+
+        const res = await request(app).get('/api/witness/score')
+            .query({ device: DEVICE, token, ...scoreQuery() });
+
+        expect(res.body).toMatchObject({ status: 'ingested' });
+        const row = await db.get<{ game_id: string }>(
+            `SELECT game_id FROM score_history ORDER BY id DESC LIMIT 1`,
+        );
+        expect(row!.game_id).toBe(gameId);
     });
 
     it('does not record the same global score twice; a repeat inside the window is told it landed (v2.167.1)', async () => {

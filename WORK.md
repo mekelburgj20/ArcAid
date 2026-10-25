@@ -45,6 +45,7 @@ Lane: `src/engine/**`, `src/services/{Tournament,PickQueue,PickDisposition,PickA
 - **A15** `done 2.141.0` Tournament Events & Throwdowns arc (2.135.0 → 2.141.0, ADRs 0017/0018); P8 became the Arcaid Witness (W1)
 - **A17** `done 2.167.2` Event rounds editor: labelled Game / Starts / Ends date-time pickers per round, duration as a caption (owner ruling 2026-10-22, first multi-day event config) · spec: CHANGELOG 2.167.2
 - **A16** `done 2.167.0` Limited attempts — N game starts per player per games row, counted live over `GET /api/witness/attempt` (ADR 0029, #374); cabinets count at report time (cabinet 1.0.4 reports abandoned/short games as attempts, restarts ride the score); only Witness scores land; admin list + void; prod-verified 2026-10-22 · gate: owner-rig run once Castcade 0.2.11 ships the attempt call (still owed)
+- **A18** `idea` A finished SEASON can leave a table ACTIVE forever in a multi-slot season: `finishSeason` stamps at the bound while another slot's table may still be ACTIVE, and every later maintenance run skips, so that card never rotates or closes. The W33 open-card rule (`src/utils/openCard.ts`) covers finished EVENTS only, because a finished season keeps `is_active = 1` by design for its retained cards. Owner question: does a still-ACTIVE table close at the bound, or run out its time and then close? (Poll seasons force one slot, so Mox's is unaffected.) · spec: CHANGELOG 2.171.0 "Not done"
 
 ## B. Scores, submission, leaderboards, Global Scoreboard, cards, styles, stats
 

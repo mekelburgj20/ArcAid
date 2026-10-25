@@ -52,7 +52,7 @@ import {
     SeasonCandidatesQuerySchema,
 } from '../schemas.js';
 import { SeasonPollService, SeasonPollError, type SeasonTournamentRow } from '../../services/SeasonPollService.js';
-import { SeasonConfigError } from '../../services/TournamentService.js';
+import { SeasonConfigError, TournamentFormatLockedError } from '../../services/TournamentService.js';
 import { RotationAuditService } from '../../services/RotationAuditService.js';
 import { writeLimiter, pickLimiter, pickAlertsLimiter, guestContentLimiter } from '../rateLimit.js';
 import { isAllowedImage } from '../uploadValidation.js';
@@ -4903,6 +4903,7 @@ router.put('/:roomId/tournaments/:id', requireAuth, requireRoomAccess('roomId'),
             await TournamentService.update(req.params.id as string, data);
         } catch (err) {
             if (err instanceof SeasonConfigError) return res.status(400).json({ error: err.message, code: err.code });
+            if (err instanceof TournamentFormatLockedError) return res.status(409).json({ error: err.message, code: err.code });
             throw err;
         }
 

@@ -1,6 +1,7 @@
 import { randomBytes, createHash } from 'crypto';
 import { getDatabase } from '../database/database.js';
 import { logInfo, logWarn } from '../utils/logger.js';
+import { tournamentFinishedSql } from '../utils/openCard.js';
 
 /**
  * P8 — Arcaid Witness ingest.
@@ -708,6 +709,8 @@ export class WitnessService {
      * A designated tournament that has FINISHED is treated as absent rather
      * than cleared: a stale pointer must not quietly swallow scores weeks after
      * the event, and read-time expiry needs no cleanup job to stay correct.
+     * "Finished" is the W33 open-card rule (`utils/openCard.ts`): a PAUSED
+     * rotation is not finished, so a designation pointing at one holds.
      */
     static async getDeviceTarget(deviceId: string): Promise<{
         roomId: string | null; tournamentId: string | null; globalFallback: boolean;
@@ -715,17 +718,17 @@ export class WitnessService {
         const db = await getDatabase();
         const row = await db.get<{
             target_room_id: string | null; target_tournament_id: string | null;
-            global_fallback: number; tournament_active: number | null;
+            global_fallback: number; tournament_finished: number | null;
         }>(
             `SELECT d.target_room_id, d.target_tournament_id, d.global_fallback,
-                    t.is_active AS tournament_active
+                    ${tournamentFinishedSql('t')} AS tournament_finished
                FROM witness_devices d
                LEFT JOIN tournaments t ON t.id = d.target_tournament_id
               WHERE d.atgames_unique_id = ?`,
             deviceId,
         );
         if (!row) return { roomId: null, tournamentId: null, globalFallback: true };
-        const tournamentId = row.target_tournament_id && row.tournament_active === 0
+        const tournamentId = row.target_tournament_id && row.tournament_finished === 1
             ? null
             : row.target_tournament_id;
         return {

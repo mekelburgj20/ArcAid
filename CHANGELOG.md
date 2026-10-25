@@ -6,6 +6,51 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.171.0] - 2026-10-25 - An event is never rotated; a finished event leaves no live card
+
+Born from the Witness Weekend Showdown (W33/W34): TWR Tournament #1 was an event saved with a rotation
+cron (`0 12 * * *`). At noon CT on 2026-10-24 rotation maintenance completed its live TNA round 13 hours
+early and auto-picked "JP's Pokemon Pinball" from the whole catalogue as a non-round ACTIVE game; the
+event finished with one ranked player, and the Pokemon card then sat on the room board looking live
+while device scores on it went to Global.
+
+How the cron got there: the edit form let an admin flip an existing event's Format to "Rotation". The
+save wrote a cron, but only `EventService` ever writes the `format` column, so the row stayed
+`format = 'event'` with a rotation cron.
+
+### Fixed
+- **Events never run on a rotation cron.** `Scheduler` registers no maintenance or cleanup cron for an
+  event whatever its cadence says (start-up, `scheduleTournament`, and the two 15-minute sweeps), and
+  `runMaintenance` refuses an event (`skipped`, "event (rounds run on their own clock)"), so Force
+  Maintenance can't rotate one either.
+- **A tournament's format is fixed once created** (owner ruling 2026-10-25). `PUT
+  /rooms/:roomId/tournaments/:id` answers **409 `FORMAT_LOCKED`** when the format differs from the stored
+  one, in both directions; the edit form shows the toggle locked with a one-line explanation. The service
+  also strips a cron from an event's cadence for callers that skip the HTTP schema.
+- **One "open card" rule** (`src/utils/openCard.ts`): a card is open when its game is ACTIVE and its
+  tournament has not FINISHED (an event with `event_finished_at`). The room board, the web submit resolver
+  (a finished event's leftover card resolves as COMPLETED, so it gets no tournament stamp), witness ingest
+  and device designation all read it. **A paused rotation stays open** (owner ruling 2026-10-25: pause
+  only stops rotating) — witness ingest, designation and the device picker used `is_active = 1` and
+  treated a paused rotation as closed; they now accept it like the typed path already did.
+- **Finishing an event closes its leftover cards.** `EventScheduler` deactivates any non-round ACTIVE game
+  on the event in the same step (final sync + iScored lock + COMPLETED, local fallback).
+- **Migration 190** repairs rows already in that state: removes the cron from any event's cadence (the
+  zone stays) and completes ACTIVE games on finished events — this closes the stray Pokemon card on TWR
+  Tournament #1. Local only: a migration can't reach iScored.
+
+### Changed
+- **Admin Tournaments page**: a finished event moves out of "Active Tournaments" into a dimmed
+  **Finished** section that reads "Ended <date> — not accepting scores" (Rounds, Integrity, Delete stay
+  reachable). Event rows show "—" for Last run instead of a daily "Skipped" from an old cron.
+- **Account Settings → paired devices**: the tournament picker lists paused rotations and drops finished
+  events; a device still pointed at a finished event shows it as "(ended)" and the caption says scores go
+  to any open tournament in that room (which is what the server already did).
+
+### Not done (recorded)
+- A Season that finishes keeps `is_active = 1` by design, so the open-card rule does not cover it; whether
+  a still-ACTIVE table in a multi-slot season should close at the bound is its own question (WORK.md).
+
 ## [2.170.0] - 2026-10-25 - Score plausibility on the evidence review; 0.2.12's difficulty read right
 
 ### Added
