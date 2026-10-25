@@ -64,6 +64,8 @@ const EVIDENCE: EvidenceRow[] = [
       adjustments: { total: 40, non_factory: [] },
       build: { vpx: { sha256: null, version: '10.8.0', known: 'vpx-10.8.0', family: 'official' }, vpinmame: { sha256: null, version: '3.6.0', known: null, family: 'nightly' }, cheat: false },
       engine: { start: { t: 0.5, difficulty: 0.2, slope_min: 6.5, slope_max: 6.5, physics_set: 0, nudge: { tilt: 200 } }, changes: [{ t: 300, difficulty: 0.8, slope_min: 6.5, slope_max: 6.5, physics_set: 0, nudge: { tilt: 200 } }] },
+      // v2.170.0 (W41): a flagged plausibility — shown, never a gate.
+      scorePlausibility: { samples: 212, gcd: 1, step: 10, off_step: 1, largest: { points: 9_000_001, t: 410.2, ball: 3 }, flag: '1 score change not a multiple of 10 (first +9,000,001); ROM scores move in steps of 10' },
     },
     createdAt: '2026-10-20 18:00:05',
   },
@@ -72,7 +74,12 @@ const EVIDENCE: EvidenceRow[] = [
     gameId: 'g-mb', gameName: 'Monster Bash', scoreHistoryId: 55, globalScoreId: null, integrityMode: 'sanctioned',
     verdict: 'pass', reasons: [], checks: [{ rule: 'evidence', status: 'pass', detail: 'evidence present' }],
     tableName: 'Monster Bash (Williams 1998)', rom: 'mb_10', score: 98765430, playedAt: '2026-10-19 18:00:00',
-    evidence: { vpsGame: 'mb-vps', vpsTable: 'tbl-vr', tableSha256: null, ini: null, adjustments: null, build: null },
+    evidence: {
+      vpsGame: 'mb-vps', vpsTable: 'tbl-vr', tableSha256: null, ini: null, adjustments: null, build: null,
+      // W40: a companion 0.2.12 row (engine difficulty 50 on the wire) as the server now returns it, ÷100 at parse.
+      engine: { start: { t: 0.5, difficulty: 0.5, slope_min: 6, slope_max: 7, physics_set: 0, nudge: { tilt: 400 } }, changes: [] },
+      scorePlausibility: { samples: 414, gcd: 10, step: 10, off_step: 0, largest: { points: 11_450_000, t: 812.4, ball: 2 }, flag: null },
+    },
     createdAt: '2026-10-19 18:00:05',
   },
 ];
@@ -203,6 +210,27 @@ describe('IntegrityPanel', () => {
 
     fireEvent.click(within(flagged).getByLabelText('Hide details'));
     expect(screen.queryByText('10.8.0 (official)')).toBeNull();
+  });
+
+  it('shows the score plausibility line, and the flag in the warning style only when set (W41)', async () => {
+    render(<IntegrityPanel roomId={ROOM} tournament={TOURNAMENT} onClose={() => {}} toast={toast} />);
+    const clean = await screen.findByTestId('evidence-row-6');
+    fireEvent.click(within(clean).getByLabelText('Show details'));
+    expect(screen.getByText('414 changes, largest jump +11,450,000 on ball 2, all in steps of 10')).toBeInTheDocument();
+    expect(screen.queryByTestId('plausibility-flag')).toBeNull();
+    // W40: a 0.2.12 engine row reads 50%, not 5000%, and the slope sits mid-range.
+    expect(screen.getByText('difficulty 50% · slope 6.50° · physics set 0 · tilt 400')).toBeInTheDocument();
+    fireEvent.click(within(clean).getByLabelText('Hide details'));
+
+    const flagged = await screen.findByTestId('evidence-row-7');
+    fireEvent.click(within(flagged).getByLabelText('Show details'));
+    // Flagged: no "all in steps of 10", and the companion's sentence on its own warning line.
+    expect(screen.getByText('212 changes, largest jump +9,000,001 on ball 3')).toBeInTheDocument();
+    const flag = screen.getByTestId('plausibility-flag');
+    expect(flag).toHaveTextContent('1 score change not a multiple of 10 (first +9,000,001); ROM scores move in steps of 10');
+    expect(within(flag).getByText(/not a multiple of 10/)).toHaveClass('text-amber-400/90');
+    // The badge is unchanged by it: the row still carries its own verdict only.
+    expect(within(flagged).getByTestId('evidence-verdict-flagged')).toBeInTheDocument();
   });
 
   it('a failed evidence read still shows the required tables', async () => {

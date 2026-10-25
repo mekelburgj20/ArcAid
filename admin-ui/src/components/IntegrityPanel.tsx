@@ -224,6 +224,8 @@ export type EvidenceRow = {
         build: { vpx: Binary; vpinmame: Binary; cheat: boolean | null } | null;
         /** v2.168.0 — in force during the game, from inside the table (castcade hook 0.4.0). */
         engine?: { start: EngineSample | null; changes: EngineSample[] } | null;
+        /** v2.170.0 (W41, companion ≥ 0.2.13) — how the score moved. Flag only, never a gate. */
+        scorePlausibility?: ScorePlausibility | null;
     } | null;
     createdAt: string;
 };
@@ -236,6 +238,30 @@ type EngineSample = {
     physics_set?: number | null;
     nudge?: { tilt?: number | null } | null;
 };
+
+type ScorePlausibility = {
+    samples: number;
+    gcd?: number | null;
+    step: number | null;
+    off_step: number;
+    largest: { points: number; t?: number | null; ball?: number | null } | null;
+    flag: string | null;
+};
+
+/**
+ * "414 changes, largest jump +11,450,000 on ball 2, all in steps of 10" (castcade §15). "all in steps
+ * of N" only when the jumps were checked (`step` set) and none was off (no flag); the flag itself is
+ * shown on its own line in the warning style.
+ */
+function describePlausibility(p: ScorePlausibility | null | undefined): string | null {
+    if (!p) return null;
+    const parts = [`${p.samples.toLocaleString('en-US')} change${p.samples === 1 ? '' : 's'}`];
+    parts.push(p.largest
+        ? `largest jump +${p.largest.points.toLocaleString('en-US')}${p.largest.ball != null ? ` on ball ${p.largest.ball}` : ''}`
+        : 'no upward jump');
+    if (p.step != null && !p.flag) parts.push(`all in steps of ${p.step.toLocaleString('en-US')}`);
+    return parts.join(', ');
+}
 
 /** "difficulty 20% · slope 6.50° · physics set 0 · tilt 400" for one engine sample. */
 function describeEngine(s: EngineSample | null | undefined): string | null {
@@ -372,6 +398,13 @@ function EvidenceDetails({ row }: { row: EvidenceRow }) {
                                 label="Changed in-game"
                                 value={`${ev.engine.changes.length} change${ev.engine.changes.length === 1 ? '' : 's'}${describeEngine(ev.engine.changes[ev.engine.changes.length - 1]) ? ` → ${describeEngine(ev.engine.changes[ev.engine.changes.length - 1])}` : ''}`}
                             />
+                        )}
+                        <Measurement label="Score" value={describePlausibility(ev.scorePlausibility)} />
+                        {ev.scorePlausibility?.flag && (
+                            <p className="flex gap-2 text-xs" data-testid="plausibility-flag">
+                                <span className="w-32 shrink-0" aria-hidden="true" />
+                                <span className="text-amber-400/90">{ev.scorePlausibility.flag}</span>
+                            </p>
                         )}
                     </div>
                 )}

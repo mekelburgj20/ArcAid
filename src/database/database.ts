@@ -3284,6 +3284,15 @@ async function doInitDatabase(): Promise<Database> {
                 await db.exec(`ALTER TABLE tournaments ADD COLUMN witness_flag_mode TEXT NOT NULL DEFAULT 'prevent'`);
             }
         } },
+        // v2.170.0 (W41, castcade B6.1) — the companion's `score_plausibility` (how player 1's score
+        // moved: jump count, largest jump, off-step jumps) is stored raw beside `engine`. Flag only,
+        // never a gate (owner ruling 2026-10-25): no rule, board or rank reads it.
+        { name: '189_witness_evidence_score_plausibility', handler: async (db) => {
+            const cols = (await db.all(`PRAGMA table_info(witness_evidence)`)) as Array<{ name: string }>;
+            if (!cols.some(c => c.name === 'score_plausibility')) {
+                await db.exec(`ALTER TABLE witness_evidence ADD COLUMN score_plausibility TEXT`);
+            }
+        } },
     ];
 
     for (const migration of migrations) {

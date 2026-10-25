@@ -1,6 +1,6 @@
 import { getDatabase } from '../database/database.js';
 import {
-    normalizeIntegrityMode, normalizeSanctionedRules,
+    normalizeIntegrityMode, normalizeSanctionedRules, parseEngineEvidence, parseScorePlausibility,
     type GameRequirements, type IntegrityMode, type SanctionedRules, type Verdict, type WitnessEvidence,
 } from '../utils/sanctionedRules.js';
 
@@ -109,6 +109,8 @@ type DbRow = {
     fingerprint: string | null; ini: string | null; adjustments: string | null; build: string | null;
     /** v2.168.0 (migration 187) */
     engine: string | null;
+    /** v2.170.0 (migration 189, W41) — flag only, never read by a rule. */
+    score_plausibility: string | null;
     created_at: string;
 };
 
@@ -119,6 +121,7 @@ function parseJson<T>(s: string | null, fallback: T): T {
 
 function rowToEvidence(r: DbRow): EvidenceRow {
     const hasEvidence = r.vps_game || r.vps_table || r.table_sha256 || r.fingerprint || r.ini || r.adjustments || r.build || r.engine;
+    // score_plausibility is deliberately not in hasEvidence: it never makes a score "evidenced" (W41).
     return {
         id: r.id,
         deviceId: r.device_id,
@@ -142,7 +145,10 @@ function rowToEvidence(r: DbRow): EvidenceRow {
             vpsGame: r.vps_game, vpsTable: r.vps_table, tableSha256: r.table_sha256, tableSaveRev: r.table_save_rev,
             fingerprint: r.fingerprint,
             ini: parseJson(r.ini, null), adjustments: parseJson(r.adjustments, null), build: parseJson(r.build, null),
-            engine: parseJson(r.engine, null),
+            // Re-parsed, not just JSON.parse'd: rows stored from companion 0.2.12 carry difficulty
+            // on VPX's 0–100 scale and the parser normalizes it (W40 / castcade F10).
+            engine: parseEngineEvidence(parseJson(r.engine, null)),
+            scorePlausibility: parseScorePlausibility(parseJson(r.score_plausibility, null)),
         } : null,
         createdAt: r.created_at,
     };
@@ -158,8 +164,9 @@ export class WitnessEvidenceService {
                 device_id, canonical_user_id, outcome, game_id, tournament_id, game_room_id,
                 score_history_id, global_score_id, integrity_mode, verdict, reasons, checks,
                 table_name, rom, score, played_at,
-                vps_game, vps_table, table_sha256, table_save_rev, fingerprint, ini, adjustments, build, engine
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                vps_game, vps_table, table_sha256, table_save_rev, fingerprint, ini, adjustments, build, engine,
+                score_plausibility
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             input.deviceId, input.canonicalUserId, input.outcome,
             input.gameId ?? null, input.tournamentId ?? null, input.gameRoomId ?? null,
             input.scoreHistoryId ?? null, input.globalScoreId ?? null,
@@ -174,6 +181,7 @@ export class WitnessEvidenceService {
             e?.adjustments ? JSON.stringify(e.adjustments) : null,
             e?.build ? JSON.stringify(e.build) : null,
             e?.engine ? JSON.stringify(e.engine) : null,
+            e?.scorePlausibility ? JSON.stringify(e.scorePlausibility) : null,
         );
         return typeof res.lastID === 'number' ? res.lastID : null;
     }

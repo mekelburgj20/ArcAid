@@ -219,13 +219,39 @@ export type WitnessEvidence = {
      * this is the only evidence of that. Null from basic mode, a cabinet, or a hook before 0.4.0.
      */
     engine: EngineEvidence | null;
+    /**
+     * v2.170.0 (castcade B6.1 / ArcAid W41, companion ≥ 0.2.13): how player 1's score moved during
+     * the game. FLAG ONLY, NEVER A GATE (owner ruling 2026-10-25): `evaluateSanctioned` never reads
+     * it, it is stored on the trail and shown to the runner, nothing else. Null when not sent.
+     */
+    scorePlausibility: ScorePlausibilityEvidence | null;
+};
+
+/** `score_plausibility` (castcade `scorePlausibilityWire`): facts about the score's jumps, never a verdict. */
+export type ScorePlausibilityEvidence = {
+    /** Score changes seen during the game (up or down). */
+    samples: number;
+    /** Greatest common divisor of every upward jump; null with no jump. */
+    gcd: number | null;
+    /** The step the jumps were checked against (10 for ROM games), null when not checked (original tables). */
+    step: number | null;
+    /** Upward jumps that are not a multiple of `step`. */
+    off_step: number;
+    /** The biggest single upward jump (`t` = seconds since the table loaded). */
+    largest: { points: number; t: number | null; ball: number | null } | null;
+    /** The companion's sentence when something is flagged (off_step > 0), else null. */
+    flag: string | null;
 };
 
 /** One `engine` sample from the hook (four-decimal floats; a field is null when that read failed in VPX). */
 export type EngineSample = {
     /** Seconds since the hook initialised (the journal clock). */
     t: number | null;
-    /** `GlobalDifficulty` 0–1: the live slope sits at slope_min + difficulty × (slope_max − slope_min). */
+    /**
+     * `GlobalDifficulty` 0–1: the live slope sits at slope_min + difficulty × (slope_max − slope_min).
+     * Companion 0.2.12 sent VPX's script-API 0–100 number; `parseEngineSample` divides a value above 1
+     * by 100, so this is always 0–1 after parsing (v2.170.0, W40 / castcade F10).
+     */
     difficulty: number | null;
     slope_min: number | null;
     slope_max: number | null;
@@ -321,13 +347,24 @@ export function parseIniEvidence(raw: unknown): IniEvidence | null {
     };
 }
 
+/**
+ * v2.170.0 (W40 / castcade F10): companion 0.2.12 sends `difficulty` on VPX's script-API scale 0–100
+ * (Medieval Madness: table file 0.5, engine 50); 0.2.13+ sends 0–1 like the ini. A value above 1 is
+ * a percentage. Applied at parse time, so the stored rows from 0.2.12 read right too (`rowToEvidence`
+ * re-parses the stored `engine` through here).
+ */
+export function normalizeEngineDifficulty(v: number | null): number | null {
+    if (v == null) return null;
+    return v > 1 ? Math.round(v * 100) / 10000 : v;
+}
+
 function parseEngineSample(raw: unknown): EngineSample | null {
     const o = asObject(raw);
     if (!o) return null;
     const n = asObject(o.nudge);
     return {
         t: nOrNull(o.t),
-        difficulty: nOrNull(o.difficulty),
+        difficulty: normalizeEngineDifficulty(nOrNull(o.difficulty)),
         slope_min: nOrNull(o.slope_min),
         slope_max: nOrNull(o.slope_max),
         physics_set: nOrNull(o.physics_set),
@@ -349,6 +386,30 @@ export function parseEngineEvidence(raw: unknown): EngineEvidence | null {
     const changes = Array.isArray(o.changes) ? o.changes.slice(0, 64).map(parseEngineSample).filter((x): x is EngineSample => x !== null) : [];
     if (!start && changes.length === 0) return null;
     return { start, changes };
+}
+
+/**
+ * `score_plausibility` (castcade B6.1): same rule as every evidence param — optional, malformed =
+ * dropped, never a 400. `samples` and `off_step` must be non-negative integers; everything else
+ * degrades to null on its own.
+ */
+export function parseScorePlausibility(raw: unknown): ScorePlausibilityEvidence | null {
+    const o = asObject(typeof raw === 'string' ? parseJsonParam(raw) : raw);
+    if (!o) return null;
+    const samples = o.samples;
+    const offStep = o.off_step;
+    if (typeof samples !== 'number' || !Number.isInteger(samples) || samples < 0) return null;
+    if (typeof offStep !== 'number' || !Number.isInteger(offStep) || offStep < 0) return null;
+    const l = asObject(o.largest);
+    const points = l ? nOrNull(l.points) : null;
+    return {
+        samples,
+        gcd: nOrNull(o.gcd),
+        step: nOrNull(o.step),
+        off_step: offStep,
+        largest: l && points != null ? { points, t: nOrNull(l.t), ball: nOrNull(l.ball) } : null,
+        flag: sOrNull(o.flag, 300),
+    };
 }
 
 export function parseAdjustmentsEvidence(raw: unknown): AdjustmentsEvidence | null {
@@ -388,13 +449,17 @@ export function parseWitnessEvidence(query: Record<string, unknown>): WitnessEvi
     const adjustments = parseAdjustmentsEvidence(query.adjustments);
     const build = parseBuildEvidence(query.build);
     const engine = parseEngineEvidence(query.engine);
+    const scorePlausibility = parseScorePlausibility(query.score_plausibility);
+    // `score_plausibility` alone does not make evidence: it must never turn a "no evidence" score
+    // (no badge, ADR 0027 / W13) into an evaluated one (flag only, never a gate — W41). Every
+    // companion that sends it (≥ 0.2.13, live mode) sends identity and ini alongside.
     if (!vpsGame && !vpsTable && !sha && !fingerprint && !ini && !adjustments && !build && !engine) return null;
     return {
         vpsGame, vpsTable,
         tableSha256: sha && /^[0-9a-f]{64}$/i.test(sha) ? sha.toLowerCase() : null,
         tableSaveRev: Number.isFinite(rev) ? Math.floor(rev) : null,
         fingerprint,
-        ini, adjustments, build, engine,
+        ini, adjustments, build, engine, scorePlausibility,
     };
 }
 

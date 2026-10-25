@@ -206,3 +206,62 @@ describe('engine evidence (v2.168.0, castcade hook 0.4.0): what was in force dur
         expect(run(withEngine(engineOf()), { require_stock_physics: false }).checks.find(c => c.rule === 'engine')).toMatchObject({ status: 'skipped', detail: 'rule off' });
     });
 });
+
+describe('engine difficulty on the 0–100 scale (v2.170.0, W40 / castcade F10: companion 0.2.12)', () => {
+    /** Medieval Madness as 0.2.12 sent it 2026-10-25: table file 0.5, engine 50 (VPX's script-API scale). */
+    const mm = (start: Partial<Record<string, unknown>>, changes: Array<Partial<Record<string, unknown>>> = []): WitnessEvidence => {
+        const e = rigEvidence({ ini: { difficulty: 0.5 } });
+        return { ...e, engine: parseWitnessEvidence({ engine: engineOf({ slope_min: 6, slope_max: 7, ...start }, changes) })!.engine };
+    };
+
+    it('reads a difficulty above 1 as a percentage, in start and in every change', () => {
+        const parsed = parseWitnessEvidence({ engine: engineOf({ difficulty: 50 }, [{ difficulty: 56.25 }]) })!.engine!;
+        expect(parsed.start!.difficulty).toBe(0.5);
+        expect(parsed.changes[0]!.difficulty).toBe(0.5625);
+    });
+
+    it('a 0.2.12 sample (difficulty 50, table 0.5) passes the difficulty check, with the slope from 0.5', () => {
+        const v = run(mm({ difficulty: 50 }));
+        expect(v.verdict).toBe('pass');
+        expect(v.checks.find(c => c.rule === 'engine')).toMatchObject({ status: 'pass', detail: 'in force for the whole game: difficulty 50%, slope 6.50°, physics set 0, tilt sensitivity 500' });
+    });
+
+    it('a 0–1 sample (0.2.13+) reads exactly as before, and a real 0.2.12 difference still fails', () => {
+        expect(run(mm({ difficulty: 0.5 })).checks.find(c => c.rule === 'engine')).toMatchObject({ status: 'pass', detail: expect.stringContaining('difficulty 50%, slope 6.50°') });
+        expect(run(mm({ difficulty: 90 })).reasons).toEqual(['difficulty in force 90% differs from the table\'s 50%']);
+        // A 0.2.12 in-game change is named on the 0–1 scale too.
+        expect(run(mm({ difficulty: 50 }, [{ difficulty: 80 }])).reasons).toEqual(['physics or difficulty changed during the game (1 change: difficulty 50% → 80%)']);
+    });
+});
+
+describe('score_plausibility (v2.170.0, W41 / castcade B6.1): flag only, never a gate', () => {
+    const FLAGGED = JSON.stringify({ samples: 212, gcd: 1, step: 10, off_step: 1, largest: { points: 9000001, t: 410.25, ball: 3 }, flag: '1 score change not a multiple of 10 (first +9,000,001); ROM scores move in steps of 10' });
+
+    it('parses the companion object and drops junk (malformed = dropped, never a failure)', () => {
+        const base = { vps_table: 'uVgZUZdK' };
+        expect(parseWitnessEvidence({ ...base, score_plausibility: FLAGGED })!.scorePlausibility).toEqual({
+            samples: 212, gcd: 1, step: 10, off_step: 1, largest: { points: 9000001, t: 410.25, ball: 3 },
+            flag: '1 score change not a multiple of 10 (first +9,000,001); ROM scores move in steps of 10',
+        });
+        expect(parseWitnessEvidence({ ...base, score_plausibility: '{"samples":3,"gcd":null,"step":null,"off_step":0,"largest":null,"flag":null}' })!.scorePlausibility)
+            .toEqual({ samples: 3, gcd: null, step: null, off_step: 0, largest: null, flag: null });
+        expect(parseWitnessEvidence({ ...base, score_plausibility: 'not json' })!.scorePlausibility).toBeNull();
+        expect(parseWitnessEvidence({ ...base, score_plausibility: '{"samples":"lots","off_step":0}' })!.scorePlausibility).toBeNull();
+        expect(parseWitnessEvidence({ ...base, score_plausibility: '[1,2]' })!.scorePlausibility).toBeNull();
+        expect(parseWitnessEvidence({ ...base })!.scorePlausibility).toBeNull();
+        // On its own it is not evidence: it never turns a "no evidence" score into an evaluated one.
+        expect(parseWitnessEvidence({ score_plausibility: FLAGGED })).toBeNull();
+    });
+
+    it('a flagged score_plausibility does not change the Sanctioned evaluation, passing or failing', () => {
+        const flaggedPlaus = parseWitnessEvidence({ vps_table: 'x', score_plausibility: FLAGGED })!.scorePlausibility;
+        expect(flaggedPlaus?.flag).toBeTruthy();
+        for (const base of [rigEvidence(), rigEvidence({ ini: { tilt_sens: 10 } })]) {
+            const without = run({ ...base, scorePlausibility: null });
+            const withFlag = run({ ...base, scorePlausibility: flaggedPlaus });
+            expect(withFlag).toEqual(without);
+            expect(withFlag.checks.map(c => c.rule)).not.toContain('score_plausibility');
+        }
+        expect(run(rigEvidence()).verdict).toBe('pass');
+    });
+});

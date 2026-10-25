@@ -6,6 +6,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.170.0] - 2026-10-25 - Score plausibility on the evidence review; 0.2.12's difficulty read right
+
+### Added
+- **`score_plausibility` on `GET /api/witness/score`** (Castcade 0.2.13, castcade B6.1 / F11, ArcAid W41). How
+  player 1's score moved during a live game: `{ samples, gcd, step, off_step, largest: { points, t, ball }, flag }`.
+  A memory editor that writes a score shows up as one jump; no ceiling is applied, so the largest jump is a number
+  for the runner to read, and the only thing flagged is a jump that is not a multiple of the ROM's step of 10.
+  `parseWitnessEvidence` reads it under the usual rule (optional, malformed = dropped, never a 400); it is stored
+  raw in `witness_evidence.score_plausibility` (migration 189). **Flag only, never a gate** (owner ruling
+  2026-10-25): no Sanctioned rule reads it, and no board, rank, ingest or badge decision changes on it; on its
+  own it does not count as evidence.
+- **Integrity panel**: the evidence review shows "Score: 414 changes, largest jump +11,450,000 on ball 2, all in
+  steps of 10" ("all in steps of 10" only when the step was checked and nothing was off), and the companion's flag
+  sentence on its own line in the warning colour when set. Badge text unchanged.
+
+### Fixed
+- **Companion 0.2.12's in-game difficulty read as 0–1** (castcade B6.2 / F10, ArcAid W40). 0.2.12 sends
+  `engine.difficulty` on VPX's script-API scale 0–100 (Medieval Madness: table file 0.5, `engine` 50), so the
+  Sanctioned `engine` rule failed every 0.2.12 score ("difficulty in force 5000% differs from the table's 50%")
+  and the Integrity panel showed 5000%. A `difficulty` above 1 is now read as a percentage (÷100) in `start` and
+  every `changes[]` sample, at parse time, so new 0.2.12 scores are judged right. Stored rows are re-parsed on
+  read, so the "In the game" line of the two Medieval Madness scores of 2026-10-25 shows 50%; those two rows keep
+  the verdict, reasons and checks stored at ingest (Flagged, "difficulty in force 5000% …"), since this release
+  re-evaluates nothing already stored. Companion 0.2.13 sends 0–1.
+
 ## [2.169.0] - 2026-10-23 - A game started before the round no longer counts (events)
 
 ### Changed
