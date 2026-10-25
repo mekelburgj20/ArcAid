@@ -4,7 +4,7 @@
  * Lives in lib/, not beside the component, because a component file may export
  * only components (react-refresh) and two surfaces render this copy.
  */
-export type LobbyStatus = 'ready' | 'table_open' | 'no_checkin' | 'offline' | 'no_cabinet';
+export type LobbyStatus = 'ready' | 'table_open' | 'no_checkin' | 'offline' | 'not_routed' | 'no_cabinet';
 
 export const LOBBY_STATUS_META: Record<LobbyStatus, { label: string; dot: string; text: string; hint: string }> = {
     ready: {
@@ -33,6 +33,14 @@ export const LOBBY_STATUS_META: Record<LobbyStatus, { label: string; dot: string
         dot: 'bg-neon-amber',
         text: 'text-neon-amber',
         hint: 'The Witness device has not been heard from for over five minutes. Is it on and connected? (v1.0.4 cabinets and the desktop companion send a heartbeat every two minutes.)',
+    },
+    // W26 (v2.174.0): a paired device exists but none of them sends its scores
+    // to this event — the server grades with the same rule as score routing.
+    not_routed: {
+        label: 'Device not sending here',
+        dot: 'bg-neon-amber',
+        text: 'text-neon-amber',
+        hint: 'A Witness device is paired, but it sends scores somewhere else (another room, another tournament, or the Global Scoreboard only). In Account Settings, Arcaid Witness, set "Send scores to" to this event\'s room.',
     },
     // The status is still named `no_cabinet` server-side; the copy is
     // device-neutral because a Witness device may be a cabinet or a desktop

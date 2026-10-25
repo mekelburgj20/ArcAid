@@ -1471,7 +1471,9 @@ export default function AccountSettings() {
                                       : ` → ${d.targetTournamentName}`)
                                   : ''
                               }. Anything that doesn't match an open game there goes to the Global Scoreboard.`
-                            : 'Scores go to your Global Scoreboard record, plus any event you have joined. Pick a room to have them count towards a rotation tournament.'}
+                            // W26 (ADR 0032): "Global Scoreboard only" means exactly that; the one
+                            // exception is a Throwdown, which has no room to point a device at.
+                            : 'Scores go to your Global Scoreboard record only, plus any Throwdown you have joined. Pick a room to have them count in that room\'s tournaments and events.'}
                           {/* W28: players believed a change needed a Witness restart, because
                               the cabinet's SENDING TO line only refreshed at check-in. */}
                           {' A change applies to the very next score; no Witness restart needed.'}

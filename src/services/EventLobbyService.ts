@@ -2,6 +2,8 @@ import { getDatabase } from '../database/database.js';
 import { logInfo } from '../utils/logger.js';
 import { EventService, type EventTournamentRow, type EventRoundRow } from './EventService.js';
 import { resolveProfiles, resolveUserLabels } from './PlayerProfileResolver.js';
+import { tournamentFinishedSql } from '../utils/openCard.js';
+import { deviceRoutesTo } from '../utils/witnessRouting.js';
 
 /**
  * The check-in LOBBY (v2.159.0) — who is checked in to an event, and whether
@@ -28,6 +30,12 @@ import { resolveProfiles, resolveUserLabels } from './PlayerProfileResolver.js';
  *
  * ## The status rule (strict)
  *
+ *   - `not_routed`  — W26 (v2.174.0): the player has a paired device, but none
+ *                     of them sends its scores to THIS event (pointed at
+ *                     another room, pinned to another tournament, or set to
+ *                     "Global Scoreboard only" — ADR 0032). Same rule as
+ *                     ingest (`utils/witnessRouting.ts`), so the light cannot
+ *                     be green for a device whose scores go elsewhere.
  *   - `no_cabinet`  — no paired, unrevoked Witness device (cabinet OR desktop).
  *                     Scores will post unverified. Neutral, not a fault: most
  *                     players have no device. The enum value keeps its
@@ -67,7 +75,7 @@ import { resolveProfiles, resolveUserLabels } from './PlayerProfileResolver.js';
  * player one trip to the menu.
  */
 
-export type LobbyStatus = 'ready' | 'table_open' | 'no_checkin' | 'offline' | 'no_cabinet';
+export type LobbyStatus = 'ready' | 'table_open' | 'no_checkin' | 'offline' | 'not_routed' | 'no_cabinet';
 
 /**
  * v2.160.0 — a 1.0.4 cabinet heartbeats every 2 min while paired. One that
@@ -98,7 +106,7 @@ export interface LobbyEntry {
 /** Observation rows launched before this many seconds ago are stale, not open. */
 const OPEN_SESSION_MAX_AGE_SEC = 4 * 3600;
 
-const STATUS_RANK: Record<LobbyStatus, number> = { ready: 4, table_open: 3, no_checkin: 2, offline: 1, no_cabinet: 0 };
+const STATUS_RANK: Record<LobbyStatus, number> = { ready: 5, table_open: 4, no_checkin: 3, offline: 2, not_routed: 1, no_cabinet: 0 };
 
 function toEpoch(iso: string | null | undefined): number | null {
     if (!iso) return null;
@@ -148,12 +156,18 @@ export class EventLobbyService {
         const ids = participants.map(p => p.user_id);
         const placeholders = ids.map(() => '?').join(', ');
 
+        // W26: each device's EFFECTIVE target rides along (a pinned tournament
+        // that has finished reads as absent, as in getDeviceTarget), so only
+        // devices whose scores would land on THIS event are graded.
         const devices = await db.all<Array<{
             atgames_unique_id: string; canonical_user_id: string; last_seen_at: string | null; heartbeat_at: string | null;
+            target_room_id: string | null; target_tournament_id: string | null;
         }>>(
-            `SELECT atgames_unique_id, canonical_user_id, last_seen_at, heartbeat_at
-               FROM witness_devices
-              WHERE revoked_at IS NULL AND canonical_user_id IN (${placeholders})`,
+            `SELECT d.atgames_unique_id, d.canonical_user_id, d.last_seen_at, d.heartbeat_at, d.target_room_id,
+                    CASE WHEN ${tournamentFinishedSql('t')} THEN NULL ELSE d.target_tournament_id END AS target_tournament_id
+               FROM witness_devices d
+               LEFT JOIN tournaments t ON t.id = d.target_tournament_id
+              WHERE d.revoked_at IS NULL AND d.canonical_user_id IN (${placeholders})`,
             ...ids,
         );
         const deviceIds = devices.map(d => d.atgames_unique_id);
@@ -196,8 +210,14 @@ export class EventLobbyService {
         return participants.map((p, i) => {
             const mine = devices.filter(d => d.canonical_user_id === p.user_id);
             let best: { status: LobbyStatus; checkinTs: number | null; openTable: string | null } =
-                { status: 'no_cabinet', checkinTs: null, openTable: null };
+                { status: mine.length > 0 ? 'not_routed' : 'no_cabinet', checkinTs: null, openTable: null };
             for (const d of mine) {
+                // A device that sends elsewhere says nothing about this event.
+                const routesHere = deviceRoutesTo(
+                    { roomId: d.target_room_id, tournamentId: d.target_tournament_id },
+                    { roomId: event.game_room_id, tournamentId: event.id, isRound: true, isParticipant: true },
+                );
+                if (!routesHere) continue;
                 const checkinTs = checkinByDevice.get(d.atgames_unique_id) ?? null;
                 const session = openByDevice.get(d.atgames_unique_id) ?? null;
                 const heartbeat = toEpoch(d.heartbeat_at);
