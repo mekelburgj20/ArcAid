@@ -343,7 +343,9 @@ describe('Integrity mode — the ingest', () => {
         expect(res.body.status).toBe('not_sanctioned');
         expect(res.body.reasons[0]).toMatch(/VPinMAME .* nightly/);
         const db = await getDatabase();
-        await db.run(`UPDATE tournaments SET is_active = 0 WHERE id = ?`, strict.tournamentId);
+        // Retire the strict game. Not by `is_active = 0`: on a rotation that is
+        // a PAUSE, and a paused card stays open (W33, owner ruling 2026-10-25).
+        await db.run(`UPDATE games SET status = 'COMPLETED' WHERE id = ?`, strict.gameId);
 
         await createRotationGame(roomId, 'Tales from the Crypt (Data East 1993)', {
             mode: 'sanctioned', rules: { blessed_build_hashes: [SHA] },

@@ -57,11 +57,17 @@ export class Scheduler {
                 logWarn(`Scheduler: skipping orphaned tournament '${row.name}' (${row.id}) — game_room ${row.game_room_id} no longer exists. Run GameRoomService.purgeOrphanedTournaments() to clean it up.`);
                 continue;
             }
+            // W33: an EVENT never gets a maintenance or cleanup cron, whatever
+            // its stored cadence says. Its rounds run on EventScheduler's clock;
+            // a cron here let `runMaintenance` rotate TWR Tournament #1's round
+            // out 13 h early and auto-pick a non-round game (2026-10-24).
+            if (row.format === 'event') continue;
             const tournament: Tournament = {
                 id: row.id,
                 name: row.name,
                 type: row.type,
                 mode: row.mode || 'pinball',
+                format: row.format === 'event' ? 'event' : 'rotation',
                 cadence: JSON.parse(row.cadence || '{}'),
                 discordChannelId: row.discord_channel_id,
                 discordRoleId: row.discord_role_id,
@@ -554,7 +560,7 @@ export class Scheduler {
             try {
                 const db = await getDatabase();
                 const tournaments = await db.all(
-                    "SELECT id, name, cadence, game_room_id FROM tournaments WHERE is_active = 1 AND cadence IS NOT NULL"
+                    "SELECT id, name, cadence, game_room_id FROM tournaments WHERE is_active = 1 AND cadence IS NOT NULL AND COALESCE(format, 'rotation') <> 'event'"
                 );
                 const now = Date.now();
                 const roomTzById = await roomTimezonesFor(
@@ -639,7 +645,7 @@ export class Scheduler {
             try {
                 const db = await getDatabase();
                 const tournaments = await db.all(
-                    `SELECT id, name, cadence, game_room_id FROM tournaments WHERE is_active = 1 AND cadence IS NOT NULL`,
+                    `SELECT id, name, cadence, game_room_id FROM tournaments WHERE is_active = 1 AND cadence IS NOT NULL AND COALESCE(format, 'rotation') <> 'event'`,
                 );
                 const { RotationNudgeService } = await import('../services/RotationNudgeService.js');
                 const roomTzById = await roomTimezonesFor(
@@ -722,6 +728,10 @@ export class Scheduler {
         const { id, name, cadence } = tournament;
         const tag = roomSlug ? ` [${roomSlug}]` : '';
 
+        if (tournament.format === 'event') {
+            logInfo(`Skipping scheduler for tournament ${name}${tag} (ID: ${id}) - event (rounds run on their own clock).`);
+            return;
+        }
         if (!cadence || !cadence.cron) {
             logInfo(`Skipping scheduler for tournament ${name}${tag} (ID: ${id}) - No cadence configured.`);
             return;

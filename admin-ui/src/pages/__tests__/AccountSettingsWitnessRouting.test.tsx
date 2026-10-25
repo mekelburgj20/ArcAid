@@ -37,7 +37,7 @@ function signIn(discordId = '123456789012345678') {
 
 type FetchArgs = [url: string, init?: RequestInit];
 
-function stubFetch() {
+function stubFetch(opts: { device?: Record<string, unknown>; tournaments?: unknown[] } = {}) {
     const patches: Array<{ url: string; body: unknown }> = [];
     const fetchMock = vi.fn((...args: FetchArgs) => {
         const [url, init] = args;
@@ -56,6 +56,7 @@ function stubFetch() {
                 targetRoomId: null, targetRoomName: null,
                 targetTournamentId: null, targetTournamentName: null,
                 globalFallback: true,
+                ...opts.device,
             }]);
         }
         // The REAL shape of /api/me/rooms — `roomId`, not `id`. That is the
@@ -67,7 +68,7 @@ function stubFetch() {
                 source: 'submission', lastActivityAt: null,
             }]);
         }
-        if (url.includes('/tournaments')) return j([]);
+        if (url.includes('/tournaments')) return j(opts.tournaments ?? []);
         if (url.includes('/identity/claims')) return j({ aliases: [], pending: [] });
         if (url.includes('/me/profile')) {
             return j({ discordUserId: '123456789012345678', displayName: 'Tester', avatarHash: null, identities: [] });
@@ -128,5 +129,27 @@ describe('AccountSettings — Witness cabinet score routing', () => {
         // undesignated cabinet still publishes to the player's global record.
         const option = await screen.findByRole('option', { name: 'Global Scoreboard only' });
         expect(option).toHaveValue('');
+    });
+
+    it('W33: lists paused rotations, hides finished events, and shows a pointer at one as "(ended)"', async () => {
+        stubFetch({
+            device: {
+                targetRoomId: ROOM_ID, targetRoomName: 'RTX_Pinball',
+                targetTournamentId: 'twr', targetTournamentName: 'TWR Tournament #1',
+            },
+            tournaments: [
+                { id: 'grind', name: 'Daily Grind', is_active: 1, event_finished_at: null },
+                // Paused: pause only stops rotating, the card still takes scores.
+                { id: 'paused', name: 'Paused Weekly', is_active: 0, event_finished_at: null },
+                { id: 'twr', name: 'TWR Tournament #1', is_active: 0, format: 'event', event_finished_at: '2026-10-24T23:00:00.000Z' },
+            ],
+        });
+        renderPage();
+
+        await waitFor(() => expect(screen.getByRole('option', { name: 'Daily Grind' })).toBeInTheDocument());
+        expect(screen.getByRole('option', { name: 'Paused Weekly' })).toBeInTheDocument();
+        expect(screen.queryByRole('option', { name: 'TWR Tournament #1' })).toBeNull();
+        expect(screen.getByRole('option', { name: 'TWR Tournament #1 (ended)' })).toHaveValue('twr');
+        expect(screen.getByText(/TWR Tournament #1 has ended, so any open tournament there/)).toBeInTheDocument();
     });
 });

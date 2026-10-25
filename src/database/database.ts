@@ -3293,6 +3293,13 @@ async function doInitDatabase(): Promise<Database> {
                 await db.exec(`ALTER TABLE witness_evidence ADD COLUMN score_plausibility TEXT`);
             }
         } },
+        // v2.171.0 (W33/W34) — strip a cron from any EVENT's cadence and close the
+        // ACTIVE games a finished event left behind (TWR Tournament #1's stray
+        // "JP's Pokemon Pinball" card). See the module for the full story.
+        { name: '190_event_cron_and_leftover_cards_repair', handler: async (db) => {
+            const { repairEventCronAndLeftoverCards } = await import('./migrations/repairEventCronAndLeftoverCards.js');
+            await repairEventCronAndLeftoverCards(db);
+        } },
     ];
 
     for (const migration of migrations) {

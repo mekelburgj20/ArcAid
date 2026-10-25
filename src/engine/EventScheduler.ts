@@ -331,6 +331,39 @@ export class EventScheduler {
 
     // --- Step 4: the event finishes ---------------------------------------
 
+    /**
+     * W33: a finished event leaves no live card behind. Its rounds are already
+     * COMPLETED (finishing waits for that), but a NON-round game can be ACTIVE
+     * on it — TWR Tournament #1 got one from a stray rotation cron that
+     * auto-picked "JP's Pokemon Pinball" (2026-10-24), and it sat on the board
+     * looking live after the event ended. Closed the way a round is closed
+     * (final sync + iScored lock + COMPLETED), with a local fallback so a
+     * failed iScored session can't leave it open.
+     */
+    private async closeLeftoverCards(event: EventTournamentRow): Promise<void> {
+        const db = await getDatabase();
+        const leftovers = await db.all<Array<{ id: string; name: string }>>(
+            `SELECT id, name FROM games WHERE tournament_id = ? AND status = 'ACTIVE'`,
+            event.id,
+        );
+        if (leftovers.length === 0) return;
+        const { TournamentEngine } = await import('./TournamentEngine.js');
+        const { LeaderboardService } = await import('../services/LeaderboardService.js');
+        for (const game of leftovers) {
+            try {
+                await TournamentEngine.getInstance().deactivateGame(game.id);
+            } catch (error) {
+                logWarn(`EventScheduler: could not deactivate leftover card '${game.name}' (${game.id}) on finished event '${event.name}' — closing it locally:`, error);
+                await db.run(
+                    `UPDATE games SET status = 'COMPLETED', end_date = COALESCE(end_date, ?) WHERE id = ? AND status = 'ACTIVE'`,
+                    new Date().toISOString(), game.id,
+                );
+            }
+            await LeaderboardService.invalidate(game.id);
+            logWarn(`EventScheduler: closed leftover non-round card '${game.name}' (${game.id}) on finished event '${event.name}'.`);
+        }
+    }
+
     private async finishCompletedEvents(now: Date): Promise<void> {
         const db = await getDatabase();
         const nowIso = now.toISOString();
@@ -365,6 +398,7 @@ export class EventScheduler {
             if (!res.changes) continue;
 
             logInfo(`Event finished: '${event.name}' (${event.id}), ${result.standings.length} ranked player(s).`);
+            await this.closeLeftoverCards(event);
 
             // Names come from the LIVE standings, never from the frozen blob —
             // that blob holds identity keys only, by design.

@@ -34,6 +34,27 @@ export class SeasonConfigError extends Error {
     }
 }
 
+/**
+ * W33 (owner ruling 2026-10-25): a tournament's format is fixed once it is
+ * created. Turning an event into a rotation wrote a cron onto a row that
+ * nothing then flipped back from `format = 'event'`, and maintenance rotated
+ * the live round out (TWR Tournament #1, 2026-10-24). Routes map it to a 409.
+ */
+export class TournamentFormatLockedError extends Error {
+    readonly code = 'FORMAT_LOCKED';
+    constructor(public stored: string, public requested: string) {
+        super(`This tournament is ${stored === 'event' ? 'an event' : 'a rotation'}; its format can't be changed after it is created. Create a new ${requested === 'event' ? 'event' : 'rotation'} tournament instead.`);
+        this.name = 'TournamentFormatLockedError';
+    }
+}
+
+/** A cadence with its `cron` removed (an event's cadence is `{timezone}` only). */
+function withoutCron(cadence: any): any {
+    if (!cadence || typeof cadence !== 'object' || !('cron' in cadence)) return cadence;
+    const { cron: _cron, ...rest } = cadence;
+    return rest;
+}
+
 interface ResolvedSeason {
     table_count: number;
 }
@@ -263,6 +284,11 @@ export class TournamentService {
     } & SeasonInput): Promise<void> {
         const db = await getDatabase();
         const stored = await db.get('SELECT * FROM tournaments WHERE id = ?', id);
+        if (stored && data.format !== undefined) {
+            const storedFormat = stored.format === 'event' ? 'event' : 'rotation';
+            const requested = data.format === 'event' ? 'event' : 'rotation';
+            if (storedFormat !== requested) throw new TournamentFormatLockedError(storedFormat, requested);
+        }
         const season = resolveSeason(data, stored ?? null, data.format, data.cadence);
         const poll = resolvePoll(data, stored ?? null, data.format, data.cadence);
         if (poll) data = { ...data, ...POLL_FORCED };
@@ -287,7 +313,8 @@ export class TournamentService {
             `UPDATE tournaments SET name = ?, type = ?, mode = ?, cadence = ?, platform_rules = ?, guild_id = ?, discord_channel_id = ?, discord_role_id = ?, is_active = ?, display_order = ?, max_active_games = ?, cleanup_rule = ?, game_room_id = ?, winner_picks = ?, auto_pick = ?, eligibility_days = ?, winner_pick_window_min = ?, runnerup_pick_window_min = ?, allow_dynasty = ?, integrity_mode = ?, sanctioned_rules = ?, max_attempts = ?, witness_flag_mode = ?
              WHERE id = ?`,
             data.name, data.type, data.mode || 'pinball',
-            JSON.stringify(data.cadence),
+            // W33: an event's cadence never carries a cron (non-HTTP callers skip the Zod refine).
+            JSON.stringify(stored?.format === 'event' ? withoutCron(data.cadence) : data.cadence),
             // ADR 0016 P2 §2 — every writer emits the two-axis shape. Normalising
             // here (not only in the Zod schema) covers non-HTTP callers too.
             JSON.stringify(normalizeTournamentRulesInput(data.platform_rules)),

@@ -1038,9 +1038,17 @@ export class TournamentEngine {
         {
             const db = await getDatabase();
             const season = await db.get(
-                'SELECT season_table_count, season_paused_at, season_finished_at FROM tournaments WHERE id = ?',
+                'SELECT format, season_table_count, season_paused_at, season_finished_at FROM tournaments WHERE id = ?',
                 tournamentId,
             );
+            // W33: rotation maintenance never touches an EVENT — it would
+            // complete a live round and auto-pick a non-round game in its place.
+            // The Scheduler no longer registers a cron for one; this covers
+            // Force Maintenance and anything else that calls in directly.
+            if (season?.format === 'event') {
+                logInfo(`Tournament ${tournamentId} is an event — skipping rotation maintenance.`);
+                return { outcome: 'skipped', summary: 'event (rounds run on their own clock)' };
+            }
             if (season?.season_table_count != null) {
                 if (season.season_finished_at) {
                     logInfo(`Season ${tournamentId} has finished — skipping maintenance.`);

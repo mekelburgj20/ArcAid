@@ -1,5 +1,14 @@
 import { getDatabase } from '../database/database.js';
 import { logWarn } from '../utils/logger.js';
+import { openCardSql } from '../utils/openCard.js';
+
+/**
+ * W33: the status a submit path should see. An ACTIVE game whose tournament
+ * has FINISHED (`utils/openCard.ts`) is not an open card, so it resolves as
+ * COMPLETED — every caller already treats that as "no tournament stamp".
+ */
+const EFFECTIVE_STATUS_SQL =
+    `CASE WHEN g.status = 'ACTIVE' AND NOT ${openCardSql('g', 't')} THEN 'COMPLETED' ELSE g.status END AS status`;
 
 /**
  * The one games row a web submission belongs to.
@@ -92,7 +101,7 @@ export async function resolveSubmissionGame(params: {
         // there is genuinely no tournament to match against, not because the
         // lookup itself failed to find the game.
         const byId = await db.get<ByIdRow>(
-            `SELECT g.id, g.tournament_id, g.status, g.name, g.start_date, g.created_at,
+            `SELECT g.id, g.tournament_id, ${EFFECTIVE_STATUS_SQL}, g.name, g.start_date, g.created_at,
                     t.name as tournament_name, COALESCE(g.game_room_id, t.game_room_id) as game_room_id
              FROM games g
              LEFT JOIN tournaments t ON t.id = g.tournament_id
@@ -124,7 +133,7 @@ export async function resolveSubmissionGame(params: {
     }
 
     const candidates = await db.all<CandidateRow[]>(
-        `SELECT g.id, g.tournament_id, g.status, g.name, g.start_date, g.created_at,
+        `SELECT g.id, g.tournament_id, ${EFFECTIVE_STATUS_SQL}, g.name, g.start_date, g.created_at,
                 t.name as tournament_name
          FROM games g
          JOIN tournaments t ON t.id = g.tournament_id

@@ -25,6 +25,7 @@ import SeasonPanel from '../components/SeasonPanel';
 import IntegrityPanel from '../components/IntegrityPanel';
 import { getIntegrityErrors } from '../lib/integrityForm';
 import { relativeTimeFrom } from '../lib/format';
+import { formatInZone } from '../lib/timezone';
 
 export type { Tournament };
 
@@ -421,6 +422,10 @@ export default function Tournaments() {
 
   if (loading) return <LoadingState message="Loading tournaments..." />;
 
+  // W33: a finished event takes no scores, so it is listed apart from the live ones.
+  const finishedTournaments = tournaments.filter(t => !!t.event_finished_at);
+  const liveTournaments = tournaments.filter(t => !t.event_finished_at);
+
   return (
     <div>
       <h1 className="font-display text-2xl font-bold mb-6">Tournaments</h1>
@@ -499,6 +504,9 @@ export default function Tournaments() {
               );
             }},
             { key: 'lastRun', header: 'Last run', render: t => {
+              // Rotation maintenance never runs an event (W33); an old row from
+              // before that fix would read as a daily "Skipped".
+              if (t.format === 'event') return <span className="text-faint text-xs">—</span>;
               const info = runInfo[t.id];
               if (!info?.lastRun) return <span className="text-faint text-xs">—</span>;
               const o = info.lastRun.outcome;
@@ -545,11 +553,50 @@ export default function Tournaments() {
               </div>
             ), className: 'text-right' },
           ]}
-          data={tournaments}
+          data={liveTournaments}
           keyExtractor={t => t.id}
-          emptyMessage="No tournaments configured yet."
+          emptyMessage={finishedTournaments.length > 0 ? 'No active tournaments.' : 'No tournaments configured yet.'}
         />
       </NeonCard>
+
+      {/* W33: a FINISHED event is not an active tournament. It takes no scores
+          (the open-card rule, src/utils/openCard.ts), so listing it beside the
+          live ones read as "still running". */}
+      {finishedTournaments.length > 0 && (
+        <NeonCard className="mb-6 opacity-75">
+          <section aria-labelledby="finished-tournaments-heading">
+          <h3 id="finished-tournaments-heading" className="font-display text-sm font-bold uppercase tracking-wider text-muted mb-4">Finished</h3>
+          <DataTable<Tournament>
+            columns={[
+              { key: 'name', header: 'Name', render: t => <span className="font-medium text-muted">{t.name}</span> },
+              { key: 'type', header: 'Tag', render: t => <TournamentBadge type={t.type} /> },
+              { key: 'rounds', header: 'Rounds', render: t => (
+                <span className="text-sm text-muted font-mono">{t.rounds?.length ?? 0}R</span>
+              )},
+              { key: 'ended', header: 'Status', render: t => {
+                let tz = roomTz;
+                try { tz = JSON.parse(t.cadence)?.timezone || roomTz; } catch { /* room zone */ }
+                return (
+                  <span className="text-xs text-muted">
+                    Ended {formatInZone(t.event_finished_at, tz)} — not accepting scores
+                  </span>
+                );
+              }},
+              { key: 'actions', header: '', render: t => (
+                <div className="flex gap-2 justify-end">
+                  <NeonButton variant="ghost" onClick={() => setRoundsTarget(t)} className="text-xs px-2 py-1">Rounds</NeonButton>
+                  <NeonButton variant="ghost" onClick={() => setIntegrityTarget(t)} className="text-xs px-2 py-1">Integrity</NeonButton>
+                  <NeonButton variant="danger" onClick={() => { setDeleteTarget(t); setDeleteBlockers([]); setAutoDeactivate(false); }} className="text-xs px-2 py-1">Delete</NeonButton>
+                </div>
+              ), className: 'text-right' },
+            ]}
+            data={finishedTournaments}
+            keyExtractor={t => t.id}
+            emptyMessage=""
+          />
+          </section>
+        </NeonCard>
+      )}
 
       {/* Active Games */}
       <NeonCard title="Active Games" className="mb-6">
@@ -863,6 +910,7 @@ export default function Tournaments() {
               roomId={room.roomId}
               roomTimezone={roomTz}
               lockedRounds={lockedRoundNumbers(editTarget)}
+              formatLocked
             />
             <div className="flex gap-3 justify-end">
               <NeonButton variant="ghost" onClick={() => setEditTarget(null)} disabled={editSaving}>Cancel</NeonButton>
