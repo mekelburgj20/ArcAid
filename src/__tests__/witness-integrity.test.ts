@@ -260,6 +260,46 @@ describe('Integrity mode — the ingest', () => {
         expect(await db.get(`SELECT verdict FROM witness_evidence WHERE game_id = ?`, gameId)).toMatchObject({ verdict: 'pass' });
     });
 
+    it('Sanctioned play: a FLAGGED score_plausibility still lands with a pass, and the runner sees it (W41, flag only)', async () => {
+        const { tournamentId, gameId } = await createRotationGame(roomId, 'Tales from the Crypt (Data East 1993)', { mode: 'sanctioned' });
+        await designate(DESKTOP, roomId);
+        const plaus = { samples: 212, gcd: 1, step: 10, off_step: 1, largest: { points: 9000001, t: 410.25, ball: 3 }, flag: '1 score change not a multiple of 10 (first +9,000,001); ROM scores move in steps of 10' };
+        const res = await request(app).get('/api/witness/score')
+            .query({ device: DESKTOP, token, ...scoreQuery(), ...evidence(), score_plausibility: JSON.stringify(plaus) });
+        expect(res.body).toMatchObject({ ok: true, status: 'ingested' });
+        expect(res.body.reasons).toBeUndefined();
+        const db = await getDatabase();
+        expect(await db.get(`SELECT id FROM score_history WHERE game_id = ?`, gameId)).toBeTruthy();
+        const row = await db.get<{ verdict: string; reasons: string; score_plausibility: string }>(
+            `SELECT verdict, reasons, score_plausibility FROM witness_evidence WHERE game_id = ?`, gameId,
+        );
+        expect(row).toMatchObject({ verdict: 'pass', reasons: '[]' });
+        expect(JSON.parse(row!.score_plausibility)).toEqual(plaus);
+
+        const admin = signToken({ role: 'room_admin', gameRoomIds: [roomId] });
+        const review = await request(app).get(`/api/rooms/${roomId}/tournaments/${tournamentId}/evidence`).set('Authorization', `Bearer ${admin}`);
+        expect(review.body.evidence[0].evidence.scorePlausibility).toEqual(plaus);
+        expect(review.body.evidence[0].checks.map((c: { rule: string }) => c.rule)).not.toContain('score_plausibility');
+    });
+
+    it('a row stored from companion 0.2.12 (engine difficulty 50) reads back as 0.5 (W40)', async () => {
+        const { tournamentId, gameId } = await createRotationGame(roomId, 'Tales from the Crypt (Data East 1993)');
+        const db = await getDatabase();
+        // Written the way 2.168/2.169 stored the two Medieval Madness scores of 2026-10-25: raw, 0–100.
+        await db.run(
+            `INSERT INTO witness_evidence (device_id, canonical_user_id, outcome, game_id, tournament_id, game_room_id, table_name, score, played_at, vps_table, engine)
+             VALUES (?, ?, 'ingested', ?, ?, ?, 'Medieval Madness (Williams 1997)', 16814490, '2026-10-25 17:00:00', 'mm-table', ?)`,
+            DESKTOP, USER, gameId, tournamentId, roomId,
+            JSON.stringify({ start: { t: 0.5, difficulty: 50, slope_min: 6, slope_max: 7, physics_set: 0, nudge: null }, changes: [{ t: 90, difficulty: 50, slope_min: 6, slope_max: 7, physics_set: 0, nudge: null }] }),
+        );
+        const admin = signToken({ role: 'room_admin', gameRoomIds: [roomId] });
+        const review = await request(app).get(`/api/rooms/${roomId}/tournaments/${tournamentId}/evidence`).set('Authorization', `Bearer ${admin}`);
+        expect(review.status).toBe(200);
+        expect(review.body.evidence[0].evidence.engine.start.difficulty).toBe(0.5);
+        expect(review.body.evidence[0].evidence.engine.changes[0].difficulty).toBe(0.5);
+        expect(review.body.evidence[0].evidence.scorePlausibility).toBeNull();
+    });
+
     it('Sanctioned play holds a failing score out of the board, says why, and the play still reaches Global', async () => {
         const { tournamentId, gameId } = await createRotationGame(roomId, 'Tales from the Crypt (Data East 1993)', { mode: 'sanctioned' });
         await designate(DESKTOP, roomId);
