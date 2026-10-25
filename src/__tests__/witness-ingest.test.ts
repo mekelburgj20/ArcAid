@@ -432,7 +432,8 @@ describe('Witness heartbeat (v2.160.0, cabinet 1.0.4)', () => {
 
         const res = await request(app).get('/api/witness/heartbeat').query({ device: DEVICE, token });
         expect(res.status).toBe(200);
-        expect(res.body).toEqual({ ok: true });
+        // W28 (v2.173.0): the current "sending to" line rides back on every beat.
+        expect(res.body).toEqual({ ok: true, sendingTo: 'Global Scoreboard' });
 
         const after = await db.get<{ heartbeat_at: string | null; last_seen_at: string | null }>(
             'SELECT heartbeat_at, last_seen_at FROM witness_devices WHERE atgames_unique_id = ?', DEVICE,
@@ -454,6 +455,55 @@ describe('Witness heartbeat (v2.160.0, cabinet 1.0.4)', () => {
             'SELECT heartbeat_at FROM witness_devices WHERE atgames_unique_id = ?', DEVICE,
         );
         expect(row!.heartbeat_at).toBeNull();
+    });
+
+    it('W28: the line follows a designation change at once, with no check-in', async () => {
+        const { token } = await pairDevice(app);
+        const { createTestRoom } = await import('./helpers.js');
+        const roomId = await createTestRoom('hb-target', 'Heartbeat Room');
+        const db = await getDatabase();
+        await db.run(`INSERT OR IGNORE INTO room_members (user_id, room_id, source) VALUES (?, ?, 'submission')`, USER, roomId);
+
+        let res = await request(app).get('/api/witness/heartbeat').query({ device: DEVICE, token });
+        expect(res.body.sendingTo).toBe('Global Scoreboard');
+
+        await WitnessService.setDeviceTarget(USER, DEVICE, { roomId, tournamentId: null });
+        res = await request(app).get('/api/witness/heartbeat').query({ device: DEVICE, token });
+        expect(res.body.sendingTo).toBe('Heartbeat Room');
+        expect((await db.get<{ n: number }>('SELECT COUNT(*) AS n FROM witness_checkins'))!.n).toBe(0);
+    });
+
+    it('W28: on an event in its check-in window a heartbeat NEVER checks in; once checked in it carries the lobby status', async () => {
+        const { token } = await pairDevice(app);
+        const { createTestRoom } = await import('./helpers.js');
+        const { EventService } = await import('../services/EventService.js');
+        const crypto = await import('crypto');
+        const db = await getDatabase();
+        const roomId = await createTestRoom('hb-event', 'HB Event Room');
+        const now = Date.now();
+        const eventId = crypto.randomUUID();
+        await db.run(
+            `INSERT INTO tournaments (id, name, type, mode, cadence, is_active, game_room_id, format, checkin_opens_at, checkin_required)
+             VALUES (?, 'Friday Night', 'DG', 'pinball', '{"timezone":"UTC"}', 1, ?, 'event', ?, 1)`,
+            eventId, roomId, new Date(now - 10 * 60_000).toISOString(),
+        );
+        await db.run(
+            `INSERT INTO games (id, tournament_id, name, status, game_room_id, round_no, scheduled_start_at, scheduled_end_at)
+             VALUES (?, ?, 'Medieval Madness', 'SCHEDULED', ?, 1, ?, ?)`,
+            crypto.randomUUID(), eventId, roomId,
+            new Date(now + 20 * 60_000).toISOString(), new Date(now + 50 * 60_000).toISOString(),
+        );
+        await db.run(`INSERT OR IGNORE INTO room_members (user_id, room_id, source) VALUES (?, ?, 'submission')`, USER, roomId);
+        await WitnessService.setDeviceTarget(USER, DEVICE, { roomId, tournamentId: eventId });
+
+        // A heartbeat runs while tables are played: it must not be a check-in.
+        let res = await request(app).get('/api/witness/heartbeat').query({ device: DEVICE, token });
+        expect(res.body.sendingTo).toBe('HB Event Room / Friday Night');
+        expect(await EventService.isParticipant(eventId, USER)).toBeFalsy();
+
+        await request(app).get('/api/witness/checkin').query({ device: DEVICE, token });
+        res = await request(app).get('/api/witness/heartbeat').query({ device: DEVICE, token });
+        expect(res.body.sendingTo).toBe('HB Event Room / Friday Night · CHECKED IN · READY');
     });
 });
 
