@@ -6,6 +6,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.177.0] - 2026-10-25 - Attempts left on the cabinet (W43)
+
+A cabinet player in a limited-attempts tournament had no way to see how many tries they had left without
+opening the game page on a phone. The cabinet's "SENDING TO" line now ends with the count.
+
+### Added
+- **Attempts left on the Witness "Sending to" line**, on both the check-in and the heartbeat answer:
+  - one open limited game: `… · 7 OF 10 ATTEMPTS LEFT`, then `… · NO ATTEMPTS LEFT`;
+  - several: `… · ATTEMPTS LEFT: BAD CATS 2/3, TAXI 5/5`.
+  - Nothing is added when no limited game is open for this device.
+- The games come from `VpxScoreIngestService.openLimitedGames`, which applies the same filters a real play
+  goes through (`match`): the player's rooms and entered tournaments, the device's routing, entry rules, the
+  window right now, and the tournament's device exclusions. So the line never counts down on a game a score
+  wouldn't land on. The count is `AttemptService.usedByPlayer`, the same "void rows excluded" count as the
+  game page's "You have N attempts left" banner. The text comes from one pure helper, `attemptsLeftLine`.
+- Server-side only: cabinet 1.0.5 already shows the heartbeat's line, so no new kit is needed.
+
+### Known limit
+- The cabinet draws the line on one row and neither clips nor wraps it, so a long room/tournament name plus
+  several limited tables can run over the "SENDING TO" label. A cabinet-side wrap would come in a later kit.
+
 ## [2.175.0] - 2026-10-26 - Joining a room enters you in its tournaments (W37, ADR 0033)
 
 During the Witness Weekend Showdown testers kept losing plays to the device target. A device held ONE

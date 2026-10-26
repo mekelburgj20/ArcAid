@@ -301,6 +301,21 @@ router.get('/witness/report', witnessIngestLimiter, async (req, res) => {
     }
 });
 
+/**
+ * 2026-10-25 — the limited-attempts suffix on the "Sending to" line ("· 7 OF 10
+ * ATTEMPTS LEFT"), shared by the check-in and the heartbeat so a cabinet player
+ * sees what they have left without a phone. Best-effort: never fails the call.
+ */
+async function witnessAttemptsSuffix(device: string, canonicalUserId: string): Promise<string> {
+    try {
+        const { AttemptService } = await import('../../services/AttemptService.js');
+        return await AttemptService.deviceLine(device, canonicalUserId);
+    } catch (err) {
+        logError('Witness sendingTo: attempts-left step failed (the call itself succeeded)', err);
+        return '';
+    }
+}
+
 // Device: the round-start CHECK-IN (tier 2, ADR 0021). The device asserts only
 // "the Witness is open right now"; the TIMESTAMP IS THE SERVER'S, deliberately —
 // a client-supplied time would turn the whole attestation into a self-report.
@@ -330,6 +345,7 @@ router.get('/witness/checkin', witnessIngestLimiter, async (req, res) => {
         } catch (err) {
             logError('Witness check-in: event lobby step failed (check-in itself succeeded)', err);
         }
+        sendingTo += await witnessAttemptsSuffix(device, result.canonicalUserId);
         res.json({ ok: true, ts: result.ts, sendingTo });
     } catch (error) {
         logError('API Error (GET /api/witness/checkin)');
@@ -366,6 +382,7 @@ router.get('/witness/heartbeat', witnessIngestLimiter, async (req, res) => {
         } catch (err) {
             logError('Witness heartbeat: sendingTo step failed (heartbeat itself succeeded)', err);
         }
+        if (sendingTo) sendingTo += await witnessAttemptsSuffix(device, beat.canonicalUserId);
         res.json({ ok: true, sendingTo });
     } catch (error) {
         logError('API Error (GET /api/witness/heartbeat)');

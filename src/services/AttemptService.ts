@@ -95,6 +95,24 @@ export class AttemptVoidError extends Error {
     }
 }
 
+/**
+ * Pure: the " · …" suffix for the cabinet's "Sending to" line. The cabinet
+ * draws that line on ONE row with no wrapping, so it stays short: a single
+ * game reads "7 OF 10 ATTEMPTS LEFT"; several name each table. Upper case to
+ * match the lobby suffix beside it (`EventLobbyService.cabinetLine`).
+ */
+export function attemptsLeftLine(items: Array<{ gameName: string; left: number; limit: number }>): string {
+    if (items.length === 0) return '';
+    if (items.length === 1) {
+        const { left, limit } = items[0]!;
+        return left === 0 ? ' · NO ATTEMPTS LEFT' : ` · ${left} OF ${limit} ATTEMPTS LEFT`;
+    }
+    const parts = [...items]
+        .sort((a, b) => a.gameName.localeCompare(b.gameName))
+        .map(i => `${i.gameName.toUpperCase()} ${i.left}/${i.limit}`);
+    return ` · ATTEMPTS LEFT: ${parts.join(', ')}`;
+}
+
 function cleanKey(key: string | null | undefined): string {
     return (key ?? '').trim().slice(0, 200);
 }
@@ -360,6 +378,49 @@ export class AttemptService {
             (out[r.game_id] ??= {})[r.canonical_user_id] = r.used;
         }
         return out;
+    }
+
+    /**
+     * One player's used count per game (`{ [gameId]: used }`), void rows
+     * excluded — the same count `usedByGame` gives the game page's
+     * "You have N attempts left" banner.
+     */
+    static async usedByPlayer(canonicalUserId: string, gameIds: string[]): Promise<Record<string, number>> {
+        if (gameIds.length === 0) return {};
+        const db = await getDatabase();
+        const rows = await db.all<Array<{ game_id: string; used: number }>>(
+            `SELECT game_id, COUNT(*) AS used
+               FROM attempts
+              WHERE canonical_user_id = ? AND status <> 'void'
+                AND game_id IN (${gameIds.map(() => '?').join(', ')})
+              GROUP BY game_id`,
+            canonicalUserId, ...gameIds,
+        );
+        return Object.fromEntries(rows.map(r => [r.game_id, r.used]));
+    }
+
+    /**
+     * The attempts suffix for a Witness device's "Sending to" line
+     * (2026-10-25): what a cabinet player has left on the limited-attempts
+     * games their next play would count on. Empty when there are none.
+     */
+    static async deviceLine(deviceId: string, canonicalUserId: string, nowTs: number = Math.floor(Date.now() / 1000)): Promise<string> {
+        const { WitnessService } = await import('./WitnessService.js');
+        const { VpxScoreIngestService } = await import('./VpxScoreIngestService.js');
+        const db = await getDatabase();
+        const device = await db.get<{ device_type: string | null }>(
+            'SELECT device_type FROM witness_devices WHERE atgames_unique_id = ?', deviceId,
+        );
+        const games = await VpxScoreIngestService.openLimitedGames({
+            canonicalUserId,
+            target: await WitnessService.getDeviceTarget(deviceId),
+            deviceType: device?.device_type === 'desktop' ? 'desktop' : 'atgames',
+            nowTs,
+        });
+        const used = await AttemptService.usedByPlayer(canonicalUserId, games.map(g => g.gameId));
+        return attemptsLeftLine(games.map(g => ({
+            gameName: g.gameName, limit: g.limit, left: Math.max(0, g.limit - (used[g.gameId] ?? 0)),
+        })));
     }
 
     /** The runner's list, newest first, names resolved (never a raw id). */
