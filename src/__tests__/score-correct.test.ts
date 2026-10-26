@@ -417,6 +417,68 @@ describe('PATCH /:roomId/score-history/:historyId/score — authorization + vali
         expect(res.status).toBe(200);
     });
 
+    /*
+     * Owner ruling 2026-10-25: no self-correction in a Sanctioned or a
+     * Limited-attempts tournament, and a machine-reported (Witness / cabinet)
+     * score is not editable by anyone.
+     */
+    it.each([
+        ['Sanctioned play', `UPDATE tournaments SET integrity_mode = 'sanctioned' WHERE id = ?`],
+        ['Limited attempts', `UPDATE tournaments SET max_attempts = 10 WHERE id = ?`],
+    ])('the submitter is refused in a %s tournament even while ACTIVE; an admin is not', async (_label, sql) => {
+        const { roomId, tournamentId, gameId } = await ownedScoreFixture('ACTIVE');
+        const db = await getDatabase();
+        await db.run(sql, tournamentId);
+        const hist = await historyRow(gameId, 'Nudge');
+
+        const asOwner = await request(app)
+            .patch(`/api/rooms/${roomId}/score-history/${hist!.id}/score`)
+            .set('Authorization', `Bearer ${playerToken('disc-nudge')}`)
+            .send({ score: 999999 });
+        expect(asOwner.status).toBe(403);
+        expect(asOwner.body.reason).toBe('integrity');
+        expect((await db.get<{ score: number }>('SELECT score FROM score_history WHERE id = ?', hist!.id))!.score).toBe(1000);
+
+        const asAdmin = await request(app)
+            .patch(`/api/rooms/${roomId}/score-history/${hist!.id}/score`)
+            .set('Authorization', `Bearer ${adminToken(roomId)}`)
+            .send({ score: 2000 });
+        expect(asAdmin.status).toBe(200);
+    });
+
+    it.each(['vpx', 'atgames'])('a machine-reported (%s) score is not editable by its owner, an admin or a super admin', async (source) => {
+        const { roomId, gameId } = await ownedScoreFixture('ACTIVE');
+        const db = await getDatabase();
+        await db.run(`UPDATE score_history SET source = ? WHERE game_id = ?`, source, gameId);
+        const hist = await historyRow(gameId, 'Nudge');
+
+        for (const token of [playerToken('disc-nudge'), adminToken(roomId), superToken()]) {
+            const res = await request(app)
+                .patch(`/api/rooms/${roomId}/score-history/${hist!.id}/score`)
+                .set('Authorization', `Bearer ${token}`)
+                .send({ score: 2000 });
+            expect(res.status).toBe(403);
+            expect(res.body.reason).toBe('machine_reported');
+        }
+        expect((await db.get<{ score: number }>('SELECT score FROM score_history WHERE id = ?', hist!.id))!.score).toBe(1000);
+    });
+
+    it('the room board tells the FE when self-correction is closed', async () => {
+        const { roomId, tournamentId, gameId } = await ownedScoreFixture('ACTIVE');
+        const board = async () => {
+            const res = await request(app).get(`/api/rooms/${roomId}/leaderboard`);
+            expect(res.status).toBe(200);
+            return (res.body as Array<{ gameId: string; selfCorrectionLocked: boolean }>).find(b => b.gameId === gameId)!;
+        };
+        expect((await board()).selfCorrectionLocked).toBe(false);
+
+        const db = await getDatabase();
+        await db.run(`UPDATE tournaments SET max_attempts = 3 WHERE id = ?`, tournamentId);
+        const { LeaderboardService } = await import('../services/LeaderboardService.js');
+        await LeaderboardService.invalidateAll();
+        expect((await board()).selfCorrectionLocked).toBe(true);
+    });
+
     it('a DIFFERENT player may not correct somebody else\u2019s row', async () => {
         const { roomId, gameId } = await ownedScoreFixture('ACTIVE');
         const hist = await historyRow(gameId, 'Nudge');

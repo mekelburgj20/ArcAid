@@ -10,6 +10,7 @@ import { useLiveRefresh } from '../hooks/useLiveRefresh';
 import LoadingState from '../components/LoadingState';
 import ConfirmModal from '../components/ConfirmModal';
 import CorrectScoreModal from '../components/CorrectScoreModal';
+import { isWitnessedScore } from '../lib/provenanceDisplay';
 import NeonButton from '../components/NeonButton';
 import GameQuickView from '../components/GameQuickView';
 import DevicePreviewFrame from '../components/DevicePreviewFrame';
@@ -46,6 +47,8 @@ interface Submission {
    * score_history — those get no pencil, only the delete.
    */
   history_id: number | null;
+  /** That row's source — a machine-reported (Witness) score gets no pencil. */
+  history_source?: string | null;
 }
 
 /** A deleted-score tombstone (deleted_score_suppressions, migration 096). While
@@ -1391,7 +1394,7 @@ function ManageScoresModal({ lb, roomId, onClose, onDeleted }: {
                         always the right action, and the delete here is the
                         BLUNT one (it wipes the player from the game, not just
                         this row). */}
-                    {sub.history_id != null && (
+                    {sub.history_id != null && !isWitnessedScore({ source: sub.history_source }) && (
                       <button
                         type="button"
                         onClick={() => setPendingCorrect(sub)}
