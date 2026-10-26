@@ -1076,6 +1076,31 @@ export class VpxScoreIngestService {
     }
 
     /**
+     * The LIMITED-ATTEMPTS games a play from this device would count on right
+     * now (2026-10-25, for the cabinet's "Sending to" line). Built from the
+     * same filters `match` applies — candidates, routing, entry, the window
+     * at `nowTs`, the device-exclusion rule — minus the table-name match, so
+     * the line can never name a game a score would not land on.
+     */
+    static async openLimitedGames(input: {
+        canonicalUserId: string;
+        target: { roomId: string | null; tournamentId: string | null; globalOnly?: boolean };
+        deviceType: WitnessDeviceType | null | undefined;
+        nowTs: number;
+    }): Promise<Array<{ gameId: string; gameName: string; tournamentId: string; limit: number }>> {
+        const provenance = VpxScoreIngestService.provenanceFor(input.deviceType ?? 'atgames');
+        return (await VpxScoreIngestService.loadCandidates(input.canonicalUserId))
+            .filter(row => row.max_attempts != null && row.max_attempts >= 1 && row.tournament_id != null)
+            .filter(row => VpxScoreIngestService.inScope(row, input.target))
+            .filter(row => VpxScoreIngestService.allowedIn(row))
+            .filter(row => VpxScoreIngestService.inWindow(row, input.nowTs))
+            .filter(row => !VpxScoreIngestService.engineExcluded(row, provenance.device))
+            .map(row => ({
+                gameId: row.id, gameName: row.name, tournamentId: row.tournament_id!, limit: row.max_attempts!,
+            }));
+    }
+
+    /**
      * Everything this player could plausibly be scoring on right now: event
      * rounds of events they are in, and ACTIVE rotation games in their rooms.
      *

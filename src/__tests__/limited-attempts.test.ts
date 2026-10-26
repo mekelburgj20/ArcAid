@@ -5,7 +5,7 @@ import request from 'supertest';
 import { setupTestDb, createTestRoom } from './helpers.js';
 import { getDatabase } from '../database/database.js';
 import { signToken } from '../api/auth.js';
-import { AttemptService, ATTEMPT_LATE_SEC, ATTEMPT_REFUSAL_TEXT } from '../services/AttemptService.js';
+import { AttemptService, ATTEMPT_LATE_SEC, ATTEMPT_REFUSAL_TEXT, attemptsLeftLine } from '../services/AttemptService.js';
 import { checkAttemptLimitSubmission, ATTEMPTS_WITNESS_ONLY_MESSAGE } from '../services/EventSubmissionGate.js';
 
 /**
@@ -386,6 +386,42 @@ describe('witness routes on a limited tournament', () => {
             });
         };
 
+        it('the "Sending to" line counts down the attempts left, on heartbeat and check-in (2026-10-25)', async () => {
+            const beat = async () => (await request(app).get('/api/witness/heartbeat').query({ device: CABINET, token })).body.sendingTo as string;
+            const checkin = async () => (await request(app).get('/api/witness/checkin').query({ device: CABINET, token })).body.sendingTo as string;
+
+            // No limited game open: no suffix at all.
+            expect(await beat()).not.toMatch(/ATTEMPT/);
+
+            await createLimitedGame(roomId, 2);
+            expect(await beat()).toMatch(/ · 2 OF 2 ATTEMPTS LEFT$/);
+            await report(30, 1_000_000);
+            expect(await checkin()).toMatch(/ · 1 OF 2 ATTEMPTS LEFT$/);
+            await report(20, 2_000_000);
+            expect(await beat()).toMatch(/ · NO ATTEMPTS LEFT$/);
+        });
+
+        it('the line names each table when several limited games are open, and only ones the device routes to', async () => {
+            await createLimitedGame(roomId, 3, 'Bad Cats');
+            await createLimitedGame(roomId, 5, 'Taxi');
+            await createLimitedGame(roomId, null, 'Unlimited Table');
+            const elsewhere = await createTestRoom('attempts-elsewhere', 'Elsewhere');
+            await createLimitedGame(elsewhere, 4, 'Not Routed'); // not a member, not designated
+            const res = await request(app).get('/api/witness/heartbeat').query({ device: CABINET, token });
+            expect(res.body.sendingTo).toMatch(/ · ATTEMPTS LEFT: BAD CATS 3\/3, TAXI 5\/5$/);
+        });
+
+        it('a "Global Scoreboard only" device shows no attempts (its plays land on no tournament)', async () => {
+            await createLimitedGame(roomId, 2);
+            const db = await getDatabase();
+            await db.run(
+                `UPDATE witness_devices SET target_room_id = NULL, target_tournament_id = NULL, global_only = 1 WHERE atgames_unique_id = ?`,
+                CABINET,
+            );
+            const res = await request(app).get('/api/witness/heartbeat').query({ device: CABINET, token });
+            expect(res.body.sendingTo).not.toMatch(/ATTEMPT/);
+        });
+
         it('three reports on a 2-attempt game: two land, the third is refused (no_match on the wire)', async () => {
             const { gameId } = await createLimitedGame(roomId, 2);
             const r1 = await report(30, 1_000_000);
@@ -521,5 +557,20 @@ describe('manual submits refuse a limited tournament', () => {
             .send({ score: 1000, engine: 'vpx', device: 'pc' });
         expect(res.status).toBe(409);
         expect(res.body).toEqual({ error: ATTEMPTS_WITNESS_ONLY_MESSAGE, code: 'ATTEMPTS_WITNESS_ONLY' });
+    });
+});
+
+describe('attemptsLeftLine (the cabinet suffix)', () => {
+    it('one game: "N OF M ATTEMPTS LEFT", zero reads "NO ATTEMPTS LEFT", none is empty', () => {
+        expect(attemptsLeftLine([])).toBe('');
+        expect(attemptsLeftLine([{ gameName: 'Taxi', left: 7, limit: 10 }])).toBe(' · 7 OF 10 ATTEMPTS LEFT');
+        expect(attemptsLeftLine([{ gameName: 'Taxi', left: 0, limit: 10 }])).toBe(' · NO ATTEMPTS LEFT');
+    });
+
+    it('several games: each table named, alphabetical, upper case', () => {
+        expect(attemptsLeftLine([
+            { gameName: 'Taxi', left: 0, limit: 5 },
+            { gameName: 'Bad Cats', left: 2, limit: 3 },
+        ])).toBe(' · ATTEMPTS LEFT: BAD CATS 2/3, TAXI 0/5');
     });
 });
