@@ -47,12 +47,17 @@ async function createEvent(roomId: string, opts: { checkinOpensAt: Date; round1S
     return id;
 }
 
-async function pairDevice(userId: string, deviceId: string) {
+/**
+ * W26 (v2.174.0): the lobby grades a device only when its scores would land on
+ * the event, so a grading fixture points the device at the event's room
+ * (`targetRoomId`). Omitted = undesignated ("Global Scoreboard only").
+ */
+async function pairDevice(userId: string, deviceId: string, targetRoomId: string | null = null) {
     const db = await getDatabase();
     await db.run(
-        `INSERT INTO witness_devices (atgames_unique_id, canonical_user_id, token_hash, last_seen_at)
-         VALUES (?, ?, 'hash', datetime('now'))`,
-        deviceId, userId,
+        `INSERT INTO witness_devices (atgames_unique_id, canonical_user_id, token_hash, last_seen_at, target_room_id)
+         VALUES (?, ?, 'hash', datetime('now'), ?)`,
+        deviceId, userId, targetRoomId,
     );
 }
 
@@ -84,18 +89,18 @@ describe('EventLobbyService.roster — the strict green light', () => {
         for (const u of [USER_A, USER_B, USER_C, USER_D, USER_E]) await EventService.checkIn(eventId, u);
 
         // A: paired, checked in 10 min ago, nothing open -> ready.
-        await pairDevice(USER_A, 'cab-a');
+        await pairDevice(USER_A, 'cab-a', roomId);
         await witnessCheckin(USER_A, 'cab-a', new Date(now.getTime() - 10 * MINUTE));
         // B: checked in, then launched a table 5 min ago and is still in it -> table_open.
-        await pairDevice(USER_B, 'cab-b');
+        await pairDevice(USER_B, 'cab-b', roomId);
         await witnessCheckin(USER_B, 'cab-b', new Date(now.getTime() - 10 * MINUTE));
         await openSession(USER_B, 'cab-b', 'Attack from Mars (Williams 1995)', new Date(now.getTime() - 5 * MINUTE));
         // C: paired, last check-in was BEFORE the window opened -> no_checkin.
-        await pairDevice(USER_C, 'cab-c');
+        await pairDevice(USER_C, 'cab-c', roomId);
         await witnessCheckin(USER_C, 'cab-c', new Date(now.getTime() - 60 * MINUTE));
         // D: no cabinet at all.
         // E: a missed exit from BEFORE the check-in must not keep them amber.
-        await pairDevice(USER_E, 'cab-e');
+        await pairDevice(USER_E, 'cab-e', roomId);
         await openSession(USER_E, 'cab-e', 'Whirlwind (Williams 1990)', new Date(now.getTime() - 20 * MINUTE));
         await witnessCheckin(USER_E, 'cab-e', new Date(now.getTime() - 8 * MINUTE));
 
@@ -120,8 +125,8 @@ describe('EventLobbyService.roster — the strict green light', () => {
             checkinOpensAt: new Date(now.getTime() - 30 * MINUTE), round1Start: new Date(now.getTime() + 15 * MINUTE),
         });
         await EventService.checkIn(eventId, USER_A);
-        await pairDevice(USER_A, 'cab-a1');
-        await pairDevice(USER_A, 'cab-a2');
+        await pairDevice(USER_A, 'cab-a1', roomId);
+        await pairDevice(USER_A, 'cab-a2', roomId);
         await witnessCheckin(USER_A, 'cab-a1', new Date(now.getTime() - 10 * MINUTE));
         await openSession(USER_A, 'cab-a1', 'Busy Table', new Date(now.getTime() - 2 * MINUTE));
         await witnessCheckin(USER_A, 'cab-a2', new Date(now.getTime() - 3 * MINUTE));
@@ -129,6 +134,52 @@ describe('EventLobbyService.roster — the strict green light', () => {
         const event = (await EventService.getEvent(eventId))!;
         const [entry] = await EventLobbyService.roster(event, await EventService.getRounds(eventId), now);
         expect(entry).toMatchObject({ status: 'ready' });
+    });
+
+    it('W26: a device that sends its scores elsewhere never lights the event green ("not_routed")', async () => {
+        const roomId = await createTestRoom('lobby-route', 'Route Room');
+        const otherRoomId = await createTestRoom('lobby-route-other', 'Other Room');
+        const now = new Date();
+        const eventId = await createEvent(roomId, {
+            checkinOpensAt: new Date(now.getTime() - 30 * MINUTE), round1Start: new Date(now.getTime() + 15 * MINUTE),
+        });
+        const db = await getDatabase();
+        const rotationId = crypto.randomUUID();
+        await db.run(
+            `INSERT INTO tournaments (id, name, type, mode, cadence, is_active, game_room_id, format)
+             VALUES (?, 'Weekly', 'WG', 'pinball', '{"cron":"0 0 * * *"}', 1, ?, 'rotation')`, rotationId, roomId,
+        );
+        for (const u of [USER_A, USER_B, USER_C, USER_D]) await EventService.checkIn(eventId, u);
+        const checkedIn = new Date(now.getTime() - 10 * MINUTE);
+
+        // A: checked in, but "Global Scoreboard only" (ADR 0032) -> not_routed.
+        await pairDevice(USER_A, 'cab-a', null);
+        await witnessCheckin(USER_A, 'cab-a', checkedIn);
+        // B: the event's room, but pinned to a DIFFERENT tournament there -> not_routed.
+        await pairDevice(USER_B, 'cab-b', roomId);
+        await db.run(`UPDATE witness_devices SET target_tournament_id = ? WHERE atgames_unique_id = 'cab-b'`, rotationId);
+        await witnessCheckin(USER_B, 'cab-b', checkedIn);
+        // C: a checked-in device pointed nowhere, and a routed one not checked in
+        // -> graded on the routed one only: no_checkin, never ready.
+        await pairDevice(USER_C, 'cab-c1', null);
+        await witnessCheckin(USER_C, 'cab-c1', checkedIn);
+        await pairDevice(USER_C, 'cab-c2', roomId);
+        // D: pointed at another room -> not_routed.
+        await pairDevice(USER_D, 'cab-d', otherRoomId);
+        await witnessCheckin(USER_D, 'cab-d', checkedIn);
+
+        const event = (await EventService.getEvent(eventId))!;
+        const roster = await EventLobbyService.roster(event, await EventService.getRounds(eventId), now);
+        const byUser = Object.fromEntries(roster.map(e => [e.userId, e]));
+        expect(byUser[USER_A]).toMatchObject({ status: 'not_routed', witnessCheckinAt: null });
+        expect(byUser[USER_B]).toMatchObject({ status: 'not_routed' });
+        expect(byUser[USER_C]).toMatchObject({ status: 'no_checkin' });
+        expect(byUser[USER_D]).toMatchObject({ status: 'not_routed' });
+
+        // Pinned to THIS event counts.
+        await db.run(`UPDATE witness_devices SET target_tournament_id = ? WHERE atgames_unique_id = 'cab-b'`, eventId);
+        const again = await EventLobbyService.roster(event, await EventService.getRounds(eventId), now);
+        expect(again.find(e => e.userId === USER_B)).toMatchObject({ status: 'ready' });
     });
 
     it('is empty once round 1 has started — the standings carry verdicts from there', async () => {
@@ -218,7 +269,7 @@ describe('GET /:roomId/events/:id carries the lobby', () => {
         const db = await getDatabase();
         await db.run(`INSERT INTO user_profiles (discord_user_id, username, display_name) VALUES (?, 'wyo', 'Wyo')`, USER_A);
         await EventService.checkIn(eventId, USER_A);
-        await pairDevice(USER_A, 'cab-a');
+        await pairDevice(USER_A, 'cab-a', roomId);
         await witnessCheckin(USER_A, 'cab-a', now);
 
         const res = await request(app).get(`/api/rooms/${roomId}/events/${eventId}`);
@@ -249,15 +300,15 @@ describe('EventLobbyService.roster — the 1.0.4 heartbeat (v2.160.0)', () => {
         for (const u of [USER_A, USER_B, USER_C]) await EventService.checkIn(eventId, u);
 
         // A: checked in 10 min ago, last heartbeat 9 min ago -> powered off since.
-        await pairDevice(USER_A, 'cab-a');
+        await pairDevice(USER_A, 'cab-a', roomId);
         await witnessCheckin(USER_A, 'cab-a', new Date(now.getTime() - 10 * MINUTE));
         await setHeartbeat('cab-a', new Date(now.getTime() - 9 * MINUTE));
         // B: same check-in, heartbeat 1 min ago -> ready.
-        await pairDevice(USER_B, 'cab-b');
+        await pairDevice(USER_B, 'cab-b', roomId);
         await witnessCheckin(USER_B, 'cab-b', new Date(now.getTime() - 10 * MINUTE));
         await setHeartbeat('cab-b', new Date(now.getTime() - 1 * MINUTE));
         // C: never heartbeated (older app), checked in 10 min ago -> ready, not offline.
-        await pairDevice(USER_C, 'cab-c');
+        await pairDevice(USER_C, 'cab-c', roomId);
         await witnessCheckin(USER_C, 'cab-c', new Date(now.getTime() - 10 * MINUTE));
         await setHeartbeat('cab-c', null);
 
@@ -279,12 +330,12 @@ describe('EventLobbyService.roster — the 1.0.4 heartbeat (v2.160.0)', () => {
         const DESK_B = '0a1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d';
 
         // A: checked in 10 min ago, last heartbeat 9 min ago -> the PC went away.
-        await pairDevice(USER_A, DESK_A);
+        await pairDevice(USER_A, DESK_A, roomId);
         await db.run(`UPDATE witness_devices SET device_type = 'desktop' WHERE atgames_unique_id = ?`, DESK_A);
         await witnessCheckin(USER_A, DESK_A, new Date(now.getTime() - 10 * MINUTE));
         await setHeartbeat(DESK_A, new Date(now.getTime() - 9 * MINUTE));
         // B: same check-in, heartbeat 1 min ago -> ready.
-        await pairDevice(USER_B, DESK_B);
+        await pairDevice(USER_B, DESK_B, roomId);
         await db.run(`UPDATE witness_devices SET device_type = 'desktop' WHERE atgames_unique_id = ?`, DESK_B);
         await witnessCheckin(USER_B, DESK_B, new Date(now.getTime() - 10 * MINUTE));
         await setHeartbeat(DESK_B, new Date(now.getTime() - 1 * MINUTE));

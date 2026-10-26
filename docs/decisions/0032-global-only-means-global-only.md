@@ -1,6 +1,6 @@
 # ADR 0032 — A device set to "Global Scoreboard only" sends to the Global Scoreboard only
 
-**Status:** accepted (owner ruling 2026-10-24), not yet built (WORK.md W26) · **Amends:** the P9b routing in ADR 0022 / CLAUDE.md "WITNESS SCORE ROUTING"
+**Status:** accepted (owner ruling 2026-10-24), built v2.174.0 (WORK.md W26) · **Amends:** the P9b routing in ADR 0022 / CLAUDE.md "WITNESS SCORE ROUTING"
 
 ## Context
 
@@ -22,3 +22,16 @@ to testers, and it is the only reason Krobs's undesignated desktop scores reache
 - Ship after Witness Weekend Showdown ends: players relying on the fallback (undesignated devices of event
   participants) must be re-pointed or told first, or their event scores go to Global silently.
 - If W25 lands on "room membership is consent", "Global Scoreboard only" becomes the opt-out it is named as.
+
+## Amendment 2026-10-25: Throwdowns (owner ruling, at build time)
+
+A Throwdown has no room, so no device can be pointed at one; under the strict reading a device score could
+never count in a Throwdown. The owner ruled that a Throwdown the player has JOINED stays reachable: joining
+it from its link is the deliberate act a designation would otherwise supply. It is reachable from any device
+that is not pinned to one tournament, including a room-pointed device (pre-v2.174.0 those could not reach a
+Throwdown at all). Room events, rotations and pinned tournaments follow the decision above unchanged.
+
+Built as one pure rule, `deviceRoutesTo` (`src/utils/witnessRouting.ts`), shared by score ingest and the
+event check-in lobby, which now grades a device only when it routes to the event and otherwise shows
+`not_routed` ("Device not sending here"). At ship time one player relied on the removed fallback (Krobs,
+Castcade desktop, Witness Weekend Showdown, already finished), so nothing in flight was affected.

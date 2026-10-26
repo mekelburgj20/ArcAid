@@ -181,7 +181,9 @@ describe('VPXS score routing', () => {
         expect(history!.n).toBe(0);
     });
 
-    it('still counts an event round the player joined, with nothing configured', async () => {
+    it('W26: "Global Scoreboard only" sends a joined ROOM event\'s play to Global (ADR 0032)', async () => {
+        // Pre-v2.174.0 an undesignated device still reached the rounds of any
+        // event the player had joined; the label said "Global Scoreboard only".
         const now = Date.now();
         const round = await createEventRound(roomId, 'Bad Cats', now - 10 * MINUTE, now + 10 * MINUTE);
         await addParticipant(round.tournamentId);
@@ -190,12 +192,42 @@ describe('VPXS score routing', () => {
         const res = await request(app).get('/api/witness/score')
             .query({ device: DEVICE, token, ...scoreQuery() });
 
+        expect(res.body).toMatchObject({ status: 'global' });
+        const db = await getDatabase();
+        expect(await db.get(`SELECT id FROM score_history WHERE game_id = ?`, round.gameId)).toBeUndefined();
+    });
+
+    it('W26: a joined Throwdown (no room to point at) still counts, from an undesignated device', async () => {
+        const now = Date.now();
+        const round = await createEventRound(null as unknown as string, 'Bad Cats', now - 10 * MINUTE, now + 10 * MINUTE);
+        await addParticipant(round.tournamentId);
+        await seedCatalogue('Bad Cats', 'Williams', 1989);
+
+        const res = await request(app).get('/api/witness/score')
+            .query({ device: DEVICE, token, ...scoreQuery() });
+
         expect(res.body).toMatchObject({ status: 'ingested' });
         const db = await getDatabase();
-        const row = await db.get<{ game_id: string }>(
-            `SELECT game_id FROM score_history ORDER BY id DESC LIMIT 1`,
-        );
-        expect(row!.game_id).toBe(round.gameId);
+        expect(await db.get(`SELECT id FROM score_history WHERE game_id = ?`, round.gameId)).toBeTruthy();
+    });
+
+    it('W26: a joined Throwdown counts from a ROOM-pointed device too; a device pinned to a tournament stays pinned', async () => {
+        const now = Date.now();
+        await addMember(roomId);
+        const pinned = await createRotationGame(roomId, 'Other Table');
+        await designate(roomId);
+        const round = await createEventRound(null as unknown as string, 'Bad Cats', now - 10 * MINUTE, now + 10 * MINUTE);
+        await addParticipant(round.tournamentId);
+        await seedCatalogue('Bad Cats', 'Williams', 1989);
+
+        let res = await request(app).get('/api/witness/score')
+            .query({ device: DEVICE, token, ...scoreQuery() });
+        expect(res.body).toMatchObject({ status: 'ingested' });
+
+        await designate(roomId, pinned.tournamentId);
+        res = await request(app).get('/api/witness/score')
+            .query({ device: DEVICE, token, ...scoreQuery({ score: 9000001 }) });
+        expect(res.body).toMatchObject({ status: 'global' });
     });
 
     it('does not put a non-participant into an event round they never joined', async () => {

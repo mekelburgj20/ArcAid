@@ -6,6 +6,7 @@ import { parseTournamentRules } from '../utils/platformRules.js';
 import { logInfo, logWarn } from '../utils/logger.js';
 import type { WitnessDeviceType } from './WitnessService.js';
 import { tournamentFinishedSql } from '../utils/openCard.js';
+import { deviceRoutesTo } from '../utils/witnessRouting.js';
 import {
     evaluateSanctioned, normalizeIntegrityMode, normalizeSanctionedRules,
     type IntegrityMode, type Verdict, type WitnessEvidence,
@@ -1035,32 +1036,28 @@ export class VpxScoreIngestService {
     }
 
     /**
-     * Does this candidate lie inside what the cabinet is pointed at?
+     * Does this candidate lie inside what the device is pointed at?
      *
-     * The routing model, in one place (P9b):
-     *
-     * - **Designated room** — only that room's games are candidates. A
-     *   designated TOURNAMENT narrows it further, which is what makes two
-     *   tournaments running the same table in one room resolvable at all.
-     * - **Undesignated** — only EVENT ROUNDS are candidates, and only of events
-     *   the player is a participant of. Joining an event is itself a deliberate
-     *   act about a specific, time-boxed competition, so it carries the consent
-     *   a designation would otherwise supply. **Rotation tournaments require a
-     *   designation**: they run for days with no per-session act, and quietly
-     *   entering somebody into one because they played at home is a surprise
-     *   nobody asked for.
+     * The routing model lives in ONE place, `utils/witnessRouting.ts`
+     * (`deviceRoutesTo`), shared with the event check-in lobby. In short: a
+     * pinned tournament → that tournament; a room → that room's games;
+     * "Global Scoreboard only" → no tournament at all (W26, ADR 0032 — the
+     * pre-v2.174.0 fallback to events the player had joined is gone), except a
+     * Throwdown the player has joined, which no device can be pointed at.
+     * A designated TOURNAMENT is still what makes two tournaments running the
+     * same table in one room resolvable at all.
      *
      * Everything that falls outside goes to the Global Scoreboard.
      */
     private static inScope(row: CandidateRow, target: {
         roomId: string | null; tournamentId: string | null;
     }): boolean {
-        if (target.roomId) {
-            if (row.game_room_id !== target.roomId) return false;
-            if (target.tournamentId && row.tournament_id !== target.tournamentId) return false;
-            return true;
-        }
-        return row.round_no != null && row.is_participant === 1;
+        return deviceRoutesTo(target, {
+            roomId: row.game_room_id,
+            tournamentId: row.tournament_id,
+            isRound: row.round_no != null,
+            isParticipant: row.is_participant === 1,
+        });
     }
 
     /** Did this game END inside the target's window? */

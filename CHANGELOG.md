@@ -6,6 +6,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.174.0] - 2026-10-25 - "Global Scoreboard only" means Global only (W26, ADR 0032)
+
+A Witness device set to "Global Scoreboard only" (no room) still sent its plays to the rounds of any event
+its owner had joined. The label said otherwise, and during the Witness Weekend Showdown it made routing hard
+to explain. Owner ruling 2026-10-24: the label is the rule.
+
+### Changed
+- **Device score routing is one pure rule**, `deviceRoutesTo` (`src/utils/witnessRouting.ts`):
+  - **Pinned to a tournament** → that tournament only.
+  - **Pointed at a room** → that room's games.
+  - **"Global Scoreboard only"** → the Global Scoreboard only: no room event, rotation or room board.
+  - **Exception, a joined Throwdown** (owner ruling 2026-10-25): it has no room, so no device can be pointed
+    at one, and joining it from its link is the deliberate act. It's reachable from any device not pinned to
+    a tournament, including a room-pointed one, which before this release could not reach a Throwdown at all.
+- **Event check-in lobby:** a device counts towards a player's light only when its scores would land on that
+  event (same rule). A player whose paired devices all send elsewhere reads **"Device not sending here"**
+  (`not_routed`, amber), with the hint to set "Send scores to" to the event's room. Before this, a device
+  pointed elsewhere could show green while its scores went somewhere else.
+- **Account Settings:** the "Global Scoreboard only" caption now reads "Scores go to your Global Scoreboard
+  record only, plus any Throwdown you have joined."
+- ADR 0032 is marked built, with the Throwdown amendment.
+
+### Notes
+- At ship time a read-only prod query found one player relying on the removed fallback (Krobs, Castcade
+  desktop, Witness Weekend Showdown, which had already finished), so nothing in flight was affected.
+- W37 ("room membership is entry", ADR 0033) will later admit room members without a designation. This
+  release only makes the label true.
+
 ## [2.173.0] - 2026-10-25 - The heartbeat carries the "Sending to" line (W28)
 
 A WWS tester (TomatoGrass) believed a change of score destination needed a Witness restart, in a
