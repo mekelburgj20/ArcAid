@@ -110,7 +110,8 @@ describe('AccountSettings — Witness cabinet score routing', () => {
         const { patches } = stubFetch();
         renderPage();
 
-        const picker = await screen.findByDisplayValue('Global Scoreboard only');
+        // v2.175.0 (W37): no room = All my rooms (the default).
+        const picker = await screen.findByDisplayValue('All my rooms');
         await waitFor(() => expect(screen.getByRole('option', { name: 'RTX_Pinball' })).toBeInTheDocument());
 
         fireEvent.change(picker, { target: { value: ROOM_ID } });
@@ -121,14 +122,17 @@ describe('AccountSettings — Witness cabinet score routing', () => {
         expect(JSON.stringify(patches[0]!.body)).not.toContain('RTX_Pinball');
     });
 
-    it('offers the undesignated default as a real choice', async () => {
-        stubFetch();
+    it('W37: All my rooms is the default, and Global Scoreboard only is an explicit opt-out it can send', async () => {
+        const { patches } = stubFetch();
         renderPage();
 
-        // "Global Scoreboard only" is the DEFAULT, not an empty state: an
-        // undesignated cabinet still publishes to the player's global record.
-        const option = await screen.findByRole('option', { name: 'Global Scoreboard only' });
-        expect(option).toHaveValue('');
+        const picker = await screen.findByDisplayValue('All my rooms');
+        expect(screen.getByRole('option', { name: 'All my rooms' })).toHaveValue('__all__');
+        expect(screen.getByRole('option', { name: 'Global Scoreboard only' })).toHaveValue('__global__');
+
+        fireEvent.change(picker, { target: { value: '__global__' } });
+        await waitFor(() => expect(patches).toHaveLength(1));
+        expect(patches[0]!.body).toEqual({ roomId: null, tournamentId: null, globalOnly: true });
     });
 
     it('W33: lists paused rotations, hides finished events, and shows a pointer at one as "(ended)"', async () => {

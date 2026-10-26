@@ -369,39 +369,76 @@ describe('VPXS auto score collection — ingest', () => {
         expect(count!.n).toBe(0);
     });
 
-    it('refuses to guess when two open games share the name', async () => {
+    it('W37: a play matching the same table in TWO member rooms counts in EACH (ADR 0033)', async () => {
+        // Pre-v2.175.0 this was "two matches = no_match, never a guess".
         const otherRoom = await createTestRoom('other-room', 'Other Room');
         await addMember(otherRoom, USER);
-        await createRotationGame(roomId, 'Bad Cats');
-        await createRotationGame(otherRoom, 'Bad Cats');
-        // Designating the room is what normally prevents this; the test
-        // deliberately leaves BOTH in scope by designating neither.
-        await designate(null);
+        const a = await createRotationGame(roomId, 'Bad Cats');
+        const b = await createRotationGame(otherRoom, 'Bad Cats');
+        await designate(null); // All my rooms (the default)
 
         const res = await request(app).get('/api/witness/score')
             .query({ device: DEVICE, token, ...scoreQuery() });
 
-        expect(res.body).toMatchObject({ status: 'no_match' });
+        expect(res.body).toMatchObject({ status: 'ingested' });
+        expect(res.body.landed).toHaveLength(2);
+        expect(res.body.landed.every((l: { status: string }) => l.status === 'ingested')).toBe(true);
         const db = await getDatabase();
-        const count = await db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM score_history`);
-        expect(count!.n).toBe(0);
+        const rows = await db.all<Array<{ game_id: string }>>(`SELECT game_id FROM score_history ORDER BY game_id`);
+        expect(rows.map(r => r.game_id).sort()).toEqual([a.gameId, b.gameId].sort());
     });
 
-    it('prefers an event round over a rotation game of the same name', async () => {
+    it('W37: an event round AND a rotation game of the same table BOTH get the play', async () => {
+        // Pre-v2.175.0 the round won and the rotation game got nothing.
         const now = Date.now();
-        await createRotationGame(roomId, 'Bad Cats');
+        const rotation = await createRotationGame(roomId, 'Bad Cats');
+        const round = await createEventRound(roomId, 'Bad Cats', now - 10 * MINUTE, now + 10 * MINUTE);
+        await designate(roomId);
+        // The event requires check-in (the column's default); the player did.
+        const db = await getDatabase();
+        await db.run(
+            `INSERT INTO tournament_participants (tournament_id, user_id, checked_in_at, source) VALUES (?, ?, ?, 'checkin')`,
+            round.tournamentId, USER, new Date(now - 30 * MINUTE).toISOString(),
+        );
+
+        const res = await request(app).get('/api/witness/score')
+            .query({ device: DEVICE, token, ...scoreQuery() });
+
+        expect(res.body).toMatchObject({ status: 'ingested' });
+        // Rounds come first: the top-level answer is the round.
+        expect(res.body.landed.map((l: { status: string }) => l.status)).toEqual(['ingested', 'ingested']);
+        const rows = await db.all<Array<{ game_id: string }>>(`SELECT game_id FROM score_history`);
+        expect(rows.map(r => r.game_id).sort()).toEqual([rotation.gameId, round.gameId].sort());
+    });
+
+    it('W37 closes W36: a device score skips NO "check-in required" — a member who did not check in stays off the round', async () => {
+        const now = Date.now();
         const round = await createEventRound(roomId, 'Bad Cats', now - 10 * MINUTE, now + 10 * MINUTE);
         await designate(roomId);
 
         const res = await request(app).get('/api/witness/score')
             .query({ device: DEVICE, token, ...scoreQuery() });
 
-        expect(res.body).toMatchObject({ status: 'ingested' });
+        expect(res.body.status).not.toBe('ingested');
         const db = await getDatabase();
-        const row = await db.get<{ game_id: string }>(
-            `SELECT game_id FROM score_history ORDER BY id DESC LIMIT 1`,
+        expect(await db.get(`SELECT id FROM score_history WHERE game_id = ?`, round.gameId)).toBeUndefined();
+    });
+
+    it('W37: still never guesses INSIDE one tournament (two of its open games share the name)', async () => {
+        const { tournamentId } = await createRotationGame(roomId, 'Bad Cats');
+        const db = await getDatabase();
+        await db.run(
+            `INSERT INTO games (id, tournament_id, name, status, game_room_id, start_date) VALUES (?, ?, 'Bad Cats', 'ACTIVE', ?, ?)`,
+            crypto.randomUUID(), tournamentId, roomId, new Date(Date.now() - 60 * MINUTE).toISOString(),
         );
-        expect(row!.game_id).toBe(round.gameId);
+        await designate(roomId);
+
+        const res = await request(app).get('/api/witness/score')
+            .query({ device: DEVICE, token, ...scoreQuery() });
+
+        expect(res.body.status).not.toBe('ingested');
+        const count = await db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM score_history`);
+        expect(count!.n).toBe(0);
     });
 
     it('keeps a score out of a round it ended outside of, grace included', async () => {

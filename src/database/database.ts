@@ -3300,6 +3300,31 @@ async function doInitDatabase(): Promise<Database> {
             const { repairEventCronAndLeftoverCards } = await import('./migrations/repairEventCronAndLeftoverCards.js');
             await repairEventCronAndLeftoverCards(db);
         } },
+        // v2.175.0 (W37, ADR 0033) — room membership is tournament entry, so a
+        // device's DEFAULT becomes "All my rooms". `global_only` marks the
+        // explicit opt-out ("Global Scoreboard only", ADR 0032); a NULL room
+        // with global_only = 0 now means All my rooms. Owner ruling 2026-10-26:
+        // EVERY existing device moves to All my rooms — old room / tournament
+        // choices were made because routing REQUIRED them, and "Global only"
+        // had meant Global only for one day. Players are told.
+        { name: '191_witness_device_global_only', handler: async (db) => {
+            const cols = (await db.all(`PRAGMA table_info(witness_devices)`)) as Array<{ name: string }>;
+            if (!cols.some(c => c.name === 'global_only')) {
+                await db.exec(`ALTER TABLE witness_devices ADD COLUMN global_only INTEGER NOT NULL DEFAULT 0`);
+            }
+            const moved = await db.run(
+                `UPDATE witness_devices SET target_room_id = NULL, target_tournament_id = NULL, global_only = 0
+                  WHERE target_room_id IS NOT NULL OR target_tournament_id IS NOT NULL OR global_only <> 0`,
+            ) as { changes?: number };
+            if (moved.changes) console.log(`[migration] 191: moved ${moved.changes} device(s) to All my rooms`);
+        } },
+        // v2.175.0 (W37) — one play can now count in SEVERAL tournaments, and in
+        // a limited one it uses an attempt in each (ADR 0033), so a device's
+        // attempt key identifies a game start PER GAME, not globally.
+        { name: '192_attempts_key_per_game', handler: async (db) => {
+            await db.exec(`DROP INDEX IF EXISTS idx_attempts_key`);
+            await db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_attempts_key ON attempts(device_id, attempt_key, game_id)`);
+        } },
     ];
 
     for (const migration of migrations) {
