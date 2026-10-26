@@ -60,6 +60,11 @@ export interface QuickViewTarget {
    * Callers pass a whole `GameLeaderboard`, which already carries it.
    */
   gameStatus?: string;
+  /**
+   * 2026-10-25 — the board's tournament is Sanctioned or has Limited attempts:
+   * no self-correction (admins still can). Rides on the same `GameLeaderboard`.
+   */
+  selfCorrectionLocked?: boolean;
 }
 
 /** A single headline figure shown in place of the top-10 list. */
@@ -322,7 +327,7 @@ export default function GameQuickView({ lb, slug, fromTab, highlightStat, roomId
               // `canExpand` is false, and this renders as it always did.
               const historyId = rowHistoryId(entry);
               const canDelete = canDeleteRow(entry, claims, roomId);
-              const canCorrect = canCorrectRow(entry, claims, roomId, lb.gameStatus);
+              const canCorrect = canCorrectRow(entry, claims, roomId, lb.gameStatus, lb.selfCorrectionLocked);
               const canExpand = !!roomId && hasMultiple(entry.iscored_username);
               const isExpanded = expandedPlayer === entry.iscored_username;
               // v2.109.0 (score-gesture-photos) — the row body opens the
@@ -418,7 +423,7 @@ export default function GameQuickView({ lb, slug, fromTab, highlightStat, roomId
                       <div className="space-y-1">
                         {playerHistory.map(h => {
                           const canDeleteNested = canDeleteRow(h, claims, roomId);
-                          const canCorrectNested = canCorrectRow(h, claims, roomId, lb.gameStatus);
+                          const canCorrectNested = canCorrectRow(h, claims, roomId, lb.gameStatus, lb.selfCorrectionLocked);
                           const hPhotoUrl = h.photo_url ?? null;
                           return (
                             <div

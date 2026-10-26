@@ -75,6 +75,10 @@ A corrected auto-posted row tombstones its OLD value (same `played_at`), in both
 replay always carries the original number, and without the tombstone it would land again next to
 the corrected one.
 
+**Superseded 2026-10-25 (v2.176.0, owner ruling):** auto-posted rows are no longer correctable at
+all, by anyone. The number is the evidence, so a wrong one is deleted (and tombstoned as above)
+rather than edited. `correctScore` refuses them with `ScoreNotEditableError`.
+
 ### The wire contract is unchanged
 
 A suppressed VPX replay answers the cabinet `{ok: true, status: 'duplicate'}` — a status its

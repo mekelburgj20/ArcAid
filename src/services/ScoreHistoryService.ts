@@ -5,6 +5,7 @@ import { UNKNOWN } from '../utils/scoreProvenance.js';
 import { deleteScorePhotoFiles } from '../utils/scorePhotoCleanup.js';
 import { logInfo, logDebug } from '../utils/logger.js';
 import { AutoScoreSuppressionService, isAutoScoreSource } from './AutoScoreSuppressionService.js';
+import { isMachineReportedScore, isSelfCorrectionLocked, ScoreNotEditableError } from '../utils/scoreCorrectionPolicy.js';
 
 /** A `score_history` row as the per-row delete machinery needs to see it. */
 export interface DeletableScoreRow {
@@ -314,12 +315,12 @@ export class ScoreHistoryService {
     /**
      * v2.156.0 (ADR 0024) — tombstone an AUTO-POSTED row's play so the next
      * cabinet replay / AtGames pull cannot re-create it. A no-op for every
-     * other source. `score` overrides the row's value (a correction tombstones
-     * the OLD value, which is what the replay would re-send).
+     * other source. `score` overrides the row's value.
      *
-     * Every delete/correct path that removes or rewrites a `'vpx'`/`'atgames'`
-     * `score_history` row calls this — `deleteEvent`, `correctScore`, and the
-     * admin "wipe player from game" route.
+     * Every delete path that removes a `'vpx'`/`'atgames'` `score_history` row
+     * calls this — `deleteEvent`, the ban content cascade and the admin "wipe
+     * player from game" route. (`correctScore` used to as well; since
+     * 2026-10-25 it refuses those rows outright.)
      */
     static async recordAutoSuppressionForRow(
         row: Pick<DeletableScoreRow, 'source' | 'submitted_by_user_id' | 'discord_user_id' | 'game_name' | 'score' | 'created_at' | 'game_room_id'>,
@@ -579,25 +580,29 @@ export class ScoreHistoryService {
      * unconditional: there the row is GONE, so a stray suppression is the
      * cheaper mistake.
      *
-     * Authorization is the CALLER's job (admins only — see the route).
+     * ## Machine-reported scores are not editable (2026-10-25)
+     *
+     * A `'vpx'` (Arcaid Witness) or `'atgames'` (cabinet pull) row is refused
+     * with `ScoreNotEditableError` for EVERY caller, admins included — the
+     * number is the evidence (`src/utils/scoreCorrectionPolicy.ts`). Checked
+     * here as well as in the route so no future caller can edit one. A wrong
+     * machine score is deleted instead; `deleteEvent` tombstones its play.
+     *
+     * Authorization is the CALLER's job (see the route's tiers).
      */
     static async correctScore(
         row: DeletableScoreRow,
         newScore: number,
         actorId: string,
     ): Promise<{ resolvedGameId: string | null; suppressedAt: number | null }> {
+        if (isMachineReportedScore(row.source)) {
+            throw new ScoreNotEditableError();
+        }
         if (!Number.isInteger(newScore) || newScore < 0) {
             throw new Error('A corrected score must be a non-negative integer');
         }
         const db = await getDatabase();
         const oldScore = row.score;
-
-        // v2.156.0 (ADR 0024) — an auto-posted row's replay would re-send the
-        // ORIGINAL value and land it next to the corrected one, so the old
-        // value's play is tombstoned (same played_at). Unlike the iScored
-        // guard below this applies in both directions: the replay always
-        // carries the old number, whichever way it was corrected.
-        await this.recordAutoSuppressionForRow(row, actorId, oldScore);
 
         // Both twin lookups match on the OLD score, so they run BEFORE the update.
         const communityTwinId = row.source === 'community'
@@ -624,9 +629,7 @@ export class ScoreHistoryService {
         const resolvedGameId = await this.resolveGameIdForRow(row);
 
         let suppressedAt: number | null = null;
-        // Auto-posted rows are never pushed to iScored (ADR 0024) — their
-        // replay guard is the play-scoped tombstone written above instead.
-        if (resolvedGameId && newScore < oldScore && !isAutoScoreSource(row.source)
+        if (resolvedGameId && newScore < oldScore
             && await this.roomSyncsToIScored(row.game_room_id)) {
             await db.run(
                 `INSERT INTO deleted_score_suppressions
@@ -704,16 +707,22 @@ export class ScoreHistoryService {
      * asserted that exact number, and letting the owner change it afterwards
      * would leave the verification badge attached to a value nobody checked.
      *
+     * A Sanctioned or Limited-attempts tournament closes it too (`'integrity'`,
+     * owner ruling 2026-10-25 — `isSelfCorrectionLocked`).
+     *
      * Returns the reason on refusal so the route can say which rule applied.
      * Admins bypass this entirely — see the route's tiers.
      */
     static async ownerCorrectionWindow(
         row: DeletableScoreRow,
-    ): Promise<{ open: true } | { open: false; reason: 'locked' | 'verified' }> {
+    ): Promise<{ open: true } | { open: false; reason: 'locked' | 'verified' | 'integrity' }> {
         if (row.verified_at) return { open: false, reason: 'verified' };
         const db = await getDatabase();
-        const active = await db.get<{ id: string; tournament_id: string | null }>(
-            `SELECT g.id, g.tournament_id FROM games g
+        const active = await db.get<{
+            id: string; tournament_id: string | null;
+            integrity_mode: string | null; max_attempts: number | null;
+        }>(
+            `SELECT g.id, g.tournament_id, t.integrity_mode, t.max_attempts FROM games g
              LEFT JOIN tournaments t ON t.id = g.tournament_id
              WHERE COALESCE(g.game_room_id, t.game_room_id) = ?
                AND LOWER(g.name) = LOWER(?)
@@ -725,6 +734,10 @@ export class ScoreHistoryService {
         if (!active) return { open: false, reason: 'locked' };
         const stamp = row.submitted_during_tournament_id ?? null;
         if (stamp && stamp !== active.tournament_id) return { open: false, reason: 'locked' };
+        // 2026-10-25 — Sanctioned play and Limited attempts close self-correction
+        // outright: those tournaments exist to make the board trustworthy, and a
+        // player-edited number is exactly what they rule out.
+        if (isSelfCorrectionLocked(active)) return { open: false, reason: 'integrity' };
         return { open: true };
     }
 

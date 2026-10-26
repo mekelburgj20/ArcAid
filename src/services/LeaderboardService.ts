@@ -12,6 +12,7 @@ import { resolveProfiles } from './PlayerProfileResolver.js';
 import { CardOrderService } from './CardOrderService.js';
 import { openCardSql } from '../utils/openCard.js';
 import { gameRunWindowByIdSql } from '../utils/gameRunWindow.js';
+import { selfCorrectionLockedSql } from '../utils/scoreCorrectionPolicy.js';
 
 /**
  * v2.0.3: translate stored catalogue paths (`data/catalogue-images/…`) to the
@@ -696,7 +697,7 @@ export class LeaderboardService {
     /**
      * Get leaderboards for all active games, optionally filtered by game room.
      */
-    static async getActiveLeaderboards(gameRoomId?: string): Promise<Array<{ gameId: string; gameName: string; displayName: string | null; tournamentName: string; tournamentType: string; imageUrl: string | null; gameStatus: string; catalogueStyleId: string | null; logoStyleId: string | null; bgStyleId: string | null; styleHeaderDisabled: boolean; bgZoom: number | null; bgPosX: number | null; bgPosY: number | null; externalUrl: string | null; notes: string | null; rankings: RankedEntry[]; nextMaintenanceAt: string | null; globalGameId: string | null }>> {
+    static async getActiveLeaderboards(gameRoomId?: string): Promise<Array<{ gameId: string; gameName: string; displayName: string | null; tournamentName: string; tournamentType: string; imageUrl: string | null; gameStatus: string; catalogueStyleId: string | null; logoStyleId: string | null; bgStyleId: string | null; styleHeaderDisabled: boolean; bgZoom: number | null; bgPosX: number | null; bgPosY: number | null; externalUrl: string | null; notes: string | null; rankings: RankedEntry[]; nextMaintenanceAt: string | null; globalGameId: string | null; selfCorrectionLocked: boolean }>> {
         const db = await getDatabase();
 
         const roomFilter = gameRoomId ? ' AND t.game_room_id = ?' : '';
@@ -732,6 +733,9 @@ export class LeaderboardService {
                    -- scoreboard render. The join was already here.
                    t.cadence as tournament_cadence, t.game_room_id as tournament_game_room_id,
                    COALESCE(g.global_game_id, gg.id) as global_game_id,
+                   -- 2026-10-25: Sanctioned / Limited-attempts tournaments close
+                   -- self-correction, so the board tells the FE not to offer it.
+                   ${selfCorrectionLockedSql('t')} as self_correction_locked,
                    sc_bg.has_background as bg_has_bg, sc_logo.has_header as logo_has_header,
                    sc_cat.has_background as cat_has_bg, sc_cat.has_header as cat_has_header
             FROM games g
@@ -971,6 +975,7 @@ export class LeaderboardService {
                 rankings,
                 nextMaintenanceAt,
                 globalGameId: game.global_game_id || null,
+                selfCorrectionLocked: game.self_correction_locked === 1,
             });
         }
         return results;

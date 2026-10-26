@@ -91,6 +91,9 @@ import { AuditService } from '../../services/AuditService.js';
 import { checkEventSubmission, checkAttemptLimitSubmission } from '../../services/EventSubmissionGate.js';
 import { EventService, EventConfigError } from '../../services/EventService.js';
 import { PreferencesService } from '../../services/PreferencesService.js';
+import {
+    isMachineReportedScore, MACHINE_SCORE_NOT_EDITABLE_MESSAGE, SELF_CORRECTION_LOCKED_MESSAGE,
+} from '../../utils/scoreCorrectionPolicy.js';
 
 const router = Router({ mergeParams: true });
 
@@ -511,7 +514,17 @@ router.get('/:roomId/leaderboard/:gameId/submissions', async (req, res) => {
                        AND sh.score = s.score
                        AND sh.orphaned_at IS NULL
                      ORDER BY sh.created_at ASC
-                     LIMIT 1) AS history_id
+                     LIMIT 1) AS history_id,
+                   -- 2026-10-25: the same row's source, so the pencil is not
+                   -- offered on a machine-reported (Witness) score.
+                   (SELECT sh.source FROM score_history sh
+                     WHERE sh.game_room_id = COALESCE(g.game_room_id, t.game_room_id)
+                       AND LOWER(sh.game_name) = LOWER(g.name)
+                       AND LOWER(sh.iscored_username) = LOWER(s.iscored_username)
+                       AND sh.score = s.score
+                       AND sh.orphaned_at IS NULL
+                     ORDER BY sh.created_at ASC
+                     LIMIT 1) AS history_source
             FROM submissions s
             JOIN games g ON g.id = s.game_id
             LEFT JOIN tournaments t ON t.id = g.tournament_id
@@ -2654,10 +2667,13 @@ router.delete('/:roomId/score-history/:historyId', requireDiscordUser, async (re
  * actor exactly as it does an admin.
  *
 
- * No source restriction: a typo is a typo whatever wrote the row. For an
- * auto-posted row ('vpx' / 'atgames') `correctScore` tombstones the OLD value's
- * play (ADR 0024), so the next replay cannot re-post the original number next
- * to the corrected one.
+ * Two refusals on top of the tiers (owner ruling 2026-10-25,
+ * `src/utils/scoreCorrectionPolicy.ts`):
+ *   - a MACHINE-REPORTED row ('vpx' Witness / 'atgames' cabinet pull) is not
+ *     editable by ANYONE, admins included — the number is the evidence. A wrong
+ *     one is deleted instead (ADR 0024 keeps it from replaying).
+ *   - in a Sanctioned or Limited-attempts tournament the SUBMITTER may not
+ *     self-correct (`ownerCorrectionWindow` → `'integrity'`).
  *
  * The interesting behaviour — the twin cascades, the recompute, and the
  * iScored re-import guard on a downward correction — lives in
@@ -2680,6 +2696,9 @@ router.patch('/:roomId/score-history/:historyId/score', requireDiscordUser, asyn
         const row = await ScoreHistoryService.getDeletableRow(historyId);
         if (!row) return res.status(404).json({ error: 'Score not found' });
         if (row.game_room_id !== roomId) return res.status(404).json({ error: 'Score not found in this room' });
+        if (isMachineReportedScore(row.source)) {
+            return res.status(403).json({ error: MACHINE_SCORE_NOT_EDITABLE_MESSAGE, reason: 'machine_reported' });
+        }
         if (row.score === newScore) {
             return res.status(400).json({ error: 'That is already the recorded score' });
         }
@@ -2699,7 +2718,9 @@ router.patch('/:roomId/score-history/:historyId/score', requireDiscordUser, asyn
                 return res.status(403).json({
                     error: window.reason === 'verified'
                         ? 'An admin has verified this score — ask them to change it.'
-                        : 'This game is closed — ask an admin to correct the score.',
+                        : window.reason === 'integrity'
+                            ? SELF_CORRECTION_LOCKED_MESSAGE
+                            : 'This game is closed — ask an admin to correct the score.',
                     reason: window.reason,
                 });
             }

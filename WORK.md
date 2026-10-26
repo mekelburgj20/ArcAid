@@ -76,6 +76,7 @@ Lane: `src/services/{ScoreHistory,ScoreRank,ScoreProvenance,ScoreReport,Communit
 - **B17** `dropped 2.79.0 login mandate` Guest multi-name collapse — guests cannot submit since the login mandate, so no new rows partition on `iscored:<typed name>`; legacy rows stay admin-merge territory
 - **B18** `ready` AW badge contrast on light themes (site-wide, pre-existing; found in the 2.157.0 review) · spec: SPRINT_STATUS.md #148–#149
 - **B19** `ready` Share-to-Arcaid — ONE core: a `/share` orphan-photo landing with room + game chooser feeding `SubmissionSheet` through `normalizePhotoFile`; doorways in order: Paste button → Android `share_target` + SW POST intercept → iOS Shortcut only if still wanted · tier: 3 · spec: ROADMAP.md §"Share-to-Arcaid" · touches: admin-ui/public/{manifest.json,sw.js}
+- **B20** `claimed` Witness scores are not editable; no self-correction in Sanctioned / Limited-attempts tournaments (owner ruling 2026-10-25) · owner: claude · since: 2026-10-25 · spec: CHANGELOG 2.176.0
 
 ## C. Catalogue, importers, library, My Tables, availability facts
 

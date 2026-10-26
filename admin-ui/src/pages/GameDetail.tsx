@@ -76,6 +76,11 @@ interface GameLeaderboard {
    * can fetch its integrity verdicts and draw a chip per witnessed row.
    */
   tournamentId?: string | null;
+  /**
+   * 2026-10-25 — the tournament is Sanctioned or has Limited attempts, so a
+   * player may not correct their own score (admins still can).
+   */
+  selfCorrectionLocked?: boolean;
 }
 
 interface GameStats {
@@ -825,7 +830,7 @@ export default function GameDetail() {
   /** Score correction is admin-only for the same reason verify is — see
    *  `lib/scoreCorrect.ts`. Unlike delete, it is NOT offered to the owner. */
   const canCorrectScoreHistory = (entry: ScoreHistoryEntry): boolean =>
-    canCorrectRow(entry, viewerClaims, roomId, leaderboard?.gameStatus);
+    canCorrectRow(entry, viewerClaims, roomId, leaderboard?.gameStatus, leaderboard?.selfCorrectionLocked);
 
   /** Applies an admin score correction and reconciles the two lists this page
    *  renders from — the expanded per-player history and the ranked board —
@@ -1109,7 +1114,7 @@ export default function GameDetail() {
                 // Admins always; the submitter too, but only while the card
                 // is unlocked (`gameStatus === 'ACTIVE'`) and unverified. Both
                 // tiers also need the score_history id the PATCH is keyed on.
-                const canCorrectThisRow = canCorrectRow(entry, viewerClaims, roomId, leaderboard?.gameStatus);
+                const canCorrectThisRow = canCorrectRow(entry, viewerClaims, roomId, leaderboard?.gameStatus, leaderboard?.selfCorrectionLocked);
                 return (
                     /* v2.2.0 fix: discord_user_id is "SYSTEM" / "ANON" / "COMMUNITY"
                        for guest submissions, so two anon players collide on the
