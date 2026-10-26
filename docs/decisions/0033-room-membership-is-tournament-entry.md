@@ -1,6 +1,6 @@
 # ADR 0033 — Room membership is tournament entry; misses go to Global with a reason
 
-**Status:** accepted (owner ruling 2026-10-25, from the Witness Weekend Showdown tester polls), not yet built (WORK.md W37–W39, W27) · **Amends:** the P9b routing in ADR 0022 / CLAUDE.md "WITNESS SCORE ROUTING"; ADR 0029 (limited attempts) · **Builds on:** ADR 0032
+**Status:** accepted (owner ruling 2026-10-25, from the Witness Weekend Showdown tester polls), §1–2 and the count-in-each consequence built v2.175.0 (WORK.md W37, closes W36); §3–4 W38, §5 W27, §6 W39 not yet built · **Amends:** the P9b routing in ADR 0022 / CLAUDE.md "WITNESS SCORE ROUTING"; ADR 0029 (limited attempts) · **Builds on:** ADR 0032
 
 ## Context
 
@@ -48,3 +48,15 @@ player can miss, and "I played and my score isn't there" loses a player for good
 - Reasons must be specific and shown at the device and on the web, which needs every ingest outcome traced
   (W29).
 - Polls were still open with 3 voters; revisit if later votes split differently.
+
+## Build-time rulings (2026-10-26, W37)
+
+- **Narrowing survives as an option, never required.** The device picker offers All my rooms (default) ·
+  Global Scoreboard only · one room · one tournament.
+- **Every existing device was migrated to All my rooms** (migration 191). Old room / tournament choices were
+  made because routing required them, and "Global Scoreboard only" had meant Global only for one day.
+  Players are told by a one-time notice on Account Settings → Arcaid Witness devices.
+- A play inside ONE tournament that matches two of its open games is still never guessed at: that
+  tournament is skipped; the other tournaments still count it.
+- The typed Throwdown path is unchanged (anyone with the link may submit); the one shared entry test
+  (`entryAllowed`, `src/utils/tournamentEntry.ts`) is used by the room-event typed gate and the device path.

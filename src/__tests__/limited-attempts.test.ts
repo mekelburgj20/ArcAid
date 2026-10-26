@@ -282,6 +282,30 @@ describe('witness routes on a limited tournament', () => {
             expect((await AttemptService.usedByGame(tournamentId))[gameId]![USER]).toBe(1);
         });
 
+        it('W37: one game start in TWO limited tournaments (two member rooms) uses an attempt in EACH; the score lands on both', async () => {
+            const otherRoom = await createTestRoom('w37-other', 'W37 Other');
+            await addMember(otherRoom, USER);
+            const { WitnessService } = await import('../services/WitnessService.js');
+            await WitnessService.setDeviceTarget(USER, DESKTOP, { roomId: null, tournamentId: null }); // All my rooms
+            const a = await createLimitedGame(roomId, 3);
+            const b = await createLimitedGame(otherRoom, 5);
+            const q = scoreQuery();
+
+            const att = await request(app).get('/api/witness/attempt')
+                .query({ device: DESKTOP, token, table: q.table, rom: q.rom, slug: q.slug, started: Math.floor(Date.now() / 1000), key: 'sess-w37' });
+            expect(att.body).toMatchObject({ ok: true, status: 'counted', attempt: 1 });
+
+            const res = await request(app).get('/api/witness/score')
+                .query({ device: DESKTOP, token, ...q, attempt: 'sess-w37' });
+            expect(res.body).toMatchObject({ ok: true, status: 'ingested' });
+            expect(res.body.landed).toHaveLength(2);
+            expect(res.body.landed.map((l: { attempt?: { of: number } }) => l.attempt?.of).sort()).toEqual([3, 5]);
+            expect(await boardRows(a.gameId)).toHaveLength(1);
+            expect(await boardRows(b.gameId)).toHaveLength(1);
+            expect((await AttemptService.usedByGame(a.tournamentId))[a.gameId]![USER]).toBe(1);
+            expect((await AttemptService.usedByGame(b.tournamentId))[b.gameId]![USER]).toBe(1);
+        });
+
         it('/witness/attempt answers unlimited (and records nothing) when the tournament has no limit', async () => {
             await createLimitedGame(roomId, null);
             const att = await request(app).get('/api/witness/attempt')

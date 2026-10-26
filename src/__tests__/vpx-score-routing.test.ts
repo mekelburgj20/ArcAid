@@ -152,7 +152,37 @@ describe('VPXS score routing', () => {
         await addMember(roomId);
     });
 
-    it('sends an undesignated cabinet score to the Global Scoreboard, not to a rotation tournament', async () => {
+    it('W37: an "All my rooms" device (the default) lands in a MEMBER room\'s rotation (ADR 0033)', async () => {
+        // Pre-v2.175.0 a rotation tournament REQUIRED a designation.
+        await addMember(roomId);
+        const { gameId } = await createRotationGame(roomId, 'Bad Cats');
+        await seedCatalogue('Bad Cats', 'Williams', 1989);
+
+        const res = await request(app).get('/api/witness/score')
+            .query({ device: DEVICE, token, ...scoreQuery() });
+
+        expect(res.body).toMatchObject({ ok: true, status: 'ingested' });
+        const db = await getDatabase();
+        expect(await db.get(`SELECT id FROM score_history WHERE game_id = ?`, gameId)).toBeTruthy();
+    });
+
+    it('W37: an "All my rooms" device does NOT enter a room the player is not a member of', async () => {
+        const { gameId } = await createRotationGame(roomId, 'Bad Cats');
+        await seedCatalogue('Bad Cats', 'Williams', 1989);
+        const db = await getDatabase();
+        await db.run(`DELETE FROM room_members WHERE user_id = ?`, USER);
+
+        const res = await request(app).get('/api/witness/score')
+            .query({ device: DEVICE, token, ...scoreQuery() });
+
+        expect(res.body).toMatchObject({ status: 'global' });
+        expect(await db.get(`SELECT id FROM score_history WHERE game_id = ?`, gameId)).toBeUndefined();
+    });
+
+    it('sends a "Global Scoreboard only" device\'s score to the Global Scoreboard, not to a rotation tournament', async () => {
+        await addMember(roomId);
+        const { WitnessService } = await import('../services/WitnessService.js');
+        await WitnessService.setDeviceTarget(USER, DEVICE, { roomId: null, globalOnly: true });
         const { gameId } = await createRotationGame(roomId, 'Bad Cats');
         const globalGameId = await seedCatalogue('Bad Cats', 'Williams', 1989);
 
@@ -184,6 +214,10 @@ describe('VPXS score routing', () => {
     it('W26: "Global Scoreboard only" sends a joined ROOM event\'s play to Global (ADR 0032)', async () => {
         // Pre-v2.174.0 an undesignated device still reached the rounds of any
         // event the player had joined; the label said "Global Scoreboard only".
+        // v2.175.0 (W37): Global-only is now an explicit setting (no room =
+        // All my rooms), so the device opts out here.
+        const { WitnessService } = await import('../services/WitnessService.js');
+        await WitnessService.setDeviceTarget(USER, DEVICE, { roomId: null, globalOnly: true });
         const now = Date.now();
         const round = await createEventRound(roomId, 'Bad Cats', now - 10 * MINUTE, now + 10 * MINUTE);
         await addParticipant(round.tournamentId);
@@ -197,7 +231,9 @@ describe('VPXS score routing', () => {
         expect(await db.get(`SELECT id FROM score_history WHERE game_id = ?`, round.gameId)).toBeUndefined();
     });
 
-    it('W26: a joined Throwdown (no room to point at) still counts, from an undesignated device', async () => {
+    it('W26: a joined Throwdown (no room to point at) still counts, even from a Global-only device', async () => {
+        const { WitnessService } = await import('../services/WitnessService.js');
+        await WitnessService.setDeviceTarget(USER, DEVICE, { roomId: null, globalOnly: true });
         const now = Date.now();
         const round = await createEventRound(null as unknown as string, 'Bad Cats', now - 10 * MINUTE, now + 10 * MINUTE);
         await addParticipant(round.tournamentId);
