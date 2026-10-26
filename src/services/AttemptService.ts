@@ -148,10 +148,11 @@ export class AttemptService {
         );
     }
 
-    private static async byKey(deviceId: string, key: string): Promise<AttemptRow | undefined> {
+    /** One game START: (device, key) per GAME (v2.175.0, W37 — a play may count in several tournaments). */
+    private static async byKey(deviceId: string, key: string, gameId: string): Promise<AttemptRow | undefined> {
         const db = await getDatabase();
         return db.get<AttemptRow>(
-            'SELECT * FROM attempts WHERE device_id = ? AND attempt_key = ?', deviceId, key,
+            'SELECT * FROM attempts WHERE device_id = ? AND attempt_key = ? AND game_id = ?', deviceId, key, gameId,
         );
     }
 
@@ -181,7 +182,7 @@ export class AttemptService {
     }): Promise<AttemptStartResult | null> {
         const key = cleanKey(input.key);
         if (!key || !input.deviceId) return null;
-        const existing = await AttemptService.byKey(input.deviceId, key);
+        const existing = await AttemptService.byKey(input.deviceId, key, input.gameId);
         const now = input.nowSec ?? Math.floor(Date.now() / 1000);
         if (!existing) {
             await AttemptService.insertAtomic({
@@ -190,7 +191,7 @@ export class AttemptService {
                 endedTs: input.endedTs != null && Number.isFinite(input.endedTs) ? Math.floor(input.endedTs) : null,
             });
         }
-        const row = (existing ?? await AttemptService.byKey(input.deviceId, key))!;
+        const row = (existing ?? await AttemptService.byKey(input.deviceId, key, input.gameId))!;
         const of = input.limit;
         const counted = row.status === 'counted' || row.status === 'scored';
         return {
@@ -221,7 +222,7 @@ export class AttemptService {
         const refuse = (reason: AttemptRefusalReason): AttemptBindResult =>
             ({ ok: false, reason, text: ATTEMPT_REFUSAL_TEXT[reason] });
         let key = cleanKey(input.attemptKey);
-        let row = key ? await AttemptService.byKey(input.deviceId, key) : undefined;
+        let row = key ? await AttemptService.byKey(input.deviceId, key, input.gameId) : undefined;
         if (!row) {
             // No start was ever reported for this score. Record one now — it
             // counts against the player (the game was played) — and refuse.
@@ -303,7 +304,7 @@ export class AttemptService {
                 note: 'restart',
             });
         }
-        let row = await AttemptService.byKey(input.deviceId, key);
+        let row = await AttemptService.byKey(input.deviceId, key, input.gameId);
         if (!row) {
             await AttemptService.insertAtomic({
                 tournamentId: input.tournamentId, gameId: input.gameId, gameRoomId: input.gameRoomId,
@@ -313,7 +314,7 @@ export class AttemptService {
                 tableName: input.tableName ?? null, rom: input.rom ?? null,
                 endedTs: input.endedTs, score: Math.floor(input.score),
             });
-            row = await AttemptService.byKey(input.deviceId, key);
+            row = await AttemptService.byKey(input.deviceId, key, input.gameId);
             if (!row) return refuse('reused');
         }
         if (row.game_id !== input.gameId) return refuse('reused');

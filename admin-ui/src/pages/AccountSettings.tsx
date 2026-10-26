@@ -147,8 +147,14 @@ export default function AccountSettings() {
     deviceType?: 'atgames' | 'desktop';
     targetRoomId: string | null; targetRoomName: string | null;
     targetTournamentId: string | null; targetTournamentName: string | null;
+    /** v2.175.0 (W37): with no room, true = Global Scoreboard only, false = All my rooms. */
+    globalOnly?: boolean;
     globalFallback: boolean;
   }[]>([]);
+  // v2.175.0 (W37) — the one-time "devices now send to all your rooms" notice.
+  const [w37NoticeHidden, setW37NoticeHidden] = useState<boolean>(() => {
+    try { return localStorage.getItem('arcaid_w37_all_rooms_notice') === '1'; } catch { return false; }
+  });
   const [witnessBusy, setWitnessBusy] = useState(false);
   const [witnessError, setWitnessError] = useState<string | null>(null);
   // v2.152.0 (P9b) — where each cabinet's scores go. The room list is the
@@ -218,7 +224,7 @@ export default function AccountSettings() {
     }
   }, [playerToken, loadWitnessTournaments]);
   const setWitnessTarget = useCallback(async (
-    deviceId: string, patch: { roomId?: string | null; tournamentId?: string | null },
+    deviceId: string, patch: { roomId?: string | null; tournamentId?: string | null; globalOnly?: boolean },
   ) => {
     if (!playerToken) return;
     setWitnessBusy(true); setWitnessError(null);
@@ -1375,6 +1381,24 @@ export default function AccountSettings() {
                 {witnessError && (
                   <p className="mb-2 text-xs text-rose-400 inline-flex items-center gap-1"><AlertCircle size={12} /> {witnessError}</p>
                 )}
+                {/* v2.175.0 (W37, ADR 0033) — tell players their devices were moved. */}
+                {witnessDevices.length > 0 && !w37NoticeHidden && (
+                  <div className="mb-2 text-xs text-muted border border-neon-cyan/30 bg-neon-cyan/5 rounded px-3 py-2 flex items-start gap-2" role="status">
+                    <span className="flex-1">
+                      New: joining a room now enters you in its tournaments, so every device was switched to
+                      {' '}<strong>All my rooms</strong>. Pick one room, or Global Scoreboard only, if you want to narrow it.
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setW37NoticeHidden(true);
+                        try { localStorage.setItem('arcaid_w37_all_rooms_notice', '1'); } catch { /* per-viewer convenience only */ }
+                      }}
+                      className="text-faint hover:text-primary cursor-pointer shrink-0"
+                      aria-label="Dismiss"
+                    >Got it</button>
+                  </div>
+                )}
                 {witnessDevices.length > 0 ? (
                   <ul className="space-y-2">
                     {witnessDevices.map(d => (
@@ -1414,28 +1438,38 @@ export default function AccountSettings() {
                         </button>
                         </div>
 
-                        {/* Where this cabinet's scores go. Undesignated is a
-                            real, useful default — not an unfinished state —
-                            so the empty option says what it actually does. */}
+                        {/* Where this device's scores go. v2.175.0 (W37, ADR 0033):
+                            room membership is tournament entry, so "All my rooms" is
+                            the default; one room / one tournament narrow it (never
+                            needed to count) and "Global Scoreboard only" opts out. */}
                         <div className="mt-2 flex flex-wrap items-center gap-2">
                           <span className="text-xs text-muted">Send scores to</span>
                           <select
-                            value={d.targetRoomId ?? ''}
+                            value={d.targetRoomId ?? (d.globalOnly ? '__global__' : '__all__')}
                             disabled={witnessBusy}
                             onChange={e => {
-                              const roomId = e.target.value || null;
-                              if (roomId) void loadWitnessTournaments(roomId);
-                              void setWitnessTarget(d.atgamesUniqueId, { roomId, tournamentId: null });
+                              const v = e.target.value;
+                              if (v === '__all__') {
+                                void setWitnessTarget(d.atgamesUniqueId, { roomId: null, tournamentId: null, globalOnly: false });
+                              } else if (v === '__global__') {
+                                void setWitnessTarget(d.atgamesUniqueId, { roomId: null, tournamentId: null, globalOnly: true });
+                              } else {
+                                void loadWitnessTournaments(v);
+                                void setWitnessTarget(d.atgamesUniqueId, { roomId: v, tournamentId: null });
+                              }
                             }}
                             className="bg-raised border border-border rounded px-2 py-1 text-xs text-primary cursor-pointer"
                           >
-                            <option value="">Global Scoreboard only</option>
-                            {witnessRooms.map(r => (
-                              <option key={r.id} value={r.id}>{r.name}</option>
-                            ))}
-                            {d.targetRoomId && !witnessRooms.some(r => r.id === d.targetRoomId) && (
-                              <option value={d.targetRoomId}>{d.targetRoomName || 'Current room'}</option>
-                            )}
+                            <option value="__all__">All my rooms</option>
+                            <option value="__global__">Global Scoreboard only</option>
+                            <optgroup label="Only one room">
+                              {witnessRooms.map(r => (
+                                <option key={r.id} value={r.id}>{r.name}</option>
+                              ))}
+                              {d.targetRoomId && !witnessRooms.some(r => r.id === d.targetRoomId) && (
+                                <option value={d.targetRoomId}>{d.targetRoomName || 'Current room'}</option>
+                              )}
+                            </optgroup>
                           </select>
 
                           {d.targetRoomId && (
@@ -1473,7 +1507,10 @@ export default function AccountSettings() {
                               }. Anything that doesn't match an open game there goes to the Global Scoreboard.`
                             // W26 (ADR 0032): "Global Scoreboard only" means exactly that; the one
                             // exception is a Throwdown, which has no room to point a device at.
-                            : 'Scores go to your Global Scoreboard record only, plus any Throwdown you have joined. Pick a room to have them count in that room\'s tournaments and events.'}
+                            : d.globalOnly
+                              ? 'Scores go to your Global Scoreboard record only, plus any Throwdown you have joined.'
+                              // W37 (ADR 0033): membership is entry.
+                              : 'Scores count in every open tournament in every room you belong to (an event that requires check-in counts once you have checked in), plus any Throwdown you have joined. Anything that matches nothing goes to your Global Scoreboard record.'}
                           {/* W28: players believed a change needed a Witness restart, because
                               the cabinet's SENDING TO line only refreshed at check-in. */}
                           {' A change applies to the very next score; no Witness restart needed.'}

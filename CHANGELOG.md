@@ -6,6 +6,50 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.175.0] - 2026-10-26 - Joining a room enters you in its tournaments (W37, ADR 0033)
+
+During the Witness Weekend Showdown testers kept losing plays to the device target. A device held ONE
+destination, so pointing it at one room silently dropped events joined in another, and a rotation tournament
+counted only with an explicit designation. The testers voted, and the owner decided (ADR 0033): room
+membership is tournament entry.
+
+### Changed
+- **A Witness device now sends to "All my rooms" by default:** every room you're a member of, plus any
+  tournament you were entered into directly. "One room" and "One tournament" stay as optional narrowing;
+  **"Global Scoreboard only"** is the explicit opt-out (new `witness_devices.global_only`, migration 191).
+  Joined Throwdowns stay reachable from every un-pinned device.
+- **Every existing device was switched to All my rooms** (owner ruling 2026-10-26). Old choices were made
+  because routing required them. Account Settings shows a one-time notice saying so.
+- **A play counts in EVERY tournament it matches,** for example the same table running in two of your rooms,
+  or an event round plus a rotation game. Before, two matches were treated as ambiguous and sent to Global,
+  and a round beat a rotation game. The device's answer keeps the first landing at the top level, which is
+  what older cabinets and companions read, and adds a `landed[]` list.
+  - Ambiguity survives only inside ONE tournament (two of its open games match): that tournament is skipped,
+    never guessed at.
+- **Limited attempts across tournaments:** a game start uses an attempt in EACH limited tournament the play
+  matches. Attempts are now keyed per game (`attempts` unique on `(device_id, attempt_key, game_id)`,
+  migration 192).
+- **One "allowed in" test,** `entryAllowed` (`src/utils/tournamentEntry.ts`), shared by the typed-score gate
+  and the device path:
+  - a Throwdown needs a join;
+  - an event that requires check-in needs a check-in (or admin add);
+  - anything else needs room membership.
+- **Opening the Witness tile still checks you in.** Before, only a device pinned to an event checked its owner
+  in; since every device is now un-pinned, an "All my rooms" device checks you in to every event in its
+  check-in window in your member rooms, and a one-room device to that room's events. A "Global Scoreboard only"
+  device checks in to nothing. (Check-in is a deliberate act: the tile open means no table is.)
+- The cabinet's "Sending to" line reads "All your rooms" or "Global Scoreboard only".
+- The lobby's "Device not sending here" hint points to All my rooms.
+
+### Fixed
+- **W36: device scores no longer skip "check-in required".** A room member whose device sent to the room landed
+  event-round scores without checking in. The typed path refused them; the device path now does too.
+
+### Not in this release
+- ADR 0033 §3–4 (Limited attempts count every play once you're in, with an optional "Start attempts"): W38.
+- §5, misses say why: W27.
+- §6, invited-player rosters: W39.
+
 ## [2.174.0] - 2026-10-25 - "Global Scoreboard only" means Global only (W26, ADR 0032)
 
 A Witness device set to "Global Scoreboard only" (no room) still sent its plays to the rounds of any event

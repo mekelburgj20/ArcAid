@@ -84,11 +84,16 @@ export interface WitnessDevice {
     deviceType: WitnessDeviceType;
     pairedAt: string;
     lastSeenAt: string | null;
-    /** Score routing (P9b) — a null room means UNDESIGNATED. */
+    /**
+     * Score routing. v2.175.0 (W37): a null room means ALL MY ROOMS unless
+     * `globalOnly` is set ("Global Scoreboard only", ADR 0032). A room narrows
+     * to that room, a tournament to that tournament (optional, never needed).
+     */
     targetRoomId: string | null;
     targetRoomName: string | null;
     targetTournamentId: string | null;
     targetTournamentName: string | null;
+    globalOnly: boolean;
     globalFallback: boolean;
 }
 
@@ -560,32 +565,39 @@ export class WitnessService {
                     : `no open game matched "${tableName}"`,
             };
         }
-        const game = matched.target;
-        const limit = game.max_attempts;
-        if (limit == null || limit < 1 || !game.tournament_id) {
-            return { status: 'unlimited', ...empty, game: game.name };
+        // v2.175.0 (W37, ADR 0033): the play counts in every tournament it
+        // matches, so its START uses an attempt in EACH limited one (the
+        // attempt key is unique per game since migration 192). The answer is
+        // the first limited tournament's, which is all the companion shows.
+        const limited = matched.targets.filter(g => g.max_attempts != null && g.max_attempts >= 1 && g.tournament_id);
+        if (limited.length === 0) {
+            return { status: 'unlimited', ...empty, game: matched.target.name };
         }
         const { AttemptService } = await import('./AttemptService.js');
-        const started = await AttemptService.recordStart({
-            tournamentId: game.tournament_id, gameId: game.id, gameRoomId: game.game_room_id,
-            canonicalUserId: device.canonical_user_id, deviceId, key, limit,
-            startedTs, players: input.players ?? null, tableName, rom: input.rom ?? null,
-            // A cabinet reports after the fact by design (an abandoned or short
-            // game it could not score), so it is never late; its reason and
-            // end ride on the row.
-            cabinet: device.device_type !== 'desktop',
-            endedTs: device.device_type !== 'desktop' ? (input.endedTs ?? null) : null,
-            note: device.device_type !== 'desktop' ? (input.reason ?? null) : null,
-        });
-        if (!started) return { status: 'invalid', ...empty, reason: 'key missing' };
-        logInfo(
-            `Witness attempt: ${device.canonical_user_id} ${started.status} ${started.attempt} of ${started.of} ` +
-            `on "${game.name}" (tournament ${game.tournament_id}${started.late ? ', LATE' : ''}${started.resent ? ', resend' : ''})`,
-        );
-        return {
-            status: started.status, game: game.name,
-            attempt: started.attempt, of: started.of, remaining: started.remaining, late: started.late,
-        };
+        let first: { status: 'counted' | 'over_limit'; game: string; attempt: number; of: number; remaining: number; late: boolean } | null = null;
+        for (const game of limited) {
+            const started = await AttemptService.recordStart({
+                tournamentId: game.tournament_id!, gameId: game.id, gameRoomId: game.game_room_id,
+                canonicalUserId: device.canonical_user_id, deviceId, key, limit: game.max_attempts!,
+                startedTs, players: input.players ?? null, tableName, rom: input.rom ?? null,
+                // A cabinet reports after the fact by design (an abandoned or short
+                // game it could not score), so it is never late; its reason and
+                // end ride on the row.
+                cabinet: device.device_type !== 'desktop',
+                endedTs: device.device_type !== 'desktop' ? (input.endedTs ?? null) : null,
+                note: device.device_type !== 'desktop' ? (input.reason ?? null) : null,
+            });
+            if (!started) return { status: 'invalid', ...empty, reason: 'key missing' };
+            logInfo(
+                `Witness attempt: ${device.canonical_user_id} ${started.status} ${started.attempt} of ${started.of} ` +
+                `on "${game.name}" (tournament ${game.tournament_id}${started.late ? ', LATE' : ''}${started.resent ? ', resend' : ''})`,
+            );
+            first ??= {
+                status: started.status, game: game.name,
+                attempt: started.attempt, of: started.of, remaining: started.remaining, late: started.late,
+            };
+        }
+        return first!;
     }
 
     /**
@@ -655,6 +667,8 @@ export class WitnessService {
     static async setDeviceTarget(canonicalUserId: string, deviceId: string, target: {
         roomId?: string | null;
         tournamentId?: string | null;
+        /** v2.175.0 (W37) — "Global Scoreboard only"; ignored when a room is set. */
+        globalOnly?: boolean;
         globalFallback?: boolean;
     }): Promise<WitnessDevice> {
         const db = await getDatabase();
@@ -690,11 +704,14 @@ export class WitnessService {
             }
         }
 
+        // A room (or tournament) narrows; with no room the device is either
+        // All my rooms (default) or Global Scoreboard only.
+        const globalOnly = !roomId && target.globalOnly === true ? 1 : 0;
         await db.run(
             `UPDATE witness_devices
-                SET target_room_id = ?, target_tournament_id = ?, global_fallback = ?
+                SET target_room_id = ?, target_tournament_id = ?, global_only = ?, global_fallback = ?
               WHERE atgames_unique_id = ? AND canonical_user_id = ?`,
-            roomId, tournamentId,
+            roomId, tournamentId, globalOnly,
             target.globalFallback === false ? 0 : 1,
             deviceId, canonicalUserId,
         );
@@ -713,27 +730,28 @@ export class WitnessService {
      * rotation is not finished, so a designation pointing at one holds.
      */
     static async getDeviceTarget(deviceId: string): Promise<{
-        roomId: string | null; tournamentId: string | null; globalFallback: boolean;
+        roomId: string | null; tournamentId: string | null; globalOnly: boolean; globalFallback: boolean;
     }> {
         const db = await getDatabase();
         const row = await db.get<{
             target_room_id: string | null; target_tournament_id: string | null;
-            global_fallback: number; tournament_finished: number | null;
+            global_only: number; global_fallback: number; tournament_finished: number | null;
         }>(
-            `SELECT d.target_room_id, d.target_tournament_id, d.global_fallback,
+            `SELECT d.target_room_id, d.target_tournament_id, d.global_only, d.global_fallback,
                     ${tournamentFinishedSql('t')} AS tournament_finished
                FROM witness_devices d
                LEFT JOIN tournaments t ON t.id = d.target_tournament_id
               WHERE d.atgames_unique_id = ?`,
             deviceId,
         );
-        if (!row) return { roomId: null, tournamentId: null, globalFallback: true };
+        if (!row) return { roomId: null, tournamentId: null, globalOnly: false, globalFallback: true };
         const tournamentId = row.target_tournament_id && row.tournament_finished === 1
             ? null
             : row.target_tournament_id;
         return {
             roomId: row.target_room_id,
             tournamentId,
+            globalOnly: !row.target_room_id && row.global_only === 1,
             globalFallback: row.global_fallback !== 0,
         };
     }
@@ -749,7 +767,9 @@ export class WitnessService {
      */
     static async describeTarget(deviceId: string): Promise<string> {
         const target = await WitnessService.getDeviceTarget(deviceId);
-        if (!target.roomId) return 'Global Scoreboard';
+        // v2.175.0 (W37): no room = All my rooms (the default) unless the
+        // player opted out to the Global Scoreboard only.
+        if (!target.roomId) return target.globalOnly ? 'Global Scoreboard only' : 'All your rooms';
 
         const db = await getDatabase();
         const room = await db.get<{ name: string }>(
@@ -774,12 +794,13 @@ export class WitnessService {
         const rows = await db.all<Array<{
             atgames_unique_id: string; atgames_username: string | null; device_type: string | null; paired_at: string;
             last_seen_at: string | null; target_room_id: string | null; room_name: string | null;
-            target_tournament_id: string | null; tournament_name: string | null; global_fallback: number;
+            target_tournament_id: string | null; tournament_name: string | null;
+            global_only: number; global_fallback: number;
         }>>(
             `SELECT d.atgames_unique_id, d.atgames_username, d.device_type, d.paired_at, d.last_seen_at,
                     d.target_room_id, r.name AS room_name,
                     d.target_tournament_id, t.name AS tournament_name,
-                    d.global_fallback
+                    d.global_only, d.global_fallback
                FROM witness_devices d
                LEFT JOIN game_rooms r ON r.id = d.target_room_id
                LEFT JOIN tournaments t ON t.id = d.target_tournament_id
@@ -797,6 +818,7 @@ export class WitnessService {
             targetRoomName: r.room_name,
             targetTournamentId: r.target_tournament_id,
             targetTournamentName: r.tournament_name,
+            globalOnly: !r.target_room_id && r.global_only === 1,
             globalFallback: r.global_fallback !== 0,
         }));
     }

@@ -414,7 +414,7 @@ describe('Witness check-in is the event check-in (v2.159.0)', () => {
         const { token } = await pairDevice(app);
         const res = await request(app).get('/api/witness/checkin').query({ device: DEVICE, token });
         expect(res.status).toBe(200);
-        expect(res.body.sendingTo).toBe('Global Scoreboard');
+        expect(res.body.sendingTo).toBe('All your rooms');
     });
 });
 
@@ -433,7 +433,7 @@ describe('Witness heartbeat (v2.160.0, cabinet 1.0.4)', () => {
         const res = await request(app).get('/api/witness/heartbeat').query({ device: DEVICE, token });
         expect(res.status).toBe(200);
         // W28 (v2.173.0): the current "sending to" line rides back on every beat.
-        expect(res.body).toEqual({ ok: true, sendingTo: 'Global Scoreboard' });
+        expect(res.body).toEqual({ ok: true, sendingTo: 'All your rooms' });
 
         const after = await db.get<{ heartbeat_at: string | null; last_seen_at: string | null }>(
             'SELECT heartbeat_at, last_seen_at FROM witness_devices WHERE atgames_unique_id = ?', DEVICE,
@@ -465,7 +465,7 @@ describe('Witness heartbeat (v2.160.0, cabinet 1.0.4)', () => {
         await db.run(`INSERT OR IGNORE INTO room_members (user_id, room_id, source) VALUES (?, ?, 'submission')`, USER, roomId);
 
         let res = await request(app).get('/api/witness/heartbeat').query({ device: DEVICE, token });
-        expect(res.body.sendingTo).toBe('Global Scoreboard');
+        expect(res.body.sendingTo).toBe('All your rooms');
 
         await WitnessService.setDeviceTarget(USER, DEVICE, { roomId, tournamentId: null });
         res = await request(app).get('/api/witness/heartbeat').query({ device: DEVICE, token });

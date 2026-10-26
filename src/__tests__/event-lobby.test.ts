@@ -50,14 +50,15 @@ async function createEvent(roomId: string, opts: { checkinOpensAt: Date; round1S
 /**
  * W26 (v2.174.0): the lobby grades a device only when its scores would land on
  * the event, so a grading fixture points the device at the event's room
- * (`targetRoomId`). Omitted = undesignated ("Global Scoreboard only").
+ * (`targetRoomId`). v2.175.0 (W37): no room = All my rooms (the default);
+ * `globalOnly` is the explicit opt-out.
  */
-async function pairDevice(userId: string, deviceId: string, targetRoomId: string | null = null) {
+async function pairDevice(userId: string, deviceId: string, targetRoomId: string | null = null, globalOnly = false) {
     const db = await getDatabase();
     await db.run(
-        `INSERT INTO witness_devices (atgames_unique_id, canonical_user_id, token_hash, last_seen_at, target_room_id)
-         VALUES (?, ?, 'hash', datetime('now'), ?)`,
-        deviceId, userId, targetRoomId,
+        `INSERT INTO witness_devices (atgames_unique_id, canonical_user_id, token_hash, last_seen_at, target_room_id, global_only)
+         VALUES (?, ?, 'hash', datetime('now'), ?, ?)`,
+        deviceId, userId, targetRoomId, globalOnly ? 1 : 0,
     );
 }
 
@@ -149,11 +150,11 @@ describe('EventLobbyService.roster — the strict green light', () => {
             `INSERT INTO tournaments (id, name, type, mode, cadence, is_active, game_room_id, format)
              VALUES (?, 'Weekly', 'WG', 'pinball', '{"cron":"0 0 * * *"}', 1, ?, 'rotation')`, rotationId, roomId,
         );
-        for (const u of [USER_A, USER_B, USER_C, USER_D]) await EventService.checkIn(eventId, u);
+        for (const u of [USER_A, USER_B, USER_C, USER_D, USER_E]) await EventService.checkIn(eventId, u);
         const checkedIn = new Date(now.getTime() - 10 * MINUTE);
 
         // A: checked in, but "Global Scoreboard only" (ADR 0032) -> not_routed.
-        await pairDevice(USER_A, 'cab-a', null);
+        await pairDevice(USER_A, 'cab-a', null, true);
         await witnessCheckin(USER_A, 'cab-a', checkedIn);
         // B: the event's room, but pinned to a DIFFERENT tournament there -> not_routed.
         await pairDevice(USER_B, 'cab-b', roomId);
@@ -161,12 +162,15 @@ describe('EventLobbyService.roster — the strict green light', () => {
         await witnessCheckin(USER_B, 'cab-b', checkedIn);
         // C: a checked-in device pointed nowhere, and a routed one not checked in
         // -> graded on the routed one only: no_checkin, never ready.
-        await pairDevice(USER_C, 'cab-c1', null);
+        await pairDevice(USER_C, 'cab-c1', null, true);
         await witnessCheckin(USER_C, 'cab-c1', checkedIn);
         await pairDevice(USER_C, 'cab-c2', roomId);
         // D: pointed at another room -> not_routed.
         await pairDevice(USER_D, 'cab-d', otherRoomId);
         await witnessCheckin(USER_D, 'cab-d', checkedIn);
+        // E: All my rooms (W37's default), checked in -> ready.
+        await pairDevice(USER_E, 'cab-e', null);
+        await witnessCheckin(USER_E, 'cab-e', checkedIn);
 
         const event = (await EventService.getEvent(eventId))!;
         const roster = await EventLobbyService.roster(event, await EventService.getRounds(eventId), now);
@@ -175,6 +179,7 @@ describe('EventLobbyService.roster — the strict green light', () => {
         expect(byUser[USER_B]).toMatchObject({ status: 'not_routed' });
         expect(byUser[USER_C]).toMatchObject({ status: 'no_checkin' });
         expect(byUser[USER_D]).toMatchObject({ status: 'not_routed' });
+        expect(byUser[USER_E]).toMatchObject({ status: 'ready' });
 
         // Pinned to THIS event counts.
         await db.run(`UPDATE witness_devices SET target_tournament_id = ? WHERE atgames_unique_id = 'cab-b'`, eventId);
@@ -224,6 +229,26 @@ describe('EventLobbyService.checkinFromWitness — the tile is the check-in', ()
         const again = await EventLobbyService.checkinFromWitness('cab-a', USER_A, now);
         expect(again).toMatchObject({ alreadyCheckedIn: true });
         expect(await EventService.participantCount(eventId)).toBe(1);
+    });
+
+    it('W37: an "All my rooms" device checks its owner in to a MEMBER room\'s event; a Global-only one does not', async () => {
+        const roomId = await createTestRoom('lobby-all', 'All Rooms');
+        const now = new Date();
+        const eventId = await createEvent(roomId, {
+            checkinOpensAt: new Date(now.getTime() - 10 * MINUTE), round1Start: new Date(now.getTime() + 20 * MINUTE),
+        });
+        const db = await getDatabase();
+        await db.run(`INSERT OR IGNORE INTO room_members (user_id, room_id, source) VALUES (?, ?, 'submission')`, USER_A, roomId);
+        await db.run(`INSERT OR IGNORE INTO room_members (user_id, room_id, source) VALUES (?, ?, 'submission')`, USER_B, roomId);
+        await pairDevice(USER_A, 'cab-a');              // All my rooms (default)
+        await pairDevice(USER_B, 'cab-b', null, true);  // Global Scoreboard only
+
+        const a = await EventLobbyService.checkinFromWitness('cab-a', USER_A, now);
+        expect(a).toMatchObject({ tournamentId: eventId, alreadyCheckedIn: false });
+        expect(await EventService.isParticipant(eventId, USER_A)).toMatchObject({ source: 'checkin' });
+
+        expect(await EventLobbyService.checkinFromWitness('cab-b', USER_B, now)).toBeNull();
+        expect(await EventService.isParticipant(eventId, USER_B)).toBeFalsy();
     });
 
     it('writes nothing for an undesignated cabinet, a rotation target, or a closed window', async () => {

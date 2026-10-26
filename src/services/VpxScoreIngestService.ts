@@ -7,6 +7,7 @@ import { logInfo, logWarn } from '../utils/logger.js';
 import type { WitnessDeviceType } from './WitnessService.js';
 import { tournamentFinishedSql } from '../utils/openCard.js';
 import { deviceRoutesTo } from '../utils/witnessRouting.js';
+import { entryAllowed } from '../utils/tournamentEntry.js';
 import {
     evaluateSanctioned, normalizeIntegrityMode, normalizeSanctionedRules,
     type IntegrityMode, type Verdict, type WitnessEvidence,
@@ -119,13 +120,14 @@ export type VpxScoreInput = {
     /** `game_over` | `shutdown` — carried for the log, never a filter here. */
     reason?: string | null;
     /**
-     * The cabinet's own routing (P9b), read from `witness_devices`. A null room
-     * means UNDESIGNATED, which is not an error state — it is the default, and
-     * it routes to the Global Scoreboard.
+     * The device's own routing, read from `witness_devices`
+     * (`WitnessService.getDeviceTarget`). v2.175.0 (W37): a null room means
+     * ALL MY ROOMS (the default) unless `globalOnly` is set.
      */
     target?: {
         roomId: string | null;
         tournamentId: string | null;
+        globalOnly?: boolean;
         globalFallback: boolean;
     };
     /** The posting device's id — the evidence trail is keyed on it (v2.165.0). */
@@ -210,6 +212,18 @@ export type VpxIngestResult = {
     globalScoreId?: string | null;
     /** v2.167.0 — on an accepted score in a limited tournament: which attempt it was. */
     attempt?: { n: number; of: number; remaining: number };
+    /**
+     * v2.175.0 (W37, ADR 0033): one play counts in EVERY tournament it matches
+     * (one per tournament). Present when more than one was tried; the top-level
+     * fields describe the first landing (or the first outcome when none landed),
+     * which is all a pre-1.0.6 cabinet or older companion reads.
+     */
+    landed?: Array<{
+        status: VpxIngestResult['status'];
+        gameId?: string; gameName?: string; gameRoomId?: string | null; tournamentId?: string | null;
+        attempt?: { n: number; of: number; remaining: number };
+        reasons?: string[];
+    }>;
 };
 
 type CandidateRow = {
@@ -235,19 +249,26 @@ type CandidateRow = {
     required_fingerprint: string | null;
     /** v2.167.0 (ADR 0029) — the tournament's attempt limit; null = unlimited. */
     max_attempts: number | null;
+    /** v2.175.0 (W37) — the player is a member of the game's room. */
+    is_member: number;
+    /** v2.175.0 (W37/W36) — the event requires check-in (`entryAllowed`). */
+    checkin_required: number | null;
 };
 
 /** What `VpxScoreIngestService.match` decided. Shared by the score and the attempt calls. */
 export type VpxMatchResult = {
     needles: Set<string>;
-    routing: { roomId: string | null; tournamentId: string | null; globalFallback: boolean };
+    routing: { roomId: string | null; tournamentId: string | null; globalOnly?: boolean; globalFallback: boolean };
     provenance: WitnessProvenance;
     catalogue: { id: string; keys: Set<string> } | null;
 } & (
     | {
         kind: 'target';
+        /** The first of `targets` — what a single-answer caller uses. */
         target: CandidateRow;
         where: { gameId: string; gameName: string; gameRoomId: string | null; tournamentId: string | null };
+        /** v2.175.0 (W37): every tournament this play counts in, one game each, rounds first. */
+        targets: CandidateRow[];
     }
     | { kind: 'none' }
     | { kind: 'ambiguous'; count: number }
@@ -405,7 +426,45 @@ export class VpxScoreIngestService {
                 reason: `"${input.tableName}" matches ${matched.count} open games — not guessing which`,
             };
         }
-        const { target, where, provenance } = matched;
+        // v2.175.0 (W37, ADR 0033): every tournament the play matches gets it,
+        // each through the full per-board path below (repeat, attempts,
+        // suppression, Sanctioned gate, write, fan-out, trail).
+        const results: VpxIngestResult[] = [];
+        for (const target of matched.targets) {
+            results.push(await VpxScoreIngestService.landOn(input, score, playedAt, deviceNames, matched, target));
+        }
+        return VpxScoreIngestService.combine(results);
+    }
+
+    /**
+     * v2.175.0 (W37) — one answer for a play that may have counted in several
+     * tournaments. The top-level fields are the first LANDING (else the first
+     * outcome), which is all an older device reads; `landed` lists every one.
+     */
+    private static combine(results: VpxIngestResult[]): VpxIngestResult {
+        if (results.length === 1) return results[0]!;
+        const primary = results.find(r => r.status === 'ingested') ?? results[0]!;
+        return {
+            ...primary,
+            landed: results.map(r => ({
+                status: r.status,
+                gameId: r.gameId, gameName: r.gameName, gameRoomId: r.gameRoomId, tournamentId: r.tournamentId,
+                ...(r.attempt ? { attempt: r.attempt } : {}),
+                ...(r.reasons && r.reasons.length > 0 ? { reasons: r.reasons } : {}),
+            })),
+        };
+    }
+
+    /** Land one play on ONE matched tournament game (the pre-v2.175.0 single-target path). */
+    private static async landOn(
+        input: VpxScoreInput, score: number, playedAt: string, deviceNames: string[],
+        matched: VpxMatchResult & { kind: 'target' }, target: CandidateRow,
+    ): Promise<VpxIngestResult> {
+        const { needles: matchNeedles, routing, provenance } = matched;
+        const where = {
+            gameId: target.id, gameName: target.name,
+            gameRoomId: target.game_room_id, tournamentId: target.tournament_id,
+        };
 
         // v2.167.1 — a REPEAT of a play that already landed on this board
         // answers like the first time. On 2026-10-22 prod saw the same desktop
@@ -664,23 +723,47 @@ export class VpxScoreIngestService {
             for (const key of catalogue.keys) needles.add(key);
         }
 
-        if (matches.length === 0) {
+        // v2.175.0 (W37, closes W36): only tournaments the player is ALLOWED IN.
+        const allowed = matches.filter(row => VpxScoreIngestService.allowedIn(row));
+        if (allowed.length === 0) {
             return { kind: 'none', needles, routing, provenance, catalogue };
         }
-        // An event ROUND is the more specific claim: it has an explicit window
-        // this score fell inside, where a rotation game is merely open. When
-        // both match the same table, the round wins.
-        const rounds = matches.filter(m => m.round_no != null);
-        const pool = rounds.length > 0 ? rounds : matches;
-        if (pool.length > 1) {
-            return { kind: 'ambiguous', count: pool.length, needles, routing, provenance, catalogue };
+        // v2.175.0 (W37, ADR 0033): the play counts in EVERY tournament it
+        // matches — two tournaments running the same table in member rooms each
+        // get it. This replaces P9b's "two matches is no_match" and the
+        // round-beats-rotation tie-break (which only ever chose ONE of them).
+        // Ambiguity survives only INSIDE one tournament (two of its open games
+        // match the same play): that tournament is skipped, never guessed at.
+        const byTournament = new Map<string, CandidateRow[]>();
+        for (const row of allowed) {
+            const key = row.tournament_id ?? `game:${row.id}`;
+            byTournament.set(key, [...(byTournament.get(key) ?? []), row]);
         }
-        const target = pool[0]!;
+        const targets: CandidateRow[] = [];
+        let ambiguousCount = 0;
+        for (const [key, rows] of byTournament) {
+            if (rows.length === 1) {
+                targets.push(rows[0]!);
+            } else {
+                ambiguousCount += rows.length;
+                logWarn(
+                    `VPX ingest: "${input.tableName}" matched ${rows.length} open games in tournament ${key} ` +
+                    `for ${input.canonicalUserId} — skipping that tournament instead of guessing`,
+                );
+            }
+        }
+        if (targets.length === 0) {
+            return { kind: 'ambiguous', count: ambiguousCount, needles, routing, provenance, catalogue };
+        }
+        // Event rounds first (their window is the more specific claim), then
+        // rotation games; the first is what a single-answer caller reports.
+        targets.sort((a, b) => Number(b.round_no != null) - Number(a.round_no != null));
+        const target = targets[0]!;
         const where = {
             gameId: target.id, gameName: target.name,
             gameRoomId: target.game_room_id, tournamentId: target.tournament_id,
         };
-        return { kind: 'target', target, where, needles, routing, provenance, catalogue };
+        return { kind: 'target', target, where, targets, needles, routing, provenance, catalogue };
     }
 
     /**
@@ -1007,11 +1090,15 @@ export class VpxScoreIngestService {
                     g.start_date, g.tournament_id, g.game_room_id, g.global_game_id,
                     g.required_vps_table_id, g.required_rom, g.required_fingerprint,
                     t.format, t.end_grace_sec, t.platform_rules, t.integrity_mode, t.sanctioned_rules,
-                    t.max_attempts,
+                    t.max_attempts, t.checkin_required,
                     EXISTS (
                         SELECT 1 FROM tournament_participants tp
                          WHERE tp.tournament_id = g.tournament_id AND tp.user_id = ?
-                    ) AS is_participant
+                    ) AS is_participant,
+                    (g.game_room_id IS NOT NULL AND EXISTS (
+                        SELECT 1 FROM room_members rm2
+                         WHERE rm2.room_id = g.game_room_id AND rm2.user_id = ?
+                    )) AS is_member
                FROM games g
                JOIN tournaments t ON t.id = g.tournament_id
               -- W33 open-card rule: a FINISHED event is out; a PAUSED rotation
@@ -1031,7 +1118,7 @@ export class VpxScoreIngestService {
                              WHERE tp.tournament_id = g.tournament_id AND tp.user_id = ?
                         )
                     )`,
-            canonicalUserId, canonicalUserId, canonicalUserId,
+            canonicalUserId, canonicalUserId, canonicalUserId, canonicalUserId,
         );
     }
 
@@ -1050,12 +1137,28 @@ export class VpxScoreIngestService {
      * Everything that falls outside goes to the Global Scoreboard.
      */
     private static inScope(row: CandidateRow, target: {
-        roomId: string | null; tournamentId: string | null;
+        roomId: string | null; tournamentId: string | null; globalOnly?: boolean;
     }): boolean {
         return deviceRoutesTo(target, {
             roomId: row.game_room_id,
             tournamentId: row.tournament_id,
             isRound: row.round_no != null,
+            isParticipant: row.is_participant === 1,
+            isMember: row.is_member === 1,
+        });
+    }
+
+    /**
+     * v2.175.0 (W37, closes W36): is the player ALLOWED IN this candidate's
+     * tournament? The same `entryAllowed` the typed-score gate uses — before
+     * this a device score skipped "check-in required" entirely.
+     */
+    private static allowedIn(row: CandidateRow): boolean {
+        return entryAllowed({
+            format: row.format === 'event' ? 'event' : 'rotation',
+            roomless: row.game_room_id == null,
+            checkinRequired: row.checkin_required === 1,
+            isMember: row.is_member === 1,
             isParticipant: row.is_participant === 1,
         });
     }

@@ -1,5 +1,6 @@
 import { getDatabase } from '../database/database.js';
 import { EventService } from './EventService.js';
+import { entryAllowed } from '../utils/tournamentEntry.js';
 
 /**
  * Live Event submission gate (v2.135.0, ADR 0017) — THE one enforcement point.
@@ -151,7 +152,13 @@ export async function checkEventSubmission(params: {
 
     if (round.checkin_required === 1) {
         const participant = await EventService.isParticipant(round.tournament_id, userId);
-        if (!participant) {
+        // v2.175.0 (W37): the SAME entry rule the Witness device path applies
+        // (`utils/tournamentEntry.ts`). A typed submit joins the room, so the
+        // player counts as a member here; check-in is what decides.
+        if (!participant || !entryAllowed({
+            format: 'event', roomless: false, checkinRequired: true,
+            isMember: true, isParticipant: true,
+        })) {
             return {
                 ok: false,
                 code: 'EVENT_NOT_CHECKED_IN',

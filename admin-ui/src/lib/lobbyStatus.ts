@@ -40,7 +40,7 @@ export const LOBBY_STATUS_META: Record<LobbyStatus, { label: string; dot: string
         label: 'Device not sending here',
         dot: 'bg-neon-amber',
         text: 'text-neon-amber',
-        hint: 'A Witness device is paired, but it sends scores somewhere else (another room, another tournament, or the Global Scoreboard only). In Account Settings, Arcaid Witness, set "Send scores to" to this event\'s room.',
+        hint: 'A Witness device is paired, but it sends scores somewhere else (another room, another tournament, or the Global Scoreboard only). In Account Settings, Arcaid Witness, set "Send scores to" to All my rooms (or this event\'s room).',
     },
     // The status is still named `no_cabinet` server-side; the copy is
     // device-neutral because a Witness device may be a cabinet or a desktop

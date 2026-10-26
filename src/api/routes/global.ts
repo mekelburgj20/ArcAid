@@ -198,9 +198,9 @@ router.get('/me/witness/devices', requireDiscordUser, async (req, res) => {
     }
 });
 
-// Point a paired cabinet at a room (and optionally one tournament in it), or
-// clear the designation. An UNDESIGNATED cabinet is the default and is not a
-// broken state: its scores go to the player's Global Scoreboard record.
+// Point a paired device: All my rooms (the default — no room, `globalOnly`
+// false), Global Scoreboard only (`globalOnly: true`), or narrowed to one room
+// (and optionally one tournament in it). v2.175.0 (W37, ADR 0033).
 router.patch('/me/witness/devices/:deviceId', requireDiscordUser, async (req, res) => {
     try {
         const { WitnessService, WitnessTargetError } = await import('../../services/WitnessService.js');
@@ -215,6 +215,7 @@ router.patch('/me/witness/devices/:deviceId', requireDiscordUser, async (req, re
                 {
                     roomId: asId(body.roomId),
                     tournamentId: asId(body.tournamentId),
+                    globalOnly: body.globalOnly === true,
                     globalFallback: body.globalFallback !== false,
                 },
             );
@@ -424,10 +425,13 @@ router.get('/witness/score', witnessIngestLimiter, async (req, res) => {
         });
         if (!result) return res.status(401).json({ ok: false });
 
-        if (result.status === 'ingested' && result.gameRoomId && result.gameId) {
+        // v2.175.0 (W37): a play may land in several tournaments — refresh each board.
+        const landings = result.landed ?? [result];
+        for (const l of landings) {
+            if (l.status !== 'ingested' || !l.gameRoomId || !l.gameId) continue;
             try {
                 const { emitLeaderboardUpdated } = await import('../websocket.js');
-                emitLeaderboardUpdated(result.gameRoomId, { gameId: result.gameId });
+                emitLeaderboardUpdated(l.gameRoomId, { gameId: l.gameId });
             } catch { /* socket optional */ }
         }
         // v2.156.0 (ADR 0024) — a play the player deleted answers 'duplicate':
@@ -441,17 +445,31 @@ router.get('/witness/score', witnessIngestLimiter, async (req, res) => {
         // way: the companion already shows `not_sanctioned` + `reasons`, so
         // the desktop is told exactly that (no new wire status); a cabinet,
         // which can never hold an attempt, is told `no_match`.
-        const refused = result.status === 'not_sanctioned' || result.status === 'attempt_refused';
-        const wireStatus = result.status === 'suppressed' ? 'duplicate'
-            : (refused && result.deviceType !== 'desktop') ? 'no_match'
-            : refused ? 'not_sanctioned'
-            : result.status;
+        const isRefused = (st: string) => st === 'not_sanctioned' || st === 'attempt_refused';
+        const toWire = (st: string) => st === 'suppressed' ? 'duplicate'
+            : (isRefused(st) && result.deviceType !== 'desktop') ? 'no_match'
+            : isRefused(st) ? 'not_sanctioned'
+            : st;
+        const refused = isRefused(result.status);
+        const wireStatus = toWire(result.status);
         res.json({
             ok: true, status: wireStatus, game: result.gameName ?? null,
             ...(refused && result.deviceType === 'desktop'
                 ? { reasons: result.reasons ?? [], fallback: result.fallback ?? null }
                 : {}),
             ...(result.attempt ? { attempt: result.attempt } : {}),
+            // v2.175.0 (W37, ADR 0033): every tournament the play was tried in,
+            // in the same wire vocabulary. Additive — the top-level fields stay
+            // the first landing, which is all a pre-W37 device reads.
+            ...(result.landed
+                ? {
+                    landed: result.landed.map(l => ({
+                        status: toWire(l.status), game: l.gameName ?? null,
+                        ...(l.attempt ? { attempt: l.attempt } : {}),
+                        ...(result.deviceType === 'desktop' && l.reasons ? { reasons: l.reasons } : {}),
+                    })),
+                }
+                : {}),
         });
     } catch (error) {
         logError('API Error (GET /api/witness/score)');

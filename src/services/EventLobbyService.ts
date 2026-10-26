@@ -161,9 +161,9 @@ export class EventLobbyService {
         // devices whose scores would land on THIS event are graded.
         const devices = await db.all<Array<{
             atgames_unique_id: string; canonical_user_id: string; last_seen_at: string | null; heartbeat_at: string | null;
-            target_room_id: string | null; target_tournament_id: string | null;
+            target_room_id: string | null; target_tournament_id: string | null; global_only: number;
         }>>(
-            `SELECT d.atgames_unique_id, d.canonical_user_id, d.last_seen_at, d.heartbeat_at, d.target_room_id,
+            `SELECT d.atgames_unique_id, d.canonical_user_id, d.last_seen_at, d.heartbeat_at, d.target_room_id, d.global_only,
                     CASE WHEN ${tournamentFinishedSql('t')} THEN NULL ELSE d.target_tournament_id END AS target_tournament_id
                FROM witness_devices d
                LEFT JOIN tournaments t ON t.id = d.target_tournament_id
@@ -214,7 +214,7 @@ export class EventLobbyService {
             for (const d of mine) {
                 // A device that sends elsewhere says nothing about this event.
                 const routesHere = deviceRoutesTo(
-                    { roomId: d.target_room_id, tournamentId: d.target_tournament_id },
+                    { roomId: d.target_room_id, tournamentId: d.target_tournament_id, globalOnly: d.global_only === 1 },
                     { roomId: event.game_room_id, tournamentId: event.id, isRound: true, isParticipant: true },
                 );
                 if (!routesHere) continue;
@@ -296,9 +296,45 @@ export class EventLobbyService {
     ): Promise<{ tournamentId: string; eventName: string; alreadyCheckedIn: boolean; status: LobbyStatus } | null> {
         const { WitnessService } = await import('./WitnessService.js');
         const target = await WitnessService.getDeviceTarget(deviceId);
-        if (!target.tournamentId) return null;
 
-        const event = await EventService.getEvent(target.tournamentId);
+        // v2.175.0 (W37): which events this device can check in to. Pinned →
+        // that event. Un-pinned → every live event in the rooms the device
+        // sends to: its one room, or (All my rooms, the default since
+        // migration 191) every room the player is a member of. Global only →
+        // none. Pre-v2.175.0 only a device pinned to the event checked in, and
+        // migration 191 un-pinned every device, so without this the tile would
+        // have stopped being the check-in at all.
+        const db = await getDatabase();
+        const eventIds: string[] = target.tournamentId
+            ? [target.tournamentId]
+            : target.roomId
+                ? (await db.all<Array<{ id: string }>>(
+                    `SELECT id FROM tournaments
+                      WHERE format = 'event' AND is_active = 1 AND event_finished_at IS NULL AND game_room_id = ?
+                      ORDER BY start_date`, target.roomId,
+                )).map(r => r.id)
+                : target.globalOnly
+                    ? []
+                    : (await db.all<Array<{ id: string }>>(
+                        `SELECT t.id FROM tournaments t
+                           JOIN room_members rm ON rm.room_id = t.game_room_id AND rm.user_id = ?
+                          WHERE t.format = 'event' AND t.is_active = 1 AND t.event_finished_at IS NULL
+                          ORDER BY t.start_date`, canonicalUserId,
+                    )).map(r => r.id);
+
+        let first: { tournamentId: string; eventName: string; alreadyCheckedIn: boolean; status: LobbyStatus } | null = null;
+        for (const eventId of eventIds) {
+            const result = await EventLobbyService.lobbyForEvent(eventId, deviceId, canonicalUserId, now, checkIn);
+            first ??= result;
+        }
+        return first;
+    }
+
+    /** One event's check-in-window answer for a device (the pre-v2.175.0 body). */
+    private static async lobbyForEvent(
+        eventId: string, deviceId: string, canonicalUserId: string, now: Date, checkIn: boolean,
+    ): Promise<{ tournamentId: string; eventName: string; alreadyCheckedIn: boolean; status: LobbyStatus } | null> {
+        const event = await EventService.getEvent(eventId);
         if (!event || event.event_finished_at || event.is_active === 0) return null;
         const rounds = await EventService.getRounds(event.id);
         const state = EventService.deriveState(event, rounds, now);
@@ -309,7 +345,7 @@ export class EventLobbyService {
         if (!existing && !checkIn) return null;
         if (!existing) {
             await EventService.checkIn(event.id, canonicalUserId, 'checkin');
-            logInfo(`Witness: ${canonicalUserId} checked in to event "${event.name}" from cabinet ${deviceId}`);
+            logInfo(`Witness: ${canonicalUserId} checked in to event "${event.name}" from device ${deviceId}`);
         }
 
         const roster = await EventLobbyService.roster(event, rounds, now);
