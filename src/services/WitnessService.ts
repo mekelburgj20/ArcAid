@@ -573,9 +573,22 @@ export class WitnessService {
         if (limited.length === 0) {
             return { status: 'unlimited', ...empty, game: matched.target.name };
         }
-        const { AttemptService } = await import('./AttemptService.js');
+        const { AttemptService, ATTEMPT_REFUSAL_TEXT, playIsStarted } = await import('./AttemptService.js');
+        // W38 (ADR 0033 §4) — a table that needs "Start attempts" counts a game
+        // only when it began at or after the player's press; before that the
+        // start uses nothing (its score will go to Global, `not_started`).
+        const needsStart = limited.filter(g => g.require_attempt_start === 1).map(g => g.id);
+        const starts = needsStart.length > 0
+            ? await AttemptService.startsFor(device.canonical_user_id, needsStart)
+            : {};
+        const counting = limited.filter(g => g.require_attempt_start !== 1 || playIsStarted(starts[g.id], startedTs));
+        if (counting.length === 0) {
+            // Not a new wire status: a pre-W38 companion already shows
+            // `no_match` with its reason.
+            return { status: 'no_match', ...empty, game: limited[0]!.name, reason: ATTEMPT_REFUSAL_TEXT.not_started };
+        }
         let first: { status: 'counted' | 'over_limit'; game: string; attempt: number; of: number; remaining: number; late: boolean } | null = null;
-        for (const game of limited) {
+        for (const game of counting) {
             const started = await AttemptService.recordStart({
                 tournamentId: game.tournament_id!, gameId: game.id, gameRoomId: game.game_room_id,
                 canonicalUserId: device.canonical_user_id, deviceId, key, limit: game.max_attempts!,

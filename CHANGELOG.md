@@ -6,6 +6,45 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.178.0] - 2026-10-26 - "Start attempts" for limited-attempts tournaments (W38, ADR 0033 §3–4)
+
+TomatoGrass asked for a way to warm up during a long limited-attempts round (say a week-long one) without
+burning tries. Hosts can now make players press **Start attempts** on a table before their plays count. One
+bug in the existing counting is fixed along the way.
+
+### Added
+- **"Players press Start attempts first"**, a per-tournament host setting under Limited attempts on the
+  tournament form, off by default (`tournaments.require_attempt_start`, migration 193). When it's on:
+  - Until a player presses **Start attempts** for a table, their plays there go to the **Global Scoreboard**
+    and use **no attempt**, on Castcade and on cabinets.
+  - A game that began **before** the press doesn't count, even if it ends after it. Otherwise a player could
+    press Start partway through a good game.
+  - The press is per table and per player, and pressing again keeps the first time (`attempt_starts`,
+    keyed on the canonical identity like the attempts).
+- **The button is on the game page**, in the Limited attempts banner. It shows only when the setting is on and
+  the viewer is logged in. Pressing it checks the same entry rule a device play goes through (`entryAllowed`:
+  a room member, or a checked-in participant when the event requires check-in) and that the table is open or
+  upcoming. Afterwards the banner shows when attempts started.
+- **The cabinet line reads `ATTEMPTS NOT STARTED`** (or `BAD CATS NOT STARTED` among several) until the press.
+  A cabinet has no screen, so that's its cue to press Start on a phone.
+- A refused play's reason is `not_started`: "you have not pressed Start attempts for this table on Arcaid yet —
+  this play used no attempt". Castcade shows it on the score (`not_sanctioned` + reasons, as before) and on
+  the start call (`no_match` + reason). No new wire status.
+- Public integrity read: `requireAttemptStart`. Player routes: `GET .../attempt-starts/me` and
+  `POST .../games/:gameId/attempt-start`.
+
+### Fixed
+- **A play that started before the window and ended inside it counts (ADR 0033 §3).** On Castcade the start
+  call found no open game, so no attempt was recorded. The score then arrived inside the window and was refused
+  as `unreported`, while still using an attempt. Now it's counted when its score arrives, noted "started before
+  the window". A cabinet already counted these.
+
+### Decided at build time
+- **Check-in and Start attempts are independent.** Check-in is entry (before round 1). Start attempts is "my
+  warm-up is over", per table, any time while the table is open. Checking in doesn't start attempts.
+- **Castcade's own Start button is a follow-up** (W45). A Castcade player presses Start on the game page for
+  now.
+
 ## [2.177.0] - 2026-10-26 - Attempts left on the cabinet (W43)
 
 A cabinet player in a limited-attempts tournament had no way to see how many tries they had left without

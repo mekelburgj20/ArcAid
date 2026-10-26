@@ -45,6 +45,47 @@ router.get('/rooms/:roomId/tournaments/:id/integrity', async (req, res) => {
     }
 });
 
+// Player: W38 (ADR 0033 §4) — when I pressed "Start attempts" on each of this
+// tournament's tables: `{ starts: { [gameId]: epochSeconds } }` (absent = not
+// pressed). Keyed on the viewer's canonical identity, like the attempts.
+router.get('/rooms/:roomId/tournaments/:id/attempt-starts/me', requireDiscordUser, async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const tournamentId = req.params.id as string;
+        if (!await tournamentInRoom(roomId, tournamentId)) return res.status(404).json({ error: 'Tournament not found' });
+        const db = await getDatabase();
+        const games = await db.all<Array<{ id: string }>>('SELECT id FROM games WHERE tournament_id = ?', tournamentId);
+        const { IdentityLinkService } = await import('../../services/IdentityLinkService.js');
+        const { AttemptService } = await import('../../services/AttemptService.js');
+        const canonical = await IdentityLinkService.resolveCanonical(req.user!.discordId as string);
+        const starts = await AttemptService.startsFor(canonical, games.map(g => g.id));
+        res.json({ starts });
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/tournaments/:id/attempt-starts/me):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Player: W38 — press "Start attempts" on one table. From now on the player's
+// plays on it count (and use attempts); before it they went to Global. A second
+// press keeps the first time.
+router.post('/rooms/:roomId/tournaments/:id/games/:gameId/attempt-start', requireDiscordUser, async (req, res) => {
+    try {
+        const { AttemptService } = await import('../../services/AttemptService.js');
+        const result = await AttemptService.startForPlayer({
+            roomId: req.params.roomId as string,
+            tournamentId: req.params.id as string,
+            gameId: req.params.gameId as string,
+            userId: req.user!.discordId as string,
+        });
+        if (!result.ok) return res.status(result.httpStatus).json({ error: result.message, code: result.code });
+        res.json({ startedTs: result.startedTs });
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/tournaments/:id/games/:gameId/attempt-start):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 // Runner: the full evidence trail for one tournament (newest first), per score
 // the measurements and the pass/fail per rule. `?gameId=` narrows to one game.
 router.get('/rooms/:roomId/tournaments/:id/evidence', requireAuth, requireRoomAccess('roomId'), async (req, res) => {

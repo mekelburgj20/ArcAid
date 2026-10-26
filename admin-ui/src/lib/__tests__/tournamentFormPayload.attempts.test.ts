@@ -42,3 +42,18 @@ describe('max_attempts in the tournament form', () => {
     expect(toPayload(state, { id: 't-1', is_active: true })).toHaveProperty('max_attempts', null);
   });
 });
+
+describe('require_attempt_start in the tournament form (W38, ADR 0033 §4)', () => {
+  it('is off for a new tournament and always sent', () => {
+    expect(defaultFormState.requireAttemptStart).toBe(false);
+    expect(toPayload(defaultFormState, { id: 'new', is_active: true })).toMatchObject({ require_attempt_start: false });
+  });
+
+  it('a stored 1 loads as on and saves back as true; 0 / absent load as off', () => {
+    const on = tournamentToFormState(row({ max_attempts: 5, require_attempt_start: 1 }));
+    expect(on.requireAttemptStart).toBe(true);
+    expect(toPayload(on, { id: 't-1', is_active: true })).toMatchObject({ require_attempt_start: true });
+    expect(tournamentToFormState(row({ require_attempt_start: 0 })).requireAttemptStart).toBe(false);
+    expect(tournamentToFormState(row()).requireAttemptStart).toBe(false);
+  });
+});

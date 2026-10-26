@@ -213,6 +213,8 @@ export class TournamentService {
         max_attempts?: number | null;
         /** v2.169.0 (W20) — flagged event scores: 'prevent' (default) or 'flag'. */
         witness_flag_mode?: 'prevent' | 'flag';
+        /** v2.178.0 (W38) — "Players press Start attempts first"; default off. */
+        require_attempt_start?: boolean;
     } & SeasonInput): Promise<void> {
         const db = await getDatabase();
         const season = resolveSeason(data, null, data.format, data.cadence);
@@ -241,6 +243,9 @@ export class TournamentService {
             normalizeMaxAttempts(data.max_attempts),
             normalizeWitnessFlagMode(data.witness_flag_mode),
         );
+        if (data.require_attempt_start) {
+            await db.run('UPDATE tournaments SET require_attempt_start = 1 WHERE id = ?', data.id);
+        }
         if (poll) await this.applyPoll(data.id, poll);
         if (season) await this.applySeason(data.id, data.name, data.game_room_id ?? null, season, null);
         // v2.56.0: the room-scoped gate is now "any tournament in this room has
@@ -281,6 +286,8 @@ export class TournamentService {
         max_attempts?: number | null;
         /** v2.169.0 (W20) — omitted = unchanged. */
         witness_flag_mode?: 'prevent' | 'flag';
+        /** v2.178.0 (W38) — omitted = unchanged. */
+        require_attempt_start?: boolean;
     } & SeasonInput): Promise<void> {
         const db = await getDatabase();
         const stored = await db.get('SELECT * FROM tournaments WHERE id = ?', id);
@@ -334,6 +341,10 @@ export class TournamentService {
             witnessFlagMode,
             id
         );
+        // W38 — same omission rule as the other integrity fields.
+        if (data.require_attempt_start !== undefined) {
+            await db.run('UPDATE tournaments SET require_attempt_start = ? WHERE id = ?', data.require_attempt_start ? 1 : 0, id);
+        }
         if (poll) {
             await this.applyPoll(id, poll);
         } else if (data.poll_picks === false && stored?.poll_picks) {

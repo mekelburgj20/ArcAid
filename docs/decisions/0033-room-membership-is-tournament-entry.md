@@ -1,6 +1,6 @@
 # ADR 0033 — Room membership is tournament entry; misses go to Global with a reason
 
-**Status:** accepted (owner ruling 2026-10-25, from the Witness Weekend Showdown tester polls), §1–2 and the count-in-each consequence built v2.175.0 (WORK.md W37, closes W36); §3–4 W38, §5 W27, §6 W39 not yet built · **Amends:** the P9b routing in ADR 0022 / CLAUDE.md "WITNESS SCORE ROUTING"; ADR 0029 (limited attempts) · **Builds on:** ADR 0032
+**Status:** accepted (owner ruling 2026-10-25, from the Witness Weekend Showdown tester polls), §1–2 and the count-in-each consequence built v2.175.0 (WORK.md W37, closes W36); §3–4 built v2.178.0 (W38; Castcade's own Start button is W45); §5 W27, §6 W39 not yet built · **Amends:** the P9b routing in ADR 0022 / CLAUDE.md "WITNESS SCORE ROUTING"; ADR 0029 (limited attempts) · **Builds on:** ADR 0032
 
 ## Context
 
@@ -60,3 +60,23 @@ player can miss, and "I played and my score isn't there" loses a player for good
   tournament is skipped; the other tournaments still count it.
 - The typed Throwdown path is unchanged (anyone with the link may submit); the one shared entry test
   (`entryAllowed`, `src/utils/tournamentEntry.ts`) is used by the room-event typed gate and the device path.
+
+## Build-time rulings (2026-10-26, W38)
+
+- **§3 was already true except for one case:** a Castcade play that STARTED before the window and ended
+  inside it. Its start call matched no open game (so recorded nothing), and its score was refused as
+  `unreported` while still using an attempt. It is now counted when its score arrives. Cabinets already
+  counted at report time.
+- **"Start attempts" is per table, per player** (`attempt_starts`, one row per player per games row), because
+  attempts are per table. The first press is kept; pressing again cannot re-date it.
+- **A game counts only if it BEGAN at or after the press.** Counting a game already under way when Start was
+  pressed would let a player press it partway through a good game. No clock tolerance: the cost of a near
+  miss is one warm-up game going to Global.
+- **Check-in and Start attempts are independent.** Check-in is entry and closes when round 1 starts; Start
+  attempts means "my warm-up is over" and can be pressed any time the table is open or upcoming. Checking in
+  does not start attempts.
+- **Where the button lives:** the game page (web and phone) now. Castcade's own button needs a device
+  endpoint and companion UI, so it's a follow-up (W45). A cabinet has no screen; its "Sending to" line reads
+  `ATTEMPTS NOT STARTED` until the player presses Start on a phone.
+- **No new wire status.** A not-started play answers the companion `not_sanctioned` + reason on the score and
+  `no_match` + reason on the start, and a cabinet `no_match`. Pre-W38 devices already understand all three.
