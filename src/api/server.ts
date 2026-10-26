@@ -18,6 +18,7 @@ import roomsRouter from './routes/rooms.js';
 import adminRouter from './routes/admin.js';
 import globalRouter from './routes/global.js';
 import integrityRouter from './routes/integrity.js';
+import entryRouter from './routes/entry.js';
 import usersRouter from './routes/users.js';
 
 export const serverEvents = new EventEmitter();
@@ -156,6 +157,8 @@ export function startApiServer(port: number = 3001) {
     // v2.165.0 (ADR 0027) — integrity mode: the runner's evidence trail and
     // per-game requirements, the public verdict map, the catalogue's tables.
     app.use('/api', integrityRouter);
+    // v2.179.0 (W39, ADR 0033 §6) — tournament entry: roster, invite link, requests.
+    app.use('/api', entryRouter);
 
     // --- Backward Compatibility Aliases ---
     // Legacy unscoped URLs like /api/leaderboard → /api/rooms router with default room injected.

@@ -17,6 +17,7 @@ import { decodeViewerClaims, isRoomAdminFor } from '../lib/viewerClaims';
 import { canDeleteRow, deleteConfirmText, deleteScoreHistory } from '../lib/scoreDelete';
 import { canCorrectRow, correctScoreHistory } from '../lib/scoreCorrect';
 import CorrectScoreModal from '../components/CorrectScoreModal';
+import EntryNotice from '../components/EntryNotice';
 import { formatScore, scoreTitle, parseServerDate } from '../lib/format';
 import { Search, Trophy, TrendingUp, Target, Medal, Plus, Minus, Clock, Lightbulb, MessageCircle, Trash2, ChevronDown, ChevronUp, History, Download, Play, BookOpen, ExternalLink, Flag, BadgeCheck, Share2, Pencil } from 'lucide-react';
 import { SourceChip } from '../components/SourceChip';
@@ -1129,6 +1130,10 @@ export default function GameDetail() {
         {/* Tab Content */}
         {activeTab === 'leaderboard' && (
           <>
+            {/* v2.179.0 (W39) — invite-only: tell a player off the roster, offer a request. */}
+            {leaderboard && roomId && integrityTournamentId && (
+              <EntryNotice roomId={roomId} tournamentId={integrityTournamentId} playerToken={playerToken} toast={toast} />
+            )}
             {/* v2.167.0 (ADR 0029) — Limited attempts banner. */}
             {leaderboard && integrity?.maxAttempts != null && (
               <div className="mb-4 rounded border border-neon-cyan/40 bg-neon-cyan/5 px-4 py-3 text-sm" data-testid="attempts-banner">

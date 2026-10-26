@@ -43,6 +43,24 @@ describe('max_attempts in the tournament form', () => {
   });
 });
 
+describe('entry setting in the tournament form (W39, ADR 0033 §6)', () => {
+  it('a new tournament is open to room members, both self-serve methods off, always sent', () => {
+    expect(defaultFormState).toMatchObject({ entryMode: 'members', entryLink: false, entryRequest: false });
+    expect(toPayload(defaultFormState, { id: 'new', is_active: true })).toMatchObject({
+      entry_mode: 'members', entry_methods: { link: false, request: false },
+    });
+  });
+
+  it('an invite-only row loads and saves back unchanged; unreadable methods read as off', () => {
+    const state = tournamentToFormState(row({ entry_mode: 'invited', entry_methods: '{"link":true,"request":false}' }));
+    expect(state).toMatchObject({ entryMode: 'invited', entryLink: true, entryRequest: false });
+    expect(toPayload(state, { id: 't-1', is_active: true })).toMatchObject({
+      entry_mode: 'invited', entry_methods: { link: true, request: false },
+    });
+    expect(tournamentToFormState(row({ entry_methods: 'not json' }))).toMatchObject({ entryMode: 'members', entryLink: false, entryRequest: false });
+  });
+});
+
 describe('require_attempt_start in the tournament form (W38, ADR 0033 §4)', () => {
   it('is off for a new tournament and always sent', () => {
     expect(defaultFormState.requireAttemptStart).toBe(false);

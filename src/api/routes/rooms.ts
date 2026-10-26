@@ -89,6 +89,7 @@ import { TournamentScoresService } from '../../services/TournamentScoresService.
 import { ScoreProvenanceService } from '../../services/ScoreProvenanceService.js';
 import { AuditService } from '../../services/AuditService.js';
 import { checkEventSubmission, checkAttemptLimitSubmission } from '../../services/EventSubmissionGate.js';
+import { TournamentEntryService } from '../../services/TournamentEntryService.js';
 import { EventService, EventConfigError } from '../../services/EventService.js';
 import { PreferencesService } from '../../services/PreferencesService.js';
 import {
@@ -3006,6 +3007,9 @@ router.post('/:roomId/community-scores/:gameName', writeLimiter, requireDiscordU
         // Castcade scores only; a typed score has no game start to count.
         const attemptGate = await checkAttemptLimitSubmission(resolvedTournamentId);
         if (!attemptGate.ok) return res.status(409).json({ error: attemptGate.message, code: attemptGate.code });
+        // v2.179.0 (W39, ADR 0033 §6) — an invite-only tournament takes typed scores from its roster only.
+        const rosterGate = await TournamentEntryService.checkRosterSubmission(resolvedTournamentId, req.user!.discordId!);
+        if (!rosterGate.ok) return res.status(403).json({ error: rosterGate.message, code: rosterGate.code });
 
         // v2.53.0: re-validate the engine/device pair server-side against the
         // game's resolved scope, and DERIVE the legacy platform from it (any
@@ -3136,6 +3140,9 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, requireDiscordUser,
         // Castcade scores only; a typed score has no game start to count.
         const attemptGate = await checkAttemptLimitSubmission(resolvedTournamentId);
         if (!attemptGate.ok) return res.status(409).json({ error: attemptGate.message, code: attemptGate.code });
+        // v2.179.0 (W39, ADR 0033 §6) — an invite-only tournament takes typed scores from its roster only.
+        const rosterGate = await TournamentEntryService.checkRosterSubmission(resolvedTournamentId, req.user!.discordId!);
+        if (!rosterGate.ok) return res.status(403).json({ error: rosterGate.message, code: rosterGate.code });
 
         // v2.53.0: engine/device validated + legacy platform derived (see the
         // community-scores handler above). v2.155.2 — validated against the
@@ -3347,6 +3354,9 @@ router.post('/:roomId/freeplay-score', writeLimiter, requireDiscordUser, require
         // Castcade scores only; a typed score has no game start to count.
         const attemptGate = await checkAttemptLimitSubmission(resolvedTournamentId);
         if (!attemptGate.ok) return res.status(409).json({ error: attemptGate.message, code: attemptGate.code });
+        // v2.179.0 (W39, ADR 0033 §6) — an invite-only tournament takes typed scores from its roster only.
+        const rosterGate = await TournamentEntryService.checkRosterSubmission(resolvedTournamentId, req.user!.discordId!);
+        if (!rosterGate.ok) return res.status(403).json({ error: rosterGate.message, code: rosterGate.code });
 
         // v2.53.0: validate engine/device + derive the legacy platform for this
         // game in this room (uses the canonical name, since freeplay catalogue
@@ -5257,6 +5267,10 @@ router.post('/:roomId/events/:id/checkin', writeLimiter, roomVisibilityGate, req
         const participant = await EventService.checkIn(event.id, req.user!.discordId!);
         res.status(201).json({ success: true, participant });
     } catch (error) {
+        const { NotOnRosterError } = await import('../../services/EventService.js');
+        if (error instanceof NotOnRosterError) {
+            return res.status(403).json({ error: error.message, code: error.code });
+        }
         logError('API Error (POST rooms/:roomId/events/:id/checkin):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
@@ -5328,49 +5342,20 @@ router.post('/:roomId/events/:id/participants', requireAuth, requireRoomAccess('
         const roomId = req.params.roomId as string;
         const event = await resolveRoomEvent(roomId, req.params.id as string);
         if (!event) return res.status(404).json({ error: 'Event not found' });
-        const raw = typeof req.body?.userId === 'string' ? req.body.userId.trim() : '';
-        if (!raw) return res.status(400).json({ error: 'userId is required' });
-
         // v2.141.0 — accept @username, not just a raw user id (owner: nobody
-        // has player ids handy at the desk). Rules, in order:
-        //   - a snowflake-shaped value is always a raw id;
-        //   - '@name' DEMANDS name resolution (global display name — which is
-        //     case-insensitively UNIQUE by index — then profile username, then
-        //     THIS room's claimed names) and errors when it can't;
-        //   - a bare string resolves only when EXACTLY ONE name matches, and
-        //     otherwise passes through as a raw id, which is the pre-v2.141
-        //     contract (test fixtures and google:* ids arrive that way).
-        // Several distinct matches is a 409 naming the problem, never a guess —
-        // checking the wrong player into a competition is an identity bug.
-        let userId = raw;
-        if (!/^\d{15,21}$/.test(raw)) {
-            const explicit = raw.startsWith('@');
-            const name = raw.replace(/^@/, '').trim();
-            if (!name) return res.status(400).json({ error: 'userId is required' });
-            const db = await getDatabase();
-            const candidates = await db.all<Array<{ discord_user_id: string }>>(
-                `SELECT discord_user_id FROM user_profiles
-                  WHERE display_name = ? COLLATE NOCASE OR username = ? COLLATE NOCASE
-                 UNION
-                 SELECT user_id AS discord_user_id FROM room_members
-                  WHERE room_id = ? AND display_name = ? COLLATE NOCASE`,
-                name, name, roomId, name,
-            );
-            const distinct = [...new Set(candidates.map(c => c.discord_user_id))];
-            if (distinct.length === 1) {
-                userId = distinct[0]!;
-            } else if (explicit && distinct.length === 0) {
-                return res.status(404).json({ error: `No player named "${name}" — check the spelling, or paste their Discord user ID` });
-            } else if (distinct.length > 1) {
-                return res.status(409).json({ error: `"${name}" matches more than one player — paste their Discord user ID instead` });
-            }
-            // 0 matches without '@': fall through with the raw value — the
-            // caller may genuinely hold a non-snowflake id.
-        }
+        // has player ids handy at the desk). The rules live in ONE place since
+        // v2.179.0 (W39), shared with the tournament roster's add:
+        // `TournamentEntryService.resolvePlayerRef` — never a guess on two matches.
+        const ref = await TournamentEntryService.resolvePlayerRef(
+            roomId, typeof req.body?.userId === 'string' ? req.body.userId : '',
+        );
+        if (!ref.ok) return res.status(ref.httpStatus).json({ error: ref.error });
+        const userId = ref.userId;
 
         // source='admin' deliberately bypasses the late-check-in guard - this
         // IS the straggler mechanism that lets "check-in closes at round 1"
-        // stay strict without being cruel.
+        // stay strict without being cruel. On an invite-only event it also
+        // puts the player on the roster (`EventService.checkIn`, W39).
         const actor = req.user!.discordId || req.user!.username || req.user!.localAdminId || 'admin';
         const participant = await EventService.checkIn(event.id, userId, 'admin', actor);
         res.status(201).json({ success: true, participant });

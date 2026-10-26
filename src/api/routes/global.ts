@@ -1701,6 +1701,10 @@ router.post('/submission-drafts/:stateParam/commit', requireDiscordUser, require
             const { checkAttemptLimitSubmission } = await import('../../services/EventSubmissionGate.js');
             const attemptGate = await checkAttemptLimitSubmission(resolvedTournamentId);
             if (!attemptGate.ok) return res.status(409).json({ error: attemptGate.message, code: attemptGate.code });
+            // v2.179.0 (W39, ADR 0033 §6) — an invite-only tournament takes typed scores from its roster only.
+            const { TournamentEntryService } = await import('../../services/TournamentEntryService.js');
+            const rosterGate = await TournamentEntryService.checkRosterSubmission(resolvedTournamentId, discordId);
+            if (!rosterGate.ok) return res.status(403).json({ error: rosterGate.message, code: rosterGate.code });
         }
 
         // v2.53.0 (ADR 0016) — BOTH draft-commit paths previously skipped

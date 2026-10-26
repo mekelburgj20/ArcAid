@@ -6,6 +6,50 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.179.0] - 2026-10-26 - Invite-only tournaments (W39, ADR 0033 §6)
+
+A tournament can now be open to only the players a host lets in. The Witness Weekend Showdown polls asked for
+it, and they asked for all three ways in, host's choice.
+
+### Added
+- **Entry setting on the tournament form** (both formats): **Room members** (default; everyone in the room
+  is in, as before) or **Invited players** (only the roster). Under Invited players the host can switch on an
+  **Invite link** and/or **Players can request to join**. Adding a player by name is always available.
+  (`tournaments.entry_mode`, `entry_methods`, `invite_code`, migration 194.)
+- **Roster panel** on the admin Tournaments page ("Roster" button on invite-only tournaments):
+  - the roster, by name (never a raw id), with how each player got on;
+  - add by `@name` or Discord id (the same resolver the event participant add uses, now shared:
+    `TournamentEntryService.resolvePlayerRef`);
+  - remove a player;
+  - copy the invite link, or make a new one (the old link dies at once);
+  - approve or decline requests to join.
+  - Every change is audited.
+- **Invite link page** `/tournament-invite/:code` (separate from the room-admin invite at `/invite/:token`):
+  log in, Accept. Accepting **joins the room and puts the player on the roster** (owner ruling 2026-10-26).
+  In an approval-only room it files a room join request instead, and the roster spot alone already lets the
+  player's scores count.
+- **"Invite-only" notice** on the game page and the event page for a logged-in player who isn't on the roster.
+  Their scores go to their Global Scoreboard. A **Request to join** button appears when the host takes
+  requests.
+
+### Changed
+- **One entry rule, `entryAllowed`, now knows the roster.** On an invite-only tournament only the roster is in.
+  An invite-only event that requires check-in still needs players to check in (owner ruling 2026-10-26: the
+  roster says who *may* play, check-in says who *showed up*). So the roster is its own table,
+  `tournament_roster`, not the check-in list.
+- **Typed scores are roster-only too** (owner ruling): the web submit routes, the OAuth draft commit and
+  Discord `/submit-score` answer `403 NOT_ON_ROSTER` through one helper,
+  `TournamentEntryService.checkRosterSubmission`, called beside `checkAttemptLimitSubmission`.
+- **Device scores:** a roster spot counts as a direct entry, so an "All my rooms" device reaches the tournament
+  even for a player who isn't a room member. A play by someone off the roster falls through to their other
+  tournaments or the Global Scoreboard.
+- **Event check-in:** a self check-in (web, Discord `/check-in`, the cabinet tile) to an invite-only event needs
+  a roster spot (`NotOnRosterError` → 403 / a plain Discord reply / the tile says nothing). The host's
+  participant add also puts the player on the roster.
+- The W38 Start attempts button checks the roster too.
+- **The invite code never leaves the server on a public read:** the room's tournament list and the event read
+  strip it.
+
 ## [2.178.0] - 2026-10-26 - "Start attempts" for limited-attempts tournaments (W38, ADR 0033 §3–4)
 
 TomatoGrass asked for a way to warm up during a long limited-attempts round (say a week-long one) without

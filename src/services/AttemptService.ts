@@ -500,9 +500,9 @@ export class AttemptService {
         const { tournamentFinishedSql } = await import('../utils/openCard.js');
         const row = await db.get<{
             status: string; format: string | null; max_attempts: number | null; require_attempt_start: number | null;
-            checkin_required: number | null; game_room_id: string | null; finished: number;
+            checkin_required: number | null; game_room_id: string | null; finished: number; entry_mode: string | null;
         }>(
-            `SELECT g.status, t.format, t.max_attempts, t.require_attempt_start, t.checkin_required, t.game_room_id,
+            `SELECT g.status, t.format, t.max_attempts, t.require_attempt_start, t.checkin_required, t.game_room_id, t.entry_mode,
                     ${tournamentFinishedSql('t')} AS finished
                FROM games g JOIN tournaments t ON t.id = g.tournament_id
               WHERE g.id = ? AND t.id = ? AND t.game_room_id = ?`,
@@ -518,21 +518,28 @@ export class AttemptService {
         const { IdentityLinkService } = await import('./IdentityLinkService.js');
         const { entryAllowed } = await import('../utils/tournamentEntry.js');
         const canonical = await IdentityLinkService.resolveCanonical(input.userId);
-        const [member, participant] = await Promise.all([
+        const [member, participant, roster] = await Promise.all([
             db.get('SELECT 1 FROM room_members WHERE room_id = ? AND user_id = ?', input.roomId, canonical),
             db.get('SELECT 1 FROM tournament_participants WHERE tournament_id = ? AND user_id = ?', input.tournamentId, canonical),
+            db.get('SELECT 1 FROM tournament_roster WHERE tournament_id = ? AND user_id = ?', input.tournamentId, canonical),
         ]);
+        const { normalizeEntryMode } = await import('../utils/tournamentEntry.js');
+        const entryMode = normalizeEntryMode(row.entry_mode);
         const allowed = entryAllowed({
             format: row.format === 'event' ? 'event' : 'rotation',
             roomless: row.game_room_id == null,
             checkinRequired: row.checkin_required === 1,
             isMember: !!member,
             isParticipant: !!participant,
+            entryMode,
+            onRoster: !!roster,
         });
         if (!allowed) {
             return {
                 ok: false, httpStatus: 403, code: 'NOT_ENTERED',
-                message: row.format === 'event' && row.checkin_required === 1
+                message: entryMode === 'invited' && !roster
+                    ? 'This tournament is invite-only and you are not on its roster'
+                    : row.format === 'event' && row.checkin_required === 1
                     ? "You're not checked in for this event"
                     : 'Join this room first',
             };

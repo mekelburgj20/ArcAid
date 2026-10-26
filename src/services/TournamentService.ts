@@ -171,7 +171,10 @@ export class TournamentService {
         const rows = gameRoomId
             ? await db.all('SELECT * FROM tournaments WHERE game_room_id = ?', gameRoomId)
             : await db.all('SELECT * FROM tournaments');
-        return rows.map((row: any) => ({
+        // W39 — the invite code is a SECRET (it lets anyone onto an invite-only
+        // roster) and this list is public; the host reads it from the admin
+        // roster route instead.
+        return rows.map(({ invite_code: _inviteCode, ...row }: any) => ({
             ...row,
             platform_rules: JSON.stringify(parseTournamentRules(row)),
         }));
@@ -215,6 +218,10 @@ export class TournamentService {
         witness_flag_mode?: 'prevent' | 'flag';
         /** v2.178.0 (W38) — "Players press Start attempts first"; default off. */
         require_attempt_start?: boolean;
+        /** v2.179.0 (W39) — entry: every room member (default) or the roster only. */
+        entry_mode?: 'members' | 'invited';
+        /** v2.179.0 (W39) — the self-serve ways onto the roster. */
+        entry_methods?: { link: boolean; request: boolean };
     } & SeasonInput): Promise<void> {
         const db = await getDatabase();
         const season = resolveSeason(data, null, data.format, data.cadence);
@@ -245,6 +252,12 @@ export class TournamentService {
         );
         if (data.require_attempt_start) {
             await db.run('UPDATE tournaments SET require_attempt_start = 1 WHERE id = ?', data.id);
+        }
+        if (data.entry_mode !== undefined || data.entry_methods !== undefined) {
+            const { TournamentEntryService } = await import('./TournamentEntryService.js');
+            await TournamentEntryService.setConfig(
+                data.id, data.entry_mode ?? 'members', data.entry_methods ?? { link: false, request: false },
+            );
         }
         if (poll) await this.applyPoll(data.id, poll);
         if (season) await this.applySeason(data.id, data.name, data.game_room_id ?? null, season, null);
@@ -288,6 +301,10 @@ export class TournamentService {
         witness_flag_mode?: 'prevent' | 'flag';
         /** v2.178.0 (W38) — omitted = unchanged. */
         require_attempt_start?: boolean;
+        /** v2.179.0 (W39) — omitted = unchanged. */
+        entry_mode?: 'members' | 'invited';
+        /** v2.179.0 (W39) — omitted = unchanged. */
+        entry_methods?: { link: boolean; request: boolean };
     } & SeasonInput): Promise<void> {
         const db = await getDatabase();
         const stored = await db.get('SELECT * FROM tournaments WHERE id = ?', id);
@@ -344,6 +361,17 @@ export class TournamentService {
         // W38 — same omission rule as the other integrity fields.
         if (data.require_attempt_start !== undefined) {
             await db.run('UPDATE tournaments SET require_attempt_start = ? WHERE id = ?', data.require_attempt_start ? 1 : 0, id);
+        }
+        // W39 — same omission rule: a form that predates the entry setting
+        // must never turn an invite-only tournament back into an open one.
+        if (data.entry_mode !== undefined || data.entry_methods !== undefined) {
+            const { TournamentEntryService } = await import('./TournamentEntryService.js');
+            const current = await TournamentEntryService.getConfig(id);
+            await TournamentEntryService.setConfig(
+                id,
+                data.entry_mode ?? current?.mode ?? 'members',
+                data.entry_methods ?? current?.methods ?? { link: false, request: false },
+            );
         }
         if (poll) {
             await this.applyPoll(id, poll);

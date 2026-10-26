@@ -75,6 +75,10 @@ export interface Tournament {
   max_attempts?: number | null;
   /** W38 (migration 193) — players press Start attempts first. 1 = on. */
   require_attempt_start?: number | null;
+  /** W39 (migration 194) — who may play. Absent = 'members'. */
+  entry_mode?: 'members' | 'invited' | null;
+  /** W39 — the self-serve ways onto the roster, as stored JSON `{link, request}`. */
+  entry_methods?: string | null;
   /** Flagged witness scores in an event (migration 188, W20). Absent = 'prevent'. */
   witness_flag_mode?: 'prevent' | 'flag' | null;
 }
@@ -186,6 +190,10 @@ export function toPayload(state: TournamentFormState, extra: Record<string, any>
     max_attempts: state.maxAttempts ?? null,
     // W38: always sent; only a limited tournament reads it.
     require_attempt_start: state.requireAttemptStart,
+    // W39: always sent, both formats. The methods ride along in members mode
+    // too, so a tuned choice survives a switch to Room members and back.
+    entry_mode: state.entryMode,
+    entry_methods: { link: state.entryLink, request: state.entryRequest },
     // W20: always sent; only an event reads it.
     witness_flag_mode: state.witnessFlagMode,
     // is_active is intentionally NOT hardcoded here. `extra` is spread last, so
@@ -197,6 +205,16 @@ export function toPayload(state: TournamentFormState, extra: Record<string, any>
     discord_role_id: '',
     ...extra,
   };
+}
+
+/** W39 — the stored `entry_methods` JSON; anything unreadable reads as both off. */
+function entryMethodsFromRow(raw: string | null | undefined): { link: boolean; request: boolean } {
+  try {
+    const o = raw ? JSON.parse(raw) as Record<string, unknown> : {};
+    return { link: o.link === true, request: o.request === true };
+  } catch {
+    return { link: false, request: false };
+  }
 }
 
 /**
@@ -248,6 +266,9 @@ export function tournamentToFormState(t: Tournament, roomTimezone: string = DEFA
     sanctionedRules: sanctionedRulesFromRow(t.sanctioned_rules),
     maxAttempts: typeof t.max_attempts === 'number' && t.max_attempts >= 1 ? t.max_attempts : null,
     requireAttemptStart: t.require_attempt_start === 1,
+    entryMode: t.entry_mode === 'invited' ? 'invited' : 'members',
+    entryLink: entryMethodsFromRow(t.entry_methods).link,
+    entryRequest: entryMethodsFromRow(t.entry_methods).request,
     witnessFlagMode: t.witness_flag_mode === 'flag' ? 'flag' : 'prevent',
   };
 }
