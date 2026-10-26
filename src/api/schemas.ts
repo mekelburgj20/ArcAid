@@ -157,6 +157,13 @@ const TournamentBaseSchema = z.object({
      */
     max_attempts: z.number().int().min(1).max(999).nullable().optional(),
     /**
+     * v2.178.0 (W38, ADR 0033 §4) — "Players press Start attempts first".
+     * Omitted = leave as stored (update) / off (create). Only meaningful with
+     * `max_attempts`; stored regardless so switching the limit off and on
+     * again does not lose it.
+     */
+    require_attempt_start: z.boolean().optional(),
+    /**
      * v2.169.0 (W20) — an event score whose witness verdict is `flagged`:
      * 'prevent' = not counted (default), 'flag' = counted with the badge.
      * Omitted = leave as stored (update) / 'prevent' (create).

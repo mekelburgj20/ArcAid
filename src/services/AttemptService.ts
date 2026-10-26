@@ -41,7 +41,7 @@ export type AttemptStartResult = {
     resent: boolean;
 };
 
-export type AttemptRefusalReason = 'late' | 'over_limit' | 'void' | 'reused' | 'unreported' | 'device' | 'exit_sample';
+export type AttemptRefusalReason = 'late' | 'over_limit' | 'void' | 'reused' | 'unreported' | 'device' | 'exit_sample' | 'not_started';
 
 /** What the player is told, per machine reason. The trail keeps the machine reason. */
 export const ATTEMPT_REFUSAL_TEXT: Record<AttemptRefusalReason, string> = {
@@ -52,7 +52,17 @@ export const ATTEMPT_REFUSAL_TEXT: Record<AttemptRefusalReason, string> = {
     unreported: 'no game start was reported for this score — import this table in Castcade so live mode can count attempts',
     device: 'this tournament limits attempts per table; scores come from Arcaid Witness only',
     exit_sample: 'this table reports one score per sitting on the cabinet, so attempts cannot be counted on it',
+    not_started: 'you have not pressed Start attempts for this table on Arcaid yet — this play used no attempt',
 };
+
+/**
+ * W38 (ADR 0033 §4) — has this play started counting? With "Start attempts"
+ * required, a play counts only when the game began at or after the player's
+ * press. `startedTs` undefined = never pressed.
+ */
+export function playIsStarted(startedTs: number | undefined, playStartTs: number): boolean {
+    return startedTs != null && Math.floor(playStartTs) >= startedTs;
+}
 
 export type AttemptBindResult =
     | { ok: true; attemptId: number; attempt: { n: number; of: number; remaining: number } }
@@ -101,15 +111,18 @@ export class AttemptVoidError extends Error {
  * game reads "7 OF 10 ATTEMPTS LEFT"; several name each table. Upper case to
  * match the lobby suffix beside it (`EventLobbyService.cabinetLine`).
  */
-export function attemptsLeftLine(items: Array<{ gameName: string; left: number; limit: number }>): string {
+export function attemptsLeftLine(items: Array<{ gameName: string; left: number; limit: number; notStarted?: boolean }>): string {
     if (items.length === 0) return '';
     if (items.length === 1) {
-        const { left, limit } = items[0]!;
+        const { left, limit, notStarted } = items[0]!;
+        // W38 — a cabinet has no screen to press Start on; this is its cue to
+        // press it on the phone before playing.
+        if (notStarted) return ' · ATTEMPTS NOT STARTED';
         return left === 0 ? ' · NO ATTEMPTS LEFT' : ` · ${left} OF ${limit} ATTEMPTS LEFT`;
     }
     const parts = [...items]
         .sort((a, b) => a.gameName.localeCompare(b.gameName))
-        .map(i => `${i.gameName.toUpperCase()} ${i.left}/${i.limit}`);
+        .map(i => `${i.gameName.toUpperCase()} ${i.notStarted ? 'NOT STARTED' : `${i.left}/${i.limit}`}`);
     return ` · ATTEMPTS LEFT: ${parts.join(', ')}`;
 }
 
@@ -236,11 +249,33 @@ export class AttemptService {
         canonicalUserId: string; deviceId: string; attemptKey: string | null | undefined;
         limit: number; score: number; startedTs: number; endedTs: number;
         tableName?: string | null; rom?: string | null;
+        /**
+         * W38 (ADR 0033 §3) — when the game's window opened (a round's
+         * scheduled start, a rotation game's activation). A play that STARTED
+         * before it cannot have a start row (the start call matched no open
+         * game), yet it ENDED inside the window, and "every play that ends
+         * inside the window counts once you are in": it is counted now.
+         */
+        windowStartTs?: number | null;
     }): Promise<AttemptBindResult> {
         const refuse = (reason: AttemptRefusalReason): AttemptBindResult =>
             ({ ok: false, reason, text: ATTEMPT_REFUSAL_TEXT[reason] });
         let key = cleanKey(input.attemptKey);
         let row = key ? await AttemptService.byKey(input.deviceId, key, input.gameId) : undefined;
+        if (!row && key && input.windowStartTs != null && Math.floor(input.startedTs) < input.windowStartTs) {
+            // Started before the window, ended inside it: the companion did
+            // report the start (it carries a key) but the start call had no
+            // open game to count it on. Count it now, in order, like any start.
+            await AttemptService.insertAtomic({
+                tournamentId: input.tournamentId, gameId: input.gameId, gameRoomId: input.gameRoomId,
+                canonicalUserId: input.canonicalUserId, deviceId: input.deviceId, key,
+                limit: input.limit, forcedStatus: null,
+                startedTs: input.startedTs, late: false,
+                tableName: input.tableName ?? null, rom: input.rom ?? null,
+                note: 'started before the window',
+            });
+            row = await AttemptService.byKey(input.deviceId, key, input.gameId);
+        }
         if (!row) {
             // No start was ever reported for this score. Record one now — it
             // counts against the player (the game was played) — and refuse.
@@ -399,6 +434,116 @@ export class AttemptService {
         return Object.fromEntries(rows.map(r => [r.game_id, r.used]));
     }
 
+    /** W38 — does this tournament make players press Start attempts first? */
+    static async requiresStart(tournamentId: string | null | undefined): Promise<boolean> {
+        if (!tournamentId) return false;
+        const db = await getDatabase();
+        const row = await db.get<{ require_attempt_start: number | null }>(
+            'SELECT require_attempt_start FROM tournaments WHERE id = ?', tournamentId,
+        );
+        return row?.require_attempt_start === 1;
+    }
+
+    /** W38 — `{ [gameId]: started_ts }` for one player: when they pressed Start attempts per table. */
+    static async startsFor(canonicalUserId: string, gameIds: string[]): Promise<Record<string, number>> {
+        if (gameIds.length === 0) return {};
+        const db = await getDatabase();
+        const rows = await db.all<Array<{ game_id: string; started_ts: number }>>(
+            `SELECT game_id, started_ts FROM attempt_starts
+              WHERE canonical_user_id = ? AND game_id IN (${gameIds.map(() => '?').join(', ')})`,
+            canonicalUserId, ...gameIds,
+        );
+        return Object.fromEntries(rows.map(r => [r.game_id, r.started_ts]));
+    }
+
+    /**
+     * W38 (ADR 0033 §4) — the player presses Start attempts for one table.
+     * Idempotent: a second press keeps the FIRST time (a later press would let
+     * a player re-date their start past games they want forgotten). Returns
+     * the stored start. Authorization (entered, game open, setting on) is the
+     * caller's job.
+     */
+    static async startAttempts(input: {
+        tournamentId: string; gameId: string; canonicalUserId: string;
+        source: 'web' | 'device'; nowSec?: number;
+    }): Promise<number> {
+        const db = await getDatabase();
+        const now = input.nowSec ?? Math.floor(Date.now() / 1000);
+        await db.run(
+            `INSERT OR IGNORE INTO attempt_starts (game_id, canonical_user_id, tournament_id, started_ts, source)
+             VALUES (?, ?, ?, ?, ?)`,
+            input.gameId, input.canonicalUserId, input.tournamentId, now, input.source,
+        );
+        const row = await db.get<{ started_ts: number }>(
+            'SELECT started_ts FROM attempt_starts WHERE game_id = ? AND canonical_user_id = ?',
+            input.gameId, input.canonicalUserId,
+        );
+        return row!.started_ts;
+    }
+
+    /**
+     * W38 — the web "Start attempts" button, with every check the device path
+     * would make: the tournament limits attempts AND requires the press, the
+     * game is one of its open (ACTIVE) or upcoming (SCHEDULED round) tables and
+     * the tournament has not finished, and the player is ALLOWED IN by the one
+     * entry rule (`entryAllowed` — room member, or checked-in participant when
+     * the event requires check-in). Pressing early is harmless: plays outside
+     * the window never count anyway.
+     */
+    static async startForPlayer(input: {
+        roomId: string; tournamentId: string; gameId: string; userId: string; nowSec?: number;
+    }): Promise<
+        | { ok: true; startedTs: number }
+        | { ok: false; httpStatus: 403 | 404 | 409; code: 'NOT_FOUND' | 'NOT_REQUIRED' | 'NOT_OPEN' | 'NOT_ENTERED'; message: string }
+    > {
+        const db = await getDatabase();
+        const { tournamentFinishedSql } = await import('../utils/openCard.js');
+        const row = await db.get<{
+            status: string; format: string | null; max_attempts: number | null; require_attempt_start: number | null;
+            checkin_required: number | null; game_room_id: string | null; finished: number;
+        }>(
+            `SELECT g.status, t.format, t.max_attempts, t.require_attempt_start, t.checkin_required, t.game_room_id,
+                    ${tournamentFinishedSql('t')} AS finished
+               FROM games g JOIN tournaments t ON t.id = g.tournament_id
+              WHERE g.id = ? AND t.id = ? AND t.game_room_id = ?`,
+            input.gameId, input.tournamentId, input.roomId,
+        );
+        if (!row) return { ok: false, httpStatus: 404, code: 'NOT_FOUND', message: 'Game not found in this tournament' };
+        if (!(row.max_attempts != null && row.max_attempts >= 1) || row.require_attempt_start !== 1) {
+            return { ok: false, httpStatus: 409, code: 'NOT_REQUIRED', message: 'This tournament does not use Start attempts' };
+        }
+        if (row.finished === 1 || !['ACTIVE', 'SCHEDULED'].includes(row.status)) {
+            return { ok: false, httpStatus: 409, code: 'NOT_OPEN', message: 'This table is closed' };
+        }
+        const { IdentityLinkService } = await import('./IdentityLinkService.js');
+        const { entryAllowed } = await import('../utils/tournamentEntry.js');
+        const canonical = await IdentityLinkService.resolveCanonical(input.userId);
+        const [member, participant] = await Promise.all([
+            db.get('SELECT 1 FROM room_members WHERE room_id = ? AND user_id = ?', input.roomId, canonical),
+            db.get('SELECT 1 FROM tournament_participants WHERE tournament_id = ? AND user_id = ?', input.tournamentId, canonical),
+        ]);
+        const allowed = entryAllowed({
+            format: row.format === 'event' ? 'event' : 'rotation',
+            roomless: row.game_room_id == null,
+            checkinRequired: row.checkin_required === 1,
+            isMember: !!member,
+            isParticipant: !!participant,
+        });
+        if (!allowed) {
+            return {
+                ok: false, httpStatus: 403, code: 'NOT_ENTERED',
+                message: row.format === 'event' && row.checkin_required === 1
+                    ? "You're not checked in for this event"
+                    : 'Join this room first',
+            };
+        }
+        const startedTs = await AttemptService.startAttempts({
+            tournamentId: input.tournamentId, gameId: input.gameId, canonicalUserId: canonical,
+            source: 'web', nowSec: input.nowSec,
+        });
+        return { ok: true, startedTs };
+    }
+
     /**
      * The attempts suffix for a Witness device's "Sending to" line
      * (2026-10-25): what a cabinet player has left on the limited-attempts
@@ -417,9 +562,15 @@ export class AttemptService {
             deviceType: device?.device_type === 'desktop' ? 'desktop' : 'atgames',
             nowTs,
         });
-        const used = await AttemptService.usedByPlayer(canonicalUserId, games.map(g => g.gameId));
+        const ids = games.map(g => g.gameId);
+        const [used, starts] = await Promise.all([
+            AttemptService.usedByPlayer(canonicalUserId, ids),
+            AttemptService.startsFor(canonicalUserId, ids),
+        ]);
         return attemptsLeftLine(games.map(g => ({
             gameName: g.gameName, limit: g.limit, left: Math.max(0, g.limit - (used[g.gameId] ?? 0)),
+            // W38 — a table that needs Start attempts and has none reads NOT STARTED.
+            notStarted: g.requireStart && starts[g.gameId] == null,
         })));
     }
 

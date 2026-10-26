@@ -73,6 +73,8 @@ export interface Tournament {
   sanctioned_rules?: string | null;
   /** Limited attempts (migration 186, ADR 0029). null = unlimited. */
   max_attempts?: number | null;
+  /** W38 (migration 193) — players press Start attempts first. 1 = on. */
+  require_attempt_start?: number | null;
   /** Flagged witness scores in an event (migration 188, W20). Absent = 'prevent'. */
   witness_flag_mode?: 'prevent' | 'flag' | null;
 }
@@ -182,6 +184,8 @@ export function toPayload(state: TournamentFormState, extra: Record<string, any>
     // Limited attempts (ADR 0029): always sent; null = unlimited, so blanking
     // the field switches the limit off.
     max_attempts: state.maxAttempts ?? null,
+    // W38: always sent; only a limited tournament reads it.
+    require_attempt_start: state.requireAttemptStart,
     // W20: always sent; only an event reads it.
     witness_flag_mode: state.witnessFlagMode,
     // is_active is intentionally NOT hardcoded here. `extra` is spread last, so
@@ -243,6 +247,7 @@ export function tournamentToFormState(t: Tournament, roomTimezone: string = DEFA
     integrityMode: integrityModeFromRow(t),
     sanctionedRules: sanctionedRulesFromRow(t.sanctioned_rules),
     maxAttempts: typeof t.max_attempts === 'number' && t.max_attempts >= 1 ? t.max_attempts : null,
+    requireAttemptStart: t.require_attempt_start === 1,
     witnessFlagMode: t.witness_flag_mode === 'flag' ? 'flag' : 'prevent',
   };
 }

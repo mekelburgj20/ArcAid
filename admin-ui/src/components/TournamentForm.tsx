@@ -129,6 +129,13 @@ export interface TournamentFormState {
    */
   maxAttempts: number | null;
   /**
+   * v2.178.0 (W38, ADR 0033 §4) — "Players press Start attempts first". Off by
+   * default: every play that ends inside the window counts. On: plays go to
+   * the Global Scoreboard and use no attempt until the player presses Start
+   * attempts for that table. Always sent; read only with a limit.
+   */
+  requireAttemptStart: boolean;
+  /**
    * v2.169.0 (W20) — events only: a score whose game the Arcaid Witness saw
    * start before the round opened. 'prevent' (default) = it does not count;
    * 'flag' = it counts with a warning badge. Always sent.
@@ -168,6 +175,7 @@ export const defaultFormState: TournamentFormState = {
   integrityMode: 'open',
   sanctionedRules: { ...defaultSanctionedRules },
   maxAttempts: null,
+  requireAttemptStart: false,
   witnessFlagMode: 'prevent',
 };
 
@@ -704,7 +712,10 @@ function PollSettings({ poll, onChange, schedule }: {
  * PC, the Witness app on a cabinet): every game start counts, and manual
  * (phone / Discord) entry is refused by the server.
  */
-function LimitedAttemptsField({ value, onChange }: { value: number | null; onChange: (v: number | null) => void }) {
+function LimitedAttemptsField({ value, onChange, requireStart, onRequireStartChange }: {
+  value: number | null; onChange: (v: number | null) => void;
+  requireStart: boolean; onRequireStartChange: (v: boolean) => void;
+}) {
   return (
     <div className="mb-4" data-testid="limited-attempts">
       <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5" htmlFor="tournament-max-attempts">
@@ -735,6 +746,24 @@ function LimitedAttemptsField({ value, onChange }: { value: number | null; onCha
           ? 'Blank = unlimited: players may play as often as they like and the best score counts.'
           : `Each player gets ${value} game start${value === 1 ? '' : 's'} per table. Scores come only from Arcaid Witness.`}
       </p>
+      {value != null && (
+        <label className="flex items-start gap-2 mt-3 text-sm text-primary cursor-pointer" data-testid="require-attempt-start">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={requireStart}
+            onChange={e => onRequireStartChange(e.target.checked)}
+          />
+          <span>
+            Players press "Start attempts" first
+            <span className="block text-xs text-faint mt-0.5">
+              {requireStart
+                ? 'Until a player presses Start attempts on a table (on its game page), their plays there go to the Global Scoreboard and use no attempt. Good for long rounds: warm up, then start.'
+                : 'Off: every play that ends while the table is open counts and uses an attempt. Plays before the table opens never count.'}
+            </span>
+          </span>
+        </label>
+      )}
     </div>
   );
 }
@@ -1131,7 +1160,12 @@ export default function TournamentFormFields({ state, set, platforms, roomId, lo
         onModeChange={m => set('integrityMode', m)}
         onRulesChange={r => set('sanctionedRules', r)}
       />
-      <LimitedAttemptsField value={state.maxAttempts} onChange={v => set('maxAttempts', v)} />
+      <LimitedAttemptsField
+        value={state.maxAttempts}
+        onChange={v => set('maxAttempts', v)}
+        requireStart={state.requireAttemptStart}
+        onRequireStartChange={v => set('requireAttemptStart', v)}
+      />
       {isEvent && (
         <WitnessFlagModeField value={state.witnessFlagMode} onChange={v => set('witnessFlagMode', v)} />
       )}

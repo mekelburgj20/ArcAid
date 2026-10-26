@@ -264,7 +264,16 @@ export default function GameDetail() {
       maxAttempts: number | null;
       /** v2.167.0 — `{ [gameId]: { [canonicalUserId]: used } }`. */
       attempts: Record<string, Record<string, number>>;
+      /** v2.178.0 (W38) — players press Start attempts per table before plays count. */
+      requireAttemptStart: boolean;
     } | null>(null);
+  /**
+   * W38 (ADR 0033 §4) — when the viewer pressed Start attempts on THIS board's
+   * table: undefined = not loaded yet, null = not pressed, else epoch seconds.
+   * Keyed on the game id so a value is never shown on another board.
+   */
+  const [attemptStart, setAttemptStart] = useState<{ gameId: string; startedTs: number | null } | null>(null);
+  const [startingAttempts, setStartingAttempts] = useState(false);
   // Keyed on the tournament id so a stale map is never drawn on another
   // board — and no state reset is needed when the id changes.
   const integrity = integrityLoaded && integrityLoaded.tournamentId === integrityTournamentId ? integrityLoaded : null;
@@ -562,6 +571,7 @@ export default function GameDetail() {
       .then((data: {
         mode?: string; verdicts?: IntegrityVerdictMap;
         maxAttempts?: number | null; attempts?: Record<string, Record<string, number>>;
+        requireAttemptStart?: boolean;
       } | null) => {
         if (cancelled || !data) return;
         setIntegrityLoaded({
@@ -570,11 +580,55 @@ export default function GameDetail() {
           verdicts: data.verdicts && typeof data.verdicts === 'object' ? data.verdicts : {},
           maxAttempts: typeof data.maxAttempts === 'number' && data.maxAttempts >= 1 ? data.maxAttempts : null,
           attempts: data.attempts && typeof data.attempts === 'object' ? data.attempts : {},
+          requireAttemptStart: data.requireAttemptStart === true,
         });
       })
       .catch(() => {});
     return () => { cancelled = true; };
   }, [roomId, integrityTournamentId]);
+
+  // W38 (ADR 0033 §4) — the viewer's own Start attempts press for this table,
+  // only when the tournament requires one and someone is logged in.
+  const needsAttemptStart = integrity?.requireAttemptStart === true;
+  const boardGameId = leaderboard?.gameId;
+  useEffect(() => {
+    if (!roomId || !integrityTournamentId || !needsAttemptStart || !playerToken || !boardGameId) return;
+    let cancelled = false;
+    fetch(`/api/rooms/${roomId}/tournaments/${integrityTournamentId}/attempt-starts/me`, {
+      headers: { Authorization: `Bearer ${playerToken}` },
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then((data: { starts?: Record<string, number> } | null) => {
+        if (cancelled || !data) return;
+        const ts = data.starts?.[boardGameId];
+        setAttemptStart({ gameId: boardGameId, startedTs: typeof ts === 'number' ? ts : null });
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [roomId, integrityTournamentId, needsAttemptStart, playerToken, boardGameId]);
+  const myAttemptStart = attemptStart && attemptStart.gameId === boardGameId ? attemptStart : null;
+
+  const handleStartAttempts = async () => {
+    if (!roomId || !integrityTournamentId || !boardGameId || !playerToken) return;
+    setStartingAttempts(true);
+    try {
+      const res = await fetch(
+        `/api/rooms/${roomId}/tournaments/${integrityTournamentId}/games/${boardGameId}/attempt-start`,
+        { method: 'POST', headers: { Authorization: `Bearer ${playerToken}` } },
+      );
+      const body = await res.json().catch(() => ({} as { error?: string; startedTs?: number }));
+      if (!res.ok || typeof body.startedTs !== 'number') {
+        toast(body.error || 'Could not start your attempts', 'error');
+        return;
+      }
+      setAttemptStart({ gameId: boardGameId, startedTs: body.startedTs });
+      toast('Attempts started — your plays on this table count from now', 'success');
+    } catch {
+      toast('Could not start your attempts', 'error');
+    } finally {
+      setStartingAttempts(false);
+    }
+  };
 
   /**
    * The tournament-board + all-time-rankings load, shared by the initial
@@ -1085,6 +1139,33 @@ export default function GameDetail() {
                   <p className="text-muted text-xs mt-1">
                     You have {viewerAttemptsLeft} attempt{viewerAttemptsLeft === 1 ? '' : 's'} left
                   </p>
+                )}
+                {/* W38 (ADR 0033 §4) — the host made players press Start first. */}
+                {integrity.requireAttemptStart && (
+                  !playerToken ? (
+                    <p className="text-muted text-xs mt-1">
+                      This tournament asks you to press Start attempts on each table before your plays count. Log in to start.
+                    </p>
+                  ) : myAttemptStart?.startedTs != null ? (
+                    <p className="text-muted text-xs mt-1" data-testid="attempts-started">
+                      Attempts started {new Date(myAttemptStart.startedTs * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} — every play on this table counts from then
+                    </p>
+                  ) : myAttemptStart && (leaderboard.gameStatus === 'ACTIVE' || leaderboard.gameStatus === 'SCHEDULED') ? (
+                    <div className="mt-2 flex flex-wrap items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={handleStartAttempts}
+                        disabled={startingAttempts}
+                        className="px-3 py-1.5 rounded border border-neon-cyan text-neon-cyan text-xs font-display uppercase tracking-wider hover:bg-neon-cyan/10 disabled:opacity-50"
+                        data-testid="start-attempts"
+                      >
+                        {startingAttempts ? 'Starting…' : 'Start attempts'}
+                      </button>
+                      <span className="text-muted text-xs">
+                        Warm up as much as you like: until you press it, your plays here go to the Global Scoreboard and use no attempt.
+                      </span>
+                    </div>
+                  ) : null
                 )}
               </div>
             )}

@@ -3325,6 +3325,26 @@ async function doInitDatabase(): Promise<Database> {
             await db.exec(`DROP INDEX IF EXISTS idx_attempts_key`);
             await db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_attempts_key ON attempts(device_id, attempt_key, game_id)`);
         } },
+        // v2.178.0 (W38, ADR 0033 §4) — the optional "Start attempts" host setting.
+        // `require_attempt_start = 1`: a player's plays on a limited table go to
+        // Global and use no attempt until they press Start attempts for that
+        // table; `attempt_starts` holds the press (one per player per games row).
+        // No FKs, same doctrine as `attempts`: the trail outlives its game.
+        { name: '193_attempt_start', handler: async (db) => {
+            const cols = (await db.all(`PRAGMA table_info(tournaments)`)) as Array<{ name: string }>;
+            if (!cols.some(c => c.name === 'require_attempt_start')) {
+                await db.exec(`ALTER TABLE tournaments ADD COLUMN require_attempt_start INTEGER NOT NULL DEFAULT 0`);
+            }
+            await db.exec(`CREATE TABLE IF NOT EXISTS attempt_starts (
+                game_id TEXT NOT NULL,
+                canonical_user_id TEXT NOT NULL,
+                tournament_id TEXT NOT NULL,
+                started_ts INTEGER NOT NULL,
+                source TEXT NOT NULL DEFAULT 'web',
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                PRIMARY KEY (game_id, canonical_user_id)
+            )`);
+        } },
     ];
 
     for (const migration of migrations) {

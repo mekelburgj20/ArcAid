@@ -529,6 +529,158 @@ describe('witness routes on a limited tournament', () => {
     });
 });
 
+describe('W38 (ADR 0033 §3–4): plays that straddle the window, and "Start attempts"', () => {
+    let app: express.Express;
+    let roomId: string;
+
+    beforeEach(async () => {
+        app = await createTestApp();
+        roomId = await createTestRoom();
+        await addMember(roomId, USER);
+    });
+
+    async function requireStart(tournamentId: string, on = true) {
+        const db = await getDatabase();
+        await db.run('UPDATE tournaments SET require_attempt_start = ? WHERE id = ?', on ? 1 : 0, tournamentId);
+    }
+    const pressStart = (tournamentId: string, gameId: string, who = USER) =>
+        request(app).post(`/api/rooms/${roomId}/tournaments/${tournamentId}/games/${gameId}/attempt-start`)
+            .set('Authorization', `Bearer ${playerToken(who)}`).send({});
+    async function attemptRows(gameId: string) {
+        const db = await getDatabase();
+        return db.all<Array<{ status: string; attempt_no: number; note: string | null }>>(
+            'SELECT status, attempt_no, note FROM attempts WHERE game_id = ? ORDER BY id', gameId,
+        );
+    }
+
+    it('§3: a desktop play that STARTED before the window and ended inside it counts (it used to be refused as unreported)', async () => {
+        const token = await pairDevice(app, DESKTOP, 'desktop');
+        const { gameId } = await createLimitedGame(roomId, 3);
+        const db = await getDatabase();
+        // The rotation game went up 2 minutes ago; this game started 5 minutes ago.
+        await db.run('UPDATE games SET start_date = ? WHERE id = ?', new Date(Date.now() - 2 * MINUTE).toISOString(), gameId);
+        const q = scoreQuery();
+
+        const att = await request(app).get('/api/witness/attempt')
+            .query({ device: DESKTOP, token, table: q.table, rom: q.rom, slug: q.slug, started: q.started, key: 'early-1' });
+        expect(att.body.status).toBe('no_match'); // no open game at the start: nothing counted yet
+        expect(await attemptRows(gameId)).toHaveLength(0);
+
+        const res = await request(app).get('/api/witness/score').query({ device: DESKTOP, token, ...q, attempt: 'early-1' });
+        expect(res.body).toMatchObject({ ok: true, status: 'ingested', attempt: { n: 1, of: 3, remaining: 2 } });
+        expect(await boardRows(gameId)).toHaveLength(1);
+        expect(await attemptRows(gameId)).toEqual([{ status: 'scored', attempt_no: 1, note: 'started before the window' }]);
+    });
+
+    describe('Start attempts required', () => {
+        it('desktop: before the press a start counts nothing and its score goes to Global as not_started; after it, plays count', async () => {
+            const token = await pairDevice(app, DESKTOP, 'desktop');
+            const { tournamentId, gameId } = await createLimitedGame(roomId, 2);
+            await requireStart(tournamentId);
+            const q = scoreQuery();
+            const nowSec = Math.floor(Date.now() / 1000);
+
+            const att = await request(app).get('/api/witness/attempt')
+                .query({ device: DESKTOP, token, table: q.table, rom: q.rom, slug: q.slug, started: nowSec, key: 'pre-1' });
+            expect(att.body).toMatchObject({ status: 'no_match', reason: ATTEMPT_REFUSAL_TEXT.not_started });
+            const before = await request(app).get('/api/witness/score').query({ device: DESKTOP, token, ...q, attempt: 'pre-1' });
+            expect(before.body).toMatchObject({ status: 'not_sanctioned', reasons: [ATTEMPT_REFUSAL_TEXT.not_started] });
+            expect(await attemptRows(gameId)).toHaveLength(0); // used no attempt
+            expect(await boardRows(gameId)).toHaveLength(0);
+
+            const pressed = await pressStart(tournamentId, gameId);
+            expect(pressed.status).toBe(200);
+            const startedTs = pressed.body.startedTs as number;
+
+            const att2 = await request(app).get('/api/witness/attempt')
+                .query({ device: DESKTOP, token, table: q.table, rom: q.rom, slug: q.slug, started: startedTs + 5, key: 'post-1' });
+            expect(att2.body).toMatchObject({ status: 'counted', attempt: 1, of: 2 });
+            const after = await request(app).get('/api/witness/score')
+                .query({ device: DESKTOP, token, ...q, score: 4_000_000, started: startedTs + 5, ended: startedTs + 305, attempt: 'post-1' });
+            expect(after.body).toMatchObject({ status: 'ingested', attempt: { n: 1, of: 2 } });
+            expect(await boardRows(gameId)).toHaveLength(1);
+        });
+
+        it('a game that began BEFORE the press does not count even if it ends after it', async () => {
+            const token = await pairDevice(app, DESKTOP, 'desktop');
+            const { tournamentId, gameId } = await createLimitedGame(roomId, 2);
+            await requireStart(tournamentId);
+            const startedTs = (await pressStart(tournamentId, gameId)).body.startedTs as number;
+            const res = await request(app).get('/api/witness/score')
+                .query({ device: DESKTOP, token, ...scoreQuery({ started: startedTs - 30, ended: startedTs + 200 }) });
+            expect(res.body).toMatchObject({ status: 'not_sanctioned', reasons: [ATTEMPT_REFUSAL_TEXT.not_started] });
+            expect(await attemptRows(gameId)).toHaveLength(0);
+        });
+
+        it('cabinet: a report before the press uses nothing (no_match); after it, it counts; the line reads NOT STARTED until then', async () => {
+            const token = await pairDevice(app, CABINET);
+            const { tournamentId, gameId } = await createLimitedGame(roomId, 2);
+            await requireStart(tournamentId);
+            const beat = async () => (await request(app).get('/api/witness/heartbeat').query({ device: CABINET, token })).body.sendingTo as string;
+            expect(await beat()).toMatch(/ · ATTEMPTS NOT STARTED$/);
+
+            const nowSec = Math.floor(Date.now() / 1000);
+            const early = await request(app).get('/api/witness/score')
+                .query({ device: CABINET, token, ...scoreQuery({ started: nowSec - 300, ended: nowSec - 10 }) });
+            expect(early.body).toMatchObject({ ok: true, status: 'no_match' });
+            expect(await attemptRows(gameId)).toHaveLength(0);
+
+            const startedTs = (await pressStart(tournamentId, gameId)).body.startedTs as number;
+            expect(await beat()).toMatch(/ · 2 OF 2 ATTEMPTS LEFT$/);
+            const later = await request(app).get('/api/witness/score')
+                .query({ device: CABINET, token, ...scoreQuery({ score: 5_000_000, started: startedTs, ended: startedTs + 200 }) });
+            expect(later.body).toMatchObject({ status: 'ingested', attempt: { n: 1, of: 2 } });
+        });
+
+        it('the press is idempotent (keeps the first time) and the viewer can read it back', async () => {
+            const { tournamentId, gameId } = await createLimitedGame(roomId, 2);
+            await requireStart(tournamentId);
+            const { AttemptService } = await import('../services/AttemptService.js');
+            const first = await AttemptService.startAttempts({ tournamentId, gameId, canonicalUserId: USER, source: 'web', nowSec: 1000 });
+            const second = await AttemptService.startAttempts({ tournamentId, gameId, canonicalUserId: USER, source: 'web', nowSec: 2000 });
+            expect([first, second]).toEqual([1000, 1000]);
+            const me = await request(app).get(`/api/rooms/${roomId}/tournaments/${tournamentId}/attempt-starts/me`)
+                .set('Authorization', `Bearer ${playerToken(USER)}`);
+            expect(me.body).toEqual({ starts: { [gameId]: 1000 } });
+        });
+
+        it('refuses a press from a non-member (403), on a tournament without the setting (409) and on a closed table (409)', async () => {
+            const { tournamentId, gameId } = await createLimitedGame(roomId, 2);
+            const notRequired = await pressStart(tournamentId, gameId);
+            expect(notRequired.status).toBe(409);
+            expect(notRequired.body.code).toBe('NOT_REQUIRED');
+
+            await requireStart(tournamentId);
+            const stranger = await pressStart(tournamentId, gameId, '999999999999999999');
+            expect(stranger.status).toBe(403);
+            expect(stranger.body.code).toBe('NOT_ENTERED');
+
+            const db = await getDatabase();
+            await db.run(`UPDATE games SET status = 'COMPLETED' WHERE id = ?`, gameId);
+            const closed = await pressStart(tournamentId, gameId);
+            expect(closed.status).toBe(409);
+            expect(closed.body.code).toBe('NOT_OPEN');
+        });
+
+        it('the public integrity read says the tournament requires it; the setting survives an edit that omits it', async () => {
+            const { tournamentId } = await createLimitedGame(roomId, 2);
+            const { TournamentService } = await import('../services/TournamentService.js');
+            const db = await getDatabase();
+            const stored = await db.get<Record<string, unknown>>('SELECT * FROM tournaments WHERE id = ?', tournamentId);
+            const base = {
+                name: stored!.name as string, type: stored!.type as string, cadence: {}, game_room_id: roomId, is_active: true,
+            };
+            await TournamentService.update(tournamentId, { ...base, require_attempt_start: true });
+            await TournamentService.update(tournamentId, base); // omits it
+            const read = await request(app).get(`/api/rooms/${roomId}/tournaments/${tournamentId}/integrity`);
+            expect(read.body).toMatchObject({ maxAttempts: 2, requireAttemptStart: true });
+            await TournamentService.update(tournamentId, { ...base, require_attempt_start: false });
+            const off = await request(app).get(`/api/rooms/${roomId}/tournaments/${tournamentId}/integrity`);
+            expect(off.body.requireAttemptStart).toBe(false);
+        });
+    });
+});
+
 describe('manual submits refuse a limited tournament', () => {
     beforeEach(async () => { await setupTestDb(); });
 

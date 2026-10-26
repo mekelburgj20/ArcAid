@@ -97,6 +97,8 @@ export type TournamentIntegrity = {
     maxAttempts: number | null;
     /** v2.167.0 — `{ [gameId]: { [canonicalUserId]: used } }`, void rows excluded. Empty when unlimited. */
     attempts: Record<string, Record<string, number>>;
+    /** v2.178.0 (W38) — players press Start attempts per table before plays count. False when unlimited. */
+    requireAttemptStart: boolean;
 };
 
 type DbRow = {
@@ -253,8 +255,11 @@ export class WitnessEvidenceService {
     /** A tournament's mode, its (normalised) rules and each game's requirements. */
     static async getIntegrity(tournamentId: string): Promise<TournamentIntegrity | null> {
         const db = await getDatabase();
-        const t = await db.get<{ id: string; integrity_mode: string | null; sanctioned_rules: string | null; max_attempts: number | null }>(
-            'SELECT id, integrity_mode, sanctioned_rules, max_attempts FROM tournaments WHERE id = ?', tournamentId,
+        const t = await db.get<{
+            id: string; integrity_mode: string | null; sanctioned_rules: string | null; max_attempts: number | null;
+            require_attempt_start: number | null;
+        }>(
+            'SELECT id, integrity_mode, sanctioned_rules, max_attempts, require_attempt_start FROM tournaments WHERE id = ?', tournamentId,
         );
         if (!t) return null;
         const games = await db.all<Array<{
@@ -276,6 +281,7 @@ export class WitnessEvidenceService {
             tournamentId,
             maxAttempts,
             attempts,
+            requireAttemptStart: maxAttempts != null && t.require_attempt_start === 1,
             mode: normalizeIntegrityMode(t.integrity_mode),
             rules: normalizeSanctionedRules(t.sanctioned_rules),
             games: games.map(g => ({

@@ -253,6 +253,8 @@ type CandidateRow = {
     is_member: number;
     /** v2.175.0 (W37/W36) — the event requires check-in (`entryAllowed`). */
     checkin_required: number | null;
+    /** v2.178.0 (W38) — players press Start attempts before plays count. */
+    require_attempt_start: number | null;
 };
 
 /** What `VpxScoreIngestService.match` decided. Shared by the score and the attempt calls. */
@@ -492,11 +494,22 @@ export class VpxScoreIngestService {
         // Global fall-through when the device allows it, trail row.
         let attemptAccepted: { attemptId: number; attempt: { n: number; of: number; remaining: number } } | null = null;
         if (target.max_attempts != null && target.max_attempts >= 1 && target.tournament_id) {
-            const { AttemptService, ATTEMPT_REFUSAL_TEXT } = await import('./AttemptService.js');
-            const refusal = (reason: 'device' | 'exit_sample') =>
+            const { AttemptService, ATTEMPT_REFUSAL_TEXT, playIsStarted } = await import('./AttemptService.js');
+            const refusal = (reason: 'device' | 'exit_sample' | 'not_started') =>
                 ({ ok: false as const, reason, text: ATTEMPT_REFUSAL_TEXT[reason] });
+            // W38 (ADR 0033 §4) — with "Start attempts" required, a play that
+            // began before the player pressed it goes to Global and uses NO
+            // attempt (checked before any attempt row is written).
+            const notStarted = target.require_attempt_start === 1 && input.deviceId
+                ? !playIsStarted(
+                    (await AttemptService.startsFor(input.canonicalUserId, [target.id]))[target.id],
+                    input.startedTs,
+                )
+                : false;
             const bound = !input.deviceId
                 ? refusal('device')
+                : notStarted
+                ? refusal('not_started')
                 : input.deviceType !== 'desktop'
                 // A CABINET has no live start call: each game report IS the
                 // attempt, counted at report time (owner ruling 2026-10-22).
@@ -518,6 +531,11 @@ export class VpxScoreIngestService {
                     attemptKey: input.attemptKey ?? null, limit: target.max_attempts,
                     score, startedTs: input.startedTs, endedTs: input.endedTs,
                     tableName: input.tableName, rom: input.rom ?? null,
+                    // W38 (ADR 0033 §3) — a play that started before the window
+                    // and ended inside it counts.
+                    windowStartTs: target.round_no != null
+                        ? epochOf(target.scheduled_start_at)
+                        : epochOf(target.start_date),
                 });
             if (!bound.ok) {
                 logInfo(
@@ -1087,7 +1105,7 @@ export class VpxScoreIngestService {
         target: { roomId: string | null; tournamentId: string | null; globalOnly?: boolean };
         deviceType: WitnessDeviceType | null | undefined;
         nowTs: number;
-    }): Promise<Array<{ gameId: string; gameName: string; tournamentId: string; limit: number }>> {
+    }): Promise<Array<{ gameId: string; gameName: string; tournamentId: string; limit: number; requireStart: boolean }>> {
         const provenance = VpxScoreIngestService.provenanceFor(input.deviceType ?? 'atgames');
         return (await VpxScoreIngestService.loadCandidates(input.canonicalUserId))
             .filter(row => row.max_attempts != null && row.max_attempts >= 1 && row.tournament_id != null)
@@ -1097,6 +1115,7 @@ export class VpxScoreIngestService {
             .filter(row => !VpxScoreIngestService.engineExcluded(row, provenance.device))
             .map(row => ({
                 gameId: row.id, gameName: row.name, tournamentId: row.tournament_id!, limit: row.max_attempts!,
+                requireStart: row.require_attempt_start === 1,
             }));
     }
 
@@ -1115,7 +1134,7 @@ export class VpxScoreIngestService {
                     g.start_date, g.tournament_id, g.game_room_id, g.global_game_id,
                     g.required_vps_table_id, g.required_rom, g.required_fingerprint,
                     t.format, t.end_grace_sec, t.platform_rules, t.integrity_mode, t.sanctioned_rules,
-                    t.max_attempts, t.checkin_required,
+                    t.max_attempts, t.checkin_required, t.require_attempt_start,
                     EXISTS (
                         SELECT 1 FROM tournament_participants tp
                          WHERE tp.tournament_id = g.tournament_id AND tp.user_id = ?
