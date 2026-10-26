@@ -6,7 +6,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
-## [2.177.0] - 2026-10-25 - Attempts left on the cabinet (W43)
+## [2.177.0] - 2026-10-26 - Attempts left on the cabinet (W43)
 
 A cabinet player in a limited-attempts tournament had no way to see how many tries they had left without
 opening the game page on a phone. The cabinet's "SENDING TO" line now ends with the count.
@@ -26,6 +26,34 @@ opening the game page on a phone. The cabinet's "SENDING TO" line now ends with 
 ### Known limit
 - The cabinet draws the line on one row and neither clips nor wraps it, so a long room/tournament name plus
   several limited tables can run over the "SENDING TO" label. A cabinet-side wrap would come in a later kit.
+
+## [2.176.0] - 2026-10-26 - Witness scores are not editable (B20)
+
+A limited-attempts tournament refused every typed score, but a player could still play one witnessed game
+and then raise its value with the score-correction pencil. That edited number kept its Witness badge.
+Owner ruling 2026-10-25: no self-correction in any Sanctioned or Limited-attempts tournament, and a score
+that comes from the Witness is not editable at all.
+
+### Changed
+- **A machine-reported score cannot be corrected by anyone, admins included.** That means `vpx` (Arcaid
+  Witness) and `atgames` (cabinet pull), the same two sources the UI badges as Witnessed.
+  `PATCH /:roomId/score-history/:historyId/score` answers `403` with `reason: 'machine_reported'`, and
+  `ScoreHistoryService.correctScore` throws `ScoreNotEditableError`, so no future caller can get around it. A
+  wrong Witness score is deleted instead; the delete still tombstones the play so a replay can't re-post it
+  (ADR 0024).
+- **No self-correction in a Sanctioned or Limited-attempts tournament.** The submitter gets `403` with
+  `reason: 'integrity'` ("This tournament does not allow players to edit their scores — ask an admin.").
+  Admins can still correct typed scores there.
+- **The pencil follows suit.** It's hidden on Witness rows everywhere (game page board and history, the quick
+  view, admin Manage Scores) and hidden for the submitter on a Sanctioned or Limited-attempts board. The room
+  leaderboard list carries a new `selfCorrectionLocked` flag per board, and Manage Scores' submissions list
+  carries `history_source`.
+- One policy module, `src/utils/scoreCorrectionPolicy.ts`, holds both rules. The FE mirror is
+  `admin-ui/src/lib/scoreCorrect.ts`.
+
+### Removed
+- `correctScore` no longer writes an `auto_score_suppressions` tombstone, because it no longer accepts the
+  rows that needed one.
 
 ## [2.175.0] - 2026-10-26 - Joining a room enters you in its tournaments (W37, ADR 0033)
 

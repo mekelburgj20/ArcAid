@@ -154,8 +154,8 @@ describe('auto-posted VPX scores — delete, then replay', () => {
 
     async function vpxRow() {
         const db = await getDatabase();
-        return db.get<{ id: number; created_at: string; submitted_by_user_id: string }>(
-            `SELECT id, created_at, submitted_by_user_id FROM score_history WHERE source = 'vpx' ORDER BY id DESC LIMIT 1`,
+        return db.get<{ id: number; score: number; created_at: string; submitted_by_user_id: string }>(
+            `SELECT id, score, created_at, submitted_by_user_id FROM score_history WHERE source = 'vpx' ORDER BY id DESC LIMIT 1`,
         );
     }
 
@@ -267,16 +267,17 @@ describe('auto-posted VPX scores — delete, then replay', () => {
         expect(tomb).toMatchObject({ owner_key: 'atgames:50177', score: 4200, played_at: '2026-09-01 20:10:00' });
     });
 
-    it('suppresses a replay of the ORIGINAL value after a correction', async () => {
+    it('a witness score cannot be corrected at all — the service refuses and nothing changes (2026-10-25)', async () => {
         await ingestOnce();
         const row = await vpxRow();
-        await ScoreHistoryService.correctScore((await ScoreHistoryService.getDeletableRow(row!.id))!, 836665, USER);
+        await expect(
+            ScoreHistoryService.correctScore((await ScoreHistoryService.getDeletableRow(row!.id))!, 836665, USER),
+        ).rejects.toMatchObject({ code: 'SCORE_NOT_EDITABLE' });
 
-        const replay = await ingestOnce();
-        expect(replay.body.status).toBe('duplicate');
         const db = await getDatabase();
         const scores = await db.all<Array<{ score: number }>>(`SELECT score FROM score_history WHERE source = 'vpx'`);
-        expect(scores.map(s => s.score)).toEqual([836665]);
+        expect(scores.map(s => s.score)).toEqual([row!.score]);
+        expect(await count(`SELECT COUNT(*) AS n FROM auto_score_suppressions`)).toBe(0);
     });
 
     it('tombstones every auto-posted row the admin "wipe player from game" sweep removes', async () => {

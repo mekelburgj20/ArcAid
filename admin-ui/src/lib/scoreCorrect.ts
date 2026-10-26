@@ -15,6 +15,7 @@
 import type { ViewerClaims } from './viewerClaims';
 import { isRoomAdminFor } from './viewerClaims';
 import { isOwnScoreRow, rowHistoryId, type DeletableRowLike } from './scoreDelete';
+import { isWitnessedScore } from './provenanceDisplay';
 
 /** The extra fields the owner tier reads, beyond `DeletableRowLike`. */
 export interface CorrectableRowLike extends DeletableRowLike {
@@ -42,10 +43,12 @@ export interface CorrectableRowLike extends DeletableRowLike {
  * `gameStatus` omitted means "not a tournament card" (the global and all-time
  * views), where there is no round to close and only admins may correct.
  *
- * No `source` filter, unlike `canDeleteRow`: the server accepts a correction on
- * any source, because a typo is a typo whatever wrote the row. Ownership does
- * the filtering on its own — a synced row has a NULL `submitted_by_user_id` and
- * so belongs to nobody.
+ * Two refusals on top of the tiers (owner ruling 2026-10-25, mirrored from the
+ * server's `src/utils/scoreCorrectionPolicy.ts`):
+ *   - a MACHINE-REPORTED row (`'vpx'` Witness, `'atgames'` cabinet pull) is
+ *     never correctable, admins included — the number is the evidence;
+ *   - `selfCorrectionLocked` (the board's tournament is Sanctioned or has
+ *     Limited attempts) closes the submitter's tier; admins keep theirs.
  *
  * NOT the enforcement point. The server re-checks every clause.
  */
@@ -54,10 +57,13 @@ export function canCorrectRow(
   claims: ViewerClaims | null,
   roomId: string | undefined,
   gameStatus?: string,
+  selfCorrectionLocked?: boolean,
 ): boolean {
   if (!claims || !roomId) return false;
   if (rowHistoryId(row) == null) return false;
+  if (isWitnessedScore(row)) return false;
   if (isRoomAdminFor(claims, roomId)) return true;
+  if (selfCorrectionLocked) return false;
   if (!isOwnScoreRow(row, claims)) return false;
   if (row.verified_at || row.verified) return false;
   return gameStatus === 'ACTIVE';
