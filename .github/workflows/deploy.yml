@@ -21,6 +21,13 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# A newer push to the same PR cancels that PR's older test run (it tests code
+# that is no longer the PR head). Pushes to main and manual runs each get their
+# own group (the run id), so a deploy is never cancelled or queued by this.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   REGISTRY: ghcr.io
 
