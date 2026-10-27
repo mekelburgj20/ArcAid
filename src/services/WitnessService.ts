@@ -404,6 +404,8 @@ export class WitnessService {
         playDevice?: import('./VpxScoreIngestService.js').PlayDevice | null;
         /** v2.167.0 (ADR 0029) — the game START's key from `/witness/attempt`. */
         attemptKey?: string | null;
+        /** v2.180.0 (W48) — the launcher's per-ball points for this game, raw (cabinet 1.0.6+). */
+        ballPoints?: number[] | null;
     }): Promise<(import('./VpxScoreIngestService.js').VpxIngestResult & { deviceType: WitnessDeviceType }) | null> {
         const deviceId = (input.atgamesUniqueId || '').trim();
         if (!deviceId || !input.token) return null;
@@ -425,6 +427,7 @@ export class WitnessService {
             playDevice: input.playDevice ?? null,
             attemptKey: input.attemptKey ?? null,
             restarts: input.restarts ?? null,
+            ballPoints: input.ballPoints ?? null,
             tableName: (input.tableName || '').trim(),
             rom: input.rom ?? null,
             slug: input.slug ?? null,

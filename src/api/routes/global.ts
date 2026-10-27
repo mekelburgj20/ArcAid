@@ -5,6 +5,7 @@ import { requireAuth, requireDiscordUser, requireSuperAdmin, requireNotBanned, r
 import { writeLimiter, globalSubmitLimiter, authLimiter, roomCreateLimiter, raSearchLimiter, raImportLimiter, witnessIngestLimiter } from '../rateLimit.js';
 import { parseWitnessEvidence } from '../../utils/sanctionedRules.js';
 import { parsePlayDevice } from '../../services/VpxScoreIngestService.js';
+import { parseBallPoints } from '../../utils/ballPoints.js';
 import { raSearchHandler, raImportHandler } from '../raCatalogueHandlers.js';
 import { validate } from '../validate.js';
 import { isAllowedImage } from '../uploadValidation.js';
@@ -439,6 +440,9 @@ router.get('/witness/score', witnessIngestLimiter, async (req, res) => {
             // belongs to, as sent on /witness/attempt. Only a tournament that
             // limits attempts reads it.
             attemptKey: typeof req.query.attempt === 'string' ? req.query.attempt : null,
+            // v2.180.0 (W48) — the launcher's per-ball points, raw (cabinet 1.0.6+).
+            // Stored on the evidence row; malformed is dropped, never a 400.
+            ballPoints: parseBallPoints(req.query.balls),
         });
         if (!result) return res.status(401).json({ ok: false });
 

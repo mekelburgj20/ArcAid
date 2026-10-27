@@ -150,6 +150,12 @@ export type VpxScoreInput = {
      * when the matched tournament limits attempts.
      */
     restarts?: number | null;
+    /**
+     * v2.180.0 (W48) — the launcher's per-ball points for this game, raw, in
+     * ball order (cabinet 1.0.6+ `balls=`). Stored on the evidence trail for a
+     * later per-ball format; nothing here reads it.
+     */
+    ballPoints?: number[] | null;
 };
 
 /** See `VpxScoreIngestService.provenanceFor`. */
@@ -898,6 +904,7 @@ export class VpxScoreIngestService {
                 score,
                 playedAt,
                 evidence: input.evidence ?? null,
+                ballPoints: input.ballPoints ?? null,
             });
         } catch (err) {
             logWarn(`VPX ingest: evidence trail not written (${err instanceof Error ? err.message : String(err)})`);
