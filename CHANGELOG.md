@@ -6,6 +6,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.184.0] - 2026-10-27 - "Your scores go to" on room and home pages (W27.3, ADR 0033 §5)
+
+TomatoGrass's top request from the Witness Weekend Showdown: where a paired device sends scores was buried
+in Account Settings, and missing it meant plays silently not counting. Players now see it before they play.
+
+### Added
+- **On every room page,** a line per paired device, just under the event banner, saying whether its plays
+  count here:
+  - "Your cabinet sends its scores here.";
+  - "…here, to "Spooky Season" only." (pinned to one tournament);
+  - "Your cabinet is set to the Global Scoreboard only, so plays here won't count in this room. **Change**";
+  - "Your cabinet sends to RTX Pinball only, …";
+  - "Your cabinet's plays will count here once you join this room."
+
+  A PC (Castcade) is named apart from a cabinet. **Change** jumps straight to the device picker on Account
+  Settings.
+- **On the home page,** under My Game Rooms, where each device sends ("every room you belong to", one room,
+  one tournament, or "the Global Scoreboard only, not to your rooms").
+- `GET /api/me/witness/routing?roomId=` → `WitnessService.routingForRoom`. It runs the ingest's own routing
+  rule (`deviceRoutesTo`) on each device's effective target, so the line can't disagree with where a score
+  actually goes.
+- Account Settings scrolls to the devices block for `#witness-devices`.
+
+Nothing shows for guests or players with no paired device.
+
+---
+
 ## [2.183.0] - 2026-10-26 - "Where your plays went" (W27.2, ADR 0033 §5)
 
 The web half of "a play that doesn't count tells the player why". TomatoGrass's top request from the

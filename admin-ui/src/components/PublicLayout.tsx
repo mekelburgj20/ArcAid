@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, Outlet, useParams, useLocation } from 'react-router-dom';
 import EventBanner from './EventBanner';
+import WitnessScoresGoTo from './WitnessScoresGoTo';
 import { Monitor, Gamepad2, BarChart3, Trophy, MessageSquare, Users, UserPlus } from 'lucide-react';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { usePickAwardEnabled } from '../hooks/usePickAwardEnabled';
@@ -512,6 +513,14 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
             {resolvedRoomId && !location.pathname.includes('/events/') && (
               <div className="max-w-5xl mx-auto px-4 sm:px-6 pt-3">
                 <EventBanner roomId={resolvedRoomId} roomSlug={slug || ''} />
+              </div>
+            )}
+            {/* W27.3 (ADR 0033 §5) — does each of the viewer's paired Witness
+                devices send here? Renders nothing for guests and players with no
+                paired device. */}
+            {resolvedRoomId && (
+              <div className="max-w-5xl mx-auto px-4 sm:px-6 pt-2">
+                <WitnessScoresGoTo roomId={resolvedRoomId} />
               </div>
             )}
             <PlayerQuickViewProvider>

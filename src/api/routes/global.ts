@@ -199,6 +199,19 @@ router.get('/me/witness/devices', requireDiscordUser, async (req, res) => {
     }
 });
 
+// W27.3 (ADR 0033 §5) — does each of my paired devices send to this room?
+router.get('/me/witness/routing', requireDiscordUser, async (req, res) => {
+    try {
+        const roomId = typeof req.query.roomId === 'string' ? req.query.roomId : '';
+        if (!roomId) return res.status(400).json({ error: 'roomId is required' });
+        const { WitnessService } = await import('../../services/WitnessService.js');
+        res.json(await WitnessService.routingForRoom(req.user!.discordId!, roomId));
+    } catch (error) {
+        logError('API Error (GET /api/me/witness/routing):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 // W27.2 (ADR 0033 §5) — "Where your plays went": the player's own recent
 // witness plays with where each landed, or why it did not.
 router.get('/me/witness/plays', requireDiscordUser, async (req, res) => {

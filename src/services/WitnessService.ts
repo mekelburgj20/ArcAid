@@ -810,6 +810,67 @@ export class WitnessService {
     }
 
     /**
+     * W27.3 (ADR 0033 §5) — for each of the player's paired devices: do its
+     * scores reach THIS room? Answers the "Your scores go to" line on a room
+     * page through `deviceRoutesTo`, the ONE routing rule the ingest and the
+     * lobby use, with the device's EFFECTIVE target (a finished pinned
+     * tournament reads as absent), so the line can never disagree with where a
+     * score goes. Room-level only: whether a play is then allowed into a given
+     * tournament (check-in, roster) is per play, and "Where your plays went"
+     * says so per play.
+     *
+     * - `yes` — every open tournament here the player is in.
+     * - `one_tournament` — pinned to one tournament in this room.
+     * - `entered_only` — "All my rooms", not a member, but entered directly
+     *   into a tournament here (checked in / admin-added / on its roster).
+     * - `no` + why: `global_only`, `other_room`, `other_tournament`, `not_member`.
+     */
+    static async routingForRoom(canonicalUserId: string, roomId: string): Promise<Array<{
+        deviceId: string; deviceType: WitnessDeviceType;
+        sendsHere: 'yes' | 'one_tournament' | 'entered_only' | 'no';
+        why: 'global_only' | 'other_room' | 'other_tournament' | 'not_member' | null;
+        targetRoomName: string | null; targetTournamentName: string | null;
+    }>> {
+        const db = await getDatabase();
+        const devices = await WitnessService.listDevices(canonicalUserId);
+        if (devices.length === 0) return [];
+        const member = !!(await db.get(
+            `SELECT 1 FROM room_members WHERE room_id = ? AND user_id = ?`, roomId, canonicalUserId,
+        ));
+        const entered = !member && !!(await db.get(
+            `SELECT 1 FROM tournaments t
+              WHERE t.game_room_id = ?
+                AND (EXISTS (SELECT 1 FROM tournament_participants tp WHERE tp.tournament_id = t.id AND tp.user_id = ?)
+                  OR EXISTS (SELECT 1 FROM tournament_roster tr WHERE tr.tournament_id = t.id AND tr.user_id = ?))`,
+            roomId, canonicalUserId, canonicalUserId,
+        ));
+        const { deviceRoutesTo } = await import('../utils/witnessRouting.js');
+        const out = [];
+        for (const d of devices) {
+            const target = await WitnessService.getDeviceTarget(d.atgamesUniqueId);
+            const routes = deviceRoutesTo(target, {
+                roomId, tournamentId: target.tournamentId, isRound: false,
+                isParticipant: entered, isMember: member,
+            });
+            const sendsHere = !routes ? 'no' as const
+                : target.tournamentId ? 'one_tournament' as const
+                : !member ? 'entered_only' as const
+                : 'yes' as const;
+            const why = routes ? null
+                : target.tournamentId ? 'other_tournament' as const
+                : target.roomId ? 'other_room' as const
+                : target.globalOnly ? 'global_only' as const
+                : 'not_member' as const;
+            out.push({
+                deviceId: d.atgamesUniqueId, deviceType: d.deviceType, sendsHere, why,
+                targetRoomName: d.targetRoomName,
+                targetTournamentName: target.tournamentId ? d.targetTournamentName : null,
+            });
+        }
+        return out;
+    }
+
+    /**
      * One short human line naming where this cabinet's scores go, for the app
      * to print on its status screen.
      *

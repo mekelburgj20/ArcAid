@@ -7,6 +7,7 @@ import { PlayerAvatar } from '../components/ScoreboardComponents';
 import { useTheme } from '../components/ThemeProvider';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { useMyRooms } from '../hooks/useMyRooms';
+import WitnessScoresGoTo from '../components/WitnessScoresGoTo';
 import { useToast } from '../components/Toast';
 import UserMenu from '../components/UserMenu';
 import LoginButtons from '../components/LoginButtons';
@@ -260,6 +261,8 @@ export default function LandingPage() {
               <h2 className="font-display text-2xl font-bold">My Game Rooms</h2>
             </div>
             <p className="text-muted text-sm">Rooms you belong to.</p>
+            {/* W27.3 — where each paired Witness device sends its scores. */}
+            <WitnessScoresGoTo className="mt-3 inline-flex flex-col items-center" />
           </div>
           <div className="flex flex-wrap justify-center gap-8 items-stretch">
             {myRooms.map(room => (
