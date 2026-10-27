@@ -365,7 +365,9 @@ export class VpxScoreIngestService {
         // never wait on each other; a failure releases the chain.
         const key = input.deviceId ?? `user:${input.canonicalUserId}`;
         const previous = VpxScoreIngestService.inflight.get(key) ?? Promise.resolve();
-        const run = previous.then(() => VpxScoreIngestService.ingestNow(input));
+        const run = previous
+            .then(() => VpxScoreIngestService.ingestNow(input))
+            .then(result => VpxScoreIngestService.trailBackstop(input, result));
         const link: Promise<void> = run.then(() => undefined, () => undefined).finally(() => {
             if (VpxScoreIngestService.inflight.get(key) === link) VpxScoreIngestService.inflight.delete(key);
         });
@@ -375,6 +377,37 @@ export class VpxScoreIngestService {
 
     /** v2.167.1 — the tail of each device's in-flight chain (see `ingest`). */
     private static readonly inflight = new Map<string, Promise<void>>();
+
+    /** W29 — the inputs this process has already written a trail row for (see `trailBackstop`). */
+    private static readonly trailed = new WeakSet<VpxScoreInput>();
+
+    /**
+     * W29 (v2.181.0) — every witness score leaves a trail row, whatever happened
+     * to it. The per-board paths write their own rows (with the game, the
+     * verdict, the score row); this catches every outcome that returned before
+     * reaching one — an invalid score, no usable name, a deleted play, an
+     * ambiguous match with no Global fallback, and any return added later — and
+     * stores the server's reason with it, so "why didn't my score land?" is
+     * answered from the database instead of the device's own log. Best-effort,
+     * like `trail`: it never changes the answer.
+     */
+    private static async trailBackstop(input: VpxScoreInput, result: VpxIngestResult): Promise<VpxIngestResult> {
+        if (VpxScoreIngestService.trailed.has(input)) return result;
+        const raw = Math.floor(Number(input.score));
+        const score = Number.isFinite(raw) ? raw : 0;
+        const playedAt = Number.isFinite(input.endedTs) && input.endedTs > 0
+            ? toSqliteUtc(Math.floor(input.endedTs))
+            : toSqliteUtc(Math.floor(Date.now() / 1000));
+        await VpxScoreIngestService.trail(input, score, playedAt, {
+            outcome: result.status,
+            gameId: result.gameId ?? null,
+            tournamentId: result.tournamentId ?? null,
+            gameRoomId: result.gameRoomId ?? null,
+            globalScoreId: result.globalScoreId ?? null,
+            reasons: result.reason ? [result.reason] : (result.reasons ?? []),
+        });
+        return result;
+    }
 
     private static async ingestNow(input: VpxScoreInput): Promise<VpxIngestResult> {
         const score = Math.floor(Number(input.score));
@@ -419,8 +452,9 @@ export class VpxScoreIngestService {
             if (routing.globalFallback) {
                 return VpxScoreIngestService.recordGlobal(input, score, matchNeedles);
             }
-            await VpxScoreIngestService.trail(input, score, playedAt, { outcome: 'no_match' });
-            return { status: 'no_match', reason: `no open game matched "${input.tableName}"` };
+            const reason = `no open game matched "${input.tableName}"`;
+            await VpxScoreIngestService.trail(input, score, playedAt, { outcome: 'no_match', reasons: [reason] });
+            return { status: 'no_match', reason };
         }
         if (matched.kind === 'ambiguous') {
             // Still ambiguous even inside the designated scope. The designation
@@ -573,7 +607,15 @@ export class VpxScoreIngestService {
         const needles = matchNeedles;
 
         if (await VpxScoreIngestService.isSuppressedPlay(input, score, [...deviceNames, target.name], playedAt)) {
-            return { status: 'suppressed', reason: 'the player deleted this score', ...where };
+            // W29 — its own row: in a multi-tournament play another board's row
+            // would otherwise stand in for this one and the backstop would skip it.
+            const reason = 'the player deleted this score';
+            await VpxScoreIngestService.trail(input, score, playedAt, {
+                outcome: 'suppressed', ...where,
+                integrityMode: normalizeIntegrityMode(target.integrity_mode),
+                reasons: [reason],
+            });
+            return { status: 'suppressed', reason, ...where };
         }
 
         // v2.165.0 (ADR 0027) — the rules are evaluated for EVERY tournament
@@ -885,6 +927,7 @@ export class VpxScoreIngestService {
         },
     ): Promise<void> {
         if (!input.deviceId) return;
+        VpxScoreIngestService.trailed.add(input);
         try {
             const { WitnessEvidenceService } = await import('./WitnessEvidenceService.js');
             await WitnessEvidenceService.record({
@@ -959,6 +1002,8 @@ export class VpxScoreIngestService {
                     ? result.status : 'no_match',
                 gameName: result.gameName,
                 globalScoreId: result.globalScoreId ?? null,
+                // W29 — why it did not land ("not in the Arcaid catalogue", "matches 2 catalogue games", …).
+                ...(result.reason ? { reasons: [result.reason] } : {}),
             });
         }
         return result;

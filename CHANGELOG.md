@@ -6,6 +6,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.181.0] - 2026-10-26 - Every witness score leaves a record; device target changes audited (W29)
+
+At the Witness Weekend Showdown (2026-10-23) we couldn't explain why one of TomatoGrass's TNA plays went to
+Global between two plays that landed. The server kept no record of some outcomes, and no history of where a
+device had been pointed. Tonight's America's Most Haunted problem (W48) could only be diagnosed from the
+player's own cabinet log.
+
+### Changed
+- **Every witness score now leaves a record** (`witness_evidence`). The paths that write a score already
+  left one. These outcomes left none and now do:
+  - an invalid score (0, or no end time);
+  - a record with no usable table name;
+  - a play the player deleted (both checks, including one tournament of several);
+  - an ambiguous match on a device with the Global fallback off.
+
+  A backstop in `VpxScoreIngestService.ingest` writes a row for any outcome that didn't get one, so a return
+  added later can't skip it.
+- **The record says why.** A row with no verdict stores the server's reason, e.g. `no open game matched
+  "…"`, `"…" is not in the Arcaid catalogue`, `the player deleted this score`. Before this, "no match" rows
+  carried no reason.
+
+### Added
+- **Device target changes are audited.** Changing where a paired device sends scores (Account Settings →
+  Arcaid Witness) writes an `audit_log` row: who, which device, from and to (room, tournament, "All my
+  rooms" or "Global Scoreboard only"). Saving the same choice again writes nothing.
+
+---
+
 ## [2.180.0] - 2026-10-26 - Per-ball points on witness scores; cabinet 1.0.6 (W48)
 
 ChalataLove, TomatoGrass and Scoaljo played America's Most Haunted (Spooky 2014) in The Wizard Room on
