@@ -6,6 +6,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.180.0] - 2026-10-26 - Per-ball points on witness scores; cabinet 1.0.6 (W48)
+
+ChalataLove, TomatoGrass and Scoaljo played America's Most Haunted (Spooky 2014) in The Wizard Room on
+2026-10-26, and every cabinet score they posted was short. All 27 were missing the whole last ball, bonus
+included, e.g. 28,637,710 posted for a 39,293,680 game. The VPX launcher never records game over on that
+table: every record is "table shut down", and the last ball is never written (or is written as 0 when the
+next game starts). The cabinet sent balls 1 + 2.
+
+### Cabinet 1.0.6 (arcaid-witness `v1.0.6`, kit `arcaid-witness-kit-v1.0.6.zip`)
+- **The last game of a "shut down" record now posts the table's own final score** when its last ball scored
+  (no new game had begun) and that score is at least the ball sum. Earlier games of a sitting have no final
+  score of their own, so they still post the ball sum, flagged partial.
+- Re-run over every launcher file we hold, this changes 7 America's Most Haunted games, Burner records 2/3/7
+  (+ the end-of-game bonus, a few thousand points each), Burner record 4 (ball 3 never written: 93,589,420
+  instead of 66,191,400) and one Stranger Things game (1,038,720 instead of 853,280). Nothing else.
+- Sends `balls=`: the launcher's per-ball points for the game, raw, in ball order.
+
+### Added
+- `witness_evidence.ball_points` (migration 195): the cabinet's `balls=` for each witness score, on every
+  outcome (room board, Global, refused). Stored for a later per-ball format (best ball). Nothing reads it
+  for a board, a rank or a rule. `score − sum(balls)` is what the table scored after the last recorded ball:
+  the unrecorded final ball on a table like America's Most Haunted, or the end-of-game bonus elsewhere. A
+  malformed value is dropped, never a 400 (`parseBallPoints`, `src/utils/ballPoints.ts`). The evidence read
+  carries it as `ballPoints`; it never makes a score "evidenced", so a cabinet still gets no badge.
+
+### Not done
+- The 27 scores already posted on 2026-10-26 are unchanged. Machine-reported scores aren't editable. The
+  true final score is known only for the last game of each sitting.
+
+---
+
 ## [2.179.0] - 2026-10-26 - Invite-only tournaments (W39, ADR 0033 §6)
 
 A tournament can now be open to only the players a host lets in. The Witness Weekend Showdown polls asked for

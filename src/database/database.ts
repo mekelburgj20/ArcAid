@@ -3387,6 +3387,15 @@ async function doInitDatabase(): Promise<Database> {
             await db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_tournament_entry_requests_pending
                              ON tournament_entry_requests(tournament_id, user_id) WHERE status = 'pending'`);
         } },
+        // v2.180.0 (W48) — the launcher's per-ball points for a witness score (cabinet 1.0.6+
+        // `balls=`), raw JSON array, stored for a later per-ball format (best ball). No board,
+        // rank or rule reads it.
+        { name: '195_witness_evidence_ball_points', handler: async (db) => {
+            const cols = (await db.all(`PRAGMA table_info(witness_evidence)`)) as Array<{ name: string }>;
+            if (!cols.some(c => c.name === 'ball_points')) {
+                await db.exec(`ALTER TABLE witness_evidence ADD COLUMN ball_points TEXT`);
+            }
+        } },
     ];
 
     for (const migration of migrations) {

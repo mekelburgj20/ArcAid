@@ -46,6 +46,8 @@ export type EvidenceRecordInput = {
     /** SQLite UTC datetime of the play's end. */
     playedAt: string;
     evidence: WitnessEvidence | null;
+    /** v2.180.0 (W48) — the launcher's per-ball points for the game, raw (cabinet 1.0.6+); null when not sent. */
+    ballPoints?: number[] | null;
 };
 
 export type EvidenceRow = {
@@ -75,6 +77,8 @@ export type EvidenceRow = {
     score: number;
     playedAt: string;
     evidence: WitnessEvidence | null;
+    /** v2.180.0 (W48) — the launcher's per-ball points, raw; null when the device sent none. */
+    ballPoints: number[] | null;
     createdAt: string;
 };
 
@@ -113,6 +117,8 @@ type DbRow = {
     engine: string | null;
     /** v2.170.0 (migration 189, W41) — flag only, never read by a rule. */
     score_plausibility: string | null;
+    /** v2.180.0 (migration 195, W48) — JSON array of the launcher's per-ball points. */
+    ball_points: string | null;
     created_at: string;
 };
 
@@ -152,6 +158,8 @@ function rowToEvidence(r: DbRow): EvidenceRow {
             engine: parseEngineEvidence(parseJson(r.engine, null)),
             scorePlausibility: parseScorePlausibility(parseJson(r.score_plausibility, null)),
         } : null,
+        // Not part of hasEvidence: per-ball points never make a score "evidenced" (a cabinet sends them).
+        ballPoints: parseJson<number[] | null>(r.ball_points, null),
         createdAt: r.created_at,
     };
 }
@@ -167,8 +175,8 @@ export class WitnessEvidenceService {
                 score_history_id, global_score_id, integrity_mode, verdict, reasons, checks,
                 table_name, rom, score, played_at,
                 vps_game, vps_table, table_sha256, table_save_rev, fingerprint, ini, adjustments, build, engine,
-                score_plausibility
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                score_plausibility, ball_points
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             input.deviceId, input.canonicalUserId, input.outcome,
             input.gameId ?? null, input.tournamentId ?? null, input.gameRoomId ?? null,
             input.scoreHistoryId ?? null, input.globalScoreId ?? null,
@@ -184,6 +192,7 @@ export class WitnessEvidenceService {
             e?.build ? JSON.stringify(e.build) : null,
             e?.engine ? JSON.stringify(e.engine) : null,
             e?.scorePlausibility ? JSON.stringify(e.scorePlausibility) : null,
+            input.ballPoints && input.ballPoints.length > 0 ? JSON.stringify(input.ballPoints) : null,
         );
         return typeof res.lastID === 'number' ? res.lastID : null;
     }
