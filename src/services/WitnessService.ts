@@ -3,6 +3,13 @@ import { getDatabase } from '../database/database.js';
 import { logInfo, logWarn } from '../utils/logger.js';
 import { tournamentFinishedSql } from '../utils/openCard.js';
 
+/** W29 — a device target in words, for the audit row (ids, not names: the log outlives renames). */
+function targetLabel(t: { roomId: string | null; tournamentId: string | null; globalOnly: boolean }): string {
+    if (t.tournamentId) return `tournament ${t.tournamentId} (room ${t.roomId})`;
+    if (t.roomId) return `room ${t.roomId}`;
+    return t.globalOnly ? 'Global Scoreboard only' : 'All my rooms';
+}
+
 /**
  * P8 — Arcaid Witness ingest.
  *
@@ -688,8 +695,12 @@ export class WitnessService {
         globalFallback?: boolean;
     }): Promise<WitnessDevice> {
         const db = await getDatabase();
-        const device = await db.get<{ atgames_unique_id: string }>(
-            `SELECT atgames_unique_id FROM witness_devices
+        const device = await db.get<{
+            atgames_unique_id: string; target_room_id: string | null; target_tournament_id: string | null;
+            global_only: number | null; global_fallback: number | null;
+        }>(
+            `SELECT atgames_unique_id, target_room_id, target_tournament_id, global_only, global_fallback
+               FROM witness_devices
               WHERE atgames_unique_id = ? AND canonical_user_id = ? AND revoked_at IS NULL`,
             deviceId, canonicalUserId,
         );
@@ -731,6 +742,32 @@ export class WitnessService {
             target.globalFallback === false ? 0 : 1,
             deviceId, canonicalUserId,
         );
+
+        // W29 (v2.181.0) — record the change (who, from, to) so a play that
+        // went somewhere unexpected can be lined up against what the device was
+        // pointed at when it arrived. Only a real change is written; a save of
+        // the same choice is not. Best-effort: never costs the change itself.
+        const from = {
+            roomId: device.target_room_id, tournamentId: device.target_tournament_id,
+            globalOnly: device.global_only === 1, globalFallback: device.global_fallback !== 0,
+        };
+        const to = { roomId, tournamentId, globalOnly: globalOnly === 1, globalFallback: target.globalFallback !== false };
+        if (JSON.stringify(from) !== JSON.stringify(to)) {
+            try {
+                const { AuditService } = await import('./AuditService.js');
+                await AuditService.log({
+                    actor: canonicalUserId,
+                    action: 'witness_target_change',
+                    target_type: 'witness_device',
+                    target_id: deviceId,
+                    details: JSON.stringify({ from: { ...from, label: targetLabel(from) }, to: { ...to, label: targetLabel(to) } }),
+                    ip_address: '',
+                    correlation_id: '',
+                });
+            } catch (err) {
+                logWarn(`Witness: target change not audited for ${deviceId} (${err instanceof Error ? err.message : String(err)})`);
+            }
+        }
 
         const devices = await WitnessService.listDevices(canonicalUserId);
         return devices.find(d => d.atgamesUniqueId === deviceId)!;
