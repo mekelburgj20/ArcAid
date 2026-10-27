@@ -6,6 +6,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.182.0] - 2026-10-26 - A play that doesn't count says why (W27.1, ADR 0033 §5)
+
+ADR 0033 §5: a play that does not count goes to Global and tells the player why, never silently. Until now a
+play that matched an open tournament game but couldn't count in it went to Global with no explanation. "I
+played and my score isn't there" is the complaint that loses players (Witness Weekend Showdown polls,
+2026-10-24).
+
+### Added
+- **The reason, in words a player can act on.** When a witness play matches an open game but counts in no
+  tournament, the server names the step it missed, with the tournament, round and room:
+  - "your device is set to send to the Global Scoreboard only, so it did not count in "Friday Night" round 1
+    in The Wizard Room";
+  - "played after / before "Friday Night" round 1 in The Wizard Room closed / opened";
+  - ""Friday Night" … does not accept AtGames cabinet scores";
+  - "you are not checked in to "Friday Night" round 1 in The Wizard Room";
+  - "… is invite-only and you are not on its roster".
+
+  Ordinary play at home, where no game of that name is open to the player, carries no reason.
+- **Where it shows:** first in the play's record (`witness_evidence.reasons`), and on the score answer to the
+  device as `notCounted`. The field is additive, so older devices ignore it. Showing it on the web is W27.2;
+  showing it in Castcade and the cabinet log is W27.4.
+- `entryRefusal` (`src/utils/tournamentEntry.ts`): the entry rule with its reason. `entryAllowed` is now
+  defined through it, so the two cannot disagree.
+
+---
+
 ## [2.181.0] - 2026-10-26 - Every witness score leaves a record; device target changes audited (W29)
 
 At the Witness Weekend Showdown (2026-10-23) we couldn't explain why one of TomatoGrass's TNA plays went to
