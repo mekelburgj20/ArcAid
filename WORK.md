@@ -9,16 +9,16 @@ priority tier from `LAUNCH.md`. Pick an item with `/work <ID>`; end a session wi
 
 ## Now
 
-- ArcAid 2.169.0 on prod (2026-10-24): Witness flag mode, `prevent` by default in events (W20, ADR 0031, #378).
-- In flight: nothing claimed. Witness Weekend Showdown ended Sun 2026-10-25 18:00 CT.
-- Entry model DECIDED 2026-10-25 (ADR 0033, tester polls + TomatoGrass): room membership is entry, Global-only is the opt-out, limited attempts count every play once in with an optional host "Start attempts" setting, misses go to Global and say why, private entry by roster with host's choice of invite methods.
-- Owner steps: correct the hold-Start restart theory in Discord (W32) · A3 GamerDad89's Season · W17 rulings · W46: send ChalataLove the SAM attempts runbook + kit, and ask LU which pinmame-nvram-maps commit the launcher ships.
-- Owed by testers: ChalataLove's two-game TNA test + files, plus Soggybacon's — both on the Legends Unchained BETA launcher, so a NON-beta TNA jsonl is still needed (W32) · ChalataLove's Monster Bash slug-ini + LU VPinballX.ini path (W15).
-- Next, by priority: W33 + W34 (HIGH) · W26 → W37 (closes W36) → W38, W39 · W27 + W29 (miss reasons) · W15 cabinet 1.0.5 with W32 + W28.
-- Queued from WWS: W19, W21, W22, W23, W24, W30, W31, W35.
+- ArcAid 2.178.0 on prod (2026-10-26): "Start attempts" for limited-attempts tournaments (W38, #387). Shipped since the last wrap: 2.170.0 W40/W41 · 2.171.0 W33/W34 · 2.172.0 B21 re-run card · 2.173.0 W28 server half · 2.174.0 W26 · 2.175.0 W37 + W36 · 2.176.0 B20 · 2.177.0 W43.
+- In flight: W39 entry roster (claude, `feat/w39-entry-roster`) · W28 + W32 cabinet 1.0.5 with testers · A3 owner.
+- Owner steps: W46 send ChalataLove the SAM attempts runbook + kit and ask LU which pinmame-nvram-maps commit the launcher ships · correct the hold-Start restart theory in Discord (W32) · A3 GamerDad89's Season.
+- Owed by testers: cabinet 1.0.5 results (W28, W32) · a NON-beta LU TNA jsonl (W32) · ChalataLove's Monster Bash slug-ini + LU VPinballX.ini path (W15) · SAM test sessions A/B (W46).
+- Next, by priority: W29 (trace every ingest outcome + target changes) → W27 (where scores go, why a play missed) · W15 cabinet evidence profile · W45 Castcade "Start attempts" button.
+- Quick wins: W21 leave-room confirm · W24 admin dashboard shows events · G2.
+- Queued from WWS: W19, W22, W23, W30, W31, W35.
 - Owner rulings 2026-10-23/25: prevent is the default for geared-up event scores (ADR 0031) · "Global Scoreboard only" means Global only (ADR 0032) · room membership is tournament entry (ADR 0033).
 - Blocked upstream: X9 TypeScript 7, X10 jsdom 30.
-- Last wrap: 2026-10-25 — W25 decided (ADR 0033), W37–W39 added, notes on W26/W27/W36.
+- Last wrap: 2026-10-26 — B21 added (2.172.0), W46 + W47 added (castcade SAM handoff), Now rewritten.
 
 ## A. Tournaments, rotation, seasons, picks, queue
 
@@ -81,6 +81,7 @@ Lane: `src/services/{ScoreHistory,ScoreRank,ScoreProvenance,ScoreReport,Communit
 - **B18** `ready` AW badge contrast on light themes (site-wide, pre-existing; found in the 2.157.0 review) · spec: SPRINT_STATUS.md #148–#149
 - **B19** `ready` Share-to-Arcaid — ONE core: a `/share` orphan-photo landing with room + game chooser feeding `SubmissionSheet` through `normalizePhotoFile`; doorways in order: Paste button → Android `share_target` + SW POST intercept → iOS Shortcut only if still wanted · tier: 3 · spec: ROADMAP.md §"Share-to-Arcaid" · touches: admin-ui/public/{manifest.json,sw.js}
 - **B20** `done 2.176.0` Witness scores are not editable; no self-correction in Sanctioned / Limited-attempts tournaments (owner ruling 2026-10-25) · owner: claude · since: 2026-10-25 · spec: CHANGELOG 2.176.0
+- **B21** `done 2.172.0` [BUG] A table that comes back round in the same tournament starts with an empty card (rtx_pinball Daily Grind, WHO dunnit, 2026-10-25: August's run showed on the new card); one run-window rule `gameRunWindowSql` shared by the board, provenance tabs, rank card and rankings (#382) · spec: CHANGELOG.md 2.172.0
 
 ## C. Catalogue, importers, library, My Tables, availability facts
 
