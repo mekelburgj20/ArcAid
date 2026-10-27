@@ -199,6 +199,21 @@ router.get('/me/witness/devices', requireDiscordUser, async (req, res) => {
     }
 });
 
+// W27.2 (ADR 0033 §5) — "Where your plays went": the player's own recent
+// witness plays with where each landed, or why it did not.
+router.get('/me/witness/plays', requireDiscordUser, async (req, res) => {
+    try {
+        const { WitnessEvidenceService } = await import('../../services/WitnessEvidenceService.js');
+        const limit = Number(req.query.limit);
+        res.json(await WitnessEvidenceService.recentPlaysForUser(
+            req.user!.discordId!, Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 30,
+        ));
+    } catch (error) {
+        logError('API Error (GET /api/me/witness/plays):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 // Point a paired device: All my rooms (the default — no room, `globalOnly`
 // false), Global Scoreboard only (`globalOnly: true`), or narrowed to one room
 // (and optionally one tournament in it). v2.175.0 (W37, ADR 0033).

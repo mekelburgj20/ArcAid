@@ -11,6 +11,7 @@ import { isGoogleUserId } from '../lib/identityProvider';
 import { buildPushErrorMessage } from '../lib/pushError';
 import ThrowdownsSection from '../components/ThrowdownsSection';
 import GlobalSharingSection from '../components/GlobalSharingSection';
+import WitnessRecentPlays from '../components/WitnessRecentPlays';
 
 type AvatarProvider = 'discord' | 'google';
 
@@ -1521,6 +1522,8 @@ export default function AccountSettings() {
                 ) : (
                   <p className="text-xs text-muted">No devices paired yet.</p>
                 )}
+                {/* W27.2 (ADR 0033 §5) — where each reported play went, or why it didn't count. */}
+                {witnessDevices.length > 0 && <WitnessRecentPlays playerToken={playerToken} />}
               </div>
             </section>
 
