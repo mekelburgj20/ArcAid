@@ -158,6 +158,15 @@ export default function AccountSettings() {
   });
   const [witnessBusy, setWitnessBusy] = useState(false);
   const [witnessError, setWitnessError] = useState<string | null>(null);
+  // W27.3 — the room and home pages' "Change" link lands on the device picker
+  // (`#witness-devices`). The block renders after the devices load, so the
+  // browser's own anchor jump has nothing to land on at first paint.
+  const witnessBlockRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (witnessDevices.length > 0 && window.location.hash === '#witness-devices') {
+      witnessBlockRef.current?.scrollIntoView({ block: 'start' });
+    }
+  }, [witnessDevices.length]);
   // v2.152.0 (P9b) — where each cabinet's scores go. The room list is the
   // player's own memberships; tournaments are fetched per room, on demand and
   // cached, so opening this page costs one request regardless of how many
@@ -1343,7 +1352,7 @@ export default function AccountSettings() {
                   on-device Witness app so it can report table LAUNCH times
                   (the anti-gear-up signal). Player mints a code here, types it
                   into the app on the cabinet. */}
-              <div className="mt-6 pt-4 border-t border-border">
+              <div id="witness-devices" ref={witnessBlockRef} className="mt-6 pt-4 border-t border-border scroll-mt-4">
                 <h3 className="text-sm font-medium mb-1">Arcaid Witness devices</h3>
                 <p className="text-xs text-muted mb-3">
                   Pair Arcaid Witness on your cabinet, or the Castcade companion on your Windows VPX PC,
