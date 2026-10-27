@@ -344,6 +344,11 @@ export class EventLobbyService {
         const existing = await EventService.isParticipant(event.id, canonicalUserId);
         if (!existing && !checkIn) return null;
         if (!existing) {
+            // W39 — an invite-only event: the tile cannot check in someone who
+            // is not on its roster (it would only throw), so it says nothing.
+            const { TournamentEntryService } = await import('./TournamentEntryService.js');
+            const entry = await TournamentEntryService.getConfig(event.id);
+            if (entry?.mode === 'invited' && !await TournamentEntryService.isOnRoster(event.id, canonicalUserId)) return null;
             await EventService.checkIn(event.id, canonicalUserId, 'checkin');
             logInfo(`Witness: ${canonicalUserId} checked in to event "${event.name}" from device ${deviceId}`);
         }

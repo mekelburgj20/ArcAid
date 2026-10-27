@@ -162,6 +162,11 @@ export const checkin: Command = {
                     : `You're checked in for **${target.name}** — ${count} player${count === 1 ? '' : 's'} in. Good luck.`,
             );
         } catch (error) {
+            const { NotOnRosterError } = await import('../../services/EventService.js');
+            if (error instanceof NotOnRosterError) {
+                await interaction.editReply(`${error.message} Ask the host to add you, or use the invite link they shared.`);
+                return;
+            }
             logError('Discord /check-in failed:', error);
             await interaction.editReply('Something went wrong checking you in. Try the event page on the web.');
         }

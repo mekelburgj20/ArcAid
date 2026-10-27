@@ -3345,6 +3345,48 @@ async function doInitDatabase(): Promise<Database> {
                 PRIMARY KEY (game_id, canonical_user_id)
             )`);
         } },
+        // v2.179.0 (W39, ADR 0033 §6) — tournament entry: `Room members` (default)
+        // or `Invited players`. The ROSTER is its own list, deliberately NOT
+        // `tournament_participants` (owner ruling 2026-10-26): that table is the
+        // event CHECK-IN list, and an invite-only event that requires check-in
+        // still needs its players to check in on the night.
+        //   entry_mode     'members' | 'invited'
+        //   entry_methods  JSON {link, request} — the host's add-by-name is always on
+        //   invite_code    the invite link's code (unique when set)
+        { name: '194_tournament_entry_roster', handler: async (db) => {
+            const cols = (await db.all(`PRAGMA table_info(tournaments)`)) as Array<{ name: string }>;
+            if (!cols.some(c => c.name === 'entry_mode')) {
+                await db.exec(`ALTER TABLE tournaments ADD COLUMN entry_mode TEXT NOT NULL DEFAULT 'members'`);
+            }
+            if (!cols.some(c => c.name === 'entry_methods')) {
+                await db.exec(`ALTER TABLE tournaments ADD COLUMN entry_methods TEXT`);
+            }
+            if (!cols.some(c => c.name === 'invite_code')) {
+                await db.exec(`ALTER TABLE tournaments ADD COLUMN invite_code TEXT`);
+            }
+            await db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_tournaments_invite_code
+                             ON tournaments(invite_code) WHERE invite_code IS NOT NULL`);
+            await db.exec(`CREATE TABLE IF NOT EXISTS tournament_roster (
+                tournament_id TEXT NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
+                user_id TEXT NOT NULL,
+                source TEXT NOT NULL CHECK(source IN ('host', 'invite', 'request')),
+                added_by TEXT,
+                added_at TEXT NOT NULL DEFAULT (datetime('now')),
+                PRIMARY KEY (tournament_id, user_id)
+            )`);
+            await db.exec(`CREATE INDEX IF NOT EXISTS idx_tournament_roster_user ON tournament_roster(user_id)`);
+            await db.exec(`CREATE TABLE IF NOT EXISTS tournament_entry_requests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tournament_id TEXT NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
+                user_id TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'approved', 'denied')),
+                requested_at TEXT NOT NULL DEFAULT (datetime('now')),
+                resolved_by TEXT,
+                resolved_at TEXT
+            )`);
+            await db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_tournament_entry_requests_pending
+                             ON tournament_entry_requests(tournament_id, user_id) WHERE status = 'pending'`);
+        } },
     ];
 
     for (const migration of migrations) {

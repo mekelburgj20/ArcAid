@@ -164,6 +164,14 @@ const TournamentBaseSchema = z.object({
      */
     require_attempt_start: z.boolean().optional(),
     /**
+     * v2.179.0 (W39, ADR 0033 §6) — who may play: every room member
+     * (`members`, default) or only the roster (`invited`). Omitted = leave as
+     * stored (update) / members (create).
+     */
+    entry_mode: z.enum(['members', 'invited']).optional(),
+    /** W39 — which self-serve ways onto the roster are on. Omitted = leave as stored. */
+    entry_methods: z.object({ link: z.boolean(), request: z.boolean() }).optional(),
+    /**
      * v2.169.0 (W20) — an event score whose witness verdict is `flagged`:
      * 'prevent' = not counted (default), 'flag' = counted with the badge.
      * Omitted = leave as stored (update) / 'prevent' (create).

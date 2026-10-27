@@ -76,7 +76,8 @@ export interface ThrowdownSummary {
     endsAt: string;
 }
 
-function randomCode(): string {
+/** Also the tournament invite-link code (W39) — same read-aloud alphabet. */
+export function randomCode(): string {
     const bytes = crypto.randomBytes(CODE_LENGTH);
     let out = '';
     for (let i = 0; i < CODE_LENGTH; i++) {

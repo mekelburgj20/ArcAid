@@ -1,6 +1,6 @@
 # ADR 0033 — Room membership is tournament entry; misses go to Global with a reason
 
-**Status:** accepted (owner ruling 2026-10-25, from the Witness Weekend Showdown tester polls), §1–2 and the count-in-each consequence built v2.175.0 (WORK.md W37, closes W36); §3–4 built v2.178.0 (W38; Castcade's own Start button is W45); §5 W27, §6 W39 not yet built · **Amends:** the P9b routing in ADR 0022 / CLAUDE.md "WITNESS SCORE ROUTING"; ADR 0029 (limited attempts) · **Builds on:** ADR 0032
+**Status:** accepted (owner ruling 2026-10-25, from the Witness Weekend Showdown tester polls), §1–2 and the count-in-each consequence built v2.175.0 (WORK.md W37, closes W36); §3–4 built v2.178.0 (W38; Castcade's own Start button is W45); §6 built v2.179.0 (W39); §5 W27 not yet built · **Amends:** the P9b routing in ADR 0022 / CLAUDE.md "WITNESS SCORE ROUTING"; ADR 0029 (limited attempts) · **Builds on:** ADR 0032
 
 ## Context
 
@@ -80,3 +80,19 @@ player can miss, and "I played and my score isn't there" loses a player for good
   `ATTEMPTS NOT STARTED` until the player presses Start on a phone.
 - **No new wire status.** A not-started play answers the companion `not_sanctioned` + reason on the score and
   `no_match` + reason on the start, and a cabinet `no_match`. Pre-W38 devices already understand all three.
+
+## Build-time rulings (2026-10-26, W39 — owner answers to four questions)
+
+- **The roster is its own list** (`tournament_roster`), not `tournament_participants`. That table is the
+  event check-in list, and an invite-only event that requires check-in still needs its players to check in:
+  the roster says who may play, check-in says who showed up. `entryAllowed` therefore needs BOTH for an
+  invite-only event with check-in.
+- **An invite link joins the room AND enters the tournament.** In an approval-only room it files a room join
+  request instead of a membership; the roster spot alone already admits the player's scores.
+- **Typed scores are roster-only too**, the same rule as device scores (§2). One helper,
+  `TournamentEntryService.checkRosterSubmission`, sits beside the attempt gate at every manual submit path.
+- **One release** for all three entry methods (host adds by name, invite link, request + approve).
+- **A roster spot is a direct entry for routing**, like a participant row: an "All my rooms" device reaches
+  an invite-only tournament the player is on even outside the room's membership.
+- **The invite code is a secret.** Public tournament and event reads strip it; the host reads it from the
+  admin roster route. Making a new link invalidates the old one at once.

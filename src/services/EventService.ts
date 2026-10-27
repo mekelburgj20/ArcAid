@@ -119,6 +119,15 @@ export interface ParticipantRow {
     added_by: string | null;
 }
 
+/** W39 — a self check-in to an invite-only event by someone not on its roster. */
+export class NotOnRosterError extends Error {
+    readonly code = 'NOT_ON_ROSTER';
+    constructor(public eventName: string) {
+        super(`"${eventName}" is invite-only and you are not on its roster.`);
+        this.name = 'NotOnRosterError';
+    }
+}
+
 export class EventService {
     /** The event tournament row, or null when `id` is a rotation tournament / missing. */
     static async getEvent(tournamentId: string): Promise<EventTournamentRow | null> {
@@ -127,7 +136,10 @@ export class EventService {
             `SELECT * FROM tournaments WHERE id = ? AND format = 'event'`,
             tournamentId,
         );
-        return row ?? null;
+        if (!row) return null;
+        // W39 — never let the invite code (a secret) ride out on a public event payload.
+        const { invite_code: _inviteCode, ...rest } = row as EventTournamentRow & { invite_code?: string | null };
+        return rest as EventTournamentRow;
     }
 
     /** Rounds in schedule order. Empty for a rotation tournament. */
@@ -420,6 +432,18 @@ export class EventService {
     ): Promise<ParticipantRow> {
         const db = await getDatabase();
         const canonical = await EventService.canonicalId(userId);
+        // W39 (ADR 0033 §6) — an invite-only event: a self check-in needs a
+        // roster spot (checking in is not a way in), while the host's add IS
+        // a way in, so it puts the player on the roster too.
+        const { TournamentEntryService } = await import('./TournamentEntryService.js');
+        const entry = await TournamentEntryService.getConfig(tournamentId);
+        if (entry?.mode === 'invited') {
+            if (source === 'admin') {
+                await TournamentEntryService.addToRoster(tournamentId, canonical, 'host', addedBy ?? null);
+            } else if (!await TournamentEntryService.isOnRoster(tournamentId, canonical)) {
+                throw new NotOnRosterError(entry.name);
+            }
+        }
         await db.run(
             `INSERT INTO tournament_participants (tournament_id, user_id, checked_in_at, source, added_by)
              VALUES (?, ?, ?, ?, ?)

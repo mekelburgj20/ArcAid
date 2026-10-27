@@ -6,6 +6,7 @@ import ShareButton from '../components/ShareButton';
 import EventLobbyRoster, { type LobbyEntry } from '../components/EventLobbyRoster';
 import { useOptionalRoom } from '../contexts/RoomContext';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
+import EntryNotice from '../components/EntryNotice';
 import { ApiError } from '../lib/api';
 import { playerApi } from '../lib/playerApi';
 
@@ -479,6 +480,14 @@ export default function EventDetail({ throwdownCode }: EventDetailProps = {}) {
                     </p>
                 )}
             </header>
+
+            {/* v2.179.0 (W39) — invite-only: a player off the roster is told so (and may request). */}
+            {!isThrowdown && roomId && (
+                <EntryNotice
+                    roomId={roomId} tournamentId={event.id} playerToken={playerToken}
+                    toast={(message, type) => (type === 'error' ? setError(message) : setNotice(message))}
+                />
+            )}
 
             {/* Check-in */}
             {checkin.required && event.state !== 'finished' && event.state !== 'cancelled' && (

@@ -136,6 +136,15 @@ export interface TournamentFormState {
    */
   requireAttemptStart: boolean;
   /**
+   * v2.179.0 (W39, ADR 0033 §6) — who may play: every room member (default)
+   * or only the roster. Always sent.
+   */
+  entryMode: 'members' | 'invited';
+  /** W39 — players can join themselves with an invite link. */
+  entryLink: boolean;
+  /** W39 — players can ask to join and the host approves. */
+  entryRequest: boolean;
+  /**
    * v2.169.0 (W20) — events only: a score whose game the Arcaid Witness saw
    * start before the round opened. 'prevent' (default) = it does not count;
    * 'flag' = it counts with a warning badge. Always sent.
@@ -176,6 +185,9 @@ export const defaultFormState: TournamentFormState = {
   sanctionedRules: { ...defaultSanctionedRules },
   maxAttempts: null,
   requireAttemptStart: false,
+  entryMode: 'members',
+  entryLink: false,
+  entryRequest: false,
   witnessFlagMode: 'prevent',
 };
 
@@ -707,6 +719,47 @@ function PollSettings({ poll, onChange, schedule }: {
 }
 
 /**
+ * Entry (v2.179.0, W39, ADR 0033 §6). Room members (default): every member of
+ * the room is in. Invited players: only the roster — the host adds players on
+ * the Roster panel, and may also let players in by invite link and/or by
+ * request. Both formats.
+ */
+function EntryField({ mode, link, request, onChange }: {
+  mode: 'members' | 'invited'; link: boolean; request: boolean;
+  onChange: (next: { mode?: 'members' | 'invited'; link?: boolean; request?: boolean }) => void;
+}) {
+  const radio = (value: 'members' | 'invited', label: string, hint: string) => (
+    <label className="flex items-start gap-2 text-sm text-primary cursor-pointer">
+      <input type="radio" name="tournament-entry" className="mt-1" checked={mode === value} onChange={() => onChange({ mode: value })} />
+      <span>{label}<span className="block text-xs text-faint">{hint}</span></span>
+    </label>
+  );
+  return (
+    <div className="mb-4" data-testid="entry-field">
+      <span className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">
+        Entry <InfoTip text="Who may play. Room members: everyone in the room is in. Invited players: only the roster; anyone else's plays go to their Global Scoreboard." />
+      </span>
+      <div className="space-y-2">
+        {radio('members', 'Room members', 'Everyone in the room is in. No sign-up step.')}
+        {radio('invited', 'Invited players', 'Only players on the roster. Add them on the Roster panel after saving.')}
+      </div>
+      {mode === 'invited' && (
+        <div className="mt-3 ml-6 space-y-2">
+          <label className="flex items-start gap-2 text-sm text-primary cursor-pointer">
+            <input type="checkbox" className="mt-0.5" checked={link} onChange={e => onChange({ link: e.target.checked })} />
+            <span>Invite link<span className="block text-xs text-faint">Anyone with the link joins the room and goes on the roster.</span></span>
+          </label>
+          <label className="flex items-start gap-2 text-sm text-primary cursor-pointer">
+            <input type="checkbox" className="mt-0.5" checked={request} onChange={e => onChange({ request: e.target.checked })} />
+            <span>Players can request to join<span className="block text-xs text-faint">You approve or decline each request on the Roster panel.</span></span>
+          </label>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
  * Limited attempts (v2.167.0, ADR 0029). Blank = unlimited. A positive whole
  * number turns the tournament into an Arcaid-Witness-only one (Castcade on a
  * PC, the Witness app on a cabinet): every game start counts, and manual
@@ -1159,6 +1212,16 @@ export default function TournamentFormFields({ state, set, platforms, roomId, lo
         rules={state.sanctionedRules}
         onModeChange={m => set('integrityMode', m)}
         onRulesChange={r => set('sanctionedRules', r)}
+      />
+      <EntryField
+        mode={state.entryMode}
+        link={state.entryLink}
+        request={state.entryRequest}
+        onChange={next => {
+          if (next.mode !== undefined) set('entryMode', next.mode);
+          if (next.link !== undefined) set('entryLink', next.link);
+          if (next.request !== undefined) set('entryRequest', next.request);
+        }}
       />
       <LimitedAttemptsField
         value={state.maxAttempts}

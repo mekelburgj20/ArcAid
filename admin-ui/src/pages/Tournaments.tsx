@@ -23,6 +23,7 @@ import { hasRoundErrors } from '../lib/eventTime';
 import EventRoundsPanel from '../components/EventRoundsPanel';
 import SeasonPanel from '../components/SeasonPanel';
 import IntegrityPanel from '../components/IntegrityPanel';
+import RosterPanel from '../components/RosterPanel';
 import { getIntegrityErrors } from '../lib/integrityForm';
 import { relativeTimeFrom } from '../lib/format';
 import { formatInZone } from '../lib/timezone';
@@ -115,6 +116,8 @@ export default function Tournaments() {
   const [seasonTarget, setSeasonTarget] = useState<Tournament | null>(null);
   /** v2.166.0 (ADR 0027) — required tables + the Castcade evidence trail. */
   const [integrityTarget, setIntegrityTarget] = useState<Tournament | null>(null);
+  // v2.179.0 (W39) — the invite-only roster panel.
+  const [rosterTarget, setRosterTarget] = useState<Tournament | null>(null);
   const [platforms, setPlatforms] = useState<string[]>([]);
   const [activeGames, setActiveGames] = useState<ActiveGame[]>([]);
   const [retainedCompleted, setRetainedCompleted] = useState<RetainedCompletedGame[]>([]);
@@ -548,6 +551,12 @@ export default function Tournaments() {
                   title={t.integrity_mode === 'sanctioned' ? 'Sanctioned play — required tables and evidence' : 'Open play — required tables and evidence'}>
                   Integrity
                 </NeonButton>
+                {t.entry_mode === 'invited' && (
+                  <NeonButton variant="ghost" onClick={() => setRosterTarget(t)} className="text-xs px-2 py-1"
+                    title="Invite-only — the roster, invite link and requests to join">
+                    Roster
+                  </NeonButton>
+                )}
                 <NeonButton variant="ghost" onClick={() => openEdit(t)} className="text-xs px-2 py-1">Edit</NeonButton>
                 <NeonButton variant="danger" onClick={() => { setDeleteTarget(t); setDeleteBlockers([]); setAutoDeactivate(false); }} className="text-xs px-2 py-1">Delete</NeonButton>
               </div>
@@ -882,6 +891,16 @@ export default function Tournaments() {
           roomId={room.roomId}
           tournament={integrityTarget}
           onClose={() => setIntegrityTarget(null)}
+          toast={toast}
+        />
+      )}
+
+      {/* Roster (v2.179.0, W39, ADR 0033 §6) — invite-only entry */}
+      {rosterTarget && (
+        <RosterPanel
+          roomId={room.roomId}
+          tournament={rosterTarget}
+          onClose={() => setRosterTarget(null)}
           toast={toast}
         />
       )}

@@ -96,6 +96,7 @@ import RoomLogin from './pages/RoomLogin';
 import DiscordCallback from './pages/DiscordCallback';
 import GoogleCallback from './pages/GoogleCallback';
 import InviteAccept from './pages/InviteAccept';
+import TournamentInvite from './pages/TournamentInvite';
 
 function NavigateToRoomLogin() {
   const { slug } = useParams();
@@ -152,6 +153,8 @@ function App() {
 
         {/* Invite acceptance (public) */}
         <Route path="/invite/:token" element={<InviteAccept />} />
+        {/* Tournament invite link (v2.179.0, W39) — a PLAYER joins an invite-only tournament */}
+        <Route path="/tournament-invite/:code" element={<ViewerAuthProvider><TournamentInvite /></ViewerAuthProvider>} />
 
         {/* Legal pages (static, public — must precede the /:slug dynamic route) */}
         <Route path="/privacy" element={<Privacy />} />

@@ -7,7 +7,7 @@ import { logInfo, logWarn } from '../utils/logger.js';
 import type { WitnessDeviceType } from './WitnessService.js';
 import { tournamentFinishedSql } from '../utils/openCard.js';
 import { deviceRoutesTo } from '../utils/witnessRouting.js';
-import { entryAllowed } from '../utils/tournamentEntry.js';
+import { entryAllowed, normalizeEntryMode } from '../utils/tournamentEntry.js';
 import {
     evaluateSanctioned, normalizeIntegrityMode, normalizeSanctionedRules,
     type IntegrityMode, type Verdict, type WitnessEvidence,
@@ -255,6 +255,10 @@ type CandidateRow = {
     checkin_required: number | null;
     /** v2.178.0 (W38) — players press Start attempts before plays count. */
     require_attempt_start: number | null;
+    /** v2.179.0 (W39) — `members` | `invited` (ADR 0033 §6). */
+    entry_mode: string | null;
+    /** v2.179.0 (W39) — the player is on the tournament's roster. */
+    on_roster: number;
 };
 
 /** What `VpxScoreIngestService.match` decided. Shared by the score and the attempt calls. */
@@ -1134,7 +1138,7 @@ export class VpxScoreIngestService {
                     g.start_date, g.tournament_id, g.game_room_id, g.global_game_id,
                     g.required_vps_table_id, g.required_rom, g.required_fingerprint,
                     t.format, t.end_grace_sec, t.platform_rules, t.integrity_mode, t.sanctioned_rules,
-                    t.max_attempts, t.checkin_required, t.require_attempt_start,
+                    t.max_attempts, t.checkin_required, t.require_attempt_start, t.entry_mode,
                     EXISTS (
                         SELECT 1 FROM tournament_participants tp
                          WHERE tp.tournament_id = g.tournament_id AND tp.user_id = ?
@@ -1142,7 +1146,11 @@ export class VpxScoreIngestService {
                     (g.game_room_id IS NOT NULL AND EXISTS (
                         SELECT 1 FROM room_members rm2
                          WHERE rm2.room_id = g.game_room_id AND rm2.user_id = ?
-                    )) AS is_member
+                    )) AS is_member,
+                    EXISTS (
+                        SELECT 1 FROM tournament_roster tr
+                         WHERE tr.tournament_id = g.tournament_id AND tr.user_id = ?
+                    ) AS on_roster
                FROM games g
                JOIN tournaments t ON t.id = g.tournament_id
               -- W33 open-card rule: a FINISHED event is out; a PAUSED rotation
@@ -1161,8 +1169,13 @@ export class VpxScoreIngestService {
                             SELECT 1 FROM tournament_participants tp
                              WHERE tp.tournament_id = g.tournament_id AND tp.user_id = ?
                         )
+                     -- W39: a roster spot is a direct entry, like a participant row.
+                     OR EXISTS (
+                            SELECT 1 FROM tournament_roster tr2
+                             WHERE tr2.tournament_id = g.tournament_id AND tr2.user_id = ?
+                        )
                     )`,
-            canonicalUserId, canonicalUserId, canonicalUserId, canonicalUserId,
+            canonicalUserId, canonicalUserId, canonicalUserId, canonicalUserId, canonicalUserId, canonicalUserId,
         );
     }
 
@@ -1187,7 +1200,8 @@ export class VpxScoreIngestService {
             roomId: row.game_room_id,
             tournamentId: row.tournament_id,
             isRound: row.round_no != null,
-            isParticipant: row.is_participant === 1,
+            // W39 — a roster spot routes like a participant row: entered directly.
+            isParticipant: row.is_participant === 1 || row.on_roster === 1,
             isMember: row.is_member === 1,
         });
     }
@@ -1204,6 +1218,8 @@ export class VpxScoreIngestService {
             checkinRequired: row.checkin_required === 1,
             isMember: row.is_member === 1,
             isParticipant: row.is_participant === 1,
+            entryMode: normalizeEntryMode(row.entry_mode),
+            onRoster: row.on_roster === 1,
         });
     }
 

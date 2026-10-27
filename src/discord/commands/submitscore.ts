@@ -334,6 +334,13 @@ export const submitscore: Command = {
                     await interaction.editReply(attemptGate.message);
                     return;
                 }
+                // v2.179.0 (W39, ADR 0033 §6) — invite-only: the roster's scores only.
+                const { TournamentEntryService } = await import('../../services/TournamentEntryService.js');
+                const rosterGate = await TournamentEntryService.checkRosterSubmission(game.tournament_id, interaction.user.id);
+                if (!rosterGate.ok) {
+                    await interaction.editReply(rosterGate.message);
+                    return;
+                }
             }
 
             // v2.53.0 (ADR 0016): resolve the engine + device scope for this
