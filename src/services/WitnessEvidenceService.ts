@@ -82,6 +82,29 @@ export type EvidenceRow = {
     createdAt: string;
 };
 
+/** W27.2 — one place a play went (or did not), as the player's "Where your plays went" list shows it. */
+export type PlayDestination = {
+    status: 'counted' | 'already_counted' | 'global' | 'already_global' | 'not_counted' | 'deleted' | 'not_recorded';
+    tournamentName: string | null;
+    roundNo: number | null;
+    roomName: string | null;
+    roomSlug: string | null;
+    gameName: string | null;
+    /** For a Global destination: the catalogue game, for the link to its Global page. */
+    globalGameId: string | null;
+    /** Why it did not count / was not recorded; on a Global row, why no tournament took it. */
+    reason: string | null;
+};
+
+export type RecentPlay = {
+    key: string;
+    playedAt: string;
+    tableName: string;
+    score: number;
+    deviceId: string;
+    destinations: PlayDestination[];
+};
+
 export type TournamentIntegrity = {
     tournamentId: string;
     mode: IntegrityMode;
@@ -195,6 +218,87 @@ export class WitnessEvidenceService {
             input.ballPoints && input.ballPoints.length > 0 ? JSON.stringify(input.ballPoints) : null,
         );
         return typeof res.lastID === 'number' ? res.lastID : null;
+    }
+
+    /**
+     * W27.2 (ADR 0033 §5) — "Where your plays went": the player's own recent
+     * witness plays, newest first, one entry per PLAY with where it landed or
+     * why it did not. A play that counts in several tournaments leaves one
+     * trail row per board, so rows are grouped on (device, end time, score,
+     * table). Read from the trail alone (W29 made it complete), never from the
+     * boards, so a play that landed nowhere is listed too.
+     */
+    static async recentPlaysForUser(canonicalUserId: string, limit = 30): Promise<RecentPlay[]> {
+        const db = await getDatabase();
+        const cap = Math.min(100, Math.max(1, limit));
+        const rows = await db.all<Array<{
+            id: number; device_id: string; outcome: string; reasons: string | null;
+            table_name: string; score: number; played_at: string;
+            game_name: string | null; round_no: number | null; tournament_name: string | null;
+            room_name: string | null; room_slug: string | null;
+            global_score_id: string | null; global_game_id: string | null;
+        }>>(
+            `SELECT e.id, e.device_id, e.outcome, e.reasons, e.table_name, e.score, e.played_at,
+                    g.name AS game_name, g.round_no, t.name AS tournament_name,
+                    gr.name AS room_name, gr.slug AS room_slug,
+                    e.global_score_id, gs.global_game_id
+               FROM witness_evidence e
+               LEFT JOIN games g ON g.id = e.game_id
+               LEFT JOIN tournaments t ON t.id = e.tournament_id
+               LEFT JOIN game_rooms gr ON gr.id = e.game_room_id
+               LEFT JOIN global_scores gs ON gs.id = e.global_score_id
+              WHERE e.canonical_user_id = ?
+              ORDER BY e.id DESC
+              LIMIT ?`,
+            canonicalUserId, cap * 4,
+        );
+        const { ATTEMPT_REFUSAL_TEXT } = await import('./AttemptService.js');
+        const plays = new Map<string, RecentPlay>();
+        for (const r of rows) {
+            const key = `${r.device_id}|${r.played_at}|${r.score}|${r.table_name}`;
+            let play = plays.get(key);
+            if (!play) {
+                if (plays.size >= cap) continue;
+                play = { key, playedAt: r.played_at, tableName: r.table_name, score: r.score, deviceId: r.device_id, destinations: [] };
+                plays.set(key, play);
+            }
+            const reasons = parseJson<string[]>(r.reasons, []);
+            const board = {
+                tournamentName: r.tournament_name, roundNo: r.round_no, roomName: r.room_name,
+                roomSlug: r.room_slug, gameName: r.game_name, globalGameId: null as string | null,
+            };
+            const none = { tournamentName: null, roundNo: null, roomName: null, roomSlug: null, gameName: null, globalGameId: null };
+            const global = (status: 'global' | 'already_global', reason: string | null): PlayDestination =>
+                ({ status, ...none, globalGameId: r.global_game_id, reason });
+            switch (r.outcome) {
+                case 'ingested':
+                    play.destinations.push({ status: 'counted', ...board, reason: null });
+                    break;
+                case 'duplicate':
+                    play.destinations.push({ status: 'already_counted', ...board, reason: null });
+                    break;
+                case 'global':
+                case 'global_duplicate':
+                    // The first reason is W27.1's "why it did not count in a tournament".
+                    play.destinations.push(global(r.outcome === 'global' ? 'global' : 'already_global', reasons[0] ?? null));
+                    break;
+                case 'not_sanctioned':
+                case 'attempt_refused': {
+                    const why = r.outcome === 'attempt_refused'
+                        ? reasons.map(x => ATTEMPT_REFUSAL_TEXT[x as keyof typeof ATTEMPT_REFUSAL_TEXT] ?? x).join('; ')
+                        : reasons.join('; ');
+                    play.destinations.push({ status: 'not_counted', ...board, reason: why || null });
+                    if (r.global_score_id) play.destinations.push(global('global', null));
+                    break;
+                }
+                case 'suppressed':
+                    play.destinations.push({ status: 'deleted', ...board, reason: null });
+                    break;
+                default: // no_match, invalid
+                    play.destinations.push({ status: 'not_recorded', ...board, reason: reasons[0] ?? null });
+            }
+        }
+        return [...plays.values()];
     }
 
     /** The runner's trail for one tournament, newest first. */

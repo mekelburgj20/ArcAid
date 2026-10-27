@@ -6,6 +6,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.183.0] - 2026-10-26 - "Where your plays went" (W27.2, ADR 0033 §5)
+
+The web half of "a play that doesn't count tells the player why". TomatoGrass's top request from the
+Witness Weekend Showdown was a way to see where scores go without guessing.
+
+### Added
+- **"Where your plays went"** on Account Settings → Arcaid Witness devices: every game the player's paired
+  devices reported, newest first. Each play shows the table, score and time, plus every place it went:
+  - **Counted** in a tournament (linked to that game's board);
+  - **Global Scoreboard** (linked to the game's Global page);
+  - **Not counted**, with the tournament;
+  - **You deleted this score**;
+  - **Not recorded**.
+
+  Each one carries the reason in words: "Didn't count in a tournament: you are not checked in to "Friday
+  Night" round 1 in The Wizard Room", "No attempts left on this table", ""…" is not in the Arcaid catalogue".
+  A play counted in two tournaments is one entry with both. It reads the play records (complete since W29),
+  so a play that landed nowhere is listed too. Shows 8, with "Show all" and Refresh.
+- `GET /api/me/witness/plays` (the player's own plays only; `limit`, default 30, max 100).
+
+---
+
 ## [2.182.0] - 2026-10-26 - A play that doesn't count says why (W27.1, ADR 0033 §5)
 
 ADR 0033 §5: a play that does not count goes to Global and tells the player why, never silently. Until now a
