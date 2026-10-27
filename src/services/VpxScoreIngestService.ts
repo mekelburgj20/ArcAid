@@ -7,7 +7,7 @@ import { logInfo, logWarn } from '../utils/logger.js';
 import type { WitnessDeviceType } from './WitnessService.js';
 import { tournamentFinishedSql } from '../utils/openCard.js';
 import { deviceRoutesTo } from '../utils/witnessRouting.js';
-import { entryAllowed, normalizeEntryMode } from '../utils/tournamentEntry.js';
+import { entryAllowed, entryRefusal, normalizeEntryMode } from '../utils/tournamentEntry.js';
 import {
     evaluateSanctioned, normalizeIntegrityMode, normalizeSanctionedRules,
     type IntegrityMode, type Verdict, type WitnessEvidence,
@@ -206,6 +206,13 @@ export type VpxIngestResult = {
      */
     status: 'ingested' | 'duplicate' | 'global' | 'global_duplicate' | 'no_match' | 'invalid' | 'suppressed' | 'not_sanctioned' | 'attempt_refused';
     reason?: string;
+    /**
+     * W27 (ADR 0033 §5) — on a play that went to Global (or nowhere) after
+     * matching an open tournament game it could not count in: why, in words a
+     * player can act on ("you are not checked in to …"). Sent on the wire as
+     * `notCounted`.
+     */
+    notCounted?: string;
     gameId?: string;
     gameName?: string;
     gameRoomId?: string | null;
@@ -265,6 +272,9 @@ type CandidateRow = {
     entry_mode: string | null;
     /** v2.179.0 (W39) — the player is on the tournament's roster. */
     on_roster: number;
+    /** W27 — names for the "why it didn't count" reason. */
+    tournament_name: string | null;
+    room_name: string | null;
 };
 
 /** What `VpxScoreIngestService.match` decided. Shared by the score and the attempt calls. */
@@ -282,7 +292,16 @@ export type VpxMatchResult = {
         /** v2.175.0 (W37): every tournament this play counts in, one game each, rounds first. */
         targets: CandidateRow[];
     }
-    | { kind: 'none' }
+    | {
+        kind: 'none';
+        /**
+         * W27 (ADR 0033 §5) — why the play counts nowhere, when an open game of
+         * that name exists for this player ("not checked in to …", "played after
+         * … closed", "your device sends to …"); null when nothing of that name
+         * is open to them at all.
+         */
+        reason: string | null;
+    }
     | { kind: 'ambiguous'; count: number }
 );
 
@@ -450,9 +469,9 @@ export class VpxScoreIngestService {
             // Nothing this cabinet is pointed at wanted the score — so it goes
             // to the player's own Global Scoreboard record instead of nowhere.
             if (routing.globalFallback) {
-                return VpxScoreIngestService.recordGlobal(input, score, matchNeedles);
+                return VpxScoreIngestService.recordGlobal(input, score, matchNeedles, { notCounted: matched.reason });
             }
-            const reason = `no open game matched "${input.tableName}"`;
+            const reason = matched.reason ?? `no open game matched "${input.tableName}"`;
             await VpxScoreIngestService.trail(input, score, playedAt, { outcome: 'no_match', reasons: [reason] });
             return { status: 'no_match', reason };
         }
@@ -769,8 +788,8 @@ export class VpxScoreIngestService {
         const needles = nameKeys(VpxScoreIngestService.deviceNames(input));
         const routing = input.target ?? { roomId: null, tournamentId: null, globalFallback: true };
         const provenance = VpxScoreIngestService.provenanceFor(input.deviceType, input.playDevice);
-        const candidates = (await VpxScoreIngestService.loadCandidates(input.canonicalUserId))
-            .filter(row => VpxScoreIngestService.inScope(row, routing));
+        const loaded = await VpxScoreIngestService.loadCandidates(input.canonicalUserId);
+        const candidates = loaded.filter(row => VpxScoreIngestService.inScope(row, routing));
 
         // v2.165.0 — the VPS game id first (the companion resolved the table to
         // a catalogue game; the room's spelling of the name no longer matters),
@@ -796,7 +815,10 @@ export class VpxScoreIngestService {
         // v2.175.0 (W37, closes W36): only tournaments the player is ALLOWED IN.
         const allowed = matches.filter(row => VpxScoreIngestService.allowedIn(row));
         if (allowed.length === 0) {
-            return { kind: 'none', needles, routing, provenance, catalogue };
+            return {
+                kind: 'none', needles, routing, provenance, catalogue,
+                reason: VpxScoreIngestService.missReason(input, loaded, routing, provenance, catalogue),
+            };
         }
         // v2.175.0 (W37, ADR 0033): the play counts in EVERY tournament it
         // matches — two tournaments running the same table in member rooms each
@@ -834,6 +856,82 @@ export class VpxScoreIngestService {
             gameRoomId: target.game_room_id, tournamentId: target.tournament_id,
         };
         return { kind: 'target', target, where, targets, needles, routing, provenance, catalogue };
+    }
+
+    /**
+     * W27 (ADR 0033 §5) — why a play counts in NO tournament, in words a player
+     * can act on. Walks the same filters as `match`, in the same order (the
+     * device target, the window, the tournament's device rules, entry), over the
+     * open games whose NAME matched, and names the furthest one any of them
+     * reached: that is the step the player missed. Null when no open game of
+     * that name is open to the player at all — ordinary play at home, where
+     * "no open game matched" is the whole story.
+     */
+    private static missReason(
+        input: VpxScoreInput, loaded: CandidateRow[],
+        routing: VpxMatchResult['routing'], provenance: WitnessProvenance,
+        catalogue: { id: string; keys: Set<string> } | null,
+    ): string | null {
+        const needles = nameKeys(VpxScoreIngestService.deviceNames(input));
+        const byVps = catalogue
+            ? loaded.filter(row =>
+                (row.global_game_id != null && row.global_game_id === catalogue.id)
+                || [...nameKeys([row.name])].some(key => catalogue.keys.has(key)))
+            : [];
+        const named = byVps.length > 0
+            ? byVps
+            : loaded.filter(row => [...nameKeys([row.name])].some(key => needles.has(key)));
+        if (named.length === 0) return null;
+
+        const label = (row: CandidateRow): string => {
+            const t = `"${row.tournament_name ?? row.name}"${row.round_no != null ? ` round ${row.round_no}` : ''}`;
+            return row.room_name ? `${t} in ${row.room_name}` : t;
+        };
+
+        const scoped = named.filter(row => VpxScoreIngestService.inScope(row, routing));
+        if (scoped.length === 0) {
+            const to = routing.tournamentId ? 'one other tournament'
+                : routing.roomId ? 'one other room'
+                : routing.globalOnly ? 'the Global Scoreboard only'
+                : 'All my rooms';
+            return `your device is set to send to ${to}, so it did not count in ${label(named[0]!)}`;
+        }
+
+        const timed = scoped.filter(row => VpxScoreIngestService.inWindow(row, input.endedTs));
+        if (timed.length === 0) {
+            const row = scoped[0]!;
+            if (row.round_no != null) {
+                const start = epochOf(row.scheduled_start_at);
+                return start != null && input.endedTs < start
+                    ? `played before ${label(row)} opened`
+                    : `played after ${label(row)} closed`;
+            }
+            return `played before "${row.name}" went up in ${label(row)}`;
+        }
+
+        const devices = timed.filter(row => !VpxScoreIngestService.engineExcluded(row, provenance.device));
+        if (devices.length === 0) {
+            const device = provenance.device === 'atgames' ? 'AtGames cabinet'
+                : provenance.device === 'vr_headset' ? 'VR headset' : 'PC';
+            return `${label(timed[0]!)} does not accept ${device} scores`;
+        }
+
+        const row = devices[0]!;
+        switch (entryRefusal({
+            format: row.format === 'event' ? 'event' : 'rotation',
+            roomless: row.game_room_id == null,
+            checkinRequired: row.checkin_required === 1,
+            isMember: row.is_member === 1,
+            isParticipant: row.is_participant === 1,
+            entryMode: normalizeEntryMode(row.entry_mode),
+            onRoster: row.on_roster === 1,
+        })) {
+            case 'not_checked_in': return `you are not checked in to ${label(row)}`;
+            case 'not_on_roster': return `${label(row)} is invite-only and you are not on its roster`;
+            case 'not_joined': return `you have not joined ${label(row)}`;
+            case 'not_member': return `you are not a member of ${row.room_name ?? 'that room'}`;
+            default: return null;
+        }
     }
 
     /**
@@ -993,17 +1091,23 @@ export class VpxScoreIngestService {
      */
     private static async recordGlobal(
         input: VpxScoreInput, score: number, needles: Set<string>,
-        opts: { trail?: boolean } = {},
+        opts: { trail?: boolean; notCounted?: string | null } = {},
     ): Promise<VpxIngestResult> {
-        const result = await VpxScoreIngestService.recordGlobalInner(input, score, needles);
+        const inner = await VpxScoreIngestService.recordGlobalInner(input, score, needles);
+        // W27 (ADR 0033 §5) — a play that matched an open tournament game but
+        // could not count there says why, beside wherever it went instead.
+        const result: VpxIngestResult = opts.notCounted ? { ...inner, notCounted: opts.notCounted } : inner;
         if (opts.trail !== false) {
             await VpxScoreIngestService.trail(input, score, toSqliteUtc(Math.floor(input.endedTs)), {
                 outcome: result.status === 'global' || result.status === 'global_duplicate' || result.status === 'suppressed'
                     ? result.status : 'no_match',
                 gameName: result.gameName,
                 globalScoreId: result.globalScoreId ?? null,
-                // W29 — why it did not land ("not in the Arcaid catalogue", "matches 2 catalogue games", …).
-                ...(result.reason ? { reasons: [result.reason] } : {}),
+                // W29 — why it did not land ("not in the Arcaid catalogue", "matches 2 catalogue games", …);
+                // W27 — why it did not count in the tournament it matched, first.
+                ...((result.notCounted || result.reason)
+                    ? { reasons: [result.notCounted, result.reason].filter((r): r is string => !!r) }
+                    : {}),
             });
         }
         return result;
@@ -1191,6 +1295,7 @@ export class VpxScoreIngestService {
                     g.required_vps_table_id, g.required_rom, g.required_fingerprint,
                     t.format, t.end_grace_sec, t.platform_rules, t.integrity_mode, t.sanctioned_rules,
                     t.max_attempts, t.checkin_required, t.require_attempt_start, t.entry_mode,
+                    t.name AS tournament_name, gr.name AS room_name,
                     EXISTS (
                         SELECT 1 FROM tournament_participants tp
                          WHERE tp.tournament_id = g.tournament_id AND tp.user_id = ?
@@ -1205,6 +1310,7 @@ export class VpxScoreIngestService {
                     ) AS on_roster
                FROM games g
                JOIN tournaments t ON t.id = g.tournament_id
+               LEFT JOIN game_rooms gr ON gr.id = g.game_room_id
               -- W33 open-card rule: a FINISHED event is out; a PAUSED rotation
               -- (is_active = 0) is not — pause only stops the rotation.
               WHERE NOT ${tournamentFinishedSql('t')}

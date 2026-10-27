@@ -34,14 +34,25 @@ export interface EntryFacts {
 }
 
 export function entryAllowed(f: EntryFacts): boolean {
-    if (f.roomless) return f.isParticipant;
+    return entryRefusal(f) === null;
+}
+
+/**
+ * W27 (ADR 0033 §5) — WHY a player is not in, or null when they are. The same
+ * rule as `entryAllowed` (which is defined through it, so the two cannot
+ * drift), spelled out for the "your play didn't count because…" reason.
+ */
+export type EntryRefusal = 'not_joined' | 'not_on_roster' | 'not_checked_in' | 'not_member';
+
+export function entryRefusal(f: EntryFacts): EntryRefusal | null {
+    if (f.roomless) return f.isParticipant ? null : 'not_joined';
     if (f.entryMode === 'invited') {
-        if (!f.onRoster) return false;
-        if (f.format === 'event' && f.checkinRequired) return f.isParticipant;
-        return true;
+        if (!f.onRoster) return 'not_on_roster';
+        if (f.format === 'event' && f.checkinRequired && !f.isParticipant) return 'not_checked_in';
+        return null;
     }
-    if (f.format === 'event' && f.checkinRequired) return f.isParticipant;
-    return f.isMember || f.isParticipant;
+    if (f.format === 'event' && f.checkinRequired) return f.isParticipant ? null : 'not_checked_in';
+    return f.isMember || f.isParticipant ? null : 'not_member';
 }
 
 /** Read the stored column; anything unknown is the default. */

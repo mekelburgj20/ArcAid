@@ -479,6 +479,11 @@ router.get('/witness/score', witnessIngestLimiter, async (req, res) => {
                 ? { reasons: result.reasons ?? [], fallback: result.fallback ?? null }
                 : {}),
             ...(result.attempt ? { attempt: result.attempt } : {}),
+            // W27 (ADR 0033 §5) — a play that counted in no tournament says why,
+            // whether it went to Global or nowhere. Additive: older devices ignore it.
+            ...((result.notCounted ?? (result.status === 'no_match' ? result.reason : undefined))
+                ? { notCounted: result.notCounted ?? result.reason }
+                : {}),
             // v2.175.0 (W37, ADR 0033): every tournament the play was tried in,
             // in the same wire vocabulary. Additive — the top-level fields stay
             // the first landing, which is all a pre-W37 device reads.
