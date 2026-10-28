@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, Outlet, useParams, useLocation, useNavigate } from 'react-router-dom';
-import { Home, Settings as SettingsIcon, Trophy, Library, LogOut, Clock, BarChart3, Medal, Menu, X, Crown, HelpCircle, Activity, Wrench, Palette, MessageSquare, Users, UserCheck, UsersRound, ArrowLeft } from 'lucide-react';
+import { Home, Settings as SettingsIcon, Trophy, Library, LogOut, Clock, BarChart3, Medal, Menu, X, Crown, HelpCircle, Activity, Wrench, Palette, MessageSquare, Users, UserCheck, UsersRound, ArrowLeft, MonitorCheck } from 'lucide-react';
 import { api, isAuthenticated, setToken } from '../lib/api';
 import { getPortal } from '../lib/portal';
 import { RoomContext } from '../contexts/RoomContext';
@@ -122,6 +122,8 @@ export default function RoomAdminLayout() {
     { path: `${basePath}/tournaments`, label: 'Tournaments', icon: <Trophy size={18} /> },
     { path: `${basePath}/library`, label: 'Game Library', icon: <Library size={18} /> },
     { path: `${basePath}/games`, label: 'Game States', icon: <Wrench size={18} /> },
+    // v2.189.0 (W5) — the runner's live view of members' paired Witness devices.
+    { path: `${basePath}/witness`, label: 'Witness devices', icon: <MonitorCheck size={18} /> },
     'separator',
     { path: `${basePath}/leaderboard`, label: 'Leaderboard', icon: <Medal size={18} /> },
     { path: `${basePath}/rankings`, label: 'Rankings', icon: <Crown size={18} /> },
