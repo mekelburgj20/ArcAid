@@ -15,6 +15,36 @@
 export type IntegrityVerdictEntry = { verdict: 'pass' | 'flagged'; reasons: string[] };
 export type IntegrityVerdictMap = Record<string, IntegrityVerdictEntry>;
 
+/**
+ * Quit badge (v2.187.0, W49, castcade B16): `GET .../integrity` also ships
+ * `quits`, a SEPARATE map from `score_history.id` to `{ ball }` for the games
+ * the player quit before game over. Separate from the verdicts because a
+ * verdict is withheld for a cabinet or a desktop that sent no evidence, while
+ * the quit fact is still known. Neutral and informational: a quit game still
+ * counts, and in Limited attempts it still used its attempt.
+ */
+export type QuitMap = Record<string, { ball: number | null }>;
+
+export interface QuitLabelSpec {
+  label: string;
+  title: string;
+}
+
+const QUIT_TITLE =
+  'The player quit this game before game over (reported by the Castcade companion). It still counts and, in Limited attempts, still used its attempt.';
+
+/** `null` when the row has no quit entry — an absence of badge, never a badge of absence. */
+export function quitLabelFor(
+  quits: QuitMap | null | undefined,
+  historyId: number | string | null | undefined,
+): QuitLabelSpec | null {
+  if (!quits || historyId == null) return null;
+  const entry = quits[String(historyId)];
+  if (!entry) return null;
+  const ball = typeof entry.ball === 'number' && Number.isInteger(entry.ball) && entry.ball >= 1 ? entry.ball : null;
+  return { label: ball != null ? `Quit on ball ${ball}` : 'Quit', title: QUIT_TITLE };
+}
+
 export interface IntegrityChipSpec {
   tone: 'pass' | 'flagged';
   label: string;

@@ -156,6 +156,13 @@ export type VpxScoreInput = {
      * later per-ball format; nothing here reads it.
      */
     ballPoints?: number[] | null;
+    /**
+     * v2.187.0 (W49, castcade B16) — the game was quit before game over
+     * (`quit=1`, `quit_ball=<n>`), or reached it (`quit=0`); null/absent =
+     * unknown. Stored on the evidence trail and badged on the board; a quit
+     * game still counts and still uses its attempt — nothing here gates.
+     */
+    quit?: import('../utils/quitEvidence.js').QuitEvidence | null;
 };
 
 /** See `VpxScoreIngestService.provenanceFor`. */
@@ -1046,6 +1053,7 @@ export class VpxScoreIngestService {
                 playedAt,
                 evidence: input.evidence ?? null,
                 ballPoints: input.ballPoints ?? null,
+                quit: input.quit ?? null,
             });
         } catch (err) {
             logWarn(`VPX ingest: evidence trail not written (${err instanceof Error ? err.message : String(err)})`);
