@@ -158,7 +158,7 @@ export function startApiServer(port: number = 3001) {
     // v2.165.0 (ADR 0027) — integrity mode: the runner's evidence trail and
     // per-game requirements, the public verdict map, the catalogue's tables.
     app.use('/api', integrityRouter);
-    // v2.189.0 (W5) — the room admin's live Witness device view.
+    // v2.187.0 (W5) — the room admin's live Witness device view.
     app.use('/api', witnessAdminRouter);
     // v2.179.0 (W39, ADR 0033 §6) — tournament entry: roster, invite link, requests.
     app.use('/api', entryRouter);

@@ -7,7 +7,7 @@ import { WitnessService } from './WitnessService.js';
 import { resolveUserLabels } from './PlayerProfileResolver.js';
 
 /**
- * The runner's live device view (v2.189.0, W5) — what a room admin sees while
+ * The runner's live device view (v2.187.0, W5) — what a room admin sees while
  * running a night: every paired Witness device belonging to a member of THEIR
  * room (or entered directly into one of the room's tournaments), whether it is
  * reporting in, when it last checked in, which table is open on it right now,

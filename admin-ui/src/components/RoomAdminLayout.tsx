@@ -122,7 +122,7 @@ export default function RoomAdminLayout() {
     { path: `${basePath}/tournaments`, label: 'Tournaments', icon: <Trophy size={18} /> },
     { path: `${basePath}/library`, label: 'Game Library', icon: <Library size={18} /> },
     { path: `${basePath}/games`, label: 'Game States', icon: <Wrench size={18} /> },
-    // v2.189.0 (W5) — the runner's live view of members' paired Witness devices.
+    // v2.187.0 (W5) — the runner's live view of members' paired Witness devices.
     { path: `${basePath}/witness`, label: 'Witness devices', icon: <MonitorCheck size={18} /> },
     'separator',
     { path: `${basePath}/leaderboard`, label: 'Leaderboard', icon: <Medal size={18} /> },

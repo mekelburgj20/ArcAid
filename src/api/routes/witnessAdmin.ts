@@ -4,7 +4,7 @@ import { requireAuth, requireRoomAccess } from '../middleware.js';
 import { WitnessAdminViewService } from '../../services/WitnessAdminViewService.js';
 
 /**
- * The runner's live device view (v2.189.0, W5): every paired Witness device of
+ * The runner's live device view (v2.187.0, W5): every paired Witness device of
  * a room's members (or direct entrants), with online / last check-in / open
  * table / where its scores go, plus each event lobby's counts. Room admins
  * only (`requireRoomAccess`); read-only, so no audit row. Mounted at `/api`

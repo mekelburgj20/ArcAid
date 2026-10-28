@@ -10,7 +10,7 @@ import { WitnessService } from '../services/WitnessService.js';
 import { WitnessAdminViewService } from '../services/WitnessAdminViewService.js';
 
 /**
- * The runner's live device view (v2.189.0, W5): `GET /api/rooms/:roomId/admin/witness/devices`.
+ * The runner's live device view (v2.187.0, W5): `GET /api/rooms/:roomId/admin/witness/devices`.
  *
  * What these pin, worst-bug-first:
  *   1. Privacy: only devices of this room's members (or direct entrants) are

@@ -12,7 +12,7 @@ import { formatInZone } from '../lib/timezone';
 import { roomLines, type Routing } from '../lib/witnessScoresGoTo';
 
 /**
- * The runner's live device view (v2.189.0, W5) — `/:slug/admin/witness`.
+ * The runner's live device view (v2.187.0, W5) — `/:slug/admin/witness`.
  *
  * What a room admin looks at while running a night: every paired Witness
  * device of a member of THIS room (or a player entered directly into one of

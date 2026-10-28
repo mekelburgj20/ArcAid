@@ -6,6 +6,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.187.0] - 2026-10-28 - Room admin's live Witness device view (W5)
+
+Running a night meant guessing whether people's Witness devices were on and ready. Room admins now have a live view
+of every paired device in their room, so the runner can see when to start (castcade hand-off §10, owner ask 2026-10-18).
+
+### Added
+- **Witness devices page.** Room Admin → Witness devices (`/<room>/admin/witness`) lists every paired Arcaid Witness
+  device belonging to a member of the room, or to a player entered directly into one of its tournaments. Each shows
+  the player, whether it is a cabinet or a PC, whether it is online or "Not responding", its last check-in, the table
+  open on it right now, and where its scores go (the same wording the player sees in "Your scores go to"). It
+  refreshes itself every 20 seconds, with a Refresh button.
+- **Check-in lobby counts for runners.** For each event in its check-in window the page shows how many players are
+  Ready, need to exit a table, have not checked in, are not responding, or have no device, with the lobby roster
+  beneath. The block disappears once round 1 starts.
+- Only room admins can see it (`GET /api/rooms/:roomId/admin/witness/devices`, read-only); it shows what each device
+  already reports (table names and times), nothing from the player's PC. Device state loads through the ONE helper the
+  player-facing lobby uses (`EventLobbyService.loadDeviceState`), so the two views cannot drift.
+
 ## [2.186.0] - 2026-10-28 - Check-in lobby wording follows the device (W19)
 
 The check-in lobby told every player whose Witness had not checked in to "Open the Witness tile", even when that

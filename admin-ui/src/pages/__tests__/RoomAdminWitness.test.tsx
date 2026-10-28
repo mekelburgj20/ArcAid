@@ -4,7 +4,7 @@ import RoomAdminWitness from '../RoomAdminWitness';
 import { RoomContext } from '../../contexts/RoomContext';
 
 /**
- * The runner's live device view (v2.189.0, W5): a room admin sees every paired
+ * The runner's live device view (v2.187.0, W5): a room admin sees every paired
  * Witness device of the room, the table open now, where its scores go (the
  * SAME words as the player's "Your scores go to" line), and each live event's
  * check-in lobby as counts.

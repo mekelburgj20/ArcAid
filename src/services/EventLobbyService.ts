@@ -158,7 +158,7 @@ export class EventLobbyService {
     }
 
     /**
-     * v2.189.0 (W5) — the device-state reads behind BOTH the player-facing
+     * v2.187.0 (W5) — the device-state reads behind BOTH the player-facing
      * lobby (`roster`) and the room admin's live device view
      * (`WitnessAdminViewService.roomDevices`), in one place so the two cannot
      * drift on what "checked in" or "table open" means.
@@ -242,7 +242,7 @@ export class EventLobbyService {
         const deviceIds = devices.map(d => d.atgames_unique_id);
 
         // Latest check-in per device inside the window + the newest open session
-        // per device (v2.189.0, W5: loaded by the helper the runner's view shares).
+        // per device (v2.187.0, W5: loaded by the helper the runner's view shares).
         const { checkinByDevice, openByDevice } = await EventLobbyService.loadDeviceState(deviceIds, {
             checkinFloorEpoch: windowOpen, nowEpoch,
         });
