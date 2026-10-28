@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.184.1] - 2026-10-27 - Playwright base image matches the npm package again
+
+### Fixed
+- **Every iScored browser action failed on prod since 2026-10-21** (create, lock, hide, delete, Check iScored links,
+  Reconcile): Dependabot #355 bumped the npm `playwright` package to 1.64.1 without the Dockerfile base image, which
+  stayed on `mcr.microsoft.com/playwright:v1.62.1-noble`, so Chromium was missing (`Executable doesn't exist`). The
+  base image is now `v1.64.1-noble`. Only one room had iScored on, and its first link check is what surfaced it.
+
 ## [2.184.0] - 2026-10-27 - "Your scores go to" on room and home pages (W27.3, ADR 0033 §5)
 
 TomatoGrass's top request from the Witness Weekend Showdown: where a paired device sends scores was buried
