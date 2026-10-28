@@ -160,6 +160,30 @@ Define the **event schema and the journal format as the product boundary**. The 
 is then swappable: script hook today, a 10.8.1+ plugin later emitting identical events, agent
 unchanged. Same split as the cabinet's beacon/reporter.
 
+### Wire contract: pressing "Start attempts" from the device (v2.188.0, W45)
+
+The other `/api/witness/*` calls are not restated in this plan; this one is recorded here because
+it was added for the companion. A tournament with Limited attempts and **Start attempts required**
+(`require_attempt_start`, W38 / ADR 0033 §4) counts a play only when the game began at or after the
+player pressed Start attempts for that table. `GET /api/witness/attempt-start` is the device twin of
+the web button.
+
+- **Auth:** `device` + `token` query (or `x-witness-token` header), the same limiter and the same
+  bare `401 {ok:false}` as `/witness/attempt`.
+- **Optional:** `table`, `rom`, `slug`, `vps_game` (read exactly as on `/witness/attempt`) narrow the
+  press to the games that table's play would land on; `play_device` as on the score call. With none,
+  every open start-required limited table this device's plays would land on is pressed
+  (`VpxScoreIngestService.openLimitedGames` — the ingest's own candidate, routing, entry, window
+  and device-exclusion filters).
+- **Idempotent, first press wins:** a repeat keeps the original time (`alreadyStarted: true`).
+- **Answer (always 200):** `{ ok, status, started: [{ game, gameId, tournamentId, startedTs,
+  alreadyStarted }], reason?, sendingTo }` with `status` = `started` (at least one row in `started`)
+  / `nothing_to_start` (no such table routes from this device; `reason`) / `no_match` (the named table
+  is not one of them; `reason`). `sendingTo` is the heartbeat's own line, so the display can refresh
+  from this reply ("· ATTEMPTS NOT STARTED" becomes "· N OF M ATTEMPTS LEFT").
+- Ingest is unchanged: a game whose START is at/after `startedTs` counts; an earlier one stays
+  `not_started`.
+
 ## 5. Coverage and honest limits
 
 - **100 of the owner's 138 NVRAM files** have `game_state` maps (last-game scores). 105 are

@@ -6,6 +6,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.188.0] - 2026-10-28 - The device can press "Start attempts" (W45)
+
+Castcade desktop players no longer have to open the game page to press "Start attempts" in a Limited-attempts
+tournament that requires it (ADR 0033 §4): the companion can press it for them. It only ever starts tables a play
+from that device would actually count on, and the first press still wins.
+
+### Added
+- **`GET /api/witness/attempt-start`** — the device's "Start attempts" button (device-token auth, same bare 401 as
+  the other `/witness/*` calls). With no table named it starts every open Limited-attempts table that needs the press
+  and that this device sends to (derived from `VpxScoreIngestService.openLimitedGames`, the same candidate / routing /
+  entry / window / device-exclusion filters the ingest applies); naming a table (`table` / `rom` / `slug` /
+  `vps_game`) starts just that one, in every tournament it counts in. Answers `started` (each table, with
+  `alreadyStarted`), `nothing_to_start` or `no_match`, plus the device's current "Sending to" line so the companion
+  can refresh its display. Writes `attempt_starts` with `source='device'` through the same `startAttempts`; ingest,
+  `recordAttempt` and `playIsStarted` are unchanged.
+
+### Changed
+- The heartbeat's "Sending to" line is now built by one shared helper (`witnessHeartbeatSendingTo`), so the new call
+  and the heartbeat always say the same thing. No visible change.
+
 ## [2.187.0] - 2026-10-28 - Room admin's live Witness device view (W5)
 
 Running a night meant guessing whether people's Witness devices were on and ready. Room admins now have a live view
