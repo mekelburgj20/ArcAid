@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import crypto from 'crypto';
 
 /**
- * W24 (v2.192.0) - the Room Admin dashboard reads an EVENT as rounds.
+ * W24 (v2.194.0) - the Room Admin dashboard reads an EVENT as rounds.
  *
  * WWS test event, 2026-10-23: the dashboard's tournament fields stayed empty for
  * an event while the public room page showed everything. The dashboard joined

@@ -22,7 +22,7 @@ interface ActiveTournamentInfo {
     leader_score: number | null;
     participants: number;
     next_rotation_at: string | null;
-    // v2.192.0 (W24) - EVENT rows only (a rotation row never carries these keys,
+    // v2.194.0 (W24) - EVENT rows only (a rotation row never carries these keys,
     // so its JSON is unchanged). An event's rounds are `games` rows that sit
     // SCHEDULED until the clock opens them, so the "current game" of an event
     // is a ROUND: the live one, else the next one, else the last one played.
@@ -54,7 +54,7 @@ interface DashboardData {
 }
 
 /**
- * v2.192.0 (W24) - the dashboard row of a `format='event'` tournament.
+ * v2.194.0 (W24) - the dashboard row of a `format='event'` tournament.
  *
  * The shown round is the LIVE one (ACTIVE), else the NEXT one still SCHEDULED,
  * else the LAST one played. The leader is the round board's rank-1 row, from
@@ -180,7 +180,7 @@ export async function getDashboardData(gameRoomId?: string): Promise<DashboardDa
     const seenEvents = new Set<string>();
 
     for (const row of activeGames) {
-        // v2.192.0 (W24) - an event is read as ROUNDS, one row per event.
+        // v2.194.0 (W24) - an event is read as ROUNDS, one row per event.
         if (row.tournament_format === 'event') {
             if (seenEvents.has(row.tournament_id)) continue;
             seenEvents.add(row.tournament_id);

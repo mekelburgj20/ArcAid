@@ -22,7 +22,7 @@ interface DashboardData {
     leader_score?: number;
     next_rotation_at?: string | null;
     participants?: number;
-    // v2.192.0 (W24) - event rows only: the shown ROUND (live, else next, else
+    // v2.194.0 (W24) - event rows only: the shown ROUND (live, else next, else
     // last played) and where the event is.
     format?: 'event';
     event_state?: 'upcoming' | 'checkin' | 'live' | 'between_rounds' | 'finished' | 'cancelled';

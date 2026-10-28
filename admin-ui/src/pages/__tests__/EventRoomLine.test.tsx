@@ -3,7 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 
 /**
- * W30 (v2.192.0) - the room is not the tournament. The event page header reads
+ * W30 (v2.194.0) - the room is not the tournament. The event page header reads
  * "Room -> Tournament": the room name is a small link above the event name. A
  * Throwdown has no room, so it gets no such line.
  */

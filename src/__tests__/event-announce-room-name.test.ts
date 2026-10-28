@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import crypto from 'crypto';
 
 /**
- * W30 (v2.192.0) - the Discord event posts lead with the TOURNAMENT and name the
+ * W30 (v2.194.0) - the Discord event posts lead with the TOURNAMENT and name the
  * ROOM beneath it. TomatoGrass (WWS test event, 2026-10-23) took the room name
  * "Arcaid Witness Demo" for the tournament.
  *

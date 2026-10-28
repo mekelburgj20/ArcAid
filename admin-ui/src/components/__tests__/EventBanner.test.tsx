@@ -4,7 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import EventBanner from '../EventBanner';
 
 /**
- * W30 (v2.192.0) - the banner leads with the TOURNAMENT and shows the room as
+ * W30 (v2.194.0) - the banner leads with the TOURNAMENT and shows the room as
  * its subtitle, so the room name is not mistaken for the event.
  */
 

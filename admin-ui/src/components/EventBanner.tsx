@@ -54,7 +54,7 @@ function relative(iso: string): string {
 }
 
 /**
- * v2.192.0 (W30) - leads with the TOURNAMENT name and shows the room beneath it
+ * v2.194.0 (W30) - leads with the TOURNAMENT name and shows the room beneath it
  * ("in <room>"): invitees took the room name for the tournament.
  */
 export default function EventBanner({ roomId, roomSlug, roomName }: { roomId: string; roomSlug: string; roomName?: string }) {

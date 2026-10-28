@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 
 /**
- * W30 (v2.192.0) - the invite leads with the TOURNAMENT name and names the room
+ * W30 (v2.194.0) - the invite leads with the TOURNAMENT name and names the room
  * as "in <Room>" (invitees took the room name for the tournament).
  */
 

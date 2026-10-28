@@ -439,7 +439,7 @@ export class EventScheduler {
     // --- shared helpers ----------------------------------------------------
 
     /**
-     * v2.192.0 (W30) - the post leads with the TOURNAMENT (title / existing
+     * v2.194.0 (W30) - the post leads with the TOURNAMENT (title / existing
      * footer); the room it lives in is appended to the footer, so invitees stop
      * mistaking the room name for the tournament. A room-less Throwdown has no
      * room and is left as is.

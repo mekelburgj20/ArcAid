@@ -333,7 +333,7 @@ export default function EventDetail({ throwdownCode }: EventDetailProps = {}) {
             {backLink}
 
             <header className="mt-3 mb-6">
-                {/* v2.192.0 (W30) - Room -> Tournament: the room is the small line
+                {/* v2.194.0 (W30) - Room -> Tournament: the room is the small line
                     above, the event is the heading. A Throwdown has no room. */}
                 {!isThrowdown && room && (
                     <Link

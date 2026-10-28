@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
 /**
- * W24 (v2.192.0) - the Room Admin dashboard shows an EVENT as a round: the
+ * W24 (v2.194.0) - the Room Admin dashboard shows an EVENT as a round: the
  * state, the round and its window in the room timezone, the leader from the
  * round board - and an honest line when nothing is scheduled.
  */

@@ -6,6 +6,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.194.0] - 2026-10-28 - Room Admin dashboard shows events; events lead with the tournament, room beneath (W24, W30)
+
+At the 2026-10-23 test event the Room Admin dashboard showed nothing for an event (its rounds sit SCHEDULED until the
+clock opens them, and the dashboard only looked for ACTIVE games), and invitees took the ROOM name "Arcaid Witness
+Demo" for the tournament.
+
+### Fixed
+- **Room Admin → Dashboard shows a live event (W24).** The "Active Now" card shows the current round (else the next
+  SCHEDULED one, else the last one played), the event's state (Upcoming / Check-in open / Live / Between rounds /
+  Finished), the round window in the room's timezone ("Round 2 opens Fri, 7:00 PM CDT"), the player count and the
+  round's leader. The leader comes from `EventResultService.getRoundBoard` (the same ranking the event page uses, so
+  a score held back by the Witness "prevent" rule is not shown), never from `submissions`. An event with no rounds
+  says "No round scheduled". Rotation rows are byte-identical to before (event rows alone carry `format`,
+  `event_state`, `round_no`, `round_count`, `round_status`, `round_start_at`, `round_end_at`).
+
+### Changed
+- **Events lead with the tournament and show the room beneath it (W30).** The event page has the room name as a small
+  link above the event title; the LIVE / EVENT banner on room pages shows the event name first, then
+  "in <Room> · …"; the Discord event posts (check-in open, round live, round results, final standings) keep their
+  titles and add "in <Room>" to the footer. Throwdowns have no room and are unchanged. The tournament invite page
+  already led with the tournament; a test now locks that.
+- Known: a finished event leaves "Active Now" when `is_active` flips to 0, as any ended tournament does; the room-wide
+  "Active Players" count still comes from `submissions`, so it undercounts event-only players.
+
 ## [2.193.0] - 2026-10-28 - ROM → VPS game map, served and used by the Witness ingest (W12)
 
 Arcaid now keeps the Virtual Pinball Spreadsheet's ROM-to-game map itself, so the Castcade companion no longer has to
