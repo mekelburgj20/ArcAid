@@ -1665,6 +1665,18 @@ export class GlobalGameService {
                 sourceId
             );
 
+            // v2.193.0 (W12) - global_game_roms has PRIMARY KEY
+            // (global_game_id, rom) and no FK. The source's ROMs now name the
+            // target; same OR IGNORE then sweep.
+            await db.run(
+                `UPDATE OR IGNORE global_game_roms SET global_game_id = ? WHERE global_game_id = ?`,
+                targetId, sourceId
+            );
+            await db.run(
+                `DELETE FROM global_game_roms WHERE global_game_id = ?`,
+                sourceId
+            );
+
             // --- Data union onto target ---
 
             const source = await db.get('SELECT * FROM global_games WHERE id = ?', sourceId) as GlobalGame;
@@ -1842,6 +1854,8 @@ export class GlobalGameService {
         try {
             await db.run('DELETE FROM global_scores WHERE global_game_id = ?', id);
             await db.run('DELETE FROM global_leaderboard_cache WHERE global_game_id = ?', id);
+            // v2.193.0 (W12) - no FK; the ROM map would otherwise keep naming a gone game.
+            await db.run('DELETE FROM global_game_roms WHERE global_game_id = ?', id);
             const result = await db.run('DELETE FROM global_games WHERE id = ?', id);
             await db.exec('COMMIT');
             return (result.changes ?? 0) > 0;

@@ -275,6 +275,30 @@ router.delete('/me/witness/devices/:deviceId', requireDiscordUser, async (req, r
     }
 });
 
+// Device: the ROM -> VPS game map (v2.193.0, W12, castcade B8/F8). PUBLIC - no
+// device token: it is catalogue data, the same for every caller, built from
+// VPS `romFiles` (`global_game_roms`, GlobalGameRomService). Versioned by a
+// content hash that is also the ETag, so the companion can cache it and
+// revalidate with If-None-Match. A ROM under more than one game is listed as
+// `{ ambiguous: true, candidates: [...] }`, never resolved to one of them.
+router.get('/witness/roms', witnessIngestLimiter, async (req, res) => {
+    try {
+        const { GlobalGameRomService } = await import('../../services/GlobalGameRomService.js');
+        const map = await GlobalGameRomService.romMap();
+        const etag = `"${map.version}"`;
+        res.setHeader('Cache-Control', 'public, max-age=3600');
+        res.setHeader('ETag', etag);
+        const inm = req.headers['if-none-match'];
+        if (typeof inm === 'string' && inm.split(',').map(t => t.trim().replace(/^W\//, '')).includes(etag)) {
+            return res.status(304).end();
+        }
+        res.json(map);
+    } catch (error) {
+        logError('API Error (GET /api/witness/roms):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 // Device: redeem a pairing code, receive the device token (returned ONCE).
 // `token` accepted via query only here; the device stores what it gets back.
 // `type` is 'atgames' (default — every cabinet build omits it) or 'desktop'
