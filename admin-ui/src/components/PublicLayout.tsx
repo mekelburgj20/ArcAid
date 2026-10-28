@@ -512,7 +512,7 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
                 noise. */}
             {resolvedRoomId && !location.pathname.includes('/events/') && (
               <div className="max-w-5xl mx-auto px-4 sm:px-6 pt-3">
-                <EventBanner roomId={resolvedRoomId} roomSlug={slug || ''} />
+                <EventBanner roomId={resolvedRoomId} roomSlug={slug || ''} roomName={roomName} />
               </div>
             )}
             {/* W27.3 (ADR 0033 §5) — does each of the viewer's paired Witness
