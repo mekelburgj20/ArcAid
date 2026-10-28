@@ -9,9 +9,9 @@ priority tier from `LAUNCH.md`. Pick an item with `/work <ID>`; end a session wi
 
 ## Now
 
-- ArcAid 2.184.1 on prod (2026-10-27): Playwright base image fixed (X15, #401) — iScored game create/lock/delete and "Check iScored links" work again. Cabinet app 1.0.7 merged + tagged (W50.11), kit built, not sent.
-- In flight: F7 Reconcile delete warning `review #402` (2.184.2, waiting on the owner's screenshot OK) · W50 table certification (opus@table-cert) · W39 entry roster · A3 owner.
-- Owner steps: OK PR #402 · send cabinet kit 1.0.7 (replaces unsent 1.0.6, carries the W48 AMH fix) with the W50.7 tester round (tmp/table-cert/TESTER-TEST.md + sidecars/TESTER-SIDECAR.md for TNA) · send tmp/table-cert/LU-NOTE.md (W50.8) · Micro test (W50.6) · A3 GamerDad89's Season.
+- ArcAid 2.184.2 on prod (2026-10-28): Reconcile names what it deletes (F7, #402); 2.184.1 Playwright base image fixed (X15, #401) — iScored game create/lock/delete and "Check iScored links" work again. Cabinet app 1.0.7 merged + tagged (W50.11), kit built, not sent.
+- In flight: G6 bot invite link `review #403` (2.185.0, waiting on the owner's screenshot OK) · W50 table certification (opus@table-cert) · W39 entry roster · A3 owner.
+- Owner steps: OK PR #403 screenshots · send cabinet kit 1.0.7 (replaces unsent 1.0.6, carries the W48 AMH fix) with the W50.7 tester round (tmp/table-cert/TESTER-TEST.md + sidecars/TESTER-SIDECAR.md for TNA) · send tmp/table-cert/LU-NOTE.md (W50.8) · Micro test (W50.6) · A3 GamerDad89's Season.
 - Spectre (probros_gaming): convert his live iScored tournament — he enables iScored API access, iScored OFF → create tournament + activate 5 games → owner-OK'd prod `games.iscored_id` link → iScored ON; never Reconcile-delete before F7 ships. F8 would make this a button. Bot invite: G6.
 - Owed by testers: cabinet 1.0.5 results (W28, W32) · W50.7 lever results (LU maps location, POTC + Firepower II custom maps, Deadpool, TNA sidecar, SAM re-test, a second cabinet).
 - W50 findings so far: ~277 of ~324 ROM tables expected per-game; ROM-less = 166 tables / ~25% of plays (W50.9 shim desktop-tested on TNA); Williams System 7 generic map broken (W50.10, corrected maps verified headless).
@@ -141,7 +141,7 @@ Lane: `src/engine/{IScoredApiClient,IScoredClient,IScoredNotificationGate,IScore
 - **F4** `idea` Poller — adaptive backoff after 5 consecutive failures, fetch-agent reset on the Nth failure, tunable API timeout in Global Settings · tier: 7 · spec: ROADMAP.md §"ScoreSyncPoller adaptive backoff" and the two entries after it
 - **F5** `idea` Alias tooling — `/unmap-user`, pure-iScored-name claim form for admins, one-shot DM at merge · tier: 7 · spec: ROADMAP.md §"`/unmap-user`" and the two entries after it · touches: src/services/MergeService.ts
 - **F6** `done 2.155.6` Cleanup archives games that were never on iScored (the weekly-cleanup orphan)
-- **F7** `review #402` Reconcile iScored names every game it will delete, with a second confirm (2.184.2; Spectre's live iScored room, 2026-10-27) · spec: PR #402
+- **F7** `done 2.184.2` Reconcile iScored names every game it will delete, with a second confirm
 - **F8** `idea` Link an EXISTING iScored board to an Arcaid game (converting a live iScored tournament, Spectre probros_gaming 2026-10-27): activation and pin always create a NEW board today, so the only link is a hand-written prod `games.iscored_id`; ~half a day · touches: src/api/routes/rooms.ts, src/engine/gameCreation.ts
 
 ## G. Room settings, admin UI structure, a11y, PWA
@@ -153,7 +153,7 @@ Lane: `src/services/{GameRoom,GameRoomSettings,Settings,RoomEvent,Dashboard,Lobb
 - **G3** `idea` Room Settings page reorganisation — tabs/sections (Appearance / Access & Privacy / Integrations / Advanced) vs a settings search vs sibling pages; decide which cards leave Settings (Users duplicates Members; Platforms is library config) · tier: 5 · spec: ROADMAP.md §"Room Settings page reorganisation"
 - **G4** `idea` `KIOSK_KEY` pairing so a physically-secured kiosk can show an approval room; no ad-hoc bypasses meanwhile · tier: 7 · spec: ROADMAP.md §"Kiosk mode on approval rooms"
 - **G5** `idea` S20 a11y deferred items — `confirm()`/`alert()` → ConfirmModal/toast in four pages, dialog semantics + focus traps on ~15 modal shells, the `window.prompt` report reason, 320 px nav fallback · tier: 7 · spec: ROADMAP.md §"S20 a11y deferred items"
-- **G6** `idea` [QUICK] An "Add the bot to your server" invite link on room Settings (Discord group) and in the onboarding message: setting the Guild ID alone does not add the bot (Spectre probros_gaming 2026-10-27). Link = OAuth authorize with the global DISCORD_CLIENT_ID, scope `bot applications.commands`, permissions=562949953539072
+- **G6** `review #403` [QUICK] An "Add the bot to your server" invite link on room Settings (Discord group) and in the onboarding message: setting the Guild ID alone does not add the bot (Spectre probros_gaming 2026-10-27). Link = OAuth authorize with the global DISCORD_CLIENT_ID, scope `bot applications.commands`, permissions=562949953539072
 
 ## W. Witness and Castcade integration
 
