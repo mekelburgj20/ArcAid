@@ -153,7 +153,8 @@ describe('RoomAdminWitness', () => {
       throw new Error('Server exploded');
     }) as never);
     fireEvent.click(screen.getByRole('button', { name: /Refresh/ }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Server exploded');
+    // 5 s, not the 1 s default: on a loaded CI runner the refresh + rerender took 1.2 s (run 40741233426, 2026-10-28).
+    expect(await screen.findByRole('alert', {}, { timeout: 5000 })).toHaveTextContent('Server exploded');
     expect(screen.getAllByTestId('witness-admin-device')).toHaveLength(3);
   });
 
