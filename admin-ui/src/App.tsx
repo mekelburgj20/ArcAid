@@ -48,6 +48,7 @@ const Identity = lazy(() => import('./pages/Identity'));
 const JoinRequests = lazy(() => import('./pages/JoinRequests'));
 const IdentityClaims = lazy(() => import('./pages/IdentityClaims'));
 const RoomAdminMembers = lazy(() => import('./pages/RoomAdminMembers'));
+const RoomAdminWitness = lazy(() => import('./pages/RoomAdminWitness'));
 const LobbyAdmin = lazy(() => import('./pages/LobbyAdmin'));
 
 // Pages — Public
@@ -197,6 +198,7 @@ function App() {
           <Route path="styles" element={<StyleCatalogue />} />
           <Route path="identity" element={<Identity />} />
           <Route path="members" element={<RoomAdminMembers />} />
+          <Route path="witness" element={<RoomAdminWitness />} />
           <Route path="join-requests" element={<JoinRequests />} />
           <Route path="identity-claims" element={<IdentityClaims />} />
           <Route path="activity" element={<ActivityLog />} />
