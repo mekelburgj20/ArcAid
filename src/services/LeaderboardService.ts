@@ -541,8 +541,21 @@ export class LeaderboardService {
 
     /**
      * Get cached leaderboard, recalculating if stale or missing.
+     *
+     * v2.194.0 (W52) - an EVENT ROUND returns its round board's ranking
+     * (`getEventRoundOverlays`, derived from `EventResultService.getRoundBoardDetail`)
+     * instead of the cached rows, so every caller - Discord `/list-scores`, the
+     * `/submit-score` rank reply, the chat `leaders` / `my_rank` actions, the
+     * game page - ranks a round exactly as its standings do (ADR 0031: under
+     * 'prevent' a score the witness saw start before the round opened does not
+     * lead). Read time only; the cache is neither read nor written for a round
+     * here. Every other game pays one cheap `loadEventRounds` query and is
+     * otherwise unchanged.
      */
     static async getForGame(gameId: string): Promise<RankedEntry[]> {
+        const overlay = (await this.getEventRoundOverlays([gameId])).get(gameId);
+        if (overlay) return overlay.rankings;
+
         const db = await getDatabase();
         const cached = await db.get('SELECT rankings, generated_at FROM leaderboard_cache WHERE game_id = ?', gameId);
 
@@ -717,6 +730,15 @@ export class LeaderboardService {
         const engine = normalizeProvenanceToken(filter.engine);
         const device = normalizeProvenanceToken(filter.device);
         if (!engine && !device) return this.getForGame(gameId);
+
+        // v2.194.0 (W52) - an event round's engine/device tab is its round
+        // board's CHOSEN rows restricted to that engine/device and re-ranked
+        // (see `getEventRoundOverlays`). Deliberately NOT "each player's best on
+        // this engine": the standings choose ONE score per player, and a tab
+        // that dug out a player's lower score on another engine would rank a
+        // score the round does not count. `getForGameByPlatform` lands here too.
+        const overlay = (await this.getEventRoundOverlays([gameId], { engine, device })).get(gameId);
+        if (overlay) return overlay.rankings;
 
         // S24.3 — dedup identical concurrent requests. The cache bypass above
         // is deliberate and unchanged; this only prevents two simultaneous
