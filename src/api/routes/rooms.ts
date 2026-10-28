@@ -434,18 +434,23 @@ router.get('/:roomId/leaderboard/:gameId', async (req, res) => {
         // with what the tab strip offers. Ignored when either new param is given.
         const platformFilter = (engineFilter || deviceFilter) ? null : qs('platform');
 
-        const rankings = (engineFilter || deviceFilter)
-            ? await LeaderboardService.getForGameByProvenance(gameId, { engine: engineFilter, device: deviceFilter })
-            : platformFilter
-                ? await LeaderboardService.getForGameByPlatform(gameId, platformFilter)
-                : await LeaderboardService.getForGame(gameId);
-
         // v2.190.0 (W22): an event round's board is derived from its round board
         // (ranked as the standings rank it, each row carrying its witness
         // verdict, plus `notCounted`). Absent for every other game.
+        // v2.194.0 (W52): the three getters below now apply the same overlay
+        // themselves; it is computed ONCE here (for the extras) and the getter
+        // is skipped when it exists, so the round board is not built twice.
         const eventOverlay = (await LeaderboardService.getEventRoundOverlays(
             [gameId], { engine: engineFilter, device: deviceFilter, platform: platformFilter },
         )).get(gameId);
+
+        const rankings = eventOverlay
+            ? eventOverlay.rankings
+            : (engineFilter || deviceFilter)
+                ? await LeaderboardService.getForGameByProvenance(gameId, { engine: engineFilter, device: deviceFilter })
+                : platformFilter
+                    ? await LeaderboardService.getForGameByPlatform(gameId, platformFilter)
+                    : await LeaderboardService.getForGame(gameId);
 
         // Distinct provenance always returned so the FE can render its tab strip
         // regardless of which view the user is currently looking at.
@@ -471,7 +476,7 @@ router.get('/:roomId/leaderboard/:gameId', async (req, res) => {
             // integrity read (mode + verdict map) for the board badges.
             tournamentId: game?.tournament_id ?? null,
             imageUrl: game?.image_url || null,
-            rankings: eventOverlay ? eventOverlay.rankings : rankings,
+            rankings,
             ...eventOverlayExtras(eventOverlay),
             /**
              * v2.58.0 (ADR 0016): `engine` + `device` (and `distinctEngines` /
@@ -2326,9 +2331,13 @@ router.get('/:roomId/stats/compare', async (req, res) => {
 router.get('/:roomId/stats/game/:name/players', async (req, res) => {
     try {
         const { StatsService } = await import('../../services/StatsService.js');
+        const { EventResultService } = await import('../../services/EventResultService.js');
         const gameName = decodeURIComponent(req.params.name as string);
         const roomId = req.params.roomId as string;
-        const rankings = await StatsService.getGamePlayerRankings(gameName, roomId);
+        // v2.194.0 (W52): same rule as the stats route below - a score an event
+        // under 'prevent' does not count never heads the Top Players list.
+        const prevented = await EventResultService.preventedHistoryIds(roomId, gameName);
+        const rankings = await StatsService.getGamePlayerRankings(gameName, roomId, prevented);
         res.json(rankings);
     } catch (error) {
         logError('API Error (GET rooms/:roomId/stats/game/:name/players):', error);

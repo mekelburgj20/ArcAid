@@ -50,3 +50,10 @@ round exactly as its standings do and carry each row's witness verdict (`witness
 and a verdict map by `score_history.id` per game). The game page's all-time high leaves out the scores a
 `'prevent'` event does not count. `leaderboard_cache` is untouched (a verdict is never baked in), and the
 Global Scoreboard is still unchanged.
+
+v2.194.0 (W52): the same overlay is applied inside the cached per-game reads (`getForGame`,
+`getForGameByProvenance`, `getForGameByPlatform`), so Discord `/list-scores`, the `/submit-score` rank
+reply and the chat actions rank a round as its standings do; the game page's average, unique players and
+Top Players also leave the prevented scores out, and a finished round's "Recent results" winner is the
+round board's rank-1. An engine/device tab on a round shows the standings' chosen rows on that axis, not
+each player's best on it.
