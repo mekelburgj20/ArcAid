@@ -125,7 +125,7 @@ const OPEN_SESSION_MAX_AGE_SEC = 4 * 3600;
 
 const STATUS_RANK: Record<LobbyStatus, number> = { ready: 5, table_open: 4, no_checkin: 3, offline: 2, not_routed: 1, no_cabinet: 0 };
 
-function toEpoch(iso: string | null | undefined): number | null {
+export function toEpoch(iso: string | null | undefined): number | null {
     if (!iso) return null;
     const ms = Date.parse(iso.includes('T') || iso.includes('Z') ? iso : `${iso.replace(' ', 'T')}Z`);
     return Number.isFinite(ms) ? Math.floor(ms / 1000) : null;
@@ -155,6 +155,58 @@ export class EventLobbyService {
             .reduce((a, b) => Math.min(a, b), Number.POSITIVE_INFINITY);
         const floor = nowEpoch - 24 * 3600;
         return Number.isFinite(earliest) ? Math.max(earliest, floor) : floor;
+    }
+
+    /**
+     * v2.187.0 (W5) — the device-state reads behind BOTH the player-facing
+     * lobby (`roster`) and the room admin's live device view
+     * (`WitnessAdminViewService.roomDevices`), in one place so the two cannot
+     * drift on what "checked in" or "table open" means.
+     *
+     * - `checkinByDevice`: the latest Witness check-in per device at or after
+     *   `checkinFloorEpoch` (server clock, epoch seconds; 0 = any time).
+     * - `openByDevice`: the newest OPEN session (kind `session`, no exit) per
+     *   device, launched within OPEN_SESSION_MAX_AGE_SEC of `nowEpoch`, so a
+     *   missed exit from yesterday cannot read as "open now".
+     */
+    static async loadDeviceState(
+        deviceIds: string[], opts: { checkinFloorEpoch: number; nowEpoch: number },
+    ): Promise<{
+        checkinByDevice: Map<string, number>;
+        openByDevice: Map<string, { atgames_unique_id: string; table_name: string; launch_ts: number }>;
+    }> {
+        if (deviceIds.length === 0) return { checkinByDevice: new Map(), openByDevice: new Map() };
+        const db = await getDatabase();
+        const devicePlaceholders = deviceIds.map(() => '?').join(', ');
+
+        // Latest check-in per device inside the window. Server clock, always.
+        const checkins = await db.all<Array<{ atgames_unique_id: string; ts: number }>>(
+            `SELECT atgames_unique_id, MAX(CAST(strftime('%s', server_ts) AS INTEGER)) AS ts
+               FROM witness_checkins
+              WHERE atgames_unique_id IN (${devicePlaceholders})
+                AND CAST(strftime('%s', server_ts) AS INTEGER) >= ?
+              GROUP BY atgames_unique_id`,
+            ...deviceIds, opts.checkinFloorEpoch,
+        );
+        const checkinByDevice = new Map(checkins.map(c => [c.atgames_unique_id, c.ts]));
+
+        // The newest OPEN session per device (launched, not yet exited), bounded
+        // so a missed exit from yesterday cannot read as "open now".
+        const open = await db.all<Array<{ atgames_unique_id: string; table_name: string; launch_ts: number }>>(
+            `SELECT o.atgames_unique_id, o.table_name, o.launch_ts
+               FROM witness_observations o
+               JOIN (SELECT atgames_unique_id, MAX(launch_ts) AS launch_ts
+                       FROM witness_observations
+                      WHERE kind = 'session' AND exit_ts IS NULL
+                        AND launch_ts >= ?
+                        AND atgames_unique_id IN (${devicePlaceholders})
+                      GROUP BY atgames_unique_id) m
+                 ON m.atgames_unique_id = o.atgames_unique_id AND m.launch_ts = o.launch_ts
+              WHERE o.kind = 'session' AND o.exit_ts IS NULL`,
+            opts.nowEpoch - OPEN_SESSION_MAX_AGE_SEC, ...deviceIds,
+        );
+        const openByDevice = new Map(open.map(o => [o.atgames_unique_id, o]));
+        return { checkinByDevice, openByDevice };
     }
 
     /**
@@ -188,35 +240,12 @@ export class EventLobbyService {
             ...ids,
         );
         const deviceIds = devices.map(d => d.atgames_unique_id);
-        const devicePlaceholders = deviceIds.map(() => '?').join(', ');
 
-        // Latest check-in per device inside the window. Server clock, always.
-        const checkins = deviceIds.length === 0 ? [] : await db.all<Array<{ atgames_unique_id: string; ts: number }>>(
-            `SELECT atgames_unique_id, MAX(CAST(strftime('%s', server_ts) AS INTEGER)) AS ts
-               FROM witness_checkins
-              WHERE atgames_unique_id IN (${devicePlaceholders})
-                AND CAST(strftime('%s', server_ts) AS INTEGER) >= ?
-              GROUP BY atgames_unique_id`,
-            ...deviceIds, windowOpen,
-        );
-        const checkinByDevice = new Map(checkins.map(c => [c.atgames_unique_id, c.ts]));
-
-        // The newest OPEN session per device (launched, not yet exited), bounded
-        // so a missed exit from yesterday cannot read as "open now".
-        const open = deviceIds.length === 0 ? [] : await db.all<Array<{ atgames_unique_id: string; table_name: string; launch_ts: number }>>(
-            `SELECT o.atgames_unique_id, o.table_name, o.launch_ts
-               FROM witness_observations o
-               JOIN (SELECT atgames_unique_id, MAX(launch_ts) AS launch_ts
-                       FROM witness_observations
-                      WHERE kind = 'session' AND exit_ts IS NULL
-                        AND launch_ts >= ?
-                        AND atgames_unique_id IN (${devicePlaceholders})
-                      GROUP BY atgames_unique_id) m
-                 ON m.atgames_unique_id = o.atgames_unique_id AND m.launch_ts = o.launch_ts
-              WHERE o.kind = 'session' AND o.exit_ts IS NULL`,
-            nowEpoch - OPEN_SESSION_MAX_AGE_SEC, ...deviceIds,
-        );
-        const openByDevice = new Map(open.map(o => [o.atgames_unique_id, o]));
+        // Latest check-in per device inside the window + the newest open session
+        // per device (v2.187.0, W5: loaded by the helper the runner's view shares).
+        const { checkinByDevice, openByDevice } = await EventLobbyService.loadDeviceState(deviceIds, {
+            checkinFloorEpoch: windowOpen, nowEpoch,
+        });
 
         const profiles = await resolveProfiles(
             participants.map(p => ({ submitted_by_user_id: p.user_id, discord_user_id: p.user_id })),
