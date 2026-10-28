@@ -6,6 +6,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.193.0] - 2026-10-28 - ROM → VPS game map, served and used by the Witness ingest (W12)
+
+Arcaid now keeps the Virtual Pinball Spreadsheet's ROM-to-game map itself, so the Castcade companion no longer has to
+ship its own copy (castcade B8/F8), and a cabinet or desktop score that names a PinMAME ROM finds its game even when
+the table's display name looks nothing like the room's name for it.
+
+### Added
+- **The VPS sync stores each game's PinMAME ROM ids** (`global_game_roms`, migration 197; filled by
+  `VpsImportService.syncRomFiles` from `romFiles[].version`, the same field the companion's seed reads; carried across
+  catalogue merge and delete). Click **Sync VPS** on Admin → Catalogue once after deploying, or the map stays empty.
+- **`GET /api/witness/roms`** — a public, cacheable ROM → VPS game map for the companion: `{ version, count, roms }`,
+  `ETag` / `If-None-Match` (304), `Cache-Control: public, max-age=3600`. A ROM that several games share is listed as
+  `ambiguous` with all of them, never resolved to one. Exact ROM ids only (the companion keeps its family fallback).
+- **A Witness score that names a ROM and no VPS game id is matched to the one catalogue game that ROM belongs to**
+  before the name match is tried, on tournament boards and on the Global Scoreboard (`GlobalGameRomService` is the one
+  filter the endpoint and the ingest read through). A shared or unknown ROM changes nothing. Watch item: like
+  `vps_game`, a wrong-but-valid ROM stamped by a launcher narrows the match to that game when the room runs it.
+- Not built yet: the maps-corpus `romnames.json` merge and correction by consensus from device reports (`source` is
+  ready for both).
+
 ## [2.192.0] - 2026-10-28 - Event-round standings everywhere: Discord, rank reply, chat answers, game-page stats (W52)
 
 v2.190.0 stopped a score that was started before an event round opened from leading the room board and the game
