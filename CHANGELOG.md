@@ -6,6 +6,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.184.2] - 2026-10-27 - Reconcile iScored names what it will delete
+
+A room converting from iScored (probros_gaming) opened Reconcile with five live iScored boards and nothing linked
+in Arcaid yet; Reconcile would have offered all five for deletion as "unmanaged", and iScored has no undo.
+
+### Changed
+- **Reconcile iScored warns before anything else:** a red box says it deletes games from the room's iScored, along
+  with every score on them, and that iScored has no undo.
+- **Every game Arcaid has not linked is named** in an amber box ("Not linked to Arcaid: Dracula, Tales from the
+  Crypt, …"), with a note that these may be boards made on iScored by hand or a tournament still run there.
+  "Unmanaged" is renamed "Not linked to Arcaid"; "orphans" are "Finished in Arcaid, still on iScored".
+- **A live line names what Delete will remove** ("Dracula and Scared Stiff will be deleted from iScored, with every
+  score on them."), and Delete now asks a second time, naming the games again. Game names wrap instead of being
+  cut off. The button tooltip and the Help page say the same.
+
 ## [2.184.1] - 2026-10-27 - Playwright base image matches the npm package again
 
 ### Fixed
