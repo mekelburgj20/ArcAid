@@ -624,6 +624,118 @@ export class WitnessService {
     }
 
     /**
+     * v2.188.0 (W45, ADR 0033 §4) — the device presses "Start attempts": the
+     * device-token twin of the web button (`AttemptService.startForPlayer`).
+     * Same auth and the same `null` = bare 401 contract as `recordAttempt`.
+     *
+     * The tables pressed are never re-derived here: they are the
+     * `requireStart` games of `VpxScoreIngestService.openLimitedGames` — the
+     * SAME candidates, routing, entry, window and device-exclusion filters the
+     * ingest applies, and exactly what the heartbeat's attempts line lists as
+     * NOT STARTED — so the press can never start a table a play from this
+     * device would not land on. Naming a table (`table`/`rom`/`slug`/
+     * `vps_game`) narrows the press to the games that table's play would land
+     * on, decided by the score call's own `match` (one row per tournament it
+     * matches, ADR 0033). The write is `AttemptService.startAttempts` with
+     * `source: 'device'`: idempotent, the FIRST press wins.
+     *
+     * Answers `started` (at least one game in `started`, even if every one was
+     * already started), `nothing_to_start` (no open start-required limited
+     * game routes from this device), or `no_match` (a table was named and it
+     * is not one of them). Never an error for a bad query: a cabinet never
+     * retries a 200, and a desktop just shows the answer.
+     */
+    static async startAttemptsFromDevice(input: {
+        atgamesUniqueId: string;
+        token: string;
+        tableName?: string | null;
+        rom?: string | null;
+        slug?: string | null;
+        evidence?: import('../utils/sanctionedRules.js').WitnessEvidence | null;
+        playDevice?: import('./VpxScoreIngestService.js').PlayDevice | null;
+        nowSec?: number;
+    }): Promise<{
+        canonicalUserId: string;
+        status: 'started' | 'nothing_to_start' | 'no_match';
+        started: Array<{ game: string; gameId: string; tournamentId: string; startedTs: number; alreadyStarted: boolean }>;
+        reason?: string;
+    } | null> {
+        const deviceId = (input.atgamesUniqueId || '').trim();
+        if (!deviceId || !input.token) return null;
+
+        const device = await WitnessService.authenticateDevice(deviceId, input.token);
+        if (!device) return null;
+
+        const nowSec = input.nowSec ?? Math.floor(Date.now() / 1000);
+        const canonicalUserId = device.canonical_user_id;
+        const { VpxScoreIngestService } = await import('./VpxScoreIngestService.js');
+        const { AttemptService } = await import('./AttemptService.js');
+        const target = await WitnessService.getDeviceTarget(deviceId);
+
+        const open = (await VpxScoreIngestService.openLimitedGames({
+            canonicalUserId, target, deviceType: device.device_type, nowTs: nowSec,
+        })).filter(g => g.requireStart);
+        await WitnessService.touchDevice(deviceId);
+        if (open.length === 0) {
+            return {
+                canonicalUserId, status: 'nothing_to_start', started: [],
+                reason: 'no limited-attempts table needing Start attempts is open for this device',
+            };
+        }
+
+        const tableName = (input.tableName || '').trim();
+        const named = !!(tableName || (input.rom || '').trim() || (input.slug || '').trim() || input.evidence?.vpsGame);
+        let chosen = open;
+        if (named) {
+            const label = tableName || input.rom || input.slug || input.evidence?.vpsGame || '';
+            // The score call's own matching, at the press moment (a play
+            // started now is what this press is for).
+            const matched = await VpxScoreIngestService.match({
+                canonicalUserId,
+                deviceType: device.device_type,
+                target,
+                deviceId,
+                evidence: input.evidence ?? null,
+                playDevice: input.playDevice ?? null,
+                tableName,
+                rom: input.rom ?? null,
+                slug: input.slug ?? null,
+                score: 0,
+                startedTs: nowSec,
+                endedTs: nowSec,
+            });
+            const ids = new Set(matched.kind === 'target' ? matched.targets.map(t => t.id) : []);
+            chosen = open.filter(g => ids.has(g.gameId));
+            if (chosen.length === 0) {
+                return {
+                    canonicalUserId, status: 'no_match', started: [],
+                    reason: matched.kind === 'ambiguous'
+                        ? `"${label}" matches ${matched.count} open games — not guessing which`
+                        : `"${label}" is not an open limited-attempts table needing Start attempts for this device`,
+                };
+            }
+        }
+
+        const before = await AttemptService.startsFor(canonicalUserId, chosen.map(g => g.gameId));
+        const started = [];
+        for (const game of chosen) {
+            const startedTs = await AttemptService.startAttempts({
+                tournamentId: game.tournamentId, gameId: game.gameId, canonicalUserId,
+                source: 'device', nowSec,
+            });
+            started.push({
+                game: game.gameName, gameId: game.gameId, tournamentId: game.tournamentId,
+                startedTs, alreadyStarted: before[game.gameId] != null,
+            });
+            logInfo(
+                `Witness attempt-start: ${canonicalUserId} ${before[game.gameId] != null ? 'already started' : 'started'} ` +
+                `"${game.gameName}" (tournament ${game.tournamentId}) from device`,
+            );
+        }
+        return { canonicalUserId, status: 'started', started };
+    }
+
+    /**
      * The ONE device-token check. Both device-facing writers go through it so
      * they cannot drift on what "authenticated" means, and so neither can ever
      * reveal WHICH of device/token/revocation was wrong.
