@@ -8,6 +8,7 @@ import NeonButton from '../components/NeonButton';
 import LoadingState from '../components/LoadingState';
 import AdminPickOnBehalf from '../components/AdminPickOnBehalf';
 import RotationLogPanel from '../components/RotationLogPanel';
+import { deletionSentence, iscoredGameLabel, joinGameNames } from '../lib/iscoredReconcile';
 import { AlertTriangle, Trash2, XCircle, RefreshCw, Play, Lock, EyeOff, Plus, Zap, Recycle, Link2Off } from 'lucide-react';
 
 interface GameState {
@@ -421,7 +422,7 @@ export default function GameStates() {
           </button>
           <button
             onClick={openReconcile}
-            title="Find games on iScored that Arcaid no longer tracks and delete them"
+            title="Find games on your iScored that Arcaid has not linked, and DELETE the ones you tick (with their scores). iScored has no undo."
             className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded border border-neon-purple/40 text-neon-purple bg-neon-purple/10 hover:bg-neon-purple/20 transition-colors cursor-pointer"
           >
             <Recycle size={14} />
@@ -700,7 +701,11 @@ function ActionBtn({ icon, title, onClick, color }: { icon: React.ReactNode; tit
   );
 }
 
-// iScored reconcile modal — keep/orphan/unmanaged buckets with per-row delete opt-in.
+// iScored reconcile modal — keep/orphan/not-linked buckets with per-row delete
+// opt-in. Reconcile DELETES iScored boards and iScored has no undo, so the
+// dialog warns up front, names every not-linked board (a room converting from
+// iScored sees its live boards here), states by name what Delete will remove,
+// and asks a second time, naming them again.
 function ReconcileModal({ state, onToggle, onRun, onCancel }: {
   state: { loading: boolean; plan: ReconcilePlan | null; selected: Set<string>; running: boolean };
   onToggle: (id: string) => void;
@@ -708,57 +713,109 @@ function ReconcileModal({ state, onToggle, onRun, onCancel }: {
   onCancel: () => void;
 }) {
   const { loading, plan, selected, running } = state;
+  const [confirming, setConfirming] = useState(false);
+  const toDelete = plan ? [...plan.orphans, ...plan.unmanaged].filter(e => selected.has(e.id)) : [];
+  const toggle = (id: string) => { setConfirming(false); onToggle(id); };
   const row = (e: ReconcileEntry, kind: 'orphan' | 'unmanaged') => (
-    <label key={e.id} className="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-raised cursor-pointer text-sm">
-      <input type="checkbox" checked={selected.has(e.id)} onChange={() => onToggle(e.id)} className="accent-red-400" />
-      <span className="text-primary flex-1 truncate">{e.name || `(id ${e.id})`}</span>
-      {e.tags.length > 0 && <span className="text-[10px] text-muted shrink-0">{e.tags.join(', ')}</span>}
-      <span className="text-[10px] text-faint shrink-0">{kind === 'orphan' ? `local: ${e.localStatuses.join('/')}` : 'not in Arcaid'}</span>
+    <label key={e.id} className="flex items-start gap-2 py-1.5 px-2 rounded hover:bg-raised cursor-pointer text-sm">
+      <input type="checkbox" checked={selected.has(e.id)} onChange={() => toggle(e.id)} className="accent-red-400 mt-1" disabled={running} />
+      <span className="text-primary flex-1 break-words">{iscoredGameLabel(e)}</span>
+      {e.tags.length > 0 && <span className="text-[10px] text-muted shrink-0 mt-1">{e.tags.join(', ')}</span>}
+      <span className="text-[10px] text-faint shrink-0 mt-1">{kind === 'orphan' ? `Arcaid: ${e.localStatuses.join('/').toLowerCase()}` : 'not linked'}</span>
     </label>
   );
+  const candidates = plan ? plan.orphans.length + plan.unmanaged.length : 0;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-deep/80 backdrop-blur-sm" onClick={onCancel}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-deep/80 backdrop-blur-sm" onClick={running ? undefined : onCancel}>
       <div className="bg-surface border border-border rounded-lg shadow-2xl p-6 max-w-lg w-full mx-4 max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
         <h3 className="font-display font-bold text-primary mb-1">Reconcile iScored</h3>
         {loading ? (
-          <p className="text-sm text-muted py-6">Loading iScored game list…</p>
+          <p className="text-sm text-muted py-6">Checking which of your iScored games Arcaid has linked…</p>
         ) : !plan ? (
           <p className="text-sm text-red-400 py-6">Could not load the iScored game list.</p>
         ) : (
           <>
+            {candidates > 0 && (
+              <div role="alert" className="flex gap-2 rounded-md border border-red-500/50 bg-red-500/10 p-3 mb-3 text-sm text-red-400">
+                <AlertTriangle size={18} className="shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <p className="font-bold">This deletes games from your iScored room.</p>
+                  <p>
+                    Every game on your iScored that Arcaid has not linked is listed below and can be deleted, along
+                    with every score on it. iScored has no undo.
+                  </p>
+                </div>
+              </div>
+            )}
+            {plan.unmanaged.length > 0 && (
+              <div className="rounded-md border border-neon-amber/50 bg-neon-amber/10 p-3 mb-3 text-sm text-neon-amber">
+                <p className="font-bold mb-1">
+                  Not linked to Arcaid: {joinGameNames(plan.unmanaged.map(iscoredGameLabel))}.
+                </p>
+                <p>
+                  {plan.unmanaged.length === 1 ? 'This may be a board' : 'These may be boards'} you made on iScored
+                  yourself, or a tournament you still run there. Leave {plan.unmanaged.length === 1 ? 'it' : 'them'} unticked
+                  unless you are sure.
+                </p>
+              </div>
+            )}
             <p className="text-xs text-muted mb-3">
-              {plan.keep.length + plan.orphans.length + plan.unmanaged.length} on iScored ·{' '}
-              <span className="text-neon-green">{plan.keep.length} live (kept)</span> ·{' '}
-              <span className="text-red-400">{plan.orphans.length} orphan{plan.orphans.length !== 1 ? 's' : ''}</span> ·{' '}
-              <span className="text-neon-amber">{plan.unmanaged.length} unmanaged</span>
+              {plan.keep.length + candidates} on iScored ·{' '}
+              <span className="text-neon-green">{plan.keep.length} linked (kept)</span> ·{' '}
+              <span className="text-red-400">{plan.orphans.length} finished in Arcaid</span> ·{' '}
+              <span className="text-neon-amber">{plan.unmanaged.length} not linked</span>
             </p>
             <div className="overflow-y-auto flex-1 -mx-2 px-2 space-y-3">
               {plan.orphans.length > 0 && (
                 <div>
-                  <div className="text-[10px] uppercase tracking-wider text-red-400 mb-1">Orphans — archived in Arcaid, still on iScored</div>
+                  <div className="text-[10px] uppercase tracking-wider text-red-400 mb-1">Finished in Arcaid, still on iScored</div>
                   {plan.orphans.map(e => row(e, 'orphan'))}
                 </div>
               )}
               {plan.unmanaged.length > 0 && (
                 <div>
-                  <div className="text-[10px] uppercase tracking-wider text-neon-amber mb-1">Unmanaged — not in Arcaid (check only if you're sure)</div>
+                  <div className="text-[10px] uppercase tracking-wider text-neon-amber mb-1">Not linked to Arcaid (tick only if you are sure)</div>
                   {plan.unmanaged.map(e => row(e, 'unmanaged'))}
                 </div>
               )}
-              {plan.orphans.length === 0 && plan.unmanaged.length === 0 && (
-                <p className="text-sm text-neon-green py-4">Nothing to clean up — iScored matches Arcaid. 🎉</p>
+              {candidates === 0 && (
+                <p className="text-sm text-neon-green py-4">Nothing to clean up — every game on your iScored is linked to Arcaid. 🎉</p>
               )}
             </div>
-            <div className="flex justify-end gap-2 mt-4 pt-3 border-t border-border">
-              <button onClick={onCancel} className="text-xs px-3 py-1.5 rounded border border-border text-muted hover:text-primary cursor-pointer">Cancel</button>
-              <button
-                onClick={onRun}
-                disabled={running || selected.size === 0}
-                className="text-xs px-3 py-1.5 rounded border border-red-500/40 text-red-400 bg-red-500/10 hover:bg-red-500/20 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                {running ? 'Deleting…' : `Delete ${selected.size} from iScored`}
-              </button>
-            </div>
+            {candidates > 0 && (
+              <p className={`text-sm mt-3 ${toDelete.length > 0 ? 'text-red-400 font-bold' : 'text-muted'}`}>
+                {deletionSentence(toDelete)}
+              </p>
+            )}
+            {confirming && toDelete.length > 0 ? (
+              <div className="mt-3 pt-3 border-t border-border">
+                <div role="alert" className="rounded-md border border-red-500/60 bg-red-500/15 p-3 text-sm text-red-400 mb-3">
+                  Permanently delete {toDelete.length === 1 ? 'this game' : `these ${toDelete.length} games`} from
+                  iScored? {deletionSentence(toDelete)}
+                </div>
+                <div className="flex justify-end gap-2">
+                  <button onClick={() => setConfirming(false)} disabled={running} className="text-xs px-3 py-1.5 rounded border border-border text-muted hover:text-primary cursor-pointer disabled:opacity-40">Back</button>
+                  <button
+                    onClick={onRun}
+                    disabled={running}
+                    className="text-xs px-3 py-1.5 rounded border border-red-500 text-white bg-red-600 hover:bg-red-700 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {running ? 'Deleting…' : `Yes, delete ${toDelete.length === 1 ? 'it' : `all ${toDelete.length}`}`}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex justify-end gap-2 mt-4 pt-3 border-t border-border">
+                <button onClick={onCancel} className="text-xs px-3 py-1.5 rounded border border-border text-muted hover:text-primary cursor-pointer">Cancel</button>
+                <button
+                  onClick={() => setConfirming(true)}
+                  disabled={toDelete.length === 0}
+                  className="text-xs px-3 py-1.5 rounded border border-red-500/40 text-red-400 bg-red-500/10 hover:bg-red-500/20 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {`Delete ${toDelete.length} from iScored…`}
+                </button>
+              </div>
+            )}
           </>
         )}
       </div>
