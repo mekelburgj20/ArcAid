@@ -89,6 +89,19 @@ describe('GET /api/me/witness/plays', () => {
         expect(dests).toEqual(['counted:Weekly A:room-a', 'counted:Weekly B:room-b']);
     });
 
+    it('W53: a quit play carries quit:true and the ball; a play that reached game over does not', async () => {
+        const a = await createTestRoom('room-q', 'Room Q');
+        await rotation(a, 'Weekly Q', 'Medieval Madness');
+        const now = Math.floor(Date.now() / 1000);
+        await request(app).get('/api/witness/score').query({ device: CABINET, token, ...play({ score: 1_000_000, ended: now - 900, started: now - 1200 }), quit: '1', quit_ball: '2' });
+        await request(app).get('/api/witness/score').query({ device: CABINET, token, ...play({ score: 2_000_000 }), quit: '0' });
+
+        const res = await request(app).get('/api/me/witness/plays').set('Authorization', `Bearer ${playerToken(USER)}`);
+        const byScore = (s: number) => res.body.find((p: { score: number }) => p.score === s);
+        expect(byScore(1_000_000)).toMatchObject({ quit: true, quitBall: 2 });
+        expect(byScore(2_000_000)).toMatchObject({ quit: false, quitBall: null });
+    });
+
     it('a play that only reached Global carries why no tournament took it; one that went nowhere says why', async () => {
         const db = await getDatabase();
         await db.run(

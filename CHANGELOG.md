@@ -6,6 +6,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.191.0] - 2026-10-28 - Witness follow-ups: VR exclusion on the attempts line, quit badge everywhere, re-pair keeps the target (W51, W53, W35)
+
+Three small follow-ups from the Witness wave: the attempts line no longer promises a table a VR play would be refused
+on, the "quit" badge now shows everywhere the witness badge does, and re-pairing a cabinet is confirmed to keep its
+destination.
+
+### Fixed
+- **The "attempts left" line and the device "Start attempts" press apply the same VR-headset exclusion as score
+  matching** (`openLimitedGames` takes `playDevice`, W51), so they no longer name a table whose tournament does not
+  accept VR plays. The heartbeat still cannot know the play device (the cabinet sends none), so its line is unchanged.
+- **"Quit on ball N" also appears on the score-history rows you expand on a game page**, not only on the ranked
+  rows (W53).
+
+### Changed
+- **"Where your plays went" (Account Settings) shows "Quit on ball N" or "Quit"** on a play the player quit before
+  game over; `GET /api/me/witness/plays` carries `quit` / `quitBall`. Badge only; no ranking change (W53).
+- **Checked, no code change needed (W35):** unpairing and re-pairing the same cabinet to the same account keeps its
+  destination (room, tournament or Global only); a different account is still refused. Now locked by
+  `witness-repair-target.test.ts`. TomatoGrass's 2026-10-24 Global fallback was the pre-migration-191 model, where a
+  designation was mandatory; "All my rooms" is the default today.
+
 ## [2.190.0] - 2026-10-28 - Event-round witness verdicts on the room board and the game page (W22)
 
 At the Witness Weekend Showdown (2026-10-23) TomatoGrass geared up on purpose: the table was opened before round 1

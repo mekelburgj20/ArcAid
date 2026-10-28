@@ -62,6 +62,17 @@ describe('WitnessRecentPlays', () => {
         expect(fetchMock).toHaveBeenCalledWith('/api/me/witness/plays?limit=30', { headers: { Authorization: 'Bearer tok' } });
     });
 
+    it('W53: shows "Quit on ball N" / "Quit" on a quit play and nothing on the others', async () => {
+        stub([
+            { ...PLAYS[0], quit: true, quitBall: 2 },
+            { ...PLAYS[1], quit: true, quitBall: null },
+            { ...PLAYS[2], quit: false, quitBall: null },
+        ]);
+        render(<MemoryRouter><WitnessRecentPlays playerToken="tok" /></MemoryRouter>);
+        const chips = await screen.findAllByTestId('play-quit');
+        expect(chips.map(c => c.textContent)).toEqual(['Quit on ball 2', 'Quit']);
+    });
+
     it('says so when there is nothing yet, and when the list cannot be read', async () => {
         stub([]);
         const { unmount } = render(<MemoryRouter><WitnessRecentPlays playerToken="tok" /></MemoryRouter>);

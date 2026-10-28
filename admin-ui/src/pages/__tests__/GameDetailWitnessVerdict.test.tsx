@@ -48,8 +48,12 @@ const TOMATO_HISTORY = [
   { id: 102, iscored_username: 'TomatoGrass', score: 500, source: 'vpx', created_at: '2026-10-23 20:20:00', tournament_id: 't-1', tournament_name: 'WWS Night', tournament_active: 1 },
 ];
 
-function stubFetch(board: typeof PREVENT_BOARD | typeof FLAG_BOARD) {
+function stubFetch(board: typeof PREVENT_BOARD | typeof FLAG_BOARD & { tournamentId?: string }) {
   const fetchMock = vi.fn((url: string) => {
+    if (url.includes('/integrity')) {
+      // v2.191.0 (W53): the quit map, keyed by score_history id.
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ mode: 'open', verdicts: {}, quits: { '102': { ball: 2 } } }) });
+    }
     if (/\/leaderboard\/round-1(\?|$)/.test(url)) {
       return Promise.resolve({ ok: true, json: () => Promise.resolve({ ...board, distinctEngines: [] }) });
     }
@@ -122,6 +126,17 @@ describe('GameDetail — witness verdicts on an event round', () => {
     fireEvent.click(tomatoRow);
 
     await waitFor(() => expect(screen.getByTitle(FLAGGED_TITLE)).toBeInTheDocument());
+  });
+
+  it('W53: the history-expand rows carry the quit chip from the integrity quit map', async () => {
+    stubFetch({ ...PREVENT_BOARD, tournamentId: 't-1' });
+    renderPage();
+
+    await screen.findByTestId('not-counted');
+    const rows = await screen.findAllByRole('button', { expanded: false });
+    fireEvent.click(rows.find(r => within(r).queryByText('500'))!);
+
+    await waitFor(() => expect(screen.getByTestId('quit-chip')).toHaveTextContent('Quit on ball 2'));
   });
 
   it('flag: the flagged score ranks and wears the warning badge', async () => {

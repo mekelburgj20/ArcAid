@@ -108,6 +108,10 @@ export type RecentPlay = {
     tableName: string;
     score: number;
     deviceId: string;
+    /** v2.191.0 (W53) - true = the player quit before game over; null = unknown. A badge only. */
+    quit: boolean | null;
+    /** The ball in play when they quit, when the machine reported it. */
+    quitBall: number | null;
     destinations: PlayDestination[];
 };
 
@@ -250,11 +254,12 @@ export class WitnessEvidenceService {
             game_name: string | null; round_no: number | null; tournament_name: string | null;
             room_name: string | null; room_slug: string | null;
             global_score_id: string | null; global_game_id: string | null;
+            quit: number | null; quit_ball: number | null;
         }>>(
             `SELECT e.id, e.device_id, e.outcome, e.reasons, e.table_name, e.score, e.played_at,
                     g.name AS game_name, g.round_no, t.name AS tournament_name,
                     gr.name AS room_name, gr.slug AS room_slug,
-                    e.global_score_id, gs.global_game_id
+                    e.global_score_id, gs.global_game_id, e.quit, e.quit_ball
                FROM witness_evidence e
                LEFT JOIN games g ON g.id = e.game_id
                LEFT JOIN tournaments t ON t.id = e.tournament_id
@@ -272,9 +277,12 @@ export class WitnessEvidenceService {
             let play = plays.get(key);
             if (!play) {
                 if (plays.size >= cap) continue;
-                play = { key, playedAt: r.played_at, tableName: r.table_name, score: r.score, deviceId: r.device_id, destinations: [] };
+                play = { key, playedAt: r.played_at, tableName: r.table_name, score: r.score, deviceId: r.device_id, quit: null, quitBall: null, destinations: [] };
                 plays.set(key, play);
             }
+            // One play, one fact: any of its rows saying it quit marks the play.
+            if (r.quit === 1) { play.quit = true; if (typeof r.quit_ball === 'number') play.quitBall = r.quit_ball; }
+            else if (r.quit === 0 && play.quit == null) play.quit = false;
             const reasons = parseJson<string[]>(r.reasons, []);
             const board = {
                 tournamentName: r.tournament_name, roundNo: r.round_no, roomName: r.room_name,

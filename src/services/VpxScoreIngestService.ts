@@ -1272,9 +1272,11 @@ export class VpxScoreIngestService {
         canonicalUserId: string;
         target: { roomId: string | null; tournamentId: string | null; globalOnly?: boolean };
         deviceType: WitnessDeviceType | null | undefined;
+        // v2.191.0 (W51): same device axis as `match`, so a VR play is not promised a table that excludes vr_headset.
+        playDevice?: PlayDevice | null;
         nowTs: number;
     }): Promise<Array<{ gameId: string; gameName: string; tournamentId: string; limit: number; requireStart: boolean }>> {
-        const provenance = VpxScoreIngestService.provenanceFor(input.deviceType ?? 'atgames');
+        const provenance = VpxScoreIngestService.provenanceFor(input.deviceType ?? 'atgames', input.playDevice);
         return (await VpxScoreIngestService.loadCandidates(input.canonicalUserId))
             .filter(row => row.max_attempts != null && row.max_attempts >= 1 && row.tournament_id != null)
             .filter(row => VpxScoreIngestService.inScope(row, input.target))
