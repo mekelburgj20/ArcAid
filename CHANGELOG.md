@@ -6,6 +6,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.186.0] - 2026-10-28 - Check-in lobby wording follows the device (W19)
+
+The check-in lobby told every player whose Witness had not checked in to "Open the Witness tile", even when that
+Witness was the desktop Castcade companion (which has no tile and only checks in while VPX is closed; WWS 2026-10-23).
+The wording now follows the kind of device, and a player with more than one device can see which one each hint is about.
+
+### Changed
+- **A desktop Witness (Castcade) that has not checked in reads "Close VPX to check in"** and explains that Castcade checks
+  in by itself within 2 minutes; a cabinet still reads "Open the Witness tile".
+- **"Exit the table" and "not responding" are worded per device too** (cabinet: open the tile again; desktop: close VPX,
+  Castcade checks in again by itself; "Castcade not responding").
+- **A player with several paired devices shows one small dot per device** next to their status, each with a hover label
+  such as "Cabinet: Ready" or "PC: Close VPX to check in". The main status is still the best of all their devices.
+- The lobby data (event page `lobby`, host participants list) now carries `deviceType` and a per-device `devices[]`
+  list; `lobbyCopyFor(status, deviceType)` in `admin-ui/src/lib/lobbyStatus.ts` is the one place the words live.
+
 ## [2.185.0] - 2026-10-28 - "Add the bot to Discord" link (G6)
 
 A room owner (probros_gaming) set the room's Guild ID and waited for the bot to join; it never did, because setting
