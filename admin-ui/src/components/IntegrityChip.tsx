@@ -2,7 +2,7 @@ import { LogOut, ShieldAlert, ShieldCheck } from 'lucide-react';
 import type { IntegrityChipSpec, QuitLabelSpec } from '../lib/integrityBadge';
 
 /**
- * The integrity chip (v2.166.0, ADR 0027) — sits beside the WITNESSED badge on
+ * The integrity chip (v2.166.0, ADR 0027) â sits beside the WITNESSED badge on
  * a board row and says what Castcade measured about that score against the
  * tournament's conditions. Same chip shape as `WitnessedChip` in
  * `ProvenanceTags.tsx`: green for a pass, amber for a flag.
@@ -34,7 +34,7 @@ export default function IntegrityChip({ chip, className = '' }: { chip: Integrit
 }
 
 /**
- * The quit chip (v2.187.0, W49) � "Quit on ball 2" / "Quit". Neutral on
+ * The quit chip (v2.187.0, W49) — "Quit on ball 2" / "Quit". Neutral on
  * purpose (muted theme tokens, not the flagged amber): a quit game still
  * counts, so this is a fact about how the game ended, not a warning.
  */
