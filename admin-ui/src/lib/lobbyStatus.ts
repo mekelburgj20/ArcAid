@@ -6,6 +6,8 @@
  */
 export type LobbyStatus = 'ready' | 'table_open' | 'no_checkin' | 'offline' | 'not_routed' | 'no_cabinet';
 
+export type LobbyDeviceType = 'atgames' | 'desktop';
+
 export const LOBBY_STATUS_META: Record<LobbyStatus, { label: string; dot: string; text: string; hint: string }> = {
     ready: {
         label: 'Ready',
@@ -52,3 +54,57 @@ export const LOBBY_STATUS_META: Record<LobbyStatus, { label: string; dot: string
         hint: 'No paired Witness device — cabinet or desktop. Scores will post, unverified.',
     },
 };
+
+/**
+ * W19 (v2.186.0): the device-aware wording. `LOBBY_STATUS_META` stays the
+ * device-neutral default; a cabinet is told to open the Witness tile, a
+ * desktop (Castcade) to close VPX because it checks in by itself only while no
+ * VPX process runs. Statuses that read the same for both fall through.
+ */
+const DEVICE_COPY: Partial<Record<LobbyStatus, Record<LobbyDeviceType, { label: string; hint: string }>>> = {
+    no_checkin: {
+        atgames: {
+            label: 'Open the Witness tile',
+            hint: 'A cabinet is paired but has not checked in since check-in opened. Open the Arcaid Witness tile on the cabinet.',
+        },
+        desktop: {
+            label: 'Close VPX to check in',
+            hint: 'A desktop Witness (Castcade) is paired but has not checked in since check-in opened. Close VPX; Castcade checks in by itself within 2 minutes.',
+        },
+    },
+    table_open: {
+        atgames: {
+            label: 'Exit the table',
+            hint: 'A table was opened after the Witness checked in. Exit the table, then open the Arcaid Witness tile again.',
+        },
+        desktop: {
+            label: 'Exit the table',
+            hint: 'A table was opened after Castcade checked in. Close VPX; Castcade checks in again by itself within 2 minutes.',
+        },
+    },
+    offline: {
+        atgames: {
+            label: 'Witness not responding',
+            hint: 'The cabinet has not been heard from for over five minutes. Is it on and connected? (v1.0.4 cabinets send a heartbeat every two minutes.)',
+        },
+        desktop: {
+            label: 'Castcade not responding',
+            hint: 'The desktop companion has not been heard from for over five minutes. Is Castcade running and online?',
+        },
+    },
+};
+
+export function lobbyCopyFor(
+    status: LobbyStatus,
+    deviceType: LobbyDeviceType | null | undefined,
+): { label: string; hint: string } {
+    const specific = deviceType ? DEVICE_COPY[status]?.[deviceType] : undefined;
+    if (specific) return specific;
+    const { label, hint } = LOBBY_STATUS_META[status];
+    return { label, hint };
+}
+
+/** The word for a device in a per-device dot tooltip. */
+export function lobbyDeviceWord(deviceType: LobbyDeviceType): string {
+    return deviceType === 'desktop' ? 'PC' : 'Cabinet';
+}

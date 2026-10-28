@@ -42,6 +42,22 @@ describe('EventLobbyRoster', () => {
         expect(screen.getByText('4444')).toBeTruthy();
     });
 
+    it('words the best device by its type and draws one titled dot per device (W19)', () => {
+        render(<EventLobbyRoster
+            entries={[entry({
+                status: 'no_checkin', deviceType: 'desktop', witnessCheckinAt: null,
+                devices: [
+                    { deviceType: 'desktop', status: 'no_checkin', openTable: null, witnessCheckinAt: null },
+                    { deviceType: 'atgames', status: 'offline', openTable: null, witnessCheckinAt: null },
+                ],
+            })]}
+        />);
+        expect(screen.getByText('Close VPX to check in')).toBeTruthy();
+        expect(screen.queryByText('Open the Witness tile')).toBeNull();
+        expect(screen.getByTitle('PC: Close VPX to check in')).toBeTruthy();
+        expect(screen.getByTitle('Cabinet: Witness not responding')).toBeTruthy();
+    });
+
     it('renders nothing for an empty lobby', () => {
         const { container } = render(<EventLobbyRoster entries={[]} />);
         expect(container.innerHTML).toBe('');

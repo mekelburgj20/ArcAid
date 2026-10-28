@@ -101,6 +101,23 @@ export interface LobbyEntry {
     openTable: string | null;
     /** ISO — last time ANY of the player's cabinets talked to the server. */
     lastSeenAt: string | null;
+    /**
+     * v2.186.0 (W19): the type of the device that produced the BEST `status`
+     * (the lobby copy differs: a cabinet opens a tile, a desktop closes VPX).
+     * Null for `no_cabinet` and for `not_routed` (no device routes here).
+     */
+    deviceType: LobbyDeviceType | null;
+    /** One per device of this player that routes to this event, best-first. */
+    devices: LobbyDevice[];
+}
+
+export type LobbyDeviceType = 'atgames' | 'desktop';
+
+export interface LobbyDevice {
+    deviceType: LobbyDeviceType;
+    status: LobbyStatus;
+    openTable: string | null;
+    witnessCheckinAt: string | null;
 }
 
 /** Observation rows launched before this many seconds ago are stale, not open. */
@@ -161,9 +178,9 @@ export class EventLobbyService {
         // devices whose scores would land on THIS event are graded.
         const devices = await db.all<Array<{
             atgames_unique_id: string; canonical_user_id: string; last_seen_at: string | null; heartbeat_at: string | null;
-            target_room_id: string | null; target_tournament_id: string | null; global_only: number;
+            target_room_id: string | null; target_tournament_id: string | null; global_only: number; device_type: string | null;
         }>>(
-            `SELECT d.atgames_unique_id, d.canonical_user_id, d.last_seen_at, d.heartbeat_at, d.target_room_id, d.global_only,
+            `SELECT d.atgames_unique_id, d.canonical_user_id, d.last_seen_at, d.heartbeat_at, d.target_room_id, d.global_only, d.device_type,
                     CASE WHEN ${tournamentFinishedSql('t')} THEN NULL ELSE d.target_tournament_id END AS target_tournament_id
                FROM witness_devices d
                LEFT JOIN tournaments t ON t.id = d.target_tournament_id
@@ -209,8 +226,9 @@ export class EventLobbyService {
 
         return participants.map((p, i) => {
             const mine = devices.filter(d => d.canonical_user_id === p.user_id);
-            let best: { status: LobbyStatus; checkinTs: number | null; openTable: string | null } =
-                { status: mine.length > 0 ? 'not_routed' : 'no_cabinet', checkinTs: null, openTable: null };
+            let best: { status: LobbyStatus; checkinTs: number | null; openTable: string | null; deviceType: LobbyDeviceType | null } =
+                { status: mine.length > 0 ? 'not_routed' : 'no_cabinet', checkinTs: null, openTable: null, deviceType: null };
+            const graded: LobbyDevice[] = [];
             for (const d of mine) {
                 // A device that sends elsewhere says nothing about this event.
                 const routesHere = deviceRoutesTo(
@@ -226,11 +244,18 @@ export class EventLobbyService {
                 else if (checkinTs == null) status = 'no_checkin';
                 else if (session && session.launch_ts > checkinTs) status = 'table_open';
                 else status = 'ready';
+                // W19: a missing/unknown type is a cabinet (the column default).
+                const deviceType: LobbyDeviceType = d.device_type === 'desktop' ? 'desktop' : 'atgames';
                 const candidate = {
                     status,
                     checkinTs,
                     openTable: status === 'table_open' ? session!.table_name : null,
+                    deviceType,
                 };
+                graded.push({
+                    deviceType, status, openTable: candidate.openTable,
+                    witnessCheckinAt: checkinTs != null ? new Date(checkinTs * 1000).toISOString() : null,
+                });
                 if (STATUS_RANK[candidate.status] > STATUS_RANK[best.status]) best = candidate;
             }
             const lastSeen = mine
@@ -250,6 +275,8 @@ export class EventLobbyService {
                 witnessCheckinAt: best.checkinTs != null ? new Date(best.checkinTs * 1000).toISOString() : null,
                 openTable: best.openTable,
                 lastSeenAt: lastSeen,
+                deviceType: best.deviceType,
+                devices: graded.sort((a, b) => STATUS_RANK[b.status] - STATUS_RANK[a.status]),
             };
         });
     }

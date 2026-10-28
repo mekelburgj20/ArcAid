@@ -5329,6 +5329,8 @@ router.get('/:roomId/events/:id/participants', requireAuth, requireRoomAccess('r
                 witnessCheckinAt: lobbyByUser.get(p.user_id)!.witnessCheckinAt,
                 openTable: lobbyByUser.get(p.user_id)!.openTable,
                 lastSeenAt: lobbyByUser.get(p.user_id)!.lastSeenAt,
+                deviceType: lobbyByUser.get(p.user_id)!.deviceType,
+                devices: lobbyByUser.get(p.user_id)!.devices,
             } : null,
         })));
     } catch (error) {

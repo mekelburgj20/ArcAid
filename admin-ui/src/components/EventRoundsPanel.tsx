@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import NeonButton from './NeonButton';
-import { LOBBY_STATUS_META, type LobbyStatus } from '../lib/lobbyStatus';
+import { LOBBY_STATUS_META, lobbyCopyFor, lobbyDeviceWord, type LobbyDeviceType, type LobbyStatus } from '../lib/lobbyStatus';
 import { api } from '../lib/api';
 import { roundStatusLabel, formatRelative } from '../lib/eventDisplay';
 import type { EventRoundRow, Tournament } from '../lib/tournamentFormPayload';
@@ -83,6 +83,9 @@ interface ParticipantRow {
         witnessCheckinAt: string | null;
         openTable: string | null;
         lastSeenAt: string | null;
+        /** W19 (v2.186.0) */
+        deviceType?: LobbyDeviceType | null;
+        devices?: Array<{ deviceType: LobbyDeviceType; status: LobbyStatus; openTable: string | null; witnessCheckinAt: string | null }>;
     } | null;
 }
 
@@ -419,11 +422,23 @@ export default function EventRoundsPanel({ roomId, roomSlug, tournament, onClose
                                 <span
                                     className={`inline-flex items-center gap-1.5 text-xs ${LOBBY_STATUS_META[p.witness.status].text}`}
                                     title={p.witness.openTable
-                                        ? `${LOBBY_STATUS_META[p.witness.status].hint} (${p.witness.openTable})`
-                                        : LOBBY_STATUS_META[p.witness.status].hint}
+                                        ? `${lobbyCopyFor(p.witness.status, p.witness.deviceType).hint} (${p.witness.openTable})`
+                                        : lobbyCopyFor(p.witness.status, p.witness.deviceType).hint}
                                 >
                                     <span aria-hidden className={`inline-block w-2 h-2 rounded-full ${LOBBY_STATUS_META[p.witness.status].dot}`} />
-                                    {LOBBY_STATUS_META[p.witness.status].label}
+                                    {lobbyCopyFor(p.witness.status, p.witness.deviceType).label}
+                                    {(p.witness.devices?.length ?? 0) > 1 && p.witness.devices!.map((d, i) => {
+                                        const t = `${lobbyDeviceWord(d.deviceType)}: ${lobbyCopyFor(d.status, d.deviceType).label}`;
+                                        return (
+                                            <span
+                                                key={i}
+                                                role="img"
+                                                aria-label={t}
+                                                title={t}
+                                                className={`inline-block w-2 h-2 rounded-full ${LOBBY_STATUS_META[d.status].dot}`}
+                                            />
+                                        );
+                                    })}
                                 </span>
                             )}
                             {p.source === 'admin' && (

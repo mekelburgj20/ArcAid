@@ -371,3 +371,39 @@ describe('EventLobbyService.roster — the 1.0.4 heartbeat (v2.160.0)', () => {
         expect(byUser).toEqual({ [USER_A]: 'offline', [USER_B]: 'ready' });
     });
 });
+
+describe('EventLobbyService.roster — per-device type (W19, v2.186.0)', () => {
+    beforeEach(async () => { await setupTestDb(); });
+
+    it('ships the best device type and a best-first devices list; unrouted devices are absent; no device is null/[]', async () => {
+        const roomId = await createTestRoom('lobby-w19', 'W19');
+        const otherRoom = await createTestRoom('lobby-w19-other', 'Other');
+        const now = new Date();
+        const eventId = await createEvent(roomId, {
+            checkinOpensAt: new Date(now.getTime() - 30 * MINUTE), round1Start: new Date(now.getTime() + 15 * MINUTE),
+        });
+        for (const u of [USER_A, USER_B, USER_C]) await EventService.checkIn(eventId, u);
+        const db = await getDatabase();
+
+        // A: a cabinet that never checked in + a desktop that did -> ready via the desktop.
+        await pairDevice(USER_A, 'w19-cab', roomId);
+        await pairDevice(USER_A, 'w19-desk', roomId);
+        await db.run(`UPDATE witness_devices SET device_type = 'desktop' WHERE atgames_unique_id = ?`, 'w19-desk');
+        await witnessCheckin(USER_A, 'w19-desk', new Date(now.getTime() - 5 * MINUTE));
+        // B: one routed desktop (no check-in) + a cabinet pointed at another room.
+        await pairDevice(USER_B, 'w19-b-desk', roomId);
+        await db.run(`UPDATE witness_devices SET device_type = 'desktop' WHERE atgames_unique_id = ?`, 'w19-b-desk');
+        await pairDevice(USER_B, 'w19-b-cab', otherRoom);
+        // C: no device at all.
+
+        const event = (await EventService.getEvent(eventId))!;
+        const roster = await EventLobbyService.roster(event, await EventService.getRounds(eventId), now);
+        const byUser = Object.fromEntries(roster.map(e => [e.userId, e]));
+
+        expect(byUser[USER_A]).toMatchObject({ status: 'ready', deviceType: 'desktop' });
+        expect(byUser[USER_A]!.devices.map(d => [d.deviceType, d.status])).toEqual([['desktop', 'ready'], ['atgames', 'no_checkin']]);
+        expect(byUser[USER_B]).toMatchObject({ status: 'no_checkin', deviceType: 'desktop' });
+        expect(byUser[USER_B]!.devices).toHaveLength(1);
+        expect(byUser[USER_C]).toMatchObject({ status: 'no_cabinet', deviceType: null, devices: [] });
+    });
+});
