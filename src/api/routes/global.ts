@@ -345,6 +345,29 @@ async function witnessAttemptsSuffix(device: string, canonicalUserId: string): P
     }
 }
 
+/**
+ * The heartbeat's READ-ONLY "Sending to" line: the target words, the event
+ * lobby suffix (never a check-in) and the attempts suffix. Shared by
+ * `/witness/heartbeat` and `/witness/attempt-start` (v2.188.0, W45) so the
+ * companion can refresh its display from either reply and the two can never
+ * disagree. Best-effort: a failure yields what was built so far (or '').
+ */
+async function witnessHeartbeatSendingTo(device: string, canonicalUserId: string): Promise<string> {
+    let sendingTo = '';
+    try {
+        const { WitnessService } = await import('../../services/WitnessService.js');
+        sendingTo = await WitnessService.describeTarget(device);
+        const { EventLobbyService } = await import('../../services/EventLobbyService.js');
+        sendingTo += EventLobbyService.cabinetLine(
+            await EventLobbyService.lobbyFromHeartbeat(device, canonicalUserId),
+        );
+    } catch (err) {
+        logError('Witness heartbeat/attempt-start: sendingTo step failed (the call itself succeeded)', err);
+    }
+    if (sendingTo) sendingTo += await witnessAttemptsSuffix(device, canonicalUserId);
+    return sendingTo;
+}
+
 // Device: the round-start CHECK-IN (tier 2, ADR 0021). The device asserts only
 // "the Witness is open right now"; the TIMESTAMP IS THE SERVER'S, deliberately —
 // a client-supplied time would turn the whole attestation into a self-report.
@@ -401,17 +424,7 @@ router.get('/witness/heartbeat', witnessIngestLimiter, async (req, res) => {
             || (typeof req.headers['x-witness-token'] === 'string' ? req.headers['x-witness-token'] as string : '');
         const beat = await WitnessService.recordHeartbeat(device, token);
         if (!beat) return res.status(401).json({ ok: false });
-        let sendingTo = '';
-        try {
-            sendingTo = await WitnessService.describeTarget(device);
-            const { EventLobbyService } = await import('../../services/EventLobbyService.js');
-            sendingTo += EventLobbyService.cabinetLine(
-                await EventLobbyService.lobbyFromHeartbeat(device, beat.canonicalUserId),
-            );
-        } catch (err) {
-            logError('Witness heartbeat: sendingTo step failed (heartbeat itself succeeded)', err);
-        }
-        if (sendingTo) sendingTo += await witnessAttemptsSuffix(device, beat.canonicalUserId);
+        const sendingTo = await witnessHeartbeatSendingTo(device, beat.canonicalUserId);
         res.json({ ok: true, sendingTo });
     } catch (error) {
         logError('API Error (GET /api/witness/heartbeat)');
@@ -583,6 +596,48 @@ router.get('/witness/attempt', witnessIngestLimiter, async (req, res) => {
         });
     } catch (error) {
         logError('API Error (GET /api/witness/attempt)');
+        res.status(500).json({ ok: false });
+    }
+});
+
+// Device: press "Start attempts" (v2.188.0, W45, ADR 0033 §4) — the device
+// twin of the web button on the game page. Same device-token auth, limiter and
+// bare 401 as /witness/attempt. With no table named it presses every open
+// limited-attempts table that needs the press and that this device's plays
+// would land on (`VpxScoreIngestService.openLimitedGames`, the same filters as
+// the ingest); `table`/`rom`/`slug`/`vps_game` narrow it to that table's games.
+// First press wins (a repeat keeps the original time). Every answer is a 200:
+//   started           at least one table in `started` (`alreadyStarted` per row)
+//   nothing_to_start  no open start-required limited table routes here (`reason`)
+//   no_match          the named table is not one of them (`reason`)
+// `sendingTo` is the heartbeat's own line, so the display can refresh from it.
+router.get('/witness/attempt-start', witnessIngestLimiter, async (req, res) => {
+    try {
+        const { WitnessService } = await import('../../services/WitnessService.js');
+        const device = typeof req.query.device === 'string' ? req.query.device : '';
+        const token = (typeof req.query.token === 'string' && req.query.token)
+            || (typeof req.headers['x-witness-token'] === 'string' ? req.headers['x-witness-token'] as string : '');
+
+        const result = await WitnessService.startAttemptsFromDevice({
+            atgamesUniqueId: device,
+            token,
+            tableName: typeof req.query.table === 'string' ? req.query.table : '',
+            rom: typeof req.query.rom === 'string' ? req.query.rom : null,
+            slug: typeof req.query.slug === 'string' ? req.query.slug : null,
+            // Only `vps_game` matters (matching prefers it), read the way the
+            // score and attempt calls read it.
+            evidence: parseWitnessEvidence(req.query as Record<string, unknown>),
+            playDevice: parsePlayDevice(req.query.play_device),
+        });
+        if (!result) return res.status(401).json({ ok: false });
+        const sendingTo = await witnessHeartbeatSendingTo(device.trim(), result.canonicalUserId);
+        res.json({
+            ok: true, status: result.status, started: result.started,
+            ...(result.reason ? { reason: result.reason } : {}),
+            sendingTo,
+        });
+    } catch (error) {
+        logError('API Error (GET /api/witness/attempt-start)');
         res.status(500).json({ ok: false });
     }
 });
