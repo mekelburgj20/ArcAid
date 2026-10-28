@@ -3,6 +3,8 @@ import CronExpressionParser from 'cron-parser';
 import { logError } from '../utils/logger.js';
 import { roomTimezonesFor, resolveTimezone } from '../utils/roomTimezone.js';
 import { normalizeImageUrl } from './LeaderboardService.js';
+import { EventService, type EventState, type EventRoundRow } from './EventService.js';
+import { EventResultService } from './EventResultService.js';
 
 interface ActiveTournamentInfo {
     tournament_id: string;
@@ -20,6 +22,17 @@ interface ActiveTournamentInfo {
     leader_score: number | null;
     participants: number;
     next_rotation_at: string | null;
+    // v2.194.0 (W24) - EVENT rows only (a rotation row never carries these keys,
+    // so its JSON is unchanged). An event's rounds are `games` rows that sit
+    // SCHEDULED until the clock opens them, so the "current game" of an event
+    // is a ROUND: the live one, else the next one, else the last one played.
+    format?: 'event';
+    event_state?: EventState;
+    round_no?: number | null;
+    round_count?: number;
+    round_status?: string | null;
+    round_start_at?: string | null;
+    round_end_at?: string | null;
 }
 
 interface RecentWinner {
@@ -40,6 +53,87 @@ interface DashboardData {
     uniquePlayersAcrossTournaments: number;
 }
 
+/**
+ * v2.194.0 (W24) - the dashboard row of a `format='event'` tournament.
+ *
+ * The shown round is the LIVE one (ACTIVE), else the NEXT one still SCHEDULED,
+ * else the LAST one played. The leader is the round board's rank-1 row, from
+ * `EventResultService.getRoundBoard` (the one computation of a round's
+ * standings, so a prevented flagged score is already left out) - never a second
+ * ranking over `submissions`, which events do not feed by design. The name
+ * follows the display rule (display_name, else the iScored name).
+ */
+async function buildEventRow(
+    row: any,
+): Promise<{ info: ActiveTournamentInfo; roundIds: string[] } | null> {
+    const db = await getDatabase();
+    const event = await EventService.getEvent(row.tournament_id);
+    if (!event) return null;
+    const rounds = await EventService.getRounds(row.tournament_id);
+    const state = EventService.deriveState(event, rounds, new Date());
+
+    const shown: EventRoundRow | undefined =
+        rounds.find(r => r.status === 'ACTIVE')
+        ?? rounds.find(r => r.status === 'SCHEDULED')
+        ?? [...rounds].reverse().find(r => r.status === 'COMPLETED');
+
+    let leaderName: string | null = null;
+    let leaderScore: number | null = null;
+    let imageUrl: string | null = null;
+    if (shown) {
+        if (shown.status !== 'SCHEDULED') {
+            const board = await EventResultService.getRoundBoard(event, shown);
+            const top = board.scores[0];
+            if (top) {
+                leaderName = top.display_name || top.iscored_username || null;
+                leaderScore = top.score;
+            }
+        }
+        const img = await db.get<{ url: string | null }>(
+            `SELECT COALESCE(gg.local_image_path, gg.wheel_image_path, gg.image_url) AS url
+               FROM global_games gg
+              WHERE LOWER(gg.name) = LOWER(?) AND gg.status = 'approved'
+              LIMIT 1`,
+            shown.name,
+        );
+        imageUrl = img?.url ?? null;
+    }
+
+    const playerRow = await db.get<{ count: number }>(
+        `SELECT COUNT(DISTINCT COALESCE(submitted_by_user_id, LOWER(iscored_username))) AS count
+           FROM score_history
+          WHERE submitted_during_tournament_id = ? AND orphaned_at IS NULL`,
+        row.tournament_id,
+    );
+
+    return {
+        roundIds: rounds.map(r => r.id),
+        info: {
+            tournament_id: row.tournament_id,
+            tournament_name: row.tournament_name,
+            tournament_type: row.tournament_type,
+            cadence: row.cadence,
+            game_id: shown?.id ?? null,
+            game_name: shown?.name ?? null,
+            game_start_date: shown?.start_date ?? null,
+            game_image_url: normalizeImageUrl(imageUrl),
+            leader_name: leaderName,
+            leader_score: leaderScore,
+            participants: playerRow?.count || 0,
+            // An event registers no cron, so there is no "next rotation"; the
+            // round window below is what the dashboard shows instead.
+            next_rotation_at: null,
+            format: 'event',
+            event_state: state,
+            round_no: shown?.round_no ?? null,
+            round_count: rounds.length,
+            round_status: shown?.status ?? null,
+            round_start_at: shown?.scheduled_start_at ?? null,
+            round_end_at: shown?.scheduled_end_at ?? null,
+        },
+    };
+}
+
 export async function getDashboardData(gameRoomId?: string): Promise<DashboardData> {
     const db = await getDatabase();
 
@@ -53,6 +147,7 @@ export async function getDashboardData(gameRoomId?: string): Promise<DashboardDa
             t.name AS tournament_name,
             t.type AS tournament_type,
             t.cadence,
+            t.format AS tournament_format,
             t.cleanup_rule,
             t.game_room_id AS tournament_game_room_id,
             g.id AS game_id,
@@ -82,7 +177,21 @@ export async function getDashboardData(gameRoomId?: string): Promise<DashboardDa
         (activeGames as any[]).map(r => r.tournament_game_room_id).filter(Boolean),
     );
 
+    const seenEvents = new Set<string>();
+
     for (const row of activeGames) {
+        // v2.194.0 (W24) - an event is read as ROUNDS, one row per event.
+        if (row.tournament_format === 'event') {
+            if (seenEvents.has(row.tournament_id)) continue;
+            seenEvents.add(row.tournament_id);
+            const built = await buildEventRow(row);
+            if (built) {
+                activeTournaments.push(built.info);
+                allVisibleGameIds.push(...built.roundIds);
+            }
+            continue;
+        }
+
         let leaderName: string | null = null;
         let leaderScore: number | null = null;
 

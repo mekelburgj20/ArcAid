@@ -333,6 +333,17 @@ export default function EventDetail({ throwdownCode }: EventDetailProps = {}) {
             {backLink}
 
             <header className="mt-3 mb-6">
+                {/* v2.194.0 (W30) - Room -> Tournament: the room is the small line
+                    above, the event is the heading. A Throwdown has no room. */}
+                {!isThrowdown && room && (
+                    <Link
+                        to={`/${room.roomSlug}`}
+                        className="block text-xs text-muted hover:text-neon-cyan transition-colors no-underline mb-1 break-words"
+                        data-testid="event-room-line"
+                    >
+                        {room.roomName} →
+                    </Link>
+                )}
                 <div className="flex items-center gap-2 flex-wrap">
                     <h1 className="font-display text-xl sm:text-2xl font-bold text-primary min-w-0 break-words">
                         {event.name}

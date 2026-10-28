@@ -438,6 +438,21 @@ export class EventScheduler {
 
     // --- shared helpers ----------------------------------------------------
 
+    /**
+     * v2.194.0 (W30) - the post leads with the TOURNAMENT (title / existing
+     * footer); the room it lives in is appended to the footer, so invitees stop
+     * mistaking the room name for the tournament. A room-less Throwdown has no
+     * room and is left as is.
+     */
+    private static async nameRoomInFooter(embed: EmbedBuilder, gameRoomId: string | null): Promise<void> {
+        if (!gameRoomId) return;
+        const db = await getDatabase();
+        const room = await db.get<{ name: string }>('SELECT name FROM game_rooms WHERE id = ?', gameRoomId);
+        if (!room?.name) return;
+        const existing = embed.data.footer?.text;
+        embed.setFooter({ text: existing ? `${existing} · in ${room.name}` : `in ${room.name}` });
+    }
+
     private async announce(
         target: { tournament_id?: string; discord_channel_id?: string | null; game_room_id: string | null },
         embed: EmbedBuilder,
@@ -450,6 +465,7 @@ export class EventScheduler {
             // Daily Grind channel (2026-08-25).
             const channelId = await resolveAnnouncementChannelId(target.game_room_id, target.discord_channel_id);
             if (!channelId) return;
+            await EventScheduler.nameRoomInFooter(embed, target.game_room_id);
             await sendChannelEmbed(channelId, embed);
         } catch (error) {
             logWarn('EventScheduler: Discord announcement failed:', error);

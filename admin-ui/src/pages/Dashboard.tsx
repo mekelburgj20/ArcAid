@@ -7,6 +7,8 @@ import TournamentBadge from '../components/TournamentBadge';
 import ScoreDisplay from '../components/ScoreDisplay';
 import LoadingState from '../components/LoadingState';
 import SetupChecklist from '../components/SetupChecklist';
+import { useRoomTimezone } from '../hooks/useRoomTimezone';
+import { formatInZone } from '../lib/timezone';
 
 interface DashboardData {
   activeTournaments: Array<{
@@ -20,6 +22,15 @@ interface DashboardData {
     leader_score?: number;
     next_rotation_at?: string | null;
     participants?: number;
+    // v2.194.0 (W24) - event rows only: the shown ROUND (live, else next, else
+    // last played) and where the event is.
+    format?: 'event';
+    event_state?: 'upcoming' | 'checkin' | 'live' | 'between_rounds' | 'finished' | 'cancelled';
+    round_no?: number | null;
+    round_count?: number;
+    round_status?: string | null;
+    round_start_at?: string | null;
+    round_end_at?: string | null;
   }>;
   recentWinners: Array<{
     game_name: string;
@@ -79,8 +90,30 @@ function formatCountdown(targetIso: string | null | undefined, now: number): str
   return '<1m';
 }
 
+const EVENT_STATE_LABEL: Record<string, string> = {
+  upcoming: 'Upcoming',
+  checkin: 'Check-in open',
+  live: 'Live',
+  between_rounds: 'Between rounds',
+  finished: 'Finished',
+  cancelled: 'Cancelled',
+};
+
+/** "Round 2 opens Fri, 7:00 PM CDT" - the honest line for an event round. */
+function eventRoundLine(
+  t: { round_no?: number | null; round_status?: string | null; round_start_at?: string | null; round_end_at?: string | null },
+  tz: string,
+): string {
+  if (t.round_no == null) return 'No round scheduled';
+  const label = `Round ${t.round_no}`;
+  if (t.round_status === 'ACTIVE') return `${label} is live until ${formatInZone(t.round_end_at, tz)}`;
+  if (t.round_status === 'SCHEDULED') return `${label} opens ${formatInZone(t.round_start_at, tz)}`;
+  return `${label} ended ${formatInZone(t.round_end_at, tz)}`;
+}
+
 export default function Dashboard() {
   const room = useRoom();
+  const { timezone: roomTz } = useRoomTimezone(room.roomId);
   const [data, setData] = useState<DashboardData | null>(null);
   const [health, setHealth] = useState<HealthData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -225,12 +258,17 @@ export default function Dashboard() {
           <h2 className="font-display text-sm font-bold uppercase tracking-wider text-muted mb-3">Active Now</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {data.activeTournaments.map((t, i) => {
-              const countdown = formatCountdown(t.next_rotation_at, now);
+              const isEvent = t.format === 'event';
+              const countdown = isEvent
+                ? (t.round_status === 'ACTIVE' ? formatCountdown(t.round_end_at, now) : null)
+                : formatCountdown(t.next_rotation_at, now);
               return (
                 <NeonCard key={i} glowColor="cyan">
                   <div className="flex items-center justify-between mb-3">
                     <TournamentBadge type={t.tournament_type} />
-                    <StatusBadge status="ACTIVE" />
+                    {isEvent
+                      ? <span className="text-xs font-bold uppercase tracking-wider text-neon-amber">{EVENT_STATE_LABEL[t.event_state ?? ''] ?? 'Event'}</span>
+                      : <StatusBadge status="ACTIVE" />}
                   </div>
                   <div className="flex items-start gap-2 mb-1 min-w-0">
                     {t.game_image_url && (
@@ -240,9 +278,14 @@ export default function Dashboard() {
                         className="w-8 h-8 rounded object-cover flex-shrink-0"
                       />
                     )}
-                    <h3 className="font-bold text-lg break-words min-w-0">{t.game_name}</h3>
+                    <h3 className="font-bold text-lg break-words min-w-0">
+                      {t.game_name ?? (isEvent ? 'No round scheduled' : '')}
+                    </h3>
                   </div>
                   <p className="text-muted text-sm mb-3">{t.tournament_name}</p>
+                  {isEvent && t.round_no != null && (
+                    <p className="text-sm mb-3" data-testid="event-round-line">{eventRoundLine(t, roomTz)}</p>
+                  )}
                   <div className="grid grid-cols-2 gap-2 mb-3 text-xs">
                     <div className="bg-raised border border-border rounded px-2 py-1.5">
                       <div className="text-faint uppercase tracking-wider mb-0.5">Players</div>
