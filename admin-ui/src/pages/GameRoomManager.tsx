@@ -59,6 +59,16 @@ export default function GameRoomManager() {
 
   useEffect(() => { loadRooms(); }, []);
 
+  // G6 — the "add the bot to your server" link for the onboarding message.
+  // Null when the Discord application isn't configured; the step then points
+  // at the same link on the room's Settings page instead.
+  const [botInviteUrl, setBotInviteUrl] = useState<string | null>(null);
+  useEffect(() => {
+    api.get<{ url?: string | null }>('/auth/discord/bot-invite')
+      .then(r => setBotInviteUrl(typeof r?.url === 'string' ? r.url : null))
+      .catch(() => setBotInviteUrl(null));
+  }, []);
+
   const resetForm = () => {
     setFormName('');
     setFormSlug('');
@@ -160,11 +170,12 @@ export default function GameRoomManager() {
       : [
           `QUICK SETUP`,
           `1. Log in and go to Settings`,
-          `2. Enter your Discord Guild ID, default Announcement Channel ID, and Admin Role ID`,
-          `3. Enter your iScored credentials and Public URL`,
-          `4. Set your timezone in Tournament Defaults`,
-          `5. Go to Game Library and import games (VPS or VPXS Wizard)`,
-          `6. Go to Tournaments and create your first tournament`,
+          `2. Add the Arcaid bot to your Discord server (as someone with Manage Server): ${botInviteUrl ?? 'use "Add the bot to Discord" in Settings → Discord'}`,
+          `3. Enter your Discord Guild ID, default Announcement Channel ID, and Admin Role ID`,
+          `4. Enter your iScored credentials and Public URL`,
+          `5. Set your timezone in Tournament Defaults`,
+          `6. Go to Game Library and import games (VPS or VPXS Wizard)`,
+          `7. Go to Tournaments and create your first tournament`,
         ];
     const message = [
       `Welcome to Arcaid! Here's everything you need to get started with your game room "${room.name}".`,

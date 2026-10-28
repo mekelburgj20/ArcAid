@@ -14,6 +14,7 @@ import LoadingState from '../components/LoadingState';
 import { InfoTip } from '../components/Tooltip';
 import MemberAdminPicker from '../components/MemberAdminPicker';
 import ChatResponsesSettings from '../components/ChatResponsesSettings';
+import DiscordBotInvite from '../components/DiscordBotInvite';
 import { PlayerAvatar } from '../components/ScoreboardComponents';
 import { TIMEZONES } from '../components/ScheduleBuilder';
 import { DEFAULT_TIMEZONE, ROOM_TIMEZONE_KEY, zoneLabel } from '../lib/timezone';
@@ -1381,8 +1382,11 @@ export default function Settings() {
           <NeonCard title={category} className="mb-4">
             {category === 'Discord' && (
               <div className="mb-3 px-3 py-2 rounded border border-neon-cyan/20 bg-neon-cyan/5 text-xs text-muted">
-                Per-room Discord config. To silence Discord activity for this room, toggle <strong>Discord Integration</strong> off in Integrations. Changing the guild here is safe; you'll need to invite the bot to the new guild manually. Avoid swapping guilds mid-tournament — per-tournament channel IDs still reference the old guild.
+                Per-room Discord config. To silence Discord activity for this room, toggle <strong>Discord Integration</strong> off in Integrations. Changing the guild here is safe; add the bot to the new server with the link below. Avoid swapping guilds mid-tournament — per-tournament channel IDs still reference the old guild.
               </div>
+            )}
+            {category === 'Discord' && (
+              <DiscordBotInvite roomId={room.roomId} guildId={settings.DISCORD_GUILD_ID ?? ''} />
             )}
             {category === 'iScored' && (
               <>

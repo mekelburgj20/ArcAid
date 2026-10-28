@@ -6,6 +6,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.185.0] - 2026-10-28 - "Add the bot to Discord" link (G6)
+
+A room owner (probros_gaming) set the room's Guild ID and waited for the bot to join; it never did, because setting
+the Guild ID does not add the bot. Nothing in Arcaid said so or offered the invite.
+
+### Added
+- **Room Settings → Discord has an "Add the bot to Discord" link** that opens Discord's invite with the room's server
+  pre-selected, and says plainly that the Guild ID alone does not add the bot. Once the Guild ID is saved it also
+  says whether the bot is in that server now, with a "Check again" button.
+- **The room onboarding message** (super-admin Game Rooms → Onboard) has a new step 2 with the same link.
+- `GET /api/auth/discord/bot-invite?guildId=` answers the link (public; `url` is null when the Discord application
+  isn't configured). One builder, `src/utils/discordBotInvite.ts`, owns the permission set: view channels, send
+  messages, embed links, attach files, read message history, send polls, plus the slash-command scope.
+
 ## [2.184.2] - 2026-10-27 - Reconcile iScored names what it will delete
 
 A room converting from iScored (probros_gaming) opened Reconcile with five live iScored boards and nothing linked
