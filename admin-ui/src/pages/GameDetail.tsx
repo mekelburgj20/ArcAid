@@ -6,8 +6,8 @@ import SubmissionSheet from '../components/SubmissionSheet';
 import ShareButton from '../components/ShareButton';
 import PlayerNameLink from '../components/PlayerNameLink';
 import ProvenanceTags from '../components/ProvenanceTags';
-import IntegrityChip from '../components/IntegrityChip';
-import { integrityChipFor, type IntegrityVerdictMap } from '../lib/integrityBadge';
+import IntegrityChip, { QuitChip } from '../components/IntegrityChip';
+import { integrityChipFor, quitLabelFor, type IntegrityVerdictMap, type QuitMap } from '../lib/integrityBadge';
 import { getEngineCategoryLabel, getEngineDisplay } from '../lib/scoreProvenance';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { useRoom } from '../contexts/RoomContext';
@@ -261,6 +261,8 @@ export default function GameDetail() {
   const [integrityLoaded, setIntegrityLoaded] =
     useState<{
       tournamentId: string; mode: 'open' | 'sanctioned'; verdicts: IntegrityVerdictMap;
+      /** v2.187.0 (W49) — games quit before game over, by score_history id. A badge only. */
+      quits: QuitMap;
       /** v2.167.0 (ADR 0029) — attempts per player per table; null = unlimited. */
       maxAttempts: number | null;
       /** v2.167.0 — `{ [gameId]: { [canonicalUserId]: used } }`. */
@@ -570,7 +572,7 @@ export default function GameDetail() {
     fetch(`/api/rooms/${roomId}/tournaments/${tournamentId}/integrity`)
       .then(r => r.ok ? r.json() : null)
       .then((data: {
-        mode?: string; verdicts?: IntegrityVerdictMap;
+        mode?: string; verdicts?: IntegrityVerdictMap; quits?: QuitMap;
         maxAttempts?: number | null; attempts?: Record<string, Record<string, number>>;
         requireAttemptStart?: boolean;
       } | null) => {
@@ -579,6 +581,7 @@ export default function GameDetail() {
           tournamentId,
           mode: data.mode === 'sanctioned' ? 'sanctioned' : 'open',
           verdicts: data.verdicts && typeof data.verdicts === 'object' ? data.verdicts : {},
+          quits: data.quits && typeof data.quits === 'object' ? data.quits : {},
           maxAttempts: typeof data.maxAttempts === 'number' && data.maxAttempts >= 1 ? data.maxAttempts : null,
           attempts: data.attempts && typeof data.attempts === 'object' ? data.attempts : {},
           requireAttemptStart: data.requireAttemptStart === true,
@@ -1265,6 +1268,8 @@ export default function GameDetail() {
                                 this score against the tournament's conditions.
                                 Decorates the row; never filters or re-ranks. */}
                             <IntegrityChip chip={integrityChipFor(integrity?.verdicts, entry.history_id, integrity?.mode)} />
+                            {/* v2.187.0 (W49): the player quit this game before game over. Neutral; it still counts. */}
+                            <QuitChip quit={quitLabelFor(integrity?.quits, entry.history_id)} />
                             {/* v2.167.0 (ADR 0029): attempts used on this table. */}
                             {(() => {
                               const used = attemptsUsedFor(entry.submitted_by_user_id);

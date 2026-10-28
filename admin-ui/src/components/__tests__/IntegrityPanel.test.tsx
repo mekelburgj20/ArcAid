@@ -73,6 +73,8 @@ const EVIDENCE: EvidenceRow[] = [
     id: 6, deviceId: 'dev-1', canonicalUserId: '123456789012345678', outcome: 'ingested',
     gameId: 'g-mb', gameName: 'Monster Bash', scoreHistoryId: 55, globalScoreId: null, integrityMode: 'sanctioned',
     verdict: 'pass', reasons: [], checks: [{ rule: 'evidence', status: 'pass', detail: 'evidence present' }],
+    // W49: quit on ball 2 - shown as text, never changes the verdict.
+    quit: true, quitBall: 2,
     tableName: 'Monster Bash (Williams 1998)', rom: 'mb_10', score: 98765430, playedAt: '2026-10-19 18:00:00',
     evidence: {
       vpsGame: 'mb-vps', vpsTable: 'tbl-vr', tableSha256: null, ini: null, adjustments: null, build: null,
@@ -231,6 +233,15 @@ describe('IntegrityPanel', () => {
     expect(within(flag).getByText(/not a multiple of 10/)).toHaveClass('text-amber-400/90');
     // The badge is unchanged by it: the row still carries its own verdict only.
     expect(within(flagged).getByTestId('evidence-verdict-flagged')).toBeInTheDocument();
+  });
+
+  it('shows "Quit on ball N" on a row whose game was quit, and nothing on one that was not (W49)', async () => {
+    render(<IntegrityPanel roomId={ROOM} tournament={TOURNAMENT} onClose={() => {}} toast={toast} />);
+    const quit = await screen.findByTestId('evidence-row-6');
+    expect(within(quit).getByTestId('evidence-quit-6')).toHaveTextContent('Quit on ball 2');
+    // The verdict beside it is untouched.
+    expect(within(quit).getByTestId('evidence-verdict-pass')).toBeInTheDocument();
+    expect(screen.queryByTestId('evidence-quit-7')).toBeNull();
   });
 
   it('a failed evidence read still shows the required tables', async () => {
