@@ -7,7 +7,7 @@ import ShareButton from '../components/ShareButton';
 import PlayerNameLink from '../components/PlayerNameLink';
 import ProvenanceTags from '../components/ProvenanceTags';
 import IntegrityChip, { QuitChip } from '../components/IntegrityChip';
-import { integrityChipFor, quitLabelFor, type IntegrityVerdictMap, type QuitMap } from '../lib/integrityBadge';
+import { integrityChipFor, quitLabelFor, type IntegrityVerdictMap, type QuitMap, type QuitLabelSpec } from '../lib/integrityBadge';
 import { getEngineCategoryLabel, getEngineDisplay } from '../lib/scoreProvenance';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { useRoom } from '../contexts/RoomContext';
@@ -1409,6 +1409,7 @@ export default function GameDetail() {
                                             canDelete={canDeleteScoreHistory(h)}
                                             onDelete={() => handleDeleteScoreHistory(h)}
                                             witness={leaderboard?.witnessByHistoryId?.[String(h.id)]}
+                                            quit={quitLabelFor(integrity?.quits, h.id)}
                                             canCorrect={canCorrectScoreHistory(h)}
                                             onCorrect={() => setPendingCorrect({
                                               historyId: h.id,
@@ -1443,6 +1444,7 @@ export default function GameDetail() {
                                             canDelete={canDeleteScoreHistory(h)}
                                             onDelete={() => handleDeleteScoreHistory(h)}
                                             witness={leaderboard?.witnessByHistoryId?.[String(h.id)]}
+                                            quit={quitLabelFor(integrity?.quits, h.id)}
                                             canCorrect={canCorrectScoreHistory(h)}
                                             onCorrect={() => setPendingCorrect({
                                               historyId: h.id,
@@ -2353,12 +2355,14 @@ export default function GameDetail() {
     just admin/owner rows) — it opens the ScorePhotoModal for this exact row
     rather than performing the share itself; the modal's own Share button does
     the copy/native-share. */
-function ScoreHistoryRow({ h, canDelete, onDelete, witness, canCorrect, onCorrect, canVerify, onToggleVerified, canReport, onReport, onShare }: {
+function ScoreHistoryRow({ h, canDelete, onDelete, witness, quit, canCorrect, onCorrect, canVerify, onToggleVerified, canReport, onReport, onShare }: {
   h: ScoreHistoryEntry;
   canDelete: boolean;
   onDelete: () => void;
   /** v2.190.0 (W22) — this score's witness verdict when it belongs to an event round. */
   witness?: WitnessVerdict | null;
+  /** v2.191.0 (W53) - the quit badge (same map as the ranked rows). Neutral; it still counts. */
+  quit?: QuitLabelSpec | null;
   canCorrect?: boolean;
   onCorrect?: () => void;
   canVerify?: boolean;
@@ -2381,6 +2385,7 @@ function ScoreHistoryRow({ h, canDelete, onDelete, witness, canCorrect, onCorrec
         </span>
         <SourceChip source={h.source} />
         <WitnessBadge witness={witness} />
+        <QuitChip quit={quit ?? null} />
         {isVerified && (
           <span
             className="inline-flex items-center text-neon-green"

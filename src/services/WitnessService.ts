@@ -676,7 +676,7 @@ export class WitnessService {
         const target = await WitnessService.getDeviceTarget(deviceId);
 
         const open = (await VpxScoreIngestService.openLimitedGames({
-            canonicalUserId, target, deviceType: device.device_type, nowTs: nowSec,
+            canonicalUserId, target, deviceType: device.device_type, playDevice: input.playDevice, nowTs: nowSec,
         })).filter(g => g.requireStart);
         await WitnessService.touchDevice(deviceId);
         if (open.length === 0) {

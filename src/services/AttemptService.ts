@@ -556,7 +556,7 @@ export class AttemptService {
      * (2026-10-25): what a cabinet player has left on the limited-attempts
      * games their next play would count on. Empty when there are none.
      */
-    static async deviceLine(deviceId: string, canonicalUserId: string, nowTs: number = Math.floor(Date.now() / 1000)): Promise<string> {
+    static async deviceLine(deviceId: string, canonicalUserId: string, nowTs: number = Math.floor(Date.now() / 1000), playDevice?: import('./VpxScoreIngestService.js').PlayDevice | null): Promise<string> {
         const { WitnessService } = await import('./WitnessService.js');
         const { VpxScoreIngestService } = await import('./VpxScoreIngestService.js');
         const db = await getDatabase();
@@ -567,6 +567,7 @@ export class AttemptService {
             canonicalUserId,
             target: await WitnessService.getDeviceTarget(deviceId),
             deviceType: device?.device_type === 'desktop' ? 'desktop' : 'atgames',
+            playDevice,
             nowTs,
         });
         const ids = games.map(g => g.gameId);

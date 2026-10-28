@@ -336,10 +336,10 @@ router.get('/witness/report', witnessIngestLimiter, async (req, res) => {
  * ATTEMPTS LEFT"), shared by the check-in and the heartbeat so a cabinet player
  * sees what they have left without a phone. Best-effort: never fails the call.
  */
-async function witnessAttemptsSuffix(device: string, canonicalUserId: string): Promise<string> {
+async function witnessAttemptsSuffix(device: string, canonicalUserId: string, playDevice?: import('../../services/VpxScoreIngestService.js').PlayDevice | null): Promise<string> {
     try {
         const { AttemptService } = await import('../../services/AttemptService.js');
-        return await AttemptService.deviceLine(device, canonicalUserId);
+        return await AttemptService.deviceLine(device, canonicalUserId, undefined, playDevice);
     } catch (err) {
         logError('Witness sendingTo: attempts-left step failed (the call itself succeeded)', err);
         return '';
@@ -353,7 +353,7 @@ async function witnessAttemptsSuffix(device: string, canonicalUserId: string): P
  * companion can refresh its display from either reply and the two can never
  * disagree. Best-effort: a failure yields what was built so far (or '').
  */
-async function witnessHeartbeatSendingTo(device: string, canonicalUserId: string): Promise<string> {
+async function witnessHeartbeatSendingTo(device: string, canonicalUserId: string, playDevice?: import('../../services/VpxScoreIngestService.js').PlayDevice | null): Promise<string> {
     let sendingTo = '';
     try {
         const { WitnessService } = await import('../../services/WitnessService.js');
@@ -365,7 +365,7 @@ async function witnessHeartbeatSendingTo(device: string, canonicalUserId: string
     } catch (err) {
         logError('Witness heartbeat/attempt-start: sendingTo step failed (the call itself succeeded)', err);
     }
-    if (sendingTo) sendingTo += await witnessAttemptsSuffix(device, canonicalUserId);
+    if (sendingTo) sendingTo += await witnessAttemptsSuffix(device, canonicalUserId, playDevice);
     return sendingTo;
 }
 
@@ -634,7 +634,7 @@ router.get('/witness/attempt-start', witnessIngestLimiter, async (req, res) => {
             playDevice: parsePlayDevice(req.query.play_device),
         });
         if (!result) return res.status(401).json({ ok: false });
-        const sendingTo = await witnessHeartbeatSendingTo(device.trim(), result.canonicalUserId);
+        const sendingTo = await witnessHeartbeatSendingTo(device.trim(), result.canonicalUserId, parsePlayDevice(req.query.play_device));
         res.json({
             ok: true, status: result.status, started: result.started,
             ...(result.reason ? { reason: result.reason } : {}),

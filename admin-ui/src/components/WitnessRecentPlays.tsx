@@ -32,6 +32,9 @@ export type RecentPlay = {
     tableName: string;
     score: number;
     deviceId: string;
+    /** v2.191.0 (W53) - true = quit before game over; null/absent = unknown. A badge only. */
+    quit?: boolean | null;
+    quitBall?: number | null;
     destinations: PlayDestination[];
 };
 
@@ -179,6 +182,11 @@ export default function WitnessRecentPlays({ playerToken }: { playerToken: strin
                                 <div className="flex flex-wrap items-baseline gap-x-2">
                                     <span className="text-sm font-medium">{play.tableName}</span>
                                     <span className="text-sm tabular-nums" title={scoreTitle(play.score)}>{formatScore(play.score)}</span>
+                                    {play.quit === true && (
+                                        <span className="text-xs px-1.5 py-0.5 rounded bg-raised text-muted" data-testid="play-quit">
+                                            {play.quitBall != null ? `Quit on ball ${play.quitBall}` : 'Quit'}
+                                        </span>
+                                    )}
                                     <span className="text-xs text-faint ml-auto">{whenText(play.playedAt)}</span>
                                 </div>
                                 <div className="mt-1 flex flex-wrap gap-1.5">

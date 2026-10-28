@@ -272,3 +272,27 @@ describe('GET /api/witness/attempt-start (W45)', () => {
         expect(board).toEqual([{ score: 4_000_000 }]);
     });
 });
+
+describe('openLimitedGames play_device (W51, v2.191.0)', () => {
+    it('lists a vr_headset-excluding tournament for a PC play and not for a VR play', async () => {
+        const app = await createTestApp();
+        const roomId = await createTestRoom();
+        await addMember(roomId, USER);
+        const { gameId, tournamentId } = await createLimitedGame(roomId, 2);
+        const db = await getDatabase();
+        await db.run(
+            'UPDATE tournaments SET platform_rules = ? WHERE id = ?',
+            JSON.stringify({ engines: { required: [], excluded: [] }, devices: { required: [], excluded: ['vr_headset'] } }),
+            tournamentId,
+        );
+        await pairDevice(app, DESKTOP, 'desktop');
+        const { VpxScoreIngestService } = await import('../services/VpxScoreIngestService.js');
+        const list = (playDevice?: 'pc' | 'vr_headset') => VpxScoreIngestService.openLimitedGames({
+            canonicalUserId: USER, target: { roomId: null, tournamentId: null }, deviceType: 'desktop',
+            playDevice, nowTs: Math.floor(Date.now() / 1000),
+        });
+        expect((await list('pc')).map(g => g.gameId)).toEqual([gameId]);
+        expect((await list()).map(g => g.gameId)).toEqual([gameId]);
+        expect(await list('vr_headset')).toEqual([]);
+    });
+});
