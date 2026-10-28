@@ -1144,7 +1144,7 @@ export default function Help() {
           </p>
           <ul className="space-y-0.5">
             <CheckItem>Log in with provided credentials</CheckItem>
-            <CheckItem><strong>Settings &rarr; Discord</strong>: Enter Guild ID, announcement channel, and admin role</CheckItem>
+            <CheckItem><strong>Settings &rarr; Discord</strong>: Enter Guild ID, announcement channel, and admin role, then press <strong>Add the bot to Discord</strong> (setting the Guild ID alone does not add the bot)</CheckItem>
             <CheckItem><strong>Settings &rarr; iScored</strong>: Enter iScored credentials and public URL (if you use iScored)</CheckItem>
             <CheckItem><strong>Settings &rarr; Integrations</strong>: Turn on the features your room needs</CheckItem>
             <CheckItem><strong>Settings &rarr; Theme</strong>: Choose your preferred theme</CheckItem>

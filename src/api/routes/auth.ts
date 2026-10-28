@@ -15,6 +15,7 @@ import { DmNudgeService } from '../../services/DmNudgeService.js';
 import { UserProfileService, effectiveAvatarUrlFor } from '../../services/UserProfileService.js';
 import { IdentityAutoLinkService } from '../../services/IdentityAutoLinkService.js';
 import { trackBackground } from '../../utils/backgroundTasks.js';
+import { buildBotInviteUrl } from '../../utils/discordBotInvite.js';
 
 const router = Router();
 
@@ -104,6 +105,14 @@ router.post('/login/:roomSlug', async (req, res) => {
         logError('API Error (POST /api/auth/login/:roomSlug):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
+});
+
+// G6 — the "add the bot to your server" link. Public: the client id is not a
+// secret (it is in every OAuth redirect). Always 200; url is null when the
+// Discord application isn't configured, so a page can simply hide the link.
+router.get('/discord/bot-invite', (req, res) => {
+    const guildId = typeof req.query.guildId === 'string' ? req.query.guildId : null;
+    res.json({ url: buildBotInviteUrl(process.env.DISCORD_CLIENT_ID, guildId) });
 });
 
 // Discord OAuth config
