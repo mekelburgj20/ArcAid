@@ -53,7 +53,11 @@ function relative(iso: string): string {
     return ms >= 0 ? `in ${stamp}` : `${stamp} ago`;
 }
 
-export default function EventBanner({ roomId, roomSlug }: { roomId: string; roomSlug: string }) {
+/**
+ * v2.192.0 (W30) - leads with the TOURNAMENT name and shows the room beneath it
+ * ("in <room>"): invitees took the room name for the tournament.
+ */
+export default function EventBanner({ roomId, roomSlug, roomName }: { roomId: string; roomSlug: string; roomName?: string }) {
     const [events, setEvents] = useState<BannerEvent[]>([]);
 
     useEffect(() => {
@@ -110,8 +114,12 @@ export default function EventBanner({ roomId, roomSlug }: { roomId: string; room
                             ? 'bg-neon-magenta/15 text-neon-magenta border-neon-magenta/40'
                             : 'bg-neon-cyan/15 text-neon-cyan border-neon-cyan/40'
                     }`}>{e.live ? 'LIVE' : 'EVENT'}</span>
-                    <span className="text-sm text-primary font-medium truncate">{e.name}</span>
-                    <span className="text-xs text-muted truncate flex-1">{e.detail}</span>
+                    <span className="min-w-0 flex-1">
+                        <span className="block text-sm text-primary font-medium truncate">{e.name}</span>
+                        <span className="block text-xs text-muted truncate" data-testid="event-banner-sub">
+                            {roomName ? `in ${roomName} · ${e.detail}` : e.detail}
+                        </span>
+                    </span>
                     <span className="text-neon-cyan text-sm" aria-hidden>→</span>
                 </Link>
             ))}
