@@ -18,6 +18,7 @@ import { canDeleteRow, deleteConfirmText, deleteScoreHistory } from '../lib/scor
 import { canCorrectRow, correctScoreHistory } from '../lib/scoreCorrect';
 import CorrectScoreModal from '../components/CorrectScoreModal';
 import EntryNotice from '../components/EntryNotice';
+import { WitnessBadge, NOT_COUNTED_LABEL, NOT_COUNTED_TITLE, type WitnessVerdict } from '../components/WitnessBadge';
 import { formatScore, scoreTitle, parseServerDate } from '../lib/format';
 import { Search, Trophy, TrendingUp, Target, Medal, Plus, Minus, Clock, Lightbulb, MessageCircle, Trash2, ChevronDown, ChevronUp, History, Download, Play, BookOpen, ExternalLink, Flag, BadgeCheck, Share2, Pencil } from 'lucide-react';
 import { SourceChip } from '../components/SourceChip';
@@ -60,6 +61,11 @@ interface RankedEntry {
   history_id?: number | null;
   source?: string | null;
   submitted_by_user_id?: string | null;
+  /**
+   * v2.190.0 (W22) — the Arcaid Witness verdict of this score, on an event
+   * round's rows only (derived server-side from the round board).
+   */
+  witness?: WitnessVerdict | null;
 }
 
 interface GameLeaderboard {
@@ -82,6 +88,15 @@ interface GameLeaderboard {
    * player may not correct their own score (admins still can).
    */
   selfCorrectionLocked?: boolean;
+  /**
+   * v2.190.0 (W22) — event rounds only. Under 'prevent' the round's flagged
+   * scores are left out of `rankings` (ranked exactly as the event standings
+   * rank them) and listed here, shown struck through, never ranked.
+   */
+  notCounted?: Array<Omit<RankedEntry, 'rank'>>;
+  witnessFlagMode?: 'prevent' | 'flag';
+  /** Every score of the round's verdict by `score_history.id` — the history expand reads it. */
+  witnessByHistoryId?: Record<string, WitnessVerdict>;
 }
 
 interface GameStats {
@@ -660,7 +675,7 @@ export default function GameDetail() {
           // doesn't include this; the per-game endpoint does.
           fetch(`/api/rooms/${rid}/leaderboard/${match.gameId}`)
             .then(r => r.ok ? r.json() : null)
-            .then((data: { distinctEngines?: string[]; rankings?: RankedEntry[]; tournamentId?: string | null } | null) => {
+            .then((data: (Pick<GameLeaderboard, 'notCounted' | 'witnessFlagMode' | 'witnessByHistoryId'> & { distinctEngines?: string[]; rankings?: RankedEntry[]; tournamentId?: string | null }) | null) => {
               if (!data) return;
               if (Array.isArray(data.distinctEngines)) setDistinctEngines(data.distinctEngines);
               if (typeof data.tournamentId === 'string' && data.tournamentId) setIntegrityTournamentId(data.tournamentId);
@@ -668,6 +683,16 @@ export default function GameDetail() {
               // that's been recomputed post-cache-flush, so prefer it.
               if (Array.isArray(data.rankings) && data.rankings.length > 0) {
                 setLeaderboard(prev => prev ? { ...prev, rankings: data.rankings! } : prev);
+              }
+              // v2.190.0 (W22): an event round's set-aside scores + verdicts
+              // ride the same read; absent (and left alone) for any other game.
+              if (data.witnessFlagMode) {
+                setLeaderboard(prev => prev ? {
+                  ...prev,
+                  notCounted: data.notCounted ?? [],
+                  witnessFlagMode: data.witnessFlagMode,
+                  witnessByHistoryId: data.witnessByHistoryId ?? {},
+                } : prev);
               }
             })
             .catch(() => {});
@@ -1178,7 +1203,7 @@ export default function GameDetail() {
               </div>
             )}
             {/* Active Leaderboard */}
-            {leaderboard && leaderboard.rankings.length > 0 && (() => {
+            {leaderboard && (leaderboard.rankings.length > 0 || (leaderboard.notCounted?.length ?? 0) > 0) && (() => {
               // v2.58.0 (ADR 0016): pick the rendered ranking set from the
               // active ENGINE tab.
               //
@@ -1264,6 +1289,9 @@ export default function GameDetail() {
                                 that half there rather than repeating the engine
                                 on every line. */}
                             <ProvenanceTags entry={entry} omitEngine={!!selectedEngine} />
+                            {/* v2.190.0 (W22): the Arcaid Witness verdict on an
+                                event round's row — the event page's own badge. */}
+                            <WitnessBadge witness={entry.witness} />
                             {/* v2.166.0 (ADR 0027): what Castcade measured about
                                 this score against the tournament's conditions.
                                 Decorates the row; never filters or re-ranks. */}
@@ -1380,6 +1408,7 @@ export default function GameDetail() {
                                             h={h}
                                             canDelete={canDeleteScoreHistory(h)}
                                             onDelete={() => handleDeleteScoreHistory(h)}
+                                            witness={leaderboard?.witnessByHistoryId?.[String(h.id)]}
                                             canCorrect={canCorrectScoreHistory(h)}
                                             onCorrect={() => setPendingCorrect({
                                               historyId: h.id,
@@ -1413,6 +1442,7 @@ export default function GameDetail() {
                                             h={h}
                                             canDelete={canDeleteScoreHistory(h)}
                                             onDelete={() => handleDeleteScoreHistory(h)}
+                                            witness={leaderboard?.witnessByHistoryId?.[String(h.id)]}
                                             canCorrect={canCorrectScoreHistory(h)}
                                             onCorrect={() => setPendingCorrect({
                                               historyId: h.id,
@@ -1522,6 +1552,28 @@ export default function GameDetail() {
                       </p>
                     ) : (
                       <>{tagged.map((entry, i) => renderRow(entry, i + 1))}</>
+                    )}
+                    {/* v2.190.0 (W22) — an event under 'prevent' left these out
+                        (the Witness saw the game start before the round
+                        opened). Shown so the player sees WHY, never ranked;
+                        same copy as the event page. "All" view only: an engine
+                        tab is a filtered view of the ranked rows. */}
+                    {!selectedEngine && (leaderboard.notCounted?.length ?? 0) > 0 && (
+                      <div className="border-t border-border bg-surface/50" data-testid="not-counted">
+                        {leaderboard.notCounted!.map(entry => (
+                          <div
+                            key={`nc-${entry.history_id ?? entry.iscored_username.toLowerCase()}`}
+                            className="flex items-center gap-2 px-5 py-2 text-sm opacity-60"
+                            title={NOT_COUNTED_TITLE}
+                          >
+                            <span className="text-primary truncate">{entry.display_name || entry.iscored_username}</span>
+                            <span className="text-xs text-neon-amber whitespace-nowrap">{NOT_COUNTED_LABEL}</span>
+                            <span className="ml-auto font-mono text-faint line-through" title={scoreTitle(entry.score)}>
+                              {formatScore(entry.score)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
                     )}
                   </div>
                 </div>
@@ -2301,10 +2353,12 @@ export default function GameDetail() {
     just admin/owner rows) — it opens the ScorePhotoModal for this exact row
     rather than performing the share itself; the modal's own Share button does
     the copy/native-share. */
-function ScoreHistoryRow({ h, canDelete, onDelete, canCorrect, onCorrect, canVerify, onToggleVerified, canReport, onReport, onShare }: {
+function ScoreHistoryRow({ h, canDelete, onDelete, witness, canCorrect, onCorrect, canVerify, onToggleVerified, canReport, onReport, onShare }: {
   h: ScoreHistoryEntry;
   canDelete: boolean;
   onDelete: () => void;
+  /** v2.190.0 (W22) — this score's witness verdict when it belongs to an event round. */
+  witness?: WitnessVerdict | null;
   canCorrect?: boolean;
   onCorrect?: () => void;
   canVerify?: boolean;
@@ -2326,6 +2380,7 @@ function ScoreHistoryRow({ h, canDelete, onDelete, canCorrect, onCorrect, canVer
           {formatScore(h.score)}
         </span>
         <SourceChip source={h.source} />
+        <WitnessBadge witness={witness} />
         {isVerified && (
           <span
             className="inline-flex items-center text-neon-green"

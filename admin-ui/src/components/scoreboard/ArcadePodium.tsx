@@ -1,4 +1,5 @@
 import { Medal, Plus, Minus, BadgeCheck, ChevronRight } from 'lucide-react';
+import { WitnessFlagMark } from '../WitnessBadge';
 import type { RankedEntry } from '../ScoreboardComponents';
 import { PlayerAvatar, playerName } from '../ScoreboardComponents';
 import PlayerNameLink from '../PlayerNameLink';
@@ -149,6 +150,8 @@ function PodiumRow({
           className="text-primary no-underline transition-colors hover:text-neon-cyan"
         />
       </FitRowName>
+      {/* v2.190.0 (W22): a witness-flagged score (event round, flag mode). */}
+      <WitnessFlagMark witness={entry.witness} size={13} />
       {entry.verified && (
         <span className="inline-flex shrink-0 items-center text-neon-green" title="Verified by an admin" aria-label="Verified score">
           <BadgeCheck size={13} />

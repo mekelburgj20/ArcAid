@@ -67,6 +67,28 @@ export interface EventScoreRow {
      * `unwitnessed` is neutral — most players have no paired cabinet.
      */
     witness: WitnessVerdict | null;
+    /**
+     * v2.190.0 (W22) — the `score_history` row this entry IS, its `source` and
+     * its RAW `submitted_by_user_id`: what the room board and the game page need
+     * to render a round's row like any other leaderboard row (per-row delete and
+     * correction key on the id; ownership is the raw column, never the resolved
+     * `discord_user_id`). Identity-stable facts of the row, never profile data.
+     */
+    history_id: number;
+    source: string | null;
+    submitted_by_user_id: string | null;
+}
+
+/**
+ * v2.190.0 (W22) — `getRoundBoard`'s result plus the verdict of EVERY score of
+ * the round (not only each player's chosen row), keyed by `score_history.id`.
+ * The room board and the game page read this so a per-player history expand can
+ * mark a flagged score that is nobody's best. Kept off `EventRoundBoard` so the
+ * event page's payload is unchanged.
+ */
+export interface EventRoundBoardDetail {
+    board: EventRoundBoard;
+    verdictsByHistoryId: Map<number, WitnessVerdict>;
 }
 
 export interface EventRoundBoard {
@@ -148,6 +170,8 @@ export interface FrozenEventResult {
 }
 
 interface RawScoreRow {
+    /** `score_history.id` (v2.190.0, W22). */
+    history_id: number;
     identity_key: string;
     discord_user_id: string | null;
     submitted_by_user_id: string | null;
@@ -186,6 +210,21 @@ export class EventResultService {
         round: EventRoundRow,
         participants?: Set<string>,
     ): Promise<EventRoundBoard> {
+        return (await EventResultService.getRoundBoardDetail(event, round, participants)).board;
+    }
+
+    /**
+     * `getRoundBoard` plus every score's verdict by `score_history.id`
+     * (v2.190.0, W22). ONE computation: `getRoundBoard` is this method's
+     * `board`, so the room board and the game page (which read this) can never
+     * rank a round differently from the standings, the frozen result and
+     * Re-verify (which read `getRoundBoard`). Nothing here is cached.
+     */
+    static async getRoundBoardDetail(
+        event: EventTournamentRow,
+        round: EventRoundRow,
+        participants?: Set<string>,
+    ): Promise<EventRoundBoardDetail> {
         const db = await getDatabase();
         const roster = participants ?? await EventResultService.loadParticipantSet(event.id);
         const graceSec = eventEndGraceSec(event);
@@ -194,11 +233,12 @@ export class EventResultService {
         // gate allows, so a score the gate ACCEPTED at end+30s can never be
         // invisible on the board that accepted it.
         const rows = await db.all<RawScoreRow[]>(
-            `SELECT identity_key, discord_user_id, submitted_by_user_id, iscored_username,
+            `SELECT history_id, identity_key, discord_user_id, submitted_by_user_id, iscored_username,
                     score, created_at, platform, engine, device, photo_url, elapsed_sec,
                     source, created_epoch
                FROM (
-                    SELECT ${IDENTITY_KEY_SQL} AS identity_key,
+                    SELECT sh.id AS history_id,
+                           ${IDENTITY_KEY_SQL} AS identity_key,
                            sh.discord_user_id,
                            sh.submitted_by_user_id,
                            sh.iscored_username,
@@ -311,12 +351,21 @@ export class EventResultService {
                 // rest of an open event's board.
                 participant: event.checkin_required !== 1 || roster.has(row.identity_key),
                 witness: witnessVerdicts[i] ?? null,
+                history_id: row.history_id,
+                source: row.source,
+                submitted_by_user_id: row.submitted_by_user_id,
             };
         };
         const scores: EventScoreRow[] = chosen.map((i, n) => ({ rank: n + 1, ...toRow(i) }));
         const notCounted = setAside.map(toRow);
 
-        return {
+        const verdictsByHistoryId = new Map<number, WitnessVerdict>();
+        rows.forEach((row, i) => {
+            const verdict = witnessVerdicts[i];
+            if (verdict) verdictsByHistoryId.set(row.history_id, verdict);
+        });
+
+        const board: EventRoundBoard = {
             roundNo: round.round_no,
             gameId: round.id,
             gameName: round.name,
@@ -329,6 +378,50 @@ export class EventResultService {
             witnessFlagMode: flagMode,
             notCounted,
         };
+        return { board, verdictsByHistoryId };
+    }
+
+    /**
+     * v2.190.0 (W22) — the `score_history` ids that do NOT count anywhere a
+     * round's standings decide: every `flagged` score of every event round of
+     * `gameName` in `gameRoomId` whose event is under 'prevent'. Read off
+     * `getRoundBoardDetail`, never re-derived, so the game page's all-time high
+     * leaves out exactly the scores the standings leave out.
+     *
+     * One query for the rounds, then one round-board computation per round that
+     * has started (a SCHEDULED round has no scores). Uncached by design.
+     */
+    static async preventedHistoryIds(gameRoomId: string, gameName: string): Promise<number[]> {
+        const db = await getDatabase();
+        const rounds = await db.all<EventRoundRow[]>(
+            `SELECT g.id, g.tournament_id, g.game_room_id, g.name, g.status, g.round_no,
+                    g.scheduled_start_at, g.scheduled_end_at, g.start_date, g.end_date, g.iscored_id
+               FROM games g
+               JOIN tournaments t ON t.id = g.tournament_id
+              WHERE t.format = 'event'
+                AND t.game_room_id = ?
+                AND (t.witness_flag_mode IS NULL OR t.witness_flag_mode <> 'flag')
+                AND g.round_no IS NOT NULL
+                AND g.status <> 'SCHEDULED'
+                AND LOWER(g.name) = LOWER(?)`,
+            gameRoomId, gameName,
+        );
+        const ids: number[] = [];
+        const events = new Map<string, EventTournamentRow | null>();
+        for (const round of rounds) {
+            if (!events.has(round.tournament_id)) {
+                events.set(round.tournament_id, await EventService.getEvent(round.tournament_id));
+            }
+            const event = events.get(round.tournament_id);
+            if (!event) continue;
+            const { board, verdictsByHistoryId } =
+                await EventResultService.getRoundBoardDetail(event, round, new Set());
+            if (board.witnessFlagMode !== 'prevent') continue;
+            for (const [historyId, verdict] of verdictsByHistoryId) {
+                if (verdict.status === 'flagged') ids.push(historyId);
+            }
+        }
+        return ids;
     }
 
     /**

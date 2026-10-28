@@ -1,4 +1,5 @@
 import { Plus, Minus, BadgeCheck, ChevronRight } from 'lucide-react';
+import { WitnessFlagMark } from '../WitnessBadge';
 import type { RankedEntry } from '../ScoreboardComponents';
 import { PlayerAvatar, playerName } from '../ScoreboardComponents';
 import FitRowName from './FitRowName';
@@ -161,6 +162,8 @@ export default function ScoreList({
               )}
 
               {/* Verified checkmark */}
+              {/* v2.190.0 (W22): a witness-flagged score (event round, flag mode). */}
+              <WitnessFlagMark witness={entry.witness} size={12} />
               {entry.verified && (
                 <span
                   style={{ display: 'inline-flex', alignItems: 'center', color: 'var(--color-neon-green, #00ff88)', flexShrink: 0 }}

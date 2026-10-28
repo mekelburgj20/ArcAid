@@ -419,7 +419,7 @@ router.get('/:roomId/platforms/available', async (req, res) => {
 
 router.get('/:roomId/leaderboard/:gameId', async (req, res) => {
     try {
-        const { LeaderboardService } = await import('../../services/LeaderboardService.js');
+        const { LeaderboardService, eventOverlayExtras } = await import('../../services/LeaderboardService.js');
         const gameId = req.params.gameId as string;
         const qs = (key: string): string | null => {
             const v = req.query[key];
@@ -439,6 +439,13 @@ router.get('/:roomId/leaderboard/:gameId', async (req, res) => {
             : platformFilter
                 ? await LeaderboardService.getForGameByPlatform(gameId, platformFilter)
                 : await LeaderboardService.getForGame(gameId);
+
+        // v2.190.0 (W22): an event round's board is derived from its round board
+        // (ranked as the standings rank it, each row carrying its witness
+        // verdict, plus `notCounted`). Absent for every other game.
+        const eventOverlay = (await LeaderboardService.getEventRoundOverlays(
+            [gameId], { engine: engineFilter, device: deviceFilter, platform: platformFilter },
+        )).get(gameId);
 
         // Distinct provenance always returned so the FE can render its tab strip
         // regardless of which view the user is currently looking at.
@@ -464,7 +471,8 @@ router.get('/:roomId/leaderboard/:gameId', async (req, res) => {
             // integrity read (mode + verdict map) for the board badges.
             tournamentId: game?.tournament_id ?? null,
             imageUrl: game?.image_url || null,
-            rankings,
+            rankings: eventOverlay ? eventOverlay.rankings : rankings,
+            ...eventOverlayExtras(eventOverlay),
             /**
              * v2.58.0 (ADR 0016): `engine` + `device` (and `distinctEngines` /
              * `distinctDevices`) are the AUTHORITATIVE provenance fields.
@@ -2915,10 +2923,13 @@ router.post('/:roomId/score-history/:historyId/report', writeLimiter, requireDis
 router.get('/:roomId/stats/game/:name', async (req, res) => {
     try {
         const { StatsService } = await import('../../services/StatsService.js');
-        const stats = await StatsService.getGameStats(
-            decodeURIComponent(req.params.name as string),
-            req.params.roomId as string
-        );
+        const { EventResultService } = await import('../../services/EventResultService.js');
+        const gameName = decodeURIComponent(req.params.name as string);
+        const roomId = req.params.roomId as string;
+        // v2.190.0 (W22): a score an event under 'prevent' does not count (the
+        // witness saw it start before the round opened) never heads the page.
+        const prevented = await EventResultService.preventedHistoryIds(roomId, gameName);
+        const stats = await StatsService.getGameStats(gameName, roomId, undefined, false, prevented);
         if (!stats) return res.status(404).json({ error: 'Game not found' });
         res.json(stats);
     } catch (error) {
