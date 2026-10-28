@@ -6,6 +6,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.192.0] - 2026-10-28 - Event-round standings everywhere: Discord, rank reply, chat answers, game-page stats (W52)
+
+v2.190.0 stopped a score that was started before an event round opened from leading the room board and the game
+page, but other places still ranked the round from the raw scores, so the geared-up score could still top Discord
+`/list-scores`, the "You are #N" reply after `/submit-score`, the bot's "who's leading" / "my rank" chat answers and
+the game page's Player Stats. Every one of those now ranks an event round exactly as the event's standings do
+(ADR 0031).
+
+### Changed
+- **The one rule now sits inside `LeaderboardService.getForGame` / `getForGameByProvenance` / `getForGameByPlatform`:**
+  on an event round they return the round board's ranking (`getEventRoundOverlays`, derived from
+  `EventResultService.getRoundBoardDetail`), so Discord `/list-scores`, the `/submit-score` rank reply and the chat
+  `leaders` / `my_rank` actions inherit it with no edits. Under "Prevent", a score the Witness saw start before the
+  round opened is left out and the player's best clean score counts. Any other game pays one cheap query and is
+  otherwise unchanged; the per-game web read computes the overlay once (no double round-board build).
+- **The game page's average score, unique-player count and Top Players list leave out those same scores** (the
+  all-time high already did): `StatsService.getGameStats` applies `excludeHistoryIds` to all three figures and
+  `getGamePlayerRankings` takes the same list; both routes pass `EventResultService.preventedHistoryIds`.
+- **"Recent results" on the game page (and Discord `/view-stats`) names a finished event round's real winner**, the
+  standings' #1, instead of whoever had the highest raw score. Rotation games keep their `submissions` winner.
+- An engine/device tab on an event round shows the round's CHOSEN rows restricted to that engine (the standings pick
+  one score per player); documented in a comment, deliberately unchanged.
+- Rotation games, pinned boards, `leaderboard_cache`, Global and the event page are unchanged. Not audited: other
+  `submissions`-based "winner" readers such as `/list-winners` (follow-up).
+
 ## [2.191.0] - 2026-10-28 - Witness follow-ups: VR exclusion on the attempts line, quit badge everywhere, re-pair keeps the target (W51, W53, W35)
 
 Three small follow-ups from the Witness wave: the attempts line no longer promises a table a VR play would be refused

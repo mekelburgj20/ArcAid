@@ -306,6 +306,7 @@ export class StatsService {
          * the game start before the round opened). The game page passes
          * `EventResultService.preventedHistoryIds`; every other caller passes
          * nothing and gets exactly what it got before.
+         * v2.192.0 (W52): also left out of `avgScore` and `uniquePlayers`.
          */
         excludeHistoryIds: number[] = [],
     ) {
@@ -355,18 +356,21 @@ export class StatsService {
         // player-per-game-instance via its own upsert semantics, but the SQL itself does
         // a flat average). This mirrors that: a flat AVG over every matching score_history
         // row (i.e. every score event, not deduped to per-player bests).
+        // v2.192.0 (W52): a prevented score is left out of every score aggregate
+        // on this page (avg, unique players, all-time high), not just the high.
+        const excludeClause = excludeHistoryIds.length > 0
+            ? `AND id NOT IN (${excludeHistoryIds.map(() => '?').join(',')})`
+            : '';
         const stats = await db.get(`
             SELECT AVG(score) as avg_score,
                    COUNT(DISTINCT COALESCE(submitted_by_user_id, 'iscored:' || LOWER(iscored_username))) as unique_players
             FROM score_history
             WHERE LOWER(game_name) = LOWER(?) ${roomFilter}
               AND orphaned_at IS NULL
-        `, ...scoreParams);
+              ${excludeClause}
+        `, ...scoreParams, ...excludeHistoryIds);
 
         // All-time high holder
-        const excludeClause = excludeHistoryIds.length > 0
-            ? `AND id NOT IN (${excludeHistoryIds.map(() => '?').join(',')})`
-            : '';
         const highHolder = await db.get(`
             SELECT iscored_username, score
             FROM score_history
@@ -378,8 +382,9 @@ export class StatsService {
         `, ...scoreParams, ...excludeHistoryIds);
 
         // Recent results (completed games with winner)
-        const recentResults = await db.all(`
+        const recentRows = await db.all(`
             SELECT
+                g.id as game_id,
                 t.name as tournament_name,
                 s.iscored_username as winner_name,
                 s.score as winner_score,
@@ -398,6 +403,26 @@ export class StatsService {
             LIMIT 10
         `, gameName, ...(tournamentRoomClause ? tournamentRoomClause.params : []));
 
+        // v2.192.0 (W52) - the winner of a finished EVENT ROUND is its round
+        // board's rank-1 row (`LeaderboardService.getEventRoundOverlays`, i.e.
+        // `EventResultService.getRoundBoardDetail`, the one computation of a
+        // round's standings), so under 'prevent' a score the witness saw start
+        // before the round opened is never named the winner. Every other game
+        // keeps its top `submissions` row. Applies to every caller (Discord
+        // `/view-stats` included): it is the round's real result, not a
+        // page-specific filter. `game_id` is stripped so the shape is unchanged.
+        const { LeaderboardService } = await import('./LeaderboardService.js');
+        const roundOverlays = await LeaderboardService.getEventRoundOverlays(
+            recentRows.map((r: any) => r.game_id as string),
+        );
+        const recentResults = recentRows.map((r: any) => {
+            const { game_id, ...row } = r;
+            const overlay = roundOverlays.get(game_id);
+            if (!overlay) return row;
+            const top = overlay.rankings[0];
+            return { ...row, winner_name: top?.iscored_username ?? null, winner_score: top?.score ?? null };
+        });
+
         return {
             gameName,
             timesPlayed,
@@ -412,15 +437,25 @@ export class StatsService {
     /**
      * Get all-time player rankings for a specific game (all instances, any status).
      * Returns every player's best score, total plays, and last played date.
+     *
+     * v2.192.0 (W52) - `excludeHistoryIds`: `score_history` ids left out of the
+     * best score AND the play count / last played (the same "absent from this
+     * page" rule `getGameStats` applies to its aggregates). The game page passes
+     * `EventResultService.preventedHistoryIds`, so a score an event under
+     * 'prevent' does not count never heads Top Players; every other caller
+     * passes nothing and gets exactly what it got before.
      */
-    static async getGamePlayerRankings(gameName: string, gameRoomId?: string) {
+    static async getGamePlayerRankings(gameName: string, gameRoomId?: string, excludeHistoryIds: number[] = []) {
         const db = await getDatabase();
 
         // Sourced from score_history (same rationale as getGameStats above) so community/
         // freeplay-only scores — which never touch `submissions` — are represented. Keyed
         // by (game_room_id, game_name); no gameRoomId falls back to all rooms by name.
-        const roomFilter = gameRoomId ? 'AND game_room_id = ?' : '';
-        const params = gameRoomId ? [gameName, gameRoomId] : [gameName];
+        const excludeClause = excludeHistoryIds.length > 0
+            ? `AND id NOT IN (${excludeHistoryIds.map(() => '?').join(',')})`
+            : '';
+        const roomFilter = `${gameRoomId ? 'AND game_room_id = ?' : ''} ${excludeClause}`;
+        const params = [gameName, ...(gameRoomId ? [gameRoomId] : []), ...excludeHistoryIds];
 
         // Canonical player partition (mirrors LeaderboardService.recalculate): collapse by
         // submitted_by_user_id when set (multi-alias Discord users → one row), else by
