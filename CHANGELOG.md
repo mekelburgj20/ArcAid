@@ -6,6 +6,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.190.0] - 2026-10-28 - Event-round witness verdicts on the room board and the game page (W22)
+
+At the Witness Weekend Showdown (2026-10-23) TomatoGrass geared up on purpose: the table was opened before round 1
+began. The Witness caught it and the event page left the score out of the round (ADR 0031), but the room scoreboard
+card for that round and the game's own page still showed his 54,692,760 in first place and as the all-time high, with
+no mark. Those are the pages players actually open. They now follow the event's own standings.
+
+### Changed
+- **On an event round, the room scoreboard card and the game page rank the scores exactly as the event's standings
+  do.** When the event is set to "prevent" (the default), a score the Witness saw start before the round opened no
+  longer ranks, and the player's best clean score counts instead. Both surfaces derive the round's rows from the ONE
+  standings computation (`EventResultService.getRoundBoardDetail`, via `LeaderboardService.getEventRoundOverlays`) at
+  read time; `leaderboard_cache` is untouched and never holds a verdict. The kiosk inherits it (same read).
+- **The game page's All-Time High and Record Holder** no longer show a score that an event did not count
+  (`StatsService.getGameStats` takes an exclusion list from `EventResultService.preventedHistoryIds`).
+
+### Added
+- **The game page shows the Arcaid Witness badge on event-round scores** (✓ witnessed, ⚠ started before the round
+  opened), including in a player's score history, and lists left-out scores under the board, struck through:
+  "Not counted: started before the round opened". The badge component moved from the event page into
+  `components/WitnessBadge.tsx` so both pages share it.
+- **When an event is set to "flag" instead,** a flagged score still ranks but now carries a warning mark on every
+  scoreboard card style. Per-row `witness`, per-game `notCounted` and `witnessByHistoryId` ride the leaderboard reads
+  for event rounds only; rotation and pinned payloads are unchanged.
+- Not changed in this release: Discord `/list-scores` and the chat responses still rank the cached rows; the
+  "Recent results" winners, Top Players and average-score figures on the game page are untouched.
+
 ## [2.189.0] - 2026-10-28 - "Quit on ball N" on witnessed scores (W49)
 
 Players sometimes walk away from a game before it ends. The Castcade companion (the release after 0.2.17) now tells
