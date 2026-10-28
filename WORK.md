@@ -9,14 +9,14 @@ priority tier from `LAUNCH.md`. Pick an item with `/work <ID>`; end a session wi
 
 ## Now
 
-- ArcAid 2.184.2 on prod (2026-10-28): Reconcile names what it deletes (F7, #402); 2.184.1 Playwright base image fixed (X15, #401) — iScored game create/lock/delete and "Check iScored links" work again. Cabinet app 1.0.7 merged + tagged (W50.11), kit built, not sent.
-- In flight: G6 bot invite link `review #403` (2.185.0, waiting on the owner's screenshot OK) · W50 table certification (opus@table-cert) · W39 entry roster · A3 owner.
-- Owner steps: OK PR #403 screenshots · send cabinet kit 1.0.7 (replaces unsent 1.0.6, carries the W48 AMH fix) with the W50.7 tester round (tmp/table-cert/TESTER-TEST.md + sidecars/TESTER-SIDECAR.md for TNA) · send tmp/table-cert/LU-NOTE.md (W50.8) · Micro test (W50.6) · A3 GamerDad89's Season.
-- Spectre (probros_gaming): convert his live iScored tournament — he enables iScored API access, iScored OFF → create tournament + activate 5 games → owner-OK'd prod `games.iscored_id` link → iScored ON; never Reconcile-delete before F7 ships. F8 would make this a button. Bot invite: G6.
+- ArcAid 2.185.0 on prod (2026-10-28): "Add the bot to Discord" link on room Settings + onboarding (G6, #403); 2.184.2 Reconcile names what it deletes (F7, #402); 2.184.1 Playwright base image fixed (X15, #401) — iScored game create/lock/delete and "Check iScored links" work again. Cabinet app 1.0.7 merged + tagged (W50.11), kit built, not sent.
+- In flight: W50 table certification (opus@table-cert) · W39 entry roster · A3 owner.
+- Owner steps: send cabinet kit 1.0.7 (replaces unsent 1.0.6, carries the W48 AMH fix) with the W50.7 tester round (tmp/table-cert/TESTER-TEST.md + sidecars/TESTER-SIDECAR.md for TNA) · send tmp/table-cert/LU-NOTE.md (W50.8) · Micro test (W50.6) · A3 GamerDad89's Season.
+- Spectre (probros_gaming): convert his live iScored tournament — he enables iScored API access, iScored OFF → create tournament + activate 5 games → owner-OK'd prod `games.iscored_id` link → iScored ON; never Reconcile-delete before F7 ships. F8 would make this a button. Bot invite: room Settings → Discord → "Add the bot to Discord".
 - Owed by testers: cabinet 1.0.5 results (W28, W32) · W50.7 lever results (LU maps location, POTC + Firepower II custom maps, Deadpool, TNA sidecar, SAM re-test, a second cabinet).
 - W50 findings so far: ~277 of ~324 ROM tables expected per-game; ROM-less = 166 tables / ~25% of plays (W50.9 shim desktop-tested on TNA); Williams System 7 generic map broken (W50.10, corrected maps verified headless).
 - Next, by priority: W50 (W50.7 → W50.9/W50.10 → W50.5) · W15 cabinet evidence profile · W45 Castcade "Start attempts" button.
-- Quick wins: G6 bot invite link · W21 leave-room confirm · W24 admin dashboard shows events · G2.
+- Quick wins: W21 leave-room confirm · W24 admin dashboard shows events · G2.
 - Queued from WWS: W19, W22, W23, W30, W31, W35.
 - Blocked upstream: X9 TypeScript 7, X10 jsdom 30.
 - Last wrap: 2026-10-28 — X15 (2.184.1), F7 review #402, F8/G6 added, W50.9/W50.10 progress, W50.11 done 1.0.7, X11.8 updated, Now rewritten.
@@ -153,7 +153,7 @@ Lane: `src/services/{GameRoom,GameRoomSettings,Settings,RoomEvent,Dashboard,Lobb
 - **G3** `idea` Room Settings page reorganisation — tabs/sections (Appearance / Access & Privacy / Integrations / Advanced) vs a settings search vs sibling pages; decide which cards leave Settings (Users duplicates Members; Platforms is library config) · tier: 5 · spec: ROADMAP.md §"Room Settings page reorganisation"
 - **G4** `idea` `KIOSK_KEY` pairing so a physically-secured kiosk can show an approval room; no ad-hoc bypasses meanwhile · tier: 7 · spec: ROADMAP.md §"Kiosk mode on approval rooms"
 - **G5** `idea` S20 a11y deferred items — `confirm()`/`alert()` → ConfirmModal/toast in four pages, dialog semantics + focus traps on ~15 modal shells, the `window.prompt` report reason, 320 px nav fallback · tier: 7 · spec: ROADMAP.md §"S20 a11y deferred items"
-- **G6** `review #403` [QUICK] An "Add the bot to your server" invite link on room Settings (Discord group) and in the onboarding message: setting the Guild ID alone does not add the bot (Spectre probros_gaming 2026-10-27). Link = OAuth authorize with the global DISCORD_CLIENT_ID, scope `bot applications.commands`, permissions=562949953539072
+- **G6** `done 2.185.0` "Add the bot to your server" invite link on room Settings and in the onboarding message
 
 ## W. Witness and Castcade integration
 
