@@ -300,6 +300,14 @@ export class StatsService {
     static async getGameStats(
         gameName: string, gameRoomId?: string, gameRoomIds?: string[],
         includeUnattributedRoom = false,
+        /**
+         * v2.190.0 (W22) — `score_history` ids that must not hold the all-time
+         * high: scores an event under `prevent` does not count (the witness saw
+         * the game start before the round opened). The game page passes
+         * `EventResultService.preventedHistoryIds`; every other caller passes
+         * nothing and gets exactly what it got before.
+         */
+        excludeHistoryIds: number[] = [],
     ) {
         const db = await getDatabase();
 
@@ -356,14 +364,18 @@ export class StatsService {
         `, ...scoreParams);
 
         // All-time high holder
+        const excludeClause = excludeHistoryIds.length > 0
+            ? `AND id NOT IN (${excludeHistoryIds.map(() => '?').join(',')})`
+            : '';
         const highHolder = await db.get(`
             SELECT iscored_username, score
             FROM score_history
             WHERE LOWER(game_name) = LOWER(?) ${roomFilter}
               AND orphaned_at IS NULL
+              ${excludeClause}
             ORDER BY score DESC, created_at ASC
             LIMIT 1
-        `, ...scoreParams);
+        `, ...scoreParams, ...excludeHistoryIds);
 
         // Recent results (completed games with winner)
         const recentResults = await db.all(`

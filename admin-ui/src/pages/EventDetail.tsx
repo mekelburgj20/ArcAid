@@ -7,6 +7,7 @@ import EventLobbyRoster, { type LobbyEntry } from '../components/EventLobbyRoste
 import { useOptionalRoom } from '../contexts/RoomContext';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import EntryNotice from '../components/EntryNotice';
+import { WitnessBadge, NOT_COUNTED_LABEL, NOT_COUNTED_TITLE, type WitnessVerdict } from '../components/WitnessBadge';
 import { ApiError } from '../lib/api';
 import { playerApi } from '../lib/playerApi';
 
@@ -27,47 +28,6 @@ import { playerApi } from '../lib/playerApi';
  * Throwdown the same object as an event — a second copy of the boards, the
  * standings and the countdown would drift within a release.
  */
-
-/**
- * The Arcaid Witness verdict for one AtGames-sourced score (v2.145.0, P8).
- * Optional throughout: absent on every non-AtGames row, and on any board
- * rendered from a result frozen before v2.145.0.
- */
-interface WitnessVerdict {
-    status: 'verified' | 'flagged' | 'unwitnessed';
-    /**
-     * Which tier verified it (v2.148.0, ADR 0021): a joined table `session`, or
-     * the cabinet's round-start `checkin` attestation. Optional so a board
-     * rendered by an older client/server pair still reads as a session verdict.
-     */
-    method?: 'session' | 'checkin' | null;
-    launchTs: number | null;
-    exitTs: number | null;
-    durationSec: number | null;
-    table: string | null;
-    /** `retro` = reconstructed after the fact. Same trust, shown for honesty. */
-    via?: 'live' | 'retro' | null;
-    checkinTs?: number | null;
-    /**
-     * `'exit'` (v2.158.0) — a no-ROM table's single score reading, taken when
-     * the player left. It can verify (table opened inside the round) or stay
-     * unwitnessed (table opened before it), never flag.
-     */
-    sample?: 'exit' | null;
-    /** v2.160.0 — ball-1 restarts in the joined game, and whether the score was a ball-sum floor. */
-    restarts?: number | null;
-    partial?: boolean | null;
-}
-
-/** Trailing notes for a verified-session tooltip: restarts and a partial score. */
-function witnessNotes(witness: WitnessVerdict): string {
-    const notes: string[] = [];
-    if (witness.restarts != null && witness.restarts > 0) {
-        notes.push(`${witness.restarts} ball-1 restart${witness.restarts === 1 ? '' : 's'} in this game`);
-    }
-    if (witness.partial) notes.push('score is a floor — the launcher lost one ball\'s points');
-    return notes.length ? ` · ${notes.join(' · ')}` : '';
-}
 
 interface ScoreRow {
     rank: number;
@@ -166,74 +126,6 @@ function elapsed(sec: number | null): string {
     if (sec == null) return '';
     const clamped = Math.max(0, sec);
     return `+${String(Math.floor(clamped / 60)).padStart(2, '0')}:${String(clamped % 60).padStart(2, '0')}`;
-}
-
-/** `4m 12s` / `47s` — how long the witness saw the table open. */
-function playDuration(sec: number): string {
-    const clamped = Math.max(0, Math.floor(sec));
-    const m = Math.floor(clamped / 60);
-    return m > 0 ? `${m}m ${clamped % 60}s` : `${clamped}s`;
-}
-
-/**
- * The Arcaid Witness badge for one score (v2.145.0, P8; tiers v2.148.0).
- *
- * A BADGE, never a gate — nothing here changes a rank. `unwitnessed` is the
- * neutral default (most players have no paired cabinet), so it renders as quiet
- * grey text and never as a warning.
- *
- * A check-in verdict shows NO duration on purpose: the cabinet attested it was
- * free before this score, which dates the play but does not measure it.
- */
-function WitnessBadge({ witness }: { witness?: WitnessVerdict | null }) {
-    if (!witness) return null;
-    if (witness.status === 'verified') {
-        if (witness.method === 'checkin') {
-            return (
-                <span
-                    className="ml-1 text-neon-green"
-                    title="The cabinet checked in after this round opened and before this score — so the table was played inside the round window"
-                >✓ <span className="text-xs">checked in</span></span>
-            );
-        }
-        if (witness.sample === 'exit') {
-            return (
-                <span
-                    className="ml-1 text-neon-green"
-                    title="Witnessed: this table has no ROM, so the cabinet read the score once when the player left — and the table was opened inside the round window"
-                >✓</span>
-            );
-        }
-        const played = witness.durationSec != null ? ` · ${playDuration(witness.durationSec)} of play` : '';
-        return (
-            <span
-                className="ml-1 text-neon-green"
-                title={`Witnessed: launched inside the round window${played}${witnessNotes(witness)}`}
-            >✓</span>
-        );
-    }
-    if (witness.status === 'flagged') {
-        return (
-            <span
-                className="ml-1 text-neon-amber"
-                title="Witness: this table was launched before the round opened"
-            >⚠</span>
-        );
-    }
-    if (witness.sample === 'exit') {
-        return (
-            <span
-                className="ml-1 text-faint text-xs"
-                title="This table has no ROM, so the cabinet read the score once when the player left. The table was opened before the round started, so the cabinet cannot say when this game began. Open the table after the round starts to have it witnessed."
-            >unwitnessed</span>
-        );
-    }
-    return (
-        <span
-            className="ml-1 text-faint text-xs"
-            title="No Witness evidence for this score — most players have no paired Witness device (cabinet or desktop)"
-        >unwitnessed</span>
-    );
 }
 
 /** Live countdown to an instant. Ticks once a second; empty once passed. */
@@ -765,10 +657,10 @@ export default function EventDetail({ throwdownCode }: EventDetailProps = {}) {
                                     <div
                                         key={`nc-${row.identity_key}`}
                                         className="flex items-center gap-2 px-3 py-2 text-sm opacity-60"
-                                        title="The Arcaid Witness saw this game start before the round opened"
+                                        title={NOT_COUNTED_TITLE}
                                     >
                                         <span className="text-primary truncate">{name(row)}</span>
-                                        <span className="text-xs text-neon-amber whitespace-nowrap">Not counted: started before the round opened</span>
+                                        <span className="text-xs text-neon-amber whitespace-nowrap">{NOT_COUNTED_LABEL}</span>
                                         <span className="ml-auto font-mono text-faint line-through" title={scoreTitle(row.score)}>
                                             {formatScore(row.score)}
                                         </span>

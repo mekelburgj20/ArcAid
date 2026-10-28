@@ -41,3 +41,12 @@ the opt-out for edge cases like a wrong clock.*
   launch, which would make the default safer (W20 note).
 - `flagged` in the standings row (`witnessFlagged`) now means "a counted score was flagged", which under
   `'prevent'` cannot happen; it keeps its meaning under `'flag'`.
+
+### Amended by v2.190.0 (W22)
+
+The room board and the game page now derive an event round's rows from the round board at READ time
+(`EventResultService.getRoundBoardDetail`, the same computation `getRoundBoard` returns), so they rank a
+round exactly as its standings do and carry each row's witness verdict (`witness` per row, `notCounted`
+and a verdict map by `score_history.id` per game). The game page's all-time high leaves out the scores a
+`'prevent'` event does not count. `leaderboard_cache` is untouched (a verdict is never baked in), and the
+Global Scoreboard is still unchanged.
