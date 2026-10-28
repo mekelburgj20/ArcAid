@@ -213,6 +213,9 @@ export type EvidenceRow = {
     rom: string | null;
     score: number;
     playedAt: string;
+    /** v2.189.0 (W49) — true = quit before game over, false = reached it, null = unknown. */
+    quit?: boolean | null;
+    quitBall?: number | null;
     evidence: {
         vpsGame: string | null;
         vpsTable: string | null;
@@ -619,6 +622,11 @@ export default function IntegrityPanel({ roomId, tournament, onClose, toast }: I
                                                         <td className="py-1.5 pr-2 text-right font-display text-primary whitespace-nowrap">{formatScore(row.score)}</td>
                                                         <td className="py-1.5 pr-2">
                                                             <VerdictChip verdict={row.verdict} />
+                                                            {row.quit === true && (
+                                                                <span className="block mt-1 text-[11px] text-muted" data-testid={`evidence-quit-${row.id}`}>
+                                                                    {row.quitBall != null ? `Quit on ball ${row.quitBall}` : 'Quit'}
+                                                                </span>
+                                                            )}
                                                             {row.reasons.length > 0 && (
                                                                 <ul className="mt-1 space-y-0.5 text-[11px] text-amber-400/90">
                                                                     {row.reasons.map(r => <li key={r}>{r}</li>)}

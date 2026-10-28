@@ -48,6 +48,8 @@ export type EvidenceRecordInput = {
     evidence: WitnessEvidence | null;
     /** v2.180.0 (W48) — the launcher's per-ball points for the game, raw (cabinet 1.0.6+); null when not sent. */
     ballPoints?: number[] | null;
+    /** v2.189.0 (W49) — quit before game over; null = the companion could not tell. */
+    quit?: { quit: boolean; quitBall: number | null } | null;
 };
 
 export type EvidenceRow = {
@@ -79,6 +81,10 @@ export type EvidenceRow = {
     evidence: WitnessEvidence | null;
     /** v2.180.0 (W48) — the launcher's per-ball points, raw; null when the device sent none. */
     ballPoints: number[] | null;
+    /** v2.189.0 (W49) — true = quit before game over, false = reached it, null = unknown. */
+    quit: boolean | null;
+    /** The ball in play when the player quit, when the machine reported it. */
+    quitBall: number | null;
     createdAt: string;
 };
 
@@ -142,6 +148,9 @@ type DbRow = {
     score_plausibility: string | null;
     /** v2.180.0 (migration 195, W48) — JSON array of the launcher's per-ball points. */
     ball_points: string | null;
+    /** v2.189.0 (migration 196, W49) — NULL unknown, 0 reached game over, 1 quit. */
+    quit: number | null;
+    quit_ball: number | null;
     created_at: string;
 };
 
@@ -183,6 +192,8 @@ function rowToEvidence(r: DbRow): EvidenceRow {
         } : null,
         // Not part of hasEvidence: per-ball points never make a score "evidenced" (a cabinet sends them).
         ballPoints: parseJson<number[] | null>(r.ball_points, null),
+        quit: r.quit === 1 ? true : r.quit === 0 ? false : null,
+        quitBall: r.quit === 1 && typeof r.quit_ball === 'number' ? r.quit_ball : null,
         createdAt: r.created_at,
     };
 }
@@ -198,8 +209,8 @@ export class WitnessEvidenceService {
                 score_history_id, global_score_id, integrity_mode, verdict, reasons, checks,
                 table_name, rom, score, played_at,
                 vps_game, vps_table, table_sha256, table_save_rev, fingerprint, ini, adjustments, build, engine,
-                score_plausibility, ball_points
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                score_plausibility, ball_points, quit, quit_ball
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             input.deviceId, input.canonicalUserId, input.outcome,
             input.gameId ?? null, input.tournamentId ?? null, input.gameRoomId ?? null,
             input.scoreHistoryId ?? null, input.globalScoreId ?? null,
@@ -216,6 +227,8 @@ export class WitnessEvidenceService {
             e?.engine ? JSON.stringify(e.engine) : null,
             e?.scorePlausibility ? JSON.stringify(e.scorePlausibility) : null,
             input.ballPoints && input.ballPoints.length > 0 ? JSON.stringify(input.ballPoints) : null,
+            input.quit ? (input.quit.quit ? 1 : 0) : null,
+            input.quit?.quit ? input.quit.quitBall : null,
         );
         return typeof res.lastID === 'number' ? res.lastID : null;
     }
@@ -342,6 +355,26 @@ export class WitnessEvidenceService {
             if (r.verdict !== 'pass' && r.verdict !== 'flagged') continue;
             out[String(r.score_history_id)] = { verdict: r.verdict, reasons: parseJson<string[]>(r.reasons, []) };
         }
+        return out;
+    }
+
+    /**
+     * Quit badges (v2.189.0, W49): `score_history.id` -> `{ ball }` for the scores of one
+     * tournament whose game the player QUIT before game over. A SEPARATE map from the
+     * verdicts on purpose: a verdict is withheld for a cabinet or a desktop that sent no
+     * evidence, while the quit fact is still known. A badge only - no rank reads it.
+     */
+    static async quitMap(tournamentId: string): Promise<Record<string, { ball: number | null }>> {
+        const db = await getDatabase();
+        const rows = await db.all<Array<{ score_history_id: number; quit_ball: number | null }>>(
+            `SELECT score_history_id, quit_ball
+               FROM witness_evidence
+              WHERE tournament_id = ? AND score_history_id IS NOT NULL AND quit = 1
+              ORDER BY id ASC`,
+            tournamentId,
+        );
+        const out: Record<string, { ball: number | null }> = {};
+        for (const r of rows) out[String(r.score_history_id)] = { ball: r.quit_ball ?? null };
         return out;
     }
 

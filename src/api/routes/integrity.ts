@@ -38,7 +38,8 @@ router.get('/rooms/:roomId/tournaments/:id/integrity', async (req, res) => {
         const integrity = await WitnessEvidenceService.getIntegrity(tournamentId);
         if (!integrity) return res.status(404).json({ error: 'Tournament not found' });
         const verdicts = await WitnessEvidenceService.verdictMap(tournamentId);
-        res.json({ ...integrity, verdicts });
+        const quits = await WitnessEvidenceService.quitMap(tournamentId);
+        res.json({ ...integrity, verdicts, quits });
     } catch (error) {
         logError('API Error (GET rooms/:roomId/tournaments/:id/integrity):', error);
         res.status(500).json({ error: 'Internal Server Error' });
