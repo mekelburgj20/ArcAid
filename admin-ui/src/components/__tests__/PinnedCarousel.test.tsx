@@ -277,9 +277,14 @@ describe('PinnedCarousel — duplicated copy accessibility', () => {
         const focusables = within(duplicate).getAllByRole('button', { hidden: true })
             .concat(within(duplicate).getAllByRole('link', { hidden: true }));
         expect(focusables.length).toBeGreaterThan(0);
-        for (const node of focusables) {
-            expect(node).toHaveAttribute('tabindex', '-1');
-        }
+        // The component sets tabIndex in a useEffect AFTER the duplicate renders, so
+        // the attribute can lag the waitFor above on a loaded runner (X14: failed CI
+        // runs 2026-10-02 and 2026-10-28). Wait for the effect, don't assume it.
+        await waitFor(() => {
+            for (const node of focusables) {
+                expect(node).toHaveAttribute('tabindex', '-1');
+            }
+        }, { timeout: 5000 });
 
         // The visible copy stays fully reachable.
         const primary = screen.getByTestId('pins-measure');

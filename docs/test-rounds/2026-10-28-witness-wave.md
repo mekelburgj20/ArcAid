@@ -106,3 +106,58 @@ inside the round (geared up), then plays a clean game; the second player posts a
 Known gaps (W52): Discord `/list-scores` and the chat responses still rank the cached rows for an event round; the
 game page's "Recent results", Top Players and average score are untouched; an engine tab on an event round
 filters the round's CHOSEN rows only.
+
+---
+
+# Wave 2 — 2.191.0 → 2.194.0 (same day, same session)
+
+| Version | Item | What shipped | PR |
+|---|---|---|---|
+| 2.191.0 | W51 W53 W35 | Attempts line / device press apply the VR exclusion; quit chip on history rows and in "Where your plays went"; re-pair keeps the target (proved by test, no code change) | #409 |
+| 2.192.0 | W52 | Event-round standings inside `getForGame`: Discord `/list-scores`, the rank reply, chat answers, game-page avg / unique players / Top Players / Recent results all follow the standings | #410 |
+| 2.193.0 | W12 | `global_game_roms` from the VPS sync, public `GET /api/witness/roms`, ROM match tier before the name fallback | #411 |
+| 2.194.0 | W24 W30 | Room Admin dashboard shows events as rounds; event page / banner / invite / Discord posts lead with the tournament and show the room beneath | #412 |
+
+## 6. W51 / W53 / W35 (2.191.0)
+
+1. **W51:** in a Limited-attempts tournament whose rules exclude `vr_headset`, call `attempt-start` (section 3) with
+   `&play_device=vr_headset` → `nothing_to_start`; with `&play_device=pc` → `started`. The cabinet heartbeat line is
+   unchanged (the cabinet sends no play device).
+2. **W53:** on a game page with a quit Castcade score, expand that player's history → the "Quit on ball N" chip sits
+   on that row too. Account Settings → "Where your plays went" shows the same chip on that play.
+3. **W35:** Account Settings → a paired device → set a room designation → Unpair → pair again with the SAME account
+   → the designation is still there.
+
+## 7. W52 (2.192.0)
+
+Same fixture as section 5 (a prevent event with a geared-up score).
+
+1. Discord `/list-scores` on the round: the clean leader is #1, the geared-up score is absent.
+2. `/submit-score` a new score on that round: "You are #N of M" counts against the standings.
+3. Ask the bot who is leading and your rank: answers match the board.
+4. Game page → Player Stats: Top Players is not headed by the geared-up score; average and player count exclude it.
+5. After the round finishes: "Recent results" names the standings' winner. Flip the event to flag mode + Re-verify →
+   the geared-up score comes back in every one of these places.
+
+## 8. W12 (2.193.0)
+
+1. **Once after deploy:** Admin → Catalogue → **Sync VPS** (fills the ROM map; until then `/api/witness/roms` has
+   `count: 0`).
+2. Open `https://arcaid.app/api/witness/roms`: `mm_109c` → Medieval Madness; a ROM shared by several games (e.g.
+   `fpwr2_l2`) shows `ambiguous: true` with its candidates. Reload with the returned ETag → 304.
+3. Play a cabinet table whose launcher display name differs from the room's card name but whose ROM is in VPS → the
+   score lands on the card instead of going to Global. Watch item: a launcher that stamps a WRONG but valid ROM would
+   now steer the play to that ROM's game if the room runs it (same semantics as `vps_game`).
+
+## 9. W24 / W30 (2.194.0)
+
+1. **Dashboard:** Room Admin → Dashboard while an event round is live: the card names the round's game, shows "Live",
+   "Round N is live until <time>" in the room zone, the Players count and the leader (never a prevented score).
+   Before the event: "Check-in open" / "Upcoming" with "Round 1 opens …". A round-less event reads "No round
+   scheduled". A rotation card looks exactly as before.
+2. **Event page:** `/<slug>/events/<id>` shows the room name as a small link above the event title; a
+   `/throwdown/<code>` page does not.
+3. **Banner:** on a room page with an upcoming or live event, the banner's first line is the event name, the second
+   "in <Room> · Round N starts in …".
+4. **Discord:** when a round goes live / results post / the event finishes, the embed title is unchanged and the
+   footer ends "· in <Room name>".
