@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Lock, Plus, Minus, BadgeCheck, ChevronRight } from 'lucide-react';
+import { WitnessFlagMark } from '../WitnessBadge';
 import type { GameLeaderboard, RankedEntry } from '../ScoreboardComponents';
 import { PlayerAvatar, formatCountdown, GameQRCode, getTitleStyleClass, playerName } from '../ScoreboardComponents';
 import PlayerNameLink from '../PlayerNameLink';
@@ -246,6 +247,8 @@ export default function MinimalCard({
                         className="text-secondary no-underline hover:text-neon-cyan transition-colors"
                       />
                     </FitRowName>
+                    {/* v2.190.0 (W22): a witness-flagged score (event round, flag mode). */}
+                    <WitnessFlagMark witness={entry.witness} size={13} />
                     {entry.verified && (
                       <span className="inline-flex items-center text-neon-green flex-shrink-0" title="Verified by an admin" aria-label="Verified score">
                         <BadgeCheck size={13} />

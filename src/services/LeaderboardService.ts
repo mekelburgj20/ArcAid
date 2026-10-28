@@ -13,6 +13,10 @@ import { CardOrderService } from './CardOrderService.js';
 import { openCardSql } from '../utils/openCard.js';
 import { gameRunWindowByIdSql } from '../utils/gameRunWindow.js';
 import { selfCorrectionLockedSql } from '../utils/scoreCorrectionPolicy.js';
+import { EventService, type EventRoundRow, type EventTournamentRow } from './EventService.js';
+import { EventResultService, type EventScoreRow } from './EventResultService.js';
+import type { WitnessVerdict } from './WitnessVerifyService.js';
+import type { WitnessFlagMode } from '../utils/witnessFlagMode.js';
 
 /**
  * v2.0.3: translate stored catalogue paths (`data/catalogue-images/…`) to the
@@ -102,6 +106,44 @@ export interface RankedEntry {
      * + click-to-view-photo affordance on the MAIN ranked row.
      */
     photo_url?: string | null;
+    /**
+     * v2.190.0 (W22) — the Arcaid Witness verdict of this row's score, present
+     * ONLY on an event round's board (absent everywhere else, so a rotation or
+     * pinned board's rows are unchanged). `null` = no verdict applies (not a
+     * witness-sourced score). Read time only: a verdict can change after the
+     * fact (late evidence, Re-verify, the event's flag mode), so it is never in
+     * `leaderboard_cache`.
+     */
+    witness?: WitnessVerdict | null;
+}
+
+/**
+ * v2.190.0 (W22) — an event round's board as the room board and the game page
+ * show it, DERIVED from `EventResultService.getRoundBoardDetail` (the one
+ * computation of a round's standings, ADR 0031) at read time. `rankings` is the
+ * round board's ranked rows — under 'prevent' a `flagged` score is left out and
+ * the player's best unflagged score ranks — and `notCounted` is the set-aside
+ * flagged scores, shown struck through, never ranked. `witnessByHistoryId` holds
+ * the verdict of every score of the round, for the per-player history expand.
+ */
+export interface EventRoundOverlay {
+    rankings: RankedEntry[];
+    notCounted: Array<Omit<RankedEntry, 'rank'>>;
+    witnessFlagMode: WitnessFlagMode;
+    witnessByHistoryId: Record<string, WitnessVerdict>;
+}
+
+/**
+ * The per-game fields an event round's board adds to a leaderboard payload
+ * (v2.190.0, W22). Empty for any other game, so its payload is unchanged.
+ */
+export function eventOverlayExtras(overlay: EventRoundOverlay | undefined): Partial<Omit<EventRoundOverlay, 'rankings'>> {
+    if (!overlay) return {};
+    return {
+        notCounted: overlay.notCounted,
+        witnessFlagMode: overlay.witnessFlagMode,
+        witnessByHistoryId: overlay.witnessByHistoryId,
+    };
 }
 
 /**
@@ -514,6 +556,133 @@ export class LeaderboardService {
     }
 
     /**
+     * v2.190.0 (W22) — which of `gameIds` are EVENT ROUNDS: a `games` row with a
+     * `round_no` whose tournament is `format = 'event'`. One query for the whole
+     * set (the only cost this feature adds to a board with no event on it), plus
+     * one `EventService.getEvent` per distinct event found.
+     */
+    private static async loadEventRounds(
+        gameIds: string[],
+    ): Promise<Map<string, { event: EventTournamentRow; round: EventRoundRow }>> {
+        const map = new Map<string, { event: EventTournamentRow; round: EventRoundRow }>();
+        if (gameIds.length === 0) return map;
+        const db = await getDatabase();
+        const placeholders = gameIds.map(() => '?').join(',');
+        const rounds = await db.all<EventRoundRow[]>(`
+            SELECT g.id, g.tournament_id, g.game_room_id, g.name, g.status, g.round_no,
+                   g.scheduled_start_at, g.scheduled_end_at, g.start_date, g.end_date, g.iscored_id
+            FROM games g
+            JOIN tournaments t ON t.id = g.tournament_id
+            WHERE g.id IN (${placeholders})
+              AND g.round_no IS NOT NULL
+              AND t.format = 'event'
+        `, ...gameIds);
+        const events = new Map<string, EventTournamentRow | null>();
+        for (const round of rounds) {
+            if (!events.has(round.tournament_id)) {
+                events.set(round.tournament_id, await EventService.getEvent(round.tournament_id));
+            }
+            const event = events.get(round.tournament_id);
+            if (event) map.set(round.id, { event, round });
+        }
+        return map;
+    }
+
+    /**
+     * v2.190.0 (W22, WWS test event 2026-10-23) — the event-round boards among
+     * `gameIds`, each DERIVED from `EventResultService.getRoundBoardDetail`, so
+     * the room board and the game page rank a round exactly as its standings do
+     * and carry each score's witness verdict. Games that are not event rounds are
+     * simply absent from the result — their boards stay what they were.
+     *
+     * Never cached, never written to `leaderboard_cache`: a verdict changes after
+     * the fact (late evidence, Re-verify, a flip of `witness_flag_mode`).
+     *
+     * Cost per event round: the round's score query, the witness join (one
+     * observation query, at most one check-in query, and ~4 identity-link
+     * lookups per distinct player with a witness-sourced score), one batched
+     * profile resolution and one batched verified lookup. The event roster is
+     * NOT loaded: these surfaces do not render check-in status, and the ranking
+     * does not depend on it.
+     *
+     * `filter` is the game page's engine/device tab: the round board's rows
+     * filtered on the same columns `getForGameByProvenance` filters on, then
+     * re-ranked.
+     */
+    static async getEventRoundOverlays(
+        gameIds: string[],
+        filter?: { engine?: string | null; device?: string | null; platform?: string | null },
+    ): Promise<Map<string, EventRoundOverlay>> {
+        const out = new Map<string, EventRoundOverlay>();
+        const rounds = await this.loadEventRounds(gameIds);
+        if (rounds.size === 0) return out;
+
+        let engine = normalizeProvenanceToken(filter?.engine);
+        let device = normalizeProvenanceToken(filter?.device);
+        // The deprecated `?platform=` tab resolves exactly as
+        // `getForGameByPlatform` does, and only when neither axis is given.
+        if (!engine && !device && filter?.platform) {
+            const mapped = mapLegacyPlatform(filter.platform);
+            engine = mapped.engine === UNKNOWN ? '' : normalizeProvenanceToken(mapped.engine);
+            device = mapped.device === UNKNOWN ? '' : normalizeProvenanceToken(mapped.device);
+        }
+        const matches = (row: Omit<EventScoreRow, 'rank'>) =>
+            (!engine || normalizeProvenanceToken(row.engine || UNKNOWN) === engine)
+            && (!device || normalizeProvenanceToken(row.device || UNKNOWN) === device);
+
+        const windows = await this.loadWindows([...rounds.keys()]);
+        // No roster: see the doc comment. `participant` is not carried over.
+        const noRoster = new Set<string>();
+
+        for (const [gameId, { event, round }] of rounds) {
+            const { board, verdictsByHistoryId } =
+                await EventResultService.getRoundBoardDetail(event, round, noRoster);
+            const ranked = board.scores.filter(matches);
+            const aside = board.notCounted.filter(matches);
+
+            // The admin-verified checkmark, through the SAME lookup every other
+            // board row uses, so it can never disagree with the cached path.
+            const window = windows.get(gameId) ?? null;
+            const both = [...ranked, ...aside];
+            const verified = await this.resolveVerified(
+                both.map(r => ({ iscored_username: r.iscored_username, score: r.score })) as CachedRankedRow[],
+                both.map(() => window),
+            );
+
+            const toEntry = (row: Omit<EventScoreRow, 'rank'>, i: number): Omit<RankedEntry, 'rank'> => ({
+                discord_user_id: row.discord_user_id,
+                iscored_username: row.iscored_username,
+                display_name: row.display_name,
+                score: row.score,
+                avatar_hash: row.avatar_hash,
+                avatar_url: row.avatar_url,
+                platform: row.platform,
+                engine: row.engine || UNKNOWN,
+                device: row.device || UNKNOWN,
+                verified: verified[i] ?? false,
+                history_id: row.history_id,
+                source: row.source,
+                submitted_by_user_id: row.submitted_by_user_id,
+                photo_url: row.photo_url,
+                witness: row.witness,
+            });
+
+            const witnessByHistoryId: Record<string, WitnessVerdict> = {};
+            for (const [historyId, verdict] of verdictsByHistoryId) {
+                witnessByHistoryId[String(historyId)] = verdict;
+            }
+
+            out.set(gameId, {
+                rankings: ranked.map((row, n) => ({ rank: n + 1, ...toEntry(row, n) })),
+                notCounted: aside.map((row, n) => toEntry(row, ranked.length + n)),
+                witnessFlagMode: board.witnessFlagMode,
+                witnessByHistoryId,
+            });
+        }
+        return out;
+    }
+
+    /**
      * v2.58.0 (ADR 0016): same shape as getForGame, filtered by engine and/or
      * device. Bypasses the cache because the cache stores the unfiltered "All"
      * view — a player's best may be on a different engine than the one being
@@ -883,9 +1052,16 @@ export class LeaderboardService {
         // v2.78.0: one batched window lookup for the whole page, feeding the
         // verified-checkmark resolution inside `hydrate` — see `loadWindows`.
         const windowByGame = await this.loadWindows(gameIds);
+        // v2.190.0 (W22): an event round's card is DERIVED from its round board
+        // (EventResultService.getRoundBoardDetail) at read time, so it ranks as
+        // the event's standings do and carries each row's witness verdict. The
+        // cache read/recalculate above is untouched — the cache keeps its
+        // identity-stable rows; the overlay just takes their place on the way out.
+        const eventOverlays = await this.getEventRoundOverlays(gameIds);
         const flatRows: CachedRankedRow[] = [];
         const flatWindows: Array<ScoreWindow | null> = [];
         for (const game of deduped) {
+            if (eventOverlays.has(game.id)) continue;
             const rows = rowsByGame.get(game.id)!;
             const window = windowByGame.get(game.id) ?? null;
             for (const row of rows) { flatRows.push(row); flatWindows.push(window); }
@@ -894,6 +1070,11 @@ export class LeaderboardService {
         const rankingsByGame = new Map<string, RankedEntry[]>();
         let cursor = 0;
         for (const game of deduped) {
+            const overlay = eventOverlays.get(game.id);
+            if (overlay) {
+                rankingsByGame.set(game.id, overlay.rankings);
+                continue;
+            }
             const count = rowsByGame.get(game.id)!.length;
             rankingsByGame.set(game.id, flatHydrated.slice(cursor, cursor + count));
             cursor += count;
@@ -976,6 +1157,8 @@ export class LeaderboardService {
                 nextMaintenanceAt,
                 globalGameId: game.global_game_id || null,
                 selfCorrectionLocked: game.self_correction_locked === 1,
+                // v2.190.0 (W22): event rounds only — absent on every other card.
+                ...eventOverlayExtras(eventOverlays.get(game.id)),
             });
         }
         return results;

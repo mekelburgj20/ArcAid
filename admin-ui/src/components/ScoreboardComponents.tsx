@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useMemo, type ReactNode, type CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
 import { Lock, Plus, Minus, Camera, Upload, BadgeCheck, ChevronRight } from 'lucide-react';
+import { WitnessFlagMark, type WitnessVerdict } from './WitnessBadge';
 import QRCode from 'qrcode';
 import ScorePhotoModal from './ScorePhotoModal';
 import GameInfoPopup from './scoreboard/GameInfoPopup';
@@ -68,6 +69,12 @@ export interface RankedEntry {
    * not every `RankedEntry` producer resolves it.
    */
   photo_url?: string | null;
+  /**
+   * v2.190.0 (W22) — the Arcaid Witness verdict of this score. Present ONLY on
+   * an event round's rows (derived server-side from the round board); absent
+   * everywhere else. Cards mark a `flagged` one; the game page shows the badge.
+   */
+  witness?: WitnessVerdict | null;
 }
 
 /**
@@ -107,6 +114,14 @@ export interface GameLeaderboard {
   rankings: RankedEntry[];
   nextMaintenanceAt?: string | null;
   globalGameId?: string | null;
+  /**
+   * v2.190.0 (W22) — event rounds only. Under 'prevent' the round's flagged
+   * scores are left out of `rankings` and listed here (shown, never ranked).
+   */
+  notCounted?: Array<Omit<RankedEntry, 'rank'>>;
+  witnessFlagMode?: 'prevent' | 'flag';
+  /** Every score of the round's verdict, by `score_history.id` (history expand). */
+  witnessByHistoryId?: Record<string, WitnessVerdict>;
 }
 
 export interface RankingGroupData {
@@ -743,6 +758,8 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
                           </span>
                           <PlayerAvatar username={playerName(entry)} discordUserId={entry.discord_user_id} avatarHash={entry.avatar_hash} avatarUrl={entry.avatar_url} size={20} />
                           <FitRowName className={`max-w-[10rem] sb-row-name ${isViewerRow ? 'text-neon-cyan font-medium' : isFill ? 'text-white' : ''}`} style={{ fontSize: '0.8125rem', ...scoreTextCSS }}>{playerName(entry)}</FitRowName>
+                          {/* v2.190.0 (W22): a witness-flagged score (event round, flag mode). */}
+                          <WitnessFlagMark witness={entry.witness} size={12} />
                           {entry.verified && (
                             <span className="inline-flex items-center text-neon-green flex-shrink-0" title="Verified by an admin" aria-label="Verified score">
                               <BadgeCheck size={12} />
@@ -786,6 +803,8 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
                           </span>
                           <PlayerAvatar username={playerName(entry)} discordUserId={entry.discord_user_id} avatarHash={entry.avatar_hash} avatarUrl={entry.avatar_url} size={20} />
                           <FitRowName origin="left" className={`max-w-[55%] sb-row-name ${isViewerRow ? 'text-neon-cyan font-medium' : isFill ? 'text-white' : ''}`} style={{ fontSize: '0.8125rem', ...scoreTextCSS }}>{playerName(entry)}</FitRowName>
+                          {/* v2.190.0 (W22): a witness-flagged score (event round, flag mode). */}
+                          <WitnessFlagMark witness={entry.witness} size={12} />
                           {entry.verified && (
                             <span className="inline-flex items-center text-neon-green flex-shrink-0" title="Verified by an admin" aria-label="Verified score">
                               <BadgeCheck size={12} />

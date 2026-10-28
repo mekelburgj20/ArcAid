@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { Plus, Minus, BadgeCheck, ChevronRight } from 'lucide-react';
+import { WitnessFlagMark } from '../WitnessBadge';
 import type { RankedEntry } from '../ScoreboardComponents';
 import { PlayerAvatar, playerName } from '../ScoreboardComponents';
 import PlayerNameLink from '../PlayerNameLink';
@@ -171,6 +172,8 @@ function PodiumSlot({
                   {playerName(entry)}
                 </span>
               )}
+              {/* v2.190.0 (W22): a witness-flagged score (event round, flag mode). */}
+              <WitnessFlagMark witness={entry.witness} size={11} />
               {entry.verified && (
                 <span
                   style={{ display: 'inline-flex', alignItems: 'center', color: 'var(--color-neon-green, #00ff88)', flexShrink: 0 }}
@@ -432,6 +435,8 @@ function HoloStep({
                 {playerName(entry)}
               </span>
             )}
+            {/* v2.190.0 (W22): a witness-flagged score (event round, flag mode). */}
+            <WitnessFlagMark witness={entry.witness} size={10} />
             {entry.verified && (
               <span
                 style={{ display: 'inline-flex', alignItems: 'center', color: 'var(--color-neon-green, #00ff88)', flexShrink: 0 }}
