@@ -34,7 +34,7 @@ export default function IntegrityChip({ chip, className = '' }: { chip: Integrit
 }
 
 /**
- * The quit chip (v2.187.0, W49) — "Quit on ball 2" / "Quit". Neutral on
+ * The quit chip (v2.189.0, W49) — "Quit on ball 2" / "Quit". Neutral on
  * purpose (muted theme tokens, not the flagged amber): a quit game still
  * counts, so this is a fact about how the game ended, not a warning.
  */

@@ -16,7 +16,7 @@ export type IntegrityVerdictEntry = { verdict: 'pass' | 'flagged'; reasons: stri
 export type IntegrityVerdictMap = Record<string, IntegrityVerdictEntry>;
 
 /**
- * Quit badge (v2.187.0, W49, castcade B16): `GET .../integrity` also ships
+ * Quit badge (v2.189.0, W49, castcade B16): `GET .../integrity` also ships
  * `quits`, a SEPARATE map from `score_history.id` to `{ ball }` for the games
  * the player quit before game over. Separate from the verdicts because a
  * verdict is withheld for a cabinet or a desktop that sent no evidence, while

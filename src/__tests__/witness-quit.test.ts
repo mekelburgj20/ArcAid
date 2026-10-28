@@ -10,7 +10,7 @@ import { AttemptService } from '../services/AttemptService.js';
 import { WitnessEvidenceService } from '../services/WitnessEvidenceService.js';
 
 /**
- * W49 (v2.187.0, castcade B16) — a game the player QUIT before game over.
+ * W49 (v2.189.0, castcade B16) — a game the player QUIT before game over.
  *
  * The Castcade companion sends `quit=1` (+ `quit_ball=<n>`), `quit=0`, or
  * nothing. The game still posts and counts - the same status and rank as

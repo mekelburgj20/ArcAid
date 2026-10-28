@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react';
 import { QuitChip } from '../IntegrityChip';
 import { quitLabelFor } from '../../lib/integrityBadge';
 
-/** The quit chip (v2.187.0, W49): neutral, theme tokens only, nothing when there is no entry. */
+/** The quit chip (v2.189.0, W49): neutral, theme tokens only, nothing when there is no entry. */
 describe('QuitChip', () => {
   it('renders the label and the explanation, in muted tokens rather than the flagged amber', () => {
     render(<QuitChip quit={quitLabelFor({ '5': { ball: 2 } }, 5)} />);

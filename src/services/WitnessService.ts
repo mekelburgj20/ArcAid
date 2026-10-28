@@ -413,7 +413,7 @@ export class WitnessService {
         attemptKey?: string | null;
         /** v2.180.0 (W48) — the launcher's per-ball points for this game, raw (cabinet 1.0.6+). */
         ballPoints?: number[] | null;
-        /** v2.187.0 (W49) — quit before game over (Castcade companion); null = unknown. */
+        /** v2.189.0 (W49) — quit before game over (Castcade companion); null = unknown. */
         quit?: import('../utils/quitEvidence.js').QuitEvidence | null;
     }): Promise<(import('./VpxScoreIngestService.js').VpxIngestResult & { deviceType: WitnessDeviceType }) | null> {
         const deviceId = (input.atgamesUniqueId || '').trim();

@@ -261,7 +261,7 @@ export default function GameDetail() {
   const [integrityLoaded, setIntegrityLoaded] =
     useState<{
       tournamentId: string; mode: 'open' | 'sanctioned'; verdicts: IntegrityVerdictMap;
-      /** v2.187.0 (W49) — games quit before game over, by score_history id. A badge only. */
+      /** v2.189.0 (W49) — games quit before game over, by score_history id. A badge only. */
       quits: QuitMap;
       /** v2.167.0 (ADR 0029) — attempts per player per table; null = unlimited. */
       maxAttempts: number | null;
@@ -1268,7 +1268,7 @@ export default function GameDetail() {
                                 this score against the tournament's conditions.
                                 Decorates the row; never filters or re-ranks. */}
                             <IntegrityChip chip={integrityChipFor(integrity?.verdicts, entry.history_id, integrity?.mode)} />
-                            {/* v2.187.0 (W49): the player quit this game before game over. Neutral; it still counts. */}
+                            {/* v2.189.0 (W49): the player quit this game before game over. Neutral; it still counts. */}
                             <QuitChip quit={quitLabelFor(integrity?.quits, entry.history_id)} />
                             {/* v2.167.0 (ADR 0029): attempts used on this table. */}
                             {(() => {

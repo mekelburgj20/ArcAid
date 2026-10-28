@@ -1,5 +1,5 @@
 /**
- * W49 (v2.187.0, castcade B16) — `quit` / `quit_ball` on `GET /api/witness/score`.
+ * W49 (v2.189.0, castcade B16) — `quit` / `quit_ball` on `GET /api/witness/score`.
  *
  * The Castcade desktop companion says whether the player QUIT the game before
  * game over: `quit=1` (with `quit_ball=<1..10>` when the machine reports the

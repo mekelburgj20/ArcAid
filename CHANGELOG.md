@@ -6,6 +6,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.189.0] - 2026-10-28 - "Quit on ball N" on witnessed scores (W49)
+
+Players sometimes walk away from a game before it ends. The Castcade companion (the release after 0.2.17) now tells
+Arcaid when that happened, and the game page says so (castcade hand-off §16, owner ruling 2026-10-27). The game still
+posts and still counts, and in a Limited-attempts tournament it still uses up the attempt, so quitting never buys a
+free retry. This is a label only: it changes no rank, no filter and no rule.
+
+### Added
+- **`quit` / `quit_ball` on `GET /api/witness/score`** are stored with each witnessed score (`witness_evidence.quit`
+  / `quit_ball`, migration 196; `parseQuitEvidence` in `src/utils/quitEvidence.ts`). `quit=1` = quit before game
+  over, with `quit_ball` 1–10 when the machine reports the ball in play; `quit=0` = reached game over; nothing =
+  unknown. A malformed value is dropped, never a 400. Older companions and basic mode send nothing, and that reads as
+  "unknown", exactly as before.
+- **A game that was quit shows a small grey "Quit on ball 2" chip** (or just "Quit" when the machine does not report
+  the ball) beside the score on the game page. Hovering explains that it still counts and still used its attempt.
+- **The tournament's Integrity panel** shows the same "Quit on ball N" / "Quit" text on each evidence row it applies to.
+- The public integrity read (`GET /rooms/:roomId/tournaments/:id/integrity`) carries a separate `quits` map beside
+  `verdicts`, so the label shows even where the Sanctioned / Open verdict is withheld (a cabinet, or a score with no
+  evidence).
+
 ## [2.188.0] - 2026-10-28 - The device can press "Start attempts" (W45)
 
 Castcade desktop players no longer have to open the game page to press "Start attempts" in a Limited-attempts

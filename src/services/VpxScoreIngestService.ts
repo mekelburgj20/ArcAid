@@ -157,7 +157,7 @@ export type VpxScoreInput = {
      */
     ballPoints?: number[] | null;
     /**
-     * v2.187.0 (W49, castcade B16) — the game was quit before game over
+     * v2.189.0 (W49, castcade B16) — the game was quit before game over
      * (`quit=1`, `quit_ball=<n>`), or reached it (`quit=0`); null/absent =
      * unknown. Stored on the evidence trail and badged on the board; a quit
      * game still counts and still uses its attempt — nothing here gates.

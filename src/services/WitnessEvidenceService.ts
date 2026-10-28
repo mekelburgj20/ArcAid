@@ -48,7 +48,7 @@ export type EvidenceRecordInput = {
     evidence: WitnessEvidence | null;
     /** v2.180.0 (W48) — the launcher's per-ball points for the game, raw (cabinet 1.0.6+); null when not sent. */
     ballPoints?: number[] | null;
-    /** v2.187.0 (W49) — quit before game over; null = the companion could not tell. */
+    /** v2.189.0 (W49) — quit before game over; null = the companion could not tell. */
     quit?: { quit: boolean; quitBall: number | null } | null;
 };
 
@@ -81,7 +81,7 @@ export type EvidenceRow = {
     evidence: WitnessEvidence | null;
     /** v2.180.0 (W48) — the launcher's per-ball points, raw; null when the device sent none. */
     ballPoints: number[] | null;
-    /** v2.187.0 (W49) — true = quit before game over, false = reached it, null = unknown. */
+    /** v2.189.0 (W49) — true = quit before game over, false = reached it, null = unknown. */
     quit: boolean | null;
     /** The ball in play when the player quit, when the machine reported it. */
     quitBall: number | null;
@@ -148,7 +148,7 @@ type DbRow = {
     score_plausibility: string | null;
     /** v2.180.0 (migration 195, W48) — JSON array of the launcher's per-ball points. */
     ball_points: string | null;
-    /** v2.187.0 (migration 196, W49) — NULL unknown, 0 reached game over, 1 quit. */
+    /** v2.189.0 (migration 196, W49) — NULL unknown, 0 reached game over, 1 quit. */
     quit: number | null;
     quit_ball: number | null;
     created_at: string;
@@ -359,7 +359,7 @@ export class WitnessEvidenceService {
     }
 
     /**
-     * Quit badges (v2.187.0, W49): `score_history.id` -> `{ ball }` for the scores of one
+     * Quit badges (v2.189.0, W49): `score_history.id` -> `{ ball }` for the scores of one
      * tournament whose game the player QUIT before game over. A SEPARATE map from the
      * verdicts on purpose: a verdict is withheld for a cabinet or a desktop that sent no
      * evidence, while the quit fact is still known. A badge only - no rank reads it.

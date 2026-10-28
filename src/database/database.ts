@@ -3396,7 +3396,7 @@ async function doInitDatabase(): Promise<Database> {
                 await db.exec(`ALTER TABLE witness_evidence ADD COLUMN ball_points TEXT`);
             }
         } },
-        // v2.187.0 (W49, castcade B16) — the Castcade companion's `quit=0|1` / `quit_ball=<n>`:
+        // v2.189.0 (W49, castcade B16) — the Castcade companion's `quit=0|1` / `quit_ball=<n>`:
         // the game was quit before game over. NULL = unknown (older companion / no game_over in
         // the map), 0 = reached game over, 1 = quit. A badge only - no board, rank or rule reads it.
         { name: '196_witness_evidence_quit', handler: async (db) => {

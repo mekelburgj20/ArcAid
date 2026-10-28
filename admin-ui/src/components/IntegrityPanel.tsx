@@ -213,7 +213,7 @@ export type EvidenceRow = {
     rom: string | null;
     score: number;
     playedAt: string;
-    /** v2.187.0 (W49) — true = quit before game over, false = reached it, null = unknown. */
+    /** v2.189.0 (W49) — true = quit before game over, false = reached it, null = unknown. */
     quit?: boolean | null;
     quitBall?: number | null;
     evidence: {
