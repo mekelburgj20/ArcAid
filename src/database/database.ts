@@ -3408,6 +3408,24 @@ async function doInitDatabase(): Promise<Database> {
                 await db.exec(`ALTER TABLE witness_evidence ADD COLUMN quit_ball INTEGER`);
             }
         } },
+        // v2.193.0 (W12, castcade B8/F8) - the ROM -> catalogue game map,
+        // filled from VPS romFiles[].version (the PinMAME ROM id) by
+        // VpsImportService.syncRomFiles. Served to the Castcade companion at
+        // GET /api/witness/roms and consulted by VpxScoreIngestService when a
+        // report names a rom and no vps_game. ROM ids are stored lowercased
+        // and trimmed. One ROM may name several games (mods and originals
+        // reuse a ROM); readers treat that as ambiguous, never pick one.
+        // `source` leaves room for the maps corpus / device consensus later.
+        { name: '197_global_game_roms', sql: `
+            CREATE TABLE IF NOT EXISTS global_game_roms (
+                global_game_id TEXT NOT NULL,
+                rom TEXT NOT NULL,
+                source TEXT NOT NULL DEFAULT 'vps',
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                PRIMARY KEY (global_game_id, rom)
+            );
+            CREATE INDEX IF NOT EXISTS idx_global_game_roms_rom ON global_game_roms(rom);
+        ` },
     ];
 
     for (const migration of migrations) {

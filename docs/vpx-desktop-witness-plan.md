@@ -184,6 +184,34 @@ the web button.
 - Ingest is unchanged: a game whose START is at/after `startedTs` counts; an earlier one stays
   `not_started`.
 
+### Wire contract: the ROM -> VPS game map (v2.193.0, W12)
+
+Castcade hand-off section 11 (castcade B8/F8): ArcAid serves the ROM -> VPS game map so the
+companion can stop shipping its own seed. Seeded from VPS `romFiles[].version` (the PinMAME ROM id,
+the same field `companion/scripts/fetch-vps.mjs` reads) by the VPS import into `global_game_roms`.
+
+- **`GET /api/witness/roms`** - public, no device token (catalogue data, the same for every
+  caller); the witness limiter (keyed on IP when no `device` is sent).
+- **Answer (200):** `{ version, count, roms: { [rom]: entry } }`. `rom` is lowercased and trimmed.
+  `entry` is `{ vpsGameId, globalGameId, name, manufacturer, year }` (manufacturer/year may be
+  null), or, for a ROM VPS lists under more than one game (mods and originals reuse ROMs -
+  `fpwr2_l2` sits under 18 games), `{ ambiguous: true, candidates: [entry, ...] }`. The map is never
+  resolved to one of several. Only approved catalogue games with a VPS id are listed. `count` is
+  the number of ROM keys.
+- **Caching:** `version` is a 16-hex content hash of `roms` - it changes exactly when the map
+  does - and is also the `ETag` (`"<version>"`); `Cache-Control: public, max-age=3600`; a request
+  with a matching `If-None-Match` gets `304`.
+- **Differences from the companion's `VpsIndexFile`:** it is keyed by ROM, not a list of games;
+  there are no `tables`, `type` or `generatedAt`; `version` is a content hash, not a vps-db commit;
+  ArcAid's `globalGameId` is added. A thin adapter builds `gamesForRom` from it. There is NO family
+  fallback (`mm_109x` -> `mm`) on the server: exact ROM ids only; the companion keeps that rule.
+- **Server side:** when a `/witness/score` (or attempt) report carries a `rom` and no usable
+  `vps_game`, `VpxScoreIngestService.match` resolves the ROM through the same map; exactly one game
+  adds that game's names before the device's own (as `vps_game` does), an ambiguous or unknown ROM
+  changes nothing.
+- **Not yet:** the maps-corpus `romnames.json` merge and correction by consensus from device reports
+  (`global_game_roms.source` is there for them; a VPS re-sync only replaces `source = 'vps'` rows).
+
 ## 5. Coverage and honest limits
 
 - **100 of the owner's 138 NVRAM files** have `game_state` maps (last-game scores). 105 are
