@@ -306,7 +306,7 @@ export class StatsService {
          * the game start before the round opened). The game page passes
          * `EventResultService.preventedHistoryIds`; every other caller passes
          * nothing and gets exactly what it got before.
-         * v2.194.0 (W52): also left out of `avgScore` and `uniquePlayers`.
+         * v2.192.0 (W52): also left out of `avgScore` and `uniquePlayers`.
          */
         excludeHistoryIds: number[] = [],
     ) {
@@ -356,7 +356,7 @@ export class StatsService {
         // player-per-game-instance via its own upsert semantics, but the SQL itself does
         // a flat average). This mirrors that: a flat AVG over every matching score_history
         // row (i.e. every score event, not deduped to per-player bests).
-        // v2.194.0 (W52): a prevented score is left out of every score aggregate
+        // v2.192.0 (W52): a prevented score is left out of every score aggregate
         // on this page (avg, unique players, all-time high), not just the high.
         const excludeClause = excludeHistoryIds.length > 0
             ? `AND id NOT IN (${excludeHistoryIds.map(() => '?').join(',')})`
@@ -403,7 +403,7 @@ export class StatsService {
             LIMIT 10
         `, gameName, ...(tournamentRoomClause ? tournamentRoomClause.params : []));
 
-        // v2.194.0 (W52) - the winner of a finished EVENT ROUND is its round
+        // v2.192.0 (W52) - the winner of a finished EVENT ROUND is its round
         // board's rank-1 row (`LeaderboardService.getEventRoundOverlays`, i.e.
         // `EventResultService.getRoundBoardDetail`, the one computation of a
         // round's standings), so under 'prevent' a score the witness saw start
@@ -438,7 +438,7 @@ export class StatsService {
      * Get all-time player rankings for a specific game (all instances, any status).
      * Returns every player's best score, total plays, and last played date.
      *
-     * v2.194.0 (W52) - `excludeHistoryIds`: `score_history` ids left out of the
+     * v2.192.0 (W52) - `excludeHistoryIds`: `score_history` ids left out of the
      * best score AND the play count / last played (the same "absent from this
      * page" rule `getGameStats` applies to its aggregates). The game page passes
      * `EventResultService.preventedHistoryIds`, so a score an event under

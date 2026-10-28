@@ -4,7 +4,7 @@ import request from 'supertest';
 import crypto from 'crypto';
 
 /**
- * W52 (v2.194.0) - an event round ranks as its standings do EVERYWHERE.
+ * W52 (v2.192.0) - an event round ranks as its standings do EVERYWHERE.
  *
  * W22 (v2.190.0) made the room board and the game page derive an event round's
  * rows from `EventResultService.getRoundBoardDetail` (ADR 0031: under

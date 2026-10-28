@@ -542,7 +542,7 @@ export class LeaderboardService {
     /**
      * Get cached leaderboard, recalculating if stale or missing.
      *
-     * v2.194.0 (W52) - an EVENT ROUND returns its round board's ranking
+     * v2.192.0 (W52) - an EVENT ROUND returns its round board's ranking
      * (`getEventRoundOverlays`, derived from `EventResultService.getRoundBoardDetail`)
      * instead of the cached rows, so every caller - Discord `/list-scores`, the
      * `/submit-score` rank reply, the chat `leaders` / `my_rank` actions, the
@@ -731,7 +731,7 @@ export class LeaderboardService {
         const device = normalizeProvenanceToken(filter.device);
         if (!engine && !device) return this.getForGame(gameId);
 
-        // v2.194.0 (W52) - an event round's engine/device tab is its round
+        // v2.192.0 (W52) - an event round's engine/device tab is its round
         // board's CHOSEN rows restricted to that engine/device and re-ranked
         // (see `getEventRoundOverlays`). Deliberately NOT "each player's best on
         // this engine": the standings choose ONE score per player, and a tab

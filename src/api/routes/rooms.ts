@@ -437,7 +437,7 @@ router.get('/:roomId/leaderboard/:gameId', async (req, res) => {
         // v2.190.0 (W22): an event round's board is derived from its round board
         // (ranked as the standings rank it, each row carrying its witness
         // verdict, plus `notCounted`). Absent for every other game.
-        // v2.194.0 (W52): the three getters below now apply the same overlay
+        // v2.192.0 (W52): the three getters below now apply the same overlay
         // themselves; it is computed ONCE here (for the extras) and the getter
         // is skipped when it exists, so the round board is not built twice.
         const eventOverlay = (await LeaderboardService.getEventRoundOverlays(
@@ -2334,7 +2334,7 @@ router.get('/:roomId/stats/game/:name/players', async (req, res) => {
         const { EventResultService } = await import('../../services/EventResultService.js');
         const gameName = decodeURIComponent(req.params.name as string);
         const roomId = req.params.roomId as string;
-        // v2.194.0 (W52): same rule as the stats route below - a score an event
+        // v2.192.0 (W52): same rule as the stats route below - a score an event
         // under 'prevent' does not count never heads the Top Players list.
         const prevented = await EventResultService.preventedHistoryIds(roomId, gameName);
         const rankings = await StatsService.getGamePlayerRankings(gameName, roomId, prevented);
