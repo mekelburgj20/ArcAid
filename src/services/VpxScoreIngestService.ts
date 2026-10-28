@@ -801,9 +801,13 @@ export class VpxScoreIngestService {
         // v2.165.0 — the VPS game id first (the companion resolved the table to
         // a catalogue game; the room's spelling of the name no longer matters),
         // then the device's names exactly as before.
-        const catalogue = input.evidence?.vpsGame
+        // v2.193.0 (W12) - no usable VPS id (none sent, or one the catalogue
+        // does not know)? A `rom` the ROM map gives to exactly ONE catalogue
+        // game stands in for it, the same way: that game's names are tried
+        // before the device's. An ambiguous or unknown ROM changes nothing.
+        const catalogue = (input.evidence?.vpsGame
             ? await VpxScoreIngestService.catalogueGame(input.evidence.vpsGame)
-            : null;
+            : null) ?? await VpxScoreIngestService.catalogueGameForRom(input.rom);
         const byVps = catalogue
             ? candidates.filter(row =>
                 (row.global_game_id != null && row.global_game_id === catalogue.id)
@@ -1071,6 +1075,20 @@ export class VpxScoreIngestService {
             `SELECT id, name, display_name FROM global_games WHERE vps_id = ? AND status = 'approved' LIMIT 1`,
             vpsGameId,
         );
+        if (!row) return null;
+        return { id: row.id, keys: nameKeys([row.name, row.display_name ?? '']) };
+    }
+
+    /**
+     * v2.193.0 (W12) - the catalogue game a PinMAME ROM id names through
+     * `global_game_roms` (VPS `romFiles`), in the SAME shape as
+     * `catalogueGame`, or null when the map does not know the ROM or lists it
+     * under more than one game (never a guess). It only ADDS that game's own
+     * names; a room game whose name is not that game's still does not match.
+     */
+    private static async catalogueGameForRom(rom: string | null | undefined): Promise<{ id: string; keys: Set<string> } | null> {
+        const { GlobalGameRomService } = await import('./GlobalGameRomService.js');
+        const row = await GlobalGameRomService.gameForRom(rom);
         if (!row) return null;
         return { id: row.id, keys: nameKeys([row.name, row.display_name ?? '']) };
     }

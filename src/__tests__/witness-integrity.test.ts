@@ -557,5 +557,10 @@ describe('Integrity mode — the runner\'s configuration', () => {
         res = await request(app).get(`/api/global/games/${gameId}/tables`);
         expect(res.body.tables.map((t: { vpsTableId: string }) => t.vpsTableId)).toEqual(['uVgZUZdK']);
         expect((await request(app).get(`/api/global/games/${crypto.randomUUID()}/tables`)).status).toBe(404);
+
+        // v2.193.0 (W12) - the same VPS row's romFiles feed the public ROM map.
+        await VpsImportService.syncRomFiles(gameId, { ...vps, romFiles: [{ id: 'romFileId', version: 'tftc_400' }] } as any);
+        res = await request(app).get('/api/witness/roms');
+        expect(res.body.roms.tftc_400).toMatchObject({ vpsGameId: 'fXaQ33KC', globalGameId: gameId });
     });
 });

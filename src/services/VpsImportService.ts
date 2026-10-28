@@ -4,6 +4,7 @@ import { VPS_FORMAT_MAP } from '../utils/platformMapping.js';
 import { foldCataloguePlatforms } from '../utils/scoreProvenance.js';
 import { logInfo, logError, logWarn } from '../utils/logger.js';
 import { getDatabase } from '../database/database.js';
+import { normalizeRom } from './GlobalGameRomService.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -357,9 +358,43 @@ async function syncTableFiles(globalGameId: string, table: VpsTable): Promise<vo
     }
 }
 
+/**
+ * v2.193.0 (W12) - the game's PinMAME ROM ids, from VPS `romFiles[].version`,
+ * into `global_game_roms` (source 'vps'). `version` is the ROM id
+ * (`mm_109c`), NOT `id` (the VPS file id) - the same field the Castcade
+ * companion's `fetch-vps.mjs` builds its seed from, so the served map and the
+ * companion's own agree. Stored lowercased and trimmed. ROMs VPS no longer
+ * lists under this game are removed (source 'vps' only - a later corpus or
+ * consensus source keeps its rows). Idempotent across re-syncs.
+ */
+async function syncRomFiles(globalGameId: string, table: VpsTable): Promise<void> {
+    const keep = [...new Set(
+        (table.romFiles ?? [])
+            .map(rf => normalizeRom(typeof rf?.version === 'string' ? rf.version : null))
+            .filter((r): r is string => r !== null),
+    )];
+    const db = await getDatabase();
+    if (keep.length === 0) {
+        await db.run(`DELETE FROM global_game_roms WHERE global_game_id = ? AND source = 'vps'`, globalGameId);
+        return;
+    }
+    await db.run(
+        `DELETE FROM global_game_roms WHERE global_game_id = ? AND source = 'vps' AND rom NOT IN (${keep.map(() => '?').join(',')})`,
+        globalGameId, ...keep,
+    );
+    for (const rom of keep) {
+        await db.run(
+            `INSERT OR IGNORE INTO global_game_roms (global_game_id, rom, source) VALUES (?, ?, 'vps')`,
+            globalGameId, rom,
+        );
+    }
+}
+
 export class VpsImportService {
     /** Exposed for tests and for a one-off backfill; the import calls it per game. */
     static syncTableFiles = syncTableFiles;
+    /** v2.193.0 (W12) - same exposure as `syncTableFiles`. */
+    static syncRomFiles = syncRomFiles;
 
     /**
      * Fetches the VPS database JSON and imports games into the global catalogue.
@@ -439,6 +474,11 @@ export class VpsImportService {
                     // not fail the game's import.
                     await syncTableFiles(result.id, table).catch(err => {
                         logWarn(`VPS Import: table files for "${table.name}" not stored: ${err}`);
+                    });
+                    // v2.193.0 (W12) - the ROM -> game map behind
+                    // GET /api/witness/roms. Best-effort, same as above.
+                    await syncRomFiles(result.id, table).catch(err => {
+                        logWarn(`VPS Import: ROM ids for "${table.name}" not stored: ${err}`);
                     });
                 } catch (err) {
                     const msg = `Failed to import VPS game "${table.name}": ${err}`;
