@@ -1,5 +1,5 @@
 import { PlayerAvatar } from './ScoreboardComponents';
-import { LOBBY_STATUS_META, type LobbyStatus } from '../lib/lobbyStatus';
+import { LOBBY_STATUS_META, lobbyCopyFor, lobbyDeviceWord, type LobbyDeviceType, type LobbyStatus } from '../lib/lobbyStatus';
 
 export type { LobbyStatus } from '../lib/lobbyStatus';
 
@@ -27,15 +27,20 @@ export interface LobbyEntry {
     witnessCheckinAt: string | null;
     openTable: string | null;
     lastSeenAt: string | null;
+    /** W19 (v2.186.0): type of the device behind `status` (copy differs per type). */
+    deviceType?: LobbyDeviceType | null;
+    /** W19: every device of this player that routes to this event, best-first. */
+    devices?: Array<{ deviceType: LobbyDeviceType; status: LobbyStatus; openTable: string | null; witnessCheckinAt: string | null }>;
 }
 
-function LobbyPill({ status, openTable }: { status: LobbyStatus; openTable: string | null }) {
+function LobbyPill({ status, openTable, deviceType }: { status: LobbyStatus; openTable: string | null; deviceType?: LobbyDeviceType | null }) {
     const meta = LOBBY_STATUS_META[status];
-    const title = status === 'table_open' && openTable ? `${meta.hint} (${openTable})` : meta.hint;
+    const copy = lobbyCopyFor(status, deviceType);
+    const title = status === 'table_open' && openTable ? `${copy.hint} (${openTable})` : copy.hint;
     return (
         <span className={`inline-flex items-center gap-1.5 text-xs ${meta.text}`} title={title}>
             <span aria-hidden className={`inline-block w-2 h-2 rounded-full ${meta.dot}`} />
-            {meta.label}
+            {copy.label}
         </span>
     );
 }
@@ -75,7 +80,25 @@ export default function EventLobbyRoster({ entries, viewerId, compact = false }:
                         {e.status === 'table_open' && e.openTable && !compact && (
                             <span className="text-xs text-faint break-words max-w-[40%]">{e.openTable}</span>
                         )}
-                        <LobbyPill status={e.status} openTable={e.openTable} />
+                        <LobbyPill status={e.status} openTable={e.openTable} deviceType={e.deviceType} />
+                        {/* W19: a multi-device player gets one dot per device so a
+                            hint is traceable to the machine it is about. */}
+                        {(e.devices?.length ?? 0) > 1 && (
+                            <span className="inline-flex items-center gap-1" data-testid="lobby-device-dots">
+                                {e.devices!.map((d, i) => {
+                                    const t = `${lobbyDeviceWord(d.deviceType)}: ${lobbyCopyFor(d.status, d.deviceType).label}`;
+                                    return (
+                                        <span
+                                            key={i}
+                                            role="img"
+                                            aria-label={t}
+                                            title={t}
+                                            className={`inline-block w-2 h-2 rounded-full ${LOBBY_STATUS_META[d.status].dot}`}
+                                        />
+                                    );
+                                })}
+                            </span>
+                        )}
                     </li>
                 );
             })}
