@@ -161,3 +161,32 @@ Same fixture as section 5 (a prevent event with a geared-up score).
    "in <Room> · Round N starts in …".
 4. **Discord:** when a round goes live / results post / the event finishes, the embed title is unchanged and the
    footer ends "· in <Room name>".
+
+## 10. W60 server side (2.196.0) — which Witness build each cabinet runs
+
+Needs cabinet 1.0.8 on at least one stick (branch `1.0.8` in the arcaid-witness repo; until then every device reads
+"unknown").
+
+1. **Before any 1.0.8 cabinet reports:** Account Settings → Arcaid Witness devices shows "Witness build unknown
+   (before 1.0.8)" beside each device, muted, not styled as an error.
+2. **After a 1.0.8 cabinet opens its tile** and a minute passes: reload Account Settings; the chip reads
+   "Witness 1.0.8". The runner's `/<slug>/admin/witness` page shows the same chip under each member device.
+3. **Stale beacon case:** on a cabinet whose beacon was 1.0.7 when 1.0.8 files were copied WITHOUT a power cycle, the
+   chip may alternate 1.0.8 (tile check-in) and unknown (old beacon heartbeat) until the tile is opened once on
+   1.0.8, which replaces the beacon. That alternation is the thing the chip exists to reveal.
+4. **Prod safety:** `GET /api/witness/heartbeat?device=…&token=…&v=junk` still answers 200 and stores nothing.
+
+## 11. W56 (2.197.0) — Start attempts on the room scoreboard
+
+Use a Wizard Room Limited-attempts tournament with "Require Start attempts" on and one table ACTIVE.
+
+1. **Card:** logged in as a member who has not pressed, the room scoreboard card shows a "Start attempts" strip
+   directly above its footer. Check two card styles and phone width (the strip wraps, never clips the name).
+2. **Strip:** the "Your scores go to" line at the top of the room says "Start attempts needed on: <table>" when one
+   of your devices sends to this room; the table name opens the game page.
+3. **Press on the card:** toast, the card flips to "✓ Attempts started", the strip line disappears without a reload,
+   and the game page box reads as started too.
+4. **Guests / non-members:** no strip on the card, no line at the top.
+5. **A cabinet play after the press** lands on the board (Where your plays went: counted, attempt N), not on Global
+   as `not_started`.
+

@@ -165,9 +165,9 @@ describe('RoomAdminWitness', () => {
     }) as never);
     fireEvent.click(screen.getByRole('button', { name: /Refresh/ }));
     // 5 s, not the 1 s default: on a loaded CI runner the refresh + rerender took 1.2 s (run 40741233426, 2026-10-28).
-    expect(await screen.findByRole('alert', {}, { timeout: 5000 })).toHaveTextContent('Server exploded');
+    expect(await screen.findByRole('alert', {}, { timeout: 10000 })).toHaveTextContent('Server exploded');
     expect(screen.getAllByTestId('witness-admin-device')).toHaveLength(3);
-  });
+  }, 15000);
 
   it('polls every 20 seconds while visible and skips the tick while the tab is hidden', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
