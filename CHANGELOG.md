@@ -6,6 +6,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.196.0] - 2026-10-28 - Account Settings and the runner's Witness page show which Witness build each cabinet runs (W60)
+
+On 2026-10-28 two testers ran an old cabinet build all evening: the Witness tile prints the version of the file just
+opened, while the beacon that actually watches games is spawned once per boot and keeps running the OLD build until
+the cabinet is power-cycled. Telling who was on which build took a prod database query (only 1.0.6+ sends per-ball
+points). Cabinet 1.0.8 replaces a stale beacon itself and sends its version; this is the server half.
+
+### Added
+- **`witness_devices.app_version` / `app_version_at` (migration 198).** `GET /api/witness/checkin` and
+  `GET /api/witness/heartbeat` accept an optional `v=<version>` (a plain dotted version, at most 32 characters;
+  anything else is ignored and the call still answers 200 — the cabinet never retries a 200 and must never be refused
+  over this). One shared stamp (`WitnessService.stampAppVersion`) writes only when the value changed, the stamp is
+  missing or it is over an hour old, so the per-minute heartbeat does not rewrite the row. A device that sends no
+  version keeps what it last reported. The `sendingTo` answer is untouched.
+- **"Witness 1.0.8" chip** (`components/WitnessBuildChip.tsx`) beside each device on Account Settings → Arcaid
+  Witness devices and on the runner's `/:slug/admin/witness` page (`/api/me/witness/devices` and
+  `WitnessAdminViewService.roomDevices` carry `appVersion` + `appVersionAt`). A device that has never reported reads
+  "Witness build unknown (before 1.0.8)" in the same muted style: the cabinet never said, which is not an error.
+- Known: the cabinet's check-in carries the TILE's build and its heartbeat the BEACON's, so a cabinet with a stale
+  beacon shows the two alternately until the tile replaces it (cabinet 1.0.8) — that is the case the chip exists
+  to reveal.
+
 ## [2.195.0] - 2026-10-28 - Wizard sync reads the Table Manager manifest; Pinball FX VR via Steam; nightly catalogue syncs (C1, C4)
 
 Three catalogue syncs run by the owner on 2026-10-28: Wizard ended `error`, FX VR said `success` with 0 new while
