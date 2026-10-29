@@ -32,15 +32,29 @@ interface SteamProduct {
     label: string;
     /** Zaccaria Pinball is a single Steam SKU but VR mode is a built-in entitlement. */
     zaccariaVrTwin?: boolean;
+    /**
+     * Features stamped on every table of this product beyond what the fold
+     * derives from `platformId`. Pinball FX VR uses it for `fx_vr`, the
+     * per-table VR EVIDENCE feature `vrHeadsetMatchesGame` reads for the `fx`
+     * engine (ADR 0019) — the fold only yields the informational `vr`.
+     */
+    extraFeatures?: string[];
 }
 
-const STEAM_PINBALL_PRODUCTS: SteamProduct[] = [
+export const STEAM_PINBALL_PRODUCTS: SteamProduct[] = [
     { appId: 442120,  platformId: 'pinball_fx_classic',     label: 'Pinball FX Classic' },     // formerly Pinball FX3
     { appId: 2328760, platformId: 'pinball_fx',             label: 'Pinball FX' },             // current Pinball FX (2023)
     { appId: 547590,  platformId: 'pinball_fx_classic_vr',  label: 'Pinball FX Classic VR' },  // formerly Pinball FX 2 VR
     { appId: 2337640, platformId: 'pinball_fx_midnight',    label: 'Pinball FX Midnight' },    // formerly Pinball M
     { appId: 444930,  platformId: 'zaccaria',               label: 'Zaccaria Pinball', zaccariaVrTwin: true },
     { appId: 1530770, platformId: 'star_wars_pinball_vr',   label: 'Star Wars Pinball VR' },   // tables built-in
+    // v2.195.0: Pinball FX VR (the 2025 Quest product) reached Steam on
+    // 2026-10-14 (Steam Frame), which gave it a DLC list the anonymous
+    // appdetails endpoint serves. Until then its catalogue was the hand-curated
+    // `fxVrPackContents.ts` only, and a new table (Judge Dredd, 2026-10-22)
+    // could not reach the catalogue without an owner edit. The curated list
+    // stays as the seed for anything Steam lacks (World Cup Soccer, 2026-10-28).
+    { appId: 4738360, platformId: 'pinball_fx_vr',          label: 'Pinball FX VR', extraFeatures: ['fx_vr'] },
 ];
 
 /**
@@ -66,6 +80,11 @@ const PREFIX_STRIPPERS: Record<number, RegExp[]> = {
     ],
     444930: [/^Zaccaria Pinball\s*[-–—:]\s*/i],
     1530770: [/^Star Wars(™)?\s*Pinball VR\s*[-–—:]\s*/i],
+    // Steam names the singles "Pinball FX VR - Williams™ Pinball: Twilight
+    // Zone"; the series label is dropped too so the row is "Twilight Zone".
+    // "Williams™ Pinball: Volume 9" keeps its label so the Volume skip rule
+    // still sees a pack (curated by id anyway — see PACK_CONTENTS).
+    4738360: [/^Pinball FX VR\s*[-–—:]\s*(?:Williams™?\s*Pinball:(?!\s*Volume)\s*)?/i],
 };
 
 /**
@@ -160,7 +179,7 @@ function fetchAppDetails(appId: number): Promise<SteamFetchResult> {
     });
 }
 
-function stripPrefix(rawName: string, appId: number): string {
+export function stripPrefix(rawName: string, appId: number): string {
     const strippers = PREFIX_STRIPPERS[appId] || [];
     for (const rx of strippers) {
         if (rx.test(rawName)) return rawName.replace(rx, '').trim();
@@ -530,7 +549,7 @@ export class SteamPinballImportService {
             name: upsertName,
             type: 'pinball',
             platforms,
-            features: fold.features,
+            features: [...new Set([...fold.features, ...(product.extraFeatures ?? [])])],
             external_url: externalUrl,
             image_url: headerImage,
         };

@@ -463,6 +463,113 @@ export const PACK_CONTENTS: Record<number, string[]> = {
         'FIRE!',
         'DINER',
     ],
+    // v2.195.0 — Pinball FX VR (Steam app 4738360). Hand-curated from the
+    // 21 DLC ids Steam listed on 2026-10-28; names follow fxVrPackContents.ts
+    // so both FX VR sources agree on the row they land on. Singles are listed
+    // too (as the FX Classic Indiana Jones entry above is) so the import never
+    // depends on Steam's "Williams™ Pinball: X" naming.
+    // Pinball FX VR - Indiana Jones™: The Pinball Adventure
+    4834300: [
+        'Indiana Jones - The Pinball Adventure',
+    ],
+    // Pinball FX VR - Williams™ Pinball: The Addams Family™
+    4834320: [
+        'The Addams Family',
+    ],
+    // Pinball FX VR - Williams™ Pinball: Twilight Zone
+    4834330: [
+        'Twilight Zone',
+    ],
+    // Pinball FX VR - Williams™ Pinball: Star Trek™: The Next Generation
+    4834340: [
+        'Star Trek: The Next Generation',
+    ],
+    // Pinball FX VR - Universal Pinball - TV Classics
+    4834350: [
+        'Battlestar Galactica Pinball',
+        'Xena: Warrior Princess Pinball',
+        'Knight Rider Pinball',
+    ],
+    // Pinball FX VR - Williams™ Pinball: Volume 1
+    4834360: [
+        'Medieval Madness',
+        'The Getaway: High Speed II',
+        'Junk Yard',
+    ],
+    // Pinball FX VR - Williams™ Pinball: Volume 2
+    4834370: [
+        'Attack from Mars',
+        'Black Rose',
+        'The Party Zone',
+    ],
+    // Pinball FX VR - Williams™ Pinball: Volume 3
+    4834380: [
+        'Theatre of Magic',
+        'Safe Cracker',
+        'The Champion Pub',
+    ],
+    // Pinball FX VR - Tomb Raider Pinball
+    4834390: [
+        'Adventures of Lara Croft',
+        'Secrets of Croft Manor',
+    ],
+    // Pinball FX VR - Williams™ Pinball: Volume 9
+    4834400: [
+        'WHO dunnit',
+        'Taxi',
+        'PIN-BOT',
+    ],
+    // Pinball FX VR - Williams™ Pinball: Elvira and the Party Monsters
+    4834500: [
+        'Elvira and the Party Monsters',
+    ],
+    // Pinball FX VR - Williams™ Pinball: Scared Stiff
+    4834510: [
+        'Scared Stiff',
+    ],
+    // Pinball FX VR - Godzilla vs. Kong Pinball Pack
+    4834520: [
+        'Kong Pinball',
+        'Godzilla Pinball',
+        'Godzilla vs. Kong Pinball',
+    ],
+    // Pinball FX VR - A Charlie Brown Christmas™ Pinball
+    4834540: [
+        'A Charlie Brown Christmas Pinball',
+    ],
+    // Pinball FX VR - Williams™ Pinball: Universal Monsters Pack
+    4834550: [
+        'Monster Bash',
+        'Creature From The Black Lagoon',
+    ],
+    // Pinball FX VR - Bethesda Pinball
+    4834560: [
+        'Fallout Pinball',
+        'DOOM Pinball',
+        'The Elder Scrolls V: Skyrim Pinball',
+    ],
+    // Pinball FX VR - Williams™ Pinball Volume 10
+    4834570: [
+        'Diner',
+        'Fire!',
+        'Comet',
+    ],
+    // Pinball FX VR - The Princess Bride Pinball
+    4834580: [
+        'The Princess Bride Pinball',
+    ],
+    // Pinball FX VR - Pacific Rim Pinball
+    4834590: [
+        'Pacific Rim Pinball',
+    ],
+    // Pinball FX VR - Goat Simulator Pinball
+    4834600: [
+        'Goat Simulator Pinball',
+    ],
+    // Pinball FX VR - Williams™ Pinball: Judge Dredd™
+    5452300: [
+        'Judge Dredd',
+    ],
 };
 
 /**
