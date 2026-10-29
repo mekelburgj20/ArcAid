@@ -67,6 +67,26 @@ router.get('/rooms/:roomId/tournaments/:id/attempt-starts/me', requireDiscordUse
     }
 });
 
+// Player: W56 — the room's top-level "Start attempts" list: every open game in
+// this room whose tournament limits attempts AND requires the press, that the
+// viewer is allowed in, with whether they pressed it. One read for the whole
+// room scoreboard and the "Your scores go to" strip.
+// `{ games: [{ gameId, gameName, tournamentId, tournamentName, roundNo, started, startedTs }] }`
+router.get('/rooms/:roomId/attempt-starts/me', requireDiscordUser, async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const db = await getDatabase();
+        const room = await db.get<{ id: string }>('SELECT id FROM game_rooms WHERE id = ?', roomId);
+        if (!room) return res.status(404).json({ error: 'Room not found' });
+        const { AttemptService } = await import('../../services/AttemptService.js');
+        const games = await AttemptService.roomStartsFor({ roomId, userId: req.user!.discordId as string });
+        res.json({ games });
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/attempt-starts/me):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 // Player: W38 — press "Start attempts" on one table. From now on the player's
 // plays on it count (and use attempts); before it they went to Global. A second
 // press keeps the first time.

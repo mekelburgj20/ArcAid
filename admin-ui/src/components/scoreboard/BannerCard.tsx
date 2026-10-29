@@ -13,6 +13,7 @@ import { useCoverFraming } from './useCoverFraming';
 import { formatScore, parseServerDate } from '../../lib/format';
 import { resolveRowClick, opensQuickView, QUICK_VIEW_HINT } from '../../lib/scoreGesture';
 import { tournamentChipLabel } from './tournamentChip';
+import CardAttemptStart from './CardAttemptStart';
 
 interface BannerCardProps {
   lb: GameLeaderboard;
@@ -375,6 +376,9 @@ export default function BannerCard({
           </div>
         )}
       </div>
+
+      {/* W56 — Start attempts, directly above the footer (the card's action strip). */}
+      <CardAttemptStart lb={lb} />
 
       {/* Footer */}
       <div className="border-t border-border/30 px-3 flex justify-between items-start text-[10px] sb-fs-10 text-faint" style={{ paddingTop: 8, paddingBottom: 8 + qrMetrics.footerExtra }}>

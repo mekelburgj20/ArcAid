@@ -8,6 +8,7 @@ import GameInfoPopup from './scoreboard/GameInfoPopup';
 import FitRowName from './scoreboard/FitRowName';
 import { fetchScoreCounts } from './scoreboard/scoreCountsBatcher';
 import { tournamentChipLabel } from './scoreboard/tournamentChip';
+import CardAttemptStart from './scoreboard/CardAttemptStart';
 import { resolveRowClick, opensQuickView, QUICK_VIEW_HINT } from '../lib/scoreGesture';
 import { AnonymousAvatarIcon } from '../assets/icons/ThemedIcons';
 // ShowcaseThemeConfig imported via SHOWCASE_THEMES lookup in RankingGroupCard
@@ -914,6 +915,9 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
           </div>
         )}
       </div>
+
+      {/* W56 — Start attempts (public Scoreboard only; renders nothing elsewhere). */}
+      <CardAttemptStart lb={lb} className={isFill ? 'mx-2 mt-1 rounded border-t-0 bg-black/40' : 'px-4'} />
 
       {/* Viewer's best score */}
       {viewerEntry && (

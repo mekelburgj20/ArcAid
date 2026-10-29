@@ -16,6 +16,8 @@ import SubmissionSheet from '../components/SubmissionSheet';
 import { DISPLAY_SETTINGS_SAVED_EVENT } from '../components/DisplaySettingsHost';
 import { TAB_LABELS } from '../lib/scoresCopy';
 import { SeasonPollLobbyNudge } from '../components/SeasonPollCard';
+import { CardAttemptStartContext } from '../components/scoreboard/cardAttemptStartContext';
+import { useRoomAttemptStarts } from '../hooks/useRoomAttemptStarts';
 
 type ScoresTab = 'tournaments' | 'room' | 'global';
 
@@ -111,6 +113,11 @@ export default function Scoreboard() {
   const playerHeaders = usePlayerHeaders();
   const { discordUser, playerToken } = useViewerAuth();
 
+  // W56 (ADR 0033 §4) — the viewer's "Start attempts" list for this room: ONE
+  // room-level read, handed to every card through context (no per-card fetch).
+  // A guest has no list, so the cards draw no control.
+  const { value: attemptStartValue, reload: reloadAttemptStarts } = useRoomAttemptStarts(roomId, playerToken);
+
   const deviceType = window.innerWidth <= 640 ? 'mobile' : 'desktop';
 
   /** Fetch user prefs for current device, merge with room config, apply theme */
@@ -173,6 +180,8 @@ export default function Scoreboard() {
 
   const loadData = async () => {
     if (!roomId) return;
+    // W56 — a rotation or a round change can open/close a start-required table.
+    void reloadAttemptStarts();
     try {
       const res = await fetch(`/api/rooms/${roomId}/leaderboard`, { headers: playerHeaders });
       if (res.ok) setLeaderboards(await res.json());
@@ -256,7 +265,7 @@ export default function Scoreboard() {
   const requirePhoto = config.REQUIRE_SCORE_PHOTO === 'true';
 
   return (
-    <>
+    <CardAttemptStartContext.Provider value={attemptStartValue}>
       <ScoreboardSurface
         config={config}
         roomName={roomName}
@@ -375,6 +384,6 @@ export default function Scoreboard() {
         />
       )}
 
-    </>
+    </CardAttemptStartContext.Provider>
   );
 }

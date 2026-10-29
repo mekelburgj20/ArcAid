@@ -41,6 +41,17 @@ export type AttemptStartResult = {
     resent: boolean;
 };
 
+/** W56 — one row of the room's top-level "Start attempts" list (`GET /rooms/:roomId/attempt-starts/me`). */
+export type RoomAttemptStart = {
+    gameId: string;
+    gameName: string;
+    tournamentId: string;
+    tournamentName: string | null;
+    roundNo: number | null;
+    started: boolean;
+    startedTs: number | null;
+};
+
 export type AttemptRefusalReason = 'late' | 'over_limit' | 'void' | 'reused' | 'unreported' | 'device' | 'exit_sample' | 'not_started';
 
 /** What the player is told, per machine reason. The trail keeps the machine reason. */
@@ -454,6 +465,30 @@ export class AttemptService {
             canonicalUserId, ...gameIds,
         );
         return Object.fromEntries(rows.map(r => [r.game_id, r.started_ts]));
+    }
+
+    /**
+     * W56 — the room's top-level "Start attempts" list for one player: every
+     * OPEN game in this room whose tournament limits attempts AND requires the
+     * press, that the player is allowed in, with whether they have pressed it.
+     * The game set is `VpxScoreIngestService.roomLimitedGames` (the same
+     * candidates + entry rule a device play is matched against), so a card
+     * can never offer a button the press itself would refuse as not entered.
+     */
+    static async roomStartsFor(input: { roomId: string; userId: string }): Promise<RoomAttemptStart[]> {
+        const { IdentityLinkService } = await import('./IdentityLinkService.js');
+        const { VpxScoreIngestService } = await import('./VpxScoreIngestService.js');
+        const canonical = await IdentityLinkService.resolveCanonical(input.userId);
+        const games = (await VpxScoreIngestService.roomLimitedGames({ canonicalUserId: canonical, roomId: input.roomId }))
+            .filter(g => g.requireStart);
+        const starts = await AttemptService.startsFor(canonical, games.map(g => g.gameId));
+        return games.map(g => ({
+            gameId: g.gameId, gameName: g.gameName,
+            tournamentId: g.tournamentId, tournamentName: g.tournamentName,
+            roundNo: g.roundNo,
+            started: starts[g.gameId] != null,
+            startedTs: starts[g.gameId] ?? null,
+        }));
     }
 
     /**

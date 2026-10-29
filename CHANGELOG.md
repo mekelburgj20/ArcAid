@@ -6,6 +6,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.197.0] - 2026-10-28 - Start attempts on the room scoreboard and in "Your scores go to" (W56)
+
+In a Limited-attempts tournament that requires Start attempts, the button lived only on the game page (room →
+tournament graphic → view all info → the box under the board). On 2026-10-28 four of TomatoGrass's Congo games and
+one of ChalataLove's Cactus Canyon games went to the Global Scoreboard as `not_started` because the press came late.
+TomatoGrass asked for it at the room's top level as well.
+
+### Added
+- **`GET /api/rooms/:roomId/attempt-starts/me`** — for the viewer, every ACTIVE game of this room in an unfinished
+  tournament with `max_attempts` and `require_attempt_start`, that the viewer is allowed in, with `started` /
+  `startedTs`. The game set is `VpxScoreIngestService.roomLimitedGames`, which shares `enteredLimitedCandidates`
+  (candidate query + attempt-limit filter + `entryAllowed`) with `openLimitedGames`, so the cards can never offer a
+  table a device play would not land on; routing, window and device exclusion stay device-only. The per-tournament
+  read is unchanged.
+- **A Start attempts strip on every card style** (Banner, Showcase, Minimal, Arcade, legacy) directly above the card
+  footer: a "Start attempts" button that becomes a muted "✓ Attempts started". Only on ACTIVE cards of listed games,
+  only under the Scoreboard page's provider (guests, the admin preview and the kiosk show nothing). One fetch per
+  page (`hooks/useRoomAttemptStarts.ts`), re-read on every board load and after a press.
+- **"Start attempts needed on: Cactus Canyon, Congo"** in the "Your scores go to" strip when one of the viewer's
+  devices sends to this room and a listed table is unstarted; each name links to its game page. Words and rule in
+  `lib/witnessScoresGoTo.ts`.
+- The game-page box is untouched.
+
 ## [2.196.0] - 2026-10-28 - Account Settings and the runner's Witness page show which Witness build each cabinet runs (W60)
 
 On 2026-10-28 two testers ran an old cabinet build all evening: the Witness tile prints the version of the file just

@@ -15,6 +15,7 @@ import { useCoverFraming } from './useCoverFraming';
 import { formatScore, parseServerDate } from '../../lib/format';
 import { resolveRowClick, opensQuickView, QUICK_VIEW_HINT } from '../../lib/scoreGesture';
 import { tournamentChipLabel } from './tournamentChip';
+import CardAttemptStart from './CardAttemptStart';
 
 /**
  * ArcadeCard — the Global Scoreboard's card language, on room-card behaviour.
@@ -508,8 +509,13 @@ export default function ArcadeCard({
                `rounded-b-[8px]` is the card's 10px radius less its 2px frame:
                the card doesn't clip, so the one child with a fill of its own
                has to round its own bottom corners. */}
+        {/* W56 — Start attempts sits directly above the footer (the card's
+               action strip); the pair shares the footer's `mt-auto` so the
+               control stays glued to it instead of floating mid-card. */}
+        <div className="relative z-[2] mt-auto">
+        <CardAttemptStart lb={lb} style={{ borderTopColor: 'var(--sb-card-footer-border)' }} />
         <div
-          className="relative z-[2] mt-auto flex items-start justify-between gap-2 rounded-b-[8px] border-t px-3"
+          className="relative z-[2] flex items-start justify-between gap-2 rounded-b-[8px] border-t px-3"
           style={{
             background: 'var(--sb-card-footer-bg)',
             borderTopColor: 'var(--sb-card-footer-border)',
@@ -526,6 +532,7 @@ export default function ArcadeCard({
           <span className="sb-fs-11 text-[11px] text-muted">
             {lb.rankings.length} player{lb.rankings.length !== 1 ? 's' : ''}
           </span>
+        </div>
         </div>
       </div>
 
