@@ -135,6 +135,23 @@ describe('AccountSettings — Witness cabinet score routing', () => {
         expect(patches[0]!.body).toEqual({ roomId: null, tournamentId: null, globalOnly: true });
     });
 
+    it('W60: shows the build the device reported, as a quiet chip', async () => {
+        stubFetch({ device: { appVersion: '1.0.8', appVersionAt: '2026-10-28 22:00:00' } });
+        renderPage();
+        const chip = await screen.findByTestId('witness-build-chip');
+        expect(chip).toHaveTextContent('Witness 1.0.8');
+        expect(screen.queryByText(/Witness build unknown/)).toBeNull();
+    });
+
+    it('W60: a device that never reported a build reads as unknown, not as an error', async () => {
+        stubFetch(); // no appVersion on the fixture device
+        renderPage();
+        const chip = await screen.findByTestId('witness-build-chip');
+        expect(chip).toHaveTextContent('Witness build unknown (before 1.0.8)');
+        expect(chip.className).toContain('text-faint');
+        expect(chip.className).not.toMatch(/rose|red|amber/);
+    });
+
     it('W33: lists paused rotations, hides finished events, and shows a pointer at one as "(ended)"', async () => {
         stubFetch({
             device: {
