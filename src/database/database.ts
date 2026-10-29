@@ -3426,6 +3426,19 @@ async function doInitDatabase(): Promise<Database> {
             );
             CREATE INDEX IF NOT EXISTS idx_global_game_roms_rom ON global_game_roms(rom);
         ` },
+        // W60 - the Witness build a paired device last said it was running
+        // (`v=<version>` on /witness/checkin and /witness/heartbeat). NULL = the device never
+        // said (a cabinet before 1.0.8). `app_version_at` is when it was last written. Display
+        // only: nothing routes, gates or ranks on it.
+        { name: '198_witness_device_app_version', handler: async (db) => {
+            const cols = (await db.all(`PRAGMA table_info(witness_devices)`)) as Array<{ name: string }>;
+            if (!cols.some(c => c.name === 'app_version')) {
+                await db.exec(`ALTER TABLE witness_devices ADD COLUMN app_version TEXT`);
+            }
+            if (!cols.some(c => c.name === 'app_version_at')) {
+                await db.exec(`ALTER TABLE witness_devices ADD COLUMN app_version_at TEXT`);
+            }
+        } },
     ];
 
     for (const migration of migrations) {

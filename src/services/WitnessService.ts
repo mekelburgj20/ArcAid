@@ -1,6 +1,6 @@
 import { randomBytes, createHash } from 'crypto';
 import { getDatabase } from '../database/database.js';
-import { logInfo, logWarn } from '../utils/logger.js';
+import { logInfo, logWarn, logError } from '../utils/logger.js';
 import { tournamentFinishedSql } from '../utils/openCard.js';
 
 /** W29 — a device target in words, for the audit row (ids, not names: the log outlives renames). */
@@ -102,6 +102,22 @@ export interface WitnessDevice {
     targetTournamentName: string | null;
     globalOnly: boolean;
     globalFallback: boolean;
+    /** W60 - the Witness build the device last reported (`v=`), null = it never said. */
+    appVersion: string | null;
+    appVersionAt: string | null;
+}
+
+/**
+ * W60 - the only shape of build string the check-in / heartbeat will store:
+ * `1.0.8`, `1.0.8.2`, `1.0.8-rc2`. Anything else (absent, array, too long,
+ * odd characters) is IGNORED, never refused: the cabinet never retries a 200
+ * and must not be turned away over a display field.
+ */
+export function parseAppVersion(raw: unknown): string | null {
+    if (typeof raw !== 'string') return null;
+    const v = raw.trim();
+    if (v.length === 0 || v.length > 32) return null;
+    return /^[0-9]+(\.[0-9]+){1,3}(-[A-Za-z0-9.]+)?$/.test(v) ? v : null;
 }
 
 export class WitnessTargetError extends Error {
@@ -356,7 +372,7 @@ export class WitnessService {
      * 401. Repeated check-ins are expected and are NOT deduped: each one is
      * another attestation point, and more of them can only ever help.
      */
-    static async recordCheckin(atgamesUniqueId: string, token: string): Promise<{ ts: string; canonicalUserId: string } | null> {
+    static async recordCheckin(atgamesUniqueId: string, token: string, appVersion?: unknown): Promise<{ ts: string; canonicalUserId: string } | null> {
         const deviceId = (atgamesUniqueId || '').trim();
         if (!deviceId || !token) return null;
 
@@ -370,6 +386,7 @@ export class WitnessService {
             deviceId, device.canonical_user_id,
         ) as { lastID?: number };
         await WitnessService.touchDevice(deviceId);
+        await WitnessService.stampAppVersion(deviceId, appVersion);
 
         const stored = await db.get<{ server_ts: string }>(
             'SELECT server_ts FROM witness_checkins WHERE id = ?', res.lastID,
@@ -778,7 +795,7 @@ export class WitnessService {
      * since its check-in as "not responding" — and ONLY for cabinets that have
      * ever sent one, so a pre-1.0.4 cabinet is never read as offline.
      */
-    static async recordHeartbeat(atgamesUniqueId: string, token: string): Promise<{ canonicalUserId: string } | null> {
+    static async recordHeartbeat(atgamesUniqueId: string, token: string, appVersion?: unknown): Promise<{ canonicalUserId: string } | null> {
         const deviceId = (atgamesUniqueId || '').trim();
         if (!deviceId || !token) return null;
         const device = await WitnessService.authenticateDevice(deviceId, token);
@@ -789,7 +806,32 @@ export class WitnessService {
               WHERE atgames_unique_id = ?`,
             deviceId,
         );
+        await WitnessService.stampAppVersion(deviceId, appVersion);
         return { canonicalUserId: device.canonical_user_id };
+    }
+
+    /**
+     * W60 - remember which Witness build the device says it is running. The ONE
+     * write path for both the check-in and the heartbeat. These calls arrive
+     * every minute per cabinet, so the UPDATE only touches the row when the value
+     * CHANGED or the stored stamp is over an hour old; a call with no (or an
+     * unusable) `v` keeps whatever is stored. Best-effort: it can never fail the
+     * call it rides on.
+     */
+    private static async stampAppVersion(deviceId: string, raw: unknown): Promise<void> {
+        const version = parseAppVersion(raw);
+        if (!version) return;
+        try {
+            const db = await getDatabase();
+            await db.run(
+                `UPDATE witness_devices SET app_version = ?, app_version_at = datetime('now')
+                  WHERE atgames_unique_id = ?
+                    AND (app_version IS NOT ? OR app_version_at IS NULL OR app_version_at < datetime('now', '-1 hour'))`,
+                version, deviceId, version,
+            );
+        } catch (err) {
+            logError('Witness: app version stamp failed (the call itself succeeded)', err);
+        }
     }
 
     /**
@@ -1024,12 +1066,12 @@ export class WitnessService {
             atgames_unique_id: string; atgames_username: string | null; device_type: string | null; paired_at: string;
             last_seen_at: string | null; target_room_id: string | null; room_name: string | null;
             target_tournament_id: string | null; tournament_name: string | null;
-            global_only: number; global_fallback: number;
+            global_only: number; global_fallback: number; app_version: string | null; app_version_at: string | null;
         }>>(
             `SELECT d.atgames_unique_id, d.atgames_username, d.device_type, d.paired_at, d.last_seen_at,
                     d.target_room_id, r.name AS room_name,
                     d.target_tournament_id, t.name AS tournament_name,
-                    d.global_only, d.global_fallback
+                    d.global_only, d.global_fallback, d.app_version, d.app_version_at
                FROM witness_devices d
                LEFT JOIN game_rooms r ON r.id = d.target_room_id
                LEFT JOIN tournaments t ON t.id = d.target_tournament_id
@@ -1049,6 +1091,8 @@ export class WitnessService {
             targetTournamentName: r.tournament_name,
             globalOnly: !r.target_room_id && r.global_only === 1,
             globalFallback: r.global_fallback !== 0,
+            appVersion: r.app_version,
+            appVersionAt: r.app_version_at,
         }));
     }
 

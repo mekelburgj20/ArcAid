@@ -404,7 +404,7 @@ router.get('/witness/checkin', witnessIngestLimiter, async (req, res) => {
         const token = (typeof req.query.token === 'string' && req.query.token)
             || (typeof req.headers['x-witness-token'] === 'string' ? req.headers['x-witness-token'] as string : '');
 
-        const result = await WitnessService.recordCheckin(device, token);
+        const result = await WitnessService.recordCheckin(device, token, req.query.v);
         if (!result) return res.status(401).json({ ok: false });
         // `sendingTo` rides back on the check-in because that is the moment a
         // player is looking at the cabinet: it is how a stale designation gets
@@ -447,7 +447,7 @@ router.get('/witness/heartbeat', witnessIngestLimiter, async (req, res) => {
         const device = typeof req.query.device === 'string' ? req.query.device : '';
         const token = (typeof req.query.token === 'string' && req.query.token)
             || (typeof req.headers['x-witness-token'] === 'string' ? req.headers['x-witness-token'] as string : '');
-        const beat = await WitnessService.recordHeartbeat(device, token);
+        const beat = await WitnessService.recordHeartbeat(device, token, req.query.v);
         if (!beat) return res.status(401).json({ ok: false });
         const sendingTo = await witnessHeartbeatSendingTo(device, beat.canonicalUserId);
         res.json({ ok: true, sendingTo });

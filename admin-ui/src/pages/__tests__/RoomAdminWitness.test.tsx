@@ -23,6 +23,7 @@ const PAYLOAD = {
   devices: [
     {
       deviceId: 'cab-1', deviceType: 'atgames', label: null,
+      appVersion: '1.0.8', appVersionAt: NOW,
       userId: 'u-1', playerName: 'Alice', member: true,
       online: 'online', heartbeatAt: NOW, lastSeenAt: NOW, lastCheckinAt: NOW,
       openTable: 'Attack from Mars (Williams 1995)', openSince: NOW,
@@ -115,6 +116,16 @@ describe('RoomAdminWitness', () => {
     const carl = within(cards[2]!);
     expect(carl.getByText('Unknown')).toBeInTheDocument();
     expect(carl.getByText('Not known')).toBeInTheDocument();
+  });
+
+  it('W60: shows each device\'s Witness build, or "unknown" when it never said', async () => {
+    stubApi(PAYLOAD);
+    renderPage();
+
+    const cards = await screen.findAllByTestId('witness-admin-device');
+    expect(within(cards[0]!).getByTestId('witness-build-chip')).toHaveTextContent('Witness 1.0.8');
+    expect(within(cards[1]!).getByTestId('witness-build-chip')).toHaveTextContent('Witness build unknown (before 1.0.8)');
+    expect(within(cards[2]!).getByTestId('witness-build-chip')).toHaveTextContent('Witness build unknown (before 1.0.8)');
   });
 
   it('shows each live event with its lobby counts and compact roster', async () => {
