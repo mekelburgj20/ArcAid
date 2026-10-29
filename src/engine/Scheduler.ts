@@ -131,6 +131,41 @@ export class Scheduler {
 
         // Nightly Discord profile refresh (4:20 AM)
         this.startProfileHydrationCron();
+
+        // Nightly catalogue syncs (4:30 AM)
+        this.startCatalogueSyncCron();
+    }
+
+    /**
+     * Nightly catalogue syncs (v2.195.0, WORK.md C4).
+     *
+     * 04:30 in BOT_TIMEZONE — behind the 04:00 iScored snapshot and the 04:20
+     * profile refresh so the nightly jobs never contend, and hours clear of
+     * the 22:00 maintenance wave. Runs the live-source importers in sequence
+     * (VPS → Wizard manifest → Steam → AtGames, + OPDB when keyed) through
+     * `CatalogueSyncService.runScheduled`, which skips a source whose run is
+     * still live and lets one failure leave the rest alone. Each importer
+     * still writes its own `sync_logs` row (visible on Admin → Catalogue) and
+     * its own Discord alert on error/partial. Off switch:
+     * `CATALOGUE_AUTOSYNC_ENABLED='false'`; default ON.
+     */
+    private startCatalogueSyncCron(): void {
+        const timezone = process.env.BOT_TIMEZONE || 'America/Chicago';
+        const task = cron.schedule('30 4 * * *', async () => {
+            try {
+                const { CatalogueSyncService } = await import('../services/CatalogueSyncService.js');
+                if (!(await CatalogueSyncService.isEnabled())) {
+                    logInfo('Nightly catalogue sync skipped (CATALOGUE_AUTOSYNC_ENABLED=false).');
+                    return;
+                }
+                await CatalogueSyncService.runScheduled();
+            } catch (error) {
+                logError('Nightly catalogue sync error:', error);
+            }
+        }, { timezone });
+
+        this.tasks.set('__catalogue_sync__', task);
+        logInfo('Catalogue sync cron scheduled (daily at 4:30 AM).');
     }
 
     /**

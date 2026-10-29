@@ -6,6 +6,44 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.195.0] - 2026-10-28 - Wizard sync reads the Table Manager manifest; Pinball FX VR via Steam; nightly catalogue syncs (C1, C4)
+
+Three catalogue syncs run by the owner on 2026-10-28: Wizard ended `error`, FX VR said `success` with 0 new while
+Judge Dredd had shipped six days earlier, and VPS reported 1 new.
+
+### Fixed
+- **Wizard sync no longer fails.** Legends Unchained removed the "Wizard Tables" / "Manual Install Tables" sections
+  from the repo README (it now links to vpxtablemanager.com/catalog), so the README parser found zero rows and threw
+  "No tables found in README". The importer now reads the Table Manager's own `manifest.json` (the `manifest` branch,
+  "Catalog data as of release vX" — the same file the catalog site and the cabinet read): 361 enabled tables on
+  2026-10-28, each with the VPS game id, so a Wizard row is a step-1 `vps_id` match in `GlobalGameService.upsert`
+  rather than a name walk. No GitHub REST API call any more (the old images listing counted against the 60/hour
+  unauthenticated budget). `enabled: false` tables are skipped. There is no manual-install section upstream any more,
+  so `vpxs_manual` is stripped from every row the manifest lists; `has_dmd` is no longer emitted (no source for it).
+- **Pinball FX VR has a live source.** The Quest product reached Steam on 2026-10-14 (app 4738360, Steam Frame), so
+  the Steam Pinball importer now walks its DLC list like the other five Zen products, stamping `fx` + `vr` + the
+  per-table `fx_vr` evidence feature (ADR 0019). All 21 DLC ids Steam listed on 2026-10-28 are curated by id in
+  `steamPinballPackContents.ts` (singles included, so the import never depends on Steam's "Williams™ Pinball: X"
+  naming); a future pack falls to the auto-expansion path and its WARN. The hand-curated `fxVrPackContents.ts` gains
+  Judge Dredd and stays as the seed for anything Steam lacks (World Cup Soccer, as of 2026-10-28).
+- **"VPS: 1 new" was correct**, not a bug: `records_imported` counts brand-new catalogue ROWS. A new table FILE for a
+  game already in the catalogue (76 games got one in the 30 days to 2026-10-28) is an `updated`, and a brand-new VPS
+  entry for a real machine the catalogue already holds from OPDB is also an `updated` (the IPDB cross-reference merges
+  it, which is the point of the dedup).
+
+### Added
+- **Nightly catalogue syncs (C4).** `Scheduler.startCatalogueSyncCron` fires `CatalogueSyncService.runScheduled` at
+  04:30 BOT_TIMEZONE (behind the 04:00 iScored snapshot and 04:20 profile refresh): VPS → Wizard manifest → Steam
+  Pinball → AtGames, plus OPDB when `OPDB_API_KEY` is set. Each importer keeps its own `sync_logs` row (Admin →
+  Catalogue shows last run per source) and its own Discord alert on `error`/`partial`; the runner skips a source whose
+  previous run is still live and lets one failure leave the rest alone. Not scheduled: FX VR (a baked-in list that can
+  never find anything new — its live twin is the FX VR Steam app inside the Steam sync) and IGDB (a multi-hour crawl
+  with its own resume contract). Off switch `CATALOGUE_AUTOSYNC_ENABLED='false'` (env or global setting). Deviations
+  from the C4 line: nightly rather than weekly, Steam included (it has been self-maintaining since PR #245), and ON by
+  default rather than inert — the owner's ask on 2026-10-28 was that the clicking stop.
+
+---
+
 ## [2.194.0] - 2026-10-28 - Room Admin dashboard shows events; events lead with the tournament, room beneath (W24, W30)
 
 At the 2026-10-23 test event the Room Admin dashboard showed nothing for an event (its rounds sit SCHEDULED until the

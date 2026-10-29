@@ -1,5 +1,47 @@
 import { describe, it, expect } from 'vitest';
-import { extractPackTables, cleanTableName } from '../services/SteamPinballImportService.js';
+import { extractPackTables, cleanTableName, stripPrefix, STEAM_PINBALL_PRODUCTS } from '../services/SteamPinballImportService.js';
+import { PACK_CONTENTS } from '../services/steamPinballPackContents.js';
+import { FX_VR_TABLES } from '../services/fxVrPackContents.js';
+
+/**
+ * Pinball FX VR on Steam (v2.195.0). The Quest product reached Steam on
+ * 2026-10-14 (app 4738360), which gave the curated-only FX VR catalogue a live
+ * DLC feed. Every DLC id Steam listed on 2026-10-28 is curated by id so the
+ * import never leans on Steam's "Williams™ Pinball: X" naming, and the product
+ * stamps `fx_vr` — the per-table VR evidence feature (ADR 0019) that the fold
+ * does not derive from `pinball_fx_vr`.
+ */
+describe('Pinball FX VR as a Steam product', () => {
+    const product = STEAM_PINBALL_PRODUCTS.find(p => p.appId === 4738360)!;
+
+    it('is listed with the FX VR legacy id and the fx_vr evidence feature', () => {
+        expect(product).toMatchObject({ platformId: 'pinball_fx_vr', extraFeatures: ['fx_vr'] });
+    });
+
+    it('strips the product prefix and the Williams series label from a single, keeps a Volume packish', () => {
+        expect(stripPrefix('Pinball FX VR - Williams™ Pinball: Twilight Zone', 4738360)).toBe('Twilight Zone');
+        expect(stripPrefix('Pinball FX VR - Williams™ Pinball: Judge Dredd™', 4738360)).toBe('Judge Dredd™');
+        expect(stripPrefix('Pinball FX VR - Goat Simulator Pinball', 4738360)).toBe('Goat Simulator Pinball');
+        expect(stripPrefix('Pinball FX VR - Williams™ Pinball: Volume 9', 4738360)).toBe('Williams™ Pinball: Volume 9');
+        expect(stripPrefix('Pinball FX VR - Williams™ Pinball Volume 10', 4738360)).toBe('Williams™ Pinball Volume 10');
+    });
+
+    it('curates every FX VR DLC Steam listed on 2026-10-28, Judge Dredd included', () => {
+        const ids = [4834300, 4834320, 4834330, 4834340, 4834350, 4834360, 4834370, 4834380, 4834390, 4834400,
+            4834500, 4834510, 4834520, 4834540, 4834550, 4834560, 4834570, 4834580, 4834590, 4834600, 5452300];
+        for (const id of ids) expect(PACK_CONTENTS[id]?.length ?? 0, `DLC ${id}`).toBeGreaterThan(0);
+        expect(PACK_CONTENTS[5452300]).toEqual(['Judge Dredd']);
+    });
+
+    it('names its tables exactly as the curated FX VR list does, so both sources land on one row', () => {
+        const curated = new Set(FX_VR_TABLES.map(t => t.toLowerCase()));
+        const steamNames = [4834300, 4834320, 4834330, 4834340, 4834350, 4834360, 4834370, 4834380, 4834390, 4834400,
+            4834500, 4834510, 4834520, 4834540, 4834550, 4834560, 4834570, 4834580, 4834590, 4834600, 5452300]
+            .flatMap(id => PACK_CONTENTS[id] ?? []);
+        for (const name of steamNames) expect(curated.has(name.toLowerCase()), name).toBe(true);
+        expect(curated.has('judge dredd')).toBe(true);
+    });
+});
 
 /**
  * Steam pack auto-expansion (2026-08-18).

@@ -92,6 +92,9 @@ export const FX_VR_PACKS: Array<{ pack: string; tables: string[] }> = [
     { pack: 'Pacific Rim Pinball', tables: [
         'Pacific Rim Pinball',
     ] },
+    { pack: 'Judge Dredd', tables: [
+        'Judge Dredd',
+    ] },
 ];
 
 /** Flat de-duplicated list of all FX VR tables. Used by the import service. */
@@ -138,4 +141,5 @@ export const FX_VR_TABLES: string[] = [
     'Goat Simulator Pinball',
     'The Princess Bride Pinball',
     'Pacific Rim Pinball',
+    'Judge Dredd',
 ];
