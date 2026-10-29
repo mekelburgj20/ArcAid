@@ -681,6 +681,98 @@ describe('W38 (ADR 0033 §3–4): plays that straddle the window, and "Start att
     });
 });
 
+describe('W56: the room top-level "Start attempts" list (GET /rooms/:roomId/attempt-starts/me)', () => {
+    let app: express.Express;
+    let roomId: string;
+
+    beforeEach(async () => {
+        app = await createTestApp();
+        roomId = await createTestRoom();
+        await addMember(roomId, USER);
+    });
+
+    async function requireStart(tournamentId: string, on = true) {
+        const db = await getDatabase();
+        await db.run('UPDATE tournaments SET require_attempt_start = ? WHERE id = ?', on ? 1 : 0, tournamentId);
+    }
+    const roomList = (who = USER, room = roomId) =>
+        request(app).get(`/api/rooms/${room}/attempt-starts/me`).set('Authorization', `Bearer ${playerToken(who)}`);
+
+    it('lists every open start-required limited game with whether the viewer pressed it', async () => {
+        const congo = await createLimitedGame(roomId, 3, 'Congo');
+        const cactus = await createLimitedGame(roomId, 3, 'Cactus Canyon');
+        await requireStart(congo.tournamentId);
+        await requireStart(cactus.tournamentId);
+        await AttemptService.startAttempts({ tournamentId: cactus.tournamentId, gameId: cactus.gameId, canonicalUserId: USER, source: 'web', nowSec: 1234 });
+
+        const res = await roomList();
+        expect(res.status).toBe(200);
+        const byName = Object.fromEntries((res.body.games as Array<{ gameName: string }>).map(g => [g.gameName, g]));
+        expect(Object.keys(byName).sort()).toEqual(['Cactus Canyon', 'Congo']);
+        expect(byName['Congo']).toEqual({
+            gameId: congo.gameId, gameName: 'Congo', tournamentId: congo.tournamentId, tournamentName: 'Five Shots',
+            roundNo: null, started: false, startedTs: null,
+        });
+        expect(byName['Cactus Canyon']).toMatchObject({ gameId: cactus.gameId, started: true, startedTs: 1234 });
+    });
+
+    it('leaves out a tournament without the setting, an unlimited one and a closed table', async () => {
+        const notRequired = await createLimitedGame(roomId, 3, 'No Press');
+        const unlimited = await createLimitedGame(roomId, null, 'Unlimited');
+        await requireStart(unlimited.tournamentId);
+        const closed = await createLimitedGame(roomId, 3, 'Closed');
+        await requireStart(closed.tournamentId);
+        const db = await getDatabase();
+        await db.run(`UPDATE games SET status = 'COMPLETED' WHERE id = ?`, closed.gameId);
+        const finished = await createLimitedGame(roomId, 3, 'Finished Event');
+        await requireStart(finished.tournamentId);
+        await db.run(`UPDATE tournaments SET event_finished_at = CURRENT_TIMESTAMP WHERE id = ?`, finished.tournamentId);
+        expect(notRequired.gameId).toBeTruthy();
+
+        const res = await roomList();
+        expect(res.status).toBe(200);
+        expect(res.body.games).toEqual([]);
+    });
+
+    it('leaves out a game the viewer is not allowed in (not a member; invite-only and off the roster)', async () => {
+        const { tournamentId } = await createLimitedGame(roomId, 3, 'Congo');
+        await requireStart(tournamentId);
+        const stranger = await roomList('999999999999999999');
+        expect(stranger.status).toBe(200);
+        expect(stranger.body.games).toEqual([]);
+
+        const db = await getDatabase();
+        await db.run(`UPDATE tournaments SET entry_mode = 'invited' WHERE id = ?`, tournamentId);
+        expect((await roomList()).body.games).toEqual([]);
+        await db.run("INSERT INTO tournament_roster (tournament_id, user_id, source) VALUES (?, ?, 'host')", tournamentId, USER);
+        expect((await roomList()).body.games).toHaveLength(1);
+    });
+
+    it('only lists this room\'s games; a press through the existing POST flips started', async () => {
+        const other = await createTestRoom('other-room', 'Other Room');
+        await addMember(other, USER);
+        const elsewhere = await createLimitedGame(other, 3, 'Elsewhere');
+        await requireStart(elsewhere.tournamentId);
+        const here = await createLimitedGame(roomId, 3, 'Congo');
+        await requireStart(here.tournamentId);
+
+        const before = await roomList();
+        expect(before.body.games.map((g: { gameName: string }) => g.gameName)).toEqual(['Congo']);
+        expect(before.body.games[0].started).toBe(false);
+        const pressed = await request(app)
+            .post(`/api/rooms/${roomId}/tournaments/${here.tournamentId}/games/${here.gameId}/attempt-start`)
+            .set('Authorization', `Bearer ${playerToken(USER)}`).send({});
+        expect(pressed.status).toBe(200);
+        const after = await roomList();
+        expect(after.body.games[0]).toMatchObject({ started: true, startedTs: pressed.body.startedTs });
+    });
+
+    it('needs a logged-in player, and 404s an unknown room', async () => {
+        expect((await request(app).get(`/api/rooms/${roomId}/attempt-starts/me`)).status).toBe(401);
+        expect((await roomList(USER, 'no-such-room')).status).toBe(404);
+    });
+});
+
 describe('manual submits refuse a limited tournament', () => {
     beforeEach(async () => { await setupTestDb(); });
 

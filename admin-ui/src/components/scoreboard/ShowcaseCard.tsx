@@ -12,6 +12,7 @@ import { CircuitBoardBackground, GlowNodes, ScanlineOverlay, PodiumBackground } 
 import { qrEdgeMetrics, DEFAULT_QR_OFFSET_PX } from '../../lib/scoreboardConfig';
 import { useCoverFraming } from './useCoverFraming';
 import { tournamentChipLabel } from './tournamentChip';
+import CardAttemptStart from './CardAttemptStart';
 
 interface ShowcaseCardProps {
   lb: GameLeaderboard;
@@ -392,6 +393,16 @@ export default function ShowcaseCard({
 
           {/* Spacer pushes footer to card bottom */}
           <div style={{ flex: 1 }} />
+
+          {/* W56 — Start attempts, directly above the footer (the card's action strip). */}
+          <CardAttemptStart
+            lb={lb}
+            className="px-6"
+            style={{
+              borderTopColor: cardBgFill ? 'rgba(255,255,255,0.15)' : theme.footerBorder,
+              ...(cardBgFill ? { background: 'rgba(0,0,0,0.3)' } : {}),
+            }}
+          />
 
           {/* Footer */}
           <div style={{

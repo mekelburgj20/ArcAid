@@ -1295,16 +1295,49 @@ export class VpxScoreIngestService {
         nowTs: number;
     }): Promise<Array<{ gameId: string; gameName: string; tournamentId: string; limit: number; requireStart: boolean }>> {
         const provenance = VpxScoreIngestService.provenanceFor(input.deviceType ?? 'atgames', input.playDevice);
-        return (await VpxScoreIngestService.loadCandidates(input.canonicalUserId))
-            .filter(row => row.max_attempts != null && row.max_attempts >= 1 && row.tournament_id != null)
+        return (await VpxScoreIngestService.enteredLimitedCandidates(input.canonicalUserId))
             .filter(row => VpxScoreIngestService.inScope(row, input.target))
-            .filter(row => VpxScoreIngestService.allowedIn(row))
             .filter(row => VpxScoreIngestService.inWindow(row, input.nowTs))
             .filter(row => !VpxScoreIngestService.engineExcluded(row, provenance.device))
             .map(row => ({
                 gameId: row.id, gameName: row.name, tournamentId: row.tournament_id!, limit: row.max_attempts!,
                 requireStart: row.require_attempt_start === 1,
             }));
+    }
+
+    /**
+     * W56 — the LIMITED-ATTEMPTS games of ONE room that are open right now
+     * (the open-card rule: ACTIVE, tournament not finished) and that this
+     * player is allowed in, for the room's top-level "Start attempts"
+     * controls. Same candidate set and entry rule as `openLimitedGames`
+     * (`enteredLimitedCandidates`); what it leaves out is device-shaped —
+     * routing, the play's end time, the device-exclusion rule — because a web
+     * press has no device (`AttemptService.startForPlayer` applies none of
+     * those either).
+     */
+    static async roomLimitedGames(input: { canonicalUserId: string; roomId: string }): Promise<Array<{
+        gameId: string; gameName: string; tournamentId: string; tournamentName: string | null;
+        roundNo: number | null; limit: number; requireStart: boolean;
+    }>> {
+        return (await VpxScoreIngestService.enteredLimitedCandidates(input.canonicalUserId))
+            .filter(row => row.game_room_id === input.roomId && row.status === 'ACTIVE')
+            .map(row => ({
+                gameId: row.id, gameName: row.name, tournamentId: row.tournament_id!,
+                tournamentName: row.tournament_name ?? null, roundNo: row.round_no ?? null,
+                limit: row.max_attempts!, requireStart: row.require_attempt_start === 1,
+            }));
+    }
+
+    /**
+     * The candidates in a tournament with an attempt limit that the player is
+     * ALLOWED IN (`entryAllowed`) — the shared base of `openLimitedGames`
+     * (a device's view) and `roomLimitedGames` (a room page's view), so the
+     * two can never disagree about which limited tables a player is in.
+     */
+    private static async enteredLimitedCandidates(canonicalUserId: string): Promise<CandidateRow[]> {
+        return (await VpxScoreIngestService.loadCandidates(canonicalUserId))
+            .filter(row => row.max_attempts != null && row.max_attempts >= 1 && row.tournament_id != null)
+            .filter(row => VpxScoreIngestService.allowedIn(row));
     }
 
     /**

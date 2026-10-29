@@ -85,3 +85,27 @@ export function homeLines(devices: Device[]): Line[] {
         return { key: d.atgamesUniqueId, ok: true, change: false, text: `${who} sends its scores to every room you belong to.` };
     });
 }
+
+/**
+ * W56 (ADR 0033 §4) — the lead-in of the room line that names the
+ * Limited-attempts tables still waiting for the player's Start attempts press
+ * ("Start attempts needed on: Cactus Canyon, Congo"; each name links to that
+ * game's page).
+ */
+export const START_ATTEMPTS_NEEDED = 'Start attempts needed on:';
+
+/**
+ * W56 — which tables that line names, from the room's
+ * `GET /api/rooms/:roomId/attempt-starts/me` list: the ones not yet started,
+ * each name once, in list order. `null` (no line) when none of the player's
+ * devices sends to this room — a play from them would not count here, so
+ * pressing would change nothing — or when every table is started.
+ */
+export function attemptStartsNeeded(
+    rows: Routing[],
+    games: Array<{ gameName: string; started: boolean }>,
+): string[] | null {
+    if (!rows.some(r => r.sendsHere !== 'no')) return null;
+    const names = [...new Set(games.filter(g => !g.started).map(g => g.gameName))];
+    return names.length > 0 ? names : null;
+}

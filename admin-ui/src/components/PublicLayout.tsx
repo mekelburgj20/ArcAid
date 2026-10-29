@@ -520,7 +520,7 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
                 paired device. */}
             {resolvedRoomId && (
               <div className="max-w-5xl mx-auto px-4 sm:px-6 pt-2">
-                <WitnessScoresGoTo roomId={resolvedRoomId} />
+                <WitnessScoresGoTo roomId={resolvedRoomId} roomSlug={slug} />
               </div>
             )}
             <PlayerQuickViewProvider>

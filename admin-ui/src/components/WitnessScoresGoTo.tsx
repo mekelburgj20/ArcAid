@@ -1,8 +1,12 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ShieldCheck, AlertTriangle } from 'lucide-react';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
-import { CHANGE_HREF, homeLines, roomLines, type Device, type Line, type Routing } from '../lib/witnessScoresGoTo';
+import {
+    CHANGE_HREF, START_ATTEMPTS_NEEDED, attemptStartsNeeded, homeLines, roomLines,
+    type Device, type Line, type Routing,
+} from '../lib/witnessScoresGoTo';
+import { ATTEMPT_STARTS_CHANGED_EVENT, fetchRoomAttemptStarts, gamePageHref, type RoomAttemptStart } from '../lib/attemptStarts';
 
 /**
  * W27.3 (ADR 0033 §5) — "Your scores go to": one line per paired Arcaid Witness
@@ -15,14 +19,24 @@ import { CHANGE_HREF, homeLines, roomLines, type Device, type Line, type Routing
  *   rule (`deviceRoutesTo`) to the device's effective target, so this line can
  *   never disagree with where a score goes. A device that sends here is a quiet
  *   confirmation; one that does not is amber, with what to do about it.
+ *   W56: when a device sends here and a Limited-attempts table still needs the
+ *   player's Start attempts press, one more amber line names those tables
+ *   (from `GET /api/rooms/:roomId/attempt-starts/me`), each linking to its
+ *   game page. It re-reads that list when a scoreboard card is pressed.
  * - **Home page** (no `roomId`): where each device sends.
  *
  * Renders nothing for a guest or a player with no paired device.
  */
 
-export default function WitnessScoresGoTo({ roomId, className = '' }: { roomId?: string | null; className?: string }) {
+export default function WitnessScoresGoTo({
+    roomId, roomSlug, className = '',
+}: { roomId?: string | null; roomSlug?: string | null; className?: string }) {
     const { playerToken } = useViewerAuth();
     const [lines, setLines] = useState<Line[]>([]);
+    const [routing, setRouting] = useState<Routing[]>([]);
+    // Tagged with the room it was read for, so a room change never shows the
+    // previous room's tables while the new list loads.
+    const [attemptStarts, setAttemptStarts] = useState<{ roomId: string; games: RoomAttemptStart[] } | null>(null);
 
     useEffect(() => {
         if (!playerToken) return;
@@ -35,13 +49,27 @@ export default function WitnessScoresGoTo({ roomId, className = '' }: { roomId?:
             .then(body => {
                 if (!live) return;
                 const rows = Array.isArray(body) ? body : [];
+                setRouting(roomId ? rows as Routing[] : []);
                 setLines(roomId ? roomLines(rows as Routing[]) : homeLines(rows as Device[]));
             })
-            .catch(() => { if (live) setLines([]); });
+            .catch(() => { if (live) { setLines([]); setRouting([]); } });
         return () => { live = false; };
     }, [playerToken, roomId]);
 
+    // W56 — the room's Start attempts list; re-read after a card press.
+    useEffect(() => {
+        if (!playerToken || !roomId) return;
+        let live = true;
+        const load = () => {
+            fetchRoomAttemptStarts(roomId, playerToken).then(games => { if (live) setAttemptStarts({ roomId, games }); });
+        };
+        load();
+        window.addEventListener(ATTEMPT_STARTS_CHANGED_EVENT, load);
+        return () => { live = false; window.removeEventListener(ATTEMPT_STARTS_CHANGED_EVENT, load); };
+    }, [playerToken, roomId]);
+
     if (!playerToken || lines.length === 0) return null;
+    const needed = roomId && attemptStarts?.roomId === roomId ? attemptStartsNeeded(routing, attemptStarts.games) : null;
     return (
         <div className={`space-y-1 ${className}`} data-testid="witness-scores-go-to">
             {lines.map(line => (
@@ -64,6 +92,22 @@ export default function WitnessScoresGoTo({ roomId, className = '' }: { roomId?:
                     </span>
                 </p>
             ))}
+            {needed && (
+                <p className="flex items-start gap-1.5 text-xs text-neon-amber" data-testid="attempt-starts-needed">
+                    <AlertTriangle size={13} aria-hidden="true" className="mt-px shrink-0" />
+                    <span>
+                        {START_ATTEMPTS_NEEDED}{' '}
+                        {needed.map((name, i) => (
+                            <Fragment key={name}>
+                                {i > 0 && ', '}
+                                {roomSlug
+                                    ? <Link to={gamePageHref(roomSlug, name)} className="underline hover:text-primary">{name}</Link>
+                                    : name}
+                            </Fragment>
+                        ))}
+                    </span>
+                </p>
+            )}
         </div>
     );
 }
