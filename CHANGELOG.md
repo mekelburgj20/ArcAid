@@ -6,6 +6,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.202.0] - 2026-10-30 - The Wizard sync says what is new on the Wizard, and skips an unchanged night (C11)
+
+"Wizard: 1 new" never meant what the admin read it as: `records_imported` counts new CATALOGUE rows, and a Wizard
+table that VPS already holds is a step-1 update, so a night six tables shipped read 0 or 1. The manifest carries
+each table's discovery dates (`firstAvailableAt` / `updatedAt`, from the publisher's table-history ledger), and
+every stable release carries a 285-byte `release-meta.json` with the manifest's MD5.
+
+### Added
+- **`sync_logs.summary` and `sync_logs.source_version`** (migration 200). A run can say one thing beyond its
+  counts, and record the upstream data version it consumed. The admin catalogue shows the summary under each
+  run and on the result line after a sync.
+- **The Wizard sync's summary:** "Table Manager v2.0.18, 6 tables new on the Wizard since 2026-10-29 (…names…);
+  44 updated upstream", counted from the manifest's own dates against the previous completed run's start. The
+  first run has no baseline and says so. `source_version` is the manifest's MD5 (`describeWizardChanges` is
+  pure; `wizard-sync-probe.test.ts`).
+- **The nightly pass probes before it fetches.** `importFromWizard({ skipIfUnchanged: true })` (the
+  `CatalogueSyncService` runner only — the admin button never skips) reads
+  `releases/latest/download/release-meta.json` first and, when its `manifestChecksum` equals the last successful
+  run's `source_version`, completes a `success` row saying "Unchanged since Table Manager v2.0.18 — release-meta
+  probe, manifest not fetched" without the 1.4 MB download. A probe failure means the full sync, at WARN.
+- **The author-linked VPS tutorial** (`tutorialYouTubeID` / `tutorialTitle` in the manifest) lands in
+  `tutorial_urls` in the same shape the VPS importer writes, so the two append onto one list.
+
 ## [2.201.0] - 2026-10-30 - Wizard art from the manifest branch, catalog-site links (C12)
 
 Legends Unchained's `manifest` branch publishes more than the manifest: `boxart/<slug>.webp` is every table's

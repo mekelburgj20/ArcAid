@@ -23,6 +23,12 @@ export interface SyncLogEntry {
     expected_total?: number | null;
     /** Keyset cursor: highest source id consumed so far. */
     last_id?: number | null;
+    /** One human line about the run beyond the counts (v2.202.0, C11): e.g. the
+     *  Wizard sync's "6 tables new on the Wizard since …" or "unchanged since v2.0.18". */
+    summary?: string | null;
+    /** The upstream data version the run consumed (v2.202.0, C11): for the Wizard sync
+     *  the manifest's MD5 — the release-meta probe compares against the last success. */
+    source_version?: string | null;
     /** Identifies the query this checkpoint belongs to. */
     target_fingerprint?: string | null;
 }
@@ -245,6 +251,8 @@ export class SyncLogService {
             records_skipped?: number;
             records_fetched?: number;
             errors?: string[];
+            summary?: string;
+            source_version?: string;
         }
     ): Promise<void> {
         const db = await getDatabase();
@@ -257,6 +265,8 @@ export class SyncLogService {
                 records_skipped = ?,
                 records_fetched = COALESCE(?, records_fetched),
                 errors = ?,
+                summary = ?,
+                source_version = ?,
                 completed_at = ?,
                 heartbeat_at = ?
              WHERE id = ?`,
@@ -266,6 +276,8 @@ export class SyncLogService {
             result.records_skipped ?? 0,
             result.records_fetched ?? null,
             result.errors?.length ? JSON.stringify(result.errors) : null,
+            result.summary ?? null,
+            result.source_version ?? null,
             completedAt,
             completedAt,
             id

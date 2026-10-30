@@ -46,7 +46,10 @@ const DEFAULT_RUNNERS: Record<ScheduledSource, SourceRunner> = {
     },
     wizard: async () => {
         const { WizardImportService } = await import('./WizardImportService.js');
-        return WizardImportService.importFromWizard();
+        // The nightly pass probes the 285-byte release-meta.json first and
+        // skips the 1.4 MB manifest when its checksum matches the last
+        // success (v2.202.0, C11). The admin button never skips.
+        return WizardImportService.importFromWizard({ skipIfUnchanged: true });
     },
     'steam-pinball': async () => {
         const { SteamPinballImportService } = await import('./SteamPinballImportService.js');

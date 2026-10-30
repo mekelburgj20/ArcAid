@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { createHash } from 'crypto';
 import { GlobalGameService, GlobalGameInput } from './GlobalGameService.js';
 import { SyncLogService } from './SyncLogService.js';
 import { logInfo, logWarn, logError } from '../utils/logger.js';
@@ -21,6 +22,23 @@ import { logInfo, logWarn, logError } from '../utils/logger.js';
  * fork a "Lost In Space Comic Book Edition" off the VPS "Lost in Space" row.
  */
 const MANIFEST_URL = 'https://raw.githubusercontent.com/LegendsUnchained/vpx-standalone-alp4k/refs/heads/manifest/manifest.json';
+/**
+ * Every stable release also carries a 285-byte `release-meta.json`
+ * (`version`, `tableCount`, `manifestChecksum` = the MD5 of manifest.json,
+ * `newCount`, `updatedCount`). GitHub's `releases/latest/download/<asset>`
+ * redirects to the current stable's copy, so this URL never changes. The
+ * nightly run reads it BEFORE the 1.4 MB manifest and skips the sync when the
+ * checksum matches the last successful run's (v2.202.0, C11).
+ */
+const RELEASE_META_URL = 'https://github.com/LegendsUnchained/vpx-standalone-alp4k/releases/latest/download/release-meta.json';
+
+interface ReleaseMeta {
+    version?: unknown;
+    tableCount?: unknown;
+    manifestChecksum?: unknown;
+    newCount?: unknown;
+    updatedCount?: unknown;
+}
 
 const GITHUB_BASE = 'https://github.com/LegendsUnchained/vpx-standalone-alp4k';
 /**
@@ -57,6 +75,12 @@ export interface WizardManifestEntry {
     pupFileUrl?: unknown;
     pupRequired?: unknown;
     pupBundled?: unknown;
+    /** Discovery dates stamped from the publisher's table-history ledger (C11). */
+    firstAvailableAt?: unknown;
+    updatedAt?: unknown;
+    /** Resolved from `tutorialVPSId` in table.yml. */
+    tutorialYouTubeID?: unknown;
+    tutorialTitle?: unknown;
 }
 
 export interface WizardTable {
@@ -74,6 +98,13 @@ export interface WizardTable {
     hasBackglass: boolean;
     requiresRom: boolean;
     hasPuppack: boolean;
+    /** When the table first shipped in a Table Manager release (ISO, from the
+     *  publisher's table-history ledger — survives renames and re-adds). */
+    firstAvailableAt: string | null;
+    /** When its functional files last changed upstream (art recompression excluded). */
+    updatedAt: string | null;
+    /** VPS tutorial video the table's author linked (`tutorialVPSId` → YouTube id). */
+    tutorial?: { title?: string; youtubeId: string; url: string };
 }
 
 /**
@@ -179,6 +210,48 @@ function wizardSourceUrl(slug: string): string {
 /** The table's folder in the repo — kept as the `wizard` download entry. */
 function wizardRepoUrl(slug: string): string {
     return `${GITHUB_BASE}/tree/main/tables/${slug}`;
+}
+
+/**
+ * Reads the current stable release's `release-meta.json`. Never throws: a
+ * probe failure means "do the full sync", logged at WARN.
+ */
+async function fetchReleaseMeta(): Promise<ReleaseMeta | null> {
+    try {
+        const resp = await fetch(RELEASE_META_URL);
+        if (!resp.ok) {
+            logWarn(`Wizard Import: release-meta probe returned ${resp.status}; doing the full sync`);
+            return null;
+        }
+        const body: unknown = await resp.json();
+        return body && typeof body === 'object' ? (body as ReleaseMeta) : null;
+    } catch (err) {
+        logWarn(`Wizard Import: release-meta probe failed (${err}); doing the full sync`);
+        return null;
+    }
+}
+
+/**
+ * One line for the sync log: how many tables are NEW on the Wizard since the
+ * previous completed run, and how many changed upstream in that time, from the
+ * discovery dates the manifest carries. Pure — tested directly.
+ */
+export function describeWizardChanges(tables: WizardTable[], sinceIso: string | null, version?: string): string {
+    const rel = version ? `Table Manager ${version}, ` : '';
+    const since = sinceIso ? Date.parse(sinceIso) : NaN;
+    if (Number.isNaN(since)) {
+        return `${rel}${tables.length} tables on the Wizard (first run — no "new since" baseline yet)`;
+    }
+    const after = (iso: string | null) => iso !== null && Date.parse(iso) > since;
+    const fresh = tables.filter(t => after(t.firstAvailableAt));
+    const changed = tables.filter(t => !after(t.firstAvailableAt) && after(t.updatedAt));
+    const day = new Date(since).toISOString().slice(0, 10);
+    const names = fresh.slice(0, 5).map(t => t.name).join(', ') + (fresh.length > 5 ? ', …' : '');
+    const newPart = fresh.length === 0
+        ? `no tables new on the Wizard since ${day}`
+        : `${fresh.length} table${fresh.length === 1 ? '' : 's'} new on the Wizard since ${day} (${names})`;
+    const changedPart = changed.length > 0 ? `; ${changed.length} updated upstream` : '';
+    return `${rel}${newPart}${changedPart}`;
 }
 
 /**
@@ -300,6 +373,18 @@ function parseNameParts(name: string): { baseName: string; manufacturer?: string
 const nonEmptyString = (v: unknown): string | undefined =>
     typeof v === 'string' && v.trim() !== '' ? v.trim() : undefined;
 const truthy = (v: unknown): boolean => v === true || nonEmptyString(v) !== undefined;
+/** An ISO-8601 timestamp the manifest stamped, or null — never a guess. */
+const isoOrNull = (v: unknown): string | null => {
+    const s = nonEmptyString(v);
+    return s && !Number.isNaN(Date.parse(s)) ? s : null;
+};
+const YOUTUBE_ID = /^[A-Za-z0-9_-]{6,20}$/;
+const tutorialOf = (e: WizardManifestEntry): WizardTable['tutorial'] => {
+    const id = nonEmptyString(e.tutorialYouTubeID);
+    if (!id || !YOUTUBE_ID.test(id)) return undefined;
+    const title = nonEmptyString(e.tutorialTitle);
+    return { ...(title ? { title } : {}), youtubeId: id, url: `https://www.youtube.com/watch?v=${id}` };
+};
 
 /**
  * Turns the manifest object (`{ "<slug>": { ...entry } }`) into the importer's
@@ -344,6 +429,9 @@ export function parseWizardManifest(raw: unknown): { tables: WizardTable[]; skip
             hasBackglass: truthy(e.backglassVpsId) || truthy(e.backglassFileUrl) || e.backglassBundled === true,
             requiresRom: truthy(e.romVpsId) || truthy(e.romFileUrl) || e.romBundled === true,
             hasPuppack: truthy(e.pupVpsId) || truthy(e.pupFileUrl) || e.pupRequired === true || e.pupBundled === true,
+            firstAvailableAt: isoOrNull(e.firstAvailableAt),
+            updatedAt: isoOrNull(e.updatedAt),
+            tutorial: tutorialOf(e),
         });
     }
     return { tables, skippedNoName, disabled };
@@ -352,27 +440,57 @@ export function parseWizardManifest(raw: unknown): { tables: WizardTable[]; skip
 export class WizardImportService {
     /** Exposed for tests. */
     static readonly MANIFEST_URL = MANIFEST_URL;
+    static readonly RELEASE_META_URL = RELEASE_META_URL;
 
     /**
      * Fetches the Legends Unchained Table Manager manifest and imports every
      * enabled table into the global catalogue.
      */
-    static async importFromWizard(): Promise<{
+    static async importFromWizard(options: { skipIfUnchanged?: boolean } = {}): Promise<{
         imported: number;
         updated: number;
         skipped: number;
         total: number;
         wizardCount: number;
         manualCount: number;
+        /** True when the release-meta probe matched the last success and nothing was fetched. */
+        unchanged?: boolean;
     }> {
         const syncLogId = await SyncLogService.start('wizard');
         const errors: string[] = [];
 
         try {
+            // The previous completed run: the baseline for "new on the Wizard
+            // since" and the checksum the release-meta probe compares against.
+            const previous = (await SyncLogService.getBySource('wizard', 20))
+                .find(l => l.id !== syncLogId && l.completed_at && (l.status === 'success' || l.status === 'partial'));
+
+            let meta: ReleaseMeta | null = null;
+            if (options.skipIfUnchanged) {
+                meta = await fetchReleaseMeta();
+                const checksum = nonEmptyString(meta?.manifestChecksum);
+                if (checksum && previous?.source_version && checksum === previous.source_version) {
+                    const version = nonEmptyString(meta?.version);
+                    const summary = `Unchanged since Table Manager ${version ?? 'release'} — release-meta probe, manifest not fetched`;
+                    logInfo(`Wizard Import: ${summary}`);
+                    await SyncLogService.complete(syncLogId, {
+                        status: 'success',
+                        records_fetched: typeof meta?.tableCount === 'number' ? meta.tableCount : undefined,
+                        summary,
+                        source_version: checksum,
+                    });
+                    return { imported: 0, updated: 0, skipped: 0, total: 0, wizardCount: 0, manualCount: 0, unchanged: true };
+                }
+            }
+
             logInfo('Wizard Import: fetching Table Manager manifest from GitHub...');
             const resp = await fetch(MANIFEST_URL);
             if (!resp.ok) throw new Error(`GitHub returned ${resp.status}`);
-            const raw: unknown = await resp.json();
+            const text = await resp.text();
+            // The same bytes the release asset carries, so this MD5 is what
+            // release-meta.json's `manifestChecksum` will say next time.
+            const manifestMd5 = createHash('md5').update(text, 'utf8').digest('hex');
+            const raw: unknown = JSON.parse(text);
 
             const { tables, skippedNoName, disabled } = parseWizardManifest(raw);
             logInfo(
@@ -424,6 +542,9 @@ export class WizardImportService {
                         // `external_url` (e.g. the VPS database link) — and,
                         // since v2.199.0 (C9), a later cross-source sync too.
                         table_download_urls: [{ format: 'wizard', url: wizardRepoUrl(table.slug) }],
+                        // C11: the author-linked VPS tutorial, same shape the VPS
+                        // importer writes, so the two append onto one list by URL.
+                        tutorial_urls: table.tutorial ? [table.tutorial] : undefined,
                         imported_from: 'wizard',
                     };
 
@@ -452,6 +573,14 @@ export class WizardImportService {
 
             logInfo(`Wizard Import: global catalogue — inserted ${inserted}, updated ${updated}, skipped ${skipped}`);
 
+            // "N new on the Wizard since the last run" — what the admin
+            // actually asked the counts for. `records_imported` is new
+            // CATALOGUE rows, which a Wizard table that VPS already holds
+            // never is (it is a step-1 update), so that number reads 0 or 1
+            // on a night six tables shipped.
+            const summary = describeWizardChanges(tables, previous?.started_at ?? null, nonEmptyString(meta?.version));
+            logInfo(`Wizard Import: ${summary}`);
+
             await SyncLogService.complete(syncLogId, {
                 status: errors.length > 0 ? 'partial' : 'success',
                 records_imported: inserted,
@@ -459,6 +588,8 @@ export class WizardImportService {
                 records_skipped: skipped,
                 records_fetched: tables.length,
                 errors: errors.length > 0 ? errors : undefined,
+                summary,
+                source_version: manifestMd5,
             });
 
             return {

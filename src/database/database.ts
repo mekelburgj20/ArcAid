@@ -3447,6 +3447,20 @@ async function doInitDatabase(): Promise<Database> {
             await db.run(`DELETE FROM game_room_settings WHERE key = 'DISCORD_ADMIN_ROLE_ID'`);
             await db.run(`DELETE FROM settings WHERE key = 'DISCORD_ADMIN_ROLE_ID'`);
         } },
+        // C11 (v2.202.0): a sync run can say one thing beyond its counts
+        // (`summary` — "6 tables new on the Wizard since …") and record the
+        // upstream data version it consumed (`source_version` — the Wizard
+        // manifest's MD5, which the nightly release-meta probe compares
+        // against the last success to skip an unchanged catalogue).
+        { name: '200_sync_logs_summary_source_version', handler: async (db) => {
+            const cols = (await db.all(`PRAGMA table_info(sync_logs)`)) as Array<{ name: string }>;
+            if (!cols.some(c => c.name === 'summary')) {
+                await db.exec(`ALTER TABLE sync_logs ADD COLUMN summary TEXT`);
+            }
+            if (!cols.some(c => c.name === 'source_version')) {
+                await db.exec(`ALTER TABLE sync_logs ADD COLUMN source_version TEXT`);
+            }
+        } },
     ];
 
     for (const migration of migrations) {
