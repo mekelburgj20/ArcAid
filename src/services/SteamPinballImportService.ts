@@ -552,6 +552,16 @@ export class SteamPinballImportService {
             features: [...new Set([...fold.features, ...(product.extraFeatures ?? [])])],
             external_url: externalUrl,
             image_url: headerImage,
+            // C9 (v2.199.0): the source stamp decides how the upsert MERGES
+            // onto a row another importer owns. Without it `isCrossSource`
+            // is false and the write is a same-source OVERWRITE: the row's
+            // table_download_urls / tutorial_urls / rules_urls are nulled
+            // (nothing supplied here) and merged_from_sources never learns
+            // that Steam touched the row. Nightly since v2.195.0 (Steam runs
+            // after Wizard), it wiped every Wizard download link on the
+            // tables both catalogues share. The FE source filter and labels
+            // already know `steam-pinball`.
+            imported_from: 'steam-pinball',
         };
 
         const result = await GlobalGameService.upsert(input);

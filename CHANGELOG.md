@@ -6,6 +6,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.199.0] - 2026-10-30 - The Steam Pinball sync stops wiping other importers' links (C9)
+
+The Steam Pinball importer was the only importer that did not stamp `imported_from`. `GlobalGameService.upsert`
+decides how to MERGE from that stamp: with none, every Steam write onto a row another importer owns was treated as
+the owner re-syncing, so the row's `table_download_urls`, `tutorial_urls` and `rules_urls` were set to NULL (Steam
+supplies none) and `merged_from_sources` never recorded Steam. Harmless while the Steam sync was a rare manual
+click; nightly since v2.195.0, where it runs right after the Wizard sync, and across most VPS/Wizard tables since
+the Pinball FX VR product joined it. Found on prod 2026-10-29: "The Getaway - High Speed II" had the two Wizard
+download links the Wizard sync had just added, and the next Steam sync removed them.
+
+### Fixed
+- **`SteamPinballImportService.upsertTable` stamps `imported_from: 'steam-pinball'`.** A Steam write onto a VPS,
+  Wizard, OPDB or AtGames row now appends its download/tutorial/rules entries by URL (nothing to append, so the
+  existing ones stay), adds `steam-pinball` to `merged_from_sources`, and leaves `imported_from` with the owning
+  source. Rows Steam creates carry the stamp. `external_url` stays last-writer-wins across sources, as it is for
+  every importer (C12 moves the Wizard link into the download entries, which now survive). The admin catalogue's
+  source filter and labels already knew the value. `steam-import-source-stamp.test.ts` drives the real upsert
+  path through the network-free Star Wars Pinball VR seed and locks both the fix and the mechanism it relies on.
+
 ## [2.198.0] - 2026-10-29 - A cabinet restart posts its score, quit-flagged (W64)
 
 Owner ruling 2026-10-29: a game the player abandons by holding Start to restart is a play, not a silent attempt.
