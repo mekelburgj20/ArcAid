@@ -60,6 +60,10 @@ interface SyncLog {
   pages_done?: number | null;
   records_fetched?: number | null;
   expected_total?: number | null;
+  /** One human line beyond the counts (C11): "6 tables new on the Wizard since …". */
+  summary?: string | null;
+  /** The upstream data version the run consumed (C11). */
+  source_version?: string | null;
 }
 
 /** Pages are 500 rows; the count endpoint gives us the denominator. */
@@ -410,7 +414,8 @@ export default function GlobalCatalogue() {
                     ? expected
                       ? ` (partial — ${fetched} of ~${expected} rows; sync again to resume)`
                       : ' (partial — some errors)'
-                    : ''),
+                    : '') +
+                  (latest.summary ? ` — ${latest.summary}` : ''),
               });
             }
             await loadData();
@@ -615,6 +620,9 @@ export default function GlobalCatalogue() {
                   <div className="text-muted text-xs mt-1">
                     {log.records_imported} new, {log.records_updated} updated
                   </div>
+                  {log.summary && (
+                    <div className="text-muted text-xs mt-1">{log.summary}</div>
+                  )}
                   <div className="text-muted text-xs">
                     {formatDate(log.heartbeat_at || log.completed_at || log.started_at)}
                   </div>
