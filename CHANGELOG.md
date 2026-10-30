@@ -6,6 +6,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.203.0] - 2026-10-30 - Give back a scored attempt, reinstate an over-the-limit play (W68)
+
+In a Limited-attempts tournament a host could not give back an attempt that already had a score, and the panel
+told them to "delete the score instead" — which never touched the attempt, so it went on counting. On Test #4
+(2026-10-29) the launcher wrote a Stern SAM "game over" record roughly per ball (W67), so one game of Batman -
+The Dark Knight used four attempts as score fragments, and ChalataLove's real 167,719,210 went over the limit and
+landed on the Global Scoreboard only. Nothing could put it back.
+
+### Added
+- **Reinstate an over-the-limit play** (Integrity panel → Attempts → **Reinstate** on an "over the limit" row;
+  `POST /api/rooms/:roomId/admin/tournaments/:id/attempts/:attemptId/reinstate`, `AttemptService.reinstateAttempt`).
+  Allowed once the player's other non-void attempts on that table are fewer than the limit (void the fragments
+  first); the row becomes the next attempt and the play lands on the board exactly as the ingest would have
+  written it — `source='vpx'`, the launcher's own end time, the tournament stamp, the device's provenance, the
+  deleted-play check, cache flush and live refresh — through the same board write the ingest uses
+  (`VpxScoreIngestService.writeBoardRow`, extracted). Its Global copy already exists and is not written again; its
+  trail row now reads "counted" in Where your plays went. Refused with a reason (409) when there is no room, the
+  play was deleted, or the attempt never stored a score (a desktop start that went over the limit). The button is
+  disabled with that reason as its tooltip. Audited (`attempt.reinstate`).
+
+### Changed
+- **Void takes a scored attempt.** It asks first, with **Also delete its score**: ticked, the score is deleted
+  through the ordinary per-row delete (tombstone, best-score recompute, Global copy, caches) after the attempt is
+  voided; unticked, the score stays on the board (it was a real play) and only the attempt is given back. A failed
+  delete is reported and leaves the void in place. The panel copy no longer says "delete the score instead".
+- The attempts list carries `reinstatable`, `reinstateBlockedReason` and `used` per row.
+
 ## [2.202.0] - 2026-10-30 - The Wizard sync says what is new on the Wizard, and skips an unchanged night (C11)
 
 "Wizard: 1 new" never meant what the admin read it as: `records_imported` counts new CATALOGUE rows, and a Wizard

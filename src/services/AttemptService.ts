@@ -1,5 +1,6 @@
 import { getDatabase } from '../database/database.js';
 import { resolveUserLabels } from './PlayerProfileResolver.js';
+import { logInfo } from '../utils/logger.js';
 
 /**
  * Limited attempts (v2.167.0, ADR 0029): N game STARTS per player per `games`
@@ -96,6 +97,16 @@ export type AttemptAdminRow = {
     tableName: string | null;
     voidedAt: string | null;
     voidable: boolean;
+    /**
+     * W68 — an `over_limit` row the host can count now: it carries the play
+     * (score + end time) and the player has room under the limit. False on
+     * every other row.
+     */
+    reinstatable: boolean;
+    /** W68 — why an `over_limit` row cannot be reinstated (for the button's title); null otherwise. */
+    reinstateBlockedReason: string | null;
+    /** W68 — the player's non-void attempts on this table (this row included), what the room check counts. */
+    used: number;
 };
 
 type AttemptRow = {
@@ -107,13 +118,52 @@ type AttemptRow = {
     voided_by: string | null; voided_at: string | null; note: string | null;
 };
 
-const VOIDABLE: ReadonlySet<AttemptRowStatus> = new Set(['counted', 'over_limit', 'unreported']);
+/**
+ * W68 (v2.203.0) — `scored` joined the set: a host may give back an attempt
+ * that already has a score (the per-ball fragments of W67). Voiding never
+ * touches the score by itself; the route deletes it only when asked.
+ */
+const VOIDABLE: ReadonlySet<AttemptRowStatus> = new Set(['counted', 'over_limit', 'unreported', 'scored']);
 
 export class AttemptVoidError extends Error {
     constructor(public code: 'NOT_FOUND' | 'NOT_VOIDABLE', public httpStatus: 404 | 409, message: string) {
         super(message);
         this.name = 'AttemptVoidError';
     }
+}
+
+export type AttemptReinstateCode = 'NOT_FOUND' | 'NOT_REINSTATABLE' | 'NO_ROOM' | 'MISSING_PLAY' | 'SUPPRESSED' | 'DUPLICATE';
+
+export class AttemptReinstateError extends Error {
+    constructor(public code: AttemptReinstateCode, public httpStatus: 404 | 409, message: string) {
+        super(message);
+        this.name = 'AttemptReinstateError';
+    }
+}
+
+/** What `void` did: the row's status before, and the score it was bound to (a scored row). */
+export type AttemptVoidResult = { previousStatus: AttemptRowStatus; scoreHistoryId: number | null };
+
+/** W68 — what a reinstate wrote. */
+export type AttemptReinstateResult = {
+    attemptNo: number;
+    of: number;
+    scoreHistoryId: number;
+    gameId: string;
+    gameRoomId: string | null;
+};
+
+/** W68 — the reinstate check the list and the action share: null = allowed, else why not. */
+function reinstateBlock(row: Pick<AttemptRow, 'status' | 'score' | 'ended_ts'>, usedByOthers: number, limit: number | null): string | null {
+    if (row.status !== 'over_limit') return 'Only an attempt that went over the limit can be reinstated.';
+    if (limit == null) return 'This tournament no longer limits attempts.';
+    if (row.score == null || row.ended_ts == null) {
+        return 'No score was recorded with this attempt, so there is no play to put on the board.';
+    }
+    if (usedByOthers >= limit) {
+        return `No room: ${usedByOthers} of ${limit} attempts are already used on this table by this player. Void one first.`;
+    }
+    return null;
 }
 
 /**
@@ -637,33 +687,50 @@ export class AttemptService {
               LIMIT 1000`,
             ...(gameId ? [tournamentId, gameId] : [tournamentId]),
         );
-        const labels = await resolveUserLabels(rows.map(r => r.canonical_user_id));
-        return rows.map(r => ({
-            id: r.id,
-            gameId: r.game_id,
-            gameName: r.game_name,
-            userId: r.canonical_user_id,
-            playerLabel: labels[r.canonical_user_id] ?? 'Unknown player',
-            attemptNo: r.attempt_no,
-            status: r.status,
-            late: r.late === 1,
-            startedTs: r.started_ts,
-            receivedAt: r.received_at,
-            endedTs: r.ended_ts,
-            score: r.score,
-            scoreHistoryId: r.score_history_id,
-            tableName: r.table_name,
-            voidedAt: r.voided_at,
-            voidable: VOIDABLE.has(r.status),
-        }));
+        const [labels, used, limit] = await Promise.all([
+            resolveUserLabels(rows.map(r => r.canonical_user_id)),
+            AttemptService.usedByGame(tournamentId),
+            AttemptService.limitFor(tournamentId),
+        ]);
+        return rows.map(r => {
+            const usedHere = used[r.game_id]?.[r.canonical_user_id] ?? 0;
+            // The room check counts the player's OTHER non-void rows (this one is non-void too).
+            const block = r.status === 'over_limit' ? reinstateBlock(r, usedHere - 1, limit) : null;
+            return {
+                id: r.id,
+                gameId: r.game_id,
+                gameName: r.game_name,
+                userId: r.canonical_user_id,
+                playerLabel: labels[r.canonical_user_id] ?? 'Unknown player',
+                attemptNo: r.attempt_no,
+                status: r.status,
+                late: r.late === 1,
+                startedTs: r.started_ts,
+                receivedAt: r.received_at,
+                endedTs: r.ended_ts,
+                score: r.score,
+                scoreHistoryId: r.score_history_id,
+                tableName: r.table_name,
+                voidedAt: r.voided_at,
+                voidable: VOIDABLE.has(r.status),
+                reinstatable: r.status === 'over_limit' && block == null,
+                reinstateBlockedReason: block,
+                used: usedHere,
+            };
+        });
     }
 
     /**
-     * An admin gives the attempt back. Only a counted, over_limit or
-     * unreported row; a `scored` row is refused — voiding never removes a
-     * score (delete the score instead, which leaves the attempt used).
+     * An admin gives the attempt back: any non-void row (counted, over_limit,
+     * unreported, and since W68 a `scored` one). A void is final — `bindScore`
+     * and the cabinet report path refuse a replay of a void key.
+     *
+     * Voiding never removes a score by itself: a scored row's score stays on
+     * the board (it was a real play) unless the caller deletes it too — the
+     * route does that through the ordinary per-row delete when the host ticks
+     * "Also delete its score". The returned `scoreHistoryId` is what to delete.
      */
-    static async void(attemptId: number, adminUserId: string, tournamentId?: string): Promise<void> {
+    static async void(attemptId: number, adminUserId: string, tournamentId?: string): Promise<AttemptVoidResult> {
         const db = await getDatabase();
         const row = await db.get<AttemptRow>(
             `SELECT * FROM attempts WHERE id = ? ${tournamentId ? 'AND tournament_id = ?' : ''}`,
@@ -671,16 +738,160 @@ export class AttemptService {
         );
         if (!row) throw new AttemptVoidError('NOT_FOUND', 404, 'Attempt not found.');
         if (!VOIDABLE.has(row.status)) {
-            throw new AttemptVoidError(
-                'NOT_VOIDABLE', 409,
-                row.status === 'scored'
-                    ? 'This attempt has a score. Voiding never removes a score — delete the score instead.'
-                    : 'This attempt is already void.',
-            );
+            throw new AttemptVoidError('NOT_VOIDABLE', 409, 'This attempt is already void.');
         }
-        await db.run(
-            `UPDATE attempts SET status = 'void', voided_by = ?, voided_at = datetime('now') WHERE id = ?`,
+        const res = await db.run(
+            `UPDATE attempts SET status = 'void', voided_by = ?, voided_at = datetime('now') WHERE id = ? AND status <> 'void'`,
             adminUserId, attemptId,
         );
+        if (res.changes !== 1) throw new AttemptVoidError('NOT_VOIDABLE', 409, 'This attempt is already void.');
+        return { previousStatus: row.status, scoreHistoryId: row.score_history_id };
+    }
+
+    /**
+     * W68 (v2.203.0) — a host REINSTATES an `over_limit` attempt once room
+     * exists (owner ask 2026-10-30: per-ball fragments ate a player's attempts,
+     * the host voided them, and the real game that was over the limit should
+     * now count). The play itself is on the row (a cabinet report stores its
+     * score and end time); its trail row and Global copy already exist.
+     *
+     *   1. Only an `over_limit` row, in a tournament that still limits
+     *      attempts, that carries its score and end time (a DESKTOP start that
+     *      went over the limit never stored its score, so there is no play to
+     *      land — refused, never invented).
+     *   2. Room: the player's OTHER non-void rows on this table must be fewer
+     *      than the limit; the row becomes attempt (that count + 1) — the same
+     *      numbering the insert uses. Count and flip are ONE `UPDATE`, atomic
+     *      like `insertAtomic`, so two reinstates cannot both take the last slot.
+     *   3. The play lands through `VpxScoreIngestService.landReinstated` (the
+     *      ingest's own board write; suppression honoured; no second Global
+     *      row), and the attempt is bound to the new row like `markScored`.
+     *      A suppressed or duplicate play writes nothing and the flip is undone.
+     */
+    static async reinstateAttempt(attemptId: number, tournamentId: string, adminUserId: string): Promise<AttemptReinstateResult> {
+        const db = await getDatabase();
+        const row = await db.get<AttemptRow>(
+            'SELECT * FROM attempts WHERE id = ? AND tournament_id = ?', attemptId, tournamentId,
+        );
+        if (!row) throw new AttemptReinstateError('NOT_FOUND', 404, 'Attempt not found.');
+        if (row.status !== 'over_limit') {
+            throw new AttemptReinstateError('NOT_REINSTATABLE', 409, 'Only an attempt that went over the limit can be reinstated.');
+        }
+        const limit = await AttemptService.limitFor(tournamentId);
+        const others = (await db.get<{ n: number }>(
+            `SELECT COUNT(*) AS n FROM attempts
+              WHERE game_id = ? AND canonical_user_id = ? AND status <> 'void' AND id <> ?`,
+            row.game_id, row.canonical_user_id, row.id,
+        ))!.n;
+        const block = reinstateBlock(row, others, limit);
+        if (block) {
+            const code: AttemptReinstateCode = limit == null ? 'NOT_REINSTATABLE'
+                : row.score == null || row.ended_ts == null ? 'MISSING_PLAY' : 'NO_ROOM';
+            throw new AttemptReinstateError(code, 409, block);
+        }
+
+        const game = await db.get<{ id: string; name: string; game_room_id: string | null }>(
+            `SELECT g.id, g.name, COALESCE(g.game_room_id, t.game_room_id) AS game_room_id
+               FROM games g LEFT JOIN tournaments t ON t.id = g.tournament_id
+              WHERE g.id = ? AND g.tournament_id = ?`,
+            row.game_id, tournamentId,
+        );
+        if (!game) throw new AttemptReinstateError('MISSING_PLAY', 409, 'The table this attempt was on no longer exists in this tournament.');
+
+        const { VpxScoreIngestService } = await import('./VpxScoreIngestService.js');
+        const score = row.score!;
+        const endedTs = row.ended_ts!;
+        const playedAt = VpxScoreIngestService.playedAtOf(endedTs);
+
+        // The over-limit play's trail row (written by the ingest's refusal) and
+        // the Global copy it points at: the device kind for provenance, the
+        // headset fact a desktop sent (`global_scores.device`).
+        const trail = await db.get<{ id: number; global_score_id: string | null }>(
+            `SELECT id, global_score_id FROM witness_evidence
+              WHERE device_id = ? AND canonical_user_id = ? AND game_id = ? AND tournament_id = ?
+                AND outcome = 'attempt_refused' AND score = ? AND played_at = ?
+              ORDER BY id DESC LIMIT 1`,
+            row.device_id, row.canonical_user_id, row.game_id, tournamentId, score, playedAt,
+        );
+        const device = await db.get<{ device_type: string | null }>(
+            'SELECT device_type FROM witness_devices WHERE atgames_unique_id = ?', row.device_id,
+        );
+        const globalDevice = trail?.global_score_id
+            ? (await db.get<{ device: string | null }>('SELECT device FROM global_scores WHERE id = ?', trail.global_score_id))?.device ?? null
+            : null;
+        const deviceType = device
+            ? (device.device_type === 'desktop' ? 'desktop' : 'atgames')
+            : globalDevice === 'atgames' ? 'atgames'
+            : globalDevice === 'pc' || globalDevice === 'vr_headset' ? 'desktop'
+            : null;
+        if (!deviceType) {
+            throw new AttemptReinstateError('MISSING_PLAY', 409, 'Cannot tell which machine this play came from (the device is no longer paired).');
+        }
+        const provenance = VpxScoreIngestService.provenanceFor(
+            deviceType, deviceType === 'desktop' && globalDevice === 'vr_headset' ? 'vr_headset' : 'pc',
+        );
+
+        // Checked before the flip so the common refusal changes nothing; the
+        // landing checks again for a race.
+        if (await VpxScoreIngestService.isReinstateSuppressed(row.canonical_user_id, game.name, row.table_name, row.rom, score, playedAt)) {
+            throw new AttemptReinstateError('SUPPRESSED', 409, 'This play was deleted, so it cannot be put back on the board.');
+        }
+
+        const flipped = await db.run(
+            `UPDATE attempts
+                SET status = 'scored',
+                    attempt_no = (SELECT COUNT(*) FROM attempts o
+                                   WHERE o.game_id = attempts.game_id AND o.canonical_user_id = attempts.canonical_user_id
+                                     AND o.status <> 'void' AND o.id <> attempts.id) + 1
+              WHERE id = ? AND status = 'over_limit'
+                AND (SELECT COUNT(*) FROM attempts o
+                      WHERE o.game_id = attempts.game_id AND o.canonical_user_id = attempts.canonical_user_id
+                        AND o.status <> 'void' AND o.id <> attempts.id) < ?`,
+            row.id, limit,
+        );
+        if (flipped.changes !== 1) {
+            throw new AttemptReinstateError('NO_ROOM', 409, 'The attempt changed while it was being reinstated — reload and try again.');
+        }
+        const undo = () => db.run(
+            `UPDATE attempts SET status = 'over_limit', attempt_no = ? WHERE id = ? AND status = 'scored' AND score_history_id IS NULL`,
+            row.attempt_no, row.id,
+        );
+
+        let landed: Awaited<ReturnType<typeof VpxScoreIngestService.landReinstated>>;
+        try {
+            landed = await VpxScoreIngestService.landReinstated({
+                canonicalUserId: row.canonical_user_id,
+                game: { id: game.id, name: game.name, gameRoomId: game.game_room_id, tournamentId },
+                score, endedTs, tableName: row.table_name, rom: row.rom,
+                provenance, trailId: trail?.id ?? null, deviceId: row.device_id,
+            });
+        } catch (err) {
+            await undo();
+            throw err;
+        }
+        if (landed.status !== 'ingested') {
+            await undo();
+            throw landed.status === 'suppressed'
+                ? new AttemptReinstateError('SUPPRESSED', 409, 'This play was deleted, so it cannot be put back on the board.')
+                : new AttemptReinstateError('DUPLICATE', 409, 'This player already has this exact score on this table, so nothing new would land.');
+        }
+
+        await AttemptService.markScored(row.id, { scoreHistoryId: landed.scoreHistoryId, score, endedTs });
+        const after = (await db.get<{ attempt_no: number }>('SELECT attempt_no FROM attempts WHERE id = ?', row.id))!;
+
+        if (game.game_room_id) {
+            try {
+                const { emitLeaderboardUpdated } = await import('../api/websocket.js');
+                emitLeaderboardUpdated(game.game_room_id, { gameId: game.id });
+            } catch { /* socket optional */ }
+        }
+        logInfo(
+            `Attempt #${row.id} reinstated by ${adminUserId}: ${row.canonical_user_id} ${score} on "${game.name}" ` +
+            `is attempt ${after.attempt_no} of ${limit} (score_history#${landed.scoreHistoryId})`,
+        );
+        return {
+            attemptNo: after.attempt_no, of: limit!, scoreHistoryId: landed.scoreHistoryId,
+            gameId: game.id, gameRoomId: game.game_room_id,
+        };
     }
 }

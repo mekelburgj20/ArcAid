@@ -173,9 +173,14 @@ router.get('/rooms/:roomId/admin/tournaments/:id/attempts', requireAuth, require
     }
 });
 
-// Runner: give an attempt back (a crashed companion, an honest mistake). Only a
-// counted / over_limit / unreported row; a scored row is a 409 — voiding never
-// removes a score. Audited explicitly (the audit middleware is not mounted).
+// Runner: give an attempt back (a crashed companion, an honest mistake, the
+// per-ball fragments of W67). Any non-void row, a SCORED one too since W68.
+// Body `{ deleteScore?: true }` on a scored row also deletes its score through
+// the ordinary per-row delete (`ScoreHistoryService.deleteEvent`: tombstone,
+// `submissions` recompute, Global copy, caches, broadcast). The void runs FIRST
+// and stands on its own: a failed delete is reported (`scoreDeleted: false` +
+// `scoreDeleteError`), never rolled into a failed void. Audited explicitly (the
+// audit middleware is not mounted).
 router.post('/rooms/:roomId/admin/tournaments/:id/attempts/:attemptId/void', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
     try {
         const roomId = req.params.roomId as string;
@@ -183,29 +188,104 @@ router.post('/rooms/:roomId/admin/tournaments/:id/attempts/:attemptId/void', req
         const attemptId = Number(req.params.attemptId as string);
         if (!Number.isInteger(attemptId) || attemptId <= 0) return res.status(400).json({ error: 'Invalid attempt id' });
         if (!await tournamentInRoom(roomId, tournamentId)) return res.status(404).json({ error: 'Tournament not found' });
+        const deleteScore = req.body?.deleteScore === true;
         const { AttemptService, AttemptVoidError } = await import('../../services/AttemptService.js');
-        const actor = req.user!.discordId || req.user!.username || req.user!.localAdminId || 'admin';
+        const actor = String(req.user!.discordId || req.user!.username || req.user!.localAdminId || 'admin');
+        let voided: Awaited<ReturnType<typeof AttemptService.void>>;
         try {
-            await AttemptService.void(attemptId, String(actor), tournamentId);
+            voided = await AttemptService.void(attemptId, actor, tournamentId);
         } catch (err) {
             if (err instanceof AttemptVoidError) {
                 return res.status(err.httpStatus).json({ error: err.message, code: err.code });
             }
             throw err;
         }
+
+        let scoreDeleted = false;
+        let scoreDeleteError: string | null = null;
+        if (deleteScore && voided.scoreHistoryId != null) {
+            try {
+                const { ScoreHistoryService } = await import('../../services/ScoreHistoryService.js');
+                const row = await ScoreHistoryService.getDeletableRow(voided.scoreHistoryId);
+                if (!row || row.game_room_id !== roomId) {
+                    scoreDeleteError = 'The score was not found (already deleted?)';
+                } else {
+                    await ScoreHistoryService.deleteEvent(row, actor);
+                    scoreDeleted = true;
+                    const { RoomEventService } = await import('../../services/RoomEventService.js');
+                    RoomEventService.log(roomId, 'score_deleted', {
+                        gameId: row.game_id, gameName: row.game_name, player: row.iscored_username,
+                        score: row.score, historyId: row.id,
+                        actor: req.user!.role === 'super_admin' ? 'super_admin' : 'room_admin',
+                    }).catch(() => {});
+                }
+            } catch (err) {
+                logError(`Attempt void: attempt #${attemptId} voided, but its score #${voided.scoreHistoryId} was not deleted:`, err);
+                scoreDeleteError = 'The attempt was voided, but its score could not be deleted — delete it from the board.';
+            }
+        }
+
         const { AuditService } = await import('../../services/AuditService.js');
         await AuditService.log({
-            actor: String(actor),
+            actor,
             action: 'attempt.void',
             target_type: 'tournament',
             target_id: tournamentId,
-            details: JSON.stringify({ roomId, attemptId }),
+            details: JSON.stringify({
+                roomId, attemptId, previousStatus: voided.previousStatus,
+                ...(deleteScore ? { deleteScore: true, scoreHistoryId: voided.scoreHistoryId, scoreDeleted } : {}),
+            }),
             ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
             correlation_id: req.correlationId || '',
         }).catch(() => { /* the void stands; an audit failure is logged by the service */ });
-        res.json({ success: true });
+        res.json({
+            success: true,
+            ...(deleteScore ? { scoreDeleted, ...(scoreDeleteError ? { scoreDeleteError } : {}) } : {}),
+        });
     } catch (error) {
         logError('API Error (POST rooms/:roomId/admin/tournaments/:id/attempts/:attemptId/void):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Runner: W68 — count an over-the-limit play once room exists (the host voided
+// the attempts that should never have counted). `AttemptService.reinstateAttempt`
+// decides, flips the attempt, and lands the play on the board exactly as the
+// ingest would have. 409 `NOT_REINSTATABLE` / `NO_ROOM` / `MISSING_PLAY` /
+// `SUPPRESSED` / `DUPLICATE` with a sentence the panel shows. Audited explicitly.
+router.post('/rooms/:roomId/admin/tournaments/:id/attempts/:attemptId/reinstate', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const tournamentId = req.params.id as string;
+        const attemptId = Number(req.params.attemptId as string);
+        if (!Number.isInteger(attemptId) || attemptId <= 0) return res.status(400).json({ error: 'Invalid attempt id' });
+        if (!await tournamentInRoom(roomId, tournamentId)) return res.status(404).json({ error: 'Tournament not found' });
+        const { AttemptService, AttemptReinstateError } = await import('../../services/AttemptService.js');
+        const actor = String(req.user!.discordId || req.user!.username || req.user!.localAdminId || 'admin');
+        let result: Awaited<ReturnType<typeof AttemptService.reinstateAttempt>>;
+        try {
+            result = await AttemptService.reinstateAttempt(attemptId, tournamentId, actor);
+        } catch (err) {
+            if (err instanceof AttemptReinstateError) {
+                return res.status(err.httpStatus).json({ error: err.message, code: err.code });
+            }
+            throw err;
+        }
+        const { AuditService } = await import('../../services/AuditService.js');
+        await AuditService.log({
+            actor,
+            action: 'attempt.reinstate',
+            target_type: 'tournament',
+            target_id: tournamentId,
+            details: JSON.stringify({
+                roomId, attemptId, attemptNo: result.attemptNo, of: result.of, scoreHistoryId: result.scoreHistoryId,
+            }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        }).catch(() => { /* the reinstate stands; an audit failure is logged by the service */ });
+        res.json({ success: true, attemptNo: result.attemptNo, of: result.of, scoreHistoryId: result.scoreHistoryId });
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/admin/tournaments/:id/attempts/:attemptId/reinstate):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

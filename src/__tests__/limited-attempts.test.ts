@@ -152,11 +152,14 @@ describe('AttemptService.recordStart', () => {
         expect((await AttemptService.usedByGame(ids.tournamentId))[ids.gameId]![USER]).toBe(3);
     });
 
-    it('cannot void a scored attempt', async () => {
+    it('W68: a scored attempt can be voided (it stops counting); a void row cannot be voided again', async () => {
         await start('k1');
         const db = await getDatabase();
         const row = await db.get<{ id: number }>(`SELECT id FROM attempts WHERE attempt_key = 'k1'`);
         await AttemptService.markScored(row!.id, { scoreHistoryId: 1, score: 10, endedTs: now });
+        await expect(AttemptService.void(row!.id, 'admin-1', ids.tournamentId))
+            .resolves.toEqual({ previousStatus: 'scored', scoreHistoryId: 1 });
+        expect((await AttemptService.usedByGame(ids.tournamentId))[ids.gameId]).toBeUndefined();
         await expect(AttemptService.void(row!.id, 'admin-1', ids.tournamentId)).rejects.toMatchObject({ code: 'NOT_VOIDABLE', httpStatus: 409 });
     });
 });
@@ -832,6 +835,215 @@ describe('manual submits refuse a limited tournament', () => {
             .send({ score: 1000, engine: 'vpx', device: 'pc' });
         expect(res.status).toBe(409);
         expect(res.body).toEqual({ error: ATTEMPTS_WITNESS_ONLY_MESSAGE, code: 'ATTEMPTS_WITNESS_ONLY' });
+    });
+});
+
+/**
+ * W68 (owner 2026-10-30) — the host can give back a SCORED attempt (optionally
+ * deleting its score through the ordinary per-row delete), and REINSTATE an
+ * over-the-limit play once room exists. Born from the Test #4 SAM fragments:
+ * per-ball records ate a player's attempts, so their real game went over_limit.
+ */
+describe('W68: void a scored attempt, reinstate an over-the-limit play', () => {
+    let app: express.Express;
+    let roomId: string;
+    let token: string;
+    const adminToken = () => signToken({ role: 'super_admin', gameRoomIds: [], discordId: 'super-1', username: 'admin' });
+    const playedAtOf = (ended: number) => new Date(ended * 1000).toISOString().replace('T', ' ').replace(/\.\d+Z$/, '');
+
+    beforeEach(async () => {
+        app = await createTestApp();
+        roomId = await createTestRoom();
+        await addMember(roomId, USER);
+        const db = await getDatabase();
+        await db.run(
+            `INSERT INTO global_games (id, name, type, manufacturer, year, status)
+             VALUES (?, 'Bad Cats', 'pinball', 'Williams', 1989, 'approved')`,
+            crypto.randomUUID(),
+        );
+        token = await pairDevice(app, CABINET);
+        await designate(CABINET, roomId);
+    });
+
+    /** One cabinet report: started `minAgo` minutes ago, four minutes long. */
+    const play = (minAgo: number, score: number) => {
+        const started = Math.floor((Date.now() - minAgo * MINUTE) / 1000);
+        const ended = started + 240;
+        return {
+            started, ended, score,
+            send: () => request(app).get('/api/witness/score').query({ device: CABINET, token, ...scoreQuery({ started, ended, score }) }),
+        };
+    };
+    const attemptRow = async (started: number) => {
+        const db = await getDatabase();
+        return db.get<{ id: number; status: string; attempt_no: number; score_history_id: number | null; score: number | null }>(
+            `SELECT id, status, attempt_no, score_history_id, score FROM attempts WHERE attempt_key = ?`, `cab:${started}`,
+        );
+    };
+    const voidIt = (tournamentId: string, id: number, body: Record<string, unknown> = {}) =>
+        request(app).post(`/api/rooms/${roomId}/admin/tournaments/${tournamentId}/attempts/${id}/void`)
+            .set('Authorization', `Bearer ${adminToken()}`).send(body);
+    const reinstate = (tournamentId: string, id: number) =>
+        request(app).post(`/api/rooms/${roomId}/admin/tournaments/${tournamentId}/attempts/${id}/reinstate`)
+            .set('Authorization', `Bearer ${adminToken()}`).send({});
+
+    /** Two attempts: a real game, a per-ball fragment, then the real game that went over the limit. */
+    async function fragmentScenario() {
+        const ids = await createLimitedGame(roomId, 2);
+        const first = play(40, 1_000_000);
+        const fragment = play(30, 4_644_100);
+        const real = play(20, 167_719_210);
+        expect((await first.send()).body.status).toBe('ingested');
+        expect((await fragment.send()).body.status).toBe('ingested');
+        expect((await real.send()).body).toMatchObject({ status: 'no_match' });
+        return { ...ids, first, fragment, real };
+    }
+
+    it('voiding a scored attempt with deleteScore removes the score, tombstones it, and frees the attempt; a replay stays refused', async () => {
+        const { tournamentId, gameId, fragment } = await fragmentScenario();
+        const row = (await attemptRow(fragment.started))!;
+        expect(row).toMatchObject({ status: 'scored', score: 4_644_100 });
+        expect(row.score_history_id).not.toBeNull();
+
+        const res = await voidIt(tournamentId, row.id, { deleteScore: true });
+        expect(res.status).toBe(200);
+        expect(res.body).toEqual({ success: true, scoreDeleted: true });
+        expect((await attemptRow(fragment.started))!.status).toBe('void');
+        expect((await boardRows(gameId)).map(r => r.score)).toEqual([1_000_000]);
+
+        const db = await getDatabase();
+        const tomb = await db.get(
+            `SELECT 1 FROM auto_score_suppressions WHERE source = 'vpx' AND owner_key = ? AND score = 4644100`, USER,
+        );
+        expect(tomb).toBeTruthy();
+        // first + the over-limit row; the voided fragment no longer counts.
+        expect((await AttemptService.usedByGame(tournamentId))[gameId]![USER]).toBe(2);
+
+        // The cabinet replays the fragment: the void is final and the score stays gone.
+        await fragment.send();
+        expect((await boardRows(gameId)).map(r => r.score)).toEqual([1_000_000]);
+        expect((await attemptRow(fragment.started))!.status).toBe('void');
+
+        const audit = await db.get<{ details: string }>(`SELECT details FROM audit_log WHERE action = 'attempt.void' ORDER BY id DESC LIMIT 1`);
+        expect(JSON.parse(audit!.details)).toMatchObject({ attemptId: row.id, previousStatus: 'scored', deleteScore: true, scoreDeleted: true });
+    });
+
+    it('voiding a scored attempt WITHOUT deleteScore keeps the score on the board; the attempt stops counting', async () => {
+        const { tournamentId, gameId, fragment } = await fragmentScenario();
+        const row = (await attemptRow(fragment.started))!;
+        const res = await voidIt(tournamentId, row.id);
+        expect(res.body).toEqual({ success: true });
+        expect((await boardRows(gameId)).map(r => r.score)).toEqual([1_000_000, 4_644_100]);
+        expect((await AttemptService.usedByGame(tournamentId))[gameId]![USER]).toBe(2);
+    });
+
+    it('reinstate: refused with no room; after the fragment is voided the play lands as the next attempt, once, with its own time', async () => {
+        const { tournamentId, gameId, fragment, real } = await fragmentScenario();
+        const over = (await attemptRow(real.started))!;
+        expect(over).toMatchObject({ status: 'over_limit', attempt_no: 3, score: 167_719_210 });
+
+        // The list says why not yet.
+        let list = await request(app).get(`/api/rooms/${roomId}/admin/tournaments/${tournamentId}/attempts`)
+            .set('Authorization', `Bearer ${adminToken()}`);
+        let listed = list.body.attempts.find((a: { id: number }) => a.id === over.id);
+        expect(listed).toMatchObject({ reinstatable: false, used: 3, voidable: true });
+        expect(listed.reinstateBlockedReason).toMatch(/^No room: 2 of 2 attempts/);
+
+        const refused = await reinstate(tournamentId, over.id);
+        expect(refused.status).toBe(409);
+        expect(refused.body).toMatchObject({ code: 'NO_ROOM' });
+        expect(refused.body.error).toMatch(/2 of 2/);
+
+        const db = await getDatabase();
+        const globalBefore = await db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM global_scores WHERE score = 167719210`);
+        expect(globalBefore!.n).toBe(1);
+
+        await voidIt(tournamentId, (await attemptRow(fragment.started))!.id, { deleteScore: true });
+        list = await request(app).get(`/api/rooms/${roomId}/admin/tournaments/${tournamentId}/attempts`)
+            .set('Authorization', `Bearer ${adminToken()}`);
+        listed = list.body.attempts.find((a: { id: number }) => a.id === over.id);
+        expect(listed).toMatchObject({ reinstatable: true, reinstateBlockedReason: null });
+
+        const res = await reinstate(tournamentId, over.id);
+        expect(res.status).toBe(200);
+        expect(res.body).toMatchObject({ success: true, attemptNo: 2, of: 2 });
+
+        const after = (await attemptRow(real.started))!;
+        expect(after).toMatchObject({ status: 'scored', attempt_no: 2, score: 167_719_210, score_history_id: res.body.scoreHistoryId });
+
+        const landed = await db.get<{ created_at: string; submitted_during_tournament_id: string; source: string; device: string; engine: string }>(
+            `SELECT created_at, submitted_during_tournament_id, source, device, engine FROM score_history WHERE id = ?`,
+            res.body.scoreHistoryId,
+        );
+        expect(landed).toEqual({
+            created_at: playedAtOf(real.ended), submitted_during_tournament_id: tournamentId,
+            source: 'vpx', device: 'atgames', engine: 'vpx',
+        });
+        expect((await boardRows(gameId)).map(r => r.score)).toEqual([1_000_000, 167_719_210]);
+
+        // The board reads it, and no second Global row was written.
+        const { LeaderboardService } = await import('../services/LeaderboardService.js');
+        const board = await LeaderboardService.getForGame(gameId);
+        expect(board[0]).toMatchObject({ score: 167_719_210 });
+        const globalAfter = await db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM global_scores WHERE score = 167719210`);
+        expect(globalAfter!.n).toBe(1);
+
+        // The trail reads it as counted, so "Where your plays went" does too.
+        const trail = await db.get<{ outcome: string; score_history_id: number; global_score_id: string | null }>(
+            `SELECT outcome, score_history_id, global_score_id FROM witness_evidence WHERE score = 167719210 AND game_id = ?`, gameId,
+        );
+        expect(trail).toMatchObject({ outcome: 'ingested', score_history_id: res.body.scoreHistoryId });
+        expect(trail!.global_score_id).not.toBeNull();
+        const { WitnessEvidenceService } = await import('../services/WitnessEvidenceService.js');
+        const plays = await WitnessEvidenceService.recentPlaysForUser(USER);
+        const thePlay = plays.find(p => p.score === 167_719_210)!;
+        expect(thePlay.destinations.map(d => d.status)).toEqual(['counted']);
+
+        // A replay of the reinstated report adds nothing; a second reinstate is refused.
+        await real.send();
+        expect((await boardRows(gameId)).map(r => r.score)).toEqual([1_000_000, 167_719_210]);
+        const again = await reinstate(tournamentId, over.id);
+        expect(again.status).toBe(409);
+        expect(again.body.code).toBe('NOT_REINSTATABLE');
+
+        const audit = await db.get<{ details: string }>(`SELECT details FROM audit_log WHERE action = 'attempt.reinstate' ORDER BY id DESC LIMIT 1`);
+        expect(JSON.parse(audit!.details)).toMatchObject({ attemptId: over.id, attemptNo: 2, of: 2 });
+    });
+
+    it('reinstate refuses a row that is not over the limit', async () => {
+        const { tournamentId, first } = await fragmentScenario();
+        const res = await reinstate(tournamentId, (await attemptRow(first.started))!.id);
+        expect(res.status).toBe(409);
+        expect(res.body.code).toBe('NOT_REINSTATABLE');
+    });
+
+    it('reinstate refuses a play somebody deleted (SUPPRESSED) and changes nothing', async () => {
+        const { tournamentId, gameId, fragment, real } = await fragmentScenario();
+        await voidIt(tournamentId, (await attemptRow(fragment.started))!.id);
+        const { AutoScoreSuppressionService } = await import('../services/AutoScoreSuppressionService.js');
+        await AutoScoreSuppressionService.record({
+            source: 'vpx', ownerKey: USER, gameName: 'Bad Cats', score: real.score, playedAt: playedAtOf(real.ended), gameRoomId: roomId,
+        });
+        const over = (await attemptRow(real.started))!;
+        const res = await reinstate(tournamentId, over.id);
+        expect(res.status).toBe(409);
+        expect(res.body.code).toBe('SUPPRESSED');
+        expect((await attemptRow(real.started))).toMatchObject({ status: 'over_limit', attempt_no: over.attempt_no });
+        // The fragment was voided without deleting its score; the deleted play did not land.
+        expect((await boardRows(gameId)).map(r => r.score)).toEqual([1_000_000, 4_644_100]);
+    });
+
+    it('reinstate refuses an over-limit start that never stored a score (a desktop start) — MISSING_PLAY', async () => {
+        const { tournamentId, gameId } = await createLimitedGame(roomId, 1);
+        const now = Math.floor(Date.now() / 1000);
+        const base = { tournamentId, gameId, gameRoomId: roomId, canonicalUserId: USER, deviceId: DESKTOP, limit: 1, startedTs: now, nowSec: now };
+        await AttemptService.recordStart({ ...base, key: 'd1' });
+        await AttemptService.recordStart({ ...base, key: 'd2' });
+        const db = await getDatabase();
+        const [r1, r2] = await db.all<Array<{ id: number }>>(`SELECT id FROM attempts WHERE game_id = ? ORDER BY id`, gameId);
+        await AttemptService.void(r1!.id, 'admin-1', tournamentId);
+        await expect(AttemptService.reinstateAttempt(r2!.id, tournamentId, 'admin-1'))
+            .rejects.toMatchObject({ code: 'MISSING_PLAY', httpStatus: 409 });
     });
 });
 

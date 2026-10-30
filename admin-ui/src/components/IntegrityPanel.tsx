@@ -63,6 +63,12 @@ export type AttemptRow = {
     tableName: string | null;
     voidedAt: string | null;
     voidable: boolean;
+    /** W68 — an over-the-limit play the host can count now (it carries its score and the player has room). */
+    reinstatable?: boolean;
+    /** W68 — why an over-the-limit row cannot be reinstated, for the disabled button's title. */
+    reinstateBlockedReason?: string | null;
+    /** W68 — the player's non-void attempts on this table, this row included. */
+    used?: number;
 };
 
 /** Plain-English attempt status, as a runner reads it. */
@@ -82,7 +88,12 @@ function AttemptsSection({ base, maxAttempts, games, toast }: {
 }) {
     const [rows, setRows] = useState<AttemptRow[] | null>(null);
     const [failed, setFailed] = useState(false);
-    const [voiding, setVoiding] = useState<number | null>(null);
+    const [busy, setBusy] = useState<number | null>(null);
+    // W68 — a SCORED row's Void asks first, with "Also delete its score".
+    const [confirming, setConfirming] = useState<number | null>(null);
+    const [alsoDelete, setAlsoDelete] = useState(false);
+    // Bumped after a void / reinstate: either changes which over-the-limit rows have room.
+    const [reloadKey, setReloadKey] = useState(0);
 
     useEffect(() => {
         let cancelled = false;
@@ -90,18 +101,43 @@ function AttemptsSection({ base, maxAttempts, games, toast }: {
             .then(r => { if (!cancelled) setRows(r.attempts ?? []); })
             .catch(() => { if (!cancelled) { setRows([]); setFailed(true); } });
         return () => { cancelled = true; };
-    }, [base]);
+    }, [base, reloadKey]);
 
-    const voidAttempt = async (row: AttemptRow) => {
-        setVoiding(row.id);
+    const voidAttempt = async (row: AttemptRow, deleteScore = false) => {
+        setBusy(row.id);
         try {
-            await api.post(`${base}/attempts/${row.id}/void`, {});
-            setRows(prev => (prev ?? []).map(r => r.id === row.id ? { ...r, status: 'void', voidable: false } : r));
-            toast(`Attempt ${row.attemptNo} given back to ${row.playerLabel}`, 'success');
+            const res = await api.post<{ success: boolean; scoreDeleted?: boolean; scoreDeleteError?: string }>(
+                `${base}/attempts/${row.id}/void`, deleteScore ? { deleteScore: true } : {},
+            );
+            setRows(prev => (prev ?? []).map(r => r.id === row.id ? { ...r, status: 'void', voidable: false, reinstatable: false } : r));
+            setConfirming(null);
+            setAlsoDelete(false);
+            if (deleteScore && res?.scoreDeleteError) {
+                toast(`Attempt ${row.attemptNo} given back to ${row.playerLabel}, but its score was not deleted: ${res.scoreDeleteError}`, 'error');
+            } else {
+                toast(`Attempt ${row.attemptNo} given back to ${row.playerLabel}${deleteScore && res?.scoreDeleted ? ' and its score deleted' : ''}`, 'success');
+            }
+            setReloadKey(k => k + 1);
         } catch (err) {
             toast((err as Error)?.message || 'Could not void the attempt', 'error');
         } finally {
-            setVoiding(null);
+            setBusy(null);
+        }
+    };
+
+    const reinstateAttempt = async (row: AttemptRow) => {
+        setBusy(row.id);
+        try {
+            const res = await api.post<{ success: boolean; attemptNo: number; of: number }>(`${base}/attempts/${row.id}/reinstate`, {});
+            setRows(prev => (prev ?? []).map(r => r.id === row.id
+                ? { ...r, status: 'scored', attemptNo: res?.attemptNo ?? r.attemptNo, reinstatable: false, reinstateBlockedReason: null }
+                : r));
+            toast(`${row.playerLabel}'s ${row.score != null ? formatScore(row.score) : 'play'} now counts as attempt ${res?.attemptNo ?? '?'} of ${maxAttempts}`, 'success');
+            setReloadKey(k => k + 1);
+        } catch (err) {
+            toast((err as Error)?.message || 'Could not reinstate the attempt', 'error');
+        } finally {
+            setBusy(null);
         }
     };
 
@@ -119,7 +155,8 @@ function AttemptsSection({ base, maxAttempts, games, toast }: {
             <h3 className="text-xs font-display uppercase tracking-wider text-muted mb-2">Attempts</h3>
             <p className="text-xs text-faint mb-3">
                 Each player gets {maxAttempts} game start{maxAttempts === 1 ? '' : 's'} per table, counted by Arcaid Witness (Castcade when the game starts, a cabinet when it reports the game).
-                Void gives an attempt back (a crashed companion, an honest mistake); an attempt that already has a score cannot be voided — delete the score instead.
+                Void gives an attempt back (a crashed companion, an honest mistake); a scored attempt can be voided too, optionally deleting its score.
+                Reinstate counts an over-the-limit play once room exists. Otherwise a void, and an over-the-limit play, is final.
             </p>
             {rows === null ? (
                 <p className="text-xs text-muted">Loading…</p>
@@ -156,13 +193,53 @@ function AttemptsSection({ base, maxAttempts, games, toast }: {
                                                 <td className="py-1.5 pr-2 text-muted whitespace-nowrap">{formatWhen(new Date(r.startedTs * 1000).toISOString())}</td>
                                                 <td className="py-1.5 pr-2 text-right font-display text-primary whitespace-nowrap">{r.score != null ? formatScore(r.score) : '—'}</td>
                                                 <td className="py-1.5 text-right">
-                                                    {r.voidable && (
-                                                        <NeonButton variant="ghost" className="text-xs px-2 py-0.5"
-                                                            disabled={voiding === r.id}
-                                                            onClick={() => void voidAttempt(r)}
-                                                            aria-label={`Void attempt ${r.attemptNo} for ${r.playerLabel}`}>
-                                                            Void
-                                                        </NeonButton>
+                                                    <div className="flex flex-wrap justify-end gap-1">
+                                                        {r.status === 'over_limit' && (
+                                                            <NeonButton variant="ghost" className="text-xs px-2 py-0.5"
+                                                                disabled={busy === r.id || !r.reinstatable}
+                                                                title={r.reinstatable
+                                                                    ? `Count this play as an attempt now (${(r.used ?? 1) - 1} of ${maxAttempts} used)`
+                                                                    : (r.reinstateBlockedReason ?? 'This attempt cannot be reinstated.')}
+                                                                onClick={() => void reinstateAttempt(r)}
+                                                                aria-label={`Reinstate attempt ${r.attemptNo} for ${r.playerLabel}`}>
+                                                                Reinstate
+                                                            </NeonButton>
+                                                        )}
+                                                        {r.voidable && confirming !== r.id && (
+                                                            <NeonButton variant="ghost" className="text-xs px-2 py-0.5"
+                                                                disabled={busy === r.id}
+                                                                onClick={() => {
+                                                                    // A scored row asks first; every other row voids at once, as before.
+                                                                    if (r.status === 'scored') { setConfirming(r.id); setAlsoDelete(false); }
+                                                                    else void voidAttempt(r);
+                                                                }}
+                                                                aria-label={`Void attempt ${r.attemptNo} for ${r.playerLabel}`}>
+                                                                Void
+                                                            </NeonButton>
+                                                        )}
+                                                    </div>
+                                                    {confirming === r.id && (
+                                                        <div className="mt-1 text-left space-y-1" data-testid={`attempt-void-confirm-${r.id}`}>
+                                                            <p className="text-[11px] text-muted">Give this scored attempt back?</p>
+                                                            <label className="flex items-center gap-1.5 text-[11px] text-primary">
+                                                                <input type="checkbox" checked={alsoDelete}
+                                                                    onChange={e => setAlsoDelete(e.target.checked)} />
+                                                                Also delete its score
+                                                            </label>
+                                                            <div className="flex justify-end gap-1">
+                                                                <NeonButton variant="ghost" className="text-xs px-2 py-0.5"
+                                                                    disabled={busy === r.id}
+                                                                    onClick={() => { setConfirming(null); setAlsoDelete(false); }}>
+                                                                    Cancel
+                                                                </NeonButton>
+                                                                <NeonButton variant="ghost" className="text-xs px-2 py-0.5"
+                                                                    disabled={busy === r.id}
+                                                                    onClick={() => void voidAttempt(r, alsoDelete)}
+                                                                    aria-label={`Confirm void of attempt ${r.attemptNo} for ${r.playerLabel}`}>
+                                                                    Void
+                                                                </NeonButton>
+                                                            </div>
+                                                        </div>
                                                     )}
                                                 </td>
                                             </tr>
