@@ -12,6 +12,7 @@ vi.mock('../../lib/api', () => ({
   api: {
     get: vi.fn(),
     patch: vi.fn(),
+    post: vi.fn(),
   },
 }));
 
@@ -254,5 +255,105 @@ describe('IntegrityPanel', () => {
     render(<IntegrityPanel roomId={ROOM} tournament={TOURNAMENT} onClose={() => {}} toast={toast} />);
     expect(await screen.findByLabelText('Required table for Monster Bash')).toBeInTheDocument();
     expect(screen.getByText('No witness scores with evidence yet.')).toBeInTheDocument();
+  });
+});
+
+/**
+ * W68 — the Attempts section: Void now takes a SCORED row (asking first, with
+ * "Also delete its score"), and an over-the-limit row has Reinstate, disabled
+ * with the server's reason when there is no room.
+ */
+describe('IntegrityPanel — attempts (W68)', () => {
+  const toast = vi.fn();
+  const BASE = `/rooms/${ROOM}/admin/tournaments/t-1`;
+  const row = (over: Record<string, unknown>) => ({
+    gameId: 'g-mb', gameName: 'Monster Bash', userId: '123456789012345678', playerLabel: 'ChalataLove',
+    late: false, startedTs: 1_761_800_000, receivedAt: '2026-10-29 20:00:00', endedTs: 1_761_800_300,
+    tableName: 'Monster Bash', voidedAt: null, reinstatable: false, reinstateBlockedReason: null, used: 3,
+    ...over,
+  });
+  const ATTEMPTS = [
+    row({ id: 31, attemptNo: 2, status: 'scored', score: 4_644_100, scoreHistoryId: 901, voidable: true }),
+    row({ id: 32, attemptNo: 6, status: 'over_limit', score: 167_719_210, scoreHistoryId: null, voidable: true, reinstatable: true }),
+    row({ id: 33, attemptNo: 7, status: 'over_limit', score: null, endedTs: null, scoreHistoryId: null, voidable: true,
+      reinstateBlockedReason: 'No score was recorded with this attempt, so there is no play to put on the board.' }),
+  ];
+  const mockedPost = vi.mocked(api.post);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockedGet.mockImplementation((path: string) => {
+      if (path.endsWith('/integrity')) return Promise.resolve({ ...INTEGRITY, maxAttempts: 5 });
+      if (path.includes('/evidence')) return Promise.resolve({ evidence: [] });
+      if (path === `${BASE}/attempts`) return Promise.resolve({ maxAttempts: 5, attempts: ATTEMPTS });
+      if (path === '/global/games/gg-mb/tables') return Promise.resolve(TABLES);
+      return Promise.reject(new Error(`unexpected GET ${path}`));
+    });
+  });
+
+  it('a scored row voids only after the confirm, and the checkbox sends deleteScore', async () => {
+    mockedPost.mockResolvedValue({ success: true, scoreDeleted: true });
+    render(<IntegrityPanel roomId={ROOM} tournament={TOURNAMENT} onClose={() => {}} toast={toast} />);
+    const scored = await screen.findByTestId('attempt-row-31');
+    fireEvent.click(within(scored).getByLabelText('Void attempt 2 for ChalataLove'));
+    expect(mockedPost).not.toHaveBeenCalled();
+
+    const confirm = within(scored).getByTestId('attempt-void-confirm-31');
+    fireEvent.click(within(confirm).getByLabelText('Also delete its score'));
+    fireEvent.click(within(confirm).getByLabelText('Confirm void of attempt 2 for ChalataLove'));
+
+    await waitFor(() => expect(mockedPost).toHaveBeenCalledWith(`${BASE}/attempts/31/void`, { deleteScore: true }));
+    await waitFor(() => expect(toast).toHaveBeenCalledWith('Attempt 2 given back to ChalataLove and its score deleted', 'success'));
+  });
+
+  it('cancelling the confirm voids nothing; voiding without the box sends no deleteScore', async () => {
+    mockedPost.mockResolvedValue({ success: true });
+    render(<IntegrityPanel roomId={ROOM} tournament={TOURNAMENT} onClose={() => {}} toast={toast} />);
+    const scored = await screen.findByTestId('attempt-row-31');
+    fireEvent.click(within(scored).getByLabelText('Void attempt 2 for ChalataLove'));
+    fireEvent.click(within(scored).getByText('Cancel'));
+    expect(screen.queryByTestId('attempt-void-confirm-31')).toBeNull();
+    expect(mockedPost).not.toHaveBeenCalled();
+
+    fireEvent.click(within(scored).getByLabelText('Void attempt 2 for ChalataLove'));
+    fireEvent.click(within(scored).getByLabelText('Confirm void of attempt 2 for ChalataLove'));
+    await waitFor(() => expect(mockedPost).toHaveBeenCalledWith(`${BASE}/attempts/31/void`, {}));
+  });
+
+  it('a delete that failed after the void is reported as an error', async () => {
+    mockedPost.mockResolvedValue({ success: true, scoreDeleted: false, scoreDeleteError: 'The score was not found (already deleted?)' });
+    render(<IntegrityPanel roomId={ROOM} tournament={TOURNAMENT} onClose={() => {}} toast={toast} />);
+    const scored = await screen.findByTestId('attempt-row-31');
+    fireEvent.click(within(scored).getByLabelText('Void attempt 2 for ChalataLove'));
+    fireEvent.click(within(scored).getByLabelText('Also delete its score'));
+    fireEvent.click(within(scored).getByLabelText('Confirm void of attempt 2 for ChalataLove'));
+    await waitFor(() => expect(toast).toHaveBeenCalledWith(
+      'Attempt 2 given back to ChalataLove, but its score was not deleted: The score was not found (already deleted?)', 'error',
+    ));
+  });
+
+  it('Reinstate is enabled on an over-the-limit row with room and posts to /reinstate', async () => {
+    mockedPost.mockResolvedValue({ success: true, attemptNo: 3, of: 5, scoreHistoryId: 950 });
+    render(<IntegrityPanel roomId={ROOM} tournament={TOURNAMENT} onClose={() => {}} toast={toast} />);
+    const over = await screen.findByTestId('attempt-row-32');
+    const button = within(over).getByLabelText('Reinstate attempt 6 for ChalataLove') as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    fireEvent.click(button);
+    await waitFor(() => expect(mockedPost).toHaveBeenCalledWith(`${BASE}/attempts/32/reinstate`, {}));
+    await waitFor(() => expect(toast).toHaveBeenCalledWith("ChalataLove's 167,719,210 now counts as attempt 3 of 5", 'success'));
+    // The list is re-read: the reinstate changed who has room.
+    await waitFor(() => expect(mockedGet.mock.calls.filter(c => c[0] === `${BASE}/attempts`).length).toBeGreaterThanOrEqual(2));
+  });
+
+  it('Reinstate is disabled with the reason when the row cannot be counted; a scored row has none', async () => {
+    render(<IntegrityPanel roomId={ROOM} tournament={TOURNAMENT} onClose={() => {}} toast={toast} />);
+    const blocked = await screen.findByTestId('attempt-row-33');
+    const button = within(blocked).getByLabelText('Reinstate attempt 7 for ChalataLove') as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(button.title).toBe('No score was recorded with this attempt, so there is no play to put on the board.');
+    expect(within(screen.getByTestId('attempt-row-31')).queryByText('Reinstate')).toBeNull();
+    // The copy no longer tells the host to delete the score instead.
+    expect(screen.getByTestId('attempts-section')).toHaveTextContent('a scored attempt can be voided too, optionally deleting its score');
+    expect(screen.getByTestId('attempts-section')).not.toHaveTextContent('delete the score instead');
   });
 });

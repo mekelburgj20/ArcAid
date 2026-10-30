@@ -684,29 +684,10 @@ export class VpxScoreIngestService {
             };
         }
 
-        const username = await VpxScoreIngestService.resolvePlayerName(
-            input.canonicalUserId, target.game_room_id,
-        );
-
-        const id = await ScoreHistoryService.log({
-            gameName: target.name,
-            gameRoomId: target.game_room_id,
-            gameId: target.id,
-            username,
-            discordUserId: input.canonicalUserId,
-            score,
-            source: 'vpx',
-            tournamentId: target.tournament_id ?? null,
-            // Provenance is KNOWN here, unlike an iScored sync: the engine is
-            // VPX by construction (the record came out of VPX) and the device
-            // is whatever kind of machine the Witness that posted it is paired
-            // on — the cabinet, or a Windows rig running the Castcade companion
-            // (v2.163.0). `provenanceFor` is the ONE mapping for all three
-            // writes below and the exclusion check above.
-            ...provenance,
-            // The launcher's timestamp, not ours — the same discipline the
-            // AtGames path follows, and what makes the witness join possible.
-            createdAt: playedAt,
+        // The board write (name, `score_history` row, cache flush) is shared
+        // with a host's reinstate of an over-the-limit play (W68).
+        const { id, username } = await VpxScoreIngestService.writeBoardRow({
+            canonicalUserId: input.canonicalUserId, target, score, playedAt, provenance,
         });
 
         // v2.166.2 — what the trail STORES (and the board shows) for a score
@@ -717,18 +698,6 @@ export class VpxScoreIngestService {
             await VpxScoreIngestService.trail(input, score, playedAt, { outcome: 'duplicate', ...where, integrityMode: mode, verdict: badge });
             return { status: 'duplicate', ...where, verdict: badge?.verdict ?? null, reasons: badge?.reasons ?? [] };
         }
-
-        // The room board is served from `leaderboard_cache`, which has no
-        // expiry: the manual submit routes, the per-row delete and the player
-        // merge clear it, and until v2.165.0 this path never did. A witness
-        // score was therefore on the tournament's scores page at once but off
-        // the room page until someone ELSE'S manual submission to the same game
-        // flushed the cache (the owner's Tales from the Crypt game, 2026-10-20).
-        // The score route already pushes `leaderboard:updated` on `ingested`;
-        // the refetch that push triggers re-read the stale cache. Cleared here,
-        // before the fan-out and the trail, so no return path below can skip it.
-        const { LeaderboardService } = await import('./LeaderboardService.js');
-        await LeaderboardService.invalidate(target.id);
 
         // v2.153.0 (ADR 0023): landing in a tournament does not keep a score off
         // the Global Scoreboard. Where you played is not supposed to decide
@@ -778,6 +747,149 @@ export class VpxScoreIngestService {
             globalScoreId: fanned?.globalScoreId ?? null,
             ...(attemptAccepted ? { attempt: attemptAccepted.attempt } : {}),
         };
+    }
+
+    /**
+     * The board write every landing shares (extracted v2.203.0, W68, so a
+     * host's REINSTATE of an over-the-limit play writes exactly the row the
+     * ingest would have): the player's board name, the `score_history` row,
+     * and the cache flush. `id` is null when the `log` dedup swallowed it
+     * (nothing written, nothing flushed).
+     */
+    private static async writeBoardRow(args: {
+        canonicalUserId: string;
+        target: Pick<CandidateRow, 'id' | 'name' | 'game_room_id' | 'tournament_id'>;
+        score: number;
+        playedAt: string;
+        provenance: WitnessProvenance;
+    }): Promise<{ id: number | null; username: string }> {
+        const { canonicalUserId, target, score, playedAt, provenance } = args;
+        const username = await VpxScoreIngestService.resolvePlayerName(canonicalUserId, target.game_room_id);
+
+        const id = await ScoreHistoryService.log({
+            gameName: target.name,
+            gameRoomId: target.game_room_id,
+            gameId: target.id,
+            username,
+            discordUserId: canonicalUserId,
+            score,
+            source: 'vpx',
+            tournamentId: target.tournament_id ?? null,
+            // Provenance is KNOWN here, unlike an iScored sync: the engine is
+            // VPX by construction (the record came out of VPX) and the device
+            // is whatever kind of machine the Witness that posted it is paired
+            // on — the cabinet, or a Windows rig running the Castcade companion
+            // (v2.163.0). `provenanceFor` is the ONE mapping for the room
+            // write, both Global writes and the exclusion check.
+            ...provenance,
+            // The launcher's timestamp, not ours — the same discipline the
+            // AtGames path follows, and what makes the witness join possible.
+            createdAt: playedAt,
+        });
+        if (id == null) return { id, username };
+
+        // The room board is served from `leaderboard_cache`, which has no
+        // expiry: the manual submit routes, the per-row delete and the player
+        // merge clear it, and until v2.165.0 this path never did. A witness
+        // score was therefore on the tournament's scores page at once but off
+        // the room page until someone ELSE'S manual submission to the same game
+        // flushed the cache (the owner's Tales from the Crypt game, 2026-10-20).
+        // The score route already pushes `leaderboard:updated` on `ingested`;
+        // the refetch that push triggers re-read the stale cache. Cleared here,
+        // before the fan-out and the trail, so no return path after it can skip it.
+        const { LeaderboardService } = await import('./LeaderboardService.js');
+        await LeaderboardService.invalidate(target.id);
+        return { id, username };
+    }
+
+    /**
+     * W68 (v2.203.0) — a host REINSTATES an over-the-limit play
+     * (`AttemptService.reinstateAttempt`, which has already decided there is
+     * room and flipped the attempt). Lands it on the board the way `landOn`
+     * would have had the attempt been within the limit: the suppression check
+     * (a play somebody deleted stays deleted), the shared `writeBoardRow`, and
+     * the trail row amended so "Where your plays went" reads it as counted.
+     * NO Global fan-out — the over-limit play already went to Global, and that
+     * row is kept as it is.
+     *
+     * `'suppressed'` and `'duplicate'` write nothing; the caller undoes its
+     * flip on either.
+     */
+    static async landReinstated(input: {
+        canonicalUserId: string;
+        game: { id: string; name: string; gameRoomId: string | null; tournamentId: string };
+        score: number;
+        endedTs: number;
+        tableName: string | null;
+        rom: string | null;
+        provenance: WitnessProvenance;
+        /** The over-limit play's trail row, when found; a fresh one is written otherwise. */
+        trailId: number | null;
+        deviceId: string;
+    }): Promise<{ status: 'ingested'; scoreHistoryId: number } | { status: 'suppressed' | 'duplicate' }> {
+        const score = Math.floor(input.score);
+        const playedAt = toSqliteUtc(Math.floor(input.endedTs));
+        if (await VpxScoreIngestService.isReinstateSuppressed(input.canonicalUserId, input.game.name, input.tableName, input.rom, score, playedAt)) {
+            return { status: 'suppressed' };
+        }
+        const { id } = await VpxScoreIngestService.writeBoardRow({
+            canonicalUserId: input.canonicalUserId,
+            target: {
+                id: input.game.id, name: input.game.name,
+                game_room_id: input.game.gameRoomId, tournament_id: input.game.tournamentId,
+            },
+            score, playedAt, provenance: input.provenance,
+        });
+        if (id == null) return { status: 'duplicate' };
+
+        const reasons = ['reinstated by a host (it was over the attempt limit)'];
+        try {
+            const db = await getDatabase();
+            if (input.trailId != null) {
+                await db.run(
+                    `UPDATE witness_evidence SET outcome = 'ingested', score_history_id = ?, reasons = ? WHERE id = ?`,
+                    id, JSON.stringify(reasons), input.trailId,
+                );
+            } else {
+                const { WitnessEvidenceService } = await import('./WitnessEvidenceService.js');
+                await WitnessEvidenceService.record({
+                    deviceId: input.deviceId, canonicalUserId: input.canonicalUserId, outcome: 'ingested',
+                    gameId: input.game.id, tournamentId: input.game.tournamentId, gameRoomId: input.game.gameRoomId,
+                    scoreHistoryId: id, reasons,
+                    tableName: input.tableName || input.game.name, rom: input.rom, score, playedAt, evidence: null,
+                });
+            }
+        } catch (err) {
+            // Best-effort, like `trail`: the score is already on the board.
+            logWarn(`VPX reinstate: evidence trail not updated (${err instanceof Error ? err.message : String(err)})`);
+        }
+        logInfo(
+            `VPX reinstate: ${input.canonicalUserId} ${score} on "${input.game.name}" ` +
+            `(tournament ${input.game.tournamentId}) → score_history#${id}`,
+        );
+        return { status: 'ingested', scoreHistoryId: id };
+    }
+
+    /**
+     * W68 — was this over-the-limit play deleted by somebody (ADR 0024)? The
+     * same one predicate the ingest asks, with the names a reinstate still has
+     * (the room game's, the launcher's display name, the rom).
+     */
+    static async isReinstateSuppressed(
+        canonicalUserId: string, gameName: string, tableName: string | null, rom: string | null,
+        score: number, playedAt: string,
+    ): Promise<boolean> {
+        const { AutoScoreSuppressionService } = await import('./AutoScoreSuppressionService.js');
+        return AutoScoreSuppressionService.isSuppressed({
+            source: 'vpx', ownerKey: canonicalUserId,
+            gameNames: [gameName, tableName ?? '', rom ?? ''].filter(Boolean),
+            score: Math.floor(score), playedAt,
+        });
+    }
+
+    /** W68 — SQLite UTC shape of a launcher epoch, as the ingest stamps `created_at`/`played_at`. */
+    static playedAtOf(endedTs: number): string {
+        return toSqliteUtc(Math.floor(endedTs));
     }
 
     /**
