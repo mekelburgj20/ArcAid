@@ -1,9 +1,7 @@
-import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Building2, ArrowLeft, Home, UserCheck, Trophy, Mail, Sparkles, BookmarkPlus, LogOut } from 'lucide-react';
+import { Building2, ArrowLeft, Home, UserCheck, Trophy, Mail, Sparkles, BookmarkPlus } from 'lucide-react';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { useMyRooms } from '../hooks/useMyRooms';
-import { useToast } from '../components/Toast';
 import LoginButtons from '../components/LoginButtons';
 import { relativeTimeFrom } from '../lib/format';
 
@@ -35,18 +33,8 @@ function formatRelativeTime(iso: string | null): string {
 
 export default function MyRooms() {
   const { discordUser, loginWithDiscord, loginWithGoogle } = useViewerAuth();
-  // v2.38.0 — shared join/leave hook (was a local fetch here, now the same
-  // /api/me/rooms state + optimistic mutations LandingPage/PublicLayout use).
-  const { rooms, loading, leave } = useMyRooms();
-  const { toast } = useToast();
-  const [leavingId, setLeavingId] = useState<string | null>(null);
-
-  const handleLeave = async (room: { roomId: string; name: string }) => {
-    setLeavingId(room.roomId);
-    const ok = await leave(room.roomId);
-    setLeavingId(null);
-    toast(ok ? `Left ${room.name}.` : 'Could not leave that room — try again.', ok ? 'info' : 'error');
-  };
+  // v2.38.0 — shared /api/me/rooms state (the same hook LandingPage/PublicLayout use).
+  const { rooms, loading } = useMyRooms();
 
   if (!discordUser) {
     return (
@@ -141,18 +129,10 @@ export default function MyRooms() {
                   <span className="hidden sm:inline">{SOURCE_LABEL[room.source as RoomMemberSource]}</span>
                 </span>
 
-                {/* v2.38.0 — leave affordance. preventDefault/stopPropagation so
-                    it never triggers the row-wide Link's navigation. */}
-                <button
-                  type="button"
-                  onClick={e => { e.preventDefault(); e.stopPropagation(); handleLeave(room); }}
-                  disabled={leavingId === room.roomId}
-                  aria-label={`Leave ${room.name}`}
-                  title="Leave this room"
-                  className="flex items-center justify-center w-8 h-8 rounded text-faint hover:text-neon-magenta hover:bg-neon-magenta/10 transition-colors flex-shrink-0 bg-transparent border-0 cursor-pointer disabled:opacity-40 disabled:cursor-wait"
-                >
-                  <LogOut size={14} />
-                </button>
+                {/* W21 (WWS 2026-10-23) — no leave button on the row any more:
+                    a one-tap leave sat beside the room title and TomatoGrass hit
+                    it on a phone. Leave from inside the room (user menu), which
+                    asks first. */}
               </Link>
             ))}
           </div>

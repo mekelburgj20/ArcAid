@@ -171,7 +171,7 @@ export default function GameRoomManager() {
           `QUICK SETUP`,
           `1. Log in and go to Settings`,
           `2. Add the Arcaid bot to your Discord server (as someone with Manage Server): ${botInviteUrl ?? 'use "Add the bot to Discord" in Settings → Discord'}`,
-          `3. Enter your Discord Guild ID, default Announcement Channel ID, and Admin Role ID`,
+          `3. Enter your Discord Guild ID and default Announcement Channel ID (admin bot commands need the server Administrator permission)`,
           `4. Enter your iScored credentials and Public URL`,
           `5. Set your timezone in Tournament Defaults`,
           `6. Go to Game Library and import games (VPS or VPXS Wizard)`,

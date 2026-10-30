@@ -6,6 +6,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.200.0] - 2026-10-30 - Leaving a room asks first; "Admin Role ID" retired (W21, G2)
+
+### Changed
+- **Leaving a room takes a confirm, and only happens from inside the room (W21).** At the Witness Weekend
+  Showdown, TomatoGrass left the event's room by accident with one tap on his phone. The leave icon sat right
+  beside the room title in My Rooms.
+  - **My Rooms:** the leave icon on each row is gone.
+  - **Landing page:** a room you're in shows the green bookmark as a plain *member* badge (clicking it opens
+    the room). Joining from a card works as before.
+  - **Inside the room:** your user menu's "Leave <room>" now asks "Leave <room>? You can rejoin any time."
+    first.
+
+### Removed
+- **"Admin Role ID" is gone from Room Settings → Discord (G2).** Nothing has read it since
+  admin bot commands switched to Discord's own permissions; they need the server's **Administrator**
+  permission, and a server owner can open individual commands to other roles under Server Settings →
+  Integrations → Arcaid.
+  - Help and the room-setup instructions now say that.
+  - The stale `/setup` row in Help now describes the retired command.
+  - Migration 199 deletes the stored values. The key stays claimed on the Settings page, so a stray value can
+    never show up as a raw text box.
+
 ## [2.199.0] - 2026-10-30 - The Steam Pinball sync stops wiping other importers' links (C9)
 
 The Steam Pinball importer was the only importer that did not stamp `imported_from`. `GlobalGameService.upsert`

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import MyRooms from '../MyRooms';
 import { ViewerAuthProvider } from '../../contexts/ViewerAuthContext';
@@ -43,7 +43,7 @@ describe('MyRooms', () => {
     expect(screen.getByText('Log in to see the rooms you belong to')).toBeInTheDocument();
   });
 
-  it('signed-in: lists rooms and leaving removes the row via DELETE', async () => {
+  it('signed-in: lists rooms with NO leave button on the row (W21 — leave from inside the room)', async () => {
     signInAs('user-1', 'Justin');
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (init?.method === 'DELETE') {
@@ -64,12 +64,9 @@ describe('MyRooms', () => {
     renderMyRooms();
     await waitFor(() => expect(screen.getByText('RTX Pinball')).toBeInTheDocument());
 
-    const leaveBtn = screen.getByLabelText('Leave RTX Pinball');
-    fireEvent.click(leaveBtn);
-
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/me/rooms/room-1', expect.objectContaining({ method: 'DELETE' })));
-    await waitFor(() => expect(screen.queryByText('RTX Pinball')).not.toBeInTheDocument());
-    // Empty-state copy shown once the last room is left.
-    expect(screen.getByText("You haven't joined any rooms yet.")).toBeInTheDocument();
+    // W21 (WWS 2026-10-23): the one-tap leave sat beside the title and was hit by accident on a phone.
+    expect(screen.queryByLabelText('Leave RTX Pinball')).not.toBeInTheDocument();
+    expect(screen.queryByTitle('Leave this room')).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalledWith('/api/me/rooms/room-1', expect.objectContaining({ method: 'DELETE' }));
   });
 });

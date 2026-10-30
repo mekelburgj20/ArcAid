@@ -190,7 +190,7 @@ describe('PublicLayout', () => {
     ));
   });
 
-  it('signed-in, member: UserMenu shows "Leave <room>" and DELETEs on click', async () => {
+  it('signed-in, member: UserMenu "Leave <room>" asks first (W21); Cancel leaves nothing, "Leave room" DELETEs', async () => {
     signInAs('user-1', 'Justin');
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url.startsWith('/api/portal')) {
@@ -217,10 +217,20 @@ describe('PublicLayout', () => {
     renderAt('/rtx_pinball/child');
     await waitFor(() => expect(screen.getByTestId('roomId')).toHaveTextContent('room-1'));
 
-    fireEvent.click(screen.getByLabelText('User menu'));
-    const leaveItem = await screen.findByText('Leave RTX Pinball');
+    const deleted = () => fetchMock.mock.calls.some(([u, init]) => u === '/api/me/rooms/room-1' && init?.method === 'DELETE');
 
-    fireEvent.click(leaveItem);
+    fireEvent.click(screen.getByLabelText('User menu'));
+    fireEvent.click(await screen.findByText('Leave RTX Pinball'));
+    // W21 — a confirm, not an instant leave.
+    expect(await screen.findByText('Leave RTX Pinball?')).toBeInTheDocument();
+    expect(deleted()).toBe(false);
+    fireEvent.click(screen.getByText('Cancel'));
+    await waitFor(() => expect(screen.queryByText('Leave RTX Pinball?')).not.toBeInTheDocument());
+    expect(deleted()).toBe(false);
+
+    fireEvent.click(screen.getByLabelText('User menu'));
+    fireEvent.click(await screen.findByText('Leave RTX Pinball'));
+    fireEvent.click(await screen.findByText('Leave room'));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
       '/api/me/rooms/room-1',
       expect.objectContaining({ method: 'DELETE' }),

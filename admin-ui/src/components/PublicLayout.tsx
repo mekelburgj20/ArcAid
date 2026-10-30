@@ -23,6 +23,7 @@ import LoadingState from './LoadingState';
 import RoomJoinGate from './RoomJoinGate';
 import { PlayerQuickViewProvider } from '../contexts/PlayerQuickViewContext';
 import ReportContentModal from './ReportContentModal';
+import ConfirmModal from './ConfirmModal';
 import TourController from './TourController';
 import NotificationNudgeBanner from './NotificationNudgeBanner';
 import UpdateNudgeBanner from './UpdateNudgeBanner';
@@ -227,7 +228,15 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
     toast(ok ? `Added ${roomName} to My Game Rooms.` : 'Could not join this room — try again.', ok ? 'success' : 'error');
   };
 
-  const handleLeaveRoom = async () => {
+  // W21 (WWS 2026-10-23) — leaving takes a confirm. TomatoGrass left the
+  // event's room by accident from his phone with one tap; this (the user menu,
+  // inside the room) is now the ONLY place to leave, and it asks first.
+  const [confirmLeave, setConfirmLeave] = useState(false);
+  const handleLeaveRoom = () => {
+    if (resolvedRoomId) setConfirmLeave(true);
+  };
+  const leaveConfirmed = async () => {
+    setConfirmLeave(false);
     if (!resolvedRoomId) return;
     const ok = await leaveRoom(resolvedRoomId);
     toast(ok ? `Left ${roomName}.` : 'Could not leave this room — try again.', ok ? 'info' : 'error');
@@ -561,6 +570,15 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
         )}
       </footer>
 
+      {confirmLeave && (
+        <ConfirmModal
+          title={`Leave ${roomName}?`}
+          message="You can rejoin any time. Leaving takes this room off My Game Rooms; your scores stay on its boards."
+          confirmLabel="Leave room"
+          onConfirm={leaveConfirmed}
+          onCancel={() => setConfirmLeave(false)}
+        />
+      )}
       {showReportRoom && resolvedRoomId && (
         <ReportContentModal
           title="Report this room"
