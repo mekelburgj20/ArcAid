@@ -176,7 +176,7 @@ describe('LandingPage', () => {
       expect(screen.getByText('Game Rooms')).toBeInTheDocument();
     });
 
-    it('signed-in, member card: clicking the toggle leaves and the room drops out of My Game Rooms', async () => {
+    it('signed-in, member card: a member BADGE, no leave action on the card (W21)', async () => {
       signInAs('user-1', 'Justin');
       const fetchMock = mockFetch({
         rooms: [PUBLIC_ROOM_1, PUBLIC_ROOM_2],
@@ -185,13 +185,13 @@ describe('LandingPage', () => {
       renderLanding();
       await waitFor(() => expect(screen.getByText('My Game Rooms')).toBeInTheDocument());
 
-      const leaveBtn = screen.getByLabelText('Leave RTX Pinball');
-      fireEvent.click(leaveBtn);
-
-      await waitFor(() => expect(screen.queryByText('My Game Rooms')).not.toBeInTheDocument());
-      // Un-membered room falls back into the public grid.
-      expect(screen.getByText('RTX Pinball')).toBeInTheDocument();
-      expect(fetchMock).toHaveBeenCalledWith('/api/me/rooms/room-1', expect.objectContaining({ method: 'DELETE' }));
+      // The one-tap leave is gone; the member state is a badge, not a button.
+      expect(screen.queryByLabelText('Leave RTX Pinball')).not.toBeInTheDocument();
+      const badge = screen.getByLabelText("You're a member of RTX Pinball");
+      expect(badge.tagName).toBe('SPAN');
+      fireEvent.click(badge);
+      expect(screen.getByText('My Game Rooms')).toBeInTheDocument();
+      expect(fetchMock).not.toHaveBeenCalledWith('/api/me/rooms/room-1', expect.objectContaining({ method: 'DELETE' }));
     });
 
     // v2.39.0 — approval rooms: the bookmark toggle becomes "Request to join"

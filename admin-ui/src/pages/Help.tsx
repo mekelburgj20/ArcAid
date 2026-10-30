@@ -470,7 +470,6 @@ export default function Help() {
               <tbody>
                 <tr><Td><strong>Discord Guild ID</strong></Td><Td>Your Discord server's ID. Right-click your server name &rarr; Copy Server ID</Td></tr>
                 <tr><Td><strong>Default Announcement Channel</strong></Td><Td>Default channel for tournament announcements. Used as a fallback when a tournament doesn't have its own channel configured</Td></tr>
-                <tr><Td><strong>Admin Role</strong></Td><Td>Discord role ID that grants access to admin-only bot commands</Td></tr>
                 <tr><Td><strong>Arcaid Chat Responses</strong></Td><Td>Automatic bot replies to ordinary chat. When on, the bot answers when someone in your Discord server says a trigger word (usually a table name) or asks something it can answer &mdash; what&rsquo;s active, how long the round has left, who&rsquo;s winning, where they rank, whose pick it is, the tournament rules, how to submit a score, how to claim their name. Off unless you turn it on. The list of trigger words and replies is global and maintained by the server&rsquo;s super admin</Td></tr>
                 <tr><Td><strong>Helpful answers / Game callouts / Banter / Easter eggs</strong></Td><Td>The four categories, switched on and off separately once Chat Responses is on. New rooms start with <em>Helpful answers</em> and <em>Game callouts</em>. Helpful answers are never rate limited &mdash; a question always gets an answer</Td></tr>
                 <tr><Td><strong>Allowed channels</strong></Td><Td>Leave empty for any channel the bot can read, or pick one or more channels from your server to confine replies to those. Channels are listed straight from your Discord server; there is also a paste-a-channel-ID box for anything not shown</Td></tr>
@@ -1003,7 +1002,7 @@ export default function Help() {
         {/* Admin Commands */}
         <NeonCard title="Admin Commands" glowColor="magenta" className="mb-4">
           <p className="text-muted text-sm mb-3">
-            These commands require the Discord Admin Role configured in your room settings.
+            These commands need the Discord server <strong>Administrator</strong> permission. A server owner can also allow them for other roles in Discord: Server Settings &rarr; Integrations &rarr; Arcaid.
           </p>
           <div className={tableWrapClass}>
             <table className={tableClass}>
@@ -1022,7 +1021,7 @@ export default function Help() {
                 <tr><Td><Code>/pause-pick</Code></Td><Td>Inject a specific game into the tournament queue</Td><Td className="text-muted">Queue up a specific game next</Td></tr>
                 <tr><Td><Code>/nominate-picker</Code></Td><Td>Manually assign picker rights to a user</Td><Td className="text-muted">Override automatic picker selection</Td></tr>
                 <tr><Td><Code>/reorder-lineup</Code></Td><Td>Reorder queued games in a tournament's iScored lineup</Td><Td className="text-muted">Rearrange the upcoming game order</Td></tr>
-                <tr><Td><Code>/setup</Code></Td><Td>Configure the Discord announcement channel and admin role (subcommands: announcement-channel, admin-role, view)</Td><Td className="text-muted">Initial bot setup or reconfiguration</Td></tr>
+                <tr><Td><Code>/setup</Code></Td><Td>Retired: Discord settings now live on the web admin's Settings &rarr; Discord page. <Code>/setup view</Code> still shows which room(s) this server is linked to and their announcement channel</Td><Td className="text-muted">Checking which room a server is linked to</Td></tr>
               </tbody>
             </table>
           </div>
@@ -1144,7 +1143,7 @@ export default function Help() {
           </p>
           <ul className="space-y-0.5">
             <CheckItem>Log in with provided credentials</CheckItem>
-            <CheckItem><strong>Settings &rarr; Discord</strong>: Enter Guild ID, announcement channel, and admin role, then press <strong>Add the bot to Discord</strong> (setting the Guild ID alone does not add the bot)</CheckItem>
+            <CheckItem><strong>Settings &rarr; Discord</strong>: Enter Guild ID and announcement channel, then press <strong>Add the bot to Discord</strong> (setting the Guild ID alone does not add the bot)</CheckItem>
             <CheckItem><strong>Settings &rarr; iScored</strong>: Enter iScored credentials and public URL (if you use iScored)</CheckItem>
             <CheckItem><strong>Settings &rarr; Integrations</strong>: Turn on the features your room needs</CheckItem>
             <CheckItem><strong>Settings &rarr; Theme</strong>: Choose your preferred theme</CheckItem>

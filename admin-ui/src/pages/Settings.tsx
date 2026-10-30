@@ -312,7 +312,7 @@ const CATEGORIES: Record<string, string[]> = {
   'Leaderboard Display': ['SCOREBOARD_LAYOUT', 'SCOREBOARD_GAME_TITLE_STYLE', 'SCOREBOARD_MAX_SCORES', 'SCOREBOARD_RANKINGS_POSITION', 'SCOREBOARD_ZOOM', 'SCOREBOARD_QR_MODE'],
   'Kiosk': ['KIOSK_REFRESH_SECONDS', 'KIOSK_ZOOM'],
   'Game Room': ['GAME_ROOM_NAME', 'GAME_ROOM_SLUG'],
-  'Discord': ['DISCORD_GUILD_ID', 'DISCORD_ADMIN_ROLE_ID', 'DISCORD_ANNOUNCEMENT_CHANNEL_ID', 'DISCORD_INVITE_URL'],
+  'Discord': ['DISCORD_GUILD_ID', 'DISCORD_ANNOUNCEMENT_CHANNEL_ID', 'DISCORD_INVITE_URL'],
   'iScored': ['ISCORED_USERNAME', 'ISCORED_PASSWORD', 'ISCORED_PUBLIC_URL'],
   // P7 (v2.139.0) — the room owner's OWN AtGames account, used to read that
   // account's private tournaments. Players never supply credentials here.
@@ -490,7 +490,6 @@ const SETTING_LABELS: Record<string, { label: string; description: string }> = {
   GAME_ROOM_SLUG: { label: 'Game Room Slug', description: 'URL identifier for your room (e.g. "my_room" → /my_room/). Lowercase, no spaces.' },
   // Discord
   DISCORD_GUILD_ID: { label: 'Guild ID', description: 'Your Discord server ID. Right-click server name → Copy Server ID (requires Developer Mode).' },
-  DISCORD_ADMIN_ROLE_ID: { label: 'Admin Role ID', description: 'Discord role that grants access to admin bot commands. Right-click role → Copy Role ID.' },
   DISCORD_ANNOUNCEMENT_CHANNEL_ID: { label: 'Default Announcement Channel ID', description: 'Default channel for tournament announcements. Used when a tournament doesn\'t have its own channel configured. Right-click channel → Copy Channel ID.' },
   DISCORD_INVITE_URL: { label: 'Discord Invite URL', description: 'Public invite link for your Discord server. Shown on the landing page game room card.' },
   // iScored
@@ -1001,6 +1000,10 @@ export default function Settings() {
     // rooms read by deriveCardProps until Phase 1 retires that path, so they
     // must stay hidden from "Other" rather than surface as raw text inputs.
     'GLOBAL_CARD_CSS_TITLE', 'GLOBAL_CARD_CSS_SCORES', 'GLOBAL_CARD_CSS_BOX', 'GLOBAL_CARD_BG_COLOR',
+    // G2 — retired (no reader; admin bot commands need the server's
+    // Administrator permission). Migration 199 deleted the stored rows; still
+    // claimed so a stray value can never surface as a raw text input.
+    'DISCORD_ADMIN_ROLE_ID',
   ]);
   const uncategorizedKeys = Object.keys(settings).filter(k => !managedKeys.has(k));
 

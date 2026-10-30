@@ -3439,6 +3439,14 @@ async function doInitDatabase(): Promise<Database> {
                 await db.exec(`ALTER TABLE witness_devices ADD COLUMN app_version_at TEXT`);
             }
         } },
+        // G2 — "Admin Role ID" has had no reader since Discord-native permission
+        // gating (f904986b3): admin bot commands need the server's Administrator
+        // permission. The field is gone from Room Settings, so its stored rows
+        // are deleted rather than left to surface in the raw "Other" card.
+        { name: '199_drop_discord_admin_role_id', handler: async (db) => {
+            await db.run(`DELETE FROM game_room_settings WHERE key = 'DISCORD_ADMIN_ROLE_ID'`);
+            await db.run(`DELETE FROM settings WHERE key = 'DISCORD_ADMIN_ROLE_ID'`);
+        } },
     ];
 
     for (const migration of migrations) {
@@ -3526,7 +3534,7 @@ async function doInitDatabase(): Promise<Database> {
 /** Per-room setting keys that should be migrated from global settings */
 const PER_ROOM_SETTING_KEYS = [
     'ISCORED_USERNAME', 'ISCORED_PASSWORD', 'ISCORED_PUBLIC_URL',
-    'DISCORD_ANNOUNCEMENT_CHANNEL_ID', 'DISCORD_ADMIN_ROLE_ID', 'DISCORD_GUILD_ID',
+    'DISCORD_ANNOUNCEMENT_CHANNEL_ID', 'DISCORD_GUILD_ID',
     'BOT_TIMEZONE', 'WINNER_PICK_WINDOW_MIN', 'RUNNERUP_PICK_WINDOW_MIN',
     'GAME_ELIGIBILITY_DAYS', 'PLATFORMS', 'UI_THEME', 'GAME_ROOM_NAME',
 ];

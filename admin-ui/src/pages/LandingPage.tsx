@@ -87,7 +87,7 @@ export default function LandingPage() {
   // D2 (v2.38.0) — explicit join/leave. Same hook backs the bookmark toggle
   // here and the room-page affordance in PublicLayout/UserMenu.
   // v2.39.0 — requestJoin backs the "Request to join" branch for approval rooms.
-  const { rooms: myRoomsRaw, join: joinRoom, leave: leaveRoom, requestJoin } = useMyRooms();
+  const { rooms: myRoomsRaw, join: joinRoom, requestJoin } = useMyRooms();
   // v2.39.0 — session-only "I already requested this room" set, so the card
   // reflects a pending request immediately after clicking without waiting on
   // a fresh /api/rooms fetch (that list doesn't carry per-viewer request state).
@@ -127,11 +127,6 @@ export default function LandingPage() {
     } else {
       toast('Could not send your request — try again.', 'error');
     }
-  };
-
-  const handleLeave = async (room: RoomCardData) => {
-    const ok = await leaveRoom(room.id);
-    toast(ok ? `Left ${room.name}.` : 'Could not leave that room — try again.', ok ? 'info' : 'error');
   };
 
   const handleLogin = () => loginWithDiscord('__global__', '/');
@@ -269,7 +264,7 @@ export default function LandingPage() {
               <RoomCard
                 key={room.id}
                 room={room}
-                toggle={discordUser ? { isMember: true, onToggle: () => handleLeave(room) } : undefined}
+                toggle={discordUser ? { isMember: true } : undefined}
               />
             ))}
           </div>
@@ -633,12 +628,18 @@ function CreateRoomCard() {
 /* ─── Room Card ─── */
 
 interface RoomCardToggle {
-  /** True renders the "member" (leave) state; false the "join" state. */
+  /**
+   * True renders the "member" badge; false the "join" button. W21 (WWS
+   * 2026-10-23): the member state is a BADGE, not a button — a one-tap leave
+   * on the card was too easy to hit; leaving happens inside the room, behind
+   * a confirm.
+   */
   isMember: boolean;
   /** v2.39.0 — approval rooms: a request already sent this session. Renders
    * a disabled "pending" state instead of the join affordance. */
   pending?: boolean;
-  onToggle: () => void;
+  /** The join (or request) action. Absent on the member badge. */
+  onToggle?: () => void;
 }
 
 function RoomCard({ room, toggle }: { room: RoomCardData; toggle?: RoomCardToggle }) {
@@ -684,10 +685,37 @@ function RoomCard({ room, toggle }: { room: RoomCardData; toggle?: RoomCardToggl
 
         {/* D2 (v2.38.0) — bookmark join/leave toggle. zIndex 2 + preventDefault/
             stopPropagation so it never triggers the card-wide Link above it. */}
-        {toggle && (
+        {/* W21 — a member sees a badge (clicks pass through to the card's
+            link), never a one-tap leave. */}
+        {toggle?.isMember && (
+          <span
+            role="img"
+            aria-label={`You're a member of ${room.name}`}
+            title="You're a member. To leave, open the room and use your menu."
+            style={{
+              position: 'absolute',
+              top: 12,
+              right: 12,
+              zIndex: 2,
+              width: 32,
+              height: 32,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: '50%',
+              background: 'rgba(99,210,151,0.15)',
+              border: '1px solid rgba(99,210,151,0.4)',
+              color: '#63d297',
+              pointerEvents: 'none',
+            }}
+          >
+            <BookmarkCheck size={16} />
+          </span>
+        )}
+        {toggle && !toggle.isMember && (
           <button
             type="button"
-            onClick={e => { e.preventDefault(); e.stopPropagation(); if (!toggle.pending) toggle.onToggle(); }}
+            onClick={e => { e.preventDefault(); e.stopPropagation(); if (!toggle.pending) toggle.onToggle?.(); }}
             disabled={toggle.pending}
             aria-label={toggle.pending ? `Request pending for ${room.name}` : toggle.isMember ? `Leave ${room.name}` : `Add ${room.name} to My Game Rooms`}
             title={toggle.pending ? 'Request pending — waiting on a room admin' : toggle.isMember ? 'Leave this room' : 'Add to My Game Rooms'}
