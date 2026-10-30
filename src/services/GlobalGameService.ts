@@ -1543,8 +1543,9 @@ export class GlobalGameService {
 
     /**
      * Updates image fields on a game identified by its external_url. Used by the
-     * Wizard importer, which has no external ID column — the GitHub folder URL
-     * is the stable identifier.
+     * Wizard importer's background art pass, keyed on the URL the metadata pass
+     * just wrote (the catalog site's per-table page since v2.201.0; the repo
+     * folder before that).
      */
     static async updateBySourceUrl(
         externalUrl: string,

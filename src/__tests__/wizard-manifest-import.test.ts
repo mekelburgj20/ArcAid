@@ -117,7 +117,7 @@ describe('WizardImportService.importFromWizard', () => {
             if (String(url) === WizardImportService.MANIFEST_URL) {
                 return { ok: manifestStatus === 200, status: manifestStatus, json: async () => manifestBody, text: async () => JSON.stringify(manifestBody) };
             }
-            // launcher.png downloads from the background pass: not found.
+            // box-art downloads from the background pass: not found.
             return { ok: false, status: 404, arrayBuffer: async () => new ArrayBuffer(0) };
         });
     });
@@ -134,9 +134,19 @@ describe('WizardImportService.importFromWizard', () => {
         expect(cc).toMatchObject({
             name: 'Cactus Canyon', manufacturer: 'Bally', year: 1998, subtype: 'SS', players: 4,
             platforms: ['vpx'], imported_from: 'wizard',
-            image_url: 'https://raw.githubusercontent.com/LegendsUnchained/vpx-standalone-alp4k/main/tables/vpx-cactuscanyon/launcher.png',
-            external_url: 'https://github.com/LegendsUnchained/vpx-standalone-alp4k/tree/main/tables/vpx-cactuscanyon',
+            // v2.201.0 (C12): box art from the manifest branch's WebP mirror,
+            // the catalog site's per-table page as the link, the repo folder
+            // kept as the download entry.
+            image_url: 'https://raw.githubusercontent.com/LegendsUnchained/vpx-standalone-alp4k/manifest/boxart/vpx-cactuscanyon.webp',
+            external_url: 'https://vpxtablemanager.com/catalog/#table=vpx-cactuscanyon',
         });
+        {
+            const db = await getDatabase();
+            const dl = await db.get<{ table_download_urls: string }>('SELECT table_download_urls FROM global_games WHERE vps_id = ?', 'vZDUDUii');
+            expect(JSON.parse(dl!.table_download_urls)).toEqual([
+                { format: 'wizard', url: 'https://github.com/LegendsUnchained/vpx-standalone-alp4k/tree/main/tables/vpx-cactuscanyon' },
+            ]);
+        }
         expect(cc!.features).toEqual(expect.arrayContaining(['wizard_auto', 'has_backglass', 'requires_rom', 'fps_55', 'vpxs']));
         expect(cc!.features).not.toContain('vpxs_manual');
 

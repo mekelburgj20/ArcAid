@@ -23,7 +23,16 @@ import { logInfo, logWarn, logError } from '../utils/logger.js';
 const MANIFEST_URL = 'https://raw.githubusercontent.com/LegendsUnchained/vpx-standalone-alp4k/refs/heads/manifest/manifest.json';
 
 const GITHUB_BASE = 'https://github.com/LegendsUnchained/vpx-standalone-alp4k';
-const RAW_BASE = 'https://raw.githubusercontent.com/LegendsUnchained/vpx-standalone-alp4k/main';
+/**
+ * The `manifest` branch also publishes `boxart/<slug>.webp` — each table's
+ * `launcher.png` re-encoded (~145 KB against ~1.2 MB, same picture, every
+ * manifest slug covered on 2026-10-30). It is what vpxstats.legendsunchained.com
+ * serves too. v2.201.0 (C12): the importer reads art from here, not from
+ * `tables/<slug>/launcher.png` on `main`.
+ */
+const MANIFEST_RAW_BASE = 'https://raw.githubusercontent.com/LegendsUnchained/vpx-standalone-alp4k/manifest';
+/** Per-table page on the Table Manager catalog site — the link each table's own README carries. */
+const CATALOG_BASE = 'https://vpxtablemanager.com/catalog/#table=';
 
 /** The manifest fields this importer reads. Everything else is ignored. */
 export interface WizardManifestEntry {
@@ -155,11 +164,20 @@ function buildFeatures(table: WizardTable): string[] {
  * so there is nothing to look up — the URL is a function of the slug.
  */
 function wizardImageUrl(slug: string): string {
-    return `${RAW_BASE}/tables/${slug}/launcher.png`;
+    return `${MANIFEST_RAW_BASE}/boxart/${slug}.webp`;
 }
 
-/** The row's `external_url` — the table's folder in the repo. */
+/**
+ * The row's `external_url` — the table's page on the Table Manager catalog
+ * site (v2.201.0, C12; it was the repo folder before). Also the key the
+ * background image pass updates by (`updateBySourceUrl`).
+ */
 function wizardSourceUrl(slug: string): string {
+    return `${CATALOG_BASE}${slug}`;
+}
+
+/** The table's folder in the repo — kept as the `wizard` download entry. */
+function wizardRepoUrl(slug: string): string {
     return `${GITHUB_BASE}/tree/main/tables/${slug}`;
 }
 
@@ -183,6 +201,14 @@ async function downloadWizardImage(url: string, slug: string): Promise<string | 
         if (!resp.ok) return undefined;
         const buffer = Buffer.from(await resp.arrayBuffer());
         fs.writeFileSync(filePath, buffer);
+        // v2.201.0: the art moved from launcher.png to the manifest branch's
+        // WebP re-encode; the PNG this slug downloaded before is dead weight
+        // (~1.2 MB each) once the row points at the WebP, which the caller
+        // does in the same pass.
+        if (ext !== '.png') {
+            const stalePng = path.join(dir, `${safe}.png`);
+            if (fs.existsSync(stalePng)) fs.unlinkSync(stalePng);
+        }
         return relPath;
     } catch {
         return undefined;
@@ -395,8 +421,9 @@ export class WizardImportService {
                         // v2.12.0: also emit the GitHub tree URL as a structured
                         // download entry so the wizard's source link survives a
                         // merge onto a row that already has its own
-                        // `external_url` (e.g. the VPS database link).
-                        table_download_urls: [{ format: 'wizard', url: sourceUrl }],
+                        // `external_url` (e.g. the VPS database link) — and,
+                        // since v2.199.0 (C9), a later cross-source sync too.
+                        table_download_urls: [{ format: 'wizard', url: wizardRepoUrl(table.slug) }],
                         imported_from: 'wizard',
                     };
 

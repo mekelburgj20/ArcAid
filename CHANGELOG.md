@@ -6,6 +6,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.201.0] - 2026-10-30 - Wizard art from the manifest branch, catalog-site links (C12)
+
+Legends Unchained's `manifest` branch publishes more than the manifest: `boxart/<slug>.webp` is every table's
+`launcher.png` re-encoded (~145 KB against ~1.2 MB, same picture, all 361 slugs covered on 2026-10-30), and each
+table's own README links to its page on the Table Manager catalog site.
+
+### Changed
+- **Wizard box art comes from `manifest/boxart/<slug>.webp`** instead of `tables/<slug>/launcher.png` on `main`.
+  The background art pass downloads the WebP under the same slug name and deletes the PNG it fetched before, so
+  the image folder shrinks by ~8× for these tables over the next nightly run.
+- **A Wizard row's `external_url` is the catalog site's per-table page** (`vpxtablemanager.com/catalog/#table=<slug>`)
+  and the repo folder stays as the `wizard` download entry — which, since v2.199.0 (C9), survives a later
+  cross-source sync. The art pass keys its update on the new URL.
+- The backglass / playfield / FSS media the same branch mirrors has no column to land in yet; tracked as C16.
+
 ## [2.200.0] - 2026-10-30 - Leaving a room asks first; "Admin Role ID" retired (W21, G2)
 
 ### Changed
