@@ -468,6 +468,37 @@ describe('witness routes on a limited tournament', () => {
             expect((await boardRows(gameId)).map(r => r.score)).toEqual([1_000_000]);
         });
 
+        it('W64: a restart-abandoned game posts as its own score — attempt note `restart`, quit evidence stored and badged; a normal game has no note', async () => {
+            const { gameId, tournamentId } = await createLimitedGame(roomId, 3);
+            const db = await getDatabase();
+            const first = await report(30, 900_000, { reason: 'restart', quit: 1, quit_ball: 2 });
+            expect(first.body).toMatchObject({ status: 'ingested', attempt: { n: 1, of: 3 } });
+            const normal = await report(20, 1_500_000, { reason: 'game_over' });
+            expect(normal.body).toMatchObject({ status: 'ingested', attempt: { n: 2, of: 3 } });
+
+            const notes = await db.all<Array<{ attempt_no: number; status: string; note: string | null }>>(
+                `SELECT attempt_no, status, note FROM attempts WHERE game_id = ? ORDER BY attempt_no`, gameId,
+            );
+            expect(notes).toEqual([
+                { attempt_no: 1, status: 'scored', note: 'restart' },
+                { attempt_no: 2, status: 'scored', note: null },
+            ]);
+
+            // A CABINET report's quit params reach the evidence trail (nothing gates them on device type).
+            const ev = await db.all<Array<{ score: number; quit: number | null; quit_ball: number | null }>>(
+                `SELECT score, quit, quit_ball FROM witness_evidence WHERE game_id = ? ORDER BY score`, gameId,
+            );
+            expect(ev).toEqual([
+                { score: 900_000, quit: 1, quit_ball: 2 },
+                { score: 1_500_000, quit: null, quit_ball: null },
+            ]);
+            const { WitnessEvidenceService } = await import('../services/WitnessEvidenceService.js');
+            const quits = await WitnessEvidenceService.quitMap(tournamentId);
+            const rows = await boardRows(gameId);
+            const quitRow = rows.find(r => r.score === 900_000)!;
+            expect(quits).toEqual({ [String(quitRow.id)]: { ball: 2 } });
+        });
+
         it('a cabinet attempt call (no_score) is never late and keeps its reason; a later score report for the same start binds to that row', async () => {
             const { gameId, tournamentId } = await createLimitedGame(roomId, 2);
             const started = Math.floor((Date.now() - 30 * MINUTE) / 1000);

@@ -54,7 +54,7 @@ describe('quitLabelFor (W49)', () => {
 
   it('says it still counts and still used its attempt', () => {
     expect(quitLabelFor(QUITS, 201)!.title).toBe(
-      'The player quit this game before game over (reported by the Castcade companion). It still counts and, in Limited attempts, still used its attempt.',
+      'The player quit this game before game over (reported by the Witness: a desktop quit, or a cabinet game abandoned by a hold-Start restart). It still counts and, in Limited attempts, still used its attempt.',
     );
   });
 

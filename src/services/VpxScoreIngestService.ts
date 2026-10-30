@@ -594,6 +594,8 @@ export class VpxScoreIngestService {
                         score, startedTs: input.startedTs, endedTs: input.endedTs,
                         tableName: input.tableName, rom: input.rom ?? null,
                         restarts: input.restarts ?? null,
+                        // W64 — a game abandoned by a hold-Start restart is posted as its own score.
+                        note: input.reason === 'restart' ? 'restart' : null,
                     }))
                 : await AttemptService.bindScore({
                     tournamentId: target.tournament_id, gameId: target.id, gameRoomId: target.game_room_id,
