@@ -344,6 +344,11 @@ export class AttemptService {
      * `cab:<started>:r<i>` (note `restart`), each counted or over_limit by
      * the running count; the keys make a replay a no-op. Then the game itself.
      *
+     * `note` (W64): stamped on the SCORED `cab:<started>` row only — the ingest
+     * passes `restart` when the report is a game the player abandoned by a
+     * hold-Start restart (`reason=restart`, cabinet 1.0.8+), so the attempt
+     * trail reads the same as the `:r<i>` rows.
+     *
      * If the cabinet already reported this start over `/witness/attempt`
      * (same `cab:<started>` key), the score binds to that row.
      */
@@ -353,6 +358,7 @@ export class AttemptService {
         limit: number; score: number; startedTs: number; endedTs: number;
         tableName?: string | null; rom?: string | null;
         restarts?: number | null;
+        note?: string | null;
     }): Promise<AttemptBindResult> {
         const refuse = (reason: AttemptRefusalReason): AttemptBindResult =>
             ({ ok: false, reason, text: ATTEMPT_REFUSAL_TEXT[reason] });
@@ -377,6 +383,7 @@ export class AttemptService {
                 startedTs: input.startedTs, late: false,
                 tableName: input.tableName ?? null, rom: input.rom ?? null,
                 endedTs: input.endedTs, score: Math.floor(input.score),
+                note: input.note ?? null,
             });
             row = await AttemptService.byKey(input.deviceId, key, input.gameId);
             if (!row) return refuse('reused');

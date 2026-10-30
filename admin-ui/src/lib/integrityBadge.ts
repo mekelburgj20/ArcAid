@@ -31,7 +31,7 @@ export interface QuitLabelSpec {
 }
 
 const QUIT_TITLE =
-  'The player quit this game before game over (reported by the Castcade companion). It still counts and, in Limited attempts, still used its attempt.';
+  'The player quit this game before game over (reported by the Witness: a desktop quit, or a cabinet game abandoned by a hold-Start restart). It still counts and, in Limited attempts, still used its attempt.';
 
 /** `null` when the row has no quit entry — an absence of badge, never a badge of absence. */
 export function quitLabelFor(

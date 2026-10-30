@@ -6,6 +6,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.198.0] - 2026-10-29 - A cabinet restart posts its score, quit-flagged (W64)
+
+Owner ruling 2026-10-29: a game the player abandons by holding Start to restart is a play, not a silent attempt.
+Cabinet 1.0.8 now posts it on `GET /api/witness/score` with `reason=restart`, `quit=1` and `quit_ball=<ball in play>`.
+Before this the restart reached the server only as `restarts=N` on the NEXT game.
+
+### Changed
+- **The scored attempt row of a restart report carries note `restart`.** `AttemptService.recordStartAndBind` takes an
+  optional `note`, written on the `cab:<started>` row only; `VpxScoreIngestService` passes `restart` when
+  `reason === 'restart'`. Any other cabinet score keeps a null note. The `:r<i>` rows from `restarts=N` (older
+  builds) are unchanged.
+- **The quit badge tooltip** no longer says the Castcade companion reports it: a quit now comes from the Witness on
+  either device (`lib/integrityBadge.ts`).
+
+### Verified
+- Nothing gates `quit` / `quit_ball` on `device_type`: a cabinet report's quit params reach `witness_evidence`, the
+  public `quits` map and "Where your plays went" exactly as a desktop's do. A quit game still counts and still uses
+  its attempt. Test: `limited-attempts.test.ts`.
+
 ## [2.197.0] - 2026-10-28 - Start attempts on the room scoreboard and in "Your scores go to" (W56)
 
 In a Limited-attempts tournament that requires Start attempts, the button lived only on the game page (room →
