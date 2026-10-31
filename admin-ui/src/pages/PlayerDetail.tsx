@@ -3,6 +3,7 @@ import { useParams, useSearchParams, Link } from 'react-router-dom';
 import { Flame, Trophy, Target, Medal, UserPlus, UserCheck, GitCompare, Flag } from 'lucide-react';
 import ShareButton from '../components/ShareButton';
 import StarRating from '../components/StarRating';
+import { RatingEngineChip } from '../components/RatedByList';
 import ReportContentModal from '../components/ReportContentModal';
 import { PersonalBestsSection, type PersonalBestRow } from '../components/PersonalBestsSection';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
@@ -88,8 +89,8 @@ export default function PlayerDetail() {
   // just leaves that half empty; both empty hides the section.
   // Results are keyed by the user id they were fetched for, so a stale list
   // never shows under a different player while the next fetch is in flight.
-  const [roomRatingsFor, setRoomRatingsFor] = useState<{ key: string; rows: Array<{ game_name: string; rating: number; updated_at: string }> } | null>(null);
-  const [globalRatingsFor, setGlobalRatingsFor] = useState<{ key: string; rows: Array<{ global_game_id: string; name: string; rating: number; updated_at: string }> } | null>(null);
+  const [roomRatingsFor, setRoomRatingsFor] = useState<{ key: string; rows: Array<{ game_name: string; rating: number; updated_at: string; platform?: string }> } | null>(null);
+  const [globalRatingsFor, setGlobalRatingsFor] = useState<{ key: string; rows: Array<{ global_game_id: string; name: string; rating: number; updated_at: string; platform?: string }> } | null>(null);
   const ratedUserId = stats?.discordUserId ?? null;
   const roomRatingsKey = `${roomId ?? ''}|${ratedUserId ?? ''}`;
   useEffect(() => {
@@ -405,20 +406,23 @@ export default function PlayerDetail() {
             <h2 className="font-display text-sm text-muted uppercase tracking-wider mb-3">Ratings</h2>
             <div className="bg-surface border border-border rounded-lg overflow-hidden">
               {roomRatings.map(r => (
-                <div key={`room-${r.game_name}`} className="flex items-center gap-3 px-5 py-2.5 border-b border-border/30 last:border-0">
-                  <Link
-                    to={`/${slug}/games/${encodeURIComponent(r.game_name)}`}
-                    className="flex-1 min-w-0 break-words text-primary hover:text-neon-cyan no-underline transition-colors text-sm font-medium"
-                  >
-                    {r.game_name}
-                  </Link>
+                <div key={`room-${r.game_name}-${r.platform ?? ''}`} className="flex items-center gap-3 px-5 py-2.5 border-b border-border/30 last:border-0">
+                  <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
+                    <Link
+                      to={`/${slug}/games/${encodeURIComponent(r.game_name)}`}
+                      className="min-w-0 break-words text-primary hover:text-neon-cyan no-underline transition-colors text-sm font-medium"
+                    >
+                      {r.game_name}
+                    </Link>
+                    {r.platform && <RatingEngineChip platform={r.platform} />}
+                  </div>
                   <span className="flex-shrink-0" aria-label={`${r.rating} star${r.rating === 1 ? '' : 's'}`}>
                     <StarRating rating={r.rating} size="sm" />
                   </span>
                 </div>
               ))}
               {globalRatings.map(r => (
-                <div key={`global-${r.global_game_id}`} className="flex items-center gap-3 px-5 py-2.5 border-b border-border/30 last:border-0">
+                <div key={`global-${r.global_game_id}-${r.platform ?? ''}`} className="flex items-center gap-3 px-5 py-2.5 border-b border-border/30 last:border-0">
                   <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
                     <Link
                       to={`/games/${r.global_game_id}`}
@@ -427,6 +431,7 @@ export default function PlayerDetail() {
                       {r.name}
                     </Link>
                     <span className="px-1.5 py-0.5 rounded border border-neon-cyan/30 text-neon-cyan text-[10px] uppercase tracking-wider">Global</span>
+                    {r.platform && <RatingEngineChip platform={r.platform} />}
                   </div>
                   <span className="flex-shrink-0" aria-label={`${r.rating} star${r.rating === 1 ? '' : 's'}`}>
                     <StarRating rating={r.rating} size="sm" />

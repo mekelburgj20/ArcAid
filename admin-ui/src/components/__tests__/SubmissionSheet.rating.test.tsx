@@ -111,10 +111,18 @@ function renderSheet(opts: RenderOpts = {}) {
             return respond(opts.commentPost, { id: 1 });
         }
         // Room: `/ratings/:gameName`. Global: `/games/:id/rating`.
-        if (href.includes('/ratings/') || href.endsWith('/rating')) {
+        // C3 - the default ROOM payload is the room-only legacy store
+        // (`unified: false`), which rates overall; the Global payload is
+        // always the unified store and rates the submitted engine.
+        if (href.includes('/ratings/')) {
             return method === 'POST'
-                ? respond(opts.ratingPost, { avg_rating: 4.5, rating_count: 3, user_rating: 5 })
-                : respond(opts.ratingGet, { avg_rating: 4.2, rating_count: 9, user_rating: 4 });
+                ? respond(opts.ratingPost, { avg_rating: 4.5, rating_count: 3, user_rating: 5, unified: false })
+                : respond(opts.ratingGet, { avg_rating: 4.2, rating_count: 9, user_rating: 4, unified: false });
+        }
+        if (href.endsWith('/rating')) {
+            return method === 'POST'
+                ? respond(opts.ratingPost, { avg_rating: 4.5, rating_count: 3, user_rating: 5, user_ratings: { '': 5, real: 3 } })
+                : respond(opts.ratingGet, { avg_rating: 4.2, rating_count: 9, user_rating: 4, user_ratings: { '': 4 } });
         }
         if (href.includes('/submit-score/') || href === '/api/global/scores') {
             return Promise.resolve({
@@ -170,6 +178,11 @@ function filledStarCount() {
     return starButtons().filter(el => el.className.includes('text-neon-amber')).length;
 }
 
+/** The success-card question, matched on the whole `<p>` (its text is split across spans). */
+function questionText() {
+    return screen.getByText((_, el) => el?.tagName === 'P' && /^How was /.test(el.textContent ?? '')).textContent;
+}
+
 function findCall(fetchMock: ReturnType<typeof vi.fn>, predicate: (url: string, init?: RequestInit) => boolean) {
     return fetchMock.mock.calls.find(([url, init]) => predicate(String(url), init as RequestInit | undefined));
 }
@@ -219,11 +232,13 @@ describe('SubmissionSheet — success-card rating', () => {
         expect(headers['x-user-id']).toBe(DISCORD_ID);
     });
 
-    it('a global target rates the global game, not a room', async () => {
+    it('a global target rates the global game on the submitted engine, not a room', async () => {
         signIn();
         const { container, fetchMock } = renderSheet({ target: GLOBAL_TARGET });
         await submitScore(container, { withPhoto: true });
         await screen.findByText(/How was/);
+        expect(questionText()).toBe('How was Medieval Madness on Real?');
+        await waitFor(() => expect(filledStarCount()).toBe(0)); // no `real` row yet
 
         fireEvent.click(starButtons()[2]); // 3 stars
         await screen.findByText('Thanks!');
@@ -231,9 +246,36 @@ describe('SubmissionSheet — success-card rating', () => {
         const post = findCall(fetchMock, (url, init) => url.endsWith('/rating') && init?.method === 'POST');
         expect(post).toBeTruthy();
         expect(String(post![0])).toBe('/api/global/games/gg-42/rating');
-        expect(JSON.parse((post![1] as RequestInit).body as string)).toEqual({ rating: 3 });
+        expect(JSON.parse((post![1] as RequestInit).body as string)).toEqual({ rating: 3, platform: 'real' });
         // No room endpoint was touched.
         expect(findCall(fetchMock, url => url.includes('/ratings/'))).toBeUndefined();
+    });
+
+    it('C3 - a unified room payload rates the submitted engine', async () => {
+        signIn();
+        const { container, fetchMock } = renderSheet({
+            ratingGet: { body: { avg_rating: 4.2, rating_count: 9, user_rating: 4, user_ratings: { '': 4, real: 2 }, unified: true, global_game_id: 'gg-afm' } },
+            ratingPost: { body: { avg_rating: 4.3, rating_count: 9, user_rating: 4, user_ratings: { '': 4, real: 5 }, unified: true, global_game_id: 'gg-afm' } },
+        });
+        await submitScore(container);
+        await screen.findByText(/How was/);
+        expect(questionText()).toBe('How was Attack from Mars on Real?');
+        await waitFor(() => expect(filledStarCount()).toBe(2)); // user_ratings.real
+
+        fireEvent.click(starButtons()[4]);
+        await screen.findByText('Thanks!');
+        await waitFor(() => expect(filledStarCount()).toBe(5));
+
+        const post = findCall(fetchMock, (url, init) => url.includes('/ratings/') && init?.method === 'POST');
+        expect(JSON.parse((post![1] as RequestInit).body as string)).toEqual({ rating: 5, platform: 'real' });
+    });
+
+    it('C3 - a room-only legacy payload keeps the overall question', async () => {
+        signIn();
+        const { container } = renderSheet();
+        await submitScore(container);
+        await screen.findByText(/How was/);
+        expect(questionText()).toBe('How was Attack from Mars?');
     });
 
     it('a rejected rating POST reverts the stars and says so inline', async () => {

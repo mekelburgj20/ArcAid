@@ -4,7 +4,9 @@ import { ArrowLeft, Trophy, Upload, Download, BookOpen, Play, ExternalLink, Flag
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { PlayerAvatar } from '../components/ScoreboardComponents';
 import StarRating from '../components/StarRating';
-import RatedByList, { type Rater } from '../components/RatedByList';
+import RatedByList, { type RatingInfo } from '../components/RatedByList';
+import PlatformRatings from '../components/PlatformRatings';
+import { engineOptionsFor } from '../lib/engineOptions';
 import TableOwnersLine from '../components/TableOwnersLine';
 import LoadingState from '../components/LoadingState';
 import SubmissionSheet from '../components/SubmissionSheet';
@@ -197,7 +199,7 @@ export default function GlobalGameDetail() {
   const [fromRoom, setFromRoom] = useState<{ id: string; discordEnabled: boolean } | null>(null);
 
   // Rating state
-  const [ratingInfo, setRatingInfo] = useState<{ avg_rating: number; rating_count: number; user_rating: number | null; raters?: Rater[] } | null>(null);
+  const [ratingInfo, setRatingInfo] = useState<RatingInfo | null>(null);
 
   // Comments state
   const [tips, setTips] = useState<GlobalComment[]>([]);
@@ -369,13 +371,13 @@ export default function GlobalGameDetail() {
     if (globalGameId) loadComments(globalGameId);
   }, [globalGameId]);
 
-  const handleRateGame = async (rating: number) => {
+  const handleRateGame = async (rating: number, platform = '') => {
     if (!playerToken || !globalGameId) return;
     try {
       const res = await fetch(`/api/global/games/${globalGameId}/rating`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${playerToken}` },
-        body: JSON.stringify({ rating }),
+        body: JSON.stringify({ rating, platform }),
       });
       if (res.ok) {
         const info = await res.json();
@@ -417,6 +419,8 @@ export default function GlobalGameDetail() {
   const displayName = useMemo(() => game ? (game.display_name || game.name) : '', [game]);
   const imageSrc = useMemo(() => game ? resolveImage(game) : null, [game]);
   const wheelSrc = useMemo(() => game ? resolveWheel(game) : null, [game]);
+  // C3 - the engines offered on the per-platform rating rows.
+  const ratingEngines = useMemo(() => game ? engineOptionsFor(game.platforms) : [], [game]);
 
   const handleLogin = () => {
     const returnPath = fromSlug ? `/games/${globalGameId}?from=${encodeURIComponent(fromSlug)}` : `/games/${globalGameId}`;
@@ -667,7 +671,7 @@ export default function GlobalGameDetail() {
                 <div className="flex items-center gap-2 mb-3">
                   <StarRating
                     rating={ratingInfo.user_rating || Math.round(ratingInfo.avg_rating)}
-                    onRate={playerToken ? handleRateGame : undefined}
+                    onRate={playerToken ? (n => handleRateGame(n)) : undefined}
                     size="md"
                   />
                   <span className="text-sm text-muted">
@@ -678,7 +682,16 @@ export default function GlobalGameDetail() {
                 </div>
               )}
               {/* C2 - named ratings + the public owner count. */}
-              {ratingInfo && <RatedByList raters={ratingInfo.raters} loggedIn={!!playerToken} />}
+              {ratingInfo && <RatedByList raters={ratingInfo.raters} loggedIn={!!playerToken} raterCount={ratingInfo.rating_count} />}
+              {/* C3 - the platform axis; the Global page is always the unified store. */}
+              {ratingInfo && (
+                <PlatformRatings
+                  info={ratingInfo}
+                  engines={ratingEngines}
+                  loggedIn={!!playerToken}
+                  onRate={playerToken ? ((platform, n) => handleRateGame(n, platform)) : undefined}
+                />
+              )}
               <TableOwnersLine globalGameId={game.id} playerToken={playerToken} />
               {game.description && (
                 <p className="text-sm text-muted mb-4 line-clamp-4">{game.description}</p>

@@ -6,6 +6,41 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.207.0] - 2026-10-31 - A star is a star: one rating per table across rooms and Global, rated per platform (C3 ratings half, C2.2)
+
+The second half of the 2026-08-24 feature-request thread: a rating should be able to say WHICH version of a table it is about
+("is the VPXS version better than native?"). That needed the two rating stores unified first (ADR 0035).
+
+### Changed
+- **One rating store for any catalogue table.** A room game whose name matches exactly one approved catalogue row now reads
+  and writes the SAME ratings as the Global page of that table - from the room game page, the Game Library, the submission
+  sheet and Discord `/submit-score`. "Medieval Madness" no longer carries a different average per room. Names with no
+  catalogue row, or an ambiguous one (same name, different manufacturers), keep their room-only ratings exactly as before.
+- **Migration 205** adds `global_game_ratings.platform` (unique on table + player + platform, rebuild) and folds every
+  room rating of an unambiguous catalogue name into the one store; where a player had rated the same table in two rooms
+  (or in a room and on Global) the newer opinion wins. The room-only residue stays in `game_ratings`.
+- **The headline counts each player once**: a table's average is the average of each rater's own average across their
+  rows and the count is distinct raters - on both game pages, the bulk maps and the Global Scoreboard cards.
+
+### Added
+- **Ratings per platform.** `POST .../rating` and `POST /:roomId/ratings/:gameName` take an optional `platform`
+  (a canonical engine id; `''` = the table in general). Both rating payloads gain `by_platform`, `user_ratings`
+  (the viewer's rows by platform) and a `platform` on every `raters` entry; the room payload also says
+  `unified` + `global_game_id`. Invalid platform -> `400 PLATFORM_INVALID`; a platform on a room-only name ->
+  `400 PLATFORM_UNSUPPORTED`.
+- **"By platform" block** under the stars on the room and Global game pages (`components/PlatformRatings.tsx`): one
+  row per engine the catalogue lists for the table (plus Real Machine), each with its own clickable stars and average.
+  Guests see it once any platform rating exists; a logged-in player can open it to rate a version.
+- **The submission sheet rates the version just played**: "How was X on VPX?" writes a platform rating for the engine
+  the score was submitted on. Discord `/submit-score`'s star buttons do the same with the command's `engine`.
+- The "Rated by" list and the player page's Ratings section show an engine chip on platform ratings.
+- `admin-ui/src/lib/engineOptions.ts` - the catalogue-platforms-to-engine-chips fold My Tables used, now shared with
+  the platform rating rows.
+
+### Notes
+- Room-only names have no platform axis; pinning the name to a catalogue row is the fix.
+- The comments half of C3 ("share globally", both comment stores tagged by origin) is still open.
+
 ## [2.206.0] - 2026-10-31 - My Tables: mark the tables you own, filter the pick list, ratings carry a name (C2)
 
 The RTX feature-request thread of 2026-08-24 (steintheman's ask, LeonSpeegle's additions, owner rulings the same day).

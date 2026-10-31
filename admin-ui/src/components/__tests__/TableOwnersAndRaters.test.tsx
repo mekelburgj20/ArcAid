@@ -77,8 +77,8 @@ describe('TableOwnersLine (C2)', () => {
 
 describe('RatedByList (C2)', () => {
   const raters = [
-    { user_id: '111111111111111111', display_name: 'Krobs', rating: 5, updated_at: '2026-10-02' },
-    { user_id: '222222222222222222', display_name: 'Wyo', rating: 3, updated_at: '2026-10-01' },
+    { user_id: '111111111111111111', display_name: 'Krobs', rating: 5, updated_at: '2026-10-02', platform: '' },
+    { user_id: '222222222222222222', display_name: 'Wyo', rating: 3, updated_at: '2026-10-01', platform: '' },
   ];
 
   it('collapses to "Rated by N" and expands to names, never ids', () => {
@@ -92,6 +92,25 @@ describe('RatedByList (C2)', () => {
     expect(screen.getByText('Wyo')).toBeInTheDocument();
     expect(screen.getByLabelText('5 stars')).toBeInTheDocument();
     expect(screen.queryByText(/111111111111111111/)).not.toBeInTheDocument();
+  });
+
+  it('C3 - a per-platform row carries an engine chip; the count is distinct players', () => {
+    const rows = [
+      ...raters,
+      { user_id: '111111111111111111', display_name: 'Krobs', rating: 4, updated_at: '2026-10-03', platform: 'vpx' },
+    ];
+    render(<RatedByList raters={rows} loggedIn={false} raterCount={2} />);
+    fireEvent.click(screen.getByRole('button', { name: /Rated by 2/ }));
+    expect(screen.getAllByText('Krobs')).toHaveLength(2);
+    const chips = screen.getAllByTestId('rater-engine-chip');
+    expect(chips).toHaveLength(1);
+    expect(chips[0]).toHaveTextContent('VPX');
+  });
+
+  it('C3 - falls back to the list length when no count is given', () => {
+    const rows = [...raters, { user_id: '333', display_name: 'Zed', rating: 2, updated_at: '2026-10-04', platform: 'fx' }];
+    render(<RatedByList raters={rows} loggedIn={false} />);
+    expect(screen.getByRole('button', { name: /Rated by 3/ })).toBeInTheDocument();
   });
 
   it('tells a logged-in viewer their rating carries their name', () => {

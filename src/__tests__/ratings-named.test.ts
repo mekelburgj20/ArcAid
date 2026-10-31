@@ -76,11 +76,11 @@ describe('room rating raters', () => {
         expect(info.avg_rating).toBe(3.3);
         expect(info.user_rating).toBe(5);
         expect(info.raters).toEqual([
-            { user_id: 'r-user', display_name: 'login_lou', rating: 3, updated_at: '2026-10-04 10:00:00' },
-            { user_id: 'r-alias', display_name: 'AliasAl', rating: 4, updated_at: '2026-10-03 10:00:00' },
+            { user_id: 'r-user', display_name: 'login_lou', rating: 3, updated_at: '2026-10-04 10:00:00', platform: '' },
+            { user_id: 'r-alias', display_name: 'AliasAl', rating: 4, updated_at: '2026-10-03 10:00:00', platform: '' },
             // Nothing resolves: never the raw id (a guest uuid or a bare snowflake).
-            { user_id: 'r-raw', display_name: 'Unknown player', rating: 1, updated_at: '2026-10-02 10:00:00' },
-            { user_id: 'r-display', display_name: 'Display Dan', rating: 5, updated_at: '2026-10-01 10:00:00' },
+            { user_id: 'r-raw', display_name: 'Unknown player', rating: 1, updated_at: '2026-10-02 10:00:00', platform: '' },
+            { user_id: 'r-display', display_name: 'Display Dan', rating: 5, updated_at: '2026-10-01 10:00:00', platform: '' },
         ]);
     });
 
@@ -128,8 +128,8 @@ describe('ratings by user', () => {
         expect(res.body.game_name).toBeUndefined();
         expect(res.body).toEqual({
             ratings: [
-                { game_name: 'Game Two', rating: 2, updated_at: '2026-10-02 00:00:00' },
-                { game_name: 'Game One', rating: 5, updated_at: '2026-10-01 00:00:00' },
+                { game_name: 'Game Two', platform: '', rating: 2, updated_at: '2026-10-02 00:00:00' },
+                { game_name: 'Game One', platform: '', rating: 5, updated_at: '2026-10-01 00:00:00' },
             ],
         });
 
@@ -153,8 +153,8 @@ describe('ratings by user', () => {
         expect(res.status).toBe(200);
         expect(res.body).toEqual({
             ratings: [
-                { global_game_id: 'gg-a', name: 'Alpha Table', rating: 3, updated_at: '2026-10-09 00:00:00' },
-                { global_game_id: 'gg-b', name: 'Beta Table', rating: 5, updated_at: '2026-10-01 00:00:00' },
+                { global_game_id: 'gg-a', name: 'Alpha Table', platform: '', rating: 3, updated_at: '2026-10-09 00:00:00' },
+                { global_game_id: 'gg-b', name: 'Beta Table', platform: '', rating: 5, updated_at: '2026-10-01 00:00:00' },
             ],
         });
     });

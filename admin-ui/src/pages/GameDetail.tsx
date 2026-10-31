@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
 import StarRating from '../components/StarRating';
-import RatedByList, { type Rater } from '../components/RatedByList';
+import RatedByList, { type RatingInfo } from '../components/RatedByList';
+import PlatformRatings from '../components/PlatformRatings';
+import { engineOptionsFor } from '../lib/engineOptions';
 import TableOwnersLine from '../components/TableOwnersLine';
 import Sparkline from '../components/Sparkline';
 import SubmissionSheet from '../components/SubmissionSheet';
@@ -202,6 +204,8 @@ interface CatalogueGameInfo {
   tutorial_urls: Array<{ title?: string; youtubeId?: string; url?: string }>;
   rules_urls: Array<{ url: string; version?: string }>;
   ipdb_url: string | null;
+  /** Catalogue platforms; feeds the C3 per-platform rating rows. */
+  platforms?: string[];
 }
 
 type Tab = 'leaderboard' | 'community' | 'tips' | 'player-stats';
@@ -313,7 +317,7 @@ export default function GameDetail() {
     ? Math.max(0, integrity.maxAttempts - (boardAttempts[viewerClaims.discordId] ?? 0))
     : null;
   const [loading, setLoading] = useState(true);
-  const [ratingInfo, setRatingInfo] = useState<{ avg_rating: number; rating_count: number; user_rating: number | null; raters?: Rater[] } | null>(null);
+  const [ratingInfo, setRatingInfo] = useState<RatingInfo | null>(null);
   // Initial 'community' is the safe pre-data default; the leaderboard tab does
   // not exist until `stats` loads. Once stats resolves we default to
   // 'leaderboard' when tournament data exists (see tabInitialized effect below).
@@ -584,6 +588,33 @@ export default function GameDetail() {
       .catch(() => { if (!cancelled) setCatalogueGame(null); });
     return () => { cancelled = true; };
   }, [leaderboard?.globalGameId]);
+
+  // C3 - the catalogue platforms behind the per-platform rating rows. The
+  // rating payload names the catalogue row it lives on; usually that is the
+  // same row "About this game" already fetched, otherwise (a rotation game
+  // the leaderboard carries no globalGameId for) fetch just its platforms.
+  const ratingCatalogueId = ratingInfo?.unified ? (ratingInfo.global_game_id ?? null) : null;
+  const [ratingCataloguePlatforms, setRatingCataloguePlatforms] = useState<{ id: string; platforms: string[] } | null>(null);
+  useEffect(() => {
+    if (!ratingCatalogueId || ratingCatalogueId === leaderboard?.globalGameId) return;
+    let cancelled = false;
+    fetch(`/api/global/games/${ratingCatalogueId}`)
+      .then(r => r.ok ? r.json() : null)
+      .then((data: { platforms?: string[] } | null) => {
+        if (!cancelled) setRatingCataloguePlatforms({ id: ratingCatalogueId, platforms: Array.isArray(data?.platforms) ? data.platforms : [] });
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [ratingCatalogueId, leaderboard?.globalGameId]);
+  const ratingEngines = useMemo(() => {
+    if (!ratingCatalogueId) return [];
+    // Still loading -> no offered engines yet (rows come from by_platform
+    // alone), rather than flashing the full canonical list.
+    const platforms = ratingCatalogueId === leaderboard?.globalGameId
+      ? (catalogueGame ? (catalogueGame.platforms ?? []) : null)
+      : (ratingCataloguePlatforms?.id === ratingCatalogueId ? ratingCataloguePlatforms.platforms : null);
+    return platforms ? engineOptionsFor(platforms) : [];
+  }, [ratingCatalogueId, leaderboard?.globalGameId, catalogueGame, ratingCataloguePlatforms]);
 
   // v2.166.0 (ADR 0027) — the verdict map, once per tournament. A failure
   // leaves the board exactly as it was: no chips, nothing else changes.
@@ -975,13 +1006,13 @@ export default function GameDetail() {
   // v2.86.0 — ratings require Discord login; raw fetch (not api.ts) so a
   // rejected vote doesn't trigger api.ts's admin-token-refresh/redirect path,
   // which is the wrong behavior on a public player page.
-  const handleRate = async (rating: number) => {
+  const handleRate = async (rating: number, platform = '') => {
     if (!name || !roomId || !playerToken) return;
     try {
       const res = await fetch(`/api/rooms/${roomId}/ratings/${encodeURIComponent(name)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${playerToken}` },
-        body: JSON.stringify({ rating }),
+        body: JSON.stringify({ rating, platform }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -1119,7 +1150,7 @@ export default function GameDetail() {
           )}
           {ratingInfo && (
             <div className="flex items-center gap-2 mt-1">
-              <StarRating rating={ratingInfo.user_rating || 0} onRate={playerToken ? handleRate : undefined} size="md" />
+              <StarRating rating={ratingInfo.user_rating || 0} onRate={playerToken ? (n => handleRate(n)) : undefined} size="md" />
               {ratingInfo.rating_count > 0 && (
                 <span className="text-sm text-white/60">{ratingInfo.avg_rating} avg ({ratingInfo.rating_count} rating{ratingInfo.rating_count !== 1 ? 's' : ''})</span>
               )}
@@ -1139,7 +1170,17 @@ export default function GameDetail() {
         {/* C2 - named ratings + the public owner count. Below the hero, not in
             it: the hero is a fixed-height art scrim with white ink, and these
             rows use theme tokens. */}
-        {ratingInfo && <RatedByList raters={ratingInfo.raters} loggedIn={!!playerToken} />}
+        {ratingInfo && <RatedByList raters={ratingInfo.raters} loggedIn={!!playerToken} raterCount={ratingInfo.rating_count} />}
+        {/* C3 - the platform axis exists only on the catalogue store; a
+            room-only game keeps its single local rating. */}
+        {ratingInfo?.unified && (
+          <PlatformRatings
+            info={ratingInfo}
+            engines={ratingEngines}
+            loggedIn={!!playerToken}
+            onRate={playerToken ? ((platform, n) => handleRate(n, platform)) : undefined}
+          />
+        )}
         {leaderboard?.globalGameId && (
           <TableOwnersLine globalGameId={leaderboard.globalGameId} playerToken={playerToken} />
         )}

@@ -15,7 +15,7 @@ import { normalizeSubmitterUserId } from '../../services/SubmissionContextServic
 import { trackBackground } from '../../utils/backgroundTasks.js';
 import { BanService } from '../../services/BanService.js';
 import { ScoreProvenanceService } from '../../services/ScoreProvenanceService.js';
-import { getEngineDisplay, getDeviceDisplay, UNKNOWN } from '../../utils/scoreProvenance.js';
+import { getEngineDisplay, getDeviceDisplay, UNKNOWN, isCanonicalEngine } from '../../utils/scoreProvenance.js';
 import {
     resolveGuildReadScope, buildGuildScopedRoomSqlFilter, isRoomInGuildScope,
 } from '../../utils/discordRoomFilter.js';
@@ -584,7 +584,7 @@ export const submitscore: Command = {
                 await interaction.editReply(`Successfully submitted your score of **${score.toLocaleString()}** to **${gameName}**!${rankLine}${webTip}`);
 
                 // Send rating follow-up (fire-and-forget, don't block the score confirmation)
-                sendRatingFollowUp(interaction, gameName, username!, game.game_room_id).catch(err => {
+                sendRatingFollowUp(interaction, gameName, username!, game.game_room_id, engine).catch(err => {
                     logError('Error in rating follow-up:', err);
                 });
             } finally {
@@ -609,6 +609,7 @@ async function sendRatingFollowUp(
     gameName: string,
     username: string,
     gameRoomId: string | null,
+    engine?: string,
 ) {
     const uniqueId = uuidv4().slice(0, 8);
 
@@ -677,7 +678,17 @@ async function sendRatingFollowUp(
         try {
             if (gameRoomId) {
                 const { RatingService } = await import('../../services/RatingService.js');
-                await RatingService.setRating(gameRoomId, gameName, interaction.user.id, rating);
+                const { PlatformUnsupportedError } = await import('../../utils/ratingTarget.js');
+                // C2.2 - the stars rate the ENGINE the score was just
+                // submitted on; a room-only game has no platform axis, so it
+                // falls back to the general rating.
+                const platform = engine && isCanonicalEngine(engine) ? engine.trim().toLowerCase() : '';
+                try {
+                    await RatingService.setRating(gameRoomId, gameName, interaction.user.id, rating, platform);
+                } catch (err) {
+                    if (!(err instanceof PlatformUnsupportedError) || platform === '') throw err;
+                    await RatingService.setRating(gameRoomId, gameName, interaction.user.id, rating, '');
+                }
                 logInfo(`Game rated: ${interaction.user.tag} gave ${gameName} ${rating} stars`);
             } else {
                 logError('Skipping rating save: no game_room_id for game', gameName);

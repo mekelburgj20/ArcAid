@@ -965,11 +965,10 @@ export class GlobalLeaderboardService {
             FROM global_games gg
             LEFT JOIN global_scores gs ON ${joinClause}
             LEFT JOIN (
-                SELECT global_game_id,
-                       AVG(rating) as avg_rating,
-                       COUNT(*) as rating_count
-                FROM global_game_ratings
-                GROUP BY global_game_id
+                SELECT global_game_id, AVG(r) AS avg_rating, COUNT(*) AS rating_count
+                  FROM (SELECT global_game_id, discord_user_id, AVG(rating) AS r
+                          FROM global_game_ratings GROUP BY global_game_id, discord_user_id)
+                 GROUP BY global_game_id
             ) gr ON gr.global_game_id = gg.id
             WHERE ${whereClause}
             GROUP BY gg.id
@@ -1321,11 +1320,10 @@ export class GlobalLeaderboardService {
             FROM global_games gg
             LEFT JOIN global_scores gs ON ${joinClause}
             LEFT JOIN (
-                SELECT global_game_id,
-                       AVG(rating) as avg_rating,
-                       COUNT(*) as rating_count
-                FROM global_game_ratings
-                GROUP BY global_game_id
+                SELECT global_game_id, AVG(r) AS avg_rating, COUNT(*) AS rating_count
+                  FROM (SELECT global_game_id, discord_user_id, AVG(rating) AS r
+                          FROM global_game_ratings GROUP BY global_game_id, discord_user_id)
+                 GROUP BY global_game_id
             ) gr ON gr.global_game_id = gg.id
             WHERE ${whereClause}
             GROUP BY ${groupKey}
