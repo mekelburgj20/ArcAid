@@ -6,6 +6,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.203.2] - 2026-10-30 - Typing a score no longer zooms the page on iPhone
+
+An RTX player reported that tapping the score box on the submit sheet, or the table search, zoomed the page in on
+iPhone and left it zoomed until he rotated the phone. iOS Safari zooms in on any text field whose text is under
+16px, and Arcaid's inputs use 14px (`text-sm`) or 12px (`text-xs`). Our own number pad did not help: the field
+still takes focus, and focus is what zooms.
+
+### Fixed
+- Every `input` / `select` / `textarea` renders at 16px on touch screens (`@media (pointer: coarse)` in
+  `admin-ui/src/index.css`, unlayered so it outranks the utility classes everywhere at once). Desktop sizing is
+  unchanged. Pinch-to-zoom is untouched — `maximum-scale=1` was rejected because Android then blocks it outright.
+
+---
+
 ## [2.203.1] - 2026-10-30 - "Listed on Arcaid" is the only switch that lists a room
 
 Arcaid Witness Demo was missing from the landing page while its owner's Settings showed **Listed on Arcaid** on.
