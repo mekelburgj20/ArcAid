@@ -2024,3 +2024,13 @@ select option {
   .sb-row-name  { font-size: 15px !important; }
   .sb-row-score { font-size: 16px !important; }
 }
+
+/* iOS Safari zooms the page in when a text field under 16px gets focus,
+   and does not zoom back out (RTX player report 2026-10-30: score entry and
+   table search). 16px on touch screens stops it. Unlayered, so it outranks
+   the text-sm / text-xs utilities on every input without per-page edits.
+   Do not "fix" this with maximum-scale=1 instead: Android then blocks
+   pinch-zoom outright. */
+@media (pointer: coarse) {
+  input, select, textarea { font-size: 16px; }
+}
