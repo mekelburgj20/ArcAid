@@ -163,6 +163,9 @@ Lane: `src/services/{GameRoom,GameRoomSettings,Settings,RoomEvent,Dashboard,Lobb
 - **G4** `idea` `KIOSK_KEY` pairing so a physically-secured kiosk can show an approval room; no ad-hoc bypasses meanwhile · tier: 7 · spec: ROADMAP.md §"Kiosk mode on approval rooms"
 - **G5** `idea` S20 a11y deferred items — `confirm()`/`alert()` → ConfirmModal/toast in four pages, dialog semantics + focus traps on ~15 modal shells, the `window.prompt` report reason, 320 px nav fallback · tier: 7 · spec: ROADMAP.md §"S20 a11y deferred items"
 - **G6** `done 2.185.0` "Add the bot to your server" invite link on room Settings and in the onboarding message
+- **G7** `done 2.203.1` "Listed on Arcaid" is the only switch that lists a room — arcaid_witness_demo was created with is_public = 0 (super-admin only) so its owner's toggle read on while the room stayed off the landing page; ROOM_LISTED now decides and is_public mirrors it (settings save, create, super-admin edit), migration 201 kept mox_s_vpx_tournaments hidden · pr: #422 · reported: owner 2026-10-30
+- **G8** `done 2.203.2` iPhone zooms the page when a text field is tapped (score entry, table search) — iOS Safari auto-zooms inputs under 16px; every input/select/textarea is 16px under `(pointer: coarse)` in `admin-ui/src/index.css`, desktop unchanged, no maximum-scale · pr: #423 · reported: LeonSpeegle (RTX) 2026-10-30
+- **G9** `idea` Super-admin room edit (`PUT /admin/rooms/:roomId`, `GameRoomManager`) writes no audit row — the is_public history behind G7 had to be read out of daily backups · touches: `src/services/AuditService.ts`
 
 ## W. Witness and Castcade integration
 
