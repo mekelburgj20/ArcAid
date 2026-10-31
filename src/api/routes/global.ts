@@ -20,6 +20,7 @@ import { GlobalScoreService } from '../../services/GlobalScoreService.js';
 import { GlobalLeaderboardService } from '../../services/GlobalLeaderboardService.js';
 import { GlobalPinService } from '../../services/GlobalPinService.js';
 import { GlobalRatingService } from '../../services/GlobalRatingService.js';
+import { normalizeRatingPlatform } from '../../utils/ratingTarget.js';
 import { GlobalCommentService } from '../../services/GlobalCommentService.js';
 import { ScoreRankService, type SubmitRankResult } from '../../services/ScoreRankService.js';
 import { emitScoreNewGlobal, getIO } from '../websocket.js';
@@ -3644,7 +3645,10 @@ router.post('/global/games/:id/rating', writeLimiter, requireDiscordUser, requir
         if (!rating || rating < 1 || rating > 5) {
             return res.status(400).json({ error: 'Rating must be 1-5' });
         }
-        await GlobalRatingService.setRating(globalGameId, req.user!.discordId!, rating);
+        // C2.2 - optional platform ('' = the table in general, else a canonical engine id).
+        const platform = normalizeRatingPlatform(req.body?.platform);
+        if (platform === null) return res.status(400).json({ error: 'PLATFORM_INVALID' });
+        await GlobalRatingService.setRating(globalGameId, req.user!.discordId!, rating, platform);
         const info = await GlobalRatingService.getGameRating(globalGameId, req.user!.discordId!);
         res.json(info);
     } catch (error) {

@@ -4,13 +4,8 @@ import { ArrowLeft, Home, Library, Plus, Search, Trash2 } from 'lucide-react';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import LoginButtons from '../components/LoginButtons';
 import { catalogueImageFor, toCatalogueUrl, type CatalogueImageSource } from '../lib/catalogueImage';
-import {
-  CANONICAL_ENGINES,
-  UNKNOWN,
-  getEngineShortLabel,
-  isCanonicalEngine,
-  mapLegacyPlatform,
-} from '../lib/scoreProvenance';
+import { getEngineShortLabel } from '../lib/scoreProvenance';
+import { engineOptionsFor } from '../lib/engineOptions';
 
 /**
  * C2 - My Tables: the player's table inventory.
@@ -46,25 +41,6 @@ interface CatalogueHit extends CatalogueImageSource {
   name: string;
   manufacturer: string | null;
   year: number | null;
-}
-
-/**
- * The engine chips offered for one owned game: the canonical engines the
- * catalogue lists it on (canonical ids pass through; legacy ids fold through
- * the legacy map - never the alias table, which would re-legacy `fx`), plus
- * `real` always. Anything the player already holds is kept so it can be
- * toggled off. Nothing derivable -> the full canonical list.
- */
-function engineOptionsFor(table: Pick<OwnedTable, 'catalogue_platforms' | 'platforms'>): string[] {
-  const seen = new Set<string>();
-  for (const p of table.catalogue_platforms ?? []) {
-    const engine = isCanonicalEngine(p) ? p.trim().toLowerCase() : mapLegacyPlatform(p).engine;
-    if (engine && engine !== UNKNOWN && isCanonicalEngine(engine)) seen.add(engine);
-  }
-  if (seen.size === 0) return Object.keys(CANONICAL_ENGINES);
-  seen.add('real');
-  for (const p of table.platforms ?? []) if (p) seen.add(p);
-  return [...seen];
 }
 
 function useDebounced<T>(value: T, ms: number): T {
@@ -308,7 +284,7 @@ export default function MyTables() {
             <ul className="space-y-3" data-testid="my-tables-list">
               {sorted.map(table => {
                 const busy = busyId === table.global_game_id;
-                const options = engineOptionsFor(table);
+                const options = engineOptionsFor(table.catalogue_platforms, table.platforms);
                 const img = table.image_url ? toCatalogueUrl(table.image_url) : null;
                 return (
                   <li key={table.global_game_id} className="bg-surface border border-border rounded-lg p-3" data-testid={`owned-${table.global_game_id}`}>

@@ -3532,6 +3532,13 @@ async function doInitDatabase(): Promise<Database> {
                 CREATE INDEX IF NOT EXISTS idx_player_tables_user ON player_tables(user_id);
             `);
         } },
+        // C3 (ratings half) + C2.2: global_game_ratings gains a platform axis
+        // and becomes THE store for any catalogue table; room ratings of an
+        // unambiguous catalogue name fold into it (newer opinion wins).
+        { name: '205_ratings_unified_per_platform', handler: async (db) => {
+            const { runRatingsUnified } = await import('./migrations/ratingsUnified.js');
+            await runRatingsUnified(db);
+        } },
     ];
 
     for (const migration of migrations) {

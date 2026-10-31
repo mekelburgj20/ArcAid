@@ -11,6 +11,8 @@ import {
     enginesFromLegacyPlatforms,
     getDeviceDisplay,
     getEngineDisplay,
+    getEngineShortLabel,
+    isCanonicalEngine,
 } from '../lib/scoreProvenance';
 // The picker's option sets come from `lib/allowedProvenance`, which
 // `GameInfoPopup`'s "What's allowed" section also imports — one derivation, so
@@ -261,6 +263,10 @@ interface GameRatingInfo {
     avg_rating: number;
     rating_count: number;
     user_rating: number | null;
+    /** C3 - every row of the viewer keyed by platform ('' = the table in general). */
+    user_ratings: Record<string, number>;
+    /** C3 - false only on a room-only legacy payload, which has no platform axis. */
+    unified?: boolean;
 }
 
 /** Coerce a ratings response into `GameRatingInfo`; null when unusable. */
@@ -268,10 +274,19 @@ function parseRatingInfo(data: unknown): GameRatingInfo | null {
     if (!data || typeof data !== 'object') return null;
     const raw = data as Record<string, unknown>;
     const userRating = Number(raw.user_rating);
+    const userRatings: Record<string, number> = {};
+    if (raw.user_ratings && typeof raw.user_ratings === 'object') {
+        for (const [k, v] of Object.entries(raw.user_ratings as Record<string, unknown>)) {
+            const n = Number(v);
+            if (Number.isFinite(n) && n > 0) userRatings[k] = n;
+        }
+    }
     return {
         avg_rating: Number(raw.avg_rating) || 0,
         rating_count: Number(raw.rating_count) || 0,
         user_rating: Number.isFinite(userRating) && userRating > 0 ? userRating : null,
+        user_ratings: userRatings,
+        ...(typeof raw.unified === 'boolean' ? { unified: raw.unified } : {}),
     };
 }
 
@@ -806,6 +821,15 @@ export default function SubmissionSheet({
     }, [phase, ratingUrl, ratingHeaders]);
 
     /**
+     * C3 - the platform the post-submit block rates: the engine the player just
+     * submitted on, when it is a canonical engine and the rating store has a
+     * platform axis (anything but a room-only legacy payload). '' = overall.
+     */
+    const ratingPlatform = ratingInfo && ratingInfo.unified !== false && isCanonicalEngine(engine)
+        ? engine.trim().toLowerCase()
+        : '';
+
+    /**
      * Optimistic star tap: paint the new rating immediately, POST, then take
      * the server's aggregate. A failure reverts and says so inline; the rating
      * is never required and never blocks Done.
@@ -813,19 +837,24 @@ export default function SubmissionSheet({
     const rateGame = async (value: number) => {
         if (!ratingInfo || !playerToken) return;
         const previous = ratingInfo;
-        setRatingInfo({ ...previous, user_rating: value });
+        // C3 - rate the ENGINE just submitted on when the store has a platform axis.
+        const platform = ratingPlatform;
+        const optimistic: GameRatingInfo = platform
+            ? { ...previous, user_ratings: { ...previous.user_ratings, [platform]: value } }
+            : { ...previous, user_rating: value, user_ratings: { ...previous.user_ratings, '': value } };
+        setRatingInfo(optimistic);
         setRatingError(null);
         setRatingThanks(false);
         try {
             const res = await fetch(ratingUrl, {
                 method: 'POST',
                 headers: ratingHeaders(true),
-                body: JSON.stringify({ rating: value }),
+                body: JSON.stringify(platform ? { rating: value, platform } : { rating: value }),
             });
             if (!res.ok) throw new Error('rejected');
             const data = await res.json().catch(() => null);
             if (!mountedRef.current) return;
-            setRatingInfo(parseRatingInfo(data) ?? { ...previous, user_rating: value });
+            setRatingInfo(parseRatingInfo(data) ?? optimistic);
             setRatingThanks(true);
         } catch {
             if (!mountedRef.current) return;
@@ -1148,11 +1177,12 @@ export default function SubmissionSheet({
                             <div className="text-left px-3 py-2.5 rounded-lg bg-raised/40 border border-border/60 space-y-2">
                                 <div className="flex items-center justify-between gap-3">
                                     <p className="text-xs text-muted leading-snug break-words min-w-0">
-                                        How was <span className="text-primary font-medium">{target.gameName}</span>?
+                                        How was <span className="text-primary font-medium">{target.gameName}</span>
+                                        {ratingPlatform && <> on <span className="text-primary font-medium">{getEngineShortLabel(ratingPlatform)}</span></>}?
                                     </p>
                                     <div className="flex-shrink-0">
                                         <StarRating
-                                            rating={ratingInfo.user_rating ?? 0}
+                                            rating={ratingPlatform ? (ratingInfo.user_ratings[ratingPlatform] ?? 0) : (ratingInfo.user_rating ?? 0)}
                                             onRate={rateGame}
                                             size="md"
                                         />

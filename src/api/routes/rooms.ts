@@ -84,6 +84,7 @@ import { GameRoomService } from '../../services/GameRoomService.js';
 import { AdminService } from '../../services/AdminService.js';
 import { getDashboardData } from '../../services/DashboardService.js';
 import { RatingService } from '../../services/RatingService.js';
+import { normalizeRatingPlatform, PlatformUnsupportedError } from '../../utils/ratingTarget.js';
 import { RoomScoresService } from '../../services/RoomScoresService.js';
 import { TournamentScoresService } from '../../services/TournamentScoresService.js';
 import { ScoreProvenanceService } from '../../services/ScoreProvenanceService.js';
@@ -4712,10 +4713,15 @@ router.post('/:roomId/ratings/:gameName', guestContentLimiter, requireDiscordUse
         const userId = req.user!.discordId!;
         const rating = Number(req.body?.rating);
         if (!rating || rating < 1 || rating > 5) return res.status(400).json({ error: 'Rating must be 1-5' });
-        await RatingService.setRating(roomId, gameName, userId, rating);
+        // C2.2 - optional platform ('' = the table in general, else a
+        // canonical engine id); only a catalogue table can take one.
+        const platform = normalizeRatingPlatform(req.body?.platform);
+        if (platform === null) return res.status(400).json({ error: 'PLATFORM_INVALID' });
+        await RatingService.setRating(roomId, gameName, userId, rating, platform);
         const info = await RatingService.getGameRating(roomId, gameName, userId);
         res.json(info);
     } catch (error) {
+        if (error instanceof PlatformUnsupportedError) return res.status(400).json({ error: 'PLATFORM_UNSUPPORTED' });
         logError('API Error (POST rooms/:roomId/ratings/:gameName):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
