@@ -53,6 +53,8 @@ const EVIDENCE: EvidenceRow[] = [
     id: 7, deviceId: 'dev-1', canonicalUserId: '123456789012345678', playerLabel: 'Mox', outcome: 'not_sanctioned',
     gameId: 'g-mb', gameName: 'Monster Bash', scoreHistoryId: null, globalScoreId: 'gs-1', integrityMode: 'sanctioned',
     verdict: 'flagged', reasons: ['tilt sensitivity 200 is below the minimum 300'],
+    // W72: a genuine signature over another game of the sitting - no badge, plain words.
+    signatureOk: false, signedBy: 'lu-scoreserver', signatureReason: 'signed_record_other_game',
     checks: [
       { rule: 'evidence', status: 'pass', detail: 'evidence present' },
       { rule: 'named_table', status: 'skipped', detail: 'no required table set for this game' },
@@ -76,6 +78,8 @@ const EVIDENCE: EvidenceRow[] = [
     verdict: 'pass', reasons: [], checks: [{ rule: 'evidence', status: 'pass', detail: 'evidence present' }],
     // W49: quit on ball 2 - shown as text, never changes the verdict.
     quit: true, quitBall: 2,
+    // W72: the launcher's signed record verified - shown beside the verdict, never instead of it.
+    signatureOk: true, signedBy: 'lu-scoreserver', signatureReason: null,
     tableName: 'Monster Bash (Williams 1998)', rom: 'mb_10', score: 98765430, playedAt: '2026-10-19 18:00:00',
     evidence: {
       vpsGame: 'mb-vps', vpsTable: 'tbl-vr', tableSha256: null, ini: null, adjustments: null, build: null,
@@ -243,6 +247,16 @@ describe('IntegrityPanel', () => {
     // The verdict beside it is untouched.
     expect(within(quit).getByTestId('evidence-verdict-pass')).toBeInTheDocument();
     expect(screen.queryByTestId('evidence-quit-7')).toBeNull();
+  });
+
+  it('shows "Launcher-signed" beside the verdict on a row whose launcher record verified (W72)', async () => {
+    render(<IntegrityPanel roomId={ROOM} tournament={TOURNAMENT} onClose={() => {}} toast={toast} />);
+    const row = await screen.findByTestId('evidence-row-6');
+    expect(within(row).getByTestId('evidence-signed-6')).toHaveTextContent('Launcher-signed');
+    expect(within(row).getByTestId('evidence-verdict-pass')).toBeInTheDocument();
+    expect(screen.queryByTestId('evidence-signed-7')).toBeNull();
+    // Row 7's signature was genuine but for another game of the sitting: said in words, no badge.
+    expect(screen.getByTestId('evidence-signature-failed-7')).toHaveTextContent('Signed record covers a different game of this sitting');
   });
 
   it('a failed evidence read still shows the required tables', async () => {

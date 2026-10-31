@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { CheckCircle2, Globe, AlertTriangle, XCircle, Trash2, RefreshCw } from 'lucide-react';
 import { formatScore, scoreTitle } from '../lib/format';
+import { SIGNED_OTHER_GAME_TEXT, signedTitleFor } from '../lib/integrityBadge';
 
 /**
  * W27.2 (ADR 0033 §5) — "Where your plays went", under the player's paired
@@ -35,6 +36,10 @@ export type RecentPlay = {
     /** v2.191.0 (W53) - true = quit before game over; null/absent = unknown. A badge only. */
     quit?: boolean | null;
     quitBall?: number | null;
+    /** W72 - the signer when the launcher's own record of the play verified ("lu-scoreserver"); null/absent otherwise. */
+    signedBy?: string | null;
+    /** W72 - the launcher's signed record covered a different game of this sitting (no badge; it still counted). */
+    signedOtherGame?: boolean;
     destinations: PlayDestination[];
 };
 
@@ -185,6 +190,20 @@ export default function WitnessRecentPlays({ playerToken }: { playerToken: strin
                                     {play.quit === true && (
                                         <span className="text-xs px-1.5 py-0.5 rounded bg-raised text-muted" data-testid="play-quit">
                                             {play.quitBall != null ? `Quit on ball ${play.quitBall}` : 'Quit'}
+                                        </span>
+                                    )}
+                                    {play.signedBy && (
+                                        <span
+                                            className="text-xs px-1.5 py-0.5 rounded bg-neon-cyan/10 text-neon-cyan"
+                                            data-testid="play-signed"
+                                            title={signedTitleFor(play.signedBy)}
+                                        >
+                                            Launcher-signed
+                                        </span>
+                                    )}
+                                    {!play.signedBy && play.signedOtherGame && (
+                                        <span className="text-xs text-muted" data-testid="play-signed-other-game">
+                                            {SIGNED_OTHER_GAME_TEXT}
                                         </span>
                                     )}
                                     <span className="text-xs text-faint ml-auto">{whenText(play.playedAt)}</span>

@@ -1,5 +1,5 @@
-import { LogOut, ShieldAlert, ShieldCheck } from 'lucide-react';
-import type { IntegrityChipSpec, QuitLabelSpec } from '../lib/integrityBadge';
+import { FileCheck, LogOut, ShieldAlert, ShieldCheck } from 'lucide-react';
+import type { IntegrityChipSpec, QuitLabelSpec, SignedLabelSpec } from '../lib/integrityBadge';
 
 /**
  * The integrity chip (v2.166.0, ADR 0027) â sits beside the WITNESSED badge on
@@ -48,6 +48,26 @@ export function QuitChip({ quit, className = '' }: { quit: QuitLabelSpec | null;
         >
             <LogOut size={10} aria-hidden="true" />
             {quit.label}
+        </span>
+    );
+}
+
+/**
+ * The launcher-signed chip (W72, v2.205.0) - "Launcher-signed". The launcher's
+ * own record of the game carried a valid signature and matched the score. It
+ * is ADDITIVE: drawn beside the integrity chip, never instead of it, and it
+ * says nothing about the table or its settings (the tooltip says so).
+ */
+export function SignedChip({ signed, className = '' }: { signed: SignedLabelSpec | null; className?: string }) {
+    if (!signed) return null;
+    return (
+        <span
+            className={`${BASE} bg-neon-cyan/10 text-neon-cyan ${className}`}
+            data-testid="signed-chip"
+            title={signed.title}
+        >
+            <FileCheck size={10} aria-hidden="true" />
+            {signed.label}
         </span>
     );
 }

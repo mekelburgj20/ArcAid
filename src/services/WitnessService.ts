@@ -452,6 +452,8 @@ export class WitnessService {
         ballPoints?: number[] | null;
         /** v2.189.0 (W49) — quit before game over (Castcade companion); null = unknown. */
         quit?: import('../utils/quitEvidence.js').QuitEvidence | null;
+        /** W72 (v2.205.0) - the launcher's raw scoreserver line (`record=`), signed by the LU ScoreServer; null when not sent. */
+        forwardedRecord?: string | null;
     }): Promise<(import('./VpxScoreIngestService.js').VpxIngestResult & { deviceType: WitnessDeviceType }) | null> {
         const deviceId = (input.atgamesUniqueId || '').trim();
         if (!deviceId || !input.token) return null;
@@ -475,6 +477,7 @@ export class WitnessService {
             restarts: input.restarts ?? null,
             ballPoints: input.ballPoints ?? null,
             quit: input.quit ?? null,
+            forwardedRecord: input.forwardedRecord ?? null,
             tableName: (input.tableName || '').trim(),
             rom: input.rom ?? null,
             slug: input.slug ?? null,

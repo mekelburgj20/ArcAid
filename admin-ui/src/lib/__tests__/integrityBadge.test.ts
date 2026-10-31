@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { integrityChipFor, quitLabelFor, type IntegrityVerdictMap, type QuitMap } from '../integrityBadge';
+import {
+  integrityChipFor, quitLabelFor, signedLabelFor, signedTitleFor,
+  type IntegrityVerdictMap, type QuitMap, type SignedMap,
+} from '../integrityBadge';
 
 /**
  * The board chip (v2.166.0, ADR 0027). Badge, never gate: the helper only ever
@@ -69,5 +72,32 @@ describe('quitLabelFor (W49)', () => {
   it('a nonsense ball never prints (0, fractional, a string)', () => {
     const bad = { '1': { ball: 0 }, '2': { ball: 2.5 }, '3': { ball: 'x' as unknown as number } } as QuitMap;
     for (const id of [1, 2, 3]) expect(quitLabelFor(bad, id)!.label).toBe('Quit');
+  });
+});
+
+describe('signedLabelFor (W72)', () => {
+  const SIGNED: SignedMap = { '301': { by: 'lu-scoreserver' }, '302': { by: 'some-other-signer' } };
+
+  it('labels a launcher-signed row, with a tooltip that says what it does and does not prove', () => {
+    const spec = signedLabelFor(SIGNED, 301)!;
+    expect(spec.label).toBe('Launcher-signed');
+    expect(spec.title).toMatch(/Legends Unchained launcher signed its own record/);
+    expect(spec.title).toMatch(/says nothing about the table or its settings/);
+    expect(signedLabelFor(SIGNED, '302')!.title).toMatch(/valid signature and matches this score/);
+  });
+
+  it('is null with no map, no history id, no entry, or no signer', () => {
+    expect(signedLabelFor(null, 301)).toBeNull();
+    expect(signedLabelFor(undefined, 301)).toBeNull();
+    expect(signedLabelFor(SIGNED, null)).toBeNull();
+    expect(signedLabelFor(SIGNED, 999)).toBeNull();
+    expect(signedLabelFor({ '1': { by: '' } }, 1)).toBeNull();
+  });
+
+  it('is additive: a pass verdict on the same row is unchanged by it', () => {
+    const verdicts: IntegrityVerdictMap = { '301': { verdict: 'pass', reasons: [] } };
+    expect(integrityChipFor(verdicts, 301, 'sanctioned')!.label).toBe('Sanctioned');
+    expect(signedLabelFor(SIGNED, 301)!.label).toBe('Launcher-signed');
+    expect(signedTitleFor('lu-scoreserver')).toBe(signedLabelFor(SIGNED, 301)!.title);
   });
 });

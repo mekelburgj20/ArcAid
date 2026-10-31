@@ -6,8 +6,11 @@ import SubmissionSheet from '../components/SubmissionSheet';
 import ShareButton from '../components/ShareButton';
 import PlayerNameLink from '../components/PlayerNameLink';
 import ProvenanceTags from '../components/ProvenanceTags';
-import IntegrityChip, { QuitChip } from '../components/IntegrityChip';
-import { integrityChipFor, quitLabelFor, type IntegrityVerdictMap, type QuitMap, type QuitLabelSpec } from '../lib/integrityBadge';
+import IntegrityChip, { QuitChip, SignedChip } from '../components/IntegrityChip';
+import {
+  integrityChipFor, quitLabelFor, signedLabelFor,
+  type IntegrityVerdictMap, type QuitMap, type QuitLabelSpec, type SignedMap, type SignedLabelSpec,
+} from '../lib/integrityBadge';
 import { getEngineCategoryLabel, getEngineDisplay } from '../lib/scoreProvenance';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { useRoom } from '../contexts/RoomContext';
@@ -278,6 +281,8 @@ export default function GameDetail() {
       tournamentId: string; mode: 'open' | 'sanctioned'; verdicts: IntegrityVerdictMap;
       /** v2.189.0 (W49) — games quit before game over, by score_history id. A badge only. */
       quits: QuitMap;
+      /** W72 (v2.205.0) — scores whose launcher record was signed and verified. Additive badge. */
+      signed: SignedMap;
       /** v2.167.0 (ADR 0029) — attempts per player per table; null = unlimited. */
       maxAttempts: number | null;
       /** v2.167.0 — `{ [gameId]: { [canonicalUserId]: used } }`. */
@@ -587,7 +592,7 @@ export default function GameDetail() {
     fetch(`/api/rooms/${roomId}/tournaments/${tournamentId}/integrity`)
       .then(r => r.ok ? r.json() : null)
       .then((data: {
-        mode?: string; verdicts?: IntegrityVerdictMap; quits?: QuitMap;
+        mode?: string; verdicts?: IntegrityVerdictMap; quits?: QuitMap; signed?: SignedMap;
         maxAttempts?: number | null; attempts?: Record<string, Record<string, number>>;
         requireAttemptStart?: boolean;
       } | null) => {
@@ -597,6 +602,7 @@ export default function GameDetail() {
           mode: data.mode === 'sanctioned' ? 'sanctioned' : 'open',
           verdicts: data.verdicts && typeof data.verdicts === 'object' ? data.verdicts : {},
           quits: data.quits && typeof data.quits === 'object' ? data.quits : {},
+          signed: data.signed && typeof data.signed === 'object' ? data.signed : {},
           maxAttempts: typeof data.maxAttempts === 'number' && data.maxAttempts >= 1 ? data.maxAttempts : null,
           attempts: data.attempts && typeof data.attempts === 'object' ? data.attempts : {},
           requireAttemptStart: data.requireAttemptStart === true,
@@ -1298,6 +1304,8 @@ export default function GameDetail() {
                             <IntegrityChip chip={integrityChipFor(integrity?.verdicts, entry.history_id, integrity?.mode)} />
                             {/* v2.189.0 (W49): the player quit this game before game over. Neutral; it still counts. */}
                             <QuitChip quit={quitLabelFor(integrity?.quits, entry.history_id)} />
+                            {/* W72: the launcher signed its own record of this game and it matches. Additive. */}
+                            <SignedChip signed={signedLabelFor(integrity?.signed, entry.history_id)} />
                             {/* v2.167.0 (ADR 0029): attempts used on this table. */}
                             {(() => {
                               const used = attemptsUsedFor(entry.submitted_by_user_id);
@@ -1410,6 +1418,7 @@ export default function GameDetail() {
                                             onDelete={() => handleDeleteScoreHistory(h)}
                                             witness={leaderboard?.witnessByHistoryId?.[String(h.id)]}
                                             quit={quitLabelFor(integrity?.quits, h.id)}
+                                            signed={signedLabelFor(integrity?.signed, h.id)}
                                             canCorrect={canCorrectScoreHistory(h)}
                                             onCorrect={() => setPendingCorrect({
                                               historyId: h.id,
@@ -1445,6 +1454,7 @@ export default function GameDetail() {
                                             onDelete={() => handleDeleteScoreHistory(h)}
                                             witness={leaderboard?.witnessByHistoryId?.[String(h.id)]}
                                             quit={quitLabelFor(integrity?.quits, h.id)}
+                                            signed={signedLabelFor(integrity?.signed, h.id)}
                                             canCorrect={canCorrectScoreHistory(h)}
                                             onCorrect={() => setPendingCorrect({
                                               historyId: h.id,
@@ -2355,7 +2365,7 @@ export default function GameDetail() {
     just admin/owner rows) — it opens the ScorePhotoModal for this exact row
     rather than performing the share itself; the modal's own Share button does
     the copy/native-share. */
-function ScoreHistoryRow({ h, canDelete, onDelete, witness, quit, canCorrect, onCorrect, canVerify, onToggleVerified, canReport, onReport, onShare }: {
+function ScoreHistoryRow({ h, canDelete, onDelete, witness, quit, signed, canCorrect, onCorrect, canVerify, onToggleVerified, canReport, onReport, onShare }: {
   h: ScoreHistoryEntry;
   canDelete: boolean;
   onDelete: () => void;
@@ -2363,6 +2373,8 @@ function ScoreHistoryRow({ h, canDelete, onDelete, witness, quit, canCorrect, on
   witness?: WitnessVerdict | null;
   /** v2.191.0 (W53) - the quit badge (same map as the ranked rows). Neutral; it still counts. */
   quit?: QuitLabelSpec | null;
+  /** W72 - the launcher-signed badge (same map as the ranked rows). Additive. */
+  signed?: SignedLabelSpec | null;
   canCorrect?: boolean;
   onCorrect?: () => void;
   canVerify?: boolean;
@@ -2386,6 +2398,7 @@ function ScoreHistoryRow({ h, canDelete, onDelete, witness, quit, canCorrect, on
         <SourceChip source={h.source} />
         <WitnessBadge witness={witness} />
         <QuitChip quit={quit ?? null} />
+        <SignedChip signed={signed ?? null} />
         {isVerified && (
           <span
             className="inline-flex items-center text-neon-green"

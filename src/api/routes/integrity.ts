@@ -39,7 +39,9 @@ router.get('/rooms/:roomId/tournaments/:id/integrity', async (req, res) => {
         if (!integrity) return res.status(404).json({ error: 'Tournament not found' });
         const verdicts = await WitnessEvidenceService.verdictMap(tournamentId);
         const quits = await WitnessEvidenceService.quitMap(tournamentId);
-        res.json({ ...integrity, verdicts, quits });
+        // W72 (v2.205.0) — scores whose launcher record was signed and verified. Additive.
+        const signed = await WitnessEvidenceService.signedMap(tournamentId);
+        res.json({ ...integrity, verdicts, quits, signed });
     } catch (error) {
         logError('API Error (GET rooms/:roomId/tournaments/:id/integrity):', error);
         res.status(500).json({ error: 'Internal Server Error' });

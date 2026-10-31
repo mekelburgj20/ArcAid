@@ -7,6 +7,7 @@ import LoadingState from '../components/LoadingState';
 import { THEMES, useTheme } from '../components/ThemeProvider';
 import ThemePicker from '../components/ThemePicker';
 import CalloutsCard from '../components/CalloutsCard';
+import SigningKeysCard from '../components/SigningKeysCard';
 
 const GLOBAL_KEYS = [
   'DISCORD_BOT_TOKEN',
@@ -226,6 +227,8 @@ export default function GlobalSettings() {
       </NeonCard>
 
       <CalloutsCard />
+
+      <SigningKeysCard />
 
       <NeonCard title="Theme" className="mb-4">
         <div className="space-y-4">

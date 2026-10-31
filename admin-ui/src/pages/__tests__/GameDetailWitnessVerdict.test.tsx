@@ -52,7 +52,8 @@ function stubFetch(board: typeof PREVENT_BOARD | typeof FLAG_BOARD & { tournamen
   const fetchMock = vi.fn((url: string) => {
     if (url.includes('/integrity')) {
       // v2.191.0 (W53): the quit map, keyed by score_history id.
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({ mode: 'open', verdicts: {}, quits: { '102': { ball: 2 } } }) });
+      // W72: the launcher-signed map, same keying.
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ mode: 'open', verdicts: {}, quits: { '102': { ball: 2 } }, signed: { '103': { by: 'lu-scoreserver' } } }) });
     }
     if (/\/leaderboard\/round-1(\?|$)/.test(url)) {
       return Promise.resolve({ ok: true, json: () => Promise.resolve({ ...board, distinctEngines: [] }) });
@@ -137,6 +138,17 @@ describe('GameDetail — witness verdicts on an event round', () => {
     fireEvent.click(rows.find(r => within(r).queryByText('500'))!);
 
     await waitFor(() => expect(screen.getByTestId('quit-chip')).toHaveTextContent('Quit on ball 2'));
+  });
+
+  it('W72: a ranked row whose launcher record verified carries the Launcher-signed chip, and only that row', async () => {
+    stubFetch({ ...PREVENT_BOARD, tournamentId: 't-1' });
+    renderPage();
+
+    await screen.findByTestId('not-counted');
+    const chips = await screen.findAllByTestId('signed-chip');
+    expect(chips).toHaveLength(1);
+    expect(chips[0]).toHaveTextContent('Launcher-signed');
+    expect(chips[0].getAttribute('title')).toMatch(/Legends Unchained launcher/);
   });
 
   it('flag: the flagged score ranks and wears the warning badge', async () => {
