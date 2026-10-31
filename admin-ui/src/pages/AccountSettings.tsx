@@ -311,6 +311,18 @@ export default function AccountSettings() {
 
   useEffect(() => { loadProfile(); }, [loadProfile]);
 
+  // C2 - My Tables summary: just the inventory count; the list lives on its own page.
+  const [ownedTableCount, setOwnedTableCount] = useState<number | null>(null);
+  useEffect(() => {
+    if (!playerToken) return;
+    let cancelled = false;
+    fetch('/api/me/tables', { headers: { Authorization: `Bearer ${playerToken}` } })
+      .then(r => (r.ok ? r.json() : null))
+      .then(body => { if (!cancelled && Array.isArray(body?.tables)) setOwnedTableCount(body.tables.length); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [playerToken]);
+
   const loadClaims = useCallback(async () => {
     if (!playerToken) return;
     try {
@@ -1060,6 +1072,19 @@ export default function AccountSettings() {
                   </button>
                 )}
               </div>
+            </section>
+
+            {/* C2 - My Tables. Count only; managing the inventory is its own page. */}
+            <section className="mb-8" data-testid="my-tables-summary">
+              <h2 className="text-sm font-medium mb-2">My Tables</h2>
+              <p className="text-xs text-muted mb-2">
+                {ownedTableCount === null
+                  ? 'Mark the tables you own. Only a count is ever shown to others.'
+                  : `${ownedTableCount} table${ownedTableCount === 1 ? '' : 's'} in your inventory`}
+              </p>
+              <Link to="/account/tables" className="text-sm text-neon-cyan hover:underline">
+                Manage my tables -&gt;
+              </Link>
             </section>
 
             <GlobalSharingSection />

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
 import StarRating from '../components/StarRating';
+import RatedByList, { type Rater } from '../components/RatedByList';
+import TableOwnersLine from '../components/TableOwnersLine';
 import Sparkline from '../components/Sparkline';
 import SubmissionSheet from '../components/SubmissionSheet';
 import ShareButton from '../components/ShareButton';
@@ -311,7 +313,7 @@ export default function GameDetail() {
     ? Math.max(0, integrity.maxAttempts - (boardAttempts[viewerClaims.discordId] ?? 0))
     : null;
   const [loading, setLoading] = useState(true);
-  const [ratingInfo, setRatingInfo] = useState<{ avg_rating: number; rating_count: number; user_rating: number | null } | null>(null);
+  const [ratingInfo, setRatingInfo] = useState<{ avg_rating: number; rating_count: number; user_rating: number | null; raters?: Rater[] } | null>(null);
   // Initial 'community' is the safe pre-data default; the leaderboard tab does
   // not exist until `stats` loads. Once stats resolves we default to
   // 'leaderboard' when tournament data exists (see tabInitialized effect below).
@@ -1134,6 +1136,13 @@ export default function GameDetail() {
       </div>
 
       <main className="max-w-4xl mx-auto px-4 sm:px-6 py-6">
+        {/* C2 - named ratings + the public owner count. Below the hero, not in
+            it: the hero is a fixed-height art scrim with white ink, and these
+            rows use theme tokens. */}
+        {ratingInfo && <RatedByList raters={ratingInfo.raters} loggedIn={!!playerToken} />}
+        {leaderboard?.globalGameId && (
+          <TableOwnersLine globalGameId={leaderboard.globalGameId} playerToken={playerToken} />
+        )}
         {/* Stat Cards — only when tournament data exists */}
         {stats && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">

@@ -6,6 +6,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.206.0] - 2026-10-31 - My Tables: mark the tables you own, filter the pick list, ratings carry a name (C2)
+
+The RTX feature-request thread of 2026-08-24 (steintheman's ask, LeonSpeegle's additions, owner rulings the same day).
+Two things were finalised there: a player should be able to say which tables they own and have that drive the pick
+list, and opinions are public - "stamp your name on it or don't rate at all".
+
+### Added
+- **My Tables** (`/account/tables`, linked from Account Settings): search the catalogue, add a table to your
+  inventory, optionally say where you own it (one chip per engine the catalogue lists for that table, plus Real
+  Machine; no chip = "any platform"). New table `player_tables(user_id, global_game_id, platform)` (migration 204),
+  one row per (player, table, engine); `PlayerTablesService` is the only reader/writer; rows go with the account on
+  deletion. Routes: `GET/PUT/DELETE /api/me/tables[/:globalGameId]`.
+- **"I own it" on the Picks page.** A fourth filter chip beside All / Available / Cooldown shows only the tables in
+  your inventory; rows carry an "Owned" marker. Owner ruling: inventory MAY be anonymous, so other players only
+  ever see a COUNT - every pick-list row and both game pages show "N players own this table"
+  (`owner_count` on `game-availability`, `GET /api/global/games/:id/owners`), never who. The game pages also carry a
+  one-click "I own this" toggle.
+- **Ratings carry the rater's name.** The room and global rating payloads ship a `raters` list (name through the
+  id-label chain; a pre-v2.86 guest rating or an unresolvable id reads "Unknown player", never a raw id), both game
+  pages show "Rated by N" with each rater's stars and say so before you rate ("Ratings are public and carry your
+  name"), and the room player page gains a Ratings section listing every rating that player has given, room and
+  Global, through `GET /api/rooms/:roomId/ratings/by-user/:userId` and `GET /api/global/ratings/by-user/:userId`.
+  Per-PLATFORM ratings ("is the VPXS version better than native?") are not in this release; they need the room /
+  global rating stores unified first (C3).
 ## [2.205.0] - 2026-10-30 - Launcher-signed scores (W72)
 
 The Legends Unchained launcher's ScoreServer signs every VPX game record it writes on the cabinet (pure Ed25519;

@@ -289,6 +289,8 @@ export class AccountDeletionService {
             await del('game_ratings', 'DELETE FROM game_ratings WHERE user_id = ?', id);
             await del('global_game_comments', 'DELETE FROM global_game_comments WHERE discord_user_id = ?', id);
             await del('global_game_ratings', 'DELETE FROM global_game_ratings WHERE discord_user_id = ?', id);
+            // C2 - table inventory (My Tables).
+            await del('player_tables', 'DELETE FROM player_tables WHERE user_id = ?', id);
             // Frees the per-room first-claim display_name.
             await del('room_members', 'DELETE FROM room_members WHERE user_id = ?', id);
 

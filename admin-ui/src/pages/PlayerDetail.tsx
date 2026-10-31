@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
 import { Flame, Trophy, Target, Medal, UserPlus, UserCheck, GitCompare, Flag } from 'lucide-react';
 import ShareButton from '../components/ShareButton';
+import StarRating from '../components/StarRating';
 import ReportContentModal from '../components/ReportContentModal';
 import { PersonalBestsSection, type PersonalBestRow } from '../components/PersonalBestsSection';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
@@ -81,6 +82,35 @@ export default function PlayerDetail() {
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [roomId, id]);
+
+  // C2 - the ratings this player has given (room + global). Ratings carry a
+  // name by owner ruling, so they are listed publicly. Either fetch failing
+  // just leaves that half empty; both empty hides the section.
+  // Results are keyed by the user id they were fetched for, so a stale list
+  // never shows under a different player while the next fetch is in flight.
+  const [roomRatingsFor, setRoomRatingsFor] = useState<{ key: string; rows: Array<{ game_name: string; rating: number; updated_at: string }> } | null>(null);
+  const [globalRatingsFor, setGlobalRatingsFor] = useState<{ key: string; rows: Array<{ global_game_id: string; name: string; rating: number; updated_at: string }> } | null>(null);
+  const ratedUserId = stats?.discordUserId ?? null;
+  const roomRatingsKey = `${roomId ?? ''}|${ratedUserId ?? ''}`;
+  useEffect(() => {
+    if (!ratedUserId) return;
+    let cancelled = false;
+    const uid = encodeURIComponent(ratedUserId);
+    const key = `${roomId ?? ''}|${ratedUserId}`;
+    if (roomId) {
+      fetch(`/api/rooms/${roomId}/ratings/by-user/${uid}`)
+        .then(r => (r.ok ? r.json() : null))
+        .then(body => { if (!cancelled && Array.isArray(body?.ratings)) setRoomRatingsFor({ key, rows: body.ratings }); })
+        .catch(() => {});
+    }
+    fetch(`/api/global/ratings/by-user/${uid}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(body => { if (!cancelled && Array.isArray(body?.ratings)) setGlobalRatingsFor({ key: ratedUserId, rows: body.ratings }); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [roomId, ratedUserId]);
+  const roomRatings = roomRatingsFor && roomRatingsFor.key === roomRatingsKey ? roomRatingsFor.rows : [];
+  const globalRatings = globalRatingsFor && globalRatingsFor.key === ratedUserId ? globalRatingsFor.rows : [];
 
   // Follow list — fetched once per viewer session (dep on the token string,
   // never a headers object; see v2.18.1 lesson).
@@ -366,6 +396,44 @@ export default function PlayerDetail() {
             >
               {stats.bestGame}
             </Link>
+          </div>
+        )}
+
+        {/* C2 - Ratings this player has given (room first, then global). */}
+        {(roomRatings.length > 0 || globalRatings.length > 0) && (
+          <div className="mb-8" data-testid="player-ratings">
+            <h2 className="font-display text-sm text-muted uppercase tracking-wider mb-3">Ratings</h2>
+            <div className="bg-surface border border-border rounded-lg overflow-hidden">
+              {roomRatings.map(r => (
+                <div key={`room-${r.game_name}`} className="flex items-center gap-3 px-5 py-2.5 border-b border-border/30 last:border-0">
+                  <Link
+                    to={`/${slug}/games/${encodeURIComponent(r.game_name)}`}
+                    className="flex-1 min-w-0 break-words text-primary hover:text-neon-cyan no-underline transition-colors text-sm font-medium"
+                  >
+                    {r.game_name}
+                  </Link>
+                  <span className="flex-shrink-0" aria-label={`${r.rating} star${r.rating === 1 ? '' : 's'}`}>
+                    <StarRating rating={r.rating} size="sm" />
+                  </span>
+                </div>
+              ))}
+              {globalRatings.map(r => (
+                <div key={`global-${r.global_game_id}`} className="flex items-center gap-3 px-5 py-2.5 border-b border-border/30 last:border-0">
+                  <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
+                    <Link
+                      to={`/games/${r.global_game_id}`}
+                      className="min-w-0 break-words text-primary hover:text-neon-cyan no-underline transition-colors text-sm font-medium"
+                    >
+                      {r.name}
+                    </Link>
+                    <span className="px-1.5 py-0.5 rounded border border-neon-cyan/30 text-neon-cyan text-[10px] uppercase tracking-wider">Global</span>
+                  </div>
+                  <span className="flex-shrink-0" aria-label={`${r.rating} star${r.rating === 1 ? '' : 's'}`}>
+                    <StarRating rating={r.rating} size="sm" />
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 

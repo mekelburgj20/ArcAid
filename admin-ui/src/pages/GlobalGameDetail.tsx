@@ -4,6 +4,8 @@ import { ArrowLeft, Trophy, Upload, Download, BookOpen, Play, ExternalLink, Flag
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { PlayerAvatar } from '../components/ScoreboardComponents';
 import StarRating from '../components/StarRating';
+import RatedByList, { type Rater } from '../components/RatedByList';
+import TableOwnersLine from '../components/TableOwnersLine';
 import LoadingState from '../components/LoadingState';
 import SubmissionSheet from '../components/SubmissionSheet';
 import ReportProblemModal from '../components/ReportProblemModal';
@@ -195,7 +197,7 @@ export default function GlobalGameDetail() {
   const [fromRoom, setFromRoom] = useState<{ id: string; discordEnabled: boolean } | null>(null);
 
   // Rating state
-  const [ratingInfo, setRatingInfo] = useState<{ avg_rating: number; rating_count: number; user_rating: number | null } | null>(null);
+  const [ratingInfo, setRatingInfo] = useState<{ avg_rating: number; rating_count: number; user_rating: number | null; raters?: Rater[] } | null>(null);
 
   // Comments state
   const [tips, setTips] = useState<GlobalComment[]>([]);
@@ -675,6 +677,9 @@ export default function GlobalGameDetail() {
                   </span>
                 </div>
               )}
+              {/* C2 - named ratings + the public owner count. */}
+              {ratingInfo && <RatedByList raters={ratingInfo.raters} loggedIn={!!playerToken} />}
+              <TableOwnersLine globalGameId={game.id} playerToken={playerToken} />
               {game.description && (
                 <p className="text-sm text-muted mb-4 line-clamp-4">{game.description}</p>
               )}
