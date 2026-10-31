@@ -1,10 +1,44 @@
 import { getDatabase } from '../database/database.js';
+import { resolveUserLabels } from './PlayerProfileResolver.js';
+
+/** C2 - one named rating ("stamp your name on it or don't rate at all"). */
+export interface RaterEntry {
+    user_id: string;
+    display_name: string;
+    rating: number;
+    updated_at: string;
+}
+
+/**
+ * What a rater is called when the id-label chain resolves nothing: pre-v2.86
+ * guest ratings carry a random browser id, and a snowflake with no profile
+ * row is still a raw id. Neither may render as-is (CLAUDE.md "Id-keyed
+ * surfaces"), so the rater list says this instead.
+ */
+export const UNRESOLVED_RATER_LABEL = 'Unknown player';
+
+/** Resolve rater rows to named entries through THE id-label chain. */
+export async function toRaterEntries(
+    rows: Array<{ user_id: string; rating: number; updated_at: string }>,
+): Promise<RaterEntry[]> {
+    const labels = await resolveUserLabels(rows.map(r => r.user_id));
+    return rows.map(r => {
+        const label = labels[r.user_id];
+        return {
+            user_id: r.user_id,
+            display_name: label && label !== r.user_id ? label : UNRESOLVED_RATER_LABEL,
+            rating: r.rating,
+            updated_at: r.updated_at,
+        };
+    });
+}
 
 export interface GameRatingInfo {
     game_name: string;
     avg_rating: number;
     rating_count: number;
     user_rating: number | null;
+    raters: RaterEntry[];
 }
 
 export class RatingService {
@@ -43,12 +77,33 @@ export class RatingService {
             );
             if (row) userRating = row.rating;
         }
+        const raterRows = await db.all(
+            `SELECT user_id, rating, updated_at FROM game_ratings
+              WHERE game_room_id = ? AND game_name = ?
+              ORDER BY updated_at DESC, user_id ASC`,
+            roomId, gameName
+        );
         return {
             game_name: gameName,
             avg_rating: agg?.avg_rating ? Math.round(agg.avg_rating * 10) / 10 : 0,
             rating_count: agg?.rating_count || 0,
             user_rating: userRating,
+            raters: await toRaterEntries(raterRows),
         };
+    }
+
+    /**
+     * C2 - every rating a user has given in a room (their player page),
+     * newest first.
+     */
+    static async getRatingsByUser(roomId: string, userId: string): Promise<Array<{ game_name: string; rating: number; updated_at: string }>> {
+        const db = await getDatabase();
+        return db.all(
+            `SELECT game_name, rating, updated_at FROM game_ratings
+              WHERE game_room_id = ? AND user_id = ?
+              ORDER BY updated_at DESC, game_name ASC`,
+            roomId, userId
+        );
     }
 
     /**

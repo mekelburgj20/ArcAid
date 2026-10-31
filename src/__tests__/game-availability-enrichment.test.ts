@@ -240,7 +240,7 @@ describe('a tournament with no platform rules', () => {
 const EXPECTED_KEYS = [
     'allTimeHigh', 'allTimeHighPlayer', 'available', 'daysUntilAvailable',
     'features', 'global_game_id', 'image_url', 'lastEndDate', 'lastPlayedDate',
-    'lastStatus', 'manufacturer', 'name', 'platforms', 'room_tags',
+    'lastStatus', 'manufacturer', 'name', 'owner_count', 'platforms', 'room_tags',
     'winnerName', 'winnerScore', 'year',
 ];
 

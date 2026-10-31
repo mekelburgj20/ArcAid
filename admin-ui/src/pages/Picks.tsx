@@ -47,6 +47,29 @@ interface GameAvailabilityEntry {
   global_game_id?: string | null;
   /** Catalogue artwork, already normalized server-side. */
   image_url?: string | null;
+  /** C2: how many registered players own this table (My Tables). Absent on an older server. */
+  owner_count?: number;
+}
+
+/**
+ * C2 - per-row ownership markers: the public "N own" count and the viewer's
+ * own "Owned" marker. Renders nothing when neither applies.
+ */
+function OwnershipMarkers({ ownerCount, owned }: { ownerCount: number; owned: boolean }) {
+  if (ownerCount <= 0 && !owned) return null;
+  return (
+    <span className="flex items-center gap-1.5 flex-wrap">
+      {ownerCount > 0 && (
+        <span
+          title={`${ownerCount} registered player${ownerCount === 1 ? '' : 's'} own${ownerCount === 1 ? 's' : ''} this table`}
+          className="inline-flex items-center px-1.5 py-0.5 rounded-full border border-border text-[10px] text-muted whitespace-nowrap tabular-nums"
+        >
+          {ownerCount} own
+        </span>
+      )}
+      {owned && <span className="text-[10px] font-medium text-neon-green whitespace-nowrap">Owned</span>}
+    </span>
+  );
 }
 
 /**
@@ -232,7 +255,7 @@ export default function Picks() {
   const [roomId, setRoomId] = useState<string | null>(null);
   const [roomName, setRoomName] = useState<string>('');
   const [roomLogoUrl, setRoomLogoUrl] = useState<string>('');
-  const [filter, setFilter] = useState<'all' | 'available' | 'cooldown'>('all');
+  const [filter, setFilter] = useState<'all' | 'available' | 'cooldown' | 'owned'>('all');
   const [search, setSearch] = useState('');
   /** Engine-axis pill filter. `'all'` = no engine restriction. */
   const [engineFilter, setEngineFilter] = useState<string>('all');
@@ -346,6 +369,30 @@ export default function Picks() {
   }, [roomId, playerToken]);
 
   useEffect(() => { fetchPickStatus(); }, [fetchPickStatus]);
+
+  // C2 - the viewer's inventory (My Tables), fetched once per login. null =
+  // not loaded / not logged in; the "I own" chip only renders once it is a Set.
+  // Keyed by the token it was fetched with, so a logout (or a different
+  // login) never shows the previous viewer's inventory.
+  const [ownedFor, setOwnedFor] = useState<{ token: string; ids: Set<string> } | null>(null);
+  useEffect(() => {
+    if (!playerToken) return;
+    let cancelled = false;
+    fetch('/api/me/tables', { headers: { Authorization: `Bearer ${playerToken}` } })
+      .then(r => (r.ok ? r.json() : null))
+      .then((body: { tables?: Array<{ global_game_id: string }> } | null) => {
+        if (cancelled) return;
+        const tables = Array.isArray(body?.tables) ? body!.tables : [];
+        setOwnedFor({ token: playerToken, ids: new Set(tables.map(t => t.global_game_id)) });
+      })
+      .catch(() => { if (!cancelled) setOwnedFor({ token: playerToken, ids: new Set() }); });
+    return () => { cancelled = true; };
+  }, [playerToken]);
+  const ownedIds = playerToken && ownedFor?.token === playerToken ? ownedFor.ids : null;
+  const isOwned = useCallback(
+    (g: GameAvailabilityEntry) => !!(ownedIds && g.global_game_id && ownedIds.has(g.global_game_id)),
+    [ownedIds],
+  );
 
   // F2 tab sync — one-way, off selectedTournamentId only (not off pickStatus,
   // or a background refetch after a delete/reorder would yank the tab back
@@ -824,6 +871,7 @@ export default function Picks() {
     const filtered = (data?.games ?? []).filter(g => {
       if (filter === 'available' && !g.available) return false;
       if (filter === 'cooldown' && g.available) return false;
+      if (filter === 'owned' && !isOwned(g)) return false;
       const entry = gameIndex.get(g.name);
       if (activeEngine !== 'all' && !(entry?.engines ?? []).includes(activeEngine)) return false;
       if (q && !(entry?.haystack ?? g.name.toLowerCase()).includes(q)) return false;
@@ -833,10 +881,13 @@ export default function Picks() {
     // on game name, keeping the chip/other filters above as-is.
     if (q) filtered.sort(compareByRank(q, g => g.name));
     return filtered;
-  }, [data, filter, activeEngine, search, gameIndex]);
+  }, [data, filter, activeEngine, search, gameIndex, isOwned]);
 
   const availableCount = data?.games.filter(g => g.available).length ?? 0;
   const cooldownCount = data?.games.filter(g => !g.available).length ?? 0;
+  const ownedCount = data?.games.filter(isOwned).length ?? 0;
+  // The "I own" chip exists only for a logged-in viewer whose inventory loaded.
+  const showOwnedChip = !!playerToken && ownedIds !== null;
   const totalCount = data?.games.length ?? 0;
 
   const hasPendingPicks = (pickStatus?.pendingPicks.length ?? 0) > 0;
@@ -1438,7 +1489,7 @@ export default function Picks() {
           the height); sm+ keeps the original three stacked cards. Counts are
           flex-shrink-0 + tabular-nums per the score-containment doctrine —
           the label yields, the number never wraps. */}
-      <div className="grid grid-cols-3 sm:grid-cols-3 gap-2 sm:gap-3 mb-6">
+      <div className={`grid ${showOwnedChip ? 'grid-cols-4 sm:grid-cols-4' : 'grid-cols-3 sm:grid-cols-3'} gap-2 sm:gap-3 ${showOwnedChip && ownedIds!.size === 0 ? 'mb-2' : 'mb-6'}`}>
         <button
           onClick={() => setFilter('all')}
           className={`bg-surface border rounded-lg px-2 py-2 sm:p-3 flex items-center justify-center gap-1.5 sm:block sm:text-center cursor-pointer transition-colors ${
@@ -1466,7 +1517,27 @@ export default function Picks() {
           <p className="text-faint text-[10px] uppercase tracking-wider truncate min-w-0 sm:mb-0.5">Cooldown</p>
           <p className="font-display font-bold text-sm sm:text-lg text-neon-amber flex-shrink-0 whitespace-nowrap tabular-nums">{cooldownCount}</p>
         </button>
+        {/* C2 - "I own": the viewer's My Tables inventory, logged-in only. */}
+        {showOwnedChip && (
+          <button
+            onClick={() => setFilter(filter === 'owned' ? 'all' : 'owned')}
+            aria-pressed={filter === 'owned'}
+            title={ownedIds!.size === 0 ? 'Add tables at Account -> My Tables' : 'Show only tables you own'}
+            data-testid="picks-owned-filter"
+            className={`bg-surface border rounded-lg px-2 py-2 sm:p-3 flex items-center justify-center gap-1.5 sm:block sm:text-center cursor-pointer transition-colors ${
+              filter === 'owned' ? 'border-neon-green/50' : 'border-border hover:border-border/80'
+            }`}
+          >
+            <p className="text-faint text-[10px] uppercase tracking-wider truncate min-w-0 sm:mb-0.5">I own</p>
+            <p className="font-display font-bold text-sm sm:text-lg text-primary flex-shrink-0 whitespace-nowrap tabular-nums">{ownedCount}</p>
+          </button>
+        )}
       </div>
+      {showOwnedChip && ownedIds!.size === 0 && (
+        <p className="text-right text-[11px] mb-4">
+          <Link to="/account/tables" className="text-neon-cyan hover:underline">Add my tables -&gt;</Link>
+        </p>
+      )}
 
       {/* Search — matches name, manufacturer, year and the row's chip labels,
           so "Bally", "1992" and "VPX" all find something. */}
@@ -1573,6 +1644,7 @@ export default function Picks() {
                     </span>
                   )}
                   <PlatformChips platforms={game.platforms ?? []} roomTags={game.room_tags} dense uniformStyle emptyFallback={null} />
+                  <OwnershipMarkers ownerCount={game.owner_count ?? 0} owned={isOwned(game)} />
                 </div>
                 {/* A bare "12d" doesn't say what the number counts — the
                     caption names it without stealing the number's weight. */}
@@ -1659,6 +1731,7 @@ export default function Picks() {
                       </span>
                     )}
                     <PlatformChips platforms={game.platforms ?? []} roomTags={game.room_tags} dense uniformStyle emptyFallback={null} />
+                    <OwnershipMarkers ownerCount={game.owner_count ?? 0} owned={isOwned(game)} />
                   </div>
                   <div className="flex flex-col items-end flex-shrink-0">
                     {game.available ? (

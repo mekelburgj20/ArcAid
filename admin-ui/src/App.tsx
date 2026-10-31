@@ -84,6 +84,7 @@ import Friends from './pages/Friends';
 
 // Pages — Account
 import AccountSettings from './pages/AccountSettings';
+import MyTables from './pages/MyTables';
 
 // Pages — Stats (v2.82.0, My Stats)
 import MyStats from './pages/MyStats';
@@ -211,6 +212,8 @@ function App() {
 
         {/* Account settings (global, requires Discord login) */}
         <Route path="/account/settings" element={<ViewerAuthProvider><AccountSettings /></ViewerAuthProvider>} />
+        {/* C2 - My Tables (global, requires login) */}
+        <Route path="/account/tables" element={<ViewerAuthProvider><MyTables /></ViewerAuthProvider>} />
 
         {/* My Rooms (global, requires Discord login) */}
         <Route path="/my-rooms" element={<ViewerAuthProvider><MyRooms /></ViewerAuthProvider>} />

@@ -868,6 +868,13 @@ router.get('/:roomId/game-availability/:tournamentId', async (req, res) => {
             }
         }
 
+        // C2 - how many registered players own each table (a count, never
+        // names). ONE batched read over the listed catalogue ids.
+        const { PlayerTablesService } = await import('../../services/PlayerTablesService.js');
+        const ownerCounts = await PlayerTablesService.ownerCounts(
+            libraryGames.map((lg: any) => lg.global_game_id).filter((id: unknown): id is string => typeof id === 'string' && id !== ''),
+        );
+
         // Build availability list
         const now = new Date();
         const availability = libraryGames.map((lg: any) => {
@@ -891,6 +898,7 @@ router.get('/:roomId/game-availability/:tournamentId', async (req, res) => {
                 platforms: parsePlatformsList(lg.platforms || '[]'),
                 features: parsePlatformsList(lg.features || '[]'),
                 room_tags: tagMap.get(key) ?? [],
+                owner_count: lg.global_game_id ? (ownerCounts[lg.global_game_id] ?? 0) : 0,
             };
 
             if (recent) {
@@ -4664,6 +4672,19 @@ router.get('/:roomId/ratings', optionalDiscordUser, async (req, res) => {
         res.json({ ratings, userRatings });
     } catch (error) {
         logError('API Error (GET rooms/:roomId/ratings):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// C2 - every rating a player has given in this room (ratings are public and
+// carry the rater's name). MUST stay registered BEFORE `/ratings/:gameName`,
+// or Express matches "by-user" as a game name.
+router.get('/:roomId/ratings/by-user/:userId', async (req, res) => {
+    try {
+        const ratings = await RatingService.getRatingsByUser(req.params.roomId as string, req.params.userId as string);
+        res.json({ ratings });
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/ratings/by-user/:userId):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

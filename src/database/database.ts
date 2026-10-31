@@ -3514,6 +3514,24 @@ async function doInitDatabase(): Promise<Database> {
                 await db.exec(`ALTER TABLE witness_devices ADD COLUMN device_model_name TEXT`);
             }
         } },
+        // C2 - "My Tables": a player's table inventory. One row per (user,
+        // catalogue game, engine); platform '' = owned, platform unspecified.
+        // Only a COUNT is ever shown to others (PlayerTablesService).
+        { name: '204_player_tables', handler: async (db) => {
+            await db.exec(`
+                CREATE TABLE IF NOT EXISTS player_tables (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    global_game_id TEXT NOT NULL,
+                    platform TEXT NOT NULL DEFAULT '',
+                    created_at TEXT DEFAULT (datetime('now')),
+                    UNIQUE(user_id, global_game_id, platform),
+                    FOREIGN KEY (global_game_id) REFERENCES global_games(id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_player_tables_game ON player_tables(global_game_id);
+                CREATE INDEX IF NOT EXISTS idx_player_tables_user ON player_tables(user_id);
+            `);
+        } },
     ];
 
     for (const migration of migrations) {

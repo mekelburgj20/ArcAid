@@ -276,6 +276,58 @@ router.delete('/me/witness/devices/:deviceId', requireDiscordUser, async (req, r
     }
 });
 
+// ---------------------------------------------------------------------------
+// C2 - My Tables: the viewer's own table inventory. Private to the player;
+// others only ever see a count (GET /global/games/:id/owners).
+// ---------------------------------------------------------------------------
+
+router.get('/me/tables', requireDiscordUser, async (req, res) => {
+    try {
+        const { PlayerTablesService } = await import('../../services/PlayerTablesService.js');
+        res.json({ tables: await PlayerTablesService.listForUser(req.user!.discordId!) });
+    } catch (error) {
+        logError('API Error (GET /api/me/tables):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.put('/me/tables/:globalGameId', writeLimiter, requireDiscordUser, async (req, res) => {
+    try {
+        const platforms = req.body?.platforms;
+        if (!Array.isArray(platforms)) {
+            return res.status(400).json({ error: 'platforms must be an array' });
+        }
+        const { PlayerTablesService, GameNotFoundError, PlatformInvalidError } =
+            await import('../../services/PlayerTablesService.js');
+        try {
+            const table = await PlayerTablesService.setOwnership(
+                req.user!.discordId!, req.params.globalGameId as string, platforms,
+            );
+            res.json({ table });
+        } catch (err) {
+            if (err instanceof GameNotFoundError) return res.status(404).json({ error: 'GAME_NOT_FOUND' });
+            if (err instanceof PlatformInvalidError) return res.status(400).json({ error: 'PLATFORM_INVALID' });
+            throw err;
+        }
+    } catch (error) {
+        logError('API Error (PUT /api/me/tables/:globalGameId):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.delete('/me/tables/:globalGameId', requireDiscordUser, async (req, res) => {
+    try {
+        const { PlayerTablesService } = await import('../../services/PlayerTablesService.js');
+        const removed = await PlayerTablesService.removeOwnership(
+            req.user!.discordId!, req.params.globalGameId as string,
+        );
+        res.json({ ok: true, removed });
+    } catch (error) {
+        logError('API Error (DELETE /api/me/tables/:globalGameId):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 // Device: the ROM -> VPS game map (v2.193.0, W12, castcade B8/F8). PUBLIC - no
 // device token: it is catalogue data, the same for every caller, built from
 // VPS `romFiles` (`global_game_roms`, GlobalGameRomService). Versioned by a
@@ -3597,6 +3649,42 @@ router.post('/global/games/:id/rating', writeLimiter, requireDiscordUser, requir
         res.json(info);
     } catch (error) {
         logError('API Error (POST /api/global/games/:id/rating):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
+ * C2 - GET /api/global/games/:id/owners - how many registered players own
+ * this table (never WHO), plus the viewer's own ownership when logged in.
+ */
+router.get('/global/games/:id/owners', optionalDiscordUser, async (req, res) => {
+    try {
+        const { PlayerTablesService } = await import('../../services/PlayerTablesService.js');
+        const globalGameId = req.params.id as string;
+        const count = await PlayerTablesService.ownerCount(globalGameId);
+        let mine: { owned: boolean; platforms: string[] } | null = null;
+        const viewerId = req.user?.discordId;
+        if (viewerId) {
+            const platforms = await PlayerTablesService.ownedPlatforms(viewerId, globalGameId);
+            mine = { owned: platforms !== null, platforms: platforms ?? [] };
+        }
+        res.json({ count, mine });
+    } catch (error) {
+        logError('API Error (GET /api/global/games/:id/owners):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
+ * C2 - GET /api/global/ratings/by-user/:userId - every global rating a player
+ * has given (ratings are public and carry the rater's name). Newest first.
+ */
+router.get('/global/ratings/by-user/:userId', async (req, res) => {
+    try {
+        const ratings = await GlobalRatingService.getRatingsByUser(req.params.userId as string);
+        res.json({ ratings });
+    } catch (error) {
+        logError('API Error (GET /api/global/ratings/by-user/:userId):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
