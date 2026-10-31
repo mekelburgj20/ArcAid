@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.204.0] - 2026-10-30 - Witness devices record which AtGames cabinet model they are (W73)
+
+The AtGames External App SDK gives the cabinet two values: `ATGAMES_DEVICE_TYPE_ID` (model code, e.g. `HA9920`) and `ATGAMES_DEVICE_TYPE_NAME` (family, e.g. `Legends Ultimate`). The server now accepts them as `model=` and `model_name=` on `/witness/pair`, `/witness/checkin` and `/witness/heartbeat` and stores them on the device (migration 203, `witness_devices.device_model` / `device_model_name`). Server half only: the cabinet sends them in its next build, and nothing routes, gates or ranks on them yet (restricting a tournament to a model is a later item).
+
+- **Never a 400.** Values are trimmed, capped at 32 / 64 characters and limited to `[A-Za-z0-9 _.-]`; a missing or malformed value is ignored and the stored one kept (`parseDeviceModel`, same doctrine as `v=`).
+- **No churn.** One shared write (`WitnessService.stampDeviceModel`) touches the row only when a non-empty value differs from the stored one, so a heartbeat every minute writes nothing.
+- **Shown.** Both device lists (`GET /api/me/witness/devices`, the runner's `GET /rooms/:roomId/admin/witness/devices`) ship `deviceModel` / `deviceModelName`; Account Settings and the runner page render "Legends Ultimate · HA9920" beside the build chip, or "model unknown".
+
 ## [2.203.2] - 2026-10-30 - Typing a score no longer zooms the page on iPhone
 
 An RTX player reported that tapping the score box on the submit sheet, or the table search, zoomed the page in on

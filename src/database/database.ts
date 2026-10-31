@@ -3467,6 +3467,19 @@ async function doInitDatabase(): Promise<Database> {
             const { roomListedSingleSwitch } = await import('./migrations/roomListedSingleSwitch.js');
             await roomListedSingleSwitch(db);
         } },
+        // W73 - which AtGames cabinet model a paired Witness device is
+        // (`model=` ATGAMES_DEVICE_TYPE_ID, e.g. HA9920; `model_name=`
+        // ATGAMES_DEVICE_TYPE_NAME, e.g. Legends Ultimate). NULL = never said.
+        // Display only until a later item lets hosts restrict by model.
+        { name: '203_witness_device_model', handler: async (db) => {
+            const cols = (await db.all(`PRAGMA table_info(witness_devices)`)) as Array<{ name: string }>;
+            if (!cols.some(c => c.name === 'device_model')) {
+                await db.exec(`ALTER TABLE witness_devices ADD COLUMN device_model TEXT`);
+            }
+            if (!cols.some(c => c.name === 'device_model_name')) {
+                await db.exec(`ALTER TABLE witness_devices ADD COLUMN device_model_name TEXT`);
+            }
+        } },
     ];
 
     for (const migration of migrations) {

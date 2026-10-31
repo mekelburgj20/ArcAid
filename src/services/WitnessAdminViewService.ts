@@ -48,6 +48,8 @@ export interface AdminViewDevice {
     /** W60 - the Witness build the device last reported; null = it never said. */
     appVersion: string | null;
     appVersionAt: string | null;
+    deviceModel: string | null;
+    deviceModelName: string | null;
     userId: string;
     playerName: string;
     /** True when the player is a member of this room; false = entered directly into a tournament here. */
@@ -86,8 +88,9 @@ export class WitnessAdminViewService {
             atgames_unique_id: string; canonical_user_id: string; device_type: string | null;
             last_seen_at: string | null; heartbeat_at: string | null; member: number;
             app_version: string | null; app_version_at: string | null;
+            device_model: string | null; device_model_name: string | null;
         }>>(
-            `SELECT d.atgames_unique_id, d.canonical_user_id, d.device_type, d.last_seen_at, d.heartbeat_at, d.app_version, d.app_version_at,
+            `SELECT d.atgames_unique_id, d.canonical_user_id, d.device_type, d.last_seen_at, d.heartbeat_at, d.app_version, d.app_version_at, d.device_model, d.device_model_name,
                     EXISTS (SELECT 1 FROM room_members rm WHERE rm.room_id = ? AND rm.user_id = d.canonical_user_id) AS member
                FROM witness_devices d
               WHERE d.revoked_at IS NULL
@@ -127,6 +130,8 @@ export class WitnessAdminViewService {
                 label: null,
                 appVersion: r.app_version,
                 appVersionAt: r.app_version_at,
+                deviceModel: r.device_model,
+                deviceModelName: r.device_model_name,
                 userId: r.canonical_user_id,
                 playerName: labels[r.canonical_user_id] ?? 'Unknown player',
                 member: r.member === 1,

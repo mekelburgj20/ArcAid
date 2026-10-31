@@ -11,6 +11,7 @@ import { api } from '../lib/api';
 import { formatInZone } from '../lib/timezone';
 import { roomLines, type Routing } from '../lib/witnessScoresGoTo';
 import WitnessBuildChip from '../components/WitnessBuildChip';
+import WitnessModelLabel from '../components/WitnessModelLabel';
 
 /**
  * The runner's live device view (v2.187.0, W5) — `/:slug/admin/witness`.
@@ -37,6 +38,8 @@ interface AdminDevice {
   /** W60: the Witness build the device last reported; null = it never said. */
   appVersion?: string | null;
   appVersionAt?: string | null;
+  deviceModel?: string | null;
+  deviceModelName?: string | null;
   userId: string;
   playerName: string;
   member: boolean;
@@ -111,7 +114,7 @@ function DeviceCard({ d, timezone }: { d: AdminDevice; timezone: string }) {
         </Field>
         <Field label="Device">
           {typeWord}{d.label ? ` · ${d.label}` : ''}
-          <span className="block mt-0.5"><WitnessBuildChip version={d.appVersion} /></span>
+          <span className="block mt-0.5"><WitnessBuildChip version={d.appVersion} /><WitnessModelLabel model={d.deviceModel} modelName={d.deviceModelName} className="ml-2" /></span>
         </Field>
         <Field label="Status">
           <span className={`inline-flex items-center gap-1.5 ${online.text}`} title={online.hint}>
