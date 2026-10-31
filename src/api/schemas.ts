@@ -988,3 +988,12 @@ export const SeasonCandidatesQuerySchema = z.object({
     unplayed: z.enum(['0', '1', 'true', 'false']).optional(),
     limit: z.coerce.number().int().min(1).max(200).optional(),
 });
+
+// W72 (v2.205.0) - POST /api/admin/signing-keys. The key is base64 of the raw
+// 32-byte Ed25519 public key; SigningKeyService does the real key check.
+export const CreateSigningKeySchema = z.object({
+    source: z.string().trim().min(1).max(64).regex(/^[a-z0-9][a-z0-9._-]*$/, 'source must be lowercase letters, digits, dot, dash or underscore').default('lu-scoreserver'),
+    public_key: z.string().trim().min(40).max(64),
+    valid_from: z.string().trim().max(40).optional().nullable(),
+    note: z.string().trim().max(500).optional().nullable(),
+});

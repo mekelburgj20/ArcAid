@@ -7,6 +7,7 @@ import { parseWitnessEvidence } from '../../utils/sanctionedRules.js';
 import { parsePlayDevice } from '../../services/VpxScoreIngestService.js';
 import { parseBallPoints } from '../../utils/ballPoints.js';
 import { parseQuitEvidence } from '../../utils/quitEvidence.js';
+import { parseForwardedRecord } from '../../utils/luRecordSignature.js';
 import { raSearchHandler, raImportHandler } from '../raCatalogueHandlers.js';
 import { validate } from '../validate.js';
 import { isAllowedImage } from '../uploadValidation.js';
@@ -512,6 +513,12 @@ router.get('/witness/score', witnessIngestLimiter, async (req, res) => {
             // v2.189.0 (W49) — `quit=0|1` (+ `quit_ball`) from the Castcade companion: the
             // game was quit before game over. A badge, never a gate; malformed = unknown.
             quit: parseQuitEvidence(req.query as Record<string, unknown>),
+            // W72 (v2.205.0) — `record=` = base64 of the launcher's raw scoreserver
+            // line, signed by the Legends Unchained ScoreServer. Verified and
+            // cross-checked against score/started/ended in the ingest; a badge,
+            // never a gate. Absent, not base64, not UTF-8 or over 8,192 encoded
+            // characters = no record (today's path), never a 400.
+            forwardedRecord: parseForwardedRecord(req.query.record),
         });
         if (!result) return res.status(401).json({ ok: false });
 

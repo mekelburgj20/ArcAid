@@ -5,6 +5,7 @@ import { api } from '../lib/api';
 import { INTEGRITY_MODE_LABEL, normalizeIntegrityMode, type IntegrityMode } from '../lib/integrityForm';
 import type { Tournament } from '../lib/tournamentFormPayload';
 import { formatScore, parseServerDate, relativeTimeFrom } from '../lib/format';
+import { SIGNED_OTHER_GAME_TEXT, SIGNED_RECORD_OTHER_GAME, signedTitleFor } from '../lib/integrityBadge';
 
 /**
  * Integrity panel (v2.166.0, ADR 0027; Castcade ADR 0005) — the runner's view
@@ -293,6 +294,10 @@ export type EvidenceRow = {
     /** v2.189.0 (W49) — true = quit before game over, false = reached it, null = unknown. */
     quit?: boolean | null;
     quitBall?: number | null;
+    /** W72 - true = launcher-signed and verified, false = a record was forwarded but not verified, null = none. */
+    signatureOk?: boolean | null;
+    signedBy?: string | null;
+    signatureReason?: string | null;
     evidence: {
         vpsGame: string | null;
         vpsTable: string | null;
@@ -702,6 +707,29 @@ export default function IntegrityPanel({ roomId, tournament, onClose, toast }: I
                                                             {row.quit === true && (
                                                                 <span className="block mt-1 text-[11px] text-muted" data-testid={`evidence-quit-${row.id}`}>
                                                                     {row.quitBall != null ? `Quit on ball ${row.quitBall}` : 'Quit'}
+                                                                </span>
+                                                            )}
+                                                            {/* W72: the launcher's own signed record of the game. Additive, never a verdict. */}
+                                                            {row.signatureOk === true && (
+                                                                <span
+                                                                    className="block mt-1 text-[11px] text-neon-cyan"
+                                                                    data-testid={`evidence-signed-${row.id}`}
+                                                                    title={signedTitleFor(row.signedBy)}
+                                                                >
+                                                                    Launcher-signed
+                                                                </span>
+                                                            )}
+                                                            {row.signatureOk === false && (
+                                                                <span
+                                                                    className="block mt-1 text-[11px] text-muted"
+                                                                    data-testid={`evidence-signature-failed-${row.id}`}
+                                                                    title={row.signatureReason === SIGNED_RECORD_OTHER_GAME
+                                                                        ? 'The launcher signs one record per sitting, for its last game. This score still counts; it is just not badged.'
+                                                                        : (row.signatureReason || undefined)}
+                                                                >
+                                                                    {row.signatureReason === SIGNED_RECORD_OTHER_GAME
+                                                                        ? SIGNED_OTHER_GAME_TEXT
+                                                                        : 'Launcher record sent, signature not verified'}
                                                                 </span>
                                                             )}
                                                             {row.reasons.length > 0 && (

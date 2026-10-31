@@ -45,6 +45,53 @@ export function quitLabelFor(
   return { label: ball != null ? `Quit on ball ${ball}` : 'Quit', title: QUIT_TITLE };
 }
 
+/**
+ * Launcher-signed badge (W72, v2.205.0): `GET .../integrity` also ships
+ * `signed`, a map from `score_history.id` to `{ by }` for the scores whose
+ * launcher record (the Legends Unchained ScoreServer's own game record) was
+ * forwarded by the Witness, carried a valid signature, and matched the score.
+ * ADDITIVE: it sits beside any Sanctioned / Conditions-verified / Flagged chip
+ * and never replaces or overrides it, and like every badge it never filters a
+ * row or changes a rank.
+ */
+export type SignedMap = Record<string, { by: string }>;
+
+export interface SignedLabelSpec {
+  label: string;
+  title: string;
+}
+
+const SIGNED_TITLE: Record<string, string> = {
+  'lu-scoreserver':
+    'Launcher-signed: the Legends Unchained launcher signed its own record of this game, and the record matches this score. It shows the score came from the launcher; it says nothing about the table or its settings.',
+};
+const SIGNED_TITLE_DEFAULT =
+  'Launcher-signed: the record of this game carries a valid signature and matches this score.';
+
+/** `null` when the row has no signed entry - an absence of badge, never a badge of absence. */
+export function signedLabelFor(
+  signed: SignedMap | null | undefined,
+  historyId: number | string | null | undefined,
+): SignedLabelSpec | null {
+  if (!signed || historyId == null) return null;
+  const entry = signed[String(historyId)];
+  if (!entry || typeof entry.by !== 'string' || !entry.by) return null;
+  return { label: 'Launcher-signed', title: SIGNED_TITLE[entry.by] ?? SIGNED_TITLE_DEFAULT };
+}
+
+/**
+ * `signature_reason` for a genuine launcher signature over a DIFFERENT game of
+ * the same sitting (the launcher signs one record per sitting, for its last
+ * game). No badge; the score counts exactly as an unsigned one.
+ */
+export const SIGNED_RECORD_OTHER_GAME = 'signed_record_other_game';
+export const SIGNED_OTHER_GAME_TEXT = 'Signed record covers a different game of this sitting';
+
+/** The same words for a surface that only knows the signer (Where your plays went, the Integrity panel). */
+export function signedTitleFor(by: string | null | undefined): string {
+  return (by && SIGNED_TITLE[by]) || SIGNED_TITLE_DEFAULT;
+}
+
 export interface IntegrityChipSpec {
   tone: 'pass' | 'flagged';
   label: string;

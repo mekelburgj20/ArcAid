@@ -6,6 +6,50 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.205.0] - 2026-10-30 - Launcher-signed scores (W72)
+
+The Legends Unchained launcher's ScoreServer signs every VPX game record it writes on the cabinet (pure Ed25519;
+LU's lead dev published the contract on 2026-10-30 and 193/193 real records verify against it). This release is the
+server half: Arcaid accepts the raw record next to a cabinet score, checks the signature, checks that the record is
+the game being reported, and badges the score "Launcher-signed". The cabinet change that sends the record is
+cabinet 1.0.9. **A signature never refuses a score**: the worst it can do is earn no badge.
+
+### Added
+- **`record=` on `GET /api/witness/score`** — base64 of the launcher's raw scoreserver line (the cabinet
+  percent-encodes `+ / =` and omits the param above 6,144 characters). Up to 8,192 encoded characters is read;
+  absent, longer, not base64 or not UTF-8 is "no record" — today's path, never a failed signature and never a 400.
+- **Verification** (`src/utils/luRecordSignature.ts`, pure): the payload is the decoded line exactly as the file had
+  it, with only whitespace/newlines trimmed at the ends (a BOM or no-break space is kept), cut at the LAST
+  `,"sig":`, plus `}`; the 64-byte signature is checked against every ACTIVE key registered for `lu-scoreserver`.
+  Then the record must be the reported game: player 1's score exactly and the end (`timestamp`) within 2 s of
+  `ended`. `started` is NOT compared — a record is one per SITTING, and its `started` is the sitting's start.
+  - Valid and this game → `witness_evidence.signature_ok = 1`, `signed_by = 'lu-scoreserver'` — the badge.
+  - **Valid but another game** (the cabinet forwards the same sitting record with every game it splits out of it,
+    so only the last one matches) → `signature_ok = 0`, `signed_by = 'lu-scoreserver'`,
+    `signature_reason = 'signed_record_other_game'`, and **the score lands exactly as an unsigned one**.
+  - Signature present but not verifying (wrong key, retired key, no key configured, tampered) → `signature_ok = 0`
+    with the reason in `signature_reason`, and the score lands exactly as an unsigned one does today.
+  - No record → today's path, `signature_ok` NULL. The signature path never produces `invalid`.
+  `machine_id` (`alp4k-01` on every record) binds nothing; the device token stays the identity. Sanctioned rules
+  (`evaluateSanctioned`) are untouched: this is a badge, not a gate.
+- **Signing-key registry** — table `signing_keys` (source, algorithm, public key, valid_from/valid_until, note).
+  Keys are configured data, never hardcoded. `SigningKeyService` caches active keys per source and drops the cache
+  on every write. Super-admin `GET /api/admin/signing-keys`, `POST /api/admin/signing-keys`,
+  `POST /api/admin/signing-keys/:id/retire`, each audited; rotation = add the new key, then retire the old one.
+  UI: **Global Settings → Signing keys** (paste a key, retire one).
+- **The badge, wherever witness evidence already shows:** the public integrity read ships a `signed` map
+  (`score_history.id → { by }`) beside `verdicts` and `quits`; the game page draws a **Launcher-signed** chip on
+  ranked rows and history rows (beside — never instead of — a Sanctioned / Conditions verified / Flagged chip);
+  the runner's Integrity panel says "Launcher-signed", "Signed record covers a different game of this sitting" or
+  "Launcher record sent, signature not verified" per row; **Where your plays went** marks a signed play and says
+  the same plain words for another game of the sitting.
+- **Migration 202** (`202_signing_keys_and_signed_evidence`): `signing_keys`, and `witness_evidence.signed_by`,
+  `signature_ok`, `signature_reason`.
+
+---
+
+---
+
 ## [2.204.0] - 2026-10-30 - Witness devices record which AtGames cabinet model they are (W73)
 
 The AtGames External App SDK gives the cabinet two values: `ATGAMES_DEVICE_TYPE_ID` (model code, e.g. `HA9920`) and `ATGAMES_DEVICE_TYPE_NAME` (family, e.g. `Legends Ultimate`). The server now accepts them as `model=` and `model_name=` on `/witness/pair`, `/witness/checkin` and `/witness/heartbeat` and stores them on the device (migration 203, `witness_devices.device_model` / `device_model_name`). Server half only: the cabinet sends them in its next build, and nothing routes, gates or ranks on them yet (restricting a tournament to a model is a later item).

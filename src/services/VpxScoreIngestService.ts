@@ -8,6 +8,14 @@ import type { WitnessDeviceType } from './WitnessService.js';
 import { tournamentFinishedSql } from '../utils/openCard.js';
 import { deviceRoutesTo } from '../utils/witnessRouting.js';
 import { entryAllowed, entryRefusal, normalizeEntryMode } from '../utils/tournamentEntry.js';
+import { LU_SCORESERVER_SOURCE, crossCheckLuRecord, verifyLuRecord } from '../utils/luRecordSignature.js';
+
+/**
+ * W72 — `witness_evidence.signature_reason` for a GENUINE signature over a
+ * different game of the same sitting. The score still lands; it just is not
+ * badged.
+ */
+export const SIGNED_RECORD_OTHER_GAME = 'signed_record_other_game';
 import {
     evaluateSanctioned, normalizeIntegrityMode, normalizeSanctionedRules,
     type IntegrityMode, type Verdict, type WitnessEvidence,
@@ -163,7 +171,22 @@ export type VpxScoreInput = {
      * game still counts and still uses its attempt — nothing here gates.
      */
     quit?: import('../utils/quitEvidence.js').QuitEvidence | null;
+    /**
+     * W72 (v2.205.0) — the launcher's raw scoreserver line (`record=`), as the
+     * Legends Unchained ScoreServer signed it; null/absent when the cabinet
+     * forwarded none. See `checkSignature`: a badge only, never a refusal.
+     */
+    forwardedRecord?: string | null;
 };
+
+/**
+ * W72 — what the forwarded record said about this score, stored on every trail
+ * row of the play: `ok` 1 = verified and it is this game (`signedBy` = the
+ * key's source); 0 = forwarded but not this game's signature (`reason`) —
+ * `signedBy` is still set when the signature itself was genuine but covers
+ * another game of the sitting (`signed_record_other_game`).
+ */
+type SignatureOutcome = { ok: 1; signedBy: string; reason: null } | { ok: 0; signedBy: string | null; reason: string };
 
 /** See `VpxScoreIngestService.provenanceFor`. */
 export type WitnessProvenance = {
@@ -407,6 +430,51 @@ export class VpxScoreIngestService {
     /** W29 — the inputs this process has already written a trail row for (see `trailBackstop`). */
     private static readonly trailed = new WeakSet<VpxScoreInput>();
 
+    /** W72 — each input's signature outcome, decided once by `checkSignature` and read by `trail`. */
+    private static readonly signatures = new WeakMap<VpxScoreInput, SignatureOutcome>();
+
+    /**
+     * W72 (v2.205.0) — verify the forwarded launcher record, once per report.
+     * Null when none was forwarded. Otherwise:
+     * - `ok: 1`, `signedBy` = the key's source: the signature verifies against
+     *   an ACTIVE `lu-scoreserver` key AND the record is this game (player 1's
+     *   score exact, end within 2 s — `crossCheckLuRecord`);
+     * - `ok: 0`, `signedBy` set, reason `signed_record_other_game`: a genuine
+     *   signature over a DIFFERENT game of the same sitting (the cabinet
+     *   forwards one sitting record with every game it splits out of it);
+     * - `ok: 0`, `signedBy` null: the signature did not verify (or no key).
+     * The score is never refused on any of these; the caller does not branch.
+     */
+    private static async checkSignature(input: VpxScoreInput, score: number): Promise<SignatureOutcome | null> {
+        const line = input.forwardedRecord;
+        if (!line) return null;
+        let outcome: SignatureOutcome;
+        try {
+            const { SigningKeyService } = await import('./SigningKeyService.js');
+            const keys = await SigningKeyService.activeKeys(LU_SCORESERVER_SOURCE);
+            const verified = verifyLuRecord(line, keys);
+            if (verified.status !== 'verified') {
+                outcome = { ok: 0, signedBy: null, reason: verified.reason };
+            } else {
+                const agrees = crossCheckLuRecord(verified.record, { score, endedTs: input.endedTs });
+                outcome = agrees.ok
+                    ? { ok: 1, signedBy: verified.source, reason: null }
+                    : { ok: 0, signedBy: verified.source, reason: SIGNED_RECORD_OTHER_GAME };
+                if (!agrees.ok) {
+                    // Expected for every game but the last of a multi-game sitting; logged for diagnosis.
+                    logInfo(`VPX ingest: signed record for ${input.canonicalUserId} covers another game of the sitting — ${agrees.reason}`);
+                }
+            }
+        } catch (err) {
+            outcome = { ok: 0, signedBy: null, reason: `signature not checked (${err instanceof Error ? err.message : String(err)})` };
+        }
+        if (outcome.ok === 0 && outcome.signedBy == null) {
+            logWarn(`VPX ingest: forwarded record for ${input.canonicalUserId} not signed-verified — ${outcome.reason}`);
+        }
+        VpxScoreIngestService.signatures.set(input, outcome);
+        return outcome;
+    }
+
     /**
      * W29 (v2.181.0) — every witness score leaves a trail row, whatever happened
      * to it. The per-board paths write their own rows (with the game, the
@@ -443,6 +511,11 @@ export class VpxScoreIngestService {
         if (!Number.isFinite(input.endedTs) || input.endedTs <= 0) {
             return { status: 'invalid', reason: 'game end timestamp missing' };
         }
+
+        // W72 — a forwarded launcher record is verified once, here. Whatever it
+        // says, the path below is exactly the unsigned one: a signature only
+        // ever adds a badge (on the trail rows), it never refuses a score.
+        await VpxScoreIngestService.checkSignature(input, score);
 
         // The device sends up to three names for the same table and any of them
         // may be the one the room used: the session journal's catalogue-grade
@@ -1172,6 +1245,7 @@ export class VpxScoreIngestService {
                 evidence: input.evidence ?? null,
                 ballPoints: input.ballPoints ?? null,
                 quit: input.quit ?? null,
+                signature: VpxScoreIngestService.signatures.get(input) ?? null,
             });
         } catch (err) {
             logWarn(`VPX ingest: evidence trail not written (${err instanceof Error ? err.message : String(err)})`);

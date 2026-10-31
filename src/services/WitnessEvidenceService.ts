@@ -50,6 +50,14 @@ export type EvidenceRecordInput = {
     ballPoints?: number[] | null;
     /** v2.189.0 (W49) — quit before game over; null = the companion could not tell. */
     quit?: { quit: boolean; quitBall: number | null } | null;
+    /**
+     * W72 (v2.205.0) — the forwarded launcher record's outcome: `ok` 1 =
+     * signature verified and the record is this game (`signedBy` = the key's
+     * source); 0 = forwarded but not badged (`reason`), with `signedBy` still
+     * set when the signature was genuine but covers another game of the
+     * sitting (`signed_record_other_game`); null = none forwarded.
+     */
+    signature?: { ok: 0 | 1; signedBy: string | null; reason: string | null } | null;
 };
 
 export type EvidenceRow = {
@@ -85,6 +93,16 @@ export type EvidenceRow = {
     quit: boolean | null;
     /** The ball in play when the player quit, when the machine reported it. */
     quitBall: number | null;
+    /** W72 — true = launcher-signed and verified, false = a record was forwarded but not verified, null = none. */
+    signatureOk: boolean | null;
+    /**
+     * W72 — the key source whose signature verified (`lu-scoreserver`): always
+     * when `signatureOk`, and also on a `signed_record_other_game` row (genuine
+     * signature, a different game of the sitting).
+     */
+    signedBy: string | null;
+    /** W72 — why a forwarded record earned no badge (`signed_record_other_game`, or why it did not verify). */
+    signatureReason: string | null;
     createdAt: string;
 };
 
@@ -112,6 +130,10 @@ export type RecentPlay = {
     quit: boolean | null;
     /** The ball in play when they quit, when the machine reported it. */
     quitBall: number | null;
+    /** W72 — the key source when the launcher's signed record verified for this play (`lu-scoreserver`); null otherwise. A badge only. */
+    signedBy: string | null;
+    /** W72 — the launcher's signed record covered a DIFFERENT game of this sitting (no badge; the play still counted). */
+    signedOtherGame: boolean;
     destinations: PlayDestination[];
 };
 
@@ -155,6 +177,10 @@ type DbRow = {
     /** v2.189.0 (migration 196, W49) — NULL unknown, 0 reached game over, 1 quit. */
     quit: number | null;
     quit_ball: number | null;
+    /** W72 (migration 202) — NULL no record forwarded, 1 verified + this game, 0 not badged (see signature_reason). */
+    signature_ok?: number | null;
+    signed_by?: string | null;
+    signature_reason?: string | null;
     created_at: string;
 };
 
@@ -198,6 +224,10 @@ function rowToEvidence(r: DbRow): EvidenceRow {
         ballPoints: parseJson<number[] | null>(r.ball_points, null),
         quit: r.quit === 1 ? true : r.quit === 0 ? false : null,
         quitBall: r.quit === 1 && typeof r.quit_ball === 'number' ? r.quit_ball : null,
+        // Not part of hasEvidence either: a signed record is the launcher's word, not Castcade's measurements.
+        signatureOk: r.signature_ok === 1 ? true : r.signature_ok === 0 ? false : null,
+        signedBy: r.signature_ok != null ? (r.signed_by ?? null) : null,
+        signatureReason: r.signature_ok === 0 ? (r.signature_reason ?? null) : null,
         createdAt: r.created_at,
     };
 }
@@ -213,8 +243,9 @@ export class WitnessEvidenceService {
                 score_history_id, global_score_id, integrity_mode, verdict, reasons, checks,
                 table_name, rom, score, played_at,
                 vps_game, vps_table, table_sha256, table_save_rev, fingerprint, ini, adjustments, build, engine,
-                score_plausibility, ball_points, quit, quit_ball
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                score_plausibility, ball_points, quit, quit_ball,
+                signature_ok, signed_by, signature_reason
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             input.deviceId, input.canonicalUserId, input.outcome,
             input.gameId ?? null, input.tournamentId ?? null, input.gameRoomId ?? null,
             input.scoreHistoryId ?? null, input.globalScoreId ?? null,
@@ -233,6 +264,9 @@ export class WitnessEvidenceService {
             input.ballPoints && input.ballPoints.length > 0 ? JSON.stringify(input.ballPoints) : null,
             input.quit ? (input.quit.quit ? 1 : 0) : null,
             input.quit?.quit ? input.quit.quitBall : null,
+            input.signature ? input.signature.ok : null,
+            input.signature?.signedBy ?? null,
+            input.signature?.ok === 0 && input.signature.reason ? input.signature.reason.slice(0, 500) : null,
         );
         return typeof res.lastID === 'number' ? res.lastID : null;
     }
@@ -255,11 +289,13 @@ export class WitnessEvidenceService {
             room_name: string | null; room_slug: string | null;
             global_score_id: string | null; global_game_id: string | null;
             quit: number | null; quit_ball: number | null;
+            signature_ok: number | null; signed_by: string | null; signature_reason: string | null;
         }>>(
             `SELECT e.id, e.device_id, e.outcome, e.reasons, e.table_name, e.score, e.played_at,
                     g.name AS game_name, g.round_no, t.name AS tournament_name,
                     gr.name AS room_name, gr.slug AS room_slug,
-                    e.global_score_id, gs.global_game_id, e.quit, e.quit_ball
+                    e.global_score_id, gs.global_game_id, e.quit, e.quit_ball,
+                    e.signature_ok, e.signed_by, e.signature_reason
                FROM witness_evidence e
                LEFT JOIN games g ON g.id = e.game_id
                LEFT JOIN tournaments t ON t.id = e.tournament_id
@@ -277,9 +313,12 @@ export class WitnessEvidenceService {
             let play = plays.get(key);
             if (!play) {
                 if (plays.size >= cap) continue;
-                play = { key, playedAt: r.played_at, tableName: r.table_name, score: r.score, deviceId: r.device_id, quit: null, quitBall: null, destinations: [] };
+                play = { key, playedAt: r.played_at, tableName: r.table_name, score: r.score, deviceId: r.device_id, quit: null, quitBall: null, signedBy: null, signedOtherGame: false, destinations: [] };
                 plays.set(key, play);
             }
+            // W72 — the record was verified once per report; any row saying so marks the play.
+            if (r.signature_ok === 1 && r.signed_by) play.signedBy = r.signed_by;
+            else if (r.signature_ok === 0 && r.signed_by && r.signature_reason === 'signed_record_other_game') play.signedOtherGame = true;
             // One play, one fact: any of its rows saying it quit marks the play.
             if (r.quit === 1) { play.quit = true; if (typeof r.quit_ball === 'number') play.quitBall = r.quit_ball; }
             else if (r.quit === 0 && play.quit == null) play.quit = false;
@@ -383,6 +422,29 @@ export class WitnessEvidenceService {
         );
         const out: Record<string, { ball: number | null }> = {};
         for (const r of rows) out[String(r.score_history_id)] = { ball: r.quit_ball ?? null };
+        return out;
+    }
+
+    /**
+     * Launcher-signed badges (W72, v2.205.0): `score_history.id` -> `{ by }` for the
+     * scores of one tournament whose forwarded launcher record verified against a
+     * registered key and agreed with the score. A SEPARATE map from the verdicts for
+     * the quit map's reason: a cabinet never gets a verdict, and a cabinet is
+     * exactly what forwards a signed record. Additive - it never overrides a
+     * verdict, and no rank reads it.
+     */
+    static async signedMap(tournamentId: string): Promise<Record<string, { by: string }>> {
+        const db = await getDatabase();
+        const rows = await db.all<Array<{ score_history_id: number; signed_by: string }>>(
+            `SELECT score_history_id, signed_by
+               FROM witness_evidence
+              WHERE tournament_id = ? AND score_history_id IS NOT NULL
+                AND signature_ok = 1 AND signed_by IS NOT NULL
+              ORDER BY id ASC`,
+            tournamentId,
+        );
+        const out: Record<string, { by: string }> = {};
+        for (const r of rows) out[String(r.score_history_id)] = { by: r.signed_by };
         return out;
     }
 

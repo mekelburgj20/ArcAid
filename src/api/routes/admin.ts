@@ -13,7 +13,7 @@ import {
     BackupRestoreParamsSchema, CreateGameRoomSchema, UpdateGameRoomSchema,
     ResolveContentReportSchema, BanActionSchema, CreateBanSchema,
     SuspendRoomSchema, AdminSetDisplayNameSchema,
-    CalloutsReplaceSchema, CalloutPatchSchema,
+    CalloutsReplaceSchema, CalloutPatchSchema, CreateSigningKeySchema,
 } from '../schemas.js';
 import { SettingsService } from '../../services/SettingsService.js';
 import { CalloutService, CalloutValidationError } from '../../services/CalloutService.js';
@@ -2342,6 +2342,93 @@ router.delete('/global-scores/:scoreId', async (req, res) => {
         res.json({ success: true });
     } catch (error) {
         logError('API Error (DELETE /api/admin/global-scores/:scoreId):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// ─── Signing keys (W72, v2.205.0) ───────────────────────────────────────
+// The public keys a forwarded score record may be signed with (the Legends
+// Unchained ScoreServer first). Configured data, never hardcoded: list, add,
+// retire. Rotation = add the new key, then retire the old one. Rows are never
+// edited or deleted.
+
+/** GET /api/admin/signing-keys */
+router.get('/signing-keys', async (_req, res) => {
+    try {
+        const { SigningKeyService } = await import('../../services/SigningKeyService.js');
+        const keys = await SigningKeyService.list();
+        const now = new Date();
+        res.json({ keys: keys.map(k => ({ ...k, active: SigningKeyService.isActive(k, now) })) });
+    } catch (error) {
+        logError('API Error (GET /api/admin/signing-keys):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/** POST /api/admin/signing-keys { source?, public_key, valid_from?, note? } */
+router.post('/signing-keys', async (req, res) => {
+    try {
+        const parsed = validate(CreateSigningKeySchema, req.body);
+        if ('error' in parsed) return res.status(400).json({ error: parsed.error });
+        const { SigningKeyService, SigningKeyError } = await import('../../services/SigningKeyService.js');
+        let key;
+        try {
+            key = await SigningKeyService.add({
+                source: parsed.data.source,
+                publicKey: parsed.data.public_key,
+                validFrom: parsed.data.valid_from ?? null,
+                note: parsed.data.note ?? null,
+            });
+        } catch (err) {
+            if (err instanceof SigningKeyError) {
+                return res.status(err.code === 'DUPLICATE_KEY' ? 409 : 400).json({ error: err.message, code: err.code });
+            }
+            throw err;
+        }
+
+        // Explicit audit write — auditMiddleware does NOT fire on router routes.
+        await AuditService.log({
+            actor: req.user!.discordId || req.user!.username || req.user!.localAdminId || 'admin',
+            action: 'signing_key.add', target_type: 'signing_key', target_id: String(key.id),
+            details: JSON.stringify({ source: key.source, public_key: key.publicKey, valid_from: key.validFrom }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+        logInfo(`Signing key ${key.id} added for ${key.source}`);
+        res.status(201).json({ key: { ...key, active: SigningKeyService.isActive(key) } });
+    } catch (error) {
+        logError('API Error (POST /api/admin/signing-keys):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/** POST /api/admin/signing-keys/:id/retire */
+router.post('/signing-keys/:id/retire', async (req, res) => {
+    try {
+        const id = Number(req.params.id as string);
+        if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid key id' });
+        const { SigningKeyService, SigningKeyError } = await import('../../services/SigningKeyService.js');
+        let key;
+        try {
+            key = await SigningKeyService.retire(id);
+        } catch (err) {
+            if (err instanceof SigningKeyError) {
+                return res.status(err.code === 'NOT_FOUND' ? 404 : 409).json({ error: err.message, code: err.code });
+            }
+            throw err;
+        }
+
+        await AuditService.log({
+            actor: req.user!.discordId || req.user!.username || req.user!.localAdminId || 'admin',
+            action: 'signing_key.retire', target_type: 'signing_key', target_id: String(key.id),
+            details: JSON.stringify({ source: key.source, valid_until: key.validUntil }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+        logInfo(`Signing key ${key.id} retired for ${key.source}`);
+        res.json({ key: { ...key, active: false } });
+    } catch (error) {
+        logError('API Error (POST /api/admin/signing-keys/:id/retire):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

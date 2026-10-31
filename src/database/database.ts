@@ -3467,6 +3467,40 @@ async function doInitDatabase(): Promise<Database> {
             const { roomListedSingleSwitch } = await import('./migrations/roomListedSingleSwitch.js');
             await roomListedSingleSwitch(db);
         } },
+        // W72 (v2.205.0) - signed score records. `signing_keys` is the registry of public
+        // keys a forwarded record may be signed with (the Legends Unchained ScoreServer's
+        // Ed25519 key first, source 'lu-scoreserver'); rotation is a NEW row, retirement
+        // sets valid_until - a row is never edited in place. Keys are configured data, never
+        // hardcoded. On `witness_evidence`: `signature_ok` NULL = no record was forwarded,
+        // 1 = the signature verified AND the record is this game, 0 = a record was forwarded
+        // but earned no badge; `signed_by` is the key's source whenever the signature itself
+        // verified (a 1, or a 0 with reason 'signed_record_other_game' - a different game of
+        // the same sitting); `signature_reason` says why on a 0. A badge only - no board,
+        // rank or rule reads them, and no score is ever refused on them.
+        { name: '202_signing_keys_and_signed_evidence', handler: async (db) => {
+            await db.exec(`CREATE TABLE IF NOT EXISTS signing_keys (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source TEXT NOT NULL,
+                algorithm TEXT NOT NULL DEFAULT 'ed25519',
+                public_key TEXT NOT NULL,
+                valid_from TEXT NOT NULL DEFAULT (datetime('now')),
+                valid_until TEXT,
+                note TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )`);
+            await db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_signing_keys_source_key
+                             ON signing_keys(source, public_key)`);
+            const cols = (await db.all(`PRAGMA table_info(witness_evidence)`)) as Array<{ name: string }>;
+            if (!cols.some(c => c.name === 'signed_by')) {
+                await db.exec(`ALTER TABLE witness_evidence ADD COLUMN signed_by TEXT`);
+            }
+            if (!cols.some(c => c.name === 'signature_ok')) {
+                await db.exec(`ALTER TABLE witness_evidence ADD COLUMN signature_ok INTEGER`);
+            }
+            if (!cols.some(c => c.name === 'signature_reason')) {
+                await db.exec(`ALTER TABLE witness_evidence ADD COLUMN signature_reason TEXT`);
+            }
+        } },
         // W73 - which AtGames cabinet model a paired Witness device is
         // (`model=` ATGAMES_DEVICE_TYPE_ID, e.g. HA9920; `model_name=`
         // ATGAMES_DEVICE_TYPE_NAME, e.g. Legends Ultimate). NULL = never said.
