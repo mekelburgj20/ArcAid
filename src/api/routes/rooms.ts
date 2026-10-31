@@ -4830,6 +4830,11 @@ router.post('/:roomId/settings', requireAuth, requireRoomAccess('roomId'), requi
         }
         await GameRoomSettingsService.saveMany(roomId, validationResult.data);
 
+        // "Listed on Arcaid" is the room's only listing switch; is_public follows it.
+        if (Object.prototype.hasOwnProperty.call(validationResult.data, 'ROOM_LISTED')) {
+            await GameRoomService.syncPublicFromListed(roomId, validationResult.data.ROOM_LISTED);
+        }
+
         // A room-zone change moves every cron of this room's tournaments that
         // carry no zone of their own - re-register them (the same reload a
         // tournament save does). A reload failure must not fail the save.

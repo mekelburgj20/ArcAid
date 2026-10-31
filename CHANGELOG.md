@@ -6,6 +6,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.203.1] - 2026-10-30 - "Listed on Arcaid" is the only switch that lists a room
+
+Arcaid Witness Demo was missing from the landing page while its owner's Settings showed **Listed on Arcaid** on.
+Two values decided listing: the owner's toggle (`game_room_settings.ROOM_LISTED`) and `game_rooms.is_public`, which
+is set by the Create Room checkbox and afterwards only by a super admin. The room was created with that box unticked,
+so it stayed hidden whatever its owner did.
+
+### Fixed
+- **The owner's toggle decides.** Saving "Listed on Arcaid" now sets `is_public` to match (`POST /api/rooms/:roomId/settings`
+  → `GameRoomService.syncPublicFromListed`); creating a room unlisted stores the toggle off; a super-admin Public edit
+  moves the toggle with it.
+- **Migration 201** (`roomListedSingleSwitch`): a private room whose toggle was never saved keeps hiding (toggle
+  stored off — `mox_s_vpx_tournaments` on prod); a room whose owner saved the toggle gets what they chose
+  (`arcaid_witness_demo` is listed again). Every other room is unchanged.
+
+---
+
 ## [2.203.0] - 2026-10-30 - Give back a scored attempt, reinstate an over-the-limit play (W68)
 
 In a Limited-attempts tournament a host could not give back an attempt that already had a score, and the panel
