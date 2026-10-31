@@ -13,6 +13,7 @@ import ThrowdownsSection from '../components/ThrowdownsSection';
 import GlobalSharingSection from '../components/GlobalSharingSection';
 import WitnessRecentPlays from '../components/WitnessRecentPlays';
 import WitnessBuildChip from '../components/WitnessBuildChip';
+import WitnessModelLabel from '../components/WitnessModelLabel';
 
 type AvatarProvider = 'discord' | 'google';
 
@@ -155,6 +156,8 @@ export default function AccountSettings() {
     /** W60: the Witness build the device last reported; null/absent = it never said. */
     appVersion?: string | null;
     appVersionAt?: string | null;
+    deviceModel?: string | null;
+    deviceModelName?: string | null;
   }[]>([]);
   // v2.175.0 (W37) — the one-time "devices now send to all your rooms" notice.
   const [w37NoticeHidden, setW37NoticeHidden] = useState<boolean>(() => {
@@ -1453,6 +1456,7 @@ export default function AccountSettings() {
                         </div>
                         <p className="mt-1" title={d.appVersionAt ? `Reported ${new Date(d.appVersionAt.replace(' ', 'T') + 'Z').toLocaleString()}` : undefined}>
                           <WitnessBuildChip version={d.appVersion} />
+                          <WitnessModelLabel model={d.deviceModel} modelName={d.deviceModelName} className="ml-2" />
                         </p>
 
                         {/* Where this device's scores go. v2.175.0 (W37, ADR 0033):

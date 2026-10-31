@@ -311,7 +311,7 @@ router.get('/witness/pair', witnessIngestLimiter, async (req, res) => {
         const username = typeof req.query.username === 'string' ? req.query.username : null;
         const type = typeof req.query.type === 'string' && req.query.type !== '' ? req.query.type : 'atgames';
         try {
-            const { token } = await WitnessService.redeemPairingCode(code, device, username, type);
+            const { token } = await WitnessService.redeemPairingCode(code, device, username, type, { model: req.query.model, modelName: req.query.model_name });
             return res.json({ ok: true, token });
         } catch (err) {
             if (err instanceof WitnessPairError) {
@@ -404,7 +404,7 @@ router.get('/witness/checkin', witnessIngestLimiter, async (req, res) => {
         const token = (typeof req.query.token === 'string' && req.query.token)
             || (typeof req.headers['x-witness-token'] === 'string' ? req.headers['x-witness-token'] as string : '');
 
-        const result = await WitnessService.recordCheckin(device, token, req.query.v);
+        const result = await WitnessService.recordCheckin(device, token, req.query.v, { model: req.query.model, modelName: req.query.model_name });
         if (!result) return res.status(401).json({ ok: false });
         // `sendingTo` rides back on the check-in because that is the moment a
         // player is looking at the cabinet: it is how a stale designation gets
@@ -447,7 +447,7 @@ router.get('/witness/heartbeat', witnessIngestLimiter, async (req, res) => {
         const device = typeof req.query.device === 'string' ? req.query.device : '';
         const token = (typeof req.query.token === 'string' && req.query.token)
             || (typeof req.headers['x-witness-token'] === 'string' ? req.headers['x-witness-token'] as string : '');
-        const beat = await WitnessService.recordHeartbeat(device, token, req.query.v);
+        const beat = await WitnessService.recordHeartbeat(device, token, req.query.v, { model: req.query.model, modelName: req.query.model_name });
         if (!beat) return res.status(401).json({ ok: false });
         const sendingTo = await witnessHeartbeatSendingTo(device, beat.canonicalUserId);
         res.json({ ok: true, sendingTo });

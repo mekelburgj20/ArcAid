@@ -24,6 +24,7 @@ const PAYLOAD = {
     {
       deviceId: 'cab-1', deviceType: 'atgames', label: null,
       appVersion: '1.0.8', appVersionAt: NOW,
+      deviceModel: 'HA9920', deviceModelName: 'Legends Ultimate',
       userId: 'u-1', playerName: 'Alice', member: true,
       online: 'online', heartbeatAt: NOW, lastSeenAt: NOW, lastCheckinAt: NOW,
       openTable: 'Attack from Mars (Williams 1995)', openSince: NOW,
@@ -116,6 +117,15 @@ describe('RoomAdminWitness', () => {
     const carl = within(cards[2]!);
     expect(carl.getByText('Unknown')).toBeInTheDocument();
     expect(carl.getByText('Not known')).toBeInTheDocument();
+  });
+
+  it('W73: shows the cabinet model, or "model unknown" when it never said', async () => {
+    stubApi(PAYLOAD);
+    renderPage();
+
+    const cards = await screen.findAllByTestId('witness-admin-device');
+    expect(within(cards[0]!).getByTestId('witness-model-label')).toHaveTextContent('Legends Ultimate · HA9920');
+    expect(within(cards[1]!).getByTestId('witness-model-label')).toHaveTextContent('model unknown');
   });
 
   it('W60: shows each device\'s Witness build, or "unknown" when it never said', async () => {

@@ -105,6 +105,9 @@ export interface WitnessDevice {
     /** W60 - the Witness build the device last reported (`v=`), null = it never said. */
     appVersion: string | null;
     appVersionAt: string | null;
+    /** W73 - cabinet model code (`HA9920`) and family name (`Legends Ultimate`); null = never said. */
+    deviceModel: string | null;
+    deviceModelName: string | null;
 }
 
 /**
@@ -119,6 +122,20 @@ export function parseAppVersion(raw: unknown): string | null {
     if (v.length === 0 || v.length > 32) return null;
     return /^[0-9]+(\.[0-9]+){1,3}(-[A-Za-z0-9.]+)?$/.test(v) ? v : null;
 }
+
+/**
+ * W73 - the cabinet model strings (`model=`, `model_name=`). Trimmed, capped
+ * (32 / 64 chars) and limited to `[A-Za-z0-9 _.-]`; anything else (absent,
+ * array, oversize, odd characters) is IGNORED, never refused.
+ */
+export function parseDeviceModel(raw: unknown, maxLen: number): string | null {
+    if (typeof raw !== 'string') return null;
+    const v = raw.trim();
+    if (v.length === 0 || v.length > maxLen) return null;
+    return /^[A-Za-z0-9 _.-]+$/.test(v) ? v : null;
+}
+
+export interface DeviceModelInput { model?: unknown; modelName?: unknown }
 
 export class WitnessTargetError extends Error {
     readonly code: 'NOT_FOUND' | 'NOT_A_MEMBER' | 'TOURNAMENT_NOT_IN_ROOM';
@@ -197,6 +214,7 @@ export class WitnessService {
     static async redeemPairingCode(
         rawCode: string, atgamesUniqueId: string, atgamesUsername: string | null,
         deviceType: string = 'atgames',
+        modelInput: DeviceModelInput = {},
     ): Promise<{ token: string }> {
         const code = (rawCode || '').trim().toUpperCase();
         const deviceId = (atgamesUniqueId || '').trim();
@@ -253,6 +271,7 @@ export class WitnessService {
             throw err;
         }
 
+        await WitnessService.stampDeviceModel(deviceId, modelInput);
         logInfo(`Witness: ${deviceType} device ${deviceId} paired to ${row.canonical_user_id}`);
         return { token };
     }
@@ -372,7 +391,7 @@ export class WitnessService {
      * 401. Repeated check-ins are expected and are NOT deduped: each one is
      * another attestation point, and more of them can only ever help.
      */
-    static async recordCheckin(atgamesUniqueId: string, token: string, appVersion?: unknown): Promise<{ ts: string; canonicalUserId: string } | null> {
+    static async recordCheckin(atgamesUniqueId: string, token: string, appVersion?: unknown, modelInput: DeviceModelInput = {}): Promise<{ ts: string; canonicalUserId: string } | null> {
         const deviceId = (atgamesUniqueId || '').trim();
         if (!deviceId || !token) return null;
 
@@ -387,6 +406,7 @@ export class WitnessService {
         ) as { lastID?: number };
         await WitnessService.touchDevice(deviceId);
         await WitnessService.stampAppVersion(deviceId, appVersion);
+        await WitnessService.stampDeviceModel(deviceId, modelInput);
 
         const stored = await db.get<{ server_ts: string }>(
             'SELECT server_ts FROM witness_checkins WHERE id = ?', res.lastID,
@@ -795,7 +815,7 @@ export class WitnessService {
      * since its check-in as "not responding" — and ONLY for cabinets that have
      * ever sent one, so a pre-1.0.4 cabinet is never read as offline.
      */
-    static async recordHeartbeat(atgamesUniqueId: string, token: string, appVersion?: unknown): Promise<{ canonicalUserId: string } | null> {
+    static async recordHeartbeat(atgamesUniqueId: string, token: string, appVersion?: unknown, modelInput: DeviceModelInput = {}): Promise<{ canonicalUserId: string } | null> {
         const deviceId = (atgamesUniqueId || '').trim();
         if (!deviceId || !token) return null;
         const device = await WitnessService.authenticateDevice(deviceId, token);
@@ -807,6 +827,7 @@ export class WitnessService {
             deviceId,
         );
         await WitnessService.stampAppVersion(deviceId, appVersion);
+        await WitnessService.stampDeviceModel(deviceId, modelInput);
         return { canonicalUserId: device.canonical_user_id };
     }
 
@@ -831,6 +852,33 @@ export class WitnessService {
             );
         } catch (err) {
             logError('Witness: app version stamp failed (the call itself succeeded)', err);
+        }
+    }
+
+    /**
+     * W73 - remember which cabinet model the device says it is. Same rules as
+     * `stampAppVersion`: shared by pair / check-in / heartbeat, an unusable
+     * value keeps what is stored, and the row is only touched when a non-empty
+     * value DIFFERS from the stored one (a heartbeat flood must not churn it).
+     * Best-effort: never fails the call it rides on.
+     */
+    static async stampDeviceModel(deviceId: string, input: DeviceModelInput): Promise<void> {
+        const model = parseDeviceModel(input.model, 32);
+        const name = parseDeviceModel(input.modelName, 64);
+        if (!model && !name) return;
+        try {
+            const db = await getDatabase();
+            await db.run(
+                `UPDATE witness_devices
+                    SET device_model = COALESCE(?, device_model),
+                        device_model_name = COALESCE(?, device_model_name)
+                  WHERE atgames_unique_id = ?
+                    AND ((? IS NOT NULL AND device_model IS NOT ?)
+                      OR (? IS NOT NULL AND device_model_name IS NOT ?))`,
+                model, name, deviceId, model, model, name, name,
+            );
+        } catch (err) {
+            logError('Witness: device model stamp failed (the call itself succeeded)', err);
         }
     }
 
@@ -1067,11 +1115,13 @@ export class WitnessService {
             last_seen_at: string | null; target_room_id: string | null; room_name: string | null;
             target_tournament_id: string | null; tournament_name: string | null;
             global_only: number; global_fallback: number; app_version: string | null; app_version_at: string | null;
+            device_model: string | null; device_model_name: string | null;
         }>>(
             `SELECT d.atgames_unique_id, d.atgames_username, d.device_type, d.paired_at, d.last_seen_at,
                     d.target_room_id, r.name AS room_name,
                     d.target_tournament_id, t.name AS tournament_name,
-                    d.global_only, d.global_fallback, d.app_version, d.app_version_at
+                    d.global_only, d.global_fallback, d.app_version, d.app_version_at,
+                    d.device_model, d.device_model_name
                FROM witness_devices d
                LEFT JOIN game_rooms r ON r.id = d.target_room_id
                LEFT JOIN tournaments t ON t.id = d.target_tournament_id
@@ -1093,6 +1143,8 @@ export class WitnessService {
             globalFallback: r.global_fallback !== 0,
             appVersion: r.app_version,
             appVersionAt: r.app_version_at,
+            deviceModel: r.device_model,
+            deviceModelName: r.device_model_name,
         }));
     }
 
