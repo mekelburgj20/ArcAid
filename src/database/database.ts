@@ -3461,6 +3461,12 @@ async function doInitDatabase(): Promise<Database> {
                 await db.exec(`ALTER TABLE sync_logs ADD COLUMN source_version TEXT`);
             }
         } },
+        // ROOM_LISTED (the owner's "Listed on Arcaid" toggle) becomes the one
+        // listing switch and is_public mirrors it. See the handler file.
+        { name: '201_room_listed_single_switch', handler: async (db) => {
+            const { roomListedSingleSwitch } = await import('./migrations/roomListedSingleSwitch.js');
+            await roomListedSingleSwitch(db);
+        } },
     ];
 
     for (const migration of migrations) {

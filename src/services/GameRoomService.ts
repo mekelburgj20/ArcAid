@@ -75,6 +75,16 @@ export class GameRoomService {
                 normalizeShortTag(data.short_tag),
             );
 
+            // ROOM_LISTED is the one listing switch (the owner's "Listed on
+            // Arcaid" toggle); is_public mirrors it. A room created unlisted
+            // must store the toggle off, or Settings shows it on while hidden.
+            if (data.is_public === false) {
+                await db.run(
+                    `INSERT INTO game_room_settings (game_room_id, key, value) VALUES (?, ?, ?)`,
+                    id, 'ROOM_LISTED', 'false',
+                );
+            }
+
             // iScored posture (v2.81.0): iScored is a tolerated legacy bridge
             // (name-only sync, no login gate, spoofable names) — not promoted
             // for new rooms. Every new room seeds ISCORED_ENABLED off; admins
@@ -160,7 +170,24 @@ export class GameRoomService {
         params.push(id);
 
         const result = await db.run(`UPDATE game_rooms SET ${sets.join(', ')} WHERE id = ?`, ...params);
+        // Keep the owner's toggle in step with a super-admin is_public edit.
+        if (data.is_public !== undefined && (result.changes || 0) > 0) {
+            await db.run(
+                'INSERT OR REPLACE INTO game_room_settings (game_room_id, key, value) VALUES (?, ?, ?)',
+                id, 'ROOM_LISTED', data.is_public ? 'true' : 'false',
+            );
+        }
         return (result.changes || 0) > 0;
+    }
+
+    /**
+     * Mirror the owner's ROOM_LISTED setting onto game_rooms.is_public. Called
+     * by the room settings save, so "Listed on Arcaid" alone decides whether
+     * the room is on the landing page. Absent/'' / anything but 'false' = listed.
+     */
+    static async syncPublicFromListed(id: string, listedValue: string | undefined | null): Promise<void> {
+        const db = await getDatabase();
+        await db.run('UPDATE game_rooms SET is_public = ? WHERE id = ?', listedValue === 'false' ? 0 : 1, id);
     }
 
     /**
