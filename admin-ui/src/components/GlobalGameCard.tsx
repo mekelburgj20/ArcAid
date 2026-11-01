@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Medal, Pin, Upload } from 'lucide-react';
 import { PlayerAvatar, playerName } from './ScoreboardComponents';
 import RoomTag from './RoomTag';
+import RatingBadge from './RatingBadge';
 import { formatScore } from '../lib/format';
 import { catalogueImageFor } from '../lib/catalogueImage';
 // v2.58.0 (ADR 0016): the catalogue still stores legacy platform ids, but the
@@ -106,6 +107,9 @@ export interface GlobalGameCardGame {
   platforms: string;
   score_count: number;
   top_scores: TopScoreEntry[];
+  /** A14.1 - the footer shows the rating the "Top rated" sort already uses. */
+  avg_rating?: number;
+  rating_count?: number;
   /**
    * v2.59.0 (ADR 0016 P4) — which board this card is: `real` / `simulation` /
    * `arcade_style` / `video` / `unspecified`, or null when the game has no
@@ -635,8 +639,14 @@ export default function GlobalGameCard({ game, onSubmit, onTogglePin, badge, den
           borderTopColor: 'var(--sb-card-footer-border)',
         }}
       >
-        <span className="text-[12px] text-muted">
+        <span className="text-[12px] text-muted flex items-center gap-1 min-w-0 flex-wrap">
           {game.score_count.toLocaleString()} {game.score_count === 1 ? 'score' : 'scores'}
+          {(game.rating_count ?? 0) > 0 && (
+            <>
+              {' '}{String.fromCharCode(0xb7)}{' '}
+              <RatingBadge avg={game.avg_rating} count={game.rating_count} />
+            </>
+          )}
         </span>
         <button
           type="button"

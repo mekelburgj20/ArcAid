@@ -160,6 +160,22 @@ describe('GlobalGameCard — category neon (v2.67.0)', () => {
   });
 });
 
+describe('GlobalGameCard - rating in the footer (A14.1)', () => {
+  it('shows the average and rater count beside the score count', () => {
+    const { card } = renderCard(makeGame({ score_count: 12, avg_rating: 4.2, rating_count: 7 }));
+    const badge = within(card).getByTestId('rating-badge');
+    expect(badge).toHaveTextContent('4.2');
+    expect(badge).toHaveTextContent('(7)');
+    expect(badge).toHaveAttribute('title', 'Average rating 4.2 from 7 players');
+    expect(within(card).getByText(/12 scores/)).toContainElement(badge);
+  });
+
+  it('renders no badge when nobody has rated the table', () => {
+    const { card } = renderCard(makeGame({ score_count: 3, avg_rating: 0, rating_count: 0 }));
+    expect(within(card).queryByTestId('rating-badge')).not.toBeInTheDocument();
+  });
+});
+
 describe('glitchVars (v2.67.0)', () => {
   it('is a pure function of the seed — the same card never re-rolls', () => {
     expect(glitchVars('g1::real')).toEqual(glitchVars('g1::real'));

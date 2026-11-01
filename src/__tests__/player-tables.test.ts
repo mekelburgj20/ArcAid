@@ -154,6 +154,23 @@ describe('PlayerTablesService reads', () => {
         expect(await PlayerTablesService.listForUser('nobody')).toEqual([]);
     });
 
+    it('A14.1: listForUser and setOwnership carry the per-rater headline rating (0/0 when unrated)', async () => {
+        const { GlobalRatingService } = await import('../services/GlobalRatingService.js');
+        const rated = await seedGame('Rated Table');
+        const unrated = await seedGame('Unrated Table');
+        await GlobalRatingService.setRating(rated, 'u1', 3);
+        await GlobalRatingService.setRating(rated, 'u2', 5);
+
+        const single = await PlayerTablesService.setOwnership('u1', rated, []);
+        expect(single).toMatchObject({ avg_rating: 4, rating_count: 2 });
+        await PlayerTablesService.setOwnership('u1', unrated, []);
+
+        const list = await PlayerTablesService.listForUser('u1');
+        const byName = Object.fromEntries(list.map(t => [t.name, t]));
+        expect(byName['Rated Table']).toMatchObject({ avg_rating: 4, rating_count: 2 });
+        expect(byName['Unrated Table']).toMatchObject({ avg_rating: 0, rating_count: 0 });
+    });
+
     it('ownedPlatforms / ownedGameIds', async () => {
         const a = await seedGame('Owned A');
         const b = await seedGame('Owned B');

@@ -6,6 +6,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.209.0] - 2026-10-31 - Ratings on the lists: a Rating column and a "Top rated" sort on Picks, My Tables and the Global Scoreboard cards (A14.1)
+
+Owner ask, 2026-10-31: "add a column to the 'picks' and anywhere else it makes sense that shows table ratings and have an
+option to sort by ratings." The number is the per-rater headline from ADR 0035 (2.207.0), read where it already lives; no
+new store, no new endpoint, no migration.
+
+### Added
+- **Picks page: a Rating column and a sort.** Every row of the available-games list shows the table's average (one decimal)
+  and how many players rated it, between Status and Last Played on desktop and under the status on the phone card; unrated
+  tables show `--`. A "Sort" row under the search box offers **Default** (the server's name order, or search relevance while
+  typing) and **Top rated** (highest average first, then more raters, then name; unrated tables last). An explicit Top rated
+  sort wins over search relevance. The availability payload (`GET /rooms/:roomId/game-availability/:tournamentId`) gains
+  `avg_rating` / `rating_count` per row, from ONE `RatingService.getAllRatings(roomId)` read (the same name-keyed, unified
+  read the room admin Game Library already sorts on), looked up by lowercased name.
+- **My Tables: the same rating and a Name / Top rated sort.** `GET /api/me/tables` rows gain the two fields (one chunked
+  read over the owned catalogue ids through the per-rater aggregate).
+- **Global Scoreboard cards show the rating in the footer** beside "N scores" when anyone has rated the table. The "Top
+  rated" sort pill has ranked by `avg_rating` since 2.50.0 while the card stopped showing it; the footer line is a quiet
+  text badge, not the star row that redesign removed.
+- `components/RatingBadge.tsx` is the one badge all three render (filled star, average, count in parentheses, with a title
+  naming both); `lib/ratingSort.ts` is the one comparator.
+
+### Tests
+- Backend: the availability row contract (`EXPECTED_KEYS`) gains the two fields, plus a rated/unrated row test that rates
+  under a different case than the catalogue name; `player-tables.test.ts` covers `listForUser` and the `setOwnership`
+  return. Admin UI: `PicksRatingSort.test.tsx` (badges per row, Top rated reorders, Default restores), `MyTables.test.tsx`
+  (+1), `GlobalGameCard.test.tsx` (+2).
+
 ## [2.208.0] - 2026-10-31 - Attempts left per player, without reading attempt rows (W81)
 
 Owner ask 2026-10-31: in a Limited-attempts tournament a host wants to see how many attempts each player has LEFT.

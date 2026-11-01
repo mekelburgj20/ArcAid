@@ -876,6 +876,13 @@ router.get('/:roomId/game-availability/:tournamentId', async (req, res) => {
             libraryGames.map((lg: any) => lg.global_game_id).filter((id: unknown): id is string => typeof id === 'string' && id !== ''),
         );
 
+        // A14.1 - the per-rater headline rating for every listed name, ONE
+        // bulk read (the same one the room Game Library page uses), keyed by
+        // the LOWERCASED name so a case difference still finds the rating.
+        const ratingsByName = await RatingService.getAllRatings(roomId);
+        const ratingMap = new Map<string, { avg_rating: number; rating_count: number }>();
+        for (const [k, v] of Object.entries(ratingsByName)) ratingMap.set(k.toLowerCase(), v);
+
         // Build availability list
         const now = new Date();
         const availability = libraryGames.map((lg: any) => {
@@ -900,6 +907,8 @@ router.get('/:roomId/game-availability/:tournamentId', async (req, res) => {
                 features: parsePlatformsList(lg.features || '[]'),
                 room_tags: tagMap.get(key) ?? [],
                 owner_count: lg.global_game_id ? (ownerCounts[lg.global_game_id] ?? 0) : 0,
+                avg_rating: ratingMap.get(key)?.avg_rating ?? 0,
+                rating_count: ratingMap.get(key)?.rating_count ?? 0,
             };
 
             if (recent) {
