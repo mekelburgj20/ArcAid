@@ -175,6 +175,8 @@ interface PickStatusData {
     /** Next maintenance-cron fire (ISO), or null for a no-cron cadence (Live
      *  Events) or a malformed one. Powers the F1 selector's "rotates <when>". */
     nextRotationAt?: string | null;
+    /** Pick by poll: the weekly poll is the only queue writer. */
+    poll_picks?: boolean;
   }>;
 }
 
@@ -1058,7 +1060,17 @@ export default function Picks() {
           docs/contracts/pick-delegation-contract.md §5 Q2): "Give my pick to…" fires once
           and clears, while "Forfeit" and "Roll the dice" stand until changed.
           The copy below says so rather than claiming one rule for all three. */}
-      {discordUser && selectedTournamentId && (
+      {selectedPickStatusTournament?.poll_picks && (
+        <div
+          className="max-w-5xl mx-auto mb-6 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-border/60 bg-surface px-4 py-3 text-sm text-muted"
+          data-testid="poll-picked-notice"
+        >
+          <span>This tournament picks its tables by poll.</span>
+          <Link to={`/${slug}/lobby`} className="ml-auto text-neon-cyan hover:underline">Vote in the Lobby &rarr;</Link>
+        </div>
+      )}
+
+      {discordUser && selectedTournamentId && !selectedPickStatusTournament?.poll_picks && (
         <div className="max-w-5xl mx-auto mb-6 rounded-lg border border-border bg-surface p-4 sm:p-5">
           <h2 className="font-display text-sm font-bold text-primary mb-1">If I win…</h2>
           <p className="text-xs text-muted mb-3">

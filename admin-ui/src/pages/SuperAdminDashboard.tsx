@@ -55,7 +55,7 @@ export default function SuperAdminDashboard() {
               <div className="flex items-center justify-between mb-2">
                 <h3 className="font-bold text-lg">{room.name}</h3>
                 <span className={`text-xs px-2 py-0.5 rounded ${room.is_public ? 'bg-neon-green/10 text-neon-green border border-neon-green/30' : 'bg-raised text-faint border border-border'}`}>
-                  {room.is_public ? 'Public' : 'Private'}
+                  {room.is_public ? 'Public' : 'Unlisted'}
                 </span>
               </div>
               <p className="text-muted text-sm mb-1 font-mono">/{room.slug}</p>

@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.211.0] - 2026-11-01 - Pick-by-poll tournaments refuse stray picks; "Private" reads "Unlisted"
+
+- **Fixed: `/pick-game` (Discord and web) now refuses a poll-picked tournament.** `poll_picks = 1` means the weekly poll is the only queue writer, but nothing enforced it: a stray pick activated a table in an open slot or queued beside the poll winner. Both paths answer "picks its tables by community poll. Vote in the Lobby" (web: 409 `POLL_PICKED`) via the shared `pollPickedRefusal`; the Discord tournament autocomplete omits such tournaments, and the Picks page shows a Lobby pointer instead of the pick controls. Admin on-behalf queueing and `/nominate-picker` are unchanged.
+- **Fixed: the room list badge said "Private" for an unlisted room.** `is_public` mirrors "Listed on Arcaid" (ADR 0034) - an unlisted room is reachable by link - so the Game Rooms and Super Admin badges now read "Unlisted" and the edit toggle is labelled "Listed on Arcaid".
+
 ## [2.210.1] - 2026-11-01 - A wide room logo is no longer cut to a square at upload
 
 Owner report, 2026-11-01 (ProBros Gaming): the room logo rendered with its right side missing, just before the room

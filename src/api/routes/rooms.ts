@@ -69,7 +69,7 @@ import {
 } from '../../utils/platformRules.js';
 import { deleteScorePhotoFiles } from '../../utils/scorePhotoCleanup.js';
 import {
-    checkPickQueueEligibility, findActiveTwin, getPlayerQueue, queueGameOnBehalf,
+    checkPickQueueEligibility, pollPickedRefusal, findActiveTwin, getPlayerQueue, queueGameOnBehalf,
     PICK_QUEUE_MAX, compactQueue, cooldownDaysFromLastPlayed, cooldownDaysRemaining,
     notifyQueuedOnBehalf, queueOrderSql,
 } from '../../services/PickQueueService.js';
@@ -1025,7 +1025,7 @@ router.get('/:roomId/pick-status', requireDiscordUser, async (req, res) => {
         // malformed one yields null, never a throw — a room's worth of
         // tournaments is cheap enough to compute inline.
         const tournamentRows = await db.all(
-            'SELECT id, name, type, mode, max_active_games, platform_rules, cadence FROM tournaments WHERE game_room_id = ? AND is_active = 1 ORDER BY display_order',
+            'SELECT id, name, type, mode, max_active_games, platform_rules, cadence, poll_picks FROM tournaments WHERE game_room_id = ? AND is_active = 1 ORDER BY display_order',
             roomId
         );
         // Room default timezone: a cadence without its own zone falls back to
@@ -1038,6 +1038,7 @@ router.get('/:roomId/pick-status', requireDiscordUser, async (req, res) => {
             mode: t.mode,
             max_active_games: t.max_active_games,
             platform_rules: t.platform_rules,
+            poll_picks: !!t.poll_picks,
             nextRotationAt: nextRotationIso(t.cadence, undefined, pickStatusRoomTz),
         }));
 
@@ -1098,6 +1099,10 @@ router.post('/:roomId/pick-game', pickLimiter, requireDiscordUser, requireNotBan
         // Statuses and copy are byte-identical to the inline version; the
         // duplicate-in-queue guard stays OFF here because this route never
         // had one.
+        // Pick by poll: the poll is the only queue writer (409 POLL_PICKED).
+        const pollRefusal = await pollPickedRefusal(tournamentId);
+        if (pollRefusal) return res.status(409).json({ error: pollRefusal, code: 'POLL_PICKED' });
+
         const eligibility = await checkPickQueueEligibility({ roomId, tournamentId, gameName, forUserId: discordId });
         if (!eligibility.ok) return res.status(eligibility.status).json({ error: eligibility.message });
 

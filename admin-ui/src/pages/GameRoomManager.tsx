@@ -270,7 +270,7 @@ export default function GameRoomManager() {
       render: (item: Room) => (
         <div className="flex items-center gap-1.5 flex-wrap">
           <span className={`text-xs px-2 py-0.5 rounded ${item.is_public ? 'bg-neon-green/10 text-neon-green border border-neon-green/30' : 'bg-raised text-faint border border-border'}`}>
-            {item.is_public ? 'Public' : 'Private'}
+            {item.is_public ? 'Public' : 'Unlisted'}
           </span>
           {item.suspended_at && (
             <span
@@ -421,7 +421,7 @@ export default function GameRoomManager() {
               </p>
             </div>
             <div className="flex items-center gap-3">
-              <label className="text-xs text-faint">Public</label>
+              <label className="text-xs text-faint">Listed on Arcaid</label>
               <button
                 onClick={() => setFormIsPublic(!formIsPublic)}
                 className={`relative w-12 h-6 rounded-full transition-colors cursor-pointer border-none ${
