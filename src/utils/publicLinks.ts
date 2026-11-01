@@ -22,6 +22,11 @@ export function roomUrl(slug: string): string {
     return `${publicBaseUrl()}/${slug}`;
 }
 
+/** A room's Lobby - where the season/poll voting card lives. */
+export function roomLobbyUrl(slug: string): string {
+    return `${publicBaseUrl()}/${slug}/lobby`;
+}
+
 /**
  * A room's Picks page. With `tournamentName` it deep-links to that
  * tournament's tab via the human slug (`?t=daily_grind`), matching

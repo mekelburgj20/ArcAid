@@ -102,7 +102,7 @@ export const pickgame: Command = {
 
         if (focusedOption.name === 'tournament') {
             const rows = await db.all(
-                `SELECT t.name FROM tournaments t WHERE t.is_active = 1 ${scopeFilter}`,
+                `SELECT t.name FROM tournaments t WHERE t.is_active = 1 AND COALESCE(t.poll_picks, 0) = 0 ${scopeFilter}`,
                 ...scopeParams,
             );
             const choices = rows.map(r => r.name);
@@ -178,6 +178,16 @@ export const pickgame: Command = {
             if (!tournament) {
                 await interaction.editReply(`Could not find a tournament named '${tournamentName}'.`);
                 return;
+            }
+
+            // Pick by poll (ADR 0026): the poll is the only queue writer.
+            {
+                const { pollPickedRefusal } = await import('../../services/PickQueueService.js');
+                const pollRefusal = await pollPickedRefusal(tournament.id);
+                if (pollRefusal) {
+                    await interaction.editReply(pollRefusal);
+                    return;
+                }
             }
 
             // S22 Phase 2 (v2.44.0, M1 fix) — same rationale as activategame.ts:

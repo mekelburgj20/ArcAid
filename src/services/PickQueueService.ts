@@ -7,6 +7,7 @@ import {
 import { RoomGameTagsService } from './RoomGameTagsService.js';
 import { PickAwardGate } from './PickAwardGate.js';
 import { QUEUE_ORDER_SQL } from '../utils/queueOrder.js';
+import { roomLobbyUrl } from '../utils/publicLinks.js';
 
 /**
  * The ONE eligibility pipeline behind every "put this game in a player's
@@ -37,6 +38,26 @@ import { QUEUE_ORDER_SQL } from '../utils/queueOrder.js';
  * site imports this — no path may hardcode the number again.
  */
 export const PICK_QUEUE_MAX = 30;
+
+/**
+ * Pick by poll (ADR 0026): a tournament with `poll_picks = 1` takes its tables
+ * from the weekly community poll, which is the ONLY queue writer. Both player
+ * pick paths (web POST /:roomId/pick-game and Discord /pick-game) call this
+ * BEFORE any write. Returns the refusal sentence, or null when the tournament
+ * may be picked into. Admin on-behalf queue paths deliberately do not call it.
+ */
+export async function pollPickedRefusal(tournamentId: string): Promise<string | null> {
+    const db = await getDatabase();
+    const row = await db.get(
+        `SELECT t.name, t.poll_picks, gr.slug
+           FROM tournaments t LEFT JOIN game_rooms gr ON gr.id = t.game_room_id
+          WHERE t.id = ?`,
+        tournamentId,
+    ) as { name: string; poll_picks: number | null; slug: string | null } | undefined;
+    if (!row || !row.poll_picks) return null;
+    const where = row.slug ? ` Vote in the Lobby: ${roomLobbyUrl(row.slug)}` : '';
+    return `**${row.name}** picks its tables by community poll.${where}`;
+}
 
 /** Re-exported so queue call sites have one import for "the queue rules". */
 export { QUEUE_ORDER_SQL, queueOrderSql } from '../utils/queueOrder.js';
