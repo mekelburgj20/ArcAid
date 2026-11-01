@@ -125,7 +125,7 @@ export default function RoomMembers() {
       .then(([m, policy]) => {
         if (cancelled) return;
         setMembers(m || []);
-        setMode(policy);
+        setMode(policy === 'approval' ? 'approval' : 'open');
       })
       .catch(() => { if (!cancelled) setMembers([]); })
       .finally(() => { if (!cancelled) setLoading(false); });

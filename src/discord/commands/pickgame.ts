@@ -214,6 +214,14 @@ export const pickgame: Command = {
                     await interaction.editReply('This account is banned.');
                     return;
                 }
+
+                // v2.213.0 - room write gate (JOIN_POLICY discord_role / approval).
+                const { RoomAccessService } = await import('../../services/RoomAccessService.js');
+                const access = await RoomAccessService.checkMayWrite(tournament.game_room_id, interaction.user.id);
+                if (!access.ok) {
+                    await interaction.editReply(access.message);
+                    return;
+                }
             }
 
             // Pick-award gate (plan §8) — short-circuit with exact reply string.

@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import type { MemberRoom } from '../lib/landingRooms';
+import { joinErrorMessage } from '../lib/joinErrors';
+
+/** v2.213.0 - the full answer of a self-join: joined, queued for an admin
+ * (a "Discord role required" room whose role check could not be made), or
+ * refused with a readable message (`DISCORD_LINK_REQUIRED`, `ROLE_REQUIRED`). */
+export type JoinOutcome =
+  | { ok: true; status: 'member' | 'pending' }
+  | { ok: false; code?: string; message: string };
 
 export interface UseMyRoomsResult {
   /** Rooms the signed-in user belongs to (empty, static for guests). */
@@ -13,6 +21,8 @@ export interface UseMyRoomsResult {
    * real values, but the row still appears immediately with blanks). Resolves
    * `false` on failure (network error or non-2xx) so callers can surface it. */
   join: (roomId: string, meta?: { name?: string; slug?: string; logoUrl?: string | null }) => Promise<boolean>;
+  /** Same POST as `join`, answering the whole outcome (v2.213.0). */
+  joinDetailed: (roomId: string, meta?: { name?: string; slug?: string; logoUrl?: string | null }) => Promise<JoinOutcome>;
   /** DELETE /api/me/rooms/:roomId. Optimistic — restores the row on failure.
    * Never touches game_room_admins (server-side; see RoomMembershipService). */
   leave: (roomId: string) => Promise<boolean>;
@@ -64,6 +74,46 @@ export function useMyRooms(): UseMyRoomsResult {
     (roomId: string) => rooms.some(r => r.roomId === roomId),
     [rooms],
   );
+
+  const joinDetailed = useCallback(async (
+    roomId: string,
+    meta?: { name?: string; slug?: string; logoUrl?: string | null },
+  ): Promise<JoinOutcome> => {
+    if (!playerToken) return { ok: false, message: 'Sign in to join this room.' };
+
+    setRooms(prev => prev.some(r => r.roomId === roomId) ? prev : [
+      ...prev,
+      {
+        roomId,
+        name: meta?.name ?? '',
+        slug: meta?.slug ?? '',
+        logoUrl: meta?.logoUrl ?? null,
+        joinedAt: new Date().toISOString(),
+        source: 'self_join',
+        lastActivityAt: null,
+      },
+    ]);
+
+    try {
+      const res = await fetch(`/api/me/rooms/${roomId}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${playerToken}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setRooms(prev => prev.filter(r => r.roomId !== roomId));
+        return { ok: false, code: data?.code, message: joinErrorMessage(data?.code, data?.error) };
+      }
+      if (data?.status === 'pending') {
+        setRooms(prev => prev.filter(r => r.roomId !== roomId));
+        return { ok: true, status: 'pending' };
+      }
+      return { ok: true, status: 'member' };
+    } catch {
+      setRooms(prev => prev.filter(r => r.roomId !== roomId));
+      return { ok: false, message: joinErrorMessage(null) };
+    }
+  }, [playerToken]);
 
   const join = useCallback(async (
     roomId: string,
@@ -135,5 +185,5 @@ export function useMyRooms(): UseMyRoomsResult {
     }
   }, [playerToken, load]);
 
-  return { rooms, loading, isMember, join, leave, requestJoin, refetch: load };
+  return { rooms, loading, isMember, join, joinDetailed, leave, requestJoin, refetch: load };
 }

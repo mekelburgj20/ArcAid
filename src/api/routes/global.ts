@@ -882,8 +882,35 @@ router.post('/me/rooms/:roomId', requireDiscordUser, requireNotBanned, async (re
         // v2.39.0 (approval rooms) — plain self-join is an 'open'-policy-only
         // shortcut. An 'approval' room must go through the request/approve
         // queue (POST .../join-request) instead.
-        if ((await RoomAccessService.getJoinPolicy(roomId)) === 'approval') {
+        const joinPolicy = await RoomAccessService.getJoinPolicy(roomId);
+        if (joinPolicy === 'approval') {
             return res.status(403).json({ error: 'This room requires approval to join', code: 'APPROVAL_REQUIRED' });
+        }
+
+        // v2.213.0 - a 'discord_role' room admits a holder of one of its
+        // DISCORD_JOIN_ROLE_IDS in the linked guild; an unknown answer files a
+        // pending join request (never an auto-deny).
+        if (joinPolicy === 'discord_role') {
+            const { JoinRequestService } = await import('../../services/JoinRequestService.js');
+            const { formatRoleList } = await import('../../services/RoomAccessService.js');
+            const outcome = await JoinRequestService.joinByDiscordRole(roomId, req.user!.discordId!);
+            if (outcome.status === 'link_required') {
+                return res.status(403).json({
+                    error: 'Link your Discord account first (Account Settings) - this room checks your Discord roles before you can join.',
+                    code: 'DISCORD_LINK_REQUIRED',
+                });
+            }
+            if (outcome.status === 'role_required') {
+                const roleText = outcome.roleNames.length > 0
+                    ? `the Discord role ${formatRoleList(outcome.roleNames)}`
+                    : 'a Discord role this room requires';
+                return res.status(403).json({
+                    error: `Only members with ${roleText} in ${room.name}'s Discord server can join.`,
+                    code: 'ROLE_REQUIRED',
+                    roles: outcome.roleNames,
+                });
+            }
+            return res.json({ success: true, status: outcome.status });
         }
 
         const { RoomMembershipService } = await import('../../services/RoomMembershipService.js');
@@ -900,7 +927,7 @@ router.post('/me/rooms/:roomId', requireDiscordUser, requireNotBanned, async (re
             logError('API Error (POST /api/me/rooms/:roomId): addMember did not persist', new Error(`join failed for user=${req.user!.discordId} room=${roomId}`));
             return res.status(500).json({ error: 'Internal Server Error' });
         }
-        res.json({ success: true });
+        res.json({ success: true, status: 'member' });
     } catch (error) {
         logError('API Error (POST /api/me/rooms/:roomId):', error);
         res.status(500).json({ error: 'Internal Server Error' });

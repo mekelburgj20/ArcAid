@@ -87,7 +87,7 @@ export default function LandingPage() {
   // D2 (v2.38.0) — explicit join/leave. Same hook backs the bookmark toggle
   // here and the room-page affordance in PublicLayout/UserMenu.
   // v2.39.0 — requestJoin backs the "Request to join" branch for approval rooms.
-  const { rooms: myRoomsRaw, join: joinRoom, requestJoin } = useMyRooms();
+  const { rooms: myRoomsRaw, joinDetailed, requestJoin } = useMyRooms();
   // v2.39.0 — session-only "I already requested this room" set, so the card
   // reflects a pending request immediately after clicking without waiting on
   // a fresh /api/rooms fetch (that list doesn't carry per-viewer request state).
@@ -110,8 +110,11 @@ export default function LandingPage() {
   );
 
   const handleJoin = async (room: RoomCardData) => {
-    const ok = await joinRoom(room.id, { name: room.name, slug: room.slug, logoUrl: room.logoUrl });
-    if (!ok) toast('Could not join that room — try again.', 'error');
+    // v2.213.0 - a "Discord role required" room can refuse with a reason
+    // or queue the request; say which instead of a generic failure.
+    const outcome = await joinDetailed(room.id, { name: room.name, slug: room.slug, logoUrl: room.logoUrl });
+    if (!outcome.ok) toast(outcome.message, 'error');
+    else if (outcome.status === 'pending') toast('Request sent - a room admin will review it.', 'info');
   };
 
   // v2.39.0 — approval rooms: the bookmark toggle becomes a "Request to

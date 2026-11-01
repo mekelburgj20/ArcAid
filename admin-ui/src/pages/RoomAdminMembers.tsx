@@ -177,7 +177,7 @@ export default function RoomAdminMembers() {
     ])
       .then(([m, policy, admins, banRows]) => {
         setMembers(m || []);
-        setMode(policy);
+        setMode(policy === 'approval' ? 'approval' : 'open');
         setRoomAdminIds(new Set((admins.discordAdmins || []).map(a => a.discord_user_id)));
         setBans(banRows || []);
       })

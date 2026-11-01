@@ -28,7 +28,7 @@ export interface Portal {
   /** v2.35.0 — drives the "sign in with Discord for DMs/picks" login nudge. */
   discord_enabled?: boolean;
   /** v2.39.0 (approval rooms) — 'open' (default) | 'approval'. */
-  join_policy?: 'open' | 'approval';
+  join_policy?: 'open' | 'approval' | 'discord_role';
   /** v2.39.0 — this viewer's relationship to the room. 'none'/'pending' only
    * matter when join_policy is 'approval' — open rooms render normally
    * regardless of this value. */

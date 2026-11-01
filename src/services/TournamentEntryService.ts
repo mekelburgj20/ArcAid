@@ -229,6 +229,18 @@ export class TournamentEntryService {
             if (policy === 'approval') {
                 const { JoinRequestService } = await import('./JoinRequestService.js');
                 room = await JoinRequestService.request(invite.roomId, userId);
+            } else if (policy === 'discord_role') {
+                // v2.213.0 - a role holder joins; anyone else the host invited
+                // (no role, no Discord link, role unknown) waits in the manual
+                // join queue rather than being refused - the invite is the
+                // host's own act, so an admin decides.
+                const { JoinRequestService } = await import('./JoinRequestService.js');
+                const outcome = await JoinRequestService.joinByDiscordRole(invite.roomId, userId);
+                if (outcome.status === 'member') {
+                    room = 'member';
+                } else {
+                    room = await JoinRequestService.request(invite.roomId, userId);
+                }
             } else {
                 await RoomMembershipService.addMember(userId, invite.roomId, 'admin_invite');
             }

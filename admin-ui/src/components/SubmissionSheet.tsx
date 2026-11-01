@@ -33,6 +33,7 @@ import {
     skipSeparatorBack,
 } from '../lib/scoreInput';
 import { normalizePhotoFile } from '../lib/photoNormalize';
+import { joinErrorMessage } from '../lib/joinErrors';
 
 /**
  * Unified submission sheet (Sprint 3 + Sprint 10, plan §10 / §13 / §15;
@@ -450,6 +451,10 @@ export default function SubmissionSheet({
      */
     const [submittedAs, setSubmittedAs] = useState<string | null>(null);
     const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
+    // v2.213.0 - the last submit was refused JOIN_REQUIRED; the error panel
+    // offers "Join the room" instead of only "Try Again".
+    const [joinNeeded, setJoinNeeded] = useState(false);
+    const [joinBusy, setJoinBusy] = useState(false);
     const [activeField, setActiveField] = useState<'name' | 'score' | null>(null);
     const [showKeyboard, setShowKeyboard] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -682,7 +687,14 @@ export default function SubmissionSheet({
             const res = await fetch(url, { method: 'POST', headers, body: formData });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) {
-                throw new Error((data as { error?: string }).error || 'Submission failed');
+                // v2.213.0 - a room that requires membership refuses a
+                // non-member's score; offer the join instead of a bare error.
+                const failure = data as { error?: string; code?: string };
+                if (failure.code === 'JOIN_REQUIRED') {
+                    setJoinNeeded(true);
+                    throw new Error(joinErrorMessage('JOIN_REQUIRED', failure.error));
+                }
+                throw new Error(failure.error || 'Submission failed');
             }
 
             // v2.2.5: store the *resolved* display name (server-assigned for an
@@ -726,6 +738,35 @@ export default function SubmissionSheet({
         } catch (err) {
             setPhase('error');
             setMessage({ text: err instanceof Error ? err.message : 'Submission failed', type: 'error' });
+        }
+    };
+
+    /** v2.213.0 - join the room (POST /api/me/rooms/:roomId), then go back
+     * to the form so the player can submit again. A refusal (no Discord link,
+     * missing role) or a queued request is said in plain words. */
+    const joinRoomThenRetry = async () => {
+        if (!claimRoomId || !playerToken) return;
+        setJoinBusy(true);
+        try {
+            const res = await fetch(`/api/me/rooms/${claimRoomId}`, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${playerToken}` },
+            });
+            const data = await res.json().catch(() => ({})) as { error?: string; code?: string; status?: string };
+            if (!res.ok) {
+                setMessage({ text: joinErrorMessage(data.code, data.error), type: 'error' });
+            } else if (data.status === 'pending') {
+                setJoinNeeded(false);
+                setMessage({ text: 'Your request to join is waiting for a room admin. You can submit once it is approved.', type: 'info' });
+            } else {
+                setJoinNeeded(false);
+                setPhase('form');
+                setMessage({ text: 'You joined the room. Submit your score again.', type: 'info' });
+            }
+        } catch {
+            setMessage({ text: joinErrorMessage(null), type: 'error' });
+        } finally {
+            setJoinBusy(false);
         }
     };
 
@@ -1327,6 +1368,16 @@ export default function SubmissionSheet({
                 ) : phase === 'error' ? (
                     <div className="px-4 py-8 text-center space-y-4">
                         <p className="text-neon-amber text-sm">{message?.text ?? 'Submission failed.'}</p>
+                        {joinNeeded && claimRoomId && playerToken && (
+                            <NeonButton
+                                onClick={joinRoomThenRetry}
+                                disabled={joinBusy}
+                                className="w-full"
+                                data-testid="submission-join-room"
+                            >
+                                {joinBusy ? 'Joining...' : 'Join the room first'}
+                            </NeonButton>
+                        )}
                         <NeonButton onClick={() => { setPhase('form'); setMessage(null); }} className="w-full">
                             Try Again
                         </NeonButton>

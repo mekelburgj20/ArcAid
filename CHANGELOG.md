@@ -6,6 +6,43 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.213.0] - 2026-11-01 - "Discord role required": open to view, a Discord role to join
+
+Customer ask (Mox's Game Room, a large VPX Discord community): anyone with the link should see the scores, but only
+people holding one of a set of roles in the room's Discord server may join and submit - with no human approval queue
+for role holders.
+
+### Added
+
+- **Third room visibility policy, `JOIN_POLICY='discord_role'`.** Room Settings -> Room visibility gains "Discord role
+  required - anyone can view, only members with a chosen Discord role can join". It VIEWS exactly like Open
+  (`roomVisibilityGate`, the WebSocket join, OG previews, the public room list and the lobby feed all gate on
+  `'approval'` only). Self-join (`POST /api/me/rooms/:roomId`) runs `JoinRequestService.joinByDiscordRole`: the user's
+  Discord id (a Google login resolves through its identity link; none -> 403 `DISCORD_LINK_REQUIRED`) is checked
+  against the linked guild by the bot - a held role joins (`self_join`), a fetched member without one is 403
+  `ROLE_REQUIRED` with the role NAMES, and any unknown answer (bot offline, not in the server, member not found, no
+  roles configured) files a pending `join_requests` row exactly like an approval room - never an auto-deny. The room
+  admin's Join Requests page shows for these rooms too. A tournament invite into such a room joins a role holder and
+  queues anyone else for the admin.
+- **`DISCORD_JOIN_ROLE_IDS`** (`game_room_settings`, JSON array of role ids, no migration): picked from a checkbox list
+  of the server's roles (`GET /api/rooms/:roomId/admin/discord/roles`, new; an empty list plus a message when the bot
+  cannot list them, and the page falls back to a role-id field). On an APPROVAL room with "Auto-approve Discord server
+  members" on, a non-empty list narrows auto-approval to holders of those roles; empty keeps every server member.
+- **Bot:** `DiscordClient.getMemberRoleIds` (null = unknown, never throws) and `listGuildRoles` (role cache,
+  `@everyone` excluded).
+
+### Changed
+
+- **Writes require membership in `discord_role` and `approval` rooms.** `RoomAccessService.checkMayWrite` is the one
+  gate, called before any write by `/submit-score`, `/freeplay-score`, the legacy `/community-scores` route, web
+  `/pick-game`, and Discord `/submit-score` + `/pick-game`: a non-member gets 403 `JOIN_REQUIRED` naming the room (and,
+  for a role room, the roles); members, room admins and super admins pass. Open rooms are unchanged (a submit still
+  auto-joins); comments/tips stay guest-open; Throwdowns (no room) are untouched. The submission sheet turns
+  `JOIN_REQUIRED` into a "Join the room first" button; the room-page and landing-card join answer the refusal reasons
+  in plain words.
+
+---
+
 ## [2.212.0] - 2026-11-01 - Discord commands are member-aware for approval rooms (E3)
 
 An approval-policy room linked to a Discord server used to be excluded from ALL inbound Discord handling for everyone:
@@ -232,8 +269,6 @@ cabinet 1.0.9. **A signature never refuses a score**: the worst it can do is ear
   the same plain words for another game of the sitting.
 - **Migration 202** (`202_signing_keys_and_signed_evidence`): `signing_keys`, and `witness_evidence.signed_by`,
   `signature_ok`, `signature_reason`.
-
----
 
 ---
 
