@@ -173,7 +173,7 @@ export async function roomVisibilityGate(req: Request, res: Response, next: Next
         // Fail-open on infra failure, not auth failure.
     }
 
-    let policy: 'open' | 'approval' = 'open';
+    let policy: 'open' | 'approval' | 'discord_role' = 'open';
     try {
         policy = await RoomAccessService.getJoinPolicy(roomId);
     } catch {

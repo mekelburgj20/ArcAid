@@ -17,6 +17,7 @@ import ChatResponsesSettings from '../components/ChatResponsesSettings';
 import DiscordBotInvite from '../components/DiscordBotInvite';
 import { PlayerAvatar } from '../components/ScoreboardComponents';
 import { TIMEZONES } from '../components/ScheduleBuilder';
+import DiscordJoinRolePicker from '../components/DiscordJoinRolePicker';
 import { DEFAULT_TIMEZONE, ROOM_TIMEZONE_KEY, zoneLabel } from '../lib/timezone';
 // v2.116.0 (C1) — the Leaderboard Display controls moved to the admin
 // Leaderboard page's display rail, where they edit against the REAL
@@ -431,12 +432,16 @@ const LEGACY_CALLOUTS_KEYS = ['CALLOUTS_ENABLED', 'CALLOUTS_CHANNEL_ID'];
 const JOIN_POLICY_KEY = 'JOIN_POLICY';
 const JOIN_POLICY_META = {
   label: 'Room visibility',
-  description: 'Open: anyone can view scores/leaderboards and join instantly. Approval required: the room is invisible (no scores, leaderboards, or other content) to non-members until a room admin approves their request to join.',
+  description: 'Open: anyone can view scores/leaderboards and join instantly. Approval required: the room is invisible (no scores, leaderboards, or other content) to non-members until a room admin approves their request to join. Discord role required: anyone can view, but only people with a role you choose in your Discord server can join and submit scores.',
 };
 const JOIN_POLICY_OPTIONS: { value: string; label: string }[] = [
   { value: 'open', label: 'Open — anyone can view and join' },
   { value: 'approval', label: 'Approval required — invisible to non-members until approved' },
+  { value: 'discord_role', label: 'Discord role required - anyone can view, only members with a chosen Discord role can join' },
 ];
+// v2.213.0 - the Discord roles that may join a 'discord_role' room (and,
+// on an approval room with auto-approve on, the roles auto-approved).
+const JOIN_ROLE_IDS_KEY = 'DISCORD_JOIN_ROLE_IDS';
 
 // v2.80.0 — auto-approve join requests from members of the room's linked
 // Discord guild. Rendered beside JOIN_POLICY (only meaningful when policy is
@@ -953,6 +958,8 @@ export default function Settings() {
     JOIN_POLICY_KEY,
     // v2.80.0 — rendered as a conditional toggle beside JOIN_POLICY.
     AUTO_APPROVE_GUILD_KEY,
+    // v2.213.0 - rendered as the Discord role list beside JOIN_POLICY.
+    JOIN_ROLE_IDS_KEY,
     // 2026-08-17 — rendered as a toggle beside AUTO_APPROVE_GUILD_MEMBERS.
     DISCORD_REMINDERS_KEY,
     // v2.125.0 — rendered by ChatResponsesSettings inside the Discord card.
@@ -1263,6 +1270,26 @@ export default function Settings() {
                 />
               </button>
             </div>
+          );
+        })()}
+        {/* v2.213.0 - the Discord role list: required to join a
+            'discord_role' room; on an approval room with auto-approve on it
+            narrows who is approved instantly. */}
+        {(() => {
+          const policy = settings[JOIN_POLICY_KEY] || 'open';
+          const roleRoom = policy === 'discord_role';
+          const approvalAuto = policy === 'approval' && settings[AUTO_APPROVE_GUILD_KEY] === 'true';
+          if (!roleRoom && !approvalAuto) return null;
+          return (
+            <DiscordJoinRolePicker
+              roomId={room.roomId}
+              value={settings[JOIN_ROLE_IDS_KEY]}
+              onChange={v => handleChange(JOIN_ROLE_IDS_KEY, v)}
+              label={roleRoom ? 'Discord roles that can join' : 'Only auto-approve these roles'}
+              caption={roleRoom
+                ? 'People with any of these roles in your Discord server join instantly. Anyone the bot cannot check waits for you in Join Requests.'
+                : 'Leave empty to auto-approve every server member'}
+            />
           );
         })()}
         {/* 2026-08-17 — Discord link reminders. Unlike auto-approve this is

@@ -27,7 +27,7 @@ export interface PublicRoom {
   activePlayers: number;
   discordInviteUrl: string | null;
   /** v2.39.0 (approval rooms) — 'open' (default) | 'approval'. */
-  join_policy?: 'open' | 'approval';
+  join_policy?: 'open' | 'approval' | 'discord_role';
 }
 
 /** Matches `RoomForUser` from `GET /api/me/rooms`. */
@@ -56,7 +56,7 @@ export interface RoomCardData {
   /** v2.39.0 (approval rooms) — 'open' (default) | 'approval'. Member rooms
    * (already-joined) don't carry this — a member's relationship to the room
    * is settled, the bookmark toggle there is always a plain "leave". */
-  joinPolicy?: 'open' | 'approval';
+  joinPolicy?: 'open' | 'approval' | 'discord_role';
 }
 
 export function normalizePublicRoom(room: PublicRoom): RoomCardData {

@@ -297,6 +297,18 @@ export const submitscore: Command = {
                 }
             }
 
+            // v2.213.0 - a room whose JOIN_POLICY requires membership
+            // ('discord_role', 'approval') refuses a non-member before any
+            // write, same gate as the web submit routes.
+            if (game.game_room_id) {
+                const { RoomAccessService } = await import('../../services/RoomAccessService.js');
+                const access = await RoomAccessService.checkMayWrite(game.game_room_id, interaction.user.id);
+                if (!access.ok) {
+                    await interaction.editReply(access.message);
+                    return;
+                }
+            }
+
             // v2.135.0 (ADR 0017) — Live Event window enforcement. Placed after
             // the room is known (the gate is room-scoped) and before ANY write.
             //

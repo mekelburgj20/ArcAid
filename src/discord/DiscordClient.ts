@@ -134,6 +134,50 @@ export class DiscordClient {
     }
 
     /**
+     * The role ids `userId` holds in `guildId` (v2.213.0, the `discord_role`
+     * join policy). Same read as `isMemberOfGuild` (`guild.members.fetch`,
+     * GuildMembers intent). The guild's own id (`@everyone`) is left out.
+     *
+     * Returns null - never throws - when the answer is UNKNOWN: gateway not
+     * ready, bot not in the guild, member not found, or any transport
+     * failure. Callers must treat null as "cannot tell" and degrade to the
+     * manual join queue, never as "holds no roles".
+     */
+    public async getMemberRoleIds(guildId: string, userId: string): Promise<string[] | null> {
+        try {
+            if (!this.client.isReady()) return null;
+            const guild = this.client.guilds.cache.get(guildId);
+            if (!guild) return null;
+            const member = await guild.members.fetch(userId);
+            if (!member) return null;
+            return Array.from(member.roles.cache.keys()).filter(id => id !== guildId);
+        } catch {
+            return null;
+        }
+    }
+
+    /**
+     * The guild's roles from the gateway role cache (v2.213.0), for the room
+     * Settings role picker. `@everyone` (the role whose id is the guild id)
+     * is excluded. Sorted highest position first, the way Discord lists them.
+     * Returns an empty array - never throws - when the gateway isn't ready or
+     * the bot isn't in the guild.
+     */
+    public listGuildRoles(guildId: string): Array<{ id: string; name: string; position: number; managed: boolean }> {
+        try {
+            if (!this.client.isReady()) return [];
+            const guild = this.client.guilds.cache.get(guildId);
+            if (!guild) return [];
+            return Array.from(guild.roles.cache.values())
+                .filter(r => r.id !== guildId)
+                .sort((a, b) => b.position - a.position)
+                .map(r => ({ id: r.id, name: r.name, position: r.position, managed: r.managed }));
+        } catch {
+            return [];
+        }
+    }
+
+    /**
      * The guild's text channels the bot can post in, for the Arcaid Chat
      * Responses channel picker (v2.125.0).
      *

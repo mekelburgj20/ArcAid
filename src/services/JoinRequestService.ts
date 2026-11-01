@@ -43,6 +43,12 @@ export class JoinRequestService {
         // new request (no existing membership/pending row, checked above).
         if (await JoinRequestService.tryAutoApprove(roomId, userId)) return 'member';
 
+        await JoinRequestService.insertPending(roomId, userId);
+        return 'pending';
+    }
+
+    private static async insertPending(roomId: string, userId: string): Promise<void> {
+        const db = await getDatabase();
         try {
             await db.run(
                 `INSERT INTO join_requests (game_room_id, user_id, status) VALUES (?, ?, 'pending')`,
@@ -50,11 +56,79 @@ export class JoinRequestService {
             );
         } catch (err) {
             // Race: another request from the same tab landed between the SELECT
-            // above and this INSERT — the partial unique index rejects the
+            // above and this INSERT - the partial unique index rejects the
             // duplicate. Treat as success (the pending row exists either way).
-            logError('JoinRequestService.request (treated as idempotent race)', err);
+            logError('JoinRequestService.insertPending (treated as idempotent race)', err);
         }
-        return 'pending';
+    }
+
+    /**
+     * v2.213.0 - the Discord id behind `userId`: the id itself when it is a
+     * Discord snowflake, else the first Discord snowflake in its identity-link
+     * expansion (a Google login linked to Discord). Null when the user has no
+     * Discord identity at all.
+     */
+    static async resolveDiscordId(userId: string): Promise<string | null> {
+        if (isDiscordUserId(userId)) return userId;
+        const canonical = await IdentityLinkService.resolveCanonical(userId);
+        if (isDiscordUserId(canonical)) return canonical;
+        const candidates = await IdentityLinkService.expandCandidates(userId);
+        for (const id of candidates) if (isDiscordUserId(id)) return id;
+        return null;
+    }
+
+    /**
+     * v2.213.0 - self-join under `JOIN_POLICY='discord_role'`. Four outcomes:
+     *   - `member`: already a member, or holds one of `DISCORD_JOIN_ROLE_IDS`
+     *     in the linked guild (membership granted, source 'self_join');
+     *   - `link_required`: the user has no Discord identity to check;
+     *   - `role_required`: the bot fetched the member and none of the roles
+     *     is held (nothing is written);
+     *   - `pending`: the answer is UNKNOWN (no guild or no roles configured,
+     *     bot offline or not in the guild, member not found, fetch error) -
+     *     degrades to the same manual `join_requests` queue an approval room
+     *     uses. Uncertainty never auto-denies.
+     */
+    static async joinByDiscordRole(roomId: string, userId: string): Promise<
+        | { status: 'member' }
+        | { status: 'pending' }
+        | { status: 'link_required' }
+        | { status: 'role_required'; roleNames: string[] }
+    > {
+        const candidates = Array.from(await IdentityLinkService.expandCandidates(userId));
+        if (await RoomMembershipService.isMemberAny(candidates, roomId)) return { status: 'member' };
+
+        const discordId = await JoinRequestService.resolveDiscordId(userId);
+        if (!discordId) return { status: 'link_required' };
+
+        const { RoomAccessService } = await import('./RoomAccessService.js');
+        const roleIds = await RoomAccessService.getJoinRoleIds(roomId);
+        const guildId = await GameRoomSettingsService.get(roomId, 'DISCORD_GUILD_ID');
+
+        let held: string[] | null = null;
+        if (roleIds.length > 0 && guildId) {
+            try {
+                const { getDiscordClient } = await import('../discord/DiscordClient.js');
+                const client = getDiscordClient();
+                held = client ? await client.getMemberRoleIds(guildId, discordId) : null;
+            } catch (err) {
+                logError('JoinRequestService.joinByDiscordRole (role fetch)', err);
+                held = null;
+            }
+        }
+
+        if (held !== null) {
+            if (held.some(id => roleIds.includes(id))) {
+                await RoomMembershipService.addMember(userId, roomId, 'self_join');
+                return { status: 'member' };
+            }
+            return { status: 'role_required', roleNames: await RoomAccessService.describeJoinRoles(roomId, roleIds) };
+        }
+
+        if (!(await JoinRequestService.getPendingStatusAny(roomId, candidates))) {
+            await JoinRequestService.insertPending(roomId, userId);
+        }
+        return { status: 'pending' };
     }
 
     /**
@@ -96,8 +170,18 @@ export class JoinRequestService {
             const client = getDiscordClient();
             if (!client) return false;
 
-            const isMember = await client.isMemberOfGuild(guildId, discordId);
-            if (!isMember) return false;
+            // v2.213.0 - a non-empty DISCORD_JOIN_ROLE_IDS narrows auto-approval
+            // to guild members holding one of those roles; anyone else (and any
+            // unknown answer) goes to the manual queue. Empty list = any member.
+            const { RoomAccessService } = await import('./RoomAccessService.js');
+            const roleIds = await RoomAccessService.getJoinRoleIds(roomId);
+            if (roleIds.length > 0) {
+                const held = await client.getMemberRoleIds(guildId, discordId);
+                if (!held || !held.some(id => roleIds.includes(id))) return false;
+            } else {
+                const isMember = await client.isMemberOfGuild(guildId, discordId);
+                if (!isMember) return false;
+            }
 
             const db = await getDatabase();
             await db.run(

@@ -15,7 +15,7 @@ interface Room {
   description: string;
   is_public: boolean;
   /** v2.39.0 (approval rooms) — 'open' (default) | 'approval'. */
-  join_policy?: 'open' | 'approval';
+  join_policy?: 'open' | 'approval' | 'discord_role';
 }
 
 export default function RoomAdminLayout() {
@@ -70,7 +70,7 @@ export default function RoomAdminLayout() {
         .then(r => setPendingIdentityClaims(r.count ?? 0))
         .catch(() => { /* badge is a nicety; never break the layout */ });
       // Join requests, by contrast, ARE approval-only — an open room has none.
-      if (room.join_policy === 'approval') {
+      if (room.join_policy === 'approval' || room.join_policy === 'discord_role') {
         api.get<{ pending: number }>(`/rooms/${room.id}/admin/join-requests/count`)
           .then(r => setPendingJoinRequests(r.pending || 0))
           .catch(() => { /* nav badge is best-effort */ });
@@ -139,7 +139,7 @@ export default function RoomAdminLayout() {
     // the public /:slug/members page).
     { path: `${basePath}/members`, label: 'Members', icon: <UsersRound size={18} /> },
     // v2.39.0 — only shown for approval-policy rooms; badge = pending count.
-    ...(room.join_policy === 'approval'
+    ...(room.join_policy === 'approval' || room.join_policy === 'discord_role'
       ? [{ path: `${basePath}/join-requests`, label: 'Join Requests', icon: <UserCheck size={18} />, badge: pendingJoinRequests }]
       : []),
     // Identity arc P4 (2026-08-18) — only surfaced when something is actually

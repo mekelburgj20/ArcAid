@@ -140,6 +140,25 @@ function adminActor(req: { user?: TokenPayload }): string {
  * `ensureProvenanceAllowed`'s shape and keep callers' `if (!x.ok) return ...`
  * pattern uniform.
  */
+/**
+ * v2.213.0 - the room write gate (`RoomAccessService.checkMayWrite`) for the
+ * web submit routes and `/pick-game`. Under `JOIN_POLICY` `discord_role` or
+ * `approval` a non-member is refused with 403 `JOIN_REQUIRED` BEFORE any write
+ * (before the name claim, the photo, the score). Answers true when it sent
+ * the refusal.
+ */
+async function refuseNonMemberWrite(
+    req: { user?: TokenPayload },
+    res: { status: (n: number) => { json: (b: unknown) => unknown } },
+    roomId: string,
+): Promise<boolean> {
+    const { RoomAccessService } = await import('../../services/RoomAccessService.js');
+    const access = await RoomAccessService.checkMayWrite(roomId, req.user?.discordId, req.user ?? null);
+    if (access.ok) return false;
+    res.status(403).json({ error: access.message, code: access.code, roles: access.roleNames ?? [] });
+    return true;
+}
+
 async function resolveSubmitUsername(
     req: { user?: { discordId?: string; username?: string } },
     roomId: string,
@@ -1099,6 +1118,7 @@ router.post('/:roomId/pick-game', pickLimiter, requireDiscordUser, requireNotBan
         // Statuses and copy are byte-identical to the inline version; the
         // duplicate-in-queue guard stays OFF here because this route never
         // had one.
+        if (await refuseNonMemberWrite(req, res, roomId)) return;
         // Pick by poll: the poll is the only queue writer (409 POLL_PICKED).
         const pollRefusal = await pollPickedRefusal(tournamentId);
         if (pollRefusal) return res.status(409).json({ error: pollRefusal, code: 'POLL_PICKED' });
@@ -3023,6 +3043,7 @@ router.post('/:roomId/community-scores/:gameName', writeLimiter, requireDiscordU
         // here, so resolveSubmitUsername always takes the authed branch: the
         // client-supplied `username` is ignored entirely and the canonical
         // room name is resolved server-side (v2.54.0 username lock).
+        if (await refuseNonMemberWrite(req, res, roomId)) return;
         const resolvedName = await resolveSubmitUsername(req, roomId);
         if (!resolvedName.ok) return res.status(400).json({ error: resolvedName.error });
 
@@ -3147,6 +3168,7 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, requireDiscordUser,
         // v2.54.0 username lock — see the community-scores handler above.
         // requireDiscordUser guarantees an authed submitter, so the posted
         // `username` (if any) is ignored and the canonical name resolved.
+        if (await refuseNonMemberWrite(req, res, roomId)) return;
         const resolvedName = await resolveSubmitUsername(req, roomId);
         if (!resolvedName.ok) return res.status(400).json({ error: resolvedName.error });
 
@@ -3343,6 +3365,7 @@ router.post('/:roomId/freeplay-score', writeLimiter, requireDiscordUser, require
         // v2.54.0 username lock — see the community-scores handler above.
         // requireDiscordUser guarantees an authed submitter, so the posted
         // `username` (if any) is ignored and the canonical name resolved.
+        if (await refuseNonMemberWrite(req, res, roomId)) return;
         const resolvedName = await resolveSubmitUsername(req, roomId);
         if (!resolvedName.ok) return res.status(400).json({ error: resolvedName.error });
 
@@ -7442,6 +7465,33 @@ router.get('/:roomId/admin/discord/channels', requireAuth, requireRoomAccess('ro
         res.json({ channels: client.listGuildTextChannels(guildId) });
     } catch (error) {
         logError('API Error (GET rooms/:roomId/admin/discord/channels):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// v2.213.0 - the linked guild's roles, for the "Discord role required" join
+// policy picker in room Settings. Unlike the channel list above this never
+// 400s: when there is no guild, the bot is offline or not in the guild it
+// answers an empty list plus a `message`, and the page falls back to a plain
+// role-id field.
+router.get('/:roomId/admin/discord/roles', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const guildId = await GameRoomSettingsService.get(roomId, 'DISCORD_GUILD_ID');
+        if (!guildId) {
+            return res.json({ roles: [], message: 'This room has no Discord server linked yet. Set the Guild ID first.' });
+        }
+        const { getDiscordClient } = await import('../../discord/DiscordClient.js');
+        const client = getDiscordClient();
+        if (!client || !client.isReady()) {
+            return res.json({ roles: [], message: "The Discord bot isn't connected right now. Paste role IDs instead, or try again shortly." });
+        }
+        if (!client.isInGuild(guildId)) {
+            return res.json({ roles: [], message: "The bot isn't a member of that Discord server, so it can't list its roles. Invite it, or paste role IDs." });
+        }
+        res.json({ roles: client.listGuildRoles(guildId) });
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/admin/discord/roles):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

@@ -7,7 +7,7 @@ import {
     isMask,
 } from '../utils/secrets.js';
 
-// v2.39.0 — approval rooms (JOIN_POLICY='open'|'approval', read directly by
+// v2.39.0 - approval rooms (JOIN_POLICY='open'|'approval'|'discord_role', read directly by
 // RoomAccessService.getJoinPolicy via GameRoomSettingsService.get). As of
 // v2.41.0 this key has no flip side-effect in THIS file: the room-level
 // Global Scoreboard fan-out gate that used to fire on this flip (plus its

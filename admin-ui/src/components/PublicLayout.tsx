@@ -42,7 +42,7 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
   // D2 (v2.38.0) — room-page join/leave affordance, surfaced as a UserMenu
   // contextual item (chosen over a header button: s20/s21 already made mobile
   // header space tight, and the menu item needs no extra layout work here).
-  const { isMember: isRoomMember, join: joinRoom, leave: leaveRoom, requestJoin } = useMyRooms();
+  const { isMember: isRoomMember, joinDetailed, leave: leaveRoom, requestJoin } = useMyRooms();
   const { toast } = useToast();
 
   // v2.39.0 — approval rooms hard-gate viewing. Mirrors the server-side gate:
@@ -224,8 +224,16 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
 
   const handleJoinRoom = async () => {
     if (!resolvedRoomId) return;
-    const ok = await joinRoom(resolvedRoomId, { name: roomName, slug, logoUrl: portal?.logo_url ?? null });
-    toast(ok ? `Added ${roomName} to My Game Rooms.` : 'Could not join this room — try again.', ok ? 'success' : 'error');
+    // v2.213.0 - a "Discord role required" room answers with a reason
+    // (no Discord link, missing role) or a pending request; say which.
+    const outcome = await joinDetailed(resolvedRoomId, { name: roomName, slug, logoUrl: portal?.logo_url ?? null });
+    if (!outcome.ok) {
+      toast(outcome.message, 'error');
+    } else if (outcome.status === 'pending') {
+      toast(`Your request to join ${roomName} is waiting for a room admin.`, 'info');
+    } else {
+      toast(`Added ${roomName} to My Game Rooms.`, 'success');
+    }
   };
 
   // W21 (WWS 2026-10-23) — leaving takes a confirm. TomatoGrass left the
