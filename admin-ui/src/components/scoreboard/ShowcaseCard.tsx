@@ -13,6 +13,7 @@ import { qrEdgeMetrics, DEFAULT_QR_OFFSET_PX } from '../../lib/scoreboardConfig'
 import { useCoverFraming } from './useCoverFraming';
 import { tournamentChipLabel } from './tournamentChip';
 import CardAttemptStart from './CardAttemptStart';
+import CardAttemptsLeft from './CardAttemptsLeft';
 
 interface ShowcaseCardProps {
   lb: GameLeaderboard;
@@ -189,6 +190,11 @@ export default function ShowcaseCard({
             <div style={{ position: 'absolute', inset: 0, zIndex: 0, background: 'rgba(0,0,0,0.55)' }} />
           </>
         )}
+        {/* W82 — the viewer's attempts left, flush in the top-left corner (the
+            shell clips it to its radius), above the content layer (zIndex 4)
+            and clear of the centred title, which starts 20px down. */}
+        <CardAttemptsLeft lb={lb} className="absolute left-0 top-0 z-[5]" />
+
         {/* Background decoration (circuit board for neon-circuit) */}
         {theme.BackgroundDecoration ? <theme.BackgroundDecoration /> : null}
         {isChipPodium && <CircuitBoardBackground />}

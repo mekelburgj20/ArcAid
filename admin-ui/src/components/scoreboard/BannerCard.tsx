@@ -14,6 +14,7 @@ import { formatScore, parseServerDate } from '../../lib/format';
 import { resolveRowClick, opensQuickView, QUICK_VIEW_HINT } from '../../lib/scoreGesture';
 import { tournamentChipLabel } from './tournamentChip';
 import CardAttemptStart from './CardAttemptStart';
+import CardAttemptsLeft from './CardAttemptsLeft';
 
 interface BannerCardProps {
   lb: GameLeaderboard;
@@ -182,6 +183,11 @@ export default function BannerCard({
         <div className="absolute inset-0 z-[0] bg-black/50" />
       )}
 
+      {/* W82 — the viewer's attempts left, flush in the top-left corner (the
+          card clips it to its radius). Header-art mode puts it beside the
+          corner "i" inside the title area instead. */}
+      {!hasIdentifierImage && <CardAttemptsLeft lb={lb} className="absolute left-0 top-0 z-[3]" />}
+
       {/* Title area. v2.2.8: click on the title navigates to the Room Game
           Detail (via titleLinkTo). Previously the whole title area was a
           submit trigger when onSubmitScore was set — redundant with the
@@ -211,9 +217,12 @@ export default function BannerCard({
             "what engines and hardware does this tournament allow", which every
             card has, so gating it would hide the thing players are told to
             look for. `GameInfoPopup` still self-hides when it has nothing. */}
+        {/* W82 — with the "i" in that corner, the viewer's attempts-left
+            badge sits beside it in one row (the title row is hidden here). */}
         {hasIdentifierImage && (
-          <div className="absolute left-3 top-3 z-[2]">
+          <div className="absolute left-3 top-3 z-[2] flex items-center gap-1.5">
             <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} roomId={roomId} gameName={lb.gameName} globalGameId={lb.globalGameId} size={13} />
+            <CardAttemptsLeft lb={lb} variant="pill" />
           </div>
         )}
         {(chipLabel || lb.gameStatus === 'COMPLETED' || lb.isPinned) && (

@@ -37,7 +37,8 @@ function makeLb(over: Partial<GameLeaderboard> = {}): GameLeaderboard {
 
 const item = (over: Partial<RoomAttemptStart> = {}): RoomAttemptStart => ({
   gameId: 'g-congo', gameName: 'Congo', tournamentId: 't-1', tournamentName: 'Five Shots',
-  roundNo: null, started: false, startedTs: null, ...over,
+  roundNo: null, started: false, startedTs: null,
+  limit: 3, used: 0, left: 3, requireStart: true, ...over,
 });
 
 function Harness({ token, children }: { token: string | null; children: ReactNode }) {
@@ -142,5 +143,105 @@ describe('CardAttemptStart on every card style', () => {
     const congo = screen.getByTestId('card-congo');
     expect(await within(congo).findByTestId('card-attempts-started')).toBeInTheDocument();
     expect(within(congo).queryByRole('button', { name: /Start attempts/ })).toBeNull();
+  });
+
+  it('W82: no strip for a limited table that does not require the press', async () => {
+    stubApi([item({ requireStart: false })]);
+    render(<MemoryRouter><Harness token="tok">{cards('banner')}</Harness></MemoryRouter>);
+    const congo = screen.getByTestId('card-congo');
+    expect(await within(congo).findByTestId('card-attempts-left')).toBeInTheDocument();
+    expect(within(congo).queryByTestId('card-attempt-start')).toBeNull();
+    expect(within(congo).queryByRole('button', { name: /Start attempts/ })).toBeNull();
+  });
+});
+
+/**
+ * W82 (owner 2026-10-31) — the viewer's own "N attempts left" badge at the
+ * top-left of a Limited-attempts card. Same room-level list and provider as
+ * the strip, so the same absences: no provider (admin preview / kiosk), no
+ * token (guest), a card not in the list, a card no longer ACTIVE.
+ */
+describe('CardAttemptsLeft on every card style', () => {
+  for (const style of ['banner', 'showcase', 'minimal', 'arcade'] as ScoreboardStyle[]) {
+    it(`${style}: "3 attempts left" on the listed game only`, async () => {
+      stubApi([item()]);
+      render(<MemoryRouter><Harness token="tok">{cards(style)}</Harness></MemoryRouter>);
+      const badge = await within(screen.getByTestId('card-congo')).findByTestId('card-attempts-left');
+      expect(badge).toHaveTextContent(/^3 attempts left$/);
+      expect(badge).toHaveAttribute('aria-label', '3 of 3 attempts left on Congo');
+      expect(within(screen.getByTestId('card-other')).queryByTestId('card-attempts-left')).toBeNull();
+    });
+
+    it(`${style}: singular at 1, "No attempts left" at 0`, async () => {
+      stubApi([item({ used: 2, left: 1 }), item({ gameId: 'g-other', gameName: 'Other Table', used: 3, left: 0 })]);
+      render(<MemoryRouter><Harness token="tok">{cards(style)}</Harness></MemoryRouter>);
+      expect(await within(screen.getByTestId('card-congo')).findByTestId('card-attempts-left'))
+        .toHaveTextContent(/^1 attempt left$/);
+      const none = await within(screen.getByTestId('card-other')).findByTestId('card-attempts-left');
+      expect(none).toHaveTextContent(/^No attempts left$/);
+      expect(none).toHaveAttribute('title', '0 of 3 attempts left on Other Table');
+      expect(none.className).toContain('text-neon-amber');
+    });
+
+    it(`${style}: the badge shows without the press control when the table needs no Start attempts`, async () => {
+      stubApi([item({ requireStart: false, used: 1, left: 2 })]);
+      render(<MemoryRouter><Harness token="tok">{cards(style)}</Harness></MemoryRouter>);
+      const congo = screen.getByTestId('card-congo');
+      expect(await within(congo).findByTestId('card-attempts-left')).toHaveTextContent('2 attempts left');
+      expect(within(congo).queryByTestId('card-attempt-start')).toBeNull();
+    });
+  }
+
+  it('banner with header art: one badge, beside the corner "i" (the title row is hidden)', async () => {
+    stubApi([item()]);
+    render(
+      <MemoryRouter>
+        <Harness token="tok">
+          <div data-testid="card-congo">
+            <CardRouter lb={makeLb({ logoStyleId: 'style-1', notes: 'House rules' })} slug="wizard" roomId={ROOM} style="banner" maxScores={5} />
+          </div>
+        </Harness>
+      </MemoryRouter>,
+    );
+    const congo = screen.getByTestId('card-congo');
+    const badges = await within(congo).findAllByTestId('card-attempts-left');
+    expect(badges).toHaveLength(1);
+    expect(badges[0]).toHaveTextContent('3 attempts left');
+    expect(badges[0].parentElement?.className).toContain('left-3 top-3');
+  });
+
+  it('still shows the count on a table whose Start attempts is not pressed yet', async () => {
+    stubApi([item({ started: false, requireStart: true })]);
+    render(<MemoryRouter><Harness token="tok">{cards('showcase')}</Harness></MemoryRouter>);
+    const congo = screen.getByTestId('card-congo');
+    expect(await within(congo).findByTestId('card-attempts-left')).toHaveTextContent('3 attempts left');
+    expect(within(congo).getByRole('button', { name: 'Start attempts on Congo' })).toBeInTheDocument();
+  });
+
+  it('draws nothing without a provider (admin preview / kiosk)', () => {
+    render(<MemoryRouter>{cards('arcade')}</MemoryRouter>);
+    expect(screen.queryByTestId('card-attempts-left')).toBeNull();
+  });
+
+  it('draws nothing for a guest', async () => {
+    stubApi([item()]);
+    render(<MemoryRouter><Harness token={null}>{cards('minimal')}</Harness></MemoryRouter>);
+    await new Promise(r => setTimeout(r, 0));
+    expect(screen.queryByTestId('card-attempts-left')).toBeNull();
+  });
+
+  it('does not draw on a card that is no longer ACTIVE', async () => {
+    stubApi([item()]);
+    render(
+      <MemoryRouter>
+        <Harness token="tok">
+          <div data-testid="card-locked">
+            <CardRouter lb={makeLb({ gameStatus: 'COMPLETED' })} slug="wizard" roomId={ROOM} style="showcase" maxScores={5} />
+          </div>
+        </Harness>
+      </MemoryRouter>,
+    );
+    await new Promise(r => setTimeout(r, 0));
+    expect(within(screen.getByTestId('card-locked')).queryByTestId('card-attempts-left')).toBeNull();
   });
 });

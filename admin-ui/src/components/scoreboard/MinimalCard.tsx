@@ -14,6 +14,7 @@ import { formatScore, parseServerDate } from '../../lib/format';
 import { resolveRowClick, opensQuickView, QUICK_VIEW_HINT } from '../../lib/scoreGesture';
 import { tournamentChipLabel } from './tournamentChip';
 import CardAttemptStart from './CardAttemptStart';
+import CardAttemptsLeft from './CardAttemptsLeft';
 
 interface MinimalCardProps {
   lb: GameLeaderboard;
@@ -160,6 +161,10 @@ export default function MinimalCard({
           <div className="absolute inset-0 z-0 bg-black/55" />
         </>
       )}
+      {/* W82 — the viewer's attempts left, flush in the top-left corner (the
+          card clips it to its radius); the left-aligned title starts 16px
+          down, below it. */}
+      <CardAttemptsLeft lb={lb} className="absolute left-0 top-0 z-[2]" />
       {/* Title area. v2.2.8: title is a Link to Room Game Detail. */}
       <div className="px-5 pt-4 pb-3 relative z-[1]">
         {titleLinkTo ? (

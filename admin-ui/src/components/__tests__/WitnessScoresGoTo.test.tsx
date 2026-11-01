@@ -47,12 +47,22 @@ describe('roomLines', () => {
 
 describe('attemptStartsNeeded (W56)', () => {
     it('names unstarted tables once, only when a device sends here', () => {
-        const games = [{ gameName: 'Congo', started: false }, { gameName: 'Congo', started: false }, { gameName: 'Done', started: true }];
+        const games = [
+            { gameName: 'Congo', started: false, requireStart: true }, { gameName: 'Congo', started: false, requireStart: true },
+            { gameName: 'Done', started: true, requireStart: true },
+        ];
         expect(attemptStartsNeeded([row({})], games)).toEqual(['Congo']);
         expect(attemptStartsNeeded([row({ sendsHere: 'entered_only' })], games)).toEqual(['Congo']);
         expect(attemptStartsNeeded([row({ sendsHere: 'no', why: 'other_room' })], games)).toBeNull();
         expect(attemptStartsNeeded([], games)).toBeNull();
-        expect(attemptStartsNeeded([row({})], [{ gameName: 'Done', started: true }])).toBeNull();
+        expect(attemptStartsNeeded([row({})], [{ gameName: 'Done', started: true, requireStart: true }])).toBeNull();
+    });
+
+    it('W82: leaves out a limited table that does not require the press', () => {
+        expect(attemptStartsNeeded([row({})], [{ gameName: 'No Press', started: false, requireStart: false }])).toBeNull();
+        expect(attemptStartsNeeded([row({})], [
+            { gameName: 'No Press', started: false, requireStart: false }, { gameName: 'Congo', started: false, requireStart: true },
+        ])).toEqual(['Congo']);
     });
 });
 
@@ -84,7 +94,7 @@ describe('WitnessScoresGoTo', () => {
         const fetchMock = vi.fn((url: string) => Promise.resolve({
             ok: true,
             json: () => Promise.resolve(url.includes('/attempt-starts/me')
-                ? { games: games.map((g, i) => ({ gameId: `g${i}`, tournamentId: 't', tournamentName: 'T', roundNo: null, startedTs: null, ...g })) }
+                ? { games: games.map((g, i) => ({ gameId: `g${i}`, tournamentId: 't', tournamentName: 'T', roundNo: null, startedTs: null, limit: 3, used: 0, left: 3, requireStart: true, ...g })) }
                 : routing),
         }));
         vi.stubGlobal('fetch', fetchMock);
@@ -129,7 +139,7 @@ describe('WitnessScoresGoTo', () => {
         vi.stubGlobal('fetch', vi.fn((url: string) => Promise.resolve({
             ok: true,
             json: () => Promise.resolve(url.includes('/attempt-starts/me')
-                ? { games: [{ gameId: 'g', gameName: 'Congo', tournamentId: 't', tournamentName: 'T', roundNo: null, started, startedTs: null }] }
+                ? { games: [{ gameId: 'g', gameName: 'Congo', tournamentId: 't', tournamentName: 'T', roundNo: null, started, startedTs: null, limit: 3, used: 0, left: 3, requireStart: true }] }
                 : [row({})]),
         })));
         render(<MemoryRouter><WitnessScoresGoTo roomId="room-1" roomSlug="wizard" /></MemoryRouter>);

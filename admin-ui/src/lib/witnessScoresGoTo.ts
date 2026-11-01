@@ -96,16 +96,17 @@ export const START_ATTEMPTS_NEEDED = 'Start attempts needed on:';
 
 /**
  * W56 — which tables that line names, from the room's
- * `GET /api/rooms/:roomId/attempt-starts/me` list: the ones not yet started,
- * each name once, in list order. `null` (no line) when none of the player's
+ * `GET /api/rooms/:roomId/attempt-starts/me` list: the ones whose tournament
+ * requires the press (W82: the list also carries limited tables that do not)
+ * and that are not yet started, each name once, in list order. `null` (no line) when none of the player's
  * devices sends to this room — a play from them would not count here, so
  * pressing would change nothing — or when every table is started.
  */
 export function attemptStartsNeeded(
     rows: Routing[],
-    games: Array<{ gameName: string; started: boolean }>,
+    games: Array<{ gameName: string; started: boolean; requireStart: boolean }>,
 ): string[] | null {
     if (!rows.some(r => r.sendsHere !== 'no')) return null;
-    const names = [...new Set(games.filter(g => !g.started).map(g => g.gameName))];
+    const names = [...new Set(games.filter(g => g.requireStart && !g.started).map(g => g.gameName))];
     return names.length > 0 ? names : null;
 }

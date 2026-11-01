@@ -16,6 +16,7 @@ import { formatScore, parseServerDate } from '../../lib/format';
 import { resolveRowClick, opensQuickView, QUICK_VIEW_HINT } from '../../lib/scoreGesture';
 import { tournamentChipLabel } from './tournamentChip';
 import CardAttemptStart from './CardAttemptStart';
+import CardAttemptsLeft from './CardAttemptsLeft';
 
 /**
  * ArcadeCard — the Global Scoreboard's card language, on room-card behaviour.
@@ -331,6 +332,12 @@ export default function ArcadeCard({
             <div className="absolute inset-px z-0 rounded-[8px] bg-black/60" aria-hidden="true" />
           </>
         )}
+
+        {/* W82 — the viewer's attempts left, flush in the top-left corner,
+            inside the 12px gutter above the art (not on it, where it would
+            meet the centred chip). The card does not clip, so the tab rounds
+            its own outer corner to the frame's inner radius. */}
+        <CardAttemptsLeft lb={lb} className="absolute left-0 top-0 z-[3] rounded-tl-[8px]" />
 
         {/* 1. Art — the top REGION, and the surface the title is set on.
                `m-3` is the whole geometry rule: one 12px gutter on all four

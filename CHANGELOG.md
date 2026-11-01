@@ -6,6 +6,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.210.0] - 2026-10-31 - Attempts left on the player's own score card (W82)
+
+Owner ask, 2026-10-31, right after W81: "For limited attempt games, we should render the attempts left right on the score
+card for the player. So it only shows for that player that is logged in. Like right at the top left of the card 'N'
+Attempts Left."
+
+### Added
+
+- **"N attempts left" on the room scoreboard card, for the viewer only.** A card of a game in a Limited-attempts
+  tournament (ADR 0029) now carries a small top-left badge for the logged-in player: "3 attempts left", "1 attempt
+  left", or "No attempts left" (amber) at zero; the tooltip reads "N of M attempts left on <game>". All four card styles
+  (Banner, Showcase, Minimal, Arcade), `components/scoreboard/CardAttemptsLeft.tsx`. It renders only under the public
+  Scoreboard page's provider, so a guest, the kiosk and the admin Leaderboard preview show nothing, and it refreshes with
+  the board loads, so it drops as each cabinet report lands. Other players' counts stay on the W81 surfaces.
+
+### Changed
+
+- **`GET /api/rooms/:roomId/attempt-starts/me` lists every open limited-attempts game the viewer is allowed in**, not
+  only the start-required ones, and each item additionally carries `limit`, `used` (void rows excluded, the W81 rule),
+  `left` and `requireStart` (additive; `started`/`startedTs` mean something only when `requireStart` is true).
+  `AttemptService.roomStartsFor`; the game set is still `VpxScoreIngestService.roomLimitedGames`. The W56 "Start
+  attempts" strip and the "Start attempts needed on" line in "Your scores go to" now gate on `requireStart`, so they
+  behave exactly as before.
+
+---
 ## [2.209.1] - 2026-10-31 - All-Time High icon is a crown, not a star
 
 Owner, 2026-10-31: "I don't like that the All-Time High score has a star symbol next to it. It looks like a rating star."

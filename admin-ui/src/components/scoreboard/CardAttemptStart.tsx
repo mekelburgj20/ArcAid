@@ -23,7 +23,9 @@ export default function CardAttemptStart({
   const ctx = useContext(CardAttemptStartContext);
   if (!ctx || lb.gameStatus !== 'ACTIVE') return null;
   const item = ctx.byGameId[lb.gameId];
-  if (!item) return null;
+  // W82 — the list also carries limited tables that do not need the press
+  // (for the "N attempts left" badge); those get no strip.
+  if (!item || !item.requireStart) return null;
   const pending = ctx.pendingGameId === item.gameId;
 
   return (

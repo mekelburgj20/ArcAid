@@ -14,7 +14,11 @@ import type { RoomAttemptStart } from '../../lib/attemptStarts';
  * exporting only its component — `react-refresh/only-export-components`.
  */
 export type CardAttemptStartValue = {
-  /** The viewer's list, keyed on `games.id`. Only games in it get a control. */
+  /**
+   * The viewer's list, keyed on `games.id`. Only games in it get a control:
+   * every listed game gets the "N attempts left" badge (W82,
+   * `CardAttemptsLeft`), and those with `requireStart` the press strip.
+   */
   byGameId: Record<string, RoomAttemptStart>;
   /** The game whose press is in flight (its button reads "Starting…"). */
   pendingGameId: string | null;
