@@ -32,7 +32,7 @@ export const pausepick: Command = {
             // `tournament-id` is free text, and this command INSERTs a QUEUED
             // game row, so without the gate any guild could inject a game into
             // any room's lineup.
-            const scope = await resolveGuildReadScope(interaction.guildId);
+            const scope = await resolveGuildReadScope(interaction.guildId, interaction.user?.id);
             if (!isRoomInGuildScope(tournament?.game_room_id ?? null, scope)) {
                 await interaction.editReply(DISCORD_FOREIGN_TOURNAMENT_MESSAGE);
                 return;

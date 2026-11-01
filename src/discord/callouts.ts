@@ -101,7 +101,7 @@ export function resetCalloutCooldowns(): void {
  *      everywhere. DEPRECATED — kept for one release as an escape hatch for
  *      deployments that had the env var set; note the polarity flip, absence
  *      no longer means "off", the per-room opt-in does.
- *   3. `resolveGuildReadScope(guildId)` — the same guild→rooms resolver the
+ *   3. `resolveGuildReadScope(guildId, userId)` — the same guild→rooms resolver the
  *      read slash-commands use, so a Discord-disabled / approval-gated /
  *      suspended room can never trigger a reply either.
  *   4. A room in scope must have its MASTER switch on. ABSENT MEANS OFF:
@@ -118,11 +118,12 @@ export function resetCalloutCooldowns(): void {
 export async function resolveCalloutScope(
     guildId: string | null,
     channelId: string,
+    userId?: string | null,
 ): Promise<CalloutScope | null> {
     if (!guildId) return null;
     if (process.env.ENABLE_CALLOUTS === 'false') return null;
 
-    const scope = await resolveGuildReadScope(guildId);
+    const scope = await resolveGuildReadScope(guildId, userId);
     if (!scope || scope.roomIds.length === 0) return null;
 
     const settings = await GameRoomSettingsService.getManyForRooms(
@@ -146,7 +147,7 @@ export async function resolveCalloutScope(
     // The action responders read through the same guild-scope filter the read
     // slash-commands use, narrowed to the rooms that actually opted in.
     return {
-        scope: { roomIds: permitting, legacyEnv: scope.legacyEnv },
+        scope: { roomIds: permitting, legacyEnv: scope.legacyEnv, notMemberOf: [] },
         roomIds: permitting,
         configs,
         categories,
@@ -157,8 +158,9 @@ export async function resolveCalloutScope(
 export async function calloutsAllowedForMessage(
     guildId: string | null,
     channelId: string,
+    userId?: string | null,
 ): Promise<boolean> {
-    return (await resolveCalloutScope(guildId, channelId)) !== null;
+    return (await resolveCalloutScope(guildId, channelId, userId)) !== null;
 }
 
 /** Reply sent when someone mutes the bot in chat. */
@@ -232,7 +234,7 @@ export async function handleCalloutMessage(message: CalloutMessageLike): Promise
     try {
         if (message.author?.bot) return false;
 
-        const allowed = await resolveCalloutScope(message.guildId, message.channelId);
+        const allowed = await resolveCalloutScope(message.guildId, message.channelId, message.author?.id);
         if (!allowed) return false;
 
         // Before everything else — see `handleMuteToggle`.
@@ -277,7 +279,7 @@ export async function handleCalloutMessage(message: CalloutMessageLike): Promise
         // Rooms are loaded only AFTER a match — an ordinary chat message must
         // not cost a room lookup.
         const rooms = await loadCalloutRooms(speakingFor);
-        const scope: GuildReadScope = { roomIds: speakingFor, legacyEnv: allowed.scope.legacyEnv };
+        const scope: GuildReadScope = { roomIds: speakingFor, legacyEnv: allowed.scope.legacyEnv, notMemberOf: [] };
 
         // An `action` wins over static responses: the entry exists because a
         // fixed string cannot answer the question.

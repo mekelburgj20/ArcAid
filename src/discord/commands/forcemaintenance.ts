@@ -24,7 +24,7 @@ export const forcemaintenance: Command = {
         // target) another room's tournament names. `null` scope = unlinked
         // guild or DM → empty list, the autocomplete analogue of the
         // not-linked reply the execute paths give.
-        const scope = await resolveGuildReadScope(interaction.guildId);
+        const scope = await resolveGuildReadScope(interaction.guildId, interaction.user?.id);
         if (!scope) {
             await interaction.respond([]);
             return;
@@ -64,13 +64,13 @@ export const forcemaintenance: Command = {
             // that's Discord-disabled/approval-gated or linked to a DIFFERENT
             // guild — see discordWriteTarget.ts.
             if (row?.game_room_id) {
-                const { validateDiscordWriteTarget } = await import('../../utils/discordWriteTarget.js');
-                const targetCheck = await validateDiscordWriteTarget(row.game_room_id, interaction.guildId);
+                const { validateDiscordWriteTarget, DISCORD_WRITE_NOT_A_MEMBER_MESSAGE } = await import('../../utils/discordWriteTarget.js');
+                const targetCheck = await validateDiscordWriteTarget(row.game_room_id, interaction.guildId, interaction.user?.id);
                 if (!targetCheck.allowed) {
                     await interaction.editReply(
                         targetCheck.denial === 'suspended'
                             ? `**${name}**'s room has been suspended pending review. Maintenance is disabled.`
-                            : "That tournament belongs to a room this server isn't linked to."
+                            : targetCheck.denial === 'not_a_member' ? DISCORD_WRITE_NOT_A_MEMBER_MESSAGE : "That tournament belongs to a room this server isn't linked to."
                     );
                     return;
                 }

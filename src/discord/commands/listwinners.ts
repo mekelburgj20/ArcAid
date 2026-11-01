@@ -7,6 +7,7 @@ import {
     resolveGuildReadScope,
     buildGuildScopedRoomSqlFilter,
     DISCORD_GUILD_NOT_LINKED_MESSAGE,
+    notMemberMessage,
 } from '../../utils/discordRoomFilter.js';
 
 export const listwinners: Command = {
@@ -18,9 +19,13 @@ export const listwinners: Command = {
         // not-linked notice can be ephemeral. `null` = this guild maps to
         // no Arcaid room (or the interaction is a DM, which has no guild
         // context at all) - show nothing rather than every room's data.
-        const scope = await resolveGuildReadScope(interaction.guildId);
+        const scope = await resolveGuildReadScope(interaction.guildId, interaction.user?.id);
         if (!scope) {
             await interaction.reply({ content: DISCORD_GUILD_NOT_LINKED_MESSAGE, ephemeral: true });
+            return;
+        }
+        if (scope.roomIds.length === 0 && scope.notMemberOf.length > 0) {
+            await interaction.reply({ content: notMemberMessage(scope.notMemberOf), ephemeral: true });
             return;
         }
 

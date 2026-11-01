@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { setupTestDb, createTestRoom } from './helpers.js';
 import { GameRoomSettingsService } from '../services/GameRoomSettingsService.js';
 import { GameRoomService } from '../services/GameRoomService.js';
+import { RoomMembershipService } from '../services/RoomMembershipService.js';
 import { validateDiscordWriteTarget } from '../utils/discordWriteTarget.js';
 
 /**
@@ -70,7 +71,30 @@ describe('validateDiscordWriteTarget (drift-audit fix #4)', () => {
         await GameRoomSettingsService.set(roomId, 'JOIN_POLICY', 'approval');
         const result = await validateDiscordWriteTarget(roomId, 'guild-a');
         expect(result.allowed).toBe(false);
-        expect(result.denial).toBe('not_linked');
+        expect(result.denial).toBe('not_a_member');
+    });
+
+    it('approval room: a member is allowed, a non-member is not (v2.212.0)', async () => {
+        const roomId = await createTestRoom('wtg-approval-member');
+        await GameRoomSettingsService.set(roomId, 'DISCORD_GUILD_ID', 'guild-a');
+        await GameRoomSettingsService.set(roomId, 'JOIN_POLICY', 'approval');
+        await RoomMembershipService.addMember('111111111111111111', roomId, 'admin_invite');
+        expect(await validateDiscordWriteTarget(roomId, 'guild-a', '111111111111111111')).toEqual({ allowed: true });
+        const stranger = await validateDiscordWriteTarget(roomId, 'guild-a', '222222222222222222');
+        expect(stranger).toEqual({ allowed: false, denial: 'not_a_member' });
+        // member of the approval room still cannot reach it from another guild
+        const wrongGuild = await validateDiscordWriteTarget(roomId, 'guild-b', '111111111111111111');
+        expect(wrongGuild.denial).toBe('not_linked');
+    });
+
+    it('a member of a Discord-disabled room is still refused', async () => {
+        const roomId = await createTestRoom('wtg-disabled-member');
+        await GameRoomSettingsService.set(roomId, 'DISCORD_GUILD_ID', 'guild-a');
+        await GameRoomSettingsService.set(roomId, 'DISCORD_ENABLED', 'false');
+        await RoomMembershipService.addMember('111111111111111111', roomId, 'admin_invite');
+        const r = await validateDiscordWriteTarget(roomId, 'guild-a', '111111111111111111');
+        expect(r.allowed).toBe(false);
+        expect(r.denial).toBe('not_linked');
     });
 
     it('legacy env-fallback: a room with NO per-room guild id is reachable when the env fallback guild matches', async () => {

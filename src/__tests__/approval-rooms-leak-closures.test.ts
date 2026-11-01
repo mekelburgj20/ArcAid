@@ -7,7 +7,7 @@ import { getDatabase } from '../database/database.js';
 import { GameRoomSettingsService } from '../services/GameRoomSettingsService.js';
 import { GlobalScoreService } from '../services/GlobalScoreService.js';
 import { RoomAccessService } from '../services/RoomAccessService.js';
-import { discordExcludedRoomIds, buildEnabledRoomSqlFilter } from '../utils/discordRoomFilter.js';
+import { discordExcludedRoomIds, discordApprovalRoomIds, buildEnabledRoomSqlFilter } from '../utils/discordRoomFilter.js';
 
 // v2.39.0 — approval-rooms leak closures (docs/contracts/approval-rooms-contract.md, D3).
 //
@@ -132,13 +132,13 @@ describe('flip-to-approval (v2.41.0: no longer scrubs the Global Scoreboard)', (
 });
 
 describe('discordExcludedRoomIds / buildEnabledRoomSqlFilter', () => {
-    it('excludes an approval-policy room', async () => {
+    it('keeps an approval-policy room OUT of the unconditional exclusion set (per-user since v2.212.0)', async () => {
         await setupTestDb();
         const roomId = await createTestRoom('discord-filter-approval');
         await GameRoomSettingsService.set(roomId, 'JOIN_POLICY', 'approval');
 
-        const excluded = await discordExcludedRoomIds();
-        expect(excluded).toContain(roomId);
+        expect(await discordExcludedRoomIds()).not.toContain(roomId);
+        expect(await discordApprovalRoomIds()).toContain(roomId);
     });
 
     it('excludes a DISCORD_ENABLED=false room (existing behavior preserved)', async () => {

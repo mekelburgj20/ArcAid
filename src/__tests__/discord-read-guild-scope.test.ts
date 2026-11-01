@@ -1,11 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { setupTestDb, createTestRoom, createTestTournament, createTestGame, createTestSubmission } from './helpers.js';
 import { getDatabase } from '../database/database.js';
+import { RoomMembershipService } from '../services/RoomMembershipService.js';
 import { GameRoomSettingsService } from '../services/GameRoomSettingsService.js';
 import {
     resolveGuildReadScope,
     buildGuildScopedRoomSqlFilter,
     DISCORD_GUILD_NOT_LINKED_MESSAGE,
+    notMemberMessage,
     isRoomInGuildScope,
     DISCORD_FOREIGN_TOURNAMENT_MESSAGE,
 } from '../utils/discordRoomFilter.js';
@@ -168,6 +170,54 @@ describe('resolveGuildReadScope — linkage resolution', () => {
         const scope = await resolveGuildReadScope(GUILD_A);
         expect(scope!.roomIds).toEqual([open.roomId]);
         expect(scope!.roomIds).not.toContain(approval.roomId);
+        expect(scope!.notMemberOf.map(r => r.slug)).toEqual(['scope-approval']);
+    });
+
+    describe('approval rooms are per-user (v2.212.0, E3)', () => {
+        const MEMBER = '555555555555555555';
+        const STRANGER = '666666666666666666';
+
+        it('open room: unchanged, nothing in notMemberOf', async () => {
+            const open = await seedRoom({ slug: 'e3-open', guildId: GUILD_A, tournamentName: 'T', gameName: 'G' });
+            const scope = await resolveGuildReadScope(GUILD_A, STRANGER);
+            expect(scope!.roomIds).toEqual([open.roomId]);
+            expect(scope!.notMemberOf).toEqual([]);
+        });
+
+        it('approval room + member -> in scope', async () => {
+            const room = await seedRoom({ slug: 'e3-member', guildId: GUILD_A, joinPolicy: 'approval', tournamentName: 'T', gameName: 'G' });
+            await RoomMembershipService.addMember(MEMBER, room.roomId, 'admin_invite');
+            const scope = await resolveGuildReadScope(GUILD_A, MEMBER);
+            expect(scope!.roomIds).toEqual([room.roomId]);
+            expect(scope!.notMemberOf).toEqual([]);
+        });
+
+        it('approval room + non-member -> out of scope, named in notMemberOf', async () => {
+            await seedRoom({ slug: 'e3-stranger', guildId: GUILD_A, joinPolicy: 'approval', tournamentName: 'T', gameName: 'G' });
+            const scope = await resolveGuildReadScope(GUILD_A, STRANGER);
+            expect(scope!.roomIds).toEqual([]);
+            expect(scope!.notMemberOf.map(r => r.slug)).toEqual(['e3-stranger']);
+            expect(notMemberMessage(scope!.notMemberOf)).toContain('https://arcaid.app/e3-stranger');
+        });
+
+        it('approval room + no userId -> out of scope', async () => {
+            const room = await seedRoom({ slug: 'e3-nouser', guildId: GUILD_A, joinPolicy: 'approval', tournamentName: 'T', gameName: 'G' });
+            await RoomMembershipService.addMember(MEMBER, room.roomId, 'admin_invite');
+            const scope = await resolveGuildReadScope(GUILD_A);
+            expect(scope!.roomIds).toEqual([]);
+        });
+
+        it('Discord-off and suspended rooms stay out even for a member', async () => {
+            const off = await seedRoom({ slug: 'e3-off', guildId: GUILD_A, discordEnabled: 'false', joinPolicy: 'approval', tournamentName: 'T', gameName: 'G' });
+            const susp = await seedRoom({ slug: 'e3-susp', guildId: GUILD_A, joinPolicy: 'approval', tournamentName: 'T2', gameName: 'G2' });
+            const db = await getDatabase();
+            await db.run(`UPDATE game_rooms SET suspended_at = datetime('now') WHERE id = ?`, susp.roomId);
+            await RoomMembershipService.addMember(MEMBER, off.roomId, 'admin_invite');
+            await RoomMembershipService.addMember(MEMBER, susp.roomId, 'admin_invite');
+            const scope = await resolveGuildReadScope(GUILD_A, MEMBER);
+            expect(scope!.roomIds).toEqual([]);
+            expect(scope!.notMemberOf).toEqual([]);
+        });
     });
 
     it('exclusions apply to the env-fallback scope too (Discord-off settingless room is hidden)', async () => {

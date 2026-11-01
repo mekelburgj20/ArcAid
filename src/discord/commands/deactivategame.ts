@@ -25,7 +25,7 @@ export const deactivategame: Command = {
         // room's ACTIVE games AND their tournament names; the execute path's
         // `validateDiscordWriteTarget` guard blocked the mutation but the
         // names had already leaked into the picker. `null` scope → empty list.
-        const scope = await resolveGuildReadScope(interaction.guildId);
+        const scope = await resolveGuildReadScope(interaction.guildId, interaction.user?.id);
         if (!scope) {
             await interaction.respond([]);
             return;
@@ -72,13 +72,13 @@ export const deactivategame: Command = {
                 gameId,
             );
             if (gameRow?.game_room_id) {
-                const { validateDiscordWriteTarget } = await import('../../utils/discordWriteTarget.js');
+                const { validateDiscordWriteTarget, DISCORD_WRITE_NOT_A_MEMBER_MESSAGE } = await import('../../utils/discordWriteTarget.js');
                 const targetCheck = await validateDiscordWriteTarget(gameRow.game_room_id, interaction.guildId);
                 if (!targetCheck.allowed) {
                     await interaction.editReply(
                         targetCheck.denial === 'suspended'
                             ? 'This room has been suspended pending review. Game deactivation is disabled.'
-                            : "That game belongs to a room this server isn't linked to."
+                            : targetCheck.denial === 'not_a_member' ? DISCORD_WRITE_NOT_A_MEMBER_MESSAGE : "That game belongs to a room this server isn't linked to."
                     );
                     return;
                 }

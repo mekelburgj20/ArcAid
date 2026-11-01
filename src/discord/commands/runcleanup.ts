@@ -30,7 +30,7 @@ export const runcleanup: Command = {
 
         // v2.120.1 - hard guild gate (see below). An unlinked guild, or a
         // DM, runs no cleanup at all.
-        const scope = await resolveGuildReadScope(interaction.guildId);
+        const scope = await resolveGuildReadScope(interaction.guildId, interaction.user?.id);
         if (!scope) {
             await interaction.editReply(DISCORD_GUILD_NOT_LINKED_MESSAGE);
             return;

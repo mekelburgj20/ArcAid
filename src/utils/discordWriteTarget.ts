@@ -1,10 +1,10 @@
 import { RoomAccessService } from '../services/RoomAccessService.js';
-import { discordExcludedRoomIds } from './discordRoomFilter.js';
+import { discordExcludedRoomIds, discordApprovalRoomIds, discordUserVisibleRoomIds } from './discordRoomFilter.js';
 
 /**
  * Why the resolved reason is a room, not a text — see the exports below.
  */
-export type DiscordWriteTargetDenial = 'suspended' | 'not_linked';
+export type DiscordWriteTargetDenial = 'suspended' | 'not_linked' | 'not_a_member';
 
 export interface DiscordWriteTargetResult {
     allowed: boolean;
@@ -53,6 +53,7 @@ export interface DiscordWriteTargetResult {
 export async function validateDiscordWriteTarget(
     roomId: string | null | undefined,
     invokingGuildId: string | null | undefined,
+    userId?: string | null,
 ): Promise<DiscordWriteTargetResult> {
     if (!roomId) return { allowed: true };
 
@@ -65,6 +66,13 @@ export async function validateDiscordWriteTarget(
         return { allowed: false, denial: 'not_linked' };
     }
 
+    // v2.212.0 (E3): an approval room is writable by its members/admins only;
+    // no userId keeps the old blanket refusal.
+    if ((await discordApprovalRoomIds()).includes(roomId)) {
+        const visible = await discordUserVisibleRoomIds(userId, [roomId]);
+        if (!visible.has(roomId)) return { allowed: false, denial: 'not_a_member' };
+    }
+
     const { GameRoomSettingsService } = await import('../services/GameRoomSettingsService.js');
     const perRoomGuildId = await GameRoomSettingsService.get(roomId, 'DISCORD_GUILD_ID');
     const effectiveGuildId = perRoomGuildId || process.env.DISCORD_GUILD_ID || null;
@@ -74,3 +82,7 @@ export async function validateDiscordWriteTarget(
 
     return { allowed: true };
 }
+
+/** Denial copy for a write attempt by someone who has not joined an approval room. */
+export const DISCORD_WRITE_NOT_A_MEMBER_MESSAGE =
+    "You aren't a member of that game room yet. Request to join it on the web first, then try again.";

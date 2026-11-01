@@ -1,30 +1,70 @@
 import { getDatabase } from '../database/database.js';
 
 /**
- * Returns the set of game_room_ids that Discord read commands must exclude:
- * rooms with `DISCORD_ENABLED=false` (toggling Discord off severs all
- * Discord visibility into a room, so its tournaments/games/submissions
- * shouldn't surface in slash-command output either), UNION rooms with
- * `JOIN_POLICY=approval` (v2.39.0 — an approval room is invisible to
- * non-members; a cross-room Discord read command has no per-guild-membership
- * concept today, so the safe default is to exclude it entirely rather than
- * leak scores/games to anyone who can run the command. See ROADMAP for a
- * future guild-implies-membership refinement), UNION suspended rooms (S22
- * Phase 2, v2.44.0 — `game_rooms.suspended_at IS NOT NULL`; suspension hides
- * a room from everyone except super-admins, and Discord slash commands have
- * no super-admin concept, so a suspended room is excluded unconditionally).
+ * Returns the set of game_room_ids that Discord commands must exclude
+ * UNCONDITIONALLY, whoever is asking: rooms with `DISCORD_ENABLED=false`
+ * (toggling Discord off severs all Discord visibility into a room), UNION
+ * suspended rooms (S22 Phase 2, v2.44.0 - `game_rooms.suspended_at IS NOT
+ * NULL`; suspension hides a room from everyone except super-admins, and
+ * Discord slash commands have no super-admin concept).
+ *
+ * `JOIN_POLICY=approval` rooms are NOT in this set as of v2.212.0 (E3): an
+ * approval room is invisible to NON-members only, so it is decided per
+ * invoking user by `resolveGuildReadScope` / `validateDiscordWriteTarget`
+ * through `discordApprovalRoomIds` below.
  */
 export async function discordExcludedRoomIds(): Promise<string[]> {
     const db = await getDatabase();
     const settingsRows = (await db.all(
         `SELECT game_room_id FROM game_room_settings
-         WHERE (key = 'DISCORD_ENABLED' AND value = 'false')
-            OR (key = 'JOIN_POLICY' AND value = 'approval')`,
+         WHERE key = 'DISCORD_ENABLED' AND value = 'false'`,
     )) as Array<{ game_room_id: string }>;
     const suspendedRows = (await db.all(
         `SELECT id AS game_room_id FROM game_rooms WHERE suspended_at IS NOT NULL`,
     )) as Array<{ game_room_id: string }>;
     return Array.from(new Set([...settingsRows, ...suspendedRows].map(r => r.game_room_id)));
+}
+
+/**
+ * game_room_ids with `JOIN_POLICY=approval` (v2.39.0 - invisible to
+ * non-members). Whether one is in scope depends on the invoking Discord user:
+ * see `discordUserVisibleRoomIds`.
+ */
+export async function discordApprovalRoomIds(): Promise<string[]> {
+    const db = await getDatabase();
+    const rows = (await db.all(
+        `SELECT game_room_id FROM game_room_settings
+         WHERE key = 'JOIN_POLICY' AND value = 'approval'`,
+    )) as Array<{ game_room_id: string }>;
+    return Array.from(new Set(rows.map(r => r.game_room_id)));
+}
+
+/**
+ * Membership test for the invoking Discord user against a set of rooms,
+ * returning the subset they may see. Same identity expansion as
+ * `RoomAccessService.canViewRoom`: the Discord id is expanded through the
+ * identity-link layer (so a Google-linked member matches) and checked with
+ * `RoomMembershipService.isMemberAny`; room admins (`AdminService.
+ * getRoomsForDiscordUser`, link-aware) count as members. A missing userId
+ * yields the empty set (today's exclude behaviour - nothing widens silently).
+ */
+export async function discordUserVisibleRoomIds(
+    userId: string | null | undefined,
+    roomIds: string[],
+): Promise<Set<string>> {
+    const visible = new Set<string>();
+    if (!userId || roomIds.length === 0) return visible;
+    const { IdentityLinkService } = await import('../services/IdentityLinkService.js');
+    const { RoomMembershipService } = await import('../services/RoomMembershipService.js');
+    const { AdminService } = await import('../services/AdminService.js');
+    const adminRoomIds = new Set(await AdminService.getRoomsForDiscordUser(userId));
+    const candidates = Array.from(await IdentityLinkService.expandCandidates(userId));
+    for (const roomId of roomIds) {
+        if (adminRoomIds.has(roomId) || await RoomMembershipService.isMemberAny(candidates, roomId)) {
+            visible.add(roomId);
+        }
+    }
+    return visible;
 }
 
 /**
@@ -46,7 +86,11 @@ export async function discordExcludedRoomIds(): Promise<string[]> {
 export async function buildEnabledRoomSqlFilter(
     tournamentGameRoomColumn: string,
 ): Promise<{ sql: string; params: string[] }> {
-    const disabled = await discordExcludedRoomIds();
+    // Subtract-only primitive with no user: approval rooms stay excluded.
+    const disabled = Array.from(new Set([
+        ...(await discordExcludedRoomIds()),
+        ...(await discordApprovalRoomIds()),
+    ]));
     if (disabled.length === 0) return { sql: '', params: [] };
     const placeholders = disabled.map(() => '?').join(', ');
     return {
@@ -59,10 +103,12 @@ export async function buildEnabledRoomSqlFilter(
  * The resolved read scope for a Discord slash command invoked in a guild.
  *
  * `roomIds` are the rooms whose data the invoking guild may see (already
- * minus `discordExcludedRoomIds`). An EMPTY array is meaningful and distinct
- * from `null`: the guild IS linked, but everything it links to is currently
- * excluded (approval-gated / Discord-off / suspended) — the command should
- * render its normal "nothing to show" output, not the not-linked notice.
+ * minus `discordExcludedRoomIds`, and minus approval rooms the invoking user
+ * is not a member of). An EMPTY array is meaningful and distinct from `null`:
+ * the guild IS linked, but everything it links to is currently out of scope.
+ * `notMemberOf` names the approval rooms dropped ONLY because the user is not
+ * a member (v2.212.0, E3): when `roomIds` is empty and this is non-empty the
+ * command replies with `notMemberMessage` instead of "nothing to show".
  *
  * `legacyEnv` marks the single-tenant env deployment fallback (see
  * `resolveGuildReadScope`); it is the ONLY case in which rows with no room
@@ -72,6 +118,7 @@ export async function buildEnabledRoomSqlFilter(
 export interface GuildReadScope {
     roomIds: string[];
     legacyEnv: boolean;
+    notMemberOf: Array<{ slug: string; name: string }>;
 }
 
 /**
@@ -81,6 +128,19 @@ export interface GuildReadScope {
 export const DISCORD_GUILD_NOT_LINKED_MESSAGE =
     "This Discord server isn't linked to an Arcaid game room yet. " +
     'A room admin can link it under Room Settings → Discord → Discord Guild ID.';
+
+/**
+ * Reply text for a linked guild whose rooms are approval rooms the invoking
+ * user has not joined. Build the full reply with `notMemberMessage(...)`.
+ */
+export const DISCORD_NOT_A_MEMBER_MESSAGE =
+    "You aren't a member of this server's Arcaid game room yet, so there is nothing to show you. " +
+    'Request to join it on the web:';
+
+export function notMemberMessage(notMemberOf: Array<{ slug: string; name: string }>): string {
+    const lines = notMemberOf.map(r => `${r.name}: https://arcaid.app/${r.slug}`);
+    return `${DISCORD_NOT_A_MEMBER_MESSAGE}\n${lines.join('\n')}`;
+}
 
 /**
  * Resolves which rooms a READ command invoked in `guildId` is allowed to see.
@@ -113,9 +173,16 @@ export const DISCORD_GUILD_NOT_LINKED_MESSAGE =
  *      configuring per-room guild ids is multi-room, and leaking the
  *      unconfigured rooms into it is the very bug being fixed.
  *   4. Otherwise → `null` (not linked).
+ *
+ * Approval rooms (v2.212.0, E3): in scope when `userId` (the invoking Discord
+ * user) is a member or admin of the room (`discordUserVisibleRoomIds`), out of
+ * scope otherwise and listed in `notMemberOf`. An undefined `userId` excludes
+ * them (no caller silently widens). Discord-off and suspended rooms are out
+ * regardless of membership.
  */
 export async function resolveGuildReadScope(
     guildId: string | null | undefined,
+    userId?: string | null,
 ): Promise<GuildReadScope | null> {
     if (!guildId) return null;
 
@@ -127,11 +194,28 @@ export async function resolveGuildReadScope(
     )) as Array<{ game_room_id: string }>;
 
     const excluded = new Set(await discordExcludedRoomIds());
+    const approval = new Set(await discordApprovalRoomIds());
+
+    /** Applies the unconditional exclusions, then the per-user approval rule. */
+    const applyPolicy = async (candidates: string[]) => {
+        const live = Array.from(new Set(candidates)).filter(id => !excluded.has(id));
+        const gated = live.filter(id => approval.has(id));
+        const visible = await discordUserVisibleRoomIds(userId, gated);
+        const roomIds = live.filter(id => !approval.has(id) || visible.has(id));
+        const hidden = gated.filter(id => !visible.has(id));
+        let notMemberOf: Array<{ slug: string; name: string }> = [];
+        if (hidden.length > 0) {
+            notMemberOf = (await db.all(
+                `SELECT slug, name FROM game_rooms WHERE id IN (${hidden.map(() => '?').join(', ')})`,
+                ...hidden,
+            )) as Array<{ slug: string; name: string }>;
+        }
+        return { roomIds, notMemberOf };
+    };
 
     if (linkedRows.length > 0) {
-        const roomIds = Array.from(new Set(linkedRows.map(r => r.game_room_id)))
-            .filter(id => !excluded.has(id));
-        return { roomIds, legacyEnv: false };
+        const { roomIds, notMemberOf } = await applyPolicy(linkedRows.map(r => r.game_room_id));
+        return { roomIds, legacyEnv: false, notMemberOf };
     }
 
     if (process.env.DISCORD_GUILD_ID && process.env.DISCORD_GUILD_ID === guildId) {
@@ -142,9 +226,8 @@ export async function resolveGuildReadScope(
                  WHERE key = 'DISCORD_GUILD_ID' AND value IS NOT NULL AND value != ''
              )`,
         )) as Array<{ game_room_id: string }>;
-        const roomIds = Array.from(new Set(settinglessRows.map(r => r.game_room_id)))
-            .filter(id => !excluded.has(id));
-        return { roomIds, legacyEnv: true };
+        const { roomIds, notMemberOf } = await applyPolicy(settinglessRows.map(r => r.game_room_id));
+        return { roomIds, legacyEnv: true, notMemberOf };
     }
 
     return null;

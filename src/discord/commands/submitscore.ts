@@ -125,7 +125,7 @@ export const submitscore: Command = {
         // v2.120.2 — guild-scoped autocomplete. Pre-fix the `game` list showed
         // every room's ACTIVE games plus their tournament names to any guild.
         // `null` scope (unlinked guild / DM) → empty list for every branch.
-        const guildScope = await resolveGuildReadScope(interaction.guildId);
+        const guildScope = await resolveGuildReadScope(interaction.guildId, interaction.user?.id);
         if (!guildScope) {
             await interaction.respond([]);
             return;
@@ -273,13 +273,13 @@ export const submitscore: Command = {
             // with the check resolveActiveSubmitGame already made above, but
             // harmless — this call is the one that also covers (b)/(c).)
             if (game.game_room_id) {
-                const { validateDiscordWriteTarget } = await import('../../utils/discordWriteTarget.js');
-                const targetCheck = await validateDiscordWriteTarget(game.game_room_id, interaction.guildId);
+                const { validateDiscordWriteTarget, DISCORD_WRITE_NOT_A_MEMBER_MESSAGE } = await import('../../utils/discordWriteTarget.js');
+                const targetCheck = await validateDiscordWriteTarget(game.game_room_id, interaction.guildId, interaction.user?.id);
                 if (!targetCheck.allowed) {
                     await interaction.editReply(
                         targetCheck.denial === 'suspended'
                             ? 'This room has been suspended pending review. Score submission is disabled.'
-                            : "That game belongs to a room this server isn't linked to."
+                            : targetCheck.denial === 'not_a_member' ? DISCORD_WRITE_NOT_A_MEMBER_MESSAGE : "That game belongs to a room this server isn't linked to."
                     );
                     return;
                 }
