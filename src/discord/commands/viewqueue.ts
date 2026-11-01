@@ -8,6 +8,7 @@ import {
     resolveGuildReadScope,
     buildGuildScopedRoomSqlFilter,
     DISCORD_GUILD_NOT_LINKED_MESSAGE,
+    notMemberMessage,
     type GuildReadScope,
 } from '../../utils/discordRoomFilter.js';
 
@@ -62,9 +63,13 @@ export const viewqueue: Command = {
         // Guild-scoped read (v2.120.1 contract). Resolved BEFORE deferring so
         // the not-linked notice can be ephemeral. `null` = this guild maps to
         // no Arcaid room (or it's a DM, which carries no room context).
-        const scope = await resolveGuildReadScope(interaction.guildId);
+        const scope = await resolveGuildReadScope(interaction.guildId, interaction.user?.id);
         if (!scope) {
             await interaction.reply({ content: DISCORD_GUILD_NOT_LINKED_MESSAGE, ephemeral: true });
+            return;
+        }
+        if (scope.roomIds.length === 0 && scope.notMemberOf.length > 0) {
+            await interaction.reply({ content: notMemberMessage(scope.notMemberOf), ephemeral: true });
             return;
         }
 

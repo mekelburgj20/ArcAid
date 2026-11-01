@@ -78,7 +78,7 @@ export const nominatepicker: Command = {
             return;
         }
 
-        const scope = await resolveGuildReadScope(interaction.guildId);
+        const scope = await resolveGuildReadScope(interaction.guildId, interaction.user?.id);
         if (!scope) {
             await interaction.respond([]);
             return;
@@ -117,7 +117,7 @@ export const nominatepicker: Command = {
             // another room's tournament id and reassign its picker rights.
             // Checked before the pick-award gate so a foreign tournament's
             // configuration is never disclosed by the reply.
-            const scope = await resolveGuildReadScope(interaction.guildId);
+            const scope = await resolveGuildReadScope(interaction.guildId, interaction.user?.id);
             if (!isRoomInGuildScope(tournament?.game_room_id ?? null, scope)) {
                 await interaction.editReply(DISCORD_FOREIGN_TOURNAMENT_MESSAGE);
                 return;

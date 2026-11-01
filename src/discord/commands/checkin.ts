@@ -4,7 +4,7 @@ import { getDatabase } from '../../database/database.js';
 import { logError } from '../../utils/logger.js';
 import { BanService } from '../../services/BanService.js';
 import { EventService } from '../../services/EventService.js';
-import { resolveGuildReadScope, DISCORD_GUILD_NOT_LINKED_MESSAGE } from '../../utils/discordRoomFilter.js';
+import { resolveGuildReadScope, DISCORD_GUILD_NOT_LINKED_MESSAGE, notMemberMessage } from '../../utils/discordRoomFilter.js';
 
 /**
  * `/check-in` — join a Live Event's roster from Discord (v2.135.0, ADR 0017).
@@ -66,7 +66,7 @@ export const checkin: Command = {
 
     async autocomplete(interaction: AutocompleteInteraction) {
         try {
-            const scope = await resolveGuildReadScope(interaction.guildId);
+            const scope = await resolveGuildReadScope(interaction.guildId, interaction.user?.id);
             if (!scope) return interaction.respond([]);
             const typed = interaction.options.getFocused().toLowerCase();
             const now = Date.now();
@@ -84,9 +84,13 @@ export const checkin: Command = {
     async execute(interaction: ChatInputCommandInteraction) {
         await interaction.deferReply({ ephemeral: true });
         try {
-            const scope = await resolveGuildReadScope(interaction.guildId);
+            const scope = await resolveGuildReadScope(interaction.guildId, interaction.user?.id);
             if (!scope) {
                 await interaction.editReply(DISCORD_GUILD_NOT_LINKED_MESSAGE);
+                return;
+            }
+            if (scope.roomIds.length === 0 && scope.notMemberOf.length > 0) {
+                await interaction.editReply(notMemberMessage(scope.notMemberOf));
                 return;
             }
 

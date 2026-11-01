@@ -37,7 +37,7 @@ export const activategame: Command = {
         // `game_name` list is the GLOBAL catalogue (not room data) but its
         // mode filter resolves a tournament by name, which must not resolve
         // to another guild's tournament. `null` scope → empty list.
-        const scope = await resolveGuildReadScope(interaction.guildId);
+        const scope = await resolveGuildReadScope(interaction.guildId, interaction.user?.id);
         if (!scope) {
             await interaction.respond([]);
             return;
@@ -114,13 +114,13 @@ export const activategame: Command = {
             // Discord-disabled/approval-gated or linked to a DIFFERENT guild
             // than the one this interaction came from — see discordWriteTarget.ts.
             if (tournament.game_room_id) {
-                const { validateDiscordWriteTarget } = await import('../../utils/discordWriteTarget.js');
-                const targetCheck = await validateDiscordWriteTarget(tournament.game_room_id, interaction.guildId);
+                const { validateDiscordWriteTarget, DISCORD_WRITE_NOT_A_MEMBER_MESSAGE } = await import('../../utils/discordWriteTarget.js');
+                const targetCheck = await validateDiscordWriteTarget(tournament.game_room_id, interaction.guildId, interaction.user?.id);
                 if (!targetCheck.allowed) {
                     await interaction.editReply(
                         targetCheck.denial === 'suspended'
                             ? 'This room has been suspended pending review. Game activation is disabled.'
-                            : "That game belongs to a room this server isn't linked to."
+                            : targetCheck.denial === 'not_a_member' ? DISCORD_WRITE_NOT_A_MEMBER_MESSAGE : "That game belongs to a room this server isn't linked to."
                     );
                     return;
                 }

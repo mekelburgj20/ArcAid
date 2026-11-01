@@ -6,6 +6,7 @@ import { StatsService } from '../../services/StatsService.js';
 import {
     resolveGuildReadScope,
     DISCORD_GUILD_NOT_LINKED_MESSAGE,
+    notMemberMessage,
 } from '../../utils/discordRoomFilter.js';
 
 export const mystats: Command = {
@@ -25,9 +26,13 @@ export const mystats: Command = {
         // two servers saw one merged number in both. Owner ruling: every
         // command is per-server, so a DM (no guild context) gets the
         // not-linked notice too rather than the cross-room total.
-        const scope = await resolveGuildReadScope(interaction.guildId);
+        const scope = await resolveGuildReadScope(interaction.guildId, interaction.user?.id);
         if (!scope) {
             await interaction.reply({ content: DISCORD_GUILD_NOT_LINKED_MESSAGE, ephemeral: true });
+            return;
+        }
+        if (scope.roomIds.length === 0 && scope.notMemberOf.length > 0) {
+            await interaction.reply({ content: notMemberMessage(scope.notMemberOf), ephemeral: true });
             return;
         }
 
