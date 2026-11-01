@@ -371,3 +371,59 @@ describe('IntegrityPanel — attempts (W68)', () => {
     expect(screen.getByTestId('attempts-section')).not.toHaveTextContent('delete the score instead');
   });
 });
+
+/**
+ * W81 — above each table's rows, one line per player: how many of the limit
+ * they have used and how many are LEFT. A void gives one back; an
+ * over-the-limit player has none left; fewest left first, then by name.
+ */
+describe('IntegrityPanel — attempts left per player (W81)', () => {
+  const BASE = `/rooms/${ROOM}/admin/tournaments/t-1`;
+  let nextId = 100;
+  const row = (userId: string, playerLabel: string, status: string, over: Record<string, unknown> = {}) => ({
+    id: nextId++, gameId: 'g-mb', gameName: 'Monster Bash', userId, playerLabel, attemptNo: 1, status,
+    late: false, startedTs: 1_761_800_000, receivedAt: '2026-10-29 20:00:00', endedTs: null,
+    score: null, scoreHistoryId: null, tableName: 'Monster Bash', voidedAt: null, voidable: status !== 'void',
+    reinstatable: false, reinstateBlockedReason: null,
+    ...over,
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    nextId = 100;
+    const attempts = [
+      // Mox: three non-void + one void → 3 used, 2 left (the void gave one back).
+      row('111111111111111111', 'Mox', 'scored', { score: 1_000 }),
+      row('111111111111111111', 'Mox', 'scored', { score: 2_000 }),
+      row('111111111111111111', 'Mox', 'counted'),
+      row('111111111111111111', 'Mox', 'void'),
+      // ChalataLove: five scored + one over the limit → 0 left.
+      ...[1, 2, 3, 4, 5].map(n => row('222222222222222222', 'ChalataLove', 'scored', { score: n })),
+      row('222222222222222222', 'ChalataLove', 'over_limit'),
+      // Bob: only a void → all five left.
+      row('333333333333333333', 'Bob', 'void'),
+      // Abe: one used, so 4 left — sorts ahead of Bob (5 left), behind Mox (2 left).
+      row('444444444444444444', 'Abe', 'unreported'),
+    ];
+    mockedGet.mockImplementation((path: string) => {
+      if (path.endsWith('/integrity')) return Promise.resolve({ ...INTEGRITY, maxAttempts: 5 });
+      if (path.includes('/evidence')) return Promise.resolve({ evidence: [] });
+      if (path === `${BASE}/attempts`) return Promise.resolve({ maxAttempts: 5, attempts });
+      if (path === '/global/games/gg-mb/tables') return Promise.resolve(TABLES);
+      return Promise.reject(new Error(`unexpected GET ${path}`));
+    });
+  });
+
+  it('lists each player with used and left, fewest left first, and never a raw id', async () => {
+    render(<IntegrityPanel roomId={ROOM} tournament={TOURNAMENT} onClose={() => {}} toast={vi.fn()} />);
+    const summary = await screen.findByTestId('attempts-summary-g-mb');
+    const players = within(summary).getAllByTestId('attempts-summary-player').map(el => el.textContent);
+    expect(players).toEqual([
+      'ChalataLove 6 of 5 used · 0 left',
+      'Mox 3 of 5 used · 2 left',
+      'Abe 1 of 5 used · 4 left',
+      'Bob 0 of 5 used · 5 left',
+    ]);
+    expect(summary.textContent).not.toMatch(/\d{17,}/);
+  });
+});

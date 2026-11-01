@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.208.0] - 2026-10-31 - Attempts left per player, without reading attempt rows (W81)
+
+Owner ask 2026-10-31: in a Limited-attempts tournament a host wants to see how many attempts each player has LEFT.
+One rule on every surface: left = max(0, limit − the player's non-void attempts on that table); a void gives one
+back, and a player with an over-the-limit row has none left. A player who never started a table is absent on
+purpose - absent means every attempt is still left.
+
+### Added
+- **Admin Attempts section summary.** On the Integrity panel's Attempts section, above each table's rows, one chip
+  per player: "ChalataLove 3 of 5 used · 2 left", fewest left first, then by name. Counted from the loaded rows
+  (`summarizeAttempts` in `admin-ui/src/lib/attemptsLeft.ts`, the one place the rule is written), so a Void
+  shows its attempt given back at once.
+
 ## [2.207.0] - 2026-10-31 - A star is a star: one rating per table across rooms and Global, rated per platform (C3 ratings half, C2.2)
 
 The second half of the 2026-08-24 feature-request thread: a rating should be able to say WHICH version of a table it is about
