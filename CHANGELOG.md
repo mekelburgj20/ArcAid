@@ -6,6 +6,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.209.2] - 2026-10-31 - Admin-UI bug sweep from the UX investigation (Phase 0)
+
+The UX investigation (`docs/ux-skills-analysis-2026-10-19.md`) turned up a handful of outright bugs in `admin-ui/src`
+that were worth fixing before any design work starts. No design changes: every edit here makes a class do what its
+author already asked for.
+
+### Fixed
+- **Toasts animate in again.** The admin toast (`components/Toast.tsx`) asked for a `fadeIn` keyframe no stylesheet
+  defined, and the two Global Scoreboard toasts asked for `animate-slide-down`, a utility that existed only under a
+  different name inside a `<style>` block scoped to the room scoreboard; all three simply popped into place. The
+  two enter animations are now theme utilities in `index.css` (`--animate-fade-in` 0.2 s, `--animate-slide-down`
+  0.25 s, both ease-out), the room scoreboard toast uses the shared one and its local keyframe is gone, and the
+  global reduced-motion guard switches both off. `slide-down` moves on Y only: the toasts are centred with
+  `-translate-x-1/2`, which Tailwind v4 emits as the separate `translate` property, so the old `translate(-50%, …)`
+  keyframe stacked a second half-width shift on top of it.
+- **Classes that named tokens the theme does not have** (Tailwind v4 emits nothing for them, so they were silent):
+  `bg-surface-alt` (25 uses, all on the super-admin Catalogue page) → `bg-raised`; `text-secondary` (8 uses: player
+  names on the Banner and Minimal cards and the ranking rows, the Compare picker rows, the game-info chip and
+  button, two quick-view rows) → `text-muted`, which is the step down from primary those sites paired against a
+  `text-primary` sibling or a `hover:text-primary`; `text-accent` on the Minimal card's "Full Leaderboard" link →
+  `text-neon-cyan`; `border-default` on the Game Library name suggestions → `border-border`. `bg-card`, also
+  reported, had no real use (the only matches were `data-bg-card-*` attributes). Visible consequence: the player
+  names and the Minimal card's footer link were inheriting the page colour and now wear the colour they asked for.
+- **Dev placeholders.** The Identity page's rename fields suggested the owner's own handle; they now read
+  `e.g. PinWizrd` / `e.g. PinWizard` like the rest of the app's examples.
+
+### Changed
+- `index.css` notes that `--color-neon-purple` duplicates `--color-border-glow` and `--color-neon-blue` duplicates
+  `--color-neon-cyan` in the DEFAULT theme only — most `.theme-*` blocks give the four distinct values, so neither
+  pair is an alias and nothing was removed.
+
 ## [2.209.0] - 2026-10-31 - Ratings on the lists: a Rating column and a "Top rated" sort on Picks, My Tables and the Global Scoreboard cards (A14.1)
 
 Owner ask, 2026-10-31: "add a column to the 'picks' and anywhere else it makes sense that shows table ratings and have an

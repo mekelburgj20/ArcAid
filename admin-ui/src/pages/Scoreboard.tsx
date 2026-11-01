@@ -294,7 +294,7 @@ export default function Scoreboard() {
 
             {/* Score toast notification */}
             {scoreToast && (
-              <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 animate-slideDown">
+              <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 animate-slide-down">
                 <div className="bg-surface border border-neon-cyan/40 rounded-lg shadow-lg px-6 py-3 text-sm text-primary">
                   <span className="text-neon-cyan font-bold">{scoreToast.player}</span>
                   {' '}posted{' '}

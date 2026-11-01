@@ -313,7 +313,7 @@ export default function BannerCard({
                               slug={slug}
                               entry={entry}
                               onClick={e => e.stopPropagation()}
-                              className="text-secondary no-underline hover:text-neon-cyan transition-colors"
+                              className="text-muted no-underline hover:text-neon-cyan transition-colors"
                             />
                           </FitRowName>
                           {/* v2.190.0 (W22): a witness-flagged score (event round, flag mode). */}

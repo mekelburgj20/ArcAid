@@ -55,7 +55,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         {toasts.map(t => (
           <div
             key={t.id}
-            className={`px-4 py-3 rounded border text-sm font-medium shadow-xl shadow-black/40 transition-all animate-[fadeIn_0.2s_ease-out] ${typeStyles[t.type]}`}
+            className={`px-4 py-3 rounded border text-sm font-medium shadow-xl shadow-black/40 transition-all animate-fade-in ${typeStyles[t.type]}`}
             style={{ background: typeBackgrounds[t.type] }}
           >
             {t.message}

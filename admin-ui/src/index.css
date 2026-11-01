@@ -30,9 +30,25 @@
   --color-neon-magenta: oklch(65% 0.241 354.308);
   --color-neon-green: oklch(76% 0.177 163.223);
   --color-neon-amber: oklch(82% 0.189 84.429);
+  /* In THIS (default dark) theme --color-neon-purple duplicates
+     --color-border-glow and --color-neon-blue duplicates --color-neon-cyan.
+     They are NOT aliases in general: most .theme-* blocks below give the
+     four tokens distinct values (retro, arctic, midnight, synthwave…), so
+     keep using the token that names the intent and never fold one into
+     the other. */
   --color-neon-purple: oklch(58% 0.233 277.117);
   --color-neon-coral: oklch(71% 0.194 13.428);
   --color-neon-blue: oklch(74% 0.16 232.661);
+
+  /* Enter animations (v2.209.2). Before this the admin toast asked for a
+     `fadeIn` keyframe nobody defined and the Global Scoreboard toast for an
+     `animate-slide-down` utility that only existed, under a different name,
+     in a <style> block scoped to the room scoreboard — both appeared with no
+     animation at all. Declared here so every page gets the same two
+     utilities; the keyframes live beside the other @keyframes below and the
+     reduced-motion guard switches both off. */
+  --animate-fade-in: fade-in 0.2s ease-out;
+  --animate-slide-down: slide-down 0.25s ease-out;
 
   /* Text */
   --color-primary: oklch(97.807% 0.029 256.847);
@@ -457,9 +473,10 @@
   /* `color` is INHERITED, and `body` resolves `var(--color-primary)` under the
      PAGE's theme — restating the tokens on this element does not re-evaluate
      an ancestor's declaration. Without this line the island's own text was
-     fixed but everything that merely INHERITS its colour (the player-name
-     links, whose `text-secondary` class is not a real token in this app)
-     stayed near-black on the scrim. Re-anchoring `color` inside the scope
+     fixed but everything that merely INHERITS its colour (at the time the
+     player-name links, which wore a `text-secondary` class that was never a
+     token in this app — `text-muted` since v2.209.2) stayed near-black on the
+     scrim. Re-anchoring `color` inside the scope
      resolves it to the DARK default, which is the point of the island. */
   color: var(--color-primary);
 }
@@ -1683,6 +1700,20 @@ select option {
   .gg-hero__attract { border-radius: 11px; }
 }
 
+/* Enter animations backing --animate-fade-in / --animate-slide-down (see
+   @theme). slide-down moves on `transform` only along Y: the elements that
+   wear it are centred with `left-1/2 -translate-x-1/2`, which Tailwind v4
+   emits as the separate `translate` property, so an X component here would
+   stack on top of it and park the toast off-centre. */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes slide-down {
+  from { opacity: 0; transform: translateY(-100%); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 /* Global reduced-motion guard (s20) — the first @media block in this file.
    Placed after the rules it overrides so cascade order (equal specificity)
    picks this one when the user's OS/browser prefers reduced motion. */
@@ -1717,6 +1748,11 @@ select option {
      beat the style attribute. */
   .hs-riser {
     animation: none !important;
+  }
+  /* Toast enter animations: the toast simply appears in place. */
+  .animate-fade-in,
+  .animate-slide-down {
+    animation: none;
   }
 }
 

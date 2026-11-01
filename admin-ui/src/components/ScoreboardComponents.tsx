@@ -1091,7 +1091,7 @@ export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle
             </span>
             <PlayerAvatar username={playerName(entry)} discordUserId={entry.discord_user_id} avatarHash={entry.avatar_hash} avatarUrl={entry.avatar_url} size={24} />
             <div className="flex-1 min-w-0">
-              <div className="text-sm text-secondary truncate">{playerName(entry)}</div>
+              <div className="text-sm text-muted truncate">{playerName(entry)}</div>
               <div className="flex items-center gap-2 min-w-0">
                 <span className={`text-sm font-bold tabular-nums flex-shrink-0 whitespace-nowrap ${entry.rank === 1 ? 'text-neon-amber' : 'text-primary'}`}>
                   {scoreDisplay(entry)}

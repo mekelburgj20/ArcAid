@@ -339,7 +339,7 @@ function PlayerQuickViewModal({ slug, entry, fromTab, onClose }: OpenArgs & { on
                         key={i}
                         className="flex items-center justify-between px-3 py-1.5 border-b border-border/20 last:border-0"
                       >
-                        <span className="text-sm text-secondary truncate flex-1 mr-2">{s.game_name}</span>
+                        <span className="text-sm text-muted truncate flex-1 mr-2">{s.game_name}</span>
                         <span className="text-sm font-bold tabular-nums text-neon-amber flex-shrink-0">
                           {s.score.toLocaleString()}
                         </span>
