@@ -207,7 +207,7 @@ export default function OldWizardRowsCard() {
       )}
 
       {result && (
-        <div className="mb-3 p-3 rounded bg-surface-alt border border-border text-sm">
+        <div className="mb-3 p-3 rounded bg-raised border border-border text-sm">
           <div className="font-medium">
             Merged {result.merged.length} row{result.merged.length === 1 ? '' : 's'}
             {result.failed.length > 0 && `, ${result.failed.length} refused`}.
@@ -296,7 +296,7 @@ function OldRow({ row, target, chosenByYou, ticked, onToggle, onChoose }: {
   const conflict = !chosenByYou ? s?.conflict ?? null : null;
 
   return (
-    <li className="border border-border rounded p-3 bg-surface-alt">
+    <li className="border border-border rounded p-3 bg-raised">
       <div className="flex items-start gap-3 flex-wrap sm:flex-nowrap">
         <input
           type="checkbox"
