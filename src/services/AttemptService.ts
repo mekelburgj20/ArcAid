@@ -42,7 +42,14 @@ export type AttemptStartResult = {
     resent: boolean;
 };
 
-/** W56 — one row of the room's top-level "Start attempts" list (`GET /rooms/:roomId/attempt-starts/me`). */
+/**
+ * W56 / W82 — one row of the room's limited-attempts list for the viewer
+ * (`GET /rooms/:roomId/attempt-starts/me`). W56 listed only start-required
+ * tables (the "Start attempts" press); W82 lists every open limited-attempts
+ * table the viewer is in, with their own counts, so the card can say
+ * "N attempts left". `started`/`startedTs` mean something only when
+ * `requireStart` is true — consumers gate the press on `requireStart`.
+ */
 export type RoomAttemptStart = {
     gameId: string;
     gameName: string;
@@ -51,6 +58,14 @@ export type RoomAttemptStart = {
     roundNo: number | null;
     started: boolean;
     startedTs: number | null;
+    /** The tournament's `max_attempts`. */
+    limit: number;
+    /** This player's attempts on the table, void rows excluded (`usedByPlayer`). */
+    used: number;
+    /** `max(0, limit − used)`. */
+    left: number;
+    /** Does the tournament make players press Start attempts first? */
+    requireStart: boolean;
 };
 
 export type AttemptRefusalReason = 'late' | 'over_limit' | 'void' | 'reused' | 'unreported' | 'device' | 'exit_sample' | 'not_started';
@@ -533,26 +548,36 @@ export class AttemptService {
     }
 
     /**
-     * W56 — the room's top-level "Start attempts" list for one player: every
-     * OPEN game in this room whose tournament limits attempts AND requires the
-     * press, that the player is allowed in, with whether they have pressed it.
-     * The game set is `VpxScoreIngestService.roomLimitedGames` (the same
-     * candidates + entry rule a device play is matched against), so a card
-     * can never offer a button the press itself would refuse as not entered.
+     * W56 / W82 — the room's limited-attempts list for one player: every OPEN
+     * game in this room whose tournament limits attempts, that the player is
+     * allowed in, with their own used/left counts (W82, the card's
+     * "N attempts left") and — where the tournament requires the press —
+     * whether they have pressed Start attempts (W56). The game set is
+     * `VpxScoreIngestService.roomLimitedGames` (the same candidates + entry
+     * rule a device play is matched against), so a card can never offer a
+     * button the press itself would refuse as not entered. A table that does
+     * not require the press reads `requireStart: false`, `started: false`.
      */
     static async roomStartsFor(input: { roomId: string; userId: string }): Promise<RoomAttemptStart[]> {
         const { IdentityLinkService } = await import('./IdentityLinkService.js');
         const { VpxScoreIngestService } = await import('./VpxScoreIngestService.js');
         const canonical = await IdentityLinkService.resolveCanonical(input.userId);
-        const games = (await VpxScoreIngestService.roomLimitedGames({ canonicalUserId: canonical, roomId: input.roomId }))
-            .filter(g => g.requireStart);
-        const starts = await AttemptService.startsFor(canonical, games.map(g => g.gameId));
+        const games = await VpxScoreIngestService.roomLimitedGames({ canonicalUserId: canonical, roomId: input.roomId });
+        const ids = games.map(g => g.gameId);
+        const [used, starts] = await Promise.all([
+            AttemptService.usedByPlayer(canonical, ids),
+            AttemptService.startsFor(canonical, games.filter(g => g.requireStart).map(g => g.gameId)),
+        ]);
         return games.map(g => ({
             gameId: g.gameId, gameName: g.gameName,
             tournamentId: g.tournamentId, tournamentName: g.tournamentName,
             roundNo: g.roundNo,
             started: starts[g.gameId] != null,
             startedTs: starts[g.gameId] ?? null,
+            limit: g.limit,
+            used: used[g.gameId] ?? 0,
+            left: Math.max(0, g.limit - (used[g.gameId] ?? 0)),
+            requireStart: g.requireStart,
         }));
     }
 

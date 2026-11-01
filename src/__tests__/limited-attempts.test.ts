@@ -737,7 +737,7 @@ describe('W38 (ADR 0033 §3–4): plays that straddle the window, and "Start att
     });
 });
 
-describe('W56: the room top-level "Start attempts" list (GET /rooms/:roomId/attempt-starts/me)', () => {
+describe('W56 / W82: the room limited-attempts list (GET /rooms/:roomId/attempt-starts/me)', () => {
     let app: express.Express;
     let roomId: string;
 
@@ -768,12 +768,47 @@ describe('W56: the room top-level "Start attempts" list (GET /rooms/:roomId/atte
         expect(byName['Congo']).toEqual({
             gameId: congo.gameId, gameName: 'Congo', tournamentId: congo.tournamentId, tournamentName: 'Five Shots',
             roundNo: null, started: false, startedTs: null,
+            limit: 3, used: 0, left: 3, requireStart: true,
         });
-        expect(byName['Cactus Canyon']).toMatchObject({ gameId: cactus.gameId, started: true, startedTs: 1234 });
+        expect(byName['Cactus Canyon']).toMatchObject({ gameId: cactus.gameId, started: true, startedTs: 1234, requireStart: true });
     });
 
-    it('leaves out a tournament without the setting, an unlimited one and a closed table', async () => {
-        const notRequired = await createLimitedGame(roomId, 3, 'No Press');
+    it('W82: lists a limited game WITHOUT require-start too, with requireStart false and its counts', async () => {
+        const noPress = await createLimitedGame(roomId, 3, 'No Press');
+        const res = await roomList();
+        expect(res.status).toBe(200);
+        expect(res.body.games).toEqual([{
+            gameId: noPress.gameId, gameName: 'No Press', tournamentId: noPress.tournamentId, tournamentName: 'Five Shots',
+            roundNo: null, started: false, startedTs: null,
+            limit: 3, used: 0, left: 3, requireStart: false,
+        }]);
+    });
+
+    it('W82: used/left count the viewer\'s non-void attempts — a voided attempt gives one back, never below 0 left', async () => {
+        const { tournamentId, gameId } = await createLimitedGame(roomId, 2, 'Congo');
+        const db = await getDatabase();
+        const insert = (who: string, key: string, no: number) => db.run(
+            `INSERT INTO attempts (tournament_id, game_id, game_room_id, canonical_user_id, device_id, attempt_key,
+                                   attempt_no, status, started_ts, late)
+             VALUES (?, ?, ?, ?, 'dev-w82', ?, ?, 'counted', ?, 0)`,
+            tournamentId, gameId, roomId, who, key, no, Math.floor(Date.now() / 1000),
+        );
+        await insert(USER, 'a1', 1);
+        await insert(USER, 'a2', 2);
+        await insert('987654321098765432', 'other', 1); // someone else's attempt is not the viewer's
+        expect((await roomList()).body.games[0]).toMatchObject({ limit: 2, used: 2, left: 0 });
+
+        await insert(USER, 'a3', 3); // an over-the-limit row still counts as used; left stays 0
+        expect((await roomList()).body.games[0]).toMatchObject({ used: 3, left: 0 });
+
+        const first = await db.get<{ id: number }>(`SELECT id FROM attempts WHERE attempt_key = 'a1'`);
+        const second = await db.get<{ id: number }>(`SELECT id FROM attempts WHERE attempt_key = 'a2'`);
+        await AttemptService.void(first!.id, 'super-1', tournamentId);
+        await AttemptService.void(second!.id, 'super-1', tournamentId);
+        expect((await roomList()).body.games[0]).toMatchObject({ limit: 2, used: 1, left: 1 });
+    });
+
+    it('leaves out an unlimited tournament and a closed table', async () => {
         const unlimited = await createLimitedGame(roomId, null, 'Unlimited');
         await requireStart(unlimited.tournamentId);
         const closed = await createLimitedGame(roomId, 3, 'Closed');
@@ -783,7 +818,6 @@ describe('W56: the room top-level "Start attempts" list (GET /rooms/:roomId/atte
         const finished = await createLimitedGame(roomId, 3, 'Finished Event');
         await requireStart(finished.tournamentId);
         await db.run(`UPDATE tournaments SET event_finished_at = CURRENT_TIMESTAMP WHERE id = ?`, finished.tournamentId);
-        expect(notRequired.gameId).toBeTruthy();
 
         const res = await roomList();
         expect(res.status).toBe(200);

@@ -9,8 +9,10 @@ import {
  * W56 (ADR 0033 §4) — the public Scoreboard's ONE room-level read of the
  * viewer's "Start attempts" list, and the press. Returns the value for
  * `CardAttemptStartContext` (null = no control on any card: a guest, or no
- * start-required table open) and `reload`, which the page calls alongside
- * its board loads so a rotation or round change is picked up.
+ * limited-attempts table open) and `reload`, which the page calls alongside
+ * its board loads so a rotation or round change is picked up. The same list
+ * feeds the press strip (start-required tables only) and, W82, each card's
+ * "N attempts left" badge (every listed table).
  *
  * After a press the list is re-read (the card flips to "Attempts started")
  * and `ATTEMPT_STARTS_CHANGED_EVENT` tells the "Your scores go to" strip.

@@ -10,6 +10,11 @@
  * ONE read, `GET /api/rooms/:roomId/attempt-starts/me`, answers both: every
  * open game of this room in such a tournament that the viewer is allowed in,
  * with whether they pressed it. The press is the existing per-game POST.
+ *
+ * W82 — the same read now lists EVERY open limited-attempts game the viewer
+ * is in (start-required or not) with their own counts, for the card's
+ * "N attempts left" badge. `started`/`startedTs` mean something only when
+ * `requireStart` is true: gate the press (and "needs starting") on it.
  */
 export type RoomAttemptStart = {
   gameId: string;
@@ -19,6 +24,14 @@ export type RoomAttemptStart = {
   roundNo: number | null;
   started: boolean;
   startedTs: number | null;
+  /** The tournament's attempt limit. */
+  limit: number;
+  /** The viewer's attempts on this table, void excluded. */
+  used: number;
+  /** `max(0, limit − used)`, from the server (the W81 rule, `lib/attemptsLeft.ts`). */
+  left: number;
+  /** Does the tournament make players press Start attempts first? */
+  requireStart: boolean;
 };
 
 /**

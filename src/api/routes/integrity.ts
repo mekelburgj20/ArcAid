@@ -80,11 +80,14 @@ router.get('/rooms/:roomId/tournaments/:id/attempt-starts/me', requireDiscordUse
     }
 });
 
-// Player: W56 — the room's top-level "Start attempts" list: every open game in
-// this room whose tournament limits attempts AND requires the press, that the
-// viewer is allowed in, with whether they pressed it. One read for the whole
-// room scoreboard and the "Your scores go to" strip.
-// `{ games: [{ gameId, gameName, tournamentId, tournamentName, roundNo, started, startedTs }] }`
+// Player: W56 / W82 — the room's limited-attempts list: every open game in this
+// room whose tournament limits attempts, that the viewer is allowed in, with
+// their own counts (W82, the card's "N attempts left") and, where the
+// tournament requires the press, whether they pressed Start attempts (W56).
+// One read for the whole room scoreboard and the "Your scores go to" strip.
+// `{ games: [{ gameId, gameName, tournamentId, tournamentName, roundNo,
+//   started, startedTs, limit, used, left, requireStart }] }`
+// (`started`/`startedTs` are meaningful only when `requireStart` is true.)
 router.get('/rooms/:roomId/attempt-starts/me', requireDiscordUser, async (req, res) => {
     try {
         const roomId = req.params.roomId as string;
