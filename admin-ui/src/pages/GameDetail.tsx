@@ -34,6 +34,7 @@ import ReportContentModal from '../components/ReportContentModal';
 import ConfirmModal from '../components/ConfirmModal';
 import ScorePhotoModal from '../components/ScorePhotoModal';
 import { useToast } from '../components/Toast';
+import { attemptsLeft } from '../lib/attemptsLeft';
 
 interface RankedEntry {
   rank: number;
@@ -295,6 +296,8 @@ export default function GameDetail() {
       attempts: Record<string, Record<string, number>>;
       /** v2.178.0 (W38) — players press Start attempts per table before plays count. */
       requireAttemptStart: boolean;
+      /** W81 (v2.208.0) — a label per id in `attempts`; an id with none is absent (never printed raw). */
+      attemptPlayers: Record<string, string>;
     } | null>(null);
   /**
    * W38 (ADR 0033 §4) — when the viewer pressed Start attempts on THIS board's
@@ -314,8 +317,24 @@ export default function GameDetail() {
   const attemptsUsedFor = (userId: string | null | undefined): number | null =>
     boardAttempts && userId ? (boardAttempts[userId] ?? null) : null;
   const viewerAttemptsLeft = (integrity?.maxAttempts != null && boardAttempts && viewerClaims?.discordId)
-    ? Math.max(0, integrity.maxAttempts - (boardAttempts[viewerClaims.discordId] ?? 0))
+    ? attemptsLeft(integrity.maxAttempts, boardAttempts[viewerClaims.discordId] ?? 0)
     : null;
+  // W81 — players who used an attempt on THIS table but have no row on the
+  // board (a power-off, a zero-point restart, over the limit): the board
+  // alone would hide them. Named only through the server's labels; a player
+  // the server could not name is left out rather than shown as a raw id.
+  const offBoardAttempts = (() => {
+    if (!boardAttempts || !integrity?.maxAttempts || !leaderboard) return [];
+    const onBoard = new Set<string>();
+    for (const e of [...leaderboard.rankings, ...(leaderboard.notCounted ?? [])]) {
+      if (e.submitted_by_user_id) onBoard.add(e.submitted_by_user_id);
+    }
+    const limit = integrity.maxAttempts;
+    return Object.entries(boardAttempts)
+      .filter(([id]) => !onBoard.has(id) && !!integrity.attemptPlayers[id])
+      .map(([id, used]) => ({ id, label: integrity.attemptPlayers[id]!, left: attemptsLeft(limit, used) }))
+      .sort((a, b) => a.left - b.left || a.label.localeCompare(b.label));
+  })();
   const [loading, setLoading] = useState(true);
   const [ratingInfo, setRatingInfo] = useState<RatingInfo | null>(null);
   // Initial 'community' is the safe pre-data default; the leaderboard tab does
@@ -627,7 +646,7 @@ export default function GameDetail() {
       .then((data: {
         mode?: string; verdicts?: IntegrityVerdictMap; quits?: QuitMap; signed?: SignedMap;
         maxAttempts?: number | null; attempts?: Record<string, Record<string, number>>;
-        requireAttemptStart?: boolean;
+        requireAttemptStart?: boolean; attemptPlayers?: Record<string, string>;
       } | null) => {
         if (cancelled || !data) return;
         setIntegrityLoaded({
@@ -639,6 +658,7 @@ export default function GameDetail() {
           maxAttempts: typeof data.maxAttempts === 'number' && data.maxAttempts >= 1 ? data.maxAttempts : null,
           attempts: data.attempts && typeof data.attempts === 'object' ? data.attempts : {},
           requireAttemptStart: data.requireAttemptStart === true,
+          attemptPlayers: data.attemptPlayers && typeof data.attemptPlayers === 'object' ? data.attemptPlayers : {},
         });
       })
       .catch(() => {});
@@ -1229,6 +1249,19 @@ export default function GameDetail() {
                     You have {viewerAttemptsLeft} attempt{viewerAttemptsLeft === 1 ? '' : 's'} left
                   </p>
                 )}
+                {/* W81 — players with attempts used but no row on this board. */}
+                {offBoardAttempts.length > 0 && (
+                  <div className="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs" data-testid="attempts-off-board">
+                    <span className="text-faint font-display uppercase tracking-wider">Attempts</span>
+                    {offBoardAttempts.map(p => (
+                      <span key={p.id} className="whitespace-nowrap" data-testid="attempts-off-board-player">
+                        <span className="text-primary">{p.label}</span>{' '}
+                        <span className="text-muted">{p.left} left</span>
+                      </span>
+                    ))}
+                    <span className="text-faint">· no score on this board</span>
+                  </div>
+                )}
                 {/* W38 (ADR 0033 §4) — the host made players press Start first. */}
                 {integrity.requireAttemptStart && (
                   !playerToken ? (
@@ -1362,7 +1395,7 @@ export default function GameDetail() {
                               if (used == null || !integrity?.maxAttempts) return null;
                               return (
                                 <span className="text-[11px] text-muted whitespace-nowrap" data-testid="attempts-used">
-                                  {used} of {integrity.maxAttempts} attempts
+                                  {used} of {integrity.maxAttempts} attempts · {attemptsLeft(integrity.maxAttempts, used)} left
                                 </span>
                               );
                             })()}

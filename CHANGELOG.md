@@ -18,6 +18,12 @@ purpose - absent means every attempt is still left.
   per player: "ChalataLove 3 of 5 used · 2 left", fewest left first, then by name. Counted from the loaded rows
   (`summarizeAttempts` in `admin-ui/src/lib/attemptsLeft.ts`, the one place the rule is written), so a Void
   shows its attempt given back at once.
+- **Public game page.** Each board row's attempts text now reads "2 of 5 attempts · 3 left". Under the
+  Limited-attempts banner an "Attempts" strip names the players who used an attempt on this table but have NO row on
+  the board (a power-off, a zero-point restart, over the limit) with how many they have left; hidden when nobody
+  qualifies. The public `GET /rooms/:roomId/tournaments/:id/integrity` read gains an additive `attemptPlayers`
+  (`{ [userId]: label }`, resolved through `resolveUserLabels`); an id the chain cannot name is absent, and the page
+  leaves that player out rather than print a raw id.
 
 ## [2.207.0] - 2026-10-31 - A star is a star: one rating per table across rooms and Global, rated per platform (C3 ratings half, C2.2)
 
