@@ -27,12 +27,12 @@ function signIn(discordId = '123456789012345678') {
 const MEDIEVAL = {
   global_game_id: 'gg-mm', name: 'Medieval Madness', manufacturer: 'Williams', year: 1997,
   type: 'pinball', image_url: null, catalogue_platforms: ['vpx', 'fx'], platforms: [],
-  created_at: '2026-10-01 00:00:00',
+  created_at: '2026-10-01 00:00:00', avg_rating: 4.5, rating_count: 3,
 };
 const AFM = {
   global_game_id: 'gg-afm', name: 'Attack from Mars', manufacturer: 'Bally', year: 1995,
   type: 'pinball', image_url: '/api/catalogue-images/afm.png', catalogue_platforms: ['vpx'], platforms: ['vpx'],
-  created_at: '2026-10-02 00:00:00',
+  created_at: '2026-10-02 00:00:00', avg_rating: 0, rating_count: 0,
 };
 
 type Call = { url: string; method: string; body: unknown };
@@ -97,6 +97,29 @@ describe('My Tables page (C2)', () => {
     // Offered chips = catalogue engines + Real, nothing pressed.
     const chips = within(mm).getAllByRole('button', { pressed: false }).map(b => b.textContent);
     expect(chips).toEqual(expect.arrayContaining(['VPX', 'FX', 'Real']));
+  });
+
+  it('shows the rating badge on rated tables and sorts by rating (A14.1)', async () => {
+    stubFetch();
+    signIn();
+    renderPage();
+
+    const list = await screen.findByTestId('my-tables-list');
+    expect(within(screen.getByTestId('owned-gg-mm')).getByTestId('rating-badge')).toHaveAttribute(
+      'title', 'Average rating 4.5 from 3 players',
+    );
+    expect(within(screen.getByTestId('owned-gg-afm')).queryByTestId('rating-badge')).not.toBeInTheDocument();
+
+    const names = () => within(screen.getByTestId('my-tables-list')).getAllByRole('link').map(a => a.textContent);
+    expect(within(list).getAllByRole('link').map(a => a.textContent)).toEqual(['Attack from Mars', 'Medieval Madness']);
+
+    const sort = screen.getByTestId('my-tables-sort');
+    fireEvent.click(within(sort).getByRole('button', { name: 'Top rated' }));
+    await waitFor(() => expect(names()).toEqual(['Medieval Madness', 'Attack from Mars']));
+    expect(within(sort).getByRole('button', { name: 'Top rated' })).toHaveAttribute('aria-pressed', 'true');
+
+    fireEvent.click(within(sort).getByRole('button', { name: 'Name' }));
+    await waitFor(() => expect(names()).toEqual(['Attack from Mars', 'Medieval Madness']));
   });
 
   it('toggling a chip PUTs the full new engine array', async () => {

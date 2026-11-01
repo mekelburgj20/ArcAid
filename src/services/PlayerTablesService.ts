@@ -2,6 +2,7 @@ import { getDatabase } from '../database/database.js';
 import { isCanonicalEngine } from '../utils/scoreProvenance.js';
 import { parsePlatformsList } from '../utils/platformRules.js';
 import { normalizeImageUrl } from './LeaderboardService.js';
+import { RATING_HEADLINE_BY_GAME_SQL, roundRating } from './GlobalRatingService.js';
 
 /**
  * C2 - "My Tables": which catalogue tables a player owns, optionally per
@@ -26,6 +27,10 @@ export interface OwnedTable {
     platforms: string[];
     /** Earliest of the player's rows for this game. */
     created_at: string;
+    /** A14.1 - per-rater headline rating, one decimal; 0 when nobody rated. */
+    avg_rating: number;
+    /** A14.1 - distinct raters; 0 when nobody rated. */
+    rating_count: number;
 }
 
 export class GameNotFoundError extends Error {
@@ -74,6 +79,8 @@ function foldRows(rows: JoinedRow[]): OwnedTable[] {
                 catalogue_platforms: parsePlatformsList(r.catalogue_platforms || '[]'),
                 platforms: [],
                 created_at: r.row_created_at,
+                avg_rating: 0,
+                rating_count: 0,
             };
             byGame.set(r.global_game_id, t);
         }
@@ -84,6 +91,31 @@ function foldRows(rows: JoinedRow[]): OwnedTable[] {
     for (const t of out) t.platforms.sort();
     out.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
     return out;
+}
+
+/** A14.1 - set the headline rating on folded tables, ONE read per chunk of ids. */
+async function attachRatings(tables: OwnedTable[]): Promise<OwnedTable[]> {
+    if (tables.length === 0) return tables;
+    const db = await getDatabase();
+    const byId = new Map(tables.map(t => [t.global_game_id, t]));
+    const ids = [...byId.keys()];
+    for (let i = 0; i < ids.length; i += IN_CHUNK) {
+        const chunk = ids.slice(i, i + IN_CHUNK);
+        const ph = chunk.map(() => '?').join(',');
+        const rows = await db.all<Array<{ global_game_id: string; avg_rating: number | null; rating_count: number }>>(
+            `SELECT global_game_id, avg_rating, rating_count
+               FROM (${RATING_HEADLINE_BY_GAME_SQL})
+              WHERE global_game_id IN (${ph})`,
+            ...chunk,
+        );
+        for (const r of rows) {
+            const t = byId.get(r.global_game_id);
+            if (!t) continue;
+            t.avg_rating = roundRating(r.avg_rating);
+            t.rating_count = r.rating_count ?? 0;
+        }
+    }
+    return tables;
 }
 
 const SELECT_JOINED = `
@@ -101,7 +133,7 @@ export class PlayerTablesService {
         const rows = await db.all<JoinedRow[]>(
             `${SELECT_JOINED} WHERE pt.user_id = ?`, userId,
         );
-        return foldRows(rows);
+        return attachRatings(foldRows(rows));
     }
 
     /**
@@ -148,7 +180,7 @@ export class PlayerTablesService {
         const joined = await db.all<JoinedRow[]>(
             `${SELECT_JOINED} WHERE pt.user_id = ? AND pt.global_game_id = ?`, userId, globalGameId,
         );
-        const table = foldRows(joined)[0];
+        const table = (await attachRatings(foldRows(joined)))[0];
         // The game row was checked above and the FK cascades on its delete, so
         // only a concurrent catalogue delete can leave this empty.
         if (!table) throw new GameNotFoundError(globalGameId);

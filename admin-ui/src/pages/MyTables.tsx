@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 import { ArrowLeft, Home, Library, Plus, Search, Trash2 } from 'lucide-react';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import LoginButtons from '../components/LoginButtons';
+import RatingBadge from '../components/RatingBadge';
+import { compareByRating } from '../lib/ratingSort';
 import { catalogueImageFor, toCatalogueUrl, type CatalogueImageSource } from '../lib/catalogueImage';
 import { getEngineShortLabel } from '../lib/scoreProvenance';
 import { engineOptionsFor } from '../lib/engineOptions';
@@ -34,6 +36,9 @@ interface OwnedTable {
   /** This player's engines for the game; [] = owned, platform unspecified. */
   platforms: string[];
   created_at: string;
+  /** A14.1: per-rater average (one decimal) and distinct raters. Absent on an older server. */
+  avg_rating?: number;
+  rating_count?: number;
 }
 
 interface CatalogueHit extends CatalogueImageSource {
@@ -80,6 +85,8 @@ export default function MyTables() {
   const [query, setQuery] = useState('');
   const debounced = useDebounced(query.trim(), 300);
   const [hitsFor, setHitsFor] = useState<{ q: string; rows: CatalogueHit[] } | null>(null);
+  // A14.1: list order.
+  const [sortMode, setSortMode] = useState<'name' | 'rating'>('name');
 
   const tables = useMemo(
     () => (playerToken && tablesFor?.token === playerToken ? tablesFor.rows : null),
@@ -126,8 +133,12 @@ export default function MyTables() {
   const hits = debounced.length >= 2 && hitsFor?.q === debounced ? hitsFor.rows : null;
   const ownedIdSet = useMemo(() => new Set((tables ?? []).map(t => t.global_game_id)), [tables]);
   const sorted = useMemo(
-    () => [...(tables ?? [])].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })),
-    [tables],
+    () => [...(tables ?? [])].sort(
+      sortMode === 'rating'
+        ? compareByRating
+        : (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
+    ),
+    [tables, sortMode],
   );
 
   const upsertLocal = (table: OwnedTable) => {
@@ -281,6 +292,25 @@ export default function MyTables() {
           ) : sorted.length === 0 ? (
             <p className="text-sm text-muted">No tables yet. Search above to add the ones you own.</p>
           ) : (
+            <>
+            <div data-testid="my-tables-sort" className="flex items-center justify-end gap-2 flex-wrap mb-3">
+              <span className="text-faint text-[10px] uppercase tracking-wider">Sort</span>
+              {([['name', 'Name'], ['rating', 'Top rated']] as const).map(([mode, label]) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setSortMode(mode)}
+                  aria-pressed={sortMode === mode}
+                  className={`px-3 py-1 text-[10px] rounded-full border cursor-pointer transition-colors ${
+                    sortMode === mode
+                      ? 'bg-neon-cyan/20 border-neon-cyan text-neon-cyan'
+                      : 'border-border text-muted hover:text-primary bg-transparent'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
             <ul className="space-y-3" data-testid="my-tables-list">
               {sorted.map(table => {
                 const busy = busyId === table.global_game_id;
@@ -299,6 +329,11 @@ export default function MyTables() {
                         </Link>
                         {mfgYear(table.manufacturer, table.year) && (
                           <p className="text-[11px] text-muted break-words">{mfgYear(table.manufacturer, table.year)}</p>
+                        )}
+                        {(table.rating_count ?? 0) > 0 && (
+                          <div className="mt-0.5">
+                            <RatingBadge avg={table.avg_rating} count={table.rating_count} />
+                          </div>
                         )}
                       </div>
                       <button
@@ -342,6 +377,7 @@ export default function MyTables() {
                 );
               })}
             </ul>
+            </>
           )}
         </section>
       </main>

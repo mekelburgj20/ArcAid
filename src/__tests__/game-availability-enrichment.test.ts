@@ -238,9 +238,9 @@ describe('a tournament with no platform rules', () => {
  * a rename or a drop has to fail loudly here.
  */
 const EXPECTED_KEYS = [
-    'allTimeHigh', 'allTimeHighPlayer', 'available', 'daysUntilAvailable',
+    'allTimeHigh', 'allTimeHighPlayer', 'available', 'avg_rating', 'daysUntilAvailable',
     'features', 'global_game_id', 'image_url', 'lastEndDate', 'lastPlayedDate',
-    'lastStatus', 'manufacturer', 'name', 'owner_count', 'platforms', 'room_tags',
+    'lastStatus', 'manufacturer', 'name', 'owner_count', 'platforms', 'rating_count', 'room_tags',
     'winnerName', 'winnerScore', 'year',
 ];
 
@@ -354,6 +354,22 @@ describe('the enriched availability row', () => {
         // The envelope is untouched.
         expect(body.tournament.mode).toBe('pinball');
         expect(body.eligibilityDays).toBe(120);
+    });
+
+    it('A14.1: carries the per-rater headline rating, found case-insensitively (0/0 when unrated)', async () => {
+        const roomId = await createTestRoom(`ga-rating-${++seq}`);
+        await seedCatalogue('Medieval Madness', { platforms: ['vpx'] });
+        await seedCatalogue('Unrated Table', { platforms: ['vpx'] });
+        const tournamentId = await seedTournament(roomId, {});
+
+        const { RatingService } = await import('../services/RatingService.js');
+        await RatingService.setRating(roomId, 'medieval madness', 'rater-1', 4);
+        await RatingService.setRating(roomId, 'medieval madness', 'rater-2', 5);
+
+        const body = await availability(roomId, tournamentId);
+        const byName = new Map(body.games.map((g: any) => [g.name, g]));
+        expect(byName.get('Medieval Madness')).toMatchObject({ avg_rating: 4.5, rating_count: 2 });
+        expect(byName.get('Unrated Table')).toMatchObject({ avg_rating: 0, rating_count: 0 });
     });
 
     it('does not report the leader of a LIVE round as the last winner (v2.133.2)', async () => {

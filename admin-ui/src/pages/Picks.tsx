@@ -22,6 +22,8 @@ import {
   isCanonicalEngine,
 } from '../lib/scoreProvenance';
 import { compareByRank } from '../lib/searchRank';
+import RatingBadge from '../components/RatingBadge';
+import { compareByRating } from '../lib/ratingSort';
 
 interface GameAvailabilityEntry {
   name: string;
@@ -49,6 +51,9 @@ interface GameAvailabilityEntry {
   image_url?: string | null;
   /** C2: how many registered players own this table (My Tables). Absent on an older server. */
   owner_count?: number;
+  /** A14.1: per-rater average (one decimal) and distinct raters. Absent on an older server. */
+  avg_rating?: number;
+  rating_count?: number;
 }
 
 /**
@@ -257,6 +262,8 @@ export default function Picks() {
   const [roomLogoUrl, setRoomLogoUrl] = useState<string>('');
   const [filter, setFilter] = useState<'all' | 'available' | 'cooldown' | 'owned'>('all');
   const [search, setSearch] = useState('');
+  // A14.1: list order. 'default' keeps the server order (search relevance while searching).
+  const [sortMode, setSortMode] = useState<'default' | 'rating'>('default');
   /** Engine-axis pill filter. `'all'` = no engine restriction. */
   const [engineFilter, setEngineFilter] = useState<string>('all');
   const [showPicker, setShowPicker] = useState(false);
@@ -879,9 +886,11 @@ export default function Picks() {
     });
     // Search-relevance work package (2026-08-13): nearest-exact-match first
     // on game name, keeping the chip/other filters above as-is.
-    if (q) filtered.sort(compareByRank(q, g => g.name));
+    // A14.1: an explicit "Top rated" sort wins over search relevance.
+    if (sortMode === 'rating') filtered.sort(compareByRating);
+    else if (q) filtered.sort(compareByRank(q, g => g.name));
     return filtered;
-  }, [data, filter, activeEngine, search, gameIndex, isOwned]);
+  }, [data, filter, activeEngine, search, gameIndex, isOwned, sortMode]);
 
   const availableCount = data?.games.filter(g => g.available).length ?? 0;
   const cooldownCount = data?.games.filter(g => !g.available).length ?? 0;
@@ -1553,6 +1562,25 @@ export default function Picks() {
         />
       </div>
 
+      {/* A14.1: list order. "Top rated" ranks by the per-rater average. */}
+      <div data-testid="picks-sort" className="flex items-center justify-end gap-2 flex-wrap mb-3">
+        <span className="text-faint text-[10px] uppercase tracking-wider">Sort</span>
+        {([['default', 'Default'], ['rating', 'Top rated']] as const).map(([mode, label]) => (
+          <button
+            key={mode}
+            onClick={() => setSortMode(mode)}
+            aria-pressed={sortMode === mode}
+            className={`px-3 py-1 text-[10px] rounded-full border cursor-pointer transition-colors ${
+              sortMode === mode
+                ? 'bg-neon-cyan/20 border-neon-cyan text-neon-cyan'
+                : 'border-border text-muted hover:text-primary'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
       {/* Engine pills. Single-select, ANDed with the availability cards above
           and the search below. One engine means nothing to choose between, so
           the row doesn't render at all. */}
@@ -1610,10 +1638,11 @@ export default function Picks() {
         <div className="flex flex-col gap-3 sm:block sm:gap-0 sm:bg-surface sm:border sm:border-border sm:rounded-lg sm:overflow-hidden">
           {/* Header */}
           <div className={`hidden sm:grid gap-2 px-4 py-2 border-b border-border/50 text-[10px] text-muted uppercase tracking-wider ${
-            discordUser ? 'grid-cols-[1fr_100px_110px_minmax(200px,auto)_minmax(140px,auto)_60px]' : 'grid-cols-[1fr_100px_110px_minmax(200px,auto)_minmax(140px,auto)]'
+            discordUser ? 'grid-cols-[1fr_100px_80px_110px_minmax(200px,auto)_minmax(140px,auto)_60px]' : 'grid-cols-[1fr_100px_80px_110px_minmax(200px,auto)_minmax(140px,auto)]'
           }`}>
             <span>Game</span>
             <span className="text-center">Status</span>
+            <span className="text-center">Rating</span>
             <span className="text-center">Last Played</span>
             <span className="text-right">All-Time High</span>
             <span className="text-right">Last Winner</span>
@@ -1626,7 +1655,7 @@ export default function Picks() {
             >
               {/* Desktop row */}
               <div className={`hidden sm:grid gap-2 px-4 py-3 items-center ${
-                discordUser ? 'grid-cols-[1fr_100px_110px_minmax(200px,auto)_minmax(140px,auto)_60px]' : 'grid-cols-[1fr_100px_110px_minmax(200px,auto)_minmax(140px,auto)]'
+                discordUser ? 'grid-cols-[1fr_100px_80px_110px_minmax(200px,auto)_minmax(140px,auto)_60px]' : 'grid-cols-[1fr_100px_80px_110px_minmax(200px,auto)_minmax(140px,auto)]'
               }`}>
                 {/* Title never ellipsizes — it wraps. Manufacturer/year and the
                     platform chips sit under it as quiet identity context. */}
@@ -1662,6 +1691,13 @@ export default function Picks() {
                       </div>
                       <span className="text-faint text-[10px] leading-tight">cooldown</span>
                     </>
+                  )}
+                </div>
+                <div className="flex items-center justify-center text-xs">
+                  {(game.rating_count ?? 0) > 0 ? (
+                    <RatingBadge avg={game.avg_rating} count={game.rating_count} />
+                  ) : (
+                    <span className="text-muted">--</span>
                   )}
                 </div>
                 <div className="flex items-center justify-center gap-1 text-xs text-muted">
@@ -1748,6 +1784,7 @@ export default function Picks() {
                         <span className="text-faint text-[10px] leading-tight">cooldown</span>
                       </>
                     )}
+                    <RatingBadge avg={game.avg_rating} count={game.rating_count} className="mt-1" />
                   </div>
                 </div>
                 <div className="grid grid-cols-3 gap-x-3 gap-y-1 text-[11px]">
