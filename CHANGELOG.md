@@ -24,6 +24,13 @@ purpose - absent means every attempt is still left.
   qualifies. The public `GET /rooms/:roomId/tournaments/:id/integrity` read gains an additive `attemptPlayers`
   (`{ [userId]: label }`, resolved through `resolveUserLabels`); an id the chain cannot name is absent, and the page
   leaves that player out rather than print a raw id.
+- **The runner's Witness page during play** (`/:slug/admin/witness`). Each device card gains an "Attempts left" line
+  ("Cactus Canyon 2 left · Congo 5 left", or "not started" for a table that needs Start attempts) for this room's open
+  Limited-attempts games the device's next play would count on. `GET /rooms/:roomId/admin/witness/devices` ships it
+  per device as `attemptsLeft`, read through the new `AttemptService.deviceAttemptsLeft` - the same
+  `VpxScoreIngestService.openLimitedGames` + `usedByPlayer` read the cabinet's "Sending to" attempts line now comes
+  from (`deviceLine` is a wrapper over it), so the page can never name a game a play would not land on. The check-in
+  lobby is deliberately not used: it empties when round 1 starts, before any attempt exists.
 
 ## [2.207.0] - 2026-10-31 - A star is a star: one rating per table across rooms and Global, rated per platform (C3 ratings half, C2.2)
 

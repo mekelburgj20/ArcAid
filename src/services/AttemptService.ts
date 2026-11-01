@@ -187,6 +187,14 @@ export function attemptsLeftLine(items: Array<{ gameName: string; left: number; 
     return ` · ATTEMPTS LEFT: ${parts.join(', ')}`;
 }
 
+/** W81 — one limited-attempts game a device's next play would count on, and what the player has left there. */
+export type DeviceAttemptsLeft = {
+    gameId: string; gameName: string; tournamentId: string;
+    limit: number; used: number; left: number;
+    /** W38 — the table needs Start attempts and the player has not pressed it. */
+    notStarted: boolean;
+};
+
 function cleanKey(key: string | null | undefined): string {
     return (key ?? '').trim().slice(0, 200);
 }
@@ -649,29 +657,53 @@ export class AttemptService {
      * games their next play would count on. Empty when there are none.
      */
     static async deviceLine(deviceId: string, canonicalUserId: string, nowTs: number = Math.floor(Date.now() / 1000), playDevice?: import('./VpxScoreIngestService.js').PlayDevice | null): Promise<string> {
+        return attemptsLeftLine(await AttemptService.deviceAttemptsLeft({ deviceId, canonicalUserId, nowTs, playDevice }));
+    }
+
+    /**
+     * W81 — the attempts behind `deviceLine`, structured: one entry per
+     * limited-attempts game the device's next play would count on
+     * (`VpxScoreIngestService.openLimitedGames`, the same candidate / routing /
+     * entry / window / exclusion filters `match` uses), with the player's
+     * used count (`usedByPlayer`, void excluded) and what is left. The cabinet
+     * line and the runner's Witness page both read this, so they cannot name
+     * different games or different counts.
+     */
+    static async deviceAttemptsLeft(input: {
+        deviceId: string; canonicalUserId: string; nowTs: number;
+        playDevice?: import('./VpxScoreIngestService.js').PlayDevice | null;
+        /** Known by the caller already (skips a lookup); else read from `witness_devices`. */
+        deviceType?: 'atgames' | 'desktop' | null;
+    }): Promise<DeviceAttemptsLeft[]> {
         const { WitnessService } = await import('./WitnessService.js');
         const { VpxScoreIngestService } = await import('./VpxScoreIngestService.js');
-        const db = await getDatabase();
-        const device = await db.get<{ device_type: string | null }>(
-            'SELECT device_type FROM witness_devices WHERE atgames_unique_id = ?', deviceId,
-        );
+        let deviceType = input.deviceType ?? null;
+        if (!deviceType) {
+            const db = await getDatabase();
+            const device = await db.get<{ device_type: string | null }>(
+                'SELECT device_type FROM witness_devices WHERE atgames_unique_id = ?', input.deviceId,
+            );
+            deviceType = device?.device_type === 'desktop' ? 'desktop' : 'atgames';
+        }
         const games = await VpxScoreIngestService.openLimitedGames({
-            canonicalUserId,
-            target: await WitnessService.getDeviceTarget(deviceId),
-            deviceType: device?.device_type === 'desktop' ? 'desktop' : 'atgames',
-            playDevice,
-            nowTs,
+            canonicalUserId: input.canonicalUserId,
+            target: await WitnessService.getDeviceTarget(input.deviceId),
+            deviceType,
+            playDevice: input.playDevice,
+            nowTs: input.nowTs,
         });
         const ids = games.map(g => g.gameId);
         const [used, starts] = await Promise.all([
-            AttemptService.usedByPlayer(canonicalUserId, ids),
-            AttemptService.startsFor(canonicalUserId, ids),
+            AttemptService.usedByPlayer(input.canonicalUserId, ids),
+            AttemptService.startsFor(input.canonicalUserId, ids),
         ]);
-        return attemptsLeftLine(games.map(g => ({
-            gameName: g.gameName, limit: g.limit, left: Math.max(0, g.limit - (used[g.gameId] ?? 0)),
+        return games.map(g => ({
+            gameId: g.gameId, gameName: g.gameName, tournamentId: g.tournamentId, limit: g.limit,
+            used: used[g.gameId] ?? 0,
+            left: Math.max(0, g.limit - (used[g.gameId] ?? 0)),
             // W38 — a table that needs Start attempts and has none reads NOT STARTED.
             notStarted: g.requireStart && starts[g.gameId] == null,
-        })));
+        }));
     }
 
     /** The runner's list, newest first, names resolved (never a raw id). */

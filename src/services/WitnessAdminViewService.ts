@@ -5,6 +5,7 @@ import {
 } from './EventLobbyService.js';
 import { WitnessService } from './WitnessService.js';
 import { resolveUserLabels } from './PlayerProfileResolver.js';
+import { AttemptService, type DeviceAttemptsLeft } from './AttemptService.js';
 
 /**
  * The runner's live device view (v2.187.0, W5) — what a room admin sees while
@@ -64,6 +65,13 @@ export interface AdminViewDevice {
     routing: Awaited<ReturnType<typeof WitnessService.routingForRoom>>[number] | null;
     /** `WitnessService.describeTarget` — where the device is pointed. */
     target: string;
+    /**
+     * W81 — attempts left on each open Limited-attempts game of THIS room the
+     * device's next play would count on (`AttemptService.deviceAttemptsLeft`,
+     * the same read behind the cabinet's "Sending to" attempts line). Empty
+     * when there are none.
+     */
+    attemptsLeft: DeviceAttemptsLeft[];
 }
 
 export interface AdminViewEvent {
@@ -118,15 +126,23 @@ export class WitnessAdminViewService {
             for (const r of await WitnessService.routingForRoom(userId, roomId)) routingByDevice.set(r.deviceId, r);
         }
 
+        // W81 — this room's tournaments: the attempts line on this page names
+        // only this room's games (a device routed to All my rooms may also
+        // count in another room, which is that room's runner's business).
+        const roomTournamentIds = new Set((await db.all<Array<{ id: string }>>(
+            'SELECT id FROM tournaments WHERE game_room_id = ?', roomId,
+        )).map(t => t.id));
+
         const devices: AdminViewDevice[] = [];
         for (const r of rows) {
+            const deviceType = r.device_type === 'desktop' ? 'desktop' : 'atgames';
             const heartbeat = toEpoch(r.heartbeat_at);
             const online: DeviceOnline = heartbeat == null ? 'unknown'
                 : nowEpoch - heartbeat > HEARTBEAT_STALE_SEC ? 'offline' : 'online';
             const session = openByDevice.get(r.atgames_unique_id) ?? null;
             devices.push({
                 deviceId: r.atgames_unique_id,
-                deviceType: r.device_type === 'desktop' ? 'desktop' : 'atgames',
+                deviceType,
                 label: null,
                 appVersion: r.app_version,
                 appVersionAt: r.app_version_at,
@@ -143,6 +159,11 @@ export class WitnessAdminViewService {
                 openSince: iso(session?.launch_ts ?? null),
                 routing: routingByDevice.get(r.atgames_unique_id) ?? null,
                 target: await WitnessService.describeTarget(r.atgames_unique_id),
+                attemptsLeft: roomTournamentIds.size === 0 ? [] : (await AttemptService.deviceAttemptsLeft({
+                    deviceId: r.atgames_unique_id, canonicalUserId: r.canonical_user_id, nowTs: nowEpoch, deviceType,
+                }))
+                    .filter(a => roomTournamentIds.has(a.tournamentId))
+                    .sort((a, b) => a.gameName.localeCompare(b.gameName)),
             });
         }
         // Open table first, then online, then by player name.

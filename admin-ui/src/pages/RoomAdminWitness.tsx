@@ -51,6 +51,12 @@ interface AdminDevice {
   openSince: string | null;
   routing: Routing | null;
   target: string;
+  /**
+   * W81 — attempts left on each open Limited-attempts game of this room the
+   * device's next play would count on (the server reads it the way the
+   * cabinet's own attempts line does). Absent from older servers.
+   */
+  attemptsLeft?: Array<{ gameId: string; gameName: string; limit: number; used: number; left: number; notStarted: boolean }>;
 }
 
 interface AdminEvent {
@@ -137,6 +143,20 @@ function DeviceCard({ d, timezone }: { d: AdminDevice; timezone: string }) {
           <span className="block text-xs text-muted">Target: {d.target}</span>
         </Field>
       </dl>
+      {(d.attemptsLeft?.length ?? 0) > 0 && (
+        <p className="mt-3 text-sm break-words" data-testid="witness-admin-attempts">
+          <span className="text-xs uppercase tracking-wider text-faint mr-1">Attempts left</span>{' '}
+          {d.attemptsLeft!.map((a, i) => (
+            <span key={a.gameId} title={a.notStarted ? 'This table needs Start attempts before plays count.' : `${a.used} of ${a.limit} used`}>
+              {i > 0 && <span className="text-faint"> · </span>}
+              <span className="text-primary">{a.gameName}</span>{' '}
+              <span className={a.notStarted ? 'text-faint' : a.left === 0 ? 'text-neon-magenta' : 'text-neon-cyan'}>
+                {a.notStarted ? 'not started' : `${a.left} left`}
+              </span>
+            </span>
+          ))}
+        </p>
+      )}
     </li>
   );
 }
