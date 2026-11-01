@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { X, ExternalLink, Star, Trash2, Pencil, Plus, Minus, Camera } from 'lucide-react';
+import { X, ExternalLink, Crown, Trash2, Pencil, Plus, Minus, Camera } from 'lucide-react';
 import type { RankedEntry } from './ScoreboardComponents';
 import { PlayerAvatar, playerName } from './ScoreboardComponents';
 import { getLegacyPlatformLabel } from '../lib/scoreProvenance';
@@ -306,7 +306,7 @@ export default function GameQuickView({ lb, slug, fromTab, highlightStat, roomId
             <div className="px-5 py-4">
               <p className="text-[10px] uppercase tracking-wider text-faint">{highlightStat.label}</p>
               <div className="flex items-baseline gap-2 mt-1.5">
-                <Star size={14} className="text-neon-amber flex-shrink-0 self-center" />
+                <Crown size={14} className="text-neon-amber flex-shrink-0 self-center" aria-hidden="true" />
                 <span className="font-display text-xl font-bold text-neon-amber tabular-nums">
                   {highlightStat.value.toLocaleString()}
                 </span>

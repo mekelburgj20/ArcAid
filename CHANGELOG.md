@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.209.1] - 2026-10-31 - All-Time High icon is a crown, not a star
+
+Owner, 2026-10-31: "I don't like that the All-Time High score has a star symbol next to it. It looks like a rating star."
+With 2.209.0 putting a filled rating star on every Picks row, the outline star beside the All-Time High column (and the
+headline stat in the Picks quick-view dialog) read as a second rating. Both now use the `Crown` icon, which the Global
+Scoreboard hero card already uses for "Champion"; the Trophy stays the tournament-winner mark and the star is now only
+ever a rating. No data or layout change.
+
 ## [2.209.0] - 2026-10-31 - Ratings on the lists: a Rating column and a "Top rated" sort on Picks, My Tables and the Global Scoreboard cards (A14.1)
 
 Owner ask, 2026-10-31: "add a column to the 'picks' and anywhere else it makes sense that shows table ratings and have an
