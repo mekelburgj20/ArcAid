@@ -6,6 +6,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.208.0] - 2026-10-31 - Attempts left per player, without reading attempt rows (W81)
+
+Owner ask 2026-10-31: in a Limited-attempts tournament a host wants to see how many attempts each player has LEFT.
+One rule on every surface: left = max(0, limit − the player's non-void attempts on that table); a void gives one
+back, and a player with an over-the-limit row has none left. A player who never started a table is absent on
+purpose - absent means every attempt is still left.
+
+### Added
+- **Admin Attempts section summary.** On the Integrity panel's Attempts section, above each table's rows, one chip
+  per player: "ChalataLove 3 of 5 used · 2 left", fewest left first, then by name. Counted from the loaded rows
+  (`summarizeAttempts` in `admin-ui/src/lib/attemptsLeft.ts`, the one place the rule is written), so a Void
+  shows its attempt given back at once.
+- **Public game page.** Each board row's attempts text now reads "2 of 5 attempts · 3 left". Under the
+  Limited-attempts banner an "Attempts" strip names the players who used an attempt on this table but have NO row on
+  the board (a power-off, a zero-point restart, over the limit) with how many they have left; hidden when nobody
+  qualifies. The public `GET /rooms/:roomId/tournaments/:id/integrity` read gains an additive `attemptPlayers`
+  (`{ [userId]: label }`, resolved through `resolveUserLabels`); an id the chain cannot name is absent, and the page
+  leaves that player out rather than print a raw id.
+- **The runner's Witness page during play** (`/:slug/admin/witness`). Each device card gains an "Attempts left" line
+  ("Cactus Canyon 2 left · Congo 5 left", or "not started" for a table that needs Start attempts) for this room's open
+  Limited-attempts games the device's next play would count on. `GET /rooms/:roomId/admin/witness/devices` ships it
+  per device as `attemptsLeft`, read through the new `AttemptService.deviceAttemptsLeft` - the same
+  `VpxScoreIngestService.openLimitedGames` + `usedByPlayer` read the cabinet's "Sending to" attempts line now comes
+  from (`deviceLine` is a wrapper over it), so the page can never name a game a play would not land on. The check-in
+  lobby is deliberately not used: it empties when round 1 starts, before any attempt exists.
+
 ## [2.207.0] - 2026-10-31 - A star is a star: one rating per table across rooms and Global, rated per platform (C3 ratings half, C2.2)
 
 The second half of the 2026-08-24 feature-request thread: a rating should be able to say WHICH version of a table it is about

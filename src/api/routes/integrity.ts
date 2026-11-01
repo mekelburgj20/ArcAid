@@ -5,6 +5,7 @@ import { requireAuth, requireRoomAccess, requireDiscordUser } from '../middlewar
 import { validate } from '../validate.js';
 import { GameRequirementsSchema } from '../schemas.js';
 import { WitnessEvidenceService } from '../../services/WitnessEvidenceService.js';
+import { resolveUserLabels } from '../../services/PlayerProfileResolver.js';
 
 /**
  * Integrity mode — Open play / Sanctioned play (v2.165.0, ADR 0027).
@@ -41,7 +42,17 @@ router.get('/rooms/:roomId/tournaments/:id/integrity', async (req, res) => {
         const quits = await WitnessEvidenceService.quitMap(tournamentId);
         // W72 (v2.205.0) — scores whose launcher record was signed and verified. Additive.
         const signed = await WitnessEvidenceService.signedMap(tournamentId);
-        res.json({ ...integrity, verdicts, quits, signed });
+        // W81 (v2.208.0) — a label for every player in the attempts map, so the
+        // game page can name a player who used attempts but has no board row
+        // (power-off, zero-point restart, over the limit). Additive. An id the
+        // chain cannot name is ABSENT — the page leaves that player out rather
+        // than print a raw id.
+        const attemptIds = new Set<string>();
+        for (const perGame of Object.values(integrity.attempts ?? {})) {
+            for (const id of Object.keys(perGame)) attemptIds.add(id);
+        }
+        const attemptPlayers = await resolveUserLabels(attemptIds);
+        res.json({ ...integrity, verdicts, quits, signed, attemptPlayers });
     } catch (error) {
         logError('API Error (GET rooms/:roomId/tournaments/:id/integrity):', error);
         res.status(500).json({ error: 'Internal Server Error' });

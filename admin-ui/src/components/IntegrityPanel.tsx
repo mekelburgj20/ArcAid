@@ -6,6 +6,7 @@ import { INTEGRITY_MODE_LABEL, normalizeIntegrityMode, type IntegrityMode } from
 import type { Tournament } from '../lib/tournamentFormPayload';
 import { formatScore, parseServerDate, relativeTimeFrom } from '../lib/format';
 import { SIGNED_OTHER_GAME_TEXT, SIGNED_RECORD_OTHER_GAME, signedTitleFor } from '../lib/integrityBadge';
+import { summarizeAttempts } from '../lib/attemptsLeft';
 
 /**
  * Integrity panel (v2.166.0, ADR 0027; Castcade ADR 0005) — the runner's view
@@ -170,6 +171,17 @@ function AttemptsSection({ base, maxAttempts, games, toast }: {
                     {[...byGame.entries()].map(([gameId, list]) => (
                         <div key={gameId} data-testid={`attempts-game-${gameId}`}>
                             <p className="text-sm text-primary mb-1">{nameOf(gameId, list[0]?.gameName ?? null)}</p>
+                            <ul className="flex flex-wrap gap-1.5 mb-2" data-testid={`attempts-summary-${gameId}`}
+                                aria-label="Attempts left per player">
+                                {summarizeAttempts(list, maxAttempts).map(p => (
+                                    <li key={p.userId} data-testid="attempts-summary-player"
+                                        className="rounded border border-border/60 bg-raised px-2 py-0.5 text-xs">
+                                        <span className="text-primary">{p.label}</span>{' '}
+                                        <span className="text-muted">{p.used} of {maxAttempts} used · </span>
+                                        <span className={p.left === 0 ? 'text-neon-magenta' : 'text-neon-cyan'}>{p.left} left</span>
+                                    </li>
+                                ))}
+                            </ul>
                             <div className="overflow-x-auto">
                                 <table className="w-full text-xs">
                                     <thead>

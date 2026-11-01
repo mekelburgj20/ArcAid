@@ -227,6 +227,80 @@ describe('WitnessAdminViewService.roomDevices', () => {
         expect((await WitnessAdminViewService.roomDevices(roomId, later)).events).toEqual([]);
     });
 
+    it('W81: attemptsLeft lists this room\'s open limited games the device would count on, with the same counts as the cabinet line', async () => {
+        const db = await getDatabase();
+        const limitedGame = async (inRoom: string, name: string, max: number) => {
+            const tournamentId = crypto.randomUUID();
+            await db.run(
+                `INSERT INTO tournaments (id, name, type, mode, cadence, is_active, game_room_id, format, max_attempts)
+                 VALUES (?, ?, 'WG', 'pinball', '{}', 1, ?, 'rotation', ?)`,
+                tournamentId, `${name} Weekly`, inRoom, max,
+            );
+            const gameId = crypto.randomUUID();
+            await db.run(
+                `INSERT INTO games (id, tournament_id, name, status, game_room_id, start_date)
+                 VALUES (?, ?, ?, 'ACTIVE', ?, ?)`,
+                gameId, tournamentId, name, inRoom, new Date(now.getTime() - 60 * MINUTE).toISOString(),
+            );
+            return { tournamentId, gameId };
+        };
+        const attempt = async (g: { tournamentId: string; gameId: string }, key: string, status: string) => {
+            await db.run(
+                `INSERT INTO attempts (tournament_id, game_id, game_room_id, canonical_user_id, device_id, attempt_key,
+                                       attempt_no, status, started_ts, late)
+                 VALUES (?, ?, ?, ?, 'cab-alice', ?, 1, ?, ?, 0)`,
+                g.tournamentId, g.gameId, roomId, ALICE, key, status, Math.floor(now.getTime() / 1000) - 600,
+            );
+        };
+        await member(roomId, ALICE, 'Alice');
+        await member(otherRoomId, ALICE, 'Alice');
+        await member(roomId, BOB, 'Bob');
+        await pair(ALICE, 'cab-alice', { heartbeat: now });
+        await pair(BOB, 'cab-bob', { heartbeat: now });
+        const congo = await limitedGame(roomId, 'Congo', 5);
+        const canyon = await limitedGame(roomId, 'Cactus Canyon', 3);
+        await limitedGame(otherRoomId, 'Elsewhere', 5); // another room's game: not this runner's
+        await attempt(canyon, 'a1', 'scored');
+        await attempt(canyon, 'a2', 'counted');
+        await attempt(canyon, 'a3', 'void'); // a void gives one back
+
+        const { devices } = await WitnessAdminViewService.roomDevices(roomId, now);
+        const alice = devices.find(d => d.deviceId === 'cab-alice')!;
+        expect(alice.attemptsLeft.map(a => [a.gameName, a.used, a.left, a.limit])).toEqual([
+            ['Cactus Canyon', 2, 1, 3],
+            ['Congo', 0, 5, 5],
+        ]);
+        expect(alice.attemptsLeft.map(a => a.gameId)).toEqual([canyon.gameId, congo.gameId]);
+        // Bob has used nothing: every attempt left on both of this room's games.
+        expect(devices.find(d => d.deviceId === 'cab-bob')!.attemptsLeft.map(a => a.left)).toEqual([3, 5]);
+
+        // The cabinet's own line reads the same counts (it also names the other room's game).
+        const { AttemptService } = await import('../services/AttemptService.js');
+        const line = await AttemptService.deviceLine('cab-alice', ALICE, Math.floor(now.getTime() / 1000));
+        expect(line).toContain('CACTUS CANYON 1/3');
+        expect(line).toContain('CONGO 5/5');
+    });
+
+    it('W81: a Global-only device has no attemptsLeft (its plays land on no tournament)', async () => {
+        const db = await getDatabase();
+        await member(roomId, ALICE, 'Alice');
+        await pair(ALICE, 'cab-alice', { heartbeat: now });
+        await db.run(`UPDATE witness_devices SET global_only = 1 WHERE atgames_unique_id = 'cab-alice'`);
+        const tournamentId = crypto.randomUUID();
+        await db.run(
+            `INSERT INTO tournaments (id, name, type, mode, cadence, is_active, game_room_id, format, max_attempts)
+             VALUES (?, 'Five Shots', 'WG', 'pinball', '{}', 1, ?, 'rotation', 5)`,
+            tournamentId, roomId,
+        );
+        await db.run(
+            `INSERT INTO games (id, tournament_id, name, status, game_room_id, start_date)
+             VALUES (?, ?, 'Congo', 'ACTIVE', ?, ?)`,
+            crypto.randomUUID(), tournamentId, roomId, new Date(now.getTime() - 60 * MINUTE).toISOString(),
+        );
+        const { devices } = await WitnessAdminViewService.roomDevices(roomId, now);
+        expect(devices.find(d => d.deviceId === 'cab-alice')!.attemptsLeft).toEqual([]);
+    });
+
     it('an event with nobody checked in has all-zero counts', async () => {
         await createEvent(roomId, {
             checkinOpensAt: new Date(now.getTime() - 30 * MINUTE), round1Start: new Date(now.getTime() + 15 * MINUTE),

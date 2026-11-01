@@ -561,6 +561,28 @@ describe('witness routes on a limited tournament', () => {
         expect(res.body.maxAttempts).toBe(5);
         expect(res.body.attempts).toEqual({ [gameId]: { [USER]: 1 } });
     });
+
+    it('W81: the public integrity read names every player in the attempts map, and leaves out one it cannot name', async () => {
+        const token = await pairDevice(app, DESKTOP, 'desktop');
+        await designate(DESKTOP, roomId);
+        const { tournamentId, gameId } = await createLimitedGame(roomId, 5);
+        await request(app).get('/api/witness/attempt')
+            .query({ device: DESKTOP, token, table: 'Bad Cats', started: Math.floor(Date.now() / 1000), key: 'w81' });
+        const db = await getDatabase();
+        await db.run(`INSERT OR REPLACE INTO user_profiles (discord_user_id, display_name) VALUES (?, 'Mox')`, USER);
+        // A second player with no profile and no alias: the chain cannot name them.
+        const NAMELESS = '987654321098765432';
+        await db.run(
+            `INSERT INTO attempts (tournament_id, game_id, game_room_id, canonical_user_id, device_id, attempt_key,
+                                   attempt_no, status, started_ts, late)
+             VALUES (?, ?, ?, ?, 'other-device', 'k1', 1, 'counted', ?, 0)`,
+            tournamentId, gameId, roomId, NAMELESS, Math.floor(Date.now() / 1000),
+        );
+        const res = await request(app).get(`/api/rooms/${roomId}/tournaments/${tournamentId}/integrity`);
+        expect(res.status).toBe(200);
+        expect(res.body.attempts).toEqual({ [gameId]: { [USER]: 1, [NAMELESS]: 1 } });
+        expect(res.body.attemptPlayers).toEqual({ [USER]: 'Mox' });
+    });
 });
 
 describe('W38 (ADR 0033 §3–4): plays that straddle the window, and "Start attempts"', () => {

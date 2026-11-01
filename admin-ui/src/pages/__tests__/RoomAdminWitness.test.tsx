@@ -152,6 +152,26 @@ describe('RoomAdminWitness', () => {
     expect(screen.getByTestId('event-lobby-roster')).toBeInTheDocument();
   });
 
+  it('W81: one compact attempts-left line per device with open limited games; none without', async () => {
+    const devices = PAYLOAD.devices.map((d, i) => i === 0 ? {
+      ...d,
+      attemptsLeft: [
+        { gameId: 'g-cc', gameName: 'Cactus Canyon', tournamentId: 't-1', limit: 5, used: 3, left: 2, notStarted: false },
+        { gameId: 'g-congo', gameName: 'Congo', tournamentId: 't-1', limit: 5, used: 0, left: 5, notStarted: false },
+        { gameId: 'g-mb', gameName: 'Monster Bash', tournamentId: 't-1', limit: 5, used: 0, left: 5, notStarted: true },
+      ],
+    } : i === 1 ? { ...d, attemptsLeft: [] } : d);
+    stubApi({ ...PAYLOAD, devices });
+    renderPage();
+
+    const cards = await screen.findAllByTestId('witness-admin-device');
+    expect(within(cards[0]!).getByTestId('witness-admin-attempts'))
+      .toHaveTextContent('Attempts left Cactus Canyon 2 left · Congo 5 left · Monster Bash not started');
+    // An empty list and an older server (no field) both render nothing.
+    expect(within(cards[1]!).queryByTestId('witness-admin-attempts')).not.toBeInTheDocument();
+    expect(within(cards[2]!).queryByTestId('witness-admin-attempts')).not.toBeInTheDocument();
+  });
+
   it('shows the empty state when no member has a paired device', async () => {
     stubApi({ devices: [], events: [] });
     renderPage();
