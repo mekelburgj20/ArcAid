@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom';
-import { CheckCircle, Clock, Trophy, Calendar, ChevronDown, ChevronUp, Star, Crosshair, X, Search } from 'lucide-react';
+import { CheckCircle, Clock, Trophy, Calendar, ChevronDown, ChevronUp, Crown, Crosshair, X, Search } from 'lucide-react';
 import MysteryAward from '../components/MysteryAward';
 import PickGameModal from '../components/PickGameModal';
 import LoginButtons from '../components/LoginButtons';
@@ -1713,7 +1713,7 @@ export default function Picks() {
                 <div className="text-right text-xs">
                   {game.allTimeHigh != null ? (
                     <div className="flex items-center justify-end gap-1">
-                      <Star size={12} className="text-neon-amber flex-shrink-0" />
+                      <Crown size={12} className="text-neon-amber flex-shrink-0" aria-hidden="true" />
                       <span className="text-primary font-medium flex-shrink-0 whitespace-nowrap tabular-nums">{game.allTimeHigh.toLocaleString()}</span>
                       {game.allTimeHighPlayer && (
                         <span className="text-muted hidden lg:inline whitespace-nowrap">({game.allTimeHighPlayer})</span>
