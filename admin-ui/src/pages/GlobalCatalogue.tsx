@@ -601,7 +601,7 @@ export default function GlobalCatalogue() {
             {syncStatus.map(log => {
               const progress = syncProgressLabel(log);
               return (
-                <div key={log.id} className="bg-surface-alt rounded p-3 text-sm">
+                <div key={log.id} className="bg-raised rounded p-3 text-sm">
                   <div className="font-bold text-xs uppercase tracking-wider text-muted mb-1">
                     {SOURCE_LABELS[log.source] || log.source}
                   </div>
@@ -658,7 +658,7 @@ export default function GlobalCatalogue() {
               value={raQuery}
               onChange={e => setRaQuery(e.target.value)}
               placeholder="Search RetroAchievements by title…"
-              className="w-full px-3 py-2 bg-surface-alt border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan mb-3"
+              className="w-full px-3 py-2 bg-raised border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan mb-3"
             />
             <RAGameSearch
               basePath="/admin/ra-catalogue"
@@ -1016,40 +1016,40 @@ export default function GlobalCatalogue() {
               placeholder="Search games..."
               value={search}
               onChange={e => setSearch(e.target.value)}
-              className="w-full bg-surface-alt border border-border rounded pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-neon-cyan"
+              className="w-full bg-raised border border-border rounded pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-neon-cyan"
             />
           </div>
           <select
             value={filterType}
             onChange={e => setFilterType(e.target.value)}
-            className="bg-surface-alt border border-border rounded px-3 py-2 text-sm text-primary"
+            className="bg-raised border border-border rounded px-3 py-2 text-sm text-primary"
           >
-            <option value="" className="bg-surface-alt text-primary">All Types</option>
-            <option value="pinball" className="bg-surface-alt text-primary">Pinball</option>
-            <option value="arcade" className="bg-surface-alt text-primary">Arcade</option>
-            <option value="video_game" className="bg-surface-alt text-primary">Video Game</option>
+            <option value="" className="bg-raised text-primary">All Types</option>
+            <option value="pinball" className="bg-raised text-primary">Pinball</option>
+            <option value="arcade" className="bg-raised text-primary">Arcade</option>
+            <option value="video_game" className="bg-raised text-primary">Video Game</option>
           </select>
           <select
             value={filterStatus}
             onChange={e => setFilterStatus(e.target.value)}
-            className="bg-surface-alt border border-border rounded px-3 py-2 text-sm text-primary"
+            className="bg-raised border border-border rounded px-3 py-2 text-sm text-primary"
           >
-            <option value="" className="bg-surface-alt text-primary">All Status</option>
-            <option value="approved" className="bg-surface-alt text-primary">Approved</option>
-            <option value="pending_review" className="bg-surface-alt text-primary">Pending Review</option>
-            <option value="rejected" className="bg-surface-alt text-primary">Rejected</option>
+            <option value="" className="bg-raised text-primary">All Status</option>
+            <option value="approved" className="bg-raised text-primary">Approved</option>
+            <option value="pending_review" className="bg-raised text-primary">Pending Review</option>
+            <option value="rejected" className="bg-raised text-primary">Rejected</option>
           </select>
           <select
             value={filterSource}
             onChange={e => setFilterSource(e.target.value)}
-            className="bg-surface-alt border border-border rounded px-3 py-2 text-sm text-primary"
+            className="bg-raised border border-border rounded px-3 py-2 text-sm text-primary"
           >
-            <option value="" className="bg-surface-alt text-primary">All Sources</option>
-            <option value="vps" className="bg-surface-alt text-primary">VPS</option>
-            <option value="opdb" className="bg-surface-alt text-primary">OPDB</option>
-            <option value="igdb" className="bg-surface-alt text-primary">IGDB</option>
-            <option value="wizard" className="bg-surface-alt text-primary">Wizard</option>
-            <option value="manual" className="bg-surface-alt text-primary">Manual</option>
+            <option value="" className="bg-raised text-primary">All Sources</option>
+            <option value="vps" className="bg-raised text-primary">VPS</option>
+            <option value="opdb" className="bg-raised text-primary">OPDB</option>
+            <option value="igdb" className="bg-raised text-primary">IGDB</option>
+            <option value="wizard" className="bg-raised text-primary">Wizard</option>
+            <option value="manual" className="bg-raised text-primary">Manual</option>
           </select>
         </div>
 
@@ -1162,7 +1162,7 @@ function GameRow({
   }[game.status] || 'bg-gray-800 text-gray-400';
 
   return (
-    <div className="bg-surface-alt rounded border border-border overflow-hidden">
+    <div className="bg-raised rounded border border-border overflow-hidden">
       <button
         onClick={onToggle}
         className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-white/5 transition-colors"
@@ -1334,7 +1334,7 @@ function SharedGroupCard({
   onMergeRow: (group: SharedIpdbGroup, rowId: string) => void;
 }) {
   return (
-    <div className="bg-surface-alt rounded border border-border p-3">
+    <div className="bg-raised rounded border border-border p-3">
       <div className="flex items-center gap-2 flex-wrap mb-2">
         <a
           href={`https://www.ipdb.org/machine.cgi?id=${encodeURIComponent(group.ipdbId)}`}
@@ -1565,7 +1565,7 @@ function MergeModal({
           </div>
 
           {restrictToIds ? (
-            <div className="text-xs text-muted bg-surface-alt border border-border rounded p-2">
+            <div className="text-xs text-muted bg-raised border border-border rounded p-2">
               Showing the other row(s) sharing this IPDB link. Pick the target to merge{' '}
               <span className="text-primary">{source.name}</span> into.
             </div>
@@ -1578,7 +1578,7 @@ function MergeModal({
                 onChange={e => setSearch(e.target.value)}
                 autoFocus
                 placeholder="Search by name…"
-                className="w-full bg-surface-alt border border-border rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-neon-cyan"
+                className="w-full bg-raised border border-border rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-neon-cyan"
               />
             </div>
           )}
@@ -1606,7 +1606,7 @@ function MergeModal({
                 <button
                   key={c.id}
                   onClick={() => setConfirmTarget(c)}
-                  className="w-full text-left bg-surface-alt rounded border border-border p-3 hover:border-neon-cyan/40 transition-colors cursor-pointer"
+                  className="w-full text-left bg-raised rounded border border-border p-3 hover:border-neon-cyan/40 transition-colors cursor-pointer"
                 >
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-medium">{c.name}</span>

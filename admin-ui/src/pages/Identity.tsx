@@ -289,7 +289,7 @@ export default function Identity() {
                         <label className="text-xs text-faint block mb-1">From (old/wrong name)</label>
                         <input
                             type="text"
-                            placeholder="mekelburj"
+                            placeholder="e.g. PinWizrd"
                             value={mergeFrom}
                             onChange={e => setMergeFrom(e.target.value)}
                             className="w-48 px-3 py-2 bg-raised border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan transition-colors"
@@ -299,7 +299,7 @@ export default function Identity() {
                         <label className="text-xs text-faint block mb-1">To (correct name)</label>
                         <input
                             type="text"
-                            placeholder="mekelburgj"
+                            placeholder="e.g. PinWizard"
                             value={mergeTo}
                             onChange={e => setMergeTo(e.target.value)}
                             className="w-48 px-3 py-2 bg-raised border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan transition-colors"

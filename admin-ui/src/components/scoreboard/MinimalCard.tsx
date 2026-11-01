@@ -245,7 +245,7 @@ export default function MinimalCard({
                         slug={slug}
                         entry={entry}
                         onClick={e => e.stopPropagation()}
-                        className="text-secondary no-underline hover:text-neon-cyan transition-colors"
+                        className="text-muted no-underline hover:text-neon-cyan transition-colors"
                       />
                     </FitRowName>
                     {/* v2.190.0 (W22): a witness-flagged score (event round, flag mode). */}
@@ -311,7 +311,7 @@ export default function MinimalCard({
 
       {/* Footer */}
       <div className="border-t border-border/30 px-5 flex justify-between items-start relative z-[1]" style={{ paddingTop: 10, paddingBottom: 10 + qrMetrics.footerExtra }}>
-        <a href={`/${slug}/games/${encodeURIComponent(lb.gameName)}`} className="text-xs text-accent hover:text-accent/80 transition-colors">
+        <a href={`/${slug}/games/${encodeURIComponent(lb.gameName)}`} className="text-xs text-neon-cyan hover:text-neon-cyan/80 transition-colors">
           Full Leaderboard &rarr;
         </a>
         <span className="text-[11px] text-faint">

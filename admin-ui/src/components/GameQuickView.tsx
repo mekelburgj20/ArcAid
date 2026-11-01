@@ -356,7 +356,7 @@ export default function GameQuickView({ lb, slug, fromTab, highlightStat, roomId
                     avatarUrl={entry.avatar_url}
                     size={22}
                   />
-                  <span className="flex-1 text-sm text-secondary truncate">
+                  <span className="flex-1 text-sm text-muted truncate">
                     {playerName(entry)}
                   </span>
                   <span

@@ -277,7 +277,7 @@ function PlayerSlot({
                 <button
                   key={p.discord_user_id}
                   onClick={() => onPick(p)}
-                  className="w-full text-left px-3 py-1.5 text-sm text-secondary hover:bg-border/20 hover:text-primary cursor-pointer bg-transparent border-0"
+                  className="w-full text-left px-3 py-1.5 text-sm text-muted hover:bg-border/20 hover:text-primary cursor-pointer bg-transparent border-0"
                 >
                   {playerLabel(p)}
                 </button>

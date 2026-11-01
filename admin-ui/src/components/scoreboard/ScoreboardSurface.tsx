@@ -482,18 +482,6 @@ export default function ScoreboardSurface({
       {overlays}
 
       <style>{`
-        @keyframes slideDown {
-          from { opacity: 0; transform: translate(-50%, -100%); }
-          to { opacity: 1; transform: translate(-50%, 0); }
-        }
-        .animate-slideDown {
-          animation: slideDown 0.3s ease-out forwards;
-        }
-        @media (prefers-reduced-motion: reduce) {
-          .animate-slideDown {
-            animation: none;
-          }
-        }
         /* v2.13.14 — scrollbar hidden; HorizontalScrollNav provides edge-hover
            arrow controls instead. overscroll-behavior-x kept so horizontal
            overscroll doesn't trigger browser swipe-back navigation. */

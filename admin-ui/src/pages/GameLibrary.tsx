@@ -1291,7 +1291,7 @@ export default function GameLibrary() {
                 autoComplete="off"
               />
               {showSuggestions && suggestions.length > 0 && (
-                <div className="absolute z-50 left-0 right-0 mt-1 bg-surface border border-default rounded shadow-lg max-h-48 overflow-y-auto">
+                <div className="absolute z-50 left-0 right-0 mt-1 bg-surface border border-border rounded shadow-lg max-h-48 overflow-y-auto">
                   {suggestions.map(s => (
                     <button
                       key={s.name}
