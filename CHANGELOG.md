@@ -6,6 +6,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.210.1] - 2026-11-01 - A wide room logo is no longer cut to a square at upload
+
+Owner report, 2026-11-01 (ProBros Gaming): the room logo rendered with its right side missing, just before the room
+title, although the upload crop had been zoomed out so the whole logo sat inside the box. The stored file on prod was a
+408×408 square: the logo's right third gone, transparent padding on the left.
+
+### Fixed
+
+- **Logo crop saves what the box shows.** The logo cropper (`admin-ui/src/components/ImageCropper.tsx`) asks for a 1:1
+  crop, and react-easy-crop's `croppedAreaPixels` is always aspect-forced — for a wide image it is a square the height
+  of the image whatever the zoom, so zooming out could never keep the whole logo. The saved rectangle is now computed
+  from the library's PERCENTAGE area (`visibleCropRect`: the crop box in image pixels, clipped to the image): zoomed in,
+  the same square as before; zoomed out, the whole logo at its own shape — never padding, never a clamp. The cropper
+  passes `minZoom={0.25}` (the slider already went there) and turns the position clamp off below 100%, where it assumed
+  the image covered the box. Every badge surface already fits any shape (`RoomTag` / My Rooms `object-cover` square,
+  landing card max 80 px, join gate `object-contain`), so no renderer changed. Copy on the Logo block and the
+  non-square notice now say so. Existing logos are unaffected; re-upload to fix one that was cut.
+
 ## [2.210.0] - 2026-10-31 - Attempts left on the player's own score card (W82)
 
 Owner ask, 2026-10-31, right after W81: "For limited attempt games, we should render the attempts left right on the score

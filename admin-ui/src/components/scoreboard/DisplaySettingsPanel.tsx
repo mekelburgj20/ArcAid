@@ -482,8 +482,8 @@ export default function DisplaySettingsPanel({
             </div>
             <p className="text-xs text-faint mt-2">
               PNG, JPEG, or WebP. Max 5 MB. Shown alongside the leaderboard title.
-              A 1:1 (square) crop is also used as this room's badge on the Global Scoreboard.
-              Non-square logos will prompt for a square crop on upload.
+              Any shape works: zoom out in the crop box to keep the whole logo, or zoom in to trim it.
+              The Global Scoreboard badge shows the logo's centre square.
             </p>
             <div className="grid grid-cols-2 gap-3 mt-3">
               <div>
