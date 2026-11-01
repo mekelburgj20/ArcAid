@@ -12,6 +12,7 @@ Production deployment checklist for ArcAid.
    - Run `git status` to review outstanding changes
    - Stage and commit all changes with a descriptive message
    - `git push origin main`
+   - **Hotfix the owner asked to "skip the CI tests" on:** put `[skip tests]` in the commit message. The workflow skips its `test` job and deploys straight away (the Docker build still compiles). Never `[skip ci]` for this — that skips the deploy itself.
 
 3. **Wait for GitHub Actions:**
    - Push to main triggers the CI/CD pipeline automatically

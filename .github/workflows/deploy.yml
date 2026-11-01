@@ -20,6 +20,11 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      skip_tests:
+        description: 'Skip the test job and go straight to build + deploy (hotfix; the Docker build still compiles both halves)'
+        type: boolean
+        default: false
 
 # A newer push to the same PR cancels that PR's older test run (it tests code
 # that is no longer the PR head). Pushes to main and manual runs each get their
@@ -37,7 +42,15 @@ jobs:
   # (Dependabot) are validated end-to-end before merge:
   #   backend  — tsc build + vitest
   #   admin-ui — tsc -b + vite build + vitest
+  #
+  # SKIPPING THE GATE (owner ask, 2026-11-01): a push to main whose head commit
+  # message contains `[skip tests]`, or a manual dispatch with skip_tests on,
+  # skips this job and deploys straight away. Never honoured on a PR. The
+  # Docker build below still compiles both halves, so a broken build cannot
+  # ship — only the vitest suites and the WORK.md check are bypassed. This is
+  # NOT `[skip ci]`, which suppresses the whole workflow, deploy included.
   test:
+    if: ${{ !(github.event_name == 'push' && contains(github.event.head_commit.message, '[skip tests]')) && !(github.event_name == 'workflow_dispatch' && inputs.skip_tests) }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -79,9 +92,12 @@ jobs:
   build-and-deploy:
     # Only build the image + deploy on a real push to main (or a manual
     # dispatch). PRs stop after `test`; `needs: test` makes a red gate block
-    # the deploy.
+    # the deploy. A SKIPPED test job (the [skip tests] flag above) must not
+    # skip this one too — the default for a dependent of a skipped job — so
+    # the condition names the two results it accepts instead of relying on
+    # the implicit success() check.
     needs: test
-    if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ !cancelled() && (needs.test.result == 'success' || needs.test.result == 'skipped') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
