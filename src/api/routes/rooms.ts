@@ -11,6 +11,7 @@ import { isProviderUserId, isDiscordUserId } from '../../utils/identityProvider.
 import { iscoredDeletesAllowed, ISCORED_DELETES_DISABLED_MESSAGE } from '../../utils/iscoredCreds.js';
 import { nextRotationIso } from '../../utils/cronUtils.js';
 import { roomTimezone, resolveTimezone, isValidTimeZone, ROOM_TIMEZONE_KEY } from '../../utils/roomTimezone.js';
+import { DISCORD_COMMAND_POLICY_KEY, serializeCommandPolicy } from '../../utils/discordCommandPolicy.js';
 import {
     CreateTournamentSchema, UpdateTournamentSchema, ToggleTournamentActiveSchema,
     SettingsSchema,
@@ -4892,6 +4893,13 @@ router.post('/:roomId/settings', requireAuth, requireRoomAccess('roomId'), requi
             }
             validationResult.data[ROOM_TIMEZONE_KEY] = tz;
         }
+        // v2.215.0 (E7): the slash-command policy is re-serialized through its
+        // parser so garbage never lands in the DB ('' = nothing restricted,
+        // which removes the row).
+        if (Object.prototype.hasOwnProperty.call(validationResult.data, DISCORD_COMMAND_POLICY_KEY)) {
+            validationResult.data[DISCORD_COMMAND_POLICY_KEY] =
+                serializeCommandPolicy(validationResult.data[DISCORD_COMMAND_POLICY_KEY]);
+        }
         await GameRoomSettingsService.saveMany(roomId, validationResult.data);
 
         // "Listed on Arcaid" is the room's only listing switch; is_public follows it.
@@ -7492,6 +7500,26 @@ router.get('/:roomId/admin/discord/roles', requireAuth, requireRoomAccess('roomI
         res.json({ roles: client.listGuildRoles(guildId) });
     } catch (error) {
         logError('API Error (GET rooms/:roomId/admin/discord/roles):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// v2.215.0 (E7) - the bot's LIVE registered slash commands, for the
+// "Slash commands" policy editor in room Settings (DISCORD_COMMAND_POLICY).
+// Degrades like /roles above: 200 with an empty list plus a message.
+router.get('/:roomId/admin/discord/commands', requireAuth, requireRoomAccess('roomId'), async (_req, res) => {
+    try {
+        const { getDiscordClient } = await import('../../discord/DiscordClient.js');
+        const client = getDiscordClient();
+        if (!client || !client.isReady()) {
+            return res.json({
+                commands: [],
+                message: "The Discord bot isn't connected right now, so the command list is unavailable. Try again shortly.",
+            });
+        }
+        res.json({ commands: client.listCommands() });
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/admin/discord/commands):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
