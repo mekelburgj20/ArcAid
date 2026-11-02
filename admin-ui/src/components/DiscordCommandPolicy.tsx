@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 
 /**
- * Room Settings -> Discord -> **Slash commands** (v2.215.0, E7).
+ * Room Settings -> Discord -> **Slash commands** (v2.217.0, E7).
  *
  * Edits the one `DISCORD_COMMAND_POLICY` key that the bot's
  * `commandPolicyBlockReason` gate reads: which Arcaid slash commands the bot

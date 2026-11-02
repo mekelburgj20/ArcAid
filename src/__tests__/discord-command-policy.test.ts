@@ -11,7 +11,7 @@ import {
     DISCORD_COMMAND_POLICY_KEY,
 } from '../utils/discordCommandPolicy.js';
 
-// v2.215.0 (E7) - per-room slash-command policy.
+// v2.217.0 (E7) - per-room slash-command policy.
 
 const GUILD = '2000000000000000001';
 const CH_A = '3000000000000000001';

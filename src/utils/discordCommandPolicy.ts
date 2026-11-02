@@ -3,7 +3,7 @@ import { logWarn } from './logger.js';
 import { discordExcludedRoomIds } from './discordRoomFilter.js';
 
 /**
- * Per-room slash-command policy (v2.215.0, E7).
+ * Per-room slash-command policy (v2.217.0, E7).
  *
  * A room admin picks, in Room Settings -> Discord -> Slash commands, which
  * Arcaid commands the bot answers in the room's Discord server and may lock

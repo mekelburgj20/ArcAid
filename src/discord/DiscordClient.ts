@@ -215,7 +215,7 @@ export class DiscordClient {
     }
 
     /**
-     * The registered slash commands (v2.215.0, E7), for the room Settings
+     * The registered slash commands (v2.217.0, E7), for the room Settings
      * command-policy editor - the live set, so the UI never hardcodes names.
      */
     public listCommands(): Array<{ name: string; description: string }> {
@@ -281,7 +281,7 @@ export class DiscordClient {
                 const command = this.commands.get(interaction.commandName);
                 if (!command || !command.autocomplete) return;
 
-                // v2.215.0 (E7) - the room's slash-command policy. A refused
+                // v2.217.0 (E7) - the room's slash-command policy. A refused
                 // command offers no suggestions; fail-open on error.
                 if (interaction.guildId) {
                     try {
@@ -331,7 +331,7 @@ export class DiscordClient {
                     logError('Discord-enabled/suspension gate check failed — allowing command:', gateErr);
                 }
 
-                // v2.215.0 (E7) - the room's slash-command policy (enabled /
+                // v2.217.0 (E7) - the room's slash-command policy (enabled /
                 // channel / role locks set in Room Settings). The ONE gate is
                 // `commandPolicyBlockReason`; any error allows the command.
                 try {

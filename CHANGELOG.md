@@ -6,6 +6,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.217.0] - 2026-11-01 - Per-room slash-command policy: turn commands off and lock them to roles or channels (E7)
+
+A room owner (Mox's Game Room) asked for the controls Discord keeps under Server Settings -> Integrations -> command
+permissions, inside Arcaid, for servers that don't want to dig through Discord's menus.
+
+### Added
+
+- **Room Settings -> Discord -> Slash commands** (`components/DiscordCommandPolicy.tsx`, shown only when the room has a
+  Discord server linked): a "Defaults for every command" row (channels + roles), then one row per Arcaid command the
+  bot has registered (read live from `GET /api/rooms/:roomId/admin/discord/commands`, so no name is hardcoded) with an
+  on/off switch and its own channel and role lists, which read "Using defaults" while empty. Every control saves at
+  once, like Arcaid Chat Responses - never the Save bar, so "off" here is off in Discord the moment it shows. Roles and
+  channels render by name; an id the server no longer lists reads "Unknown role" / "Unknown channel".
+- **One setting, `DISCORD_COMMAND_POLICY`** (`game_room_settings`, JSON `{version, defaults{channelIds, roleIds},
+  commands{name: {enabled, channelIds, roleIds}}}`), parsed only by `parseCommandPolicy` in
+  `src/utils/discordCommandPolicy.ts`. Absent or malformed = everything allowed (one warn naming the room), so no
+  existing room changes. A command not listed is on and uses the defaults; a command's non-empty list replaces the
+  default list; an empty list = any; holding ANY listed role passes. Ids that are not snowflakes are dropped; the
+  settings save re-serializes the value through the parser (a policy that restricts nothing removes the row).
+- **One gate, `commandPolicyBlockReason`**, called by the bot for every slash command (after the Discord-off /
+  suspension gate) and every autocomplete in a server. A server linked to several rooms allows a command when ANY of
+  its rooms (minus Discord-off and suspended ones) allows it. Refusals are ephemeral: "This room has turned off /x in
+  Discord.", "/x only works in #a, #b here." (up to 5 channels, then "and N more"), "/x is limited to the roles
+  "Mods" or "Players" in this server." (role names, never ids). Autocomplete for a refused command offers nothing.
+  Any error in the gate allows the command. DMs and Arcaid Chat Responses are untouched.
+
 ## [2.216.0] - 2026-11-01 - Every rating is a link to the ratings (A14.2)
 
 Owner, 2026-11-01: "the ratings - wherever shown - should be a clickable link that takes you to the game page where

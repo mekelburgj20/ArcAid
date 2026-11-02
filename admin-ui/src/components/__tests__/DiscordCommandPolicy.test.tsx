@@ -3,7 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import DiscordCommandPolicy, { DISCORD_COMMAND_POLICY_KEY } from '../DiscordCommandPolicy';
 
 /**
- * E7 (v2.215.0) - Room Settings -> Discord -> Slash commands. The list comes
+ * E7 (v2.217.0) - Room Settings -> Discord -> Slash commands. The list comes
  * from the live bot; every control saves the one policy key instantly.
  */
 

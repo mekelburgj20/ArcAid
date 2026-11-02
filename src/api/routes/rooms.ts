@@ -4893,7 +4893,7 @@ router.post('/:roomId/settings', requireAuth, requireRoomAccess('roomId'), requi
             }
             validationResult.data[ROOM_TIMEZONE_KEY] = tz;
         }
-        // v2.215.0 (E7): the slash-command policy is re-serialized through its
+        // v2.217.0 (E7): the slash-command policy is re-serialized through its
         // parser so garbage never lands in the DB ('' = nothing restricted,
         // which removes the row).
         if (Object.prototype.hasOwnProperty.call(validationResult.data, DISCORD_COMMAND_POLICY_KEY)) {
@@ -7504,7 +7504,7 @@ router.get('/:roomId/admin/discord/roles', requireAuth, requireRoomAccess('roomI
     }
 });
 
-// v2.215.0 (E7) - the bot's LIVE registered slash commands, for the
+// v2.217.0 (E7) - the bot's LIVE registered slash commands, for the
 // "Slash commands" policy editor in room Settings (DISCORD_COMMAND_POLICY).
 // Degrades like /roles above: 200 with an empty list plus a message.
 router.get('/:roomId/admin/discord/commands', requireAuth, requireRoomAccess('roomId'), async (_req, res) => {

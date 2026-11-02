@@ -969,7 +969,7 @@ export default function Settings() {
     // otherwise leak them. ENABLE_CALLOUTS is the RETIRED global switch: no
     // editor any more, but still claimed for the same reason.
     ...CHAT_RESPONSES_KEYS, ...LEGACY_CALLOUTS_KEYS, 'ENABLE_CALLOUTS',
-    // v2.215.0 (E7) - rendered by DiscordCommandPolicy inside the Discord card.
+    // v2.217.0 (E7) - rendered by DiscordCommandPolicy inside the Discord card.
     DISCORD_COMMAND_POLICY_KEY,
     // Scoreboard branding (managed in inline card)
     'SCOREBOARD_BG_URL', 'SCOREBOARD_BG_MODE', 'SCOREBOARD_BG_OPACITY',
@@ -1542,7 +1542,7 @@ export default function Settings() {
                 />
               )}
 
-              {/* v2.215.0 (E7) - per-command enable + channel/role locks.
+              {/* v2.217.0 (E7) - per-command enable + channel/role locks.
                   Instant-save like the block above; only with a linked guild. */}
               {category === 'Discord' && !!settings.DISCORD_GUILD_ID?.trim() && (
                 <DiscordCommandPolicy
