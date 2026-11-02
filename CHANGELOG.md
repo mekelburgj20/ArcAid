@@ -6,6 +6,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.217.1] - 2026-11-01 - An over-the-limit attempt no longer counts as a used attempt (W85)
+
+TomatoGrass, Discord 2026-11-01: "I played 10 games since my 5 Congo attempts, it didn't submit the scores but it says I
+have used 15 of 5 attempts."
+
+### Fixed
+- **Limited attempts: a start refused as `over_limit` used no slot, so it no longer counts as a used attempt anywhere.**
+  Every used count read `status <> 'void'`, which included the over-limit rows. Three things followed: the game page, the
+  card's attempts tab, the cabinet's SENDING TO line, the runner's Witness page and the admin Attempts summary printed
+  "15 of 5"; the next-start decision counted them too, so once a player held over-limit rows a host void gave nothing
+  back (the next start was still refused); and the W68 Reinstate room check counted them, so a player's other over-limit
+  plays blocked every reinstate (NO_ROOM). Now used = `counted` + `scored` + `unreported` rows (`USED_STATUS_SQL` in
+  `AttemptService`; the FE `summarizeAttempts` agrees and the `overLimit` override in `lib/attemptsLeft.ts` is gone). An
+  over-limit row keeps numbering past the limit (`MAX(limit, used) + k`, so the host list still reads 6 of 5, 7 of 5) and
+  stays for audit and Reinstate. The gate itself was right all along: prod shows TG's five Congo rows `scored` and the ten
+  later plays `over_limit`, none of them on the board. ADR 0029 amended.
+
 ## [2.217.0] - 2026-11-01 - Per-room slash-command policy: turn commands off and lock them to roles or channels (E7)
 
 A room owner (Mox's Game Room) asked for the controls Discord keeps under Server Settings -> Integrations -> command

@@ -152,6 +152,23 @@ describe('AttemptService.recordStart', () => {
         expect((await AttemptService.usedByGame(ids.tournamentId))[ids.gameId]![USER]).toBe(3);
     });
 
+    it('W85: an over-the-limit start uses no slot — used excludes it, a void still gives a slot back, numbering stays past the limit', async () => {
+        await start('k1'); await start('k2'); await start('k3');
+        expect(await start('k4')).toMatchObject({ status: 'over_limit', attempt: 4, remaining: 0 });
+        expect(await start('k5')).toMatchObject({ status: 'over_limit', attempt: 5, remaining: 0 });
+        // "15 of 5" (TG, Congo, 2026-11-01): the refused starts are not used attempts.
+        expect((await AttemptService.usedByGame(ids.tournamentId))[ids.gameId]![USER]).toBe(3);
+        expect((await AttemptService.usedByPlayer(USER, [ids.gameId]))[ids.gameId]).toBe(3);
+
+        const db = await getDatabase();
+        const row = await db.get<{ id: number }>(`SELECT id FROM attempts WHERE attempt_key = 'k2'`);
+        await AttemptService.void(row!.id, 'admin-1', ids.tournamentId);
+        // The void frees a slot even though two over-the-limit rows exist.
+        expect(await start('k6')).toMatchObject({ status: 'counted', attempt: 3, remaining: 0 });
+        expect(await start('k7')).toMatchObject({ status: 'over_limit', attempt: 6 });
+        expect((await AttemptService.usedByGame(ids.tournamentId))[ids.gameId]![USER]).toBe(3);
+    });
+
     it('W68: a scored attempt can be voided (it stops counting); a void row cannot be voided again', async () => {
         await start('k1');
         const db = await getDatabase();
@@ -798,14 +815,21 @@ describe('W56 / W82: the room limited-attempts list (GET /rooms/:roomId/attempt-
         await insert('987654321098765432', 'other', 1); // someone else's attempt is not the viewer's
         expect((await roomList()).body.games[0]).toMatchObject({ limit: 2, used: 2, left: 0 });
 
-        await insert(USER, 'a3', 3); // an over-the-limit row still counts as used; left stays 0
-        expect((await roomList()).body.games[0]).toMatchObject({ used: 3, left: 0 });
+        // W85 — an over-the-limit row used no slot: used stays 2, left stays 0.
+        await db.run(
+            `INSERT INTO attempts (tournament_id, game_id, game_room_id, canonical_user_id, device_id, attempt_key,
+                                   attempt_no, status, started_ts, late)
+             VALUES (?, ?, ?, ?, 'dev-w82', 'a3', 3, 'over_limit', ?, 0)`,
+            tournamentId, gameId, roomId, USER, Math.floor(Date.now() / 1000),
+        );
+        expect((await roomList()).body.games[0]).toMatchObject({ used: 2, left: 0 });
 
         const first = await db.get<{ id: number }>(`SELECT id FROM attempts WHERE attempt_key = 'a1'`);
         const second = await db.get<{ id: number }>(`SELECT id FROM attempts WHERE attempt_key = 'a2'`);
         await AttemptService.void(first!.id, 'super-1', tournamentId);
         await AttemptService.void(second!.id, 'super-1', tournamentId);
-        expect((await roomList()).body.games[0]).toMatchObject({ limit: 2, used: 1, left: 1 });
+        // Both voids give their slot back; the over-the-limit row does not eat either (W85).
+        expect((await roomList()).body.games[0]).toMatchObject({ limit: 2, used: 0, left: 2 });
     });
 
     it('leaves out an unlimited tournament and a closed table', async () => {
@@ -972,8 +996,8 @@ describe('W68: void a scored attempt, reinstate an over-the-limit play', () => {
             `SELECT 1 FROM auto_score_suppressions WHERE source = 'vpx' AND owner_key = ? AND score = 4644100`, USER,
         );
         expect(tomb).toBeTruthy();
-        // first + the over-limit row; the voided fragment no longer counts.
-        expect((await AttemptService.usedByGame(tournamentId))[gameId]![USER]).toBe(2);
+        // first only: the voided fragment no longer counts, and the over-limit row never did (W85).
+        expect((await AttemptService.usedByGame(tournamentId))[gameId]![USER]).toBe(1);
 
         // The cabinet replays the fragment: the void is final and the score stays gone.
         await fragment.send();
@@ -990,7 +1014,7 @@ describe('W68: void a scored attempt, reinstate an over-the-limit play', () => {
         const res = await voidIt(tournamentId, row.id);
         expect(res.body).toEqual({ success: true });
         expect((await boardRows(gameId)).map(r => r.score)).toEqual([1_000_000, 4_644_100]);
-        expect((await AttemptService.usedByGame(tournamentId))[gameId]![USER]).toBe(2);
+        expect((await AttemptService.usedByGame(tournamentId))[gameId]![USER]).toBe(1);
     });
 
     it('reinstate: refused with no room; after the fragment is voided the play lands as the next attempt, once, with its own time', async () => {
@@ -1002,7 +1026,7 @@ describe('W68: void a scored attempt, reinstate an over-the-limit play', () => {
         let list = await request(app).get(`/api/rooms/${roomId}/admin/tournaments/${tournamentId}/attempts`)
             .set('Authorization', `Bearer ${adminToken()}`);
         let listed = list.body.attempts.find((a: { id: number }) => a.id === over.id);
-        expect(listed).toMatchObject({ reinstatable: false, used: 3, voidable: true });
+        expect(listed).toMatchObject({ reinstatable: false, used: 2, voidable: true });
         expect(listed.reinstateBlockedReason).toMatch(/^No room: 2 of 2 attempts/);
 
         const refused = await reinstate(tournamentId, over.id);
@@ -1064,6 +1088,30 @@ describe('W68: void a scored attempt, reinstate an over-the-limit play', () => {
 
         const audit = await db.get<{ details: string }>(`SELECT details FROM audit_log WHERE action = 'attempt.reinstate' ORDER BY id DESC LIMIT 1`);
         expect(JSON.parse(audit!.details)).toMatchObject({ attemptId: over.id, attemptNo: 2, of: 2 });
+    });
+
+    it('W85: the player\'s other over-the-limit plays do not fill the room — one void, then reinstate works', async () => {
+        const { tournamentId, fragment, real } = await fragmentScenario();
+        const extra = play(10, 50_000_000);
+        expect((await extra.send()).body).toMatchObject({ status: 'no_match' });
+        expect((await attemptRow(extra.started))!).toMatchObject({ status: 'over_limit', attempt_no: 4 });
+
+        await voidIt(tournamentId, (await attemptRow(fragment.started))!.id, { deleteScore: true });
+        const list = await request(app).get(`/api/rooms/${roomId}/admin/tournaments/${tournamentId}/attempts`)
+            .set('Authorization', `Bearer ${adminToken()}`);
+        const overRow = (await attemptRow(real.started))!;
+        expect(list.body.attempts.find((a: { id: number }) => a.id === overRow.id))
+            .toMatchObject({ reinstatable: true, reinstateBlockedReason: null, used: 1 });
+
+        const res = await reinstate(tournamentId, overRow.id);
+        expect(res.status).toBe(200);
+        expect(res.body).toMatchObject({ success: true, attemptNo: 2, of: 2 });
+
+        // Now 2 of 2 are used, so the extra play has no room.
+        const again = await reinstate(tournamentId, (await attemptRow(extra.started))!.id);
+        expect(again.status).toBe(409);
+        expect(again.body).toMatchObject({ code: 'NO_ROOM' });
+        expect(again.body.error).toMatch(/2 of 2/);
     });
 
     it('reinstate refuses a row that is not over the limit', async () => {

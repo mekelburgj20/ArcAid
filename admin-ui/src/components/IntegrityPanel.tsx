@@ -211,7 +211,7 @@ function AttemptsSection({ base, maxAttempts, games, toast }: {
                                                             <NeonButton variant="ghost" className="text-xs px-2 py-0.5"
                                                                 disabled={busy === r.id || !r.reinstatable}
                                                                 title={r.reinstatable
-                                                                    ? `Count this play as an attempt now (${(r.used ?? 1) - 1} of ${maxAttempts} used)`
+                                                                    ? `Count this play as an attempt now (${r.used ?? 0} of ${maxAttempts} used)`
                                                                     : (r.reinstateBlockedReason ?? 'This attempt cannot be reinstated.')}
                                                                 onClick={() => void reinstateAttempt(r)}
                                                                 aria-label={`Reinstate attempt ${r.attemptNo} for ${r.playerLabel}`}>

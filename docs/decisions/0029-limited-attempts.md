@@ -126,6 +126,17 @@ No FKs (same doctrine as `witness_evidence`: the trail outlives what it describe
 is `COUNT(*) WHERE game_id = ? AND canonical_user_id = ? AND status <> 'void'`; the limit is checked and
 the row inserted in one transaction so two simultaneous starts cannot both be attempt 5 of 5.
 
+**Amended 2026-11-01 (W85, v2.217.1): the count is the player's USED rows — `status IN ('counted',
+'scored', 'unreported')` — never the `over_limit` ones.** An over-the-limit start used no slot; it is
+kept for the runner's audit and for Reinstate (W68) only. Counting it (`status <> 'void'`, as written
+above) meant that a player holding over-limit rows never got a slot back from a void (the next start
+was still refused), that every "used" surface printed "15 of 5" (TomatoGrass, Congo), and that a
+player's other over-limit plays filled the room in the Reinstate check (NO_ROOM). The same predicate
+(`USED_STATUS_SQL` in `AttemptService`, `USED_STATUSES` in the FE `lib/attemptsLeft.ts`) now drives
+the next-start decision, `usedByGame` / `usedByPlayer`, the reinstate room check and the admin
+summary. Numbering: a row within the limit is `used + 1`; one past it is `MAX(limit, used) + k`
+(`attempt = of + k` above still holds, so the runner's list reads 6 of 5, 7 of 5).
+
 ### Reads and admin
 
 - The public `GET /rooms/:roomId/tournaments/:id/integrity` read gains `maxAttempts` and

@@ -397,7 +397,7 @@ describe('IntegrityPanel — attempts left per player (W81)', () => {
       row('111111111111111111', 'Mox', 'scored', { score: 2_000 }),
       row('111111111111111111', 'Mox', 'counted'),
       row('111111111111111111', 'Mox', 'void'),
-      // ChalataLove: five scored + one over the limit → 0 left.
+      // ChalataLove: five scored + one over the limit → 5 used (the over-limit row used nothing, W85), 0 left.
       ...[1, 2, 3, 4, 5].map(n => row('222222222222222222', 'ChalataLove', 'scored', { score: n })),
       row('222222222222222222', 'ChalataLove', 'over_limit'),
       // Bob: only a void → all five left.
@@ -419,7 +419,7 @@ describe('IntegrityPanel — attempts left per player (W81)', () => {
     const summary = await screen.findByTestId('attempts-summary-g-mb');
     const players = within(summary).getAllByTestId('attempts-summary-player').map(el => el.textContent);
     expect(players).toEqual([
-      'ChalataLove 6 of 5 used · 0 left',
+      'ChalataLove 5 of 5 used · 0 left',
       'Mox 3 of 5 used · 2 left',
       'Abe 1 of 5 used · 4 left',
       'Bob 0 of 5 used · 5 left',

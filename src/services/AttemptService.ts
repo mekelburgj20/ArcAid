@@ -60,7 +60,7 @@ export type RoomAttemptStart = {
     startedTs: number | null;
     /** The tournament's `max_attempts`. */
     limit: number;
-    /** This player's attempts on the table, void rows excluded (`usedByPlayer`). */
+    /** This player's USED attempts on the table (`usedByPlayer`: counted/scored/unreported; W85 — an over_limit row used nothing). */
     used: number;
     /** `max(0, limit − used)`. */
     left: number;
@@ -120,7 +120,7 @@ export type AttemptAdminRow = {
     reinstatable: boolean;
     /** W68 — why an `over_limit` row cannot be reinstated (for the button's title); null otherwise. */
     reinstateBlockedReason: string | null;
-    /** W68 — the player's non-void attempts on this table (this row included), what the room check counts. */
+    /** W68 — the player's USED attempts on this table (counted/scored/unreported), what the room check counts; W85 — an over_limit row such as this one is not among them. */
     used: number;
 };
 
@@ -139,6 +139,16 @@ type AttemptRow = {
  * touches the score by itself; the route deletes it only when asked.
  */
 const VOIDABLE: ReadonlySet<AttemptRowStatus> = new Set(['counted', 'over_limit', 'unreported', 'scored']);
+
+/**
+ * W85 (v2.217.1) — the rows that USED a slot: `counted`, `scored`,
+ * `unreported`. An `over_limit` row is a refused start kept for audit and
+ * Reinstate (W68); it used nothing, so it is never "used": it does not fill
+ * the room for the next start, does not eat the slot a void gives back, and
+ * does not block a reinstate. Counting it did all three (TG, Congo, "15 of 5",
+ * 2026-11-01). Every used count in this file reads through this predicate.
+ */
+const USED_STATUS_SQL = `status IN ('counted', 'scored', 'unreported')`;
 
 export class AttemptVoidError extends Error {
     constructor(public code: 'NOT_FOUND' | 'NOT_VOIDABLE', public httpStatus: 404 | 409, message: string) {
@@ -230,6 +240,12 @@ export class AttemptService {
      * Insert one attempt row with its number and status decided in the SAME
      * statement as the count. `INSERT OR IGNORE` on the (device, key) unique
      * index makes a resend a no-op; the caller reads the stored row back.
+     *
+     * W85: the count is the player's USED rows (`USED_STATUS_SQL`), never the
+     * over_limit ones — so after a void the next start is counted again. A row
+     * within the limit is numbered used + 1; one past it `MAX(limit, used) +
+     * k` (ADR 0029 "attempt = of + k"), so the host list reads 6 of 5, 7 of 5.
+     * A forced status (`unreported`) is a used row and numbers as one.
      */
     private static async insertAtomic(row: {
         tournamentId: string; gameId: string; gameRoomId: string | null;
@@ -249,12 +265,15 @@ export class AttemptService {
                 attempt_no, status, started_ts, late, players, table_name, rom, ended_ts, score, note
              )
              SELECT ?, ?, ?, ?, ?, ?,
-                    c.n + 1,
-                    COALESCE(?, CASE WHEN c.n + 1 <= ? THEN ? ELSE 'over_limit' END),
+                    CASE WHEN ? IS NOT NULL OR c.used + 1 <= ? THEN c.used + 1 ELSE MAX(?, c.used) + c.over + 1 END,
+                    COALESCE(?, CASE WHEN c.used + 1 <= ? THEN ? ELSE 'over_limit' END),
                     ?, ?, ?, ?, ?, ?, ?, ?
-               FROM (SELECT COUNT(*) AS n FROM attempts
-                      WHERE game_id = ? AND canonical_user_id = ? AND status <> 'void') c`,
+               FROM (SELECT COALESCE(SUM(CASE WHEN ${USED_STATUS_SQL} THEN 1 ELSE 0 END), 0) AS used,
+                            COALESCE(SUM(CASE WHEN status = 'over_limit' THEN 1 ELSE 0 END), 0) AS over
+                       FROM attempts
+                      WHERE game_id = ? AND canonical_user_id = ?) c`,
             row.tournamentId, row.gameId, row.gameRoomId, row.canonicalUserId, row.deviceId, row.key,
+            row.forcedStatus, row.limit, row.limit,
             row.forcedStatus, row.limit, row.withinStatus ?? 'counted',
             Math.floor(row.startedTs), row.late ? 1 : 0, row.players ?? null,
             row.tableName ?? null, row.rom ?? null, row.endedTs ?? null, row.score ?? null,
@@ -489,13 +508,13 @@ export class AttemptService {
         );
     }
 
-    /** Public read: `{ [gameId]: { [canonicalUserId]: used } }`, void rows excluded. */
+    /** Public read: `{ [gameId]: { [canonicalUserId]: used } }` — USED rows only (W85: void and over_limit excluded). */
     static async usedByGame(tournamentId: string): Promise<Record<string, Record<string, number>>> {
         const db = await getDatabase();
         const rows = await db.all<Array<{ game_id: string; canonical_user_id: string; used: number }>>(
             `SELECT game_id, canonical_user_id, COUNT(*) AS used
                FROM attempts
-              WHERE tournament_id = ? AND status <> 'void'
+              WHERE tournament_id = ? AND ${USED_STATUS_SQL}
               GROUP BY game_id, canonical_user_id`,
             tournamentId,
         );
@@ -507,9 +526,9 @@ export class AttemptService {
     }
 
     /**
-     * One player's used count per game (`{ [gameId]: used }`), void rows
-     * excluded — the same count `usedByGame` gives the game page's
-     * "You have N attempts left" banner.
+     * One player's used count per game (`{ [gameId]: used }`) — USED rows
+     * only (W85: void and over_limit excluded) — the same count `usedByGame`
+     * gives the game page's "You have N attempts left" banner.
      */
     static async usedByPlayer(canonicalUserId: string, gameIds: string[]): Promise<Record<string, number>> {
         if (gameIds.length === 0) return {};
@@ -517,7 +536,7 @@ export class AttemptService {
         const rows = await db.all<Array<{ game_id: string; used: number }>>(
             `SELECT game_id, COUNT(*) AS used
                FROM attempts
-              WHERE canonical_user_id = ? AND status <> 'void'
+              WHERE canonical_user_id = ? AND ${USED_STATUS_SQL}
                 AND game_id IN (${gameIds.map(() => '?').join(', ')})
               GROUP BY game_id`,
             canonicalUserId, ...gameIds,
@@ -751,8 +770,8 @@ export class AttemptService {
         ]);
         return rows.map(r => {
             const usedHere = used[r.game_id]?.[r.canonical_user_id] ?? 0;
-            // The room check counts the player's OTHER non-void rows (this one is non-void too).
-            const block = r.status === 'over_limit' ? reinstateBlock(r, usedHere - 1, limit) : null;
+            // The room check counts the player's USED rows; this over_limit row is not one of them (W85).
+            const block = r.status === 'over_limit' ? reinstateBlock(r, usedHere, limit) : null;
             return {
                 id: r.id,
                 gameId: r.game_id,
@@ -837,7 +856,7 @@ export class AttemptService {
         const limit = await AttemptService.limitFor(tournamentId);
         const others = (await db.get<{ n: number }>(
             `SELECT COUNT(*) AS n FROM attempts
-              WHERE game_id = ? AND canonical_user_id = ? AND status <> 'void' AND id <> ?`,
+              WHERE game_id = ? AND canonical_user_id = ? AND ${USED_STATUS_SQL} AND id <> ?`,
             row.game_id, row.canonical_user_id, row.id,
         ))!.n;
         const block = reinstateBlock(row, others, limit);
@@ -899,11 +918,11 @@ export class AttemptService {
                 SET status = 'scored',
                     attempt_no = (SELECT COUNT(*) FROM attempts o
                                    WHERE o.game_id = attempts.game_id AND o.canonical_user_id = attempts.canonical_user_id
-                                     AND o.status <> 'void' AND o.id <> attempts.id) + 1
+                                     AND o.status IN ('counted', 'scored', 'unreported') AND o.id <> attempts.id) + 1
               WHERE id = ? AND status = 'over_limit'
                 AND (SELECT COUNT(*) FROM attempts o
                       WHERE o.game_id = attempts.game_id AND o.canonical_user_id = attempts.canonical_user_id
-                        AND o.status <> 'void' AND o.id <> attempts.id) < ?`,
+                        AND o.status IN ('counted', 'scored', 'unreported') AND o.id <> attempts.id) < ?`,
             row.id, limit,
         );
         if (flipped.changes !== 1) {
