@@ -1,8 +1,12 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Building2, ArrowLeft, Home, UserCheck, Trophy, Mail, Sparkles, BookmarkPlus } from 'lucide-react';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { useMyRooms } from '../hooks/useMyRooms';
 import LoginButtons from '../components/LoginButtons';
+import ConfirmModal from '../components/ConfirmModal';
+import { useToast } from '../components/Toast';
+import type { MemberRoom } from '../lib/landingRooms';
 import { relativeTimeFrom } from '../lib/format';
 
 type RoomMemberSource = 'submission' | 'admin_invite' | 'claim' | 'backfill' | 'self_join';
@@ -34,7 +38,30 @@ function formatRelativeTime(iso: string | null): string {
 export default function MyRooms() {
   const { discordUser, loginWithDiscord, loginWithGoogle } = useViewerAuth();
   // v2.38.0 — shared /api/me/rooms state (the same hook LandingPage/PublicLayout use).
-  const { rooms, loading } = useMyRooms();
+  const { rooms, loading, leave } = useMyRooms();
+  const { toast } = useToast();
+  // W84 (owner, 2026-11-01) — leave from this list again, through the SAME
+  // confirm the room's user menu uses (PublicLayout.handleLeaveRoom).
+  const [confirmLeave, setConfirmLeave] = useState<MemberRoom | null>(null);
+  const [leavingId, setLeavingId] = useState<string | null>(null);
+
+  const leaveConfirmed = async () => {
+    const room = confirmLeave;
+    setConfirmLeave(null);
+    if (!room) return;
+    setLeavingId(room.roomId);
+    try {
+      // `leave` is optimistic: the row drops at once and is put back if the
+      // DELETE fails, so no refetch is needed here.
+      const ok = await leave(room.roomId);
+      toast(
+        ok ? `You left ${room.name}. You can rejoin any time.` : `Could not leave ${room.name} — try again.`,
+        ok ? 'info' : 'error',
+      );
+    } finally {
+      setLeavingId(null);
+    }
+  };
 
   if (!discordUser) {
     return (
@@ -92,52 +119,82 @@ export default function MyRooms() {
         ) : (
           <div className="grid gap-3">
             {rooms.map(room => (
-              <Link
+              <div
                 key={room.roomId}
-                to={`/${room.slug}`}
-                className="flex items-center gap-3 bg-surface border border-border rounded-lg px-4 py-3 hover:border-neon-cyan/50 transition-colors no-underline group"
+                data-testid="my-rooms-row"
+                className="flex items-center gap-3 bg-surface border border-border rounded-lg pr-2 has-[a:hover]:border-neon-cyan/50 transition-colors"
               >
-                {/* Logo */}
-                {room.logoUrl ? (
-                  <img
-                    src={room.logoUrl}
-                    alt=""
-                    className="w-10 h-10 rounded object-cover border border-border flex-shrink-0"
-                  />
-                ) : (
-                  <div className="w-10 h-10 rounded bg-neon-cyan/10 border border-border flex items-center justify-center flex-shrink-0">
-                    <Building2 size={18} className="text-neon-cyan/60" />
-                  </div>
-                )}
-
-                {/* Info */}
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium text-sm text-primary group-hover:text-neon-cyan transition-colors truncate">
-                    {room.name}
-                  </p>
-                  <p className="text-[11px] text-faint truncate">
-                    {formatRelativeTime(room.lastActivityAt)}
-                  </p>
-                </div>
-
-                {/* Source badge */}
-                <span
-                  className="flex items-center gap-1 px-2 py-1 rounded bg-raised/50 text-faint text-[10px] uppercase tracking-wider flex-shrink-0"
-                  title={SOURCE_LABEL[room.source as RoomMemberSource]}
+                <Link
+                  to={`/${room.slug}`}
+                  className="flex flex-1 min-w-0 items-center gap-3 pl-4 py-3 no-underline group"
                 >
-                  {SOURCE_ICON[room.source as RoomMemberSource]}
-                  <span className="hidden sm:inline">{SOURCE_LABEL[room.source as RoomMemberSource]}</span>
-                </span>
+                  {/* Logo */}
+                  {room.logoUrl ? (
+                    <img
+                      src={room.logoUrl}
+                      alt=""
+                      className="w-10 h-10 rounded object-cover border border-border flex-shrink-0"
+                    />
+                  ) : (
+                    <div className="w-10 h-10 rounded bg-neon-cyan/10 border border-border flex items-center justify-center flex-shrink-0">
+                      <Building2 size={18} className="text-neon-cyan/60" />
+                    </div>
+                  )}
 
-                {/* W21 (WWS 2026-10-23) — no leave button on the row any more:
-                    a one-tap leave sat beside the room title and TomatoGrass hit
-                    it on a phone. Leave from inside the room (user menu), which
-                    asks first. */}
-              </Link>
+                  {/* Info */}
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-sm text-primary group-hover:text-neon-cyan transition-colors truncate">
+                      {room.name}
+                    </p>
+                    <p className="text-[11px] text-faint truncate">
+                      {formatRelativeTime(room.lastActivityAt)}
+                    </p>
+                  </div>
+
+                  {/* Source badge */}
+                  <span
+                    className="flex items-center gap-1 px-2 py-1 rounded bg-raised/50 text-faint text-[10px] uppercase tracking-wider flex-shrink-0"
+                    title={SOURCE_LABEL[room.source as RoomMemberSource]}
+                  >
+                    {SOURCE_ICON[room.source as RoomMemberSource]}
+                    <span className="hidden sm:inline">{SOURCE_LABEL[room.source as RoomMemberSource]}</span>
+                  </span>
+                </Link>
+
+                {/* W21 (WWS 2026-10-23) removed a one-tap leave ICON here:
+                    TomatoGrass hit it on a phone aiming for the room title. It is
+                    back BY OWNER DECISION 2026-11-01 (W84) as a LABELLED, CONFIRMED
+                    control OUTSIDE the row's Link (a sibling, 12px clear of the
+                    badge), so a tap on it can never navigate and a tap on the
+                    title can never leave. The user-menu leave inside the room
+                    stays too. */}
+                <button
+                  type="button"
+                  data-testid="my-rooms-leave"
+                  aria-label={`Leave ${room.name}`}
+                  disabled={leavingId === room.roomId}
+                  onClick={() => setConfirmLeave(room)}
+                  className="min-h-[32px] min-w-[32px] px-2 flex-shrink-0 rounded text-[11px] text-muted hover:text-red-400 hover:bg-red-400/10 transition-colors cursor-pointer bg-transparent border-0 disabled:opacity-50 disabled:cursor-default"
+                >
+                  {leavingId === room.roomId ? 'Leaving…' : 'Leave'}
+                </button>
+              </div>
             ))}
           </div>
         )}
       </div>
+
+      {/* Same title / message / confirm label as PublicLayout's user-menu
+          leave confirm — duplicated on purpose for now; keep the two in step. */}
+      {confirmLeave && (
+        <ConfirmModal
+          title={`Leave ${confirmLeave.name}?`}
+          message="You can rejoin any time. Leaving takes this room off My Game Rooms; your scores stay on its boards."
+          confirmLabel="Leave room"
+          onConfirm={leaveConfirmed}
+          onCancel={() => setConfirmLeave(null)}
+        />
+      )}
     </div>
   );
 }
