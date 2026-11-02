@@ -522,22 +522,28 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
                 notifications" nudge. Renders nothing for guests, for users
                 with no pending nudge, and in Discord-connected rooms. */}
             <NotificationNudgeBanner roomDiscordEnabled={portal?.discord_enabled !== false} roomId={resolvedRoomId} />
-            {/* v2.141.0 — live/upcoming event discovery. Rendered at the layout
-                so every public page carries it (before this, NOTHING
-                player-facing linked to an event page). Suppressed on the event
-                pages themselves — a banner linking to the page you are on is
-                noise. */}
-            {resolvedRoomId && !location.pathname.includes('/events/') && (
-              <div className="max-w-5xl mx-auto px-4 sm:px-6 pt-3">
-                <EventBanner roomId={resolvedRoomId} roomSlug={slug || ''} roomName={roomName} />
-              </div>
-            )}
-            {/* W27.3 (ADR 0033 §5) — does each of the viewer's paired Witness
-                devices send here? Renders nothing for guests and players with no
-                paired device. */}
+            {/* W83 — ONE notices column for the room-page notices below: full
+                width on a phone, a narrow column at the top-left of the content
+                area on desktop (lg+), out of the way. Every notice in it is
+                dismissible (X, or swipe on touch — lib/roomNotices.ts). The
+                column collapses its bottom margin when everything inside
+                rendered nothing. */}
             {resolvedRoomId && (
-              <div className="max-w-5xl mx-auto px-4 sm:px-6 pt-2">
-                <WitnessScoresGoTo roomId={resolvedRoomId} roomSlug={slug} />
+              <div className="max-w-5xl mx-auto px-4 sm:px-6 pt-3">
+                <div className="w-full lg:max-w-sm space-y-2 mb-4 empty:mb-0" data-testid="room-notices">
+                  {/* v2.141.0 — live/upcoming event discovery. Rendered at the
+                      layout so every public page carries it (before this,
+                      NOTHING player-facing linked to an event page). Suppressed
+                      on the event pages themselves — a banner linking to the
+                      page you are on is noise. */}
+                  {!location.pathname.includes('/events/') && (
+                    <EventBanner roomId={resolvedRoomId} roomSlug={slug || ''} roomName={roomName} />
+                  )}
+                  {/* W27.3 (ADR 0033 §5) — does each of the viewer's paired
+                      Witness devices send here? Renders nothing for guests and
+                      players with no paired device. */}
+                  <WitnessScoresGoTo roomId={resolvedRoomId} roomSlug={slug} />
+                </div>
               </div>
             )}
             <PlayerQuickViewProvider>

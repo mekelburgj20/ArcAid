@@ -141,6 +141,48 @@ describe('PublicLayout', () => {
     expect(screen.getByText('Terms')).toBeInTheDocument();
   });
 
+  // W83 — the event banner and the "Your scores go to" lines share ONE notices
+  // column (full width on a phone, a narrow top-left column on desktop).
+  it('mounts the event banner and the Witness lines inside the one notices column', async () => {
+    signInAs('u1');
+    const future = (min: number) => new Date(Date.now() + min * 60000).toISOString();
+    const fetchMock = vi.fn((url: string) => {
+      if (url.startsWith('/api/portal')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ id: 'room-1', roomId: 'room-1', slug: 'rtx_pinball', name: 'RTX Pinball', pick_award_enabled: false }),
+        });
+      }
+      if (url === '/api/rooms/room-1/tournaments') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve([{
+            id: 'ev1', name: 'LIMITED ATTEMPTS Test #4', format: 'event', is_active: 1, checkin_required: 0,
+            rounds: [{ status: 'SCHEDULED', round_no: 1, name: 'Congo', scheduled_start_at: future(90), scheduled_end_at: future(120) }],
+          }]),
+        });
+      }
+      if (url.startsWith('/api/me/witness/routing')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve([{ deviceId: 'd1', deviceType: 'desktop', sendsHere: 'yes', why: null, targetRoomName: null, targetTournamentName: null }]),
+        });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+    });
+    vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+
+    renderAt('/rtx_pinball/child');
+
+    const event = await screen.findByText('LIMITED ATTEMPTS Test #4');
+    const witness = await screen.findByText(/Your PC sends its scores here/);
+    const column = screen.getByTestId('room-notices');
+    expect(column.className).toMatch(/lg:max-w-sm/);
+    expect(column.contains(event)).toBe(true);
+    expect(column.contains(witness)).toBe(true);
+    expect(screen.getAllByRole('button', { name: 'Dismiss' }).length).toBeGreaterThanOrEqual(2);
+  });
+
   it('renders a friendly not-found state when the portal 404s', async () => {
     const fetchMock = vi.fn((url: string) => {
       if (url.startsWith('/api/portal')) {
