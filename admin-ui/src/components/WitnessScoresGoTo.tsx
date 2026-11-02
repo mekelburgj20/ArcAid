@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { ShieldCheck, AlertTriangle } from 'lucide-react';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
@@ -7,6 +7,10 @@ import {
     type Device, type Line, type Routing,
 } from '../lib/witnessScoresGoTo';
 import { ATTEMPT_STARTS_CHANGED_EVENT, fetchRoomAttemptStarts, gamePageHref, type RoomAttemptStart } from '../lib/attemptStarts';
+import {
+    ROOM_NOTICE_DISMISSED_EVENT, deviceNoticeKey, dismissNotice, isNoticeDismissed, startsNoticeKey,
+} from '../lib/roomNotices';
+import DismissibleNotice from './DismissibleNotice';
 
 /**
  * W27.3 (ADR 0033 §5) — "Your scores go to": one line per paired Arcaid Witness
@@ -25,7 +29,14 @@ import { ATTEMPT_STARTS_CHANGED_EVENT, fetchRoomAttemptStarts, gamePageHref, typ
  *   game page. It re-reads that list when a scoreboard card is pressed.
  * - **Home page** (no `roomId`): where each device sends.
  *
- * Renders nothing for a guest or a player with no paired device.
+ * W83 - on a ROOM page every line (each device line and the "Start attempts
+ * needed on" line) has an X / touch swipe that hides it for 7 days. The
+ * dismissal is keyed on the line's ANSWER (`lib/roomNotices.ts`), so a changed
+ * routing answer or a changed table list shows the line again. The home page
+ * keeps no X.
+ *
+ * Renders nothing for a guest or a player with no paired device, and nothing
+ * once every room line is dismissed.
  */
 
 export default function WitnessScoresGoTo({
@@ -37,6 +48,8 @@ export default function WitnessScoresGoTo({
     // Tagged with the room it was read for, so a room change never shows the
     // previous room's tables while the new list loads.
     const [attemptStarts, setAttemptStarts] = useState<{ roomId: string; games: RoomAttemptStart[] } | null>(null);
+    // W83 - bumped to re-read dismissals when any room notice is dismissed.
+    const [, setDismissTick] = useState(0);
 
     useEffect(() => {
         if (!playerToken) return;
@@ -68,15 +81,37 @@ export default function WitnessScoresGoTo({
         return () => { live = false; window.removeEventListener(ATTEMPT_STARTS_CHANGED_EVENT, load); };
     }, [playerToken, roomId]);
 
+    useEffect(() => {
+        if (!roomId) return;
+        const onDismissed = () => setDismissTick(n => n + 1);
+        window.addEventListener(ROOM_NOTICE_DISMISSED_EVENT, onDismissed);
+        return () => window.removeEventListener(ROOM_NOTICE_DISMISSED_EVENT, onDismissed);
+    }, [roomId]);
+
     if (!playerToken || lines.length === 0) return null;
     const needed = roomId && attemptStarts?.roomId === roomId ? attemptStartsNeeded(routing, attemptStarts.games) : null;
+
+    // Room mode: each device line's dismissal key is built from its routing answer.
+    const lineKey = (line: Line): string | null => {
+        if (!roomId) return null;
+        const r = routing.find(x => x.deviceId === line.key);
+        return r ? deviceNoticeKey(r) : null;
+    };
+    const shownLines = roomId
+        ? lines.filter(line => { const k = lineKey(line); return !k || !isNoticeDismissed(roomId, k); })
+        : lines;
+    const neededKey = needed ? startsNoticeKey(needed) : null;
+    const showNeeded = !!needed && !(roomId && neededKey && isNoticeDismissed(roomId, neededKey));
+    if (shownLines.length === 0 && !showNeeded) return null;
+
+    const dismissible = (noticeKey: string | null, node: ReactNode, reactKey: string) => (roomId && noticeKey
+        ? <DismissibleNotice key={reactKey} noticeKey={noticeKey} onDismiss={() => dismissNotice(roomId, noticeKey)}>{node}</DismissibleNotice>
+        : <Fragment key={reactKey}>{node}</Fragment>);
+
     return (
         <div className={`space-y-1 ${className}`} data-testid="witness-scores-go-to">
-            {lines.map(line => (
-                <p
-                    key={line.key}
-                    className={`flex items-start gap-1.5 text-xs ${line.ok ? 'text-muted' : 'text-neon-amber'}`}
-                >
+            {shownLines.map(line => dismissible(lineKey(line), (
+                <p className={`flex items-start gap-1.5 text-xs ${line.ok ? 'text-muted' : 'text-neon-amber'}`}>
                     {/* The icon never wraps away from its text (a phone broke it onto its own line). */}
                     {line.ok
                         ? <ShieldCheck size={13} aria-hidden="true" className="mt-px text-neon-green shrink-0" />
@@ -91,8 +126,8 @@ export default function WitnessScoresGoTo({
                         )}
                     </span>
                 </p>
-            ))}
-            {needed && (
+            ), line.key))}
+            {showNeeded && needed && dismissible(neededKey, (
                 <p className="flex items-start gap-1.5 text-xs text-neon-amber" data-testid="attempt-starts-needed">
                     <AlertTriangle size={13} aria-hidden="true" className="mt-px shrink-0" />
                     <span>
@@ -107,7 +142,7 @@ export default function WitnessScoresGoTo({
                         ))}
                     </span>
                 </p>
-            )}
+            ), 'attempt-starts-needed')}
         </div>
     );
 }

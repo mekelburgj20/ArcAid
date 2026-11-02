@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import WitnessScoresGoTo from '../WitnessScoresGoTo';
 import { attemptStartsNeeded, homeLines, roomLines, type Routing } from '../../lib/witnessScoresGoTo';
@@ -20,7 +20,7 @@ const row = (over: Partial<Routing>): Routing => ({
     targetRoomName: null, targetTournamentName: null, ...over,
 });
 
-afterEach(() => { vi.unstubAllGlobals(); });
+afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); });
 
 describe('roomLines', () => {
     it('says yes quietly, and says why not with a way to fix it', () => {
@@ -154,5 +154,69 @@ describe('WitnessScoresGoTo', () => {
         const { container } = render(<MemoryRouter><WitnessScoresGoTo roomId="room-1" /></MemoryRouter>);
         await new Promise(r => setTimeout(r, 0));
         expect(container.innerHTML).toBe('');
+    });
+});
+
+describe('WitnessScoresGoTo dismissal (W83)', () => {
+    const STORE = 'arcaid_room_notices_dismissed:room-1';
+    const stub = (routing: Routing[], games: Array<{ gameName: string; started: boolean }> = []) => {
+        vi.stubGlobal('fetch', vi.fn((url: string) => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(url.includes('/attempt-starts/me')
+                ? { games: games.map((g, i) => ({ gameId: `g${i}`, tournamentId: 't', tournamentName: 'T', roundNo: null, startedTs: null, limit: 3, used: 0, left: 3, requireStart: true, ...g })) }
+                : routing),
+        })));
+    };
+    const stored = () => Object.keys(JSON.parse(localStorage.getItem(STORE) ?? '{}'));
+
+    it('the X on a device line hides just that line, keyed on its routing answer', async () => {
+        stub([row({ deviceId: 'a' }), row({ deviceId: 'b', deviceType: 'desktop', sendsHere: 'no', why: 'global_only' })]);
+        render(<MemoryRouter><WitnessScoresGoTo roomId="room-1" roomSlug="wizard" /></MemoryRouter>);
+        const line = (await screen.findByText(/Your cabinet sends its scores here/)).closest('[data-testid="dismissible-notice"]') as HTMLElement;
+        expect(line.getAttribute('data-notice-key')).toBe('device:a:yes::');
+        fireEvent.click(within(line).getByRole('button', { name: 'Dismiss' }));
+        expect(screen.queryByText(/Your cabinet sends its scores here/)).toBeNull();
+        expect(screen.getByText(/Your PC is set to the Global Scoreboard only/)).toBeTruthy();
+        expect(stored()).toEqual(['device:a:yes::']);
+    });
+
+    it('a changed routing answer shows the line again', async () => {
+        localStorage.setItem(STORE, JSON.stringify({ 'device:a:yes::': Date.now() }));
+        stub([row({ deviceId: 'a', sendsHere: 'one_tournament', targetTournamentName: 'Spooky Season' })]);
+        render(<MemoryRouter><WitnessScoresGoTo roomId="room-1" roomSlug="wizard" /></MemoryRouter>);
+        const text = await screen.findByText(/to "Spooky Season" only/);
+        expect(text.closest('[data-testid="dismissible-notice"]')?.getAttribute('data-notice-key'))
+            .toBe('device:a:one_tournament::Spooky Season');
+    });
+
+    it('the "Start attempts needed on" line is dismissible, keyed on its sorted table list', async () => {
+        stub([row({ deviceId: 'a' })], [{ gameName: 'Congo', started: false }, { gameName: 'Cactus Canyon', started: false }]);
+        render(<MemoryRouter><WitnessScoresGoTo roomId="room-1" roomSlug="wizard" /></MemoryRouter>);
+        const needed = await screen.findByTestId('attempt-starts-needed');
+        const wrapper = needed.closest('[data-testid="dismissible-notice"]') as HTMLElement;
+        expect(wrapper.getAttribute('data-notice-key')).toBe('starts:Cactus Canyon|Congo');
+        fireEvent.click(within(wrapper).getByRole('button', { name: 'Dismiss' }));
+        expect(screen.queryByTestId('attempt-starts-needed')).toBeNull();
+        expect(screen.getByText('Your cabinet sends its scores here.')).toBeTruthy();
+    });
+
+    it('renders nothing once every line is dismissed', async () => {
+        stub([row({ deviceId: 'a' })], [{ gameName: 'Congo', started: false }]);
+        const { container } = render(<MemoryRouter><WitnessScoresGoTo roomId="room-1" roomSlug="wizard" /></MemoryRouter>);
+        await screen.findByTestId('attempt-starts-needed');
+        for (const btn of screen.getAllByRole('button', { name: 'Dismiss' })) fireEvent.click(btn);
+        expect(container.innerHTML).toBe('');
+        expect(stored().sort()).toEqual(['device:a:yes::', 'starts:Congo']);
+    });
+
+    it('home mode (no room) has no X', async () => {
+        vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve([{ atgamesUniqueId: 'd', targetRoomId: null, targetRoomName: null, targetTournamentId: null, targetTournamentName: null }]),
+        })));
+        render(<MemoryRouter><WitnessScoresGoTo /></MemoryRouter>);
+        expect(await screen.findByText(/sends its scores to every room you belong to/)).toBeTruthy();
+        expect(screen.queryByRole('button', { name: 'Dismiss' })).toBeNull();
+        expect(screen.queryByTestId('dismissible-notice')).toBeNull();
     });
 });

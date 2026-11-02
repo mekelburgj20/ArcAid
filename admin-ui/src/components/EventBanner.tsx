@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import DismissibleNotice from './DismissibleNotice';
+import { ROOM_NOTICE_DISMISSED_EVENT, dismissNotice, eventNoticeKey, isNoticeDismissed } from '../lib/roomNotices';
 
 /**
  * Live/upcoming event banner for the room's public pages (v2.141.0).
@@ -13,6 +15,10 @@ import { Link } from 'react-router-dom';
  *
  * Deliberately fetch-and-forget: public pages must render fine when the fetch
  * fails, and an extra card is decoration, never a dependency.
+ *
+ * W83 - each card can be dismissed (X, or a sideways swipe on touch) for 7
+ * days. The dismissal is keyed on the card's STATE (`eventNoticeKey`), so a
+ * dismissed upcoming event comes back when check-in opens or it goes live.
  */
 
 interface EventRound {
@@ -39,6 +45,8 @@ interface BannerEvent {
     name: string;
     live: boolean;
     detail: string;
+    /** Dismissal key - see `lib/roomNotices.ts`. */
+    key: string;
 }
 
 function relative(iso: string): string {
@@ -76,7 +84,7 @@ export default function EventBanner({ roomId, roomSlug, roomName }: { roomId: st
                     const liveRound = rounds.find(r => r.status === 'ACTIVE');
                     if (liveRound) {
                         found.push({
-                            id: t.id, name: t.name, live: true,
+                            id: t.id, name: t.name, live: true, key: eventNoticeKey(t.id, true, false),
                             detail: `Round ${liveRound.round_no} — ${liveRound.name} · ends ${relative(liveRound.scheduled_end_at)}`,
                         });
                         continue;
@@ -84,9 +92,10 @@ export default function EventBanner({ roomId, roomSlug, roomName }: { roomId: st
                     const next = rounds.find(r => r.status === 'SCHEDULED' && Date.parse(r.scheduled_start_at) > now);
                     if (!next) continue;
                     const checkinOpen = !t.checkin_opens_at || Date.parse(t.checkin_opens_at) <= now;
+                    const checkin = t.checkin_required === 1 && checkinOpen;
                     found.push({
-                        id: t.id, name: t.name, live: false,
-                        detail: t.checkin_required === 1 && checkinOpen
+                        id: t.id, name: t.name, live: false, key: eventNoticeKey(t.id, false, checkin),
+                        detail: checkin
                             ? `Check-in open · round 1 starts ${relative(next.scheduled_start_at)}`
                             : `Round ${next.round_no} starts ${relative(next.scheduled_start_at)}`,
                     });
@@ -99,29 +108,45 @@ export default function EventBanner({ roomId, roomSlug, roomName }: { roomId: st
         return () => { cancelled = true; };
     }, [roomId]);
 
-    if (events.length === 0) return null;
+    // W83 - re-read dismissals when any room notice is dismissed.
+    const [, setDismissTick] = useState(0);
+    useEffect(() => {
+        const onDismissed = () => setDismissTick(n => n + 1);
+        window.addEventListener(ROOM_NOTICE_DISMISSED_EVENT, onDismissed);
+        return () => window.removeEventListener(ROOM_NOTICE_DISMISSED_EVENT, onDismissed);
+    }, []);
+
+    const visible = events.filter(e => !isNoticeDismissed(roomId, e.key));
+    if (visible.length === 0) return null;
 
     return (
-        <div className="space-y-2 mb-4">
-            {events.map(e => (
-                <Link
-                    key={e.id}
-                    to={`/${roomSlug}/events/${e.id}`}
-                    className="flex items-center gap-3 p-3 rounded border border-neon-cyan/40 bg-neon-cyan/10 hover:bg-neon-cyan/20 transition-colors"
+        <div className="space-y-2" data-testid="event-banner">
+            {visible.map(e => (
+                <DismissibleNotice
+                    key={e.key}
+                    noticeKey={e.key}
+                    onDismiss={() => dismissNotice(roomId, e.key)}
+                    className="p-3 rounded border border-neon-cyan/40 bg-neon-cyan/10 hover:bg-neon-cyan/20 transition-colors"
                 >
-                    <span className={`text-xs px-2 py-0.5 rounded border whitespace-nowrap ${
-                        e.live
-                            ? 'bg-neon-magenta/15 text-neon-magenta border-neon-magenta/40'
-                            : 'bg-neon-cyan/15 text-neon-cyan border-neon-cyan/40'
-                    }`}>{e.live ? 'LIVE' : 'EVENT'}</span>
-                    <span className="min-w-0 flex-1">
-                        <span className="block text-sm text-primary font-medium truncate">{e.name}</span>
-                        <span className="block text-xs text-muted truncate" data-testid="event-banner-sub">
-                            {roomName ? `in ${roomName} · ${e.detail}` : e.detail}
+                    <Link
+                        to={`/${roomSlug}/events/${e.id}`}
+                        className="flex items-center gap-3"
+                    >
+                        <span className={`text-xs px-2 py-0.5 rounded border whitespace-nowrap ${
+                            e.live
+                                ? 'bg-neon-magenta/15 text-neon-magenta border-neon-magenta/40'
+                                : 'bg-neon-cyan/15 text-neon-cyan border-neon-cyan/40'
+                        }`}>{e.live ? 'LIVE' : 'EVENT'}</span>
+                        <span className="min-w-0 flex-1">
+                            {/* Titles wrap, never ellipsize - the card is narrow on desktop (W83). */}
+                            <span className="block text-sm text-primary font-medium break-words">{e.name}</span>
+                            <span className="block text-xs text-muted break-words" data-testid="event-banner-sub">
+                                {roomName ? `in ${roomName} · ${e.detail}` : e.detail}
+                            </span>
                         </span>
-                    </span>
-                    <span className="text-neon-cyan text-sm" aria-hidden>→</span>
-                </Link>
+                        <span className="text-neon-cyan text-sm" aria-hidden>→</span>
+                    </Link>
+                </DismissibleNotice>
             ))}
         </div>
     );
