@@ -6,6 +6,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.214.0] - 2026-11-01 - Room-page notices are dismissible, swipe away on touch, and sit top-left on desktop (W83)
+
+Owner, 2026-11-01: "We should have a way to 'X' clear these messages at the top of the rooms. And they should be up at the
+top left - out of the way (at least on desktop). On mobile, they should be swipe or x to remove (the big Limited attempts
+reminders) and the 'Your pc sends its scores here...' should be x closeable."
+
+### Added
+
+- **Every notice at the top of a room page has an X** (`components/DismissibleNotice.tsx`): the live/upcoming event
+  cards (`EventBanner`) and, in room mode, each "Your PC/cabinet sends its scores here" line and the "Start attempts
+  needed on" line (`WitnessScoresGoTo`). On a touch screen a notice can also be swiped sideways: the first 8 px decide
+  the gesture (mostly vertical hands back to page scroll, `touch-action: pan-y`), release past 40% of the width or a
+  flick commits with a 150 ms slide, otherwise it springs back; a swipe never follows the card's link; reduced motion
+  dismisses instantly. A mouse drag does nothing; the X is always there.
+- **Dismissal is per browser, for 7 days, keyed on the notice's CONTENT** (`lib/roomNotices.ts`, localStorage
+  `arcaid_room_notices_dismissed:<roomId>`): an event card keys on tournament id + live/upcoming + check-in state, so a
+  dismissed upcoming event comes back when check-in opens or it goes live; a device line keys on device + routing
+  answer, so a changed answer comes back; the Start-attempts line keys on the table names. The home page's "where each
+  device sends" list is unchanged (no X).
+
+### Changed
+
+- **One notices column in `PublicLayout`**: full width on a phone, a narrow column (`lg:max-w-sm`, about 384 px) at the
+  top-left of the content area on desktop instead of a band across the page. Event titles and detail lines now wrap
+  instead of truncating. The column is still in the page flow above the content (it does not float beside the cards).
+
+---
 ## [2.213.0] - 2026-11-01 - "Discord role required": open to view, a Discord role to join
 
 Customer ask (Mox's Game Room, a large VPX Discord community): anyone with the link should see the scores, but only
