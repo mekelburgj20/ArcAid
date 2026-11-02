@@ -215,6 +215,19 @@ export class DiscordClient {
     }
 
     /**
+     * The registered slash commands (v2.217.0, E7), for the room Settings
+     * command-policy editor - the live set, so the UI never hardcodes names.
+     */
+    public listCommands(): Array<{ name: string; description: string }> {
+        return this.commands
+            .map(command => {
+                const json = command.data.toJSON() as { name: string; description?: string };
+                return { name: json.name, description: json.description ?? '' };
+            })
+            .sort((a, b) => a.name.localeCompare(b.name));
+    }
+
+    /**
      * Deploys the slash commands to Discord.
      */
     public async deployCommands(guildId?: string): Promise<void> {
@@ -268,6 +281,24 @@ export class DiscordClient {
                 const command = this.commands.get(interaction.commandName);
                 if (!command || !command.autocomplete) return;
 
+                // v2.217.0 (E7) - the room's slash-command policy. A refused
+                // command offers no suggestions; fail-open on error.
+                if (interaction.guildId) {
+                    try {
+                        const { commandPolicyBlockReason, memberRoleIdsOf } = await import('../utils/discordCommandPolicy.js');
+                        const refused = await commandPolicyBlockReason(
+                            interaction.guildId, interaction.user.id, interaction.commandName,
+                            interaction.channelId, memberRoleIdsOf(interaction.member),
+                        );
+                        if (refused) {
+                            await interaction.respond([]);
+                            return;
+                        }
+                    } catch (policyErr) {
+                        logError('Discord command-policy check (autocomplete) failed - allowing:', policyErr);
+                    }
+                }
+
                 try {
                     await command.autocomplete(interaction);
                 } catch (error) {
@@ -298,6 +329,23 @@ export class DiscordClient {
                     }
                 } catch (gateErr) {
                     logError('Discord-enabled/suspension gate check failed — allowing command:', gateErr);
+                }
+
+                // v2.217.0 (E7) - the room's slash-command policy (enabled /
+                // channel / role locks set in Room Settings). The ONE gate is
+                // `commandPolicyBlockReason`; any error allows the command.
+                try {
+                    const { commandPolicyBlockReason, memberRoleIdsOf } = await import('../utils/discordCommandPolicy.js');
+                    const refused = await commandPolicyBlockReason(
+                        interaction.guildId, interaction.user.id, interaction.commandName,
+                        interaction.channelId, memberRoleIdsOf(interaction.member),
+                    );
+                    if (refused) {
+                        await interaction.reply({ content: refused, ephemeral: true });
+                        return;
+                    }
+                } catch (policyErr) {
+                    logError('Discord command-policy check failed - allowing command:', policyErr);
                 }
             }
 

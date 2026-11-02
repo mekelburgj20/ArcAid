@@ -18,6 +18,7 @@ import DiscordBotInvite from '../components/DiscordBotInvite';
 import { PlayerAvatar } from '../components/ScoreboardComponents';
 import { TIMEZONES } from '../components/ScheduleBuilder';
 import DiscordJoinRolePicker from '../components/DiscordJoinRolePicker';
+import DiscordCommandPolicy, { DISCORD_COMMAND_POLICY_KEY } from '../components/DiscordCommandPolicy';
 import { DEFAULT_TIMEZONE, ROOM_TIMEZONE_KEY, zoneLabel } from '../lib/timezone';
 // v2.116.0 (C1) — the Leaderboard Display controls moved to the admin
 // Leaderboard page's display rail, where they edit against the REAL
@@ -968,6 +969,8 @@ export default function Settings() {
     // otherwise leak them. ENABLE_CALLOUTS is the RETIRED global switch: no
     // editor any more, but still claimed for the same reason.
     ...CHAT_RESPONSES_KEYS, ...LEGACY_CALLOUTS_KEYS, 'ENABLE_CALLOUTS',
+    // v2.217.0 (E7) - rendered by DiscordCommandPolicy inside the Discord card.
+    DISCORD_COMMAND_POLICY_KEY,
     // Scoreboard branding (managed in inline card)
     'SCOREBOARD_BG_URL', 'SCOREBOARD_BG_MODE', 'SCOREBOARD_BG_OPACITY',
     'LOGO_URL', 'LOGO_POSITION', 'LOGO_MAX_HEIGHT', 'SCOREBOARD_LOGO_ENABLED',
@@ -1536,6 +1539,16 @@ export default function Settings() {
                   settings={settings}
                   onSaveNow={saveSettingsNow}
                   hasGuild={!!settings.DISCORD_GUILD_ID?.trim()}
+                />
+              )}
+
+              {/* v2.217.0 (E7) - per-command enable + channel/role locks.
+                  Instant-save like the block above; only with a linked guild. */}
+              {category === 'Discord' && !!settings.DISCORD_GUILD_ID?.trim() && (
+                <DiscordCommandPolicy
+                  roomId={room.roomId}
+                  settings={settings}
+                  onSaveNow={saveSettingsNow}
                 />
               )}
 
