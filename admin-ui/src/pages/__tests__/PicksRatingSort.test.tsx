@@ -72,7 +72,8 @@ function listedGames(): string[] {
     screen.queryAllByRole('link')
       .map(a => a.getAttribute('href') ?? '')
       .filter(h => h.includes('/games/'))
-      .map(h => decodeURIComponent(h.split('/games/')[1]!)),
+      // A14.2 - the rating badges link to the same page plus `#ratings`.
+      .map(h => decodeURIComponent(h.split('/games/')[1]!.split('#')[0]!)),
   )];
 }
 
@@ -92,7 +93,12 @@ describe('Picks page - rating column and "Top rated" sort (A14.1)', () => {
     expect(badges.length).toBe(4);
     expect(screen.getAllByText('4.8').length).toBeGreaterThan(0);
     expect(screen.getAllByText('(9)').length).toBeGreaterThan(0);
-    expect(screen.getAllByTitle('Average rating 4.8 from 9 players').length).toBe(2);
+    expect(screen.getAllByTitle('Average rating 4.8 from 9 players - see the ratings').length).toBe(2);
+    // A14.2 - every badge (desktop row and mobile card) links to that game's ratings.
+    const hrefs = badges.map(b => b.getAttribute('href'));
+    expect(badges.every(b => b.tagName === 'A')).toBe(true);
+    expect(hrefs.filter(h => h === '/rating_badge_room/games/Attack%20from%20Mars#ratings').length).toBe(2);
+    expect(hrefs.filter(h => h === '/rating_badge_room/games/Cyclone#ratings').length).toBe(2);
     expect(screen.queryByText('0.0')).not.toBeInTheDocument();
   });
 

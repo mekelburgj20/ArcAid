@@ -8,6 +8,7 @@ import RatedByList, { type RatingInfo } from '../components/RatedByList';
 import PlatformRatings from '../components/PlatformRatings';
 import { engineOptionsFor } from '../lib/engineOptions';
 import TableOwnersLine from '../components/TableOwnersLine';
+import { useScrollToHash } from '../hooks/useScrollToHash';
 import LoadingState from '../components/LoadingState';
 import SubmissionSheet from '../components/SubmissionSheet';
 import ReportProblemModal from '../components/ReportProblemModal';
@@ -200,6 +201,9 @@ export default function GlobalGameDetail() {
 
   // Rating state
   const [ratingInfo, setRatingInfo] = useState<RatingInfo | null>(null);
+  // A14.2 - land a `#ratings` link on the rating block once it has mounted
+  // (it renders only after the ratings fetch AND the game load resolve).
+  useScrollToHash(!!ratingInfo && !loading && !!game);
 
   // Comments state
   const [tips, setTips] = useState<GlobalComment[]>([]);
@@ -666,7 +670,9 @@ export default function GlobalGameDetail() {
                   <Flag size={12} /> Report a problem
                 </button>
               </div>
-              {/* Star rating */}
+              {/* Star rating. A14.2 - `#ratings` is where every rating badge
+                  off this page links to (useScrollToHash scrolls here). */}
+              <div id="ratings" className="scroll-mt-24">
               {ratingInfo && (
                 <div className="flex items-center gap-2 mb-3">
                   <StarRating
@@ -692,6 +698,7 @@ export default function GlobalGameDetail() {
                   onRate={playerToken ? ((platform, n) => handleRateGame(n, platform)) : undefined}
                 />
               )}
+              </div>
               <TableOwnersLine globalGameId={game.id} playerToken={playerToken} />
               {game.description && (
                 <p className="text-sm text-muted mb-4 line-clamp-4">{game.description}</p>

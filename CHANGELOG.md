@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.216.0] - 2026-11-01 - Every rating is a link to the ratings (A14.2)
+
+Owner, 2026-11-01: "the ratings - wherever shown - should be a clickable link that takes you to the game page where
+the ratings are."
+
+### Changed
+- **`RatingBadge` takes a `to`** and renders as a link; every list that shows a rating now points at the page that
+  holds it: the Picks rows and the room admin Game Library cell go to the ROOM game page, My Tables and the Global
+  Scoreboard card footer go to the Global game page, the submission sheet's post-submit "avg" line goes to whichever
+  page it knows, and the player page's Ratings rows deep-link to their game's ratings.
+- **Both game pages anchor their rating block at `#ratings`** (stars, average, Rated by, By platform) and scroll to it
+  once the ratings have loaded (`hooks/useScrollToHash.ts`; React Router does not scroll to a hash by itself).
+
 ## [2.215.0] - 2026-11-01 - Leave a room from the My Rooms page, with the same confirm as the user menu (W84)
 
 Owner, 2026-11-01: "Let's put an option to leave a room next to each room in the 'My Rooms' page. To make it easy to

@@ -332,7 +332,11 @@ export default function MyTables() {
                         )}
                         {(table.rating_count ?? 0) > 0 && (
                           <div className="mt-0.5">
-                            <RatingBadge avg={table.avg_rating} count={table.rating_count} />
+                            <RatingBadge
+                              avg={table.avg_rating}
+                              count={table.rating_count}
+                              to={`/games/${table.global_game_id}#ratings`}
+                            />
                           </div>
                         )}
                       </div>

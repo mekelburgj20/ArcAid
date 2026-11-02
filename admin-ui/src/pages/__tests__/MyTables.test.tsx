@@ -88,7 +88,10 @@ describe('My Tables page (C2)', () => {
     renderPage();
 
     const list = await screen.findByTestId('my-tables-list');
-    const names = within(list).getAllByRole('link').map(a => a.textContent);
+    // Title links only (the rating badge is a link too since A14.2).
+    const names = within(list).getAllByRole('link')
+      .filter(a => a.getAttribute('data-testid') !== 'rating-badge')
+      .map(a => a.textContent);
     expect(names).toEqual(['Attack from Mars', 'Medieval Madness']);
     expect(screen.getByText(/Williams . 1997/)).toBeInTheDocument();
     // No engine chosen -> "any platform".
@@ -105,13 +108,19 @@ describe('My Tables page (C2)', () => {
     renderPage();
 
     const list = await screen.findByTestId('my-tables-list');
-    expect(within(screen.getByTestId('owned-gg-mm')).getByTestId('rating-badge')).toHaveAttribute(
-      'title', 'Average rating 4.5 from 3 players',
-    );
+    const badge = within(screen.getByTestId('owned-gg-mm')).getByTestId('rating-badge');
+    expect(badge).toHaveAttribute('title', 'Average rating 4.5 from 3 players - see the ratings');
+    // A14.2 - the badge links to the Global game page's ratings.
+    expect(badge.tagName).toBe('A');
+    expect(badge).toHaveAttribute('href', '/games/gg-mm#ratings');
     expect(within(screen.getByTestId('owned-gg-afm')).queryByTestId('rating-badge')).not.toBeInTheDocument();
 
-    const names = () => within(screen.getByTestId('my-tables-list')).getAllByRole('link').map(a => a.textContent);
-    expect(within(list).getAllByRole('link').map(a => a.textContent)).toEqual(['Attack from Mars', 'Medieval Madness']);
+    // Title links only (the rating badge is a link too since A14.2).
+    const titleLinks = (root: HTMLElement) => within(root).getAllByRole('link')
+      .filter(a => a.getAttribute('data-testid') !== 'rating-badge')
+      .map(a => a.textContent);
+    const names = () => titleLinks(screen.getByTestId('my-tables-list'));
+    expect(titleLinks(list)).toEqual(['Attack from Mars', 'Medieval Madness']);
 
     const sort = screen.getByTestId('my-tables-sort');
     fireEvent.click(within(sort).getByRole('button', { name: 'Top rated' }));
