@@ -6,6 +6,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.215.0] - 2026-11-01 - Leave a room from the My Rooms page, with the same confirm as the user menu (W84)
+
+Owner, 2026-11-01: "Let's put an option to leave a room next to each room in the 'My Rooms' page. To make it easy to
+leave a room - I know where the option currently lives and let's keep that there too."
+
+### Added
+
+- **A labelled "Leave" button on each `/my-rooms` row.** W21 (2.200.0) removed the one-tap leave ICON from these rows
+  after TomatoGrass hit it on a phone aiming for the title; by owner decision this one is a text button OUTSIDE the row
+  link (a tap on the title can never leave, a tap on the button can never navigate), it opens the SAME confirm dialog
+  the user menu uses ("Leave <room>? You can rejoin any time. Leaving takes this room off My Game Rooms; your scores
+  stay on its boards."), and on confirm the row drops with a toast ("You left <room>. You can rejoin any time."); a
+  failed leave restores the row with an error toast. The user-menu Leave inside the room stays. The dialog strings are
+  duplicated from `PublicLayout` for now (a shared copy module is a follow-up).
+
+---
 ## [2.214.0] - 2026-11-01 - Room-page notices are dismissible, swipe away on touch, and sit top-left on desktop (W83)
 
 Owner, 2026-11-01: "We should have a way to 'X' clear these messages at the top of the rooms. And they should be up at the
