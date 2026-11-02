@@ -7,6 +7,7 @@ import NeonCard from '../components/NeonCard';
 import NeonButton from '../components/NeonButton';
 import LoadingState from '../components/LoadingState';
 import StarRating from '../components/StarRating';
+import RatingBadge from '../components/RatingBadge';
 import CardStyleEditorSheet from '../components/scoreboard/CardStyleEditorSheet';
 import GameInfoModal from '../components/GameInfoModal';
 import RAGameSearch, { type RAImportResult } from '../components/RAGameSearch';
@@ -1677,7 +1678,11 @@ export default function GameLibrary() {
                               <div className="flex items-center gap-1.5">
                                 <StarRating rating={ur} onRate={(r) => handleRate(g.name, r)} />
                                 {cr && cr.rating_count > 0 && (
-                                  <span className="text-xs text-muted">{cr.avg_rating} ({cr.rating_count})</span>
+                                  <RatingBadge
+                                    avg={cr.avg_rating}
+                                    count={cr.rating_count}
+                                    to={`/${room.roomSlug}/games/${encodeURIComponent(g.name)}#ratings`}
+                                  />
                                 )}
                               </div>
                             );

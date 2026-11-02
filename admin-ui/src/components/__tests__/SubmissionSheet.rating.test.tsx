@@ -211,6 +211,26 @@ describe('SubmissionSheet — success-card rating', () => {
         expect(String(get![0])).toBe('/api/rooms/room-1/ratings/Attack%20from%20Mars');
     });
 
+    it('A14.2 - the average caption links to the game page ratings when a slug is known', async () => {
+        signIn();
+        const { container } = renderSheet();
+        await submitScore(container);
+
+        const caption = await screen.findByText(/avg . 4.2 . 9 ratings/);
+        const link = caption.closest('a');
+        expect(link).not.toBeNull();
+        expect(link).toHaveAttribute('href', '/room-1/games/Attack%20from%20Mars#ratings');
+    });
+
+    it('A14.2 - without a slug the average caption stays plain text', async () => {
+        signIn();
+        const { container } = renderSheet({ roomSlug: '' });
+        await submitScore(container);
+
+        const caption = await screen.findByText(/avg . 4.2 . 9 ratings/);
+        expect(caption.closest('a')).toBeNull();
+    });
+
     it('a star tap POSTs the room rating with the viewer headers, then says thanks', async () => {
         signIn();
         const { container, fetchMock } = renderSheet();

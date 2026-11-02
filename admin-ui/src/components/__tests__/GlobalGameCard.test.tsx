@@ -166,8 +166,20 @@ describe('GlobalGameCard - rating in the footer (A14.1)', () => {
     const badge = within(card).getByTestId('rating-badge');
     expect(badge).toHaveTextContent('4.2');
     expect(badge).toHaveTextContent('(7)');
-    expect(badge).toHaveAttribute('title', 'Average rating 4.2 from 7 players');
+    expect(badge).toHaveAttribute('title', 'Average rating 4.2 from 7 players - see the ratings');
     expect(within(card).getByText(/12 scores/)).toContainElement(badge);
+  });
+
+  it('links the badge to the card detail page ratings, hash after the category query (A14.2)', () => {
+    const { card } = renderCard(makeGame({ avg_rating: 4.2, rating_count: 7 }));
+    const badge = within(card).getByTestId('rating-badge');
+    expect(badge.tagName).toBe('A');
+    expect(badge).toHaveAttribute('href', '/games/g1?category=real#ratings');
+  });
+
+  it('links a board-less card BARE plus the hash (A14.2)', () => {
+    const { card } = renderCard(makeGame({ category: null, card_id: 'g1::none', avg_rating: 4.2, rating_count: 7 }));
+    expect(within(card).getByTestId('rating-badge')).toHaveAttribute('href', '/games/g1#ratings');
   });
 
   it('renders no badge when nobody has rated the table', () => {

@@ -1237,6 +1237,16 @@ export default function SubmissionSheet({
                                                 <span className="text-neon-amber">{ratingError}</span>
                                             ) : ratingThanks ? (
                                                 <span className="text-neon-green">Thanks!</span>
+                                            ) : ratingInfo.rating_count > 0 && gamePagePath ? (
+                                                <Link
+                                                    to={`${gamePagePath}#ratings`}
+                                                    onClick={onClose}
+                                                    className="text-muted hover:text-neon-cyan no-underline transition-colors"
+                                                    title="See the ratings on the game page"
+                                                >
+                                                    avg {String.fromCharCode(0x2605)} {ratingInfo.avg_rating.toFixed(1)} {String.fromCharCode(0xb7)} {ratingInfo.rating_count}{' '}
+                                                    {ratingInfo.rating_count === 1 ? 'rating' : 'ratings'}
+                                                </Link>
                                             ) : ratingInfo.rating_count > 0 ? (
                                                 <span className="text-muted">
                                                     avg ★ {ratingInfo.avg_rating.toFixed(1)} · {ratingInfo.rating_count}{' '}

@@ -20,6 +20,7 @@ import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { useRoom } from '../contexts/RoomContext';
 import { getSocket } from '../lib/websocket';
 import { useLiveRefresh } from '../hooks/useLiveRefresh';
+import { useScrollToHash } from '../hooks/useScrollToHash';
 import { decodeViewerClaims, isRoomAdminFor } from '../lib/viewerClaims';
 import { canDeleteRow, deleteConfirmText, deleteScoreHistory } from '../lib/scoreDelete';
 import { canCorrectRow, correctScoreHistory } from '../lib/scoreCorrect';
@@ -337,6 +338,9 @@ export default function GameDetail() {
   })();
   const [loading, setLoading] = useState(true);
   const [ratingInfo, setRatingInfo] = useState<RatingInfo | null>(null);
+  // A14.2 - land a `#ratings` link on the rating block once it has mounted
+  // (it renders only after the ratings fetch AND the page load resolve).
+  useScrollToHash(!!ratingInfo && !loading);
   // Initial 'community' is the safe pre-data default; the leaderboard tab does
   // not exist until `stats` loads. Once stats resolves we default to
   // 'leaderboard' when tournament data exists (see tabInitialized effect below).
@@ -1168,8 +1172,12 @@ export default function GameDetail() {
               )}
             </div>
           )}
+          {/* A14.2 - `#ratings` is where every rating badge off this page
+              links to (useScrollToHash scrolls here). The stars sit in the
+              hero and the named list just below it, so the anchor is the
+              start of the block. */}
           {ratingInfo && (
-            <div className="flex items-center gap-2 mt-1">
+            <div id="ratings" className="flex items-center gap-2 mt-1 scroll-mt-24">
               <StarRating rating={ratingInfo.user_rating || 0} onRate={playerToken ? (n => handleRate(n)) : undefined} size="md" />
               {ratingInfo.rating_count > 0 && (
                 <span className="text-sm text-white/60">{ratingInfo.avg_rating} avg ({ratingInfo.rating_count} rating{ratingInfo.rating_count !== 1 ? 's' : ''})</span>

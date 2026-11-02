@@ -409,7 +409,7 @@ export default function PlayerDetail() {
                 <div key={`room-${r.game_name}-${r.platform ?? ''}`} className="flex items-center gap-3 px-5 py-2.5 border-b border-border/30 last:border-0">
                   <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
                     <Link
-                      to={`/${slug}/games/${encodeURIComponent(r.game_name)}`}
+                      to={`/${slug}/games/${encodeURIComponent(r.game_name)}#ratings`}
                       className="min-w-0 break-words text-primary hover:text-neon-cyan no-underline transition-colors text-sm font-medium"
                     >
                       {r.game_name}
@@ -425,7 +425,7 @@ export default function PlayerDetail() {
                 <div key={`global-${r.global_game_id}-${r.platform ?? ''}`} className="flex items-center gap-3 px-5 py-2.5 border-b border-border/30 last:border-0">
                   <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
                     <Link
-                      to={`/games/${r.global_game_id}`}
+                      to={`/games/${r.global_game_id}#ratings`}
                       className="min-w-0 break-words text-primary hover:text-neon-cyan no-underline transition-colors text-sm font-medium"
                     >
                       {r.name}

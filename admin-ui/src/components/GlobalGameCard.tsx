@@ -644,7 +644,7 @@ export default function GlobalGameCard({ game, onSubmit, onTogglePin, badge, den
           {(game.rating_count ?? 0) > 0 && (
             <>
               {' '}{String.fromCharCode(0xb7)}{' '}
-              <RatingBadge avg={game.avg_rating} count={game.rating_count} />
+              <RatingBadge avg={game.avg_rating} count={game.rating_count} to={`${detailHref}#ratings`} />
             </>
           )}
         </span>

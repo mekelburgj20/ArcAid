@@ -1707,7 +1707,11 @@ export default function Picks() {
                 </div>
                 <div className="flex items-center justify-center text-xs">
                   {(game.rating_count ?? 0) > 0 ? (
-                    <RatingBadge avg={game.avg_rating} count={game.rating_count} />
+                    <RatingBadge
+                      avg={game.avg_rating}
+                      count={game.rating_count}
+                      to={`/${slug}/games/${encodeURIComponent(game.name)}#ratings`}
+                    />
                   ) : (
                     <span className="text-muted">--</span>
                   )}
@@ -1796,7 +1800,12 @@ export default function Picks() {
                         <span className="text-faint text-[10px] leading-tight">cooldown</span>
                       </>
                     )}
-                    <RatingBadge avg={game.avg_rating} count={game.rating_count} className="mt-1" />
+                    <RatingBadge
+                      avg={game.avg_rating}
+                      count={game.rating_count}
+                      className="mt-1"
+                      to={`/${slug}/games/${encodeURIComponent(game.name)}#ratings`}
+                    />
                   </div>
                 </div>
                 <div className="grid grid-cols-3 gap-x-3 gap-y-1 text-[11px]">
