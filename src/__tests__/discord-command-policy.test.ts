@@ -6,12 +6,16 @@ import {
     parseCommandPolicy,
     evaluateCommandPolicy,
     commandPolicyBlockReason,
+    commandPolicyDecision,
+    forceEphemeralReplies,
     serializeCommandPolicy,
     memberRoleIdsOf,
     DISCORD_COMMAND_POLICY_KEY,
 } from '../utils/discordCommandPolicy.js';
+import { MessageFlags } from 'discord.js';
 
 // v2.217.0 (E7) - per-room slash-command policy.
+// v2.218.0 (E9) - per-command ephemeral flag, default private.
 
 const GUILD = '2000000000000000001';
 const CH_A = '3000000000000000001';
@@ -27,8 +31,25 @@ describe('parseCommandPolicy', () => {
             const p = parseCommandPolicy(raw);
             expect(p.defaults).toEqual({ channelIds: [], roleIds: [] });
             expect(p.commands).toEqual({});
-            expect(evaluateCommandPolicy(p, { commandName: 'ping', channelId: CH_A, memberRoleIds: [] })).toEqual({ allowed: true });
+            expect(evaluateCommandPolicy(p, { commandName: 'ping', channelId: CH_A, memberRoleIds: [] })).toEqual({ allowed: true, ephemeral: true });
         }
+    });
+
+    it('ephemeral is true unless the rule says false', () => {
+        const p = parseCommandPolicy(JSON.stringify({
+            commands: { 'list-active': { ephemeral: false }, 'pick-game': { enabled: true }, ping: { ephemeral: 'no' } },
+        }));
+        expect(p.commands['list-active']!.ephemeral).toBe(false);
+        expect(p.commands['pick-game']!.ephemeral).toBe(true);
+        expect(p.commands['ping']!.ephemeral).toBe(true);
+        expect(evaluateCommandPolicy(p, { commandName: 'list-active', channelId: CH_A, memberRoleIds: [] })).toEqual({ allowed: true, ephemeral: false });
+        expect(evaluateCommandPolicy(p, { commandName: 'unlisted', channelId: CH_A, memberRoleIds: [] })).toEqual({ allowed: true, ephemeral: true });
+    });
+
+    it('a visible command keeps the policy from serializing away', () => {
+        const s = serializeCommandPolicy(JSON.stringify({ commands: { ping: { ephemeral: false } } }));
+        expect(JSON.parse(s).commands.ping).toEqual({ enabled: true, channelIds: [], roleIds: [], ephemeral: false });
+        expect(serializeCommandPolicy(JSON.stringify({ commands: { ping: { ephemeral: true } } }))).toBe('');
     });
 
     it('drops ids that are not snowflakes and dedupes', () => {
@@ -49,8 +70,42 @@ describe('parseCommandPolicy', () => {
         const s = serializeCommandPolicy(JSON.stringify({ commands: { ping: { enabled: false, channelIds: ['x'] } } }));
         expect(JSON.parse(s)).toEqual({
             version: 1, defaults: { channelIds: [], roleIds: [] },
-            commands: { ping: { enabled: false, channelIds: [], roleIds: [] } },
+            commands: { ping: { enabled: false, channelIds: [], roleIds: [], ephemeral: true } },
         });
+    });
+});
+
+describe('forceEphemeralReplies', () => {
+    function fakeInteraction() {
+        const calls: Array<{ method: string; options: unknown }> = [];
+        const stub = (method: string) => async function (this: unknown, options?: unknown) {
+            calls.push({ method, options });
+            return `${method}-done`;
+        };
+        return { calls, interaction: { reply: stub('reply'), deferReply: stub('deferReply'), followUp: stub('followUp'), editReply: stub('editReply') } };
+    }
+
+    it('flags reply / deferReply / followUp, leaves editReply alone, forwards the result', async () => {
+        const { calls, interaction } = fakeInteraction();
+        forceEphemeralReplies(interaction);
+        expect(await interaction.reply('Pong!')).toBe('reply-done');
+        await interaction.deferReply();
+        await interaction.followUp({ content: 'later', ephemeral: false });
+        await interaction.editReply({ content: 'edited' });
+        expect(calls[0]).toEqual({ method: 'reply', options: { content: 'Pong!', flags: MessageFlags.Ephemeral } });
+        expect(calls[1]).toEqual({ method: 'deferReply', options: { flags: MessageFlags.Ephemeral } });
+        // The command's own `ephemeral: false` loses; the key is dropped so discord.js never warns.
+        expect(calls[2]).toEqual({ method: 'followUp', options: { content: 'later', flags: MessageFlags.Ephemeral } });
+        expect(calls[3]).toEqual({ method: 'editReply', options: { content: 'edited' } });
+    });
+
+    it('keeps flags a command already set and never mutates the caller\'s object', async () => {
+        const { calls, interaction } = fakeInteraction();
+        forceEphemeralReplies(interaction);
+        const mine = { content: 'quiet', flags: MessageFlags.SuppressEmbeds, ephemeral: true };
+        await interaction.reply(mine);
+        expect(calls[0]!.options).toEqual({ content: 'quiet', flags: MessageFlags.SuppressEmbeds | MessageFlags.Ephemeral });
+        expect(mine).toEqual({ content: 'quiet', flags: MessageFlags.SuppressEmbeds, ephemeral: true });
     });
 });
 
@@ -140,6 +195,30 @@ describe('commandPolicyBlockReason', () => {
         await room('cp-a', 'Alpha', { commands: { ping: { enabled: false } } });
         await room('cp-b', 'Beta');
         expect(await commandPolicyBlockReason(GUILD, 'u', 'ping', CH_A, [], noRoles)).toBeNull();
+    });
+
+    it('ephemeral by default: unlinked guild, no policy, and a refusal', async () => {
+        expect(await commandPolicyDecision('2999999999999999999', 'u', 'ping', CH_A, [], noRoles)).toEqual({ refusal: null, ephemeral: true });
+        await room('cp-e-none', 'No Policy');
+        expect(await commandPolicyDecision(GUILD, 'u', 'ping', CH_A, [], noRoles)).toEqual({ refusal: null, ephemeral: true });
+    });
+
+    it('a room that flips a command to visible makes it visible', async () => {
+        await room('cp-e-vis', 'Visible', { commands: { 'list-active': { ephemeral: false } } });
+        expect(await commandPolicyDecision(GUILD, 'u', 'list-active', CH_A, [], noRoles)).toEqual({ refusal: null, ephemeral: false });
+        expect(await commandPolicyDecision(GUILD, 'u', 'ping', CH_A, [], noRoles)).toEqual({ refusal: null, ephemeral: true });
+    });
+
+    it('multi-room guild: visible only when EVERY allowing room says so', async () => {
+        await room('cp-e-a', 'Alpha', { commands: { ping: { ephemeral: false } } });
+        await room('cp-e-b', 'Beta');
+        expect(await commandPolicyDecision(GUILD, 'u', 'ping', CH_A, [], noRoles)).toEqual({ refusal: null, ephemeral: true });
+    });
+
+    it('multi-room guild: a room that REFUSES the command has no say in its visibility', async () => {
+        await room('cp-e-c', 'Charlie', { commands: { ping: { ephemeral: false } } });
+        await room('cp-e-d', 'Delta', { commands: { ping: { enabled: false } } });
+        expect(await commandPolicyDecision(GUILD, 'u', 'ping', CH_A, [], noRoles)).toEqual({ refusal: null, ephemeral: false });
     });
 
     it('multi-room guild: all refuse -> first room by name gives the reason', async () => {

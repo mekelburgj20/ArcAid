@@ -371,17 +371,19 @@ export const pickgame: Command = {
                     engine.reorderIScoredLineup().catch(() => {});
 
                     // v2.155.7 — the tournament channel gets the same "Now
-                    // Active" embed a web pick posts. The public "Picked!"
-                    // reply below already lands in the INVOKING channel, so
-                    // when that is the announcement channel the helper skips —
-                    // one message, not two.
+                    // Active" embed a web pick posts. When the "Picked!"
+                    // reply below is PUBLIC and lands in the announcement
+                    // channel the helper skips — one message, not two.
+                    // v2.218.0 (E9) — replies are ephemeral unless the room
+                    // made /pick-game visible; an ephemeral reply is no
+                    // announcement, so the channel must still get the embed.
                     engine.announceGameActivated({
                         tournamentId: tournament.id,
                         gameName: gameName!,
                         pickerId: userId,
                         pickerLabel: interaction.user.displayName,
                         wonGameId: heldPick?.won_game_id ?? null,
-                        skipChannelId: interaction.channelId,
+                        skipChannelId: interaction.ephemeral ? undefined : interaction.channelId,
                     }).catch(err => logError('Failed to announce /pick-game activation:', err));
                 }
 

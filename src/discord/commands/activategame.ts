@@ -189,12 +189,13 @@ export const activategame: Command = {
 
             // v2.155.7 — same channel announcement as the admin page and the
             // pick paths. Skipped when this command was typed in the
-            // announcement channel itself (the public reply below is already
-            // there).
+            // announcement channel itself AND the reply below is public
+            // (v2.218.0, E9: replies are ephemeral unless the room made
+            // /activate-game visible, and an ephemeral reply announces nothing).
             engine.announceGameActivated({
                 tournamentId: tournament.id,
                 gameName,
-                skipChannelId: interaction.channelId,
+                skipChannelId: interaction.ephemeral ? undefined : interaction.channelId,
             }).catch(err => logError('Failed to announce /activate-game activation:', err));
 
             const color = getTournamentColor(tournament.type);

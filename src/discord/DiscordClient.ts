@@ -319,6 +319,7 @@ export class DiscordClient {
             // DM interactions (no guildId) and guilds not linked to any room
             // fall through to normal handling. See `guildInteractionBlockReason`
             // for the combined check (extracted for unit-testability).
+            let ephemeral = true;
             if (interaction.guildId) {
                 try {
                     const { guildInteractionBlockReason } = await import('../utils/discord.js');
@@ -333,19 +334,36 @@ export class DiscordClient {
 
                 // v2.217.0 (E7) - the room's slash-command policy (enabled /
                 // channel / role locks set in Room Settings). The ONE gate is
-                // `commandPolicyBlockReason`; any error allows the command.
+                // `commandPolicyDecision`; any error allows the command.
+                // v2.218.0 (E9) - the same decision says whether the room
+                // flipped this command to visible; the default is ephemeral.
                 try {
-                    const { commandPolicyBlockReason, memberRoleIdsOf } = await import('../utils/discordCommandPolicy.js');
-                    const refused = await commandPolicyBlockReason(
+                    const { commandPolicyDecision, memberRoleIdsOf } = await import('../utils/discordCommandPolicy.js');
+                    const decision = await commandPolicyDecision(
                         interaction.guildId, interaction.user.id, interaction.commandName,
                         interaction.channelId, memberRoleIdsOf(interaction.member),
                     );
-                    if (refused) {
-                        await interaction.reply({ content: refused, ephemeral: true });
+                    if (decision.refusal) {
+                        await interaction.reply({ content: decision.refusal, ephemeral: true });
                         return;
                     }
+                    ephemeral = decision.ephemeral;
                 } catch (policyErr) {
                     logError('Discord command-policy check failed - allowing command:', policyErr);
+                }
+            }
+
+            // v2.218.0 (E9, Mox 2026-11-02): every slash command answers
+            // privately unless the room made it visible. Wrapping the
+            // interaction here covers all 23 commands' reply / deferReply /
+            // followUp calls without touching them; their channel.send
+            // announcements are unaffected. DMs and unlinked guilds stay private.
+            if (ephemeral) {
+                try {
+                    const { forceEphemeralReplies } = await import('../utils/discordCommandPolicy.js');
+                    forceEphemeralReplies(interaction);
+                } catch (wrapErr) {
+                    logError('Could not apply ephemeral replies - running the command as is:', wrapErr);
                 }
             }
 

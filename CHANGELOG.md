@@ -6,6 +6,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.218.0] - 2026-11-02 - Slash-command replies are private by default, with a per-command "Visible to everyone" switch (E9)
+
+Mox, 2026-11-02, in the Arcaid Discord: "could you make an option for ephemeral messages on user-run commands? ...
+If someone decides to spam a command, even with cmd cooldowns, nobody else needs to see them." Owner: default
+every slash command to ephemeral and add a toggle to make it visible.
+
+### Changed
+- **Every Arcaid slash command now answers privately** (Discord "ephemeral": only the person who ran it sees the
+  reply) in every server, including DMs and servers no room is linked to. This is a behaviour change for existing
+  rooms: a `/list-scores` or `/submit-score` confirmation that used to post in the channel is now private until the
+  room flips it. Channel announcements the commands post themselves (the pick activation embed, the nominee
+  onboarding post) are not replies and are unchanged.
+- **Room Settings → Discord → Slash commands** gains a "Visible to everyone" checkbox per command (instant-save, like
+  the rest of that card). Ticking it leaves the command's replies exactly as they were before this version — a
+  command's own error replies that were already ephemeral stay ephemeral.
+- **How it is enforced.** The policy's `commandPolicyDecision` (the former `commandPolicyBlockReason`, which remains
+  as its refusal half) returns `{refusal, ephemeral}`; when ephemeral, `forceEphemeralReplies` wraps the
+  interaction's `reply` / `deferReply` / `followUp` before the command runs, so all 23 commands are covered
+  without touching one of them (`editReply` inherits the deferred flag; component `update()`s keep the parent
+  message's visibility). The flag is emitted as `flags: MessageFlags.Ephemeral` (discord.js 14.17+ deprecates
+  `ephemeral: true`) and any `ephemeral` key the command passed is dropped from the wrapped call.
+- **Storage.** `DISCORD_COMMAND_POLICY` command rules gain `ephemeral` (absent = true; `false` is the only value that
+  changes anything). A rule that is enabled, unlocked and ephemeral is still a no-op row. A guild linked to several
+  rooms shows a command publicly only when EVERY room that allows it says visible.
+- **`/pick-game` and `/activate-game` still announce in the channel they were typed in.** Both skipped the "Now
+  Active" embed there because their public reply already sat in that channel (v2.155.7); they now skip only when
+  the reply is actually public (`interaction.ephemeral`, which discord.js sets at defer time), so a private pick in
+  the announcement channel still tells the channel the game went live (found in review before merge).
+
 ## [2.217.2] - 2026-11-02 - CLAUDE.md split into an always-on spine plus path-scoped rule files (H8)
 
 Owner, 2026-11-02: CLAUDE.md had grown to 153k chars (312 lines, 169 version stamps, 46 dated incidents, one 7,283-char
