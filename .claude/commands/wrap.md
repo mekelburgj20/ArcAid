@@ -43,7 +43,8 @@ Only for the files the session changed, check the doc that describes them:
 
 | Changed | Check |
 |---|---|
-| a module's shape, a command, a gotcha | `CLAUDE.md` (architecture / commands / working agreement) |
+| a module's shape, a gotcha, a domain invariant | the domain's `.claude/rules/<domain>.md` (the index at the top of `CLAUDE.md` says which); write the rule plus a `(vX.Y.Z, ADR NNNN)` pointer, never the incident story |
+| a cross-cutting invariant (every submit path, every importer, every Discord command…), a command, the working agreement, an owner ruling | `CLAUDE.md` — one line, under its existing section; then `npm run docs:check` must still pass (40k chars / 200 lines; rule files 40k each) |
 | user-visible behaviour | `README.md` (features), tester-facing docs |
 | a design the item points at (`spec:`) | that doc: mark what shipped, move open questions into items |
 | the wire format or a journal/protocol file | the spec doc + a fixture, and a version bump |
@@ -56,6 +57,7 @@ Fix what you find. Anything larger than a few lines becomes an item under the do
 
 ```
 npm run work:check          # grammar, duplicate ids, dangling needs, stale claims — must pass
+npm run docs:check          # CLAUDE.md + .claude/rules size budget — must pass (CI runs it too)
 npm run work:board          # tmp/work-board.html (gitignored)
 ```
 
@@ -79,7 +81,7 @@ per item whose status changed. Push. Doc-only pushes skip deploys in both repos.
 - Doc-only commits skip the deploy (`paths-ignore` in `deploy.yml`); add `[skip ci]` to a pure
   tracker commit so the test job skips too.
 - `ROADMAP.md`, `LAUNCH.md` and `SPRINT_STATUS.md` are frozen archives: items point into them with
-  `spec:`; never append to them. Standing facts go in `CLAUDE.md`; a session narrative goes nowhere
-  but the commit message.
+  `spec:`; never append to them. Standing facts go in the domain's `.claude/rules/<domain>.md`
+  (cross-cutting ones in `CLAUDE.md`); a session narrative goes nowhere but the commit message.
 - The ArcAid Witness / Castcade work is section W here and section F in
   `C:\code\repos\castcade\WORK.md`; when one side ships, flip the mirror line on the other side.

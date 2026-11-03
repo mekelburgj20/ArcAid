@@ -6,6 +6,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.217.2] - 2026-11-02 - CLAUDE.md split into an always-on spine plus path-scoped rule files (H8)
+
+Owner, 2026-11-02: CLAUDE.md had grown to 153k chars (312 lines, 169 version stamps, 46 dated incidents, one 7,283-char
+paragraph); every session paid for all of it and the docs target is under 200 lines. No user-facing change.
+
+### Changed
+- **`CLAUDE.md` is now ~24k chars / ~135 lines:** working agreement, a rules index, stack, architecture map, the data
+  model in one screen, the cross-cutting invariants (the "adding a submit path" checklist, the one-gate / one-parser
+  rules, the read-time name resolution doctrine), an **owner-rulings table** (the one `/wrap` already told agents to
+  write to and which never existed), database, build gotchas, deployment, cross-references.
+- **Nine `.claude/rules/*.md` files carry the domain detail** and load only when a matching file is read or edited
+  (`paths:` frontmatter): `scores-identity` (27.6k), `witness` (30.7k), `events` (15.8k), `catalogue` (16.8k),
+  `rooms-tournaments` (12.4k), `admin-ui` (12.7k), `atgames` (9.4k), `discord` (9.2k), `iscored` (7.9k). The move
+  kept every rule and every identifier: of 1,609 unique backticked identifiers in the old file, 18 are gone, all
+  pre-fix history (the old `void` return, `hasOpenSlot`, the 2026-08-30 example score, `jammy`); of 166 ONE / never /
+  must sentences, none lost a rule. Incident stories became a clause plus a `(vX.Y.Z, ADR NNNN)` pointer; the stories
+  stay in this file and in `docs/decisions/`.
+- **`npm run docs:check`** (`tools/docs-budget.mjs`) fails when `CLAUDE.md` exceeds 40,000 chars or 200 lines, when a
+  rule file exceeds 40,000 chars (Claude Code truncates a rule file above that) or lacks `paths:`; `deploy.yml` runs
+  it in the `test` job beside `work:check`.
+- **`/wrap` routes new facts to the domain's rule file**; `CLAUDE.md` takes only a cross-cutting invariant, a map
+  entry, a command or an owner ruling, and `docs:check` must still pass.
+
 ## [2.217.1] - 2026-11-01 - An over-the-limit attempt no longer counts as a used attempt (W85)
 
 TomatoGrass, Discord 2026-11-01: "I played 10 games since my 5 Congo attempts, it didn't submit the scores but it says I
