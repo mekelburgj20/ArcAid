@@ -77,6 +77,9 @@ jobs:
       - name: WORK.md is well-formed (the live tracker; grammar in .claude/commands/work.md)
         run: npm run work:check
 
+      - name: CLAUDE.md and .claude/rules stay inside the agent-context budget
+        run: npm run docs:check
+
       - name: Install admin-ui deps
         working-directory: admin-ui
         run: npm ci

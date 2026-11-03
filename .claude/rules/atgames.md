@@ -1,0 +1,50 @@
+---
+paths:
+  - "src/services/AtGames*.ts"
+  - "src/services/atgamesStudioOverrides.ts"
+  - "src/services/EventService.ts"
+  - "src/utils/discord.ts"
+  - "admin-ui/src/components/EventRoundsPanel*.tsx"
+  - "admin-ui/src/components/EventSettingsFields*.tsx"
+  - "admin-ui/src/components/EventBanner*.tsx"
+  - "admin-ui/src/components/DismissibleNotice*.tsx"
+  - "admin-ui/src/components/WitnessScoresGoTo*.tsx"
+  - "admin-ui/src/lib/roomNotices*.ts"
+---
+# AtGames event score sync and account link — rules
+
+Loads when you touch the AtGames event-sync / identity-link services or the event admin UI. The AtGames admin routes live in `src/api/routes/rooms.ts` and the `/api/auth/link/atgames` routes in `src/api/routes/auth.ts` (shared files, not scoped here). Cross-cutting invariants live in the root CLAUDE.md; this file is the detail for this domain.
+
+## Overview and auth
+- **Event rounds can source scores from an AtGames private tournament** instead of phone re-entry: the cabinet posts to AtGames, `AtGamesEventSyncService` reads AtGames (v2.138.0 / v2.139.0, P7). Separate from `AtGamesApiClient` (public catalogue, no auth); the authenticated half is `AtGamesPrivateClient`.
+- **Auth contract.** `POST /api/arcadenet/api/account/login {email,password}` -> take `account.token`; if absent, `POST /api/arcadenet/api/account/sign_in` forwarding login's cookies. Every `/api/retro/api/v1/...` call carries `Authorization: Bearer <token>` **and** `fp: <device-uuid>`. The token is a self-contained HS256 JWT (`{id, email, user_name, full_name, exp}`, ~7-day life), so the account id needs no lookup; a 401 triggers **exactly one** re-login. Sessions are cached per lowercased email, in-process only. **Never log the token, the password, or an unmasked email.**
+- **Creds are per-room and room-only** (`ATGAMES_ENABLED`/`_EMAIL`/`_PASSWORD`/`_DEVICE_FP` in `game_room_settings`; password on the `ENCRYPTED_SETTING_KEYS` allowlist). **No env fallback on purpose** — a server-wide account would sign every room in as one person. Partial config = OFF + WARN, same rule as iScored. `ATGAMES_DEVICE_FP` is minted once and persisted; a fresh uuid per boot reads as a new device to AtGames.
+- **Never let a non-401 axios error escape `AtGamesPrivateClient` raw.** `AtGamesApiError` carries AtGames' response body up to the admin (`ATGAMES_REJECTED`, 502); the create payload contract was reverse-engineered, so their body text is the diagnostic (v2.140.1).
+
+## Scores and window
+- **`score_history.source = 'atgames'` is the fourth value** (migration 167, a `score_history` rebuild). `'tournament'` claims Arcaid saw the submit, `'sync'` means iScored and forces unknown provenance (ADR 0016 P2) while these rows know their cabinet, `'community'` means outside a tournament window. Reusing one makes "which of these did we witness?" unanswerable forever.
+- **The window is server-enforced against AtGames' timestamp**, through the SAME `eventEndGraceSec` helper the gate and `EventScheduler` use. `parseAtGamesTimestamp` exists because AtGames sends `"2026-08-23 20:54:42.0"` with **no zone** — `Date.parse` would read it as local time and shift every score by the server's offset.
+- **Rounds match on (catalogue game, window)**, joined via `global_games.atgames_id`. Same table in two rounds resolves by timestamp; an unmatched AtGames game is counted and named, never guessed at.
+- **Exit-to-submit means `created_at` is when the player LEFT the table.** It proves a score landed inside the window and nothing else; play duration stays unknowable until P8's on-device witness; never describe it as more. **AtGames does NOT filter gear-up** (owner-tested on hardware 2026-08-25: a game started before the window and exited inside it is accepted), so nothing upstream helps.
+- **Ingest is idempotent** (the `ScoreHistoryService.log` dedup), so a host may press sync repeatedly. **The dry run (Preview) and the real write share ONE dedup predicate**, `ScoreHistoryService.isDuplicate` (extracted from `log`) — never re-implement it, or the preview disagrees with the run it previews.
+- **Deliberately absent:** automatic polling on the round clock, and any AtGames-side write other than `createForTournament`. Global Scoreboard fan-out applies (reversed in v2.153.0, ADR 0023) but only for a LINKED account: an unlinked `atgames:<id>` credits nobody and stays on the room board alone.
+- **`'atgames'` (and `'vpx'`) rows ARE deletable per-row** (v2.156.0, ADR 0024): the delete writes an `auto_score_suppressions` tombstone that the next pull's shared `isDuplicate` honours, so the row cannot be resurrected.
+
+## Identity
+- **Identity is a link, never a name match.** `atgames:<account id>` -> `user_identity_links`. Unlinked scores still land (complete board) with `submitted_by_user_id = NULL` and the synthetic id in `discord_user_id`; `normalizeSubmitterUserId` rejects `atgames:*` alongside `iscored:*` (v2.125.2).
+- **`AtGamesIdentityService` owns the link** (no new table — an AtGames account is a provider identity nobody logs in with). `linkAccount` claims already-ingested rows behind the SAME freeze gate `MergeService.previewMerge` uses (skip rows in an `is_active = 0` tournament), refuses a re-point with `LINK_CONFLICT` rather than last-write-wins, is idempotent for the same target, and invalidates identity caches only when rows actually moved. `unlinkAccount` re-anonymises `source='atgames'` rows ONLY. The room-admin route bounds a global write by requiring the target to be a member of that room (same asymmetry as iScored claim approval).
+- **Players self-link at Account Settings -> "AtGames cabinet account"** (`POST/DELETE /api/auth/link/atgames`): ownership is proven by ONE in-flight AtGames sign-in, only the `atgames:<id>` row is kept — NEVER store the password. Self-link and admin "Who is who" both funnel into `AtGamesIdentityService.linkAccount`, so guard/claim behaviour cannot fork. The Account Settings Google list filters `atgames:*` rows OUT (their unlink must re-anonymise via the dedicated endpoint, not the generic row delete).
+- **Who-is-who link authorization and picker are members ∪ this event's participants** (a fresh test room has NO members; the hand-added admin is a participant).
+
+## Host controls
+- **Credentials live on the room Settings page** (`ATGAMES_ENABLED` toggle + the two cred fields); `ATGAMES_DEVICE_FP` is claimed by `managedKeys` so it never renders as an editable input. The AtGames section in `EventRoundsPanel`: id field, **Preview**, **Pull scores**, a per-score verdict list, and the "Who is who" account linker.
+- **`AtGamesEventSyncService.resolveAtGamesId`** accepts an INVITATION CODE (or name) where the numeric id belongs, resolves it via `listPrivateTournaments`, and writes the numeric id back.
+- **`createForTournament` creates the AtGames tournament FROM the event** (v2.140.0/v2.141.0). Confirmed create contract: `{name,startDate,endDate,gameIds}` ISO UTC; window = first round start -> last round end + `eventEndGraceSec`; gameIds via the same `mapRoundsToAtGamesIds`. AtGames 400s a PAST startDate, so it clamps start to now+60s and refuses an already-over event; refuses when already linked; names unresolvable games in the error.
+- **Participant add accepts `@username`.** `@` demands resolution; a bare string resolves only on exactly-one match and otherwise passes through as a raw id (test fixtures and `google:*` ids arrive that way); ambiguity is a 409, never a guess.
+
+## Event admin and notices (cross-cutting for event UI)
+- **The `'none'` announcement sentinel.** `tournaments.discord_channel_id = 'none'` is the per-tournament "don't announce" sentinel, honoured ONLY inside `resolveAnnouncementChannelId` (`ANNOUNCE_NONE` in `src/utils/discord.ts`). `EventScheduler.announce` routes through that resolver too (its old local fallback chain let a test event post into a live channel). Never compare against `'none'` anywhere else.
+- **`EventService.createOrUpdateEvent` REOPENS a finished event** when the save includes a round whose window is still ahead (clears `event_finished_at`/`event_result`, sets `is_active = 1`). Finishing recomputes the result from `score_history`, so clearing loses nothing.
+- **Round/check-in times use the local `DateTimeField`** in `EventSettingsFields` (date input + hour/minute selects), not `datetime-local` — Chrome's native time wheel skips values when scrolled. Off-step stored minutes render as themselves, never snapped. Each round is a labelled Start + End pair (`RoundDraft.endLocal`; owner ruling 2026-10-22); the duration is a caption, never an input.
+- **Event discovery:** `EventBanner` renders from `PublicLayout` (beside `NotificationNudgeBanner`, suppressed on `/events/` paths) off the public tournaments list — do not add per-page copies. Event + Throwdown login offers BOTH IdPs.
+- **Room-page notices are dismissible** (v2.214.0, W83): the `EventBanner` cards and the room-mode `WitnessScoresGoTo` lines are wrapped in `components/DismissibleNotice.tsx` (always an X; touch-only swipe) inside ONE compact `lg:max-w-sm` column in `PublicLayout`. Dismissal is per browser and keyed on the notice's CONTENT through `lib/roomNotices.ts` (event id + live state, device + routing answer, 7 days), so a changed answer comes back. A new room-page notice goes in that column through the same wrapper and key builders, never a bare card.
