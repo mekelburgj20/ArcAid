@@ -31,7 +31,11 @@ interface Rule {
   enabled: boolean;
   channelIds: string[];
   roleIds: string[];
+  /** v2.218.0 (E9): absent = true; replies are private to whoever ran the command. */
+  ephemeral: boolean;
 }
+
+const DEFAULT_RULE: Rule = { enabled: true, channelIds: [], roleIds: [], ephemeral: true };
 
 interface Policy {
   version: 1;
@@ -65,17 +69,22 @@ function parsePolicy(raw: string | undefined): Policy {
   if (isObj(parsed.commands)) {
     for (const [name, rule] of Object.entries(parsed.commands)) {
       if (!isObj(rule)) continue;
-      policy.commands[name] = { enabled: rule.enabled !== false, channelIds: ids(rule.channelIds), roleIds: ids(rule.roleIds) };
+      policy.commands[name] = {
+        enabled: rule.enabled !== false,
+        channelIds: ids(rule.channelIds),
+        roleIds: ids(rule.roleIds),
+        ephemeral: rule.ephemeral !== false,
+      };
     }
   }
   return policy;
 }
 
-/** '' (row removed) when nothing is restricted; drops no-op command rows. */
+/** '' (row removed) when nothing is restricted or made visible; drops no-op command rows. */
 function serializePolicy(policy: Policy): string {
   const commands: Record<string, Rule> = {};
   for (const [name, rule] of Object.entries(policy.commands)) {
-    if (!rule.enabled || rule.channelIds.length > 0 || rule.roleIds.length > 0) commands[name] = rule;
+    if (!rule.enabled || !rule.ephemeral || rule.channelIds.length > 0 || rule.roleIds.length > 0) commands[name] = rule;
   }
   const empty = policy.defaults.channelIds.length === 0 && policy.defaults.roleIds.length === 0
     && Object.keys(commands).length === 0;
@@ -188,8 +197,7 @@ export default function DiscordCommandPolicy({ roomId, settings, onSaveNow }: Pr
     onSaveNow({ [DISCORD_COMMAND_POLICY_KEY]: value });
   };
 
-  const ruleFor = (name: string): Rule =>
-    policy.commands[name] ?? { enabled: true, channelIds: [], roleIds: [] };
+  const ruleFor = (name: string): Rule => policy.commands[name] ?? DEFAULT_RULE;
 
   const updateRule = (name: string, patch: Partial<Rule>) =>
     save({ ...policy, commands: { ...policy.commands, [name]: { ...ruleFor(name), ...patch } } });
@@ -203,6 +211,7 @@ export default function DiscordCommandPolicy({ roomId, settings, onSaveNow }: Pr
         <p className="text-sm font-medium text-primary">Slash commands</p>
         <p className="text-xs text-muted">
           Choose which Arcaid commands the bot answers in your server, and limit them to roles or channels. Leave a list empty to allow any.
+          Replies are private to the person who ran the command unless you turn on &ldquo;Visible to everyone&rdquo; for it.
         </p>
       </div>
 
@@ -261,6 +270,16 @@ export default function DiscordCommandPolicy({ roomId, settings, onSaveNow }: Pr
                   </button>
                 </div>
                 <div className={`flex flex-col sm:flex-row sm:gap-3 ${rule.enabled ? '' : 'opacity-50 pointer-events-none'}`} aria-disabled={!rule.enabled}>
+                  <label className="flex items-center gap-2 text-xs text-muted cursor-pointer min-h-[44px] shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={!rule.ephemeral}
+                      onChange={() => updateRule(cmd.name, { ephemeral: !rule.ephemeral })}
+                      aria-label={`Show /${cmd.name} replies to everyone`}
+                      data-testid={`command-policy-visible-${cmd.name}`}
+                    />
+                    <span>Visible to everyone</span>
+                  </label>
                   <MultiPick
                     label="Channels"
                     emptyText="Using defaults"

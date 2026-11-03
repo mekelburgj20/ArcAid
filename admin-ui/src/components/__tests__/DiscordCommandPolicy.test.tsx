@@ -59,8 +59,28 @@ describe('DiscordCommandPolicy', () => {
     expect(JSON.parse(patch[DISCORD_COMMAND_POLICY_KEY])).toEqual({
       version: 1,
       defaults: { channelIds: [], roleIds: [] },
-      commands: { 'pick-game': { enabled: false, channelIds: [], roleIds: [] } },
+      commands: { 'pick-game': { enabled: false, channelIds: [], roleIds: [], ephemeral: true } },
     });
+  });
+
+  it('replies are private by default; "Visible to everyone" saves ephemeral:false and back to nothing', async () => {
+    const onSaveNow = vi.fn();
+    const { rerender } = render(<DiscordCommandPolicy roomId="r1" settings={{}} onSaveNow={onSaveNow} />);
+    const visible = await screen.findByRole('checkbox', { name: 'Show /list-active replies to everyone' });
+    expect(visible).not.toBeChecked();
+    fireEvent.click(visible);
+    expect(onSaveNow).toHaveBeenCalledTimes(1);
+    const patch = onSaveNow.mock.calls[0][0] as Record<string, string>;
+    expect(JSON.parse(patch[DISCORD_COMMAND_POLICY_KEY])).toEqual({
+      version: 1,
+      defaults: { channelIds: [], roleIds: [] },
+      commands: { 'list-active': { enabled: true, channelIds: [], roleIds: [], ephemeral: false } },
+    });
+    rerender(<DiscordCommandPolicy roomId="r1" settings={{ [DISCORD_COMMAND_POLICY_KEY]: patch[DISCORD_COMMAND_POLICY_KEY] }} onSaveNow={onSaveNow} />);
+    const now = screen.getByRole('checkbox', { name: 'Show /list-active replies to everyone' });
+    expect(now).toBeChecked();
+    fireEvent.click(now);
+    expect(onSaveNow).toHaveBeenLastCalledWith({ [DISCORD_COMMAND_POLICY_KEY]: '' });
   });
 
   it('turning the last restriction back on clears the key', async () => {
