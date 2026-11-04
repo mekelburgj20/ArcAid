@@ -278,6 +278,10 @@ export class RotationAuditService {
             add(actorIdentity(e.actor));
             add(e.queue_owner);
             for (const k of IDENTITY_DETAIL_KEYS) add(e.details?.[k]);
+            // v2.219.0 (ADR 0036): a Tier 1 auto-pick credits the queues that
+            // chose it — `details.autoPick.contributors` is a list of ids.
+            const autoPick = e.details?.autoPick as { contributors?: unknown } | undefined;
+            if (autoPick && Array.isArray(autoPick.contributors)) autoPick.contributors.forEach(add);
         }
         // v2.162.2 — the lookup is the shared id-keyed label rule.
         return resolveUserLabels(ids);

@@ -66,3 +66,4 @@ You do **not** need an ADR for routine bug fixes, code style preferences, or any
 | 0033 | [Room membership is tournament entry; misses go to Global with a reason](0033-room-membership-is-tournament-entry.md) | accepted (built W37–W39, v2.175.0–v2.179.0) | 2026-10-25 |
 | 0034 | [The room owner decides whether a room is listed](0034-room-owner-decides-listing.md) | accepted | 2026-10-30 |
 | 0035 | [A star is a star: one rating store per catalogue table, with a platform axis](0035-a-star-is-a-star.md) | accepted (built v2.207.0) | 2026-10-31 |
+| 0036 | [Auto-pick is ranked choice over the room's queues, then a weighted roam](0036-auto-pick-ranked-choice.md) | accepted (built v2.219.0) | 2026-11-03 |
