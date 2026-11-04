@@ -99,6 +99,26 @@ describe('RotationLogPanel', () => {
     expect(screen.getByText(new RegExp(`${UNKNOWN} got a runner-up pick window`))).toBeTruthy();
   });
 
+  it('credits the queues behind a ranked-choice auto-pick by name (v2.219.0, ADR 0036)', async () => {
+    const ID_A = '698435672586846228';
+    const ID_B = '583104017840996363';
+    const UNKNOWN = '999999999999999999';
+    stubFetch([{
+      events: [ev({
+        id: 5, source: 'auto_pick',
+        details: { replacedGame: 'Bad Cats', autoPick: { tier: 1, points: 5, contributors: [ID_A, ID_B, UNKNOWN] } },
+      })],
+      nextCursor: null,
+      names: { [ID_A]: 'mekelburgj', [ID_B]: 'bofgi' },
+    } as { events: unknown[]; nextCursor: string | null }]);
+    renderPanel();
+
+    const line = await screen.findByText(/Activated Attack from Mars/);
+    expect(line.textContent).toContain('by auto-pick from the queues of mekelburgj, bofgi and a member');
+    expect(line.textContent).not.toContain(UNKNOWN);
+    expect(line.textContent).toContain('replacing Bad Cats');
+  });
+
   it('renders a readable line for winner, hand-off and pick-window rows', async () => {
     stubFetch([{
       events: [

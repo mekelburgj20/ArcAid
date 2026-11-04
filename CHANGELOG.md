@@ -6,6 +6,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.219.0] - 2026-11-03 - Auto-pick chooses by ranked choice over the room's queues, then a weighted roam (A25)
+
+Owner, 2026-11-03: auto-pick felt like a dart board. When nobody picked the next table, Arcaid drew one
+at random from every eligible table in the catalogue, ignoring what the room's players had queued.
+
+### Changed
+- **Auto-pick now asks the room's queues first.** Every player's queue in the tournament is a ranked ballot:
+  their first three tables that are eligible right now score 3, 2 and 1 points, and the table with the most
+  points across everyone's queues wins. A queued table that is still on cooldown is skipped (it keeps its
+  hold), so the player's next table moves up instead of their vote being wasted; a table queued twice counts
+  once. Ties go to the better-rated, more-played table, then to whichever was queued first. The same queues
+  always give the same pick. A simulation against the production database put Attack from Mars at 10 points
+  from 4 queues against Space Shuttle Deluxe at 2.
+- **The queues that chose it spend that pick.** Each contributing player's queued row for the winning table is
+  removed, their queue renumbers, and the "queue running low" reminder fires as for any other engine pick. The
+  channel post credits them: "**Attack from Mars** has been auto-selected for **Daily Grind** from the queues
+  of A, B and C." Names come from the player's profile; a player with none reads "a member". Nobody is pinged.
+  The timed-out version keeps its "All pickers timed out!" opening.
+- **When nobody's queue has an eligible table, the roam is weighted, not flat.** Each table's chance grows with
+  its star rating (averaged per player, pulled toward the site-wide average by five imaginary votes so one
+  5-star does not dominate; unrated tables count as average) and with how many different players in this room
+  have ever posted a score on it.
+- **Benched tables** are only drawn when nothing else is left: a table a member of this room rated 2 stars or
+  lower (unless at least three players average 3 or better), or, once a tournament has run 10 rounds, a table
+  whose last run drew less than half the usual turnout.
+- **Rotation log:** an auto-pick that came from the queues reads "Activated Attack from Mars by auto-pick from
+  the queues of A, B and C". The audit row's `details.autoPick` records the tier, points, contributors, the top
+  five of the tally, the weight, any bench reason and the pool size; contributor ids resolve to names at read.
+- Both auto-pick sites keep their existing filters (mode, platform rules, cooldown) unchanged and share one
+  ranking (`src/utils/autoPickRanking.ts`, signals from `AutoPickSignalService`). ADR 0036.
+
 ## [2.218.0] - 2026-11-02 - Slash-command replies are private by default, with a per-command "Visible to everyone" switch (E9)
 
 Mox, 2026-11-02, in the Arcaid Discord: "could you make an option for ephemeral messages on user-run commands? ...

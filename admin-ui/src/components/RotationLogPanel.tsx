@@ -104,6 +104,20 @@ const PLACEHOLDER_REASON: Record<string, string> = {
 };
 
 /**
+ * "from the queues of A, B and C" for a Tier 1 auto-pick (v2.219.0, ADR 0036):
+ * `details.autoPick.contributors` holds raw ids, resolved through `names`.
+ */
+function queueCreditClause(d: Record<string, unknown>, names: Names): string {
+  const ap = d.autoPick as { tier?: unknown; contributors?: unknown } | undefined;
+  if (!ap || ap.tier !== 1 || !Array.isArray(ap.contributors) || ap.contributors.length === 0) return '';
+  // Never a raw id here: an unresolved contributor reads "a member", as in the Discord post.
+  const labels = ap.contributors.map(id => (typeof id === 'string' && names[id]) || 'a member');
+  const list = labels.length === 1 ? labels[0]
+    : `${labels.slice(0, -1).join(', ')} and ${labels[labels.length - 1]}`;
+  return ` from the queues of ${list}`;
+}
+
+/**
  * Strip the `player:` / `admin:` / `system:` prefix for display. The prefix is
  * what makes the stored value unambiguous; the reader wants the identity.
  */
@@ -148,6 +162,7 @@ function describe(e: RotationEvent, names: Names = {}, timeZone: string = DEFAUL
         + `${d.picker ? ` (was ${nameOf(names, d.picker)})` : ''}.`;
     case 'game_activated':
       return `Activated ${game} ${SOURCE_PHRASE[e.source || 'unknown'] || SOURCE_PHRASE.unknown}`
+        + queueCreditClause(d, names)
         + `${e.queue_owner ? ` — ${nameOf(names, e.queue_owner)}'s queue` : ''}`
         + `${d.replacedGame ? `, replacing ${txt(d.replacedGame)}` : ''}.`;
     case 'placeholder_created':

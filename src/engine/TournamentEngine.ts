@@ -31,6 +31,8 @@ import { QUEUE_ORDER_SQL } from '../utils/queueOrder.js';
 import { resolveTournamentTimezone, serverTimezone } from '../utils/roomTimezone.js';
 import { applyLibraryDefaults } from '../utils/gameLibraryDefaults.js';
 import { RotationAuditService, type RotationSource } from '../services/RotationAuditService.js';
+import { rankAutoPick } from '../utils/autoPickRanking.js';
+import { AutoPickSignalService } from '../services/AutoPickSignalService.js';
 
 /**
  * Who/what asked for an activation, threaded from every `activateGame` caller
@@ -2495,8 +2497,10 @@ export class TournamentEngine {
     }
 
     /**
-     * Auto-select a random eligible game and immediately activate it.
+     * Auto-select an eligible game and immediately activate it.
      * Used when winner_picks is disabled or as a fallback when no winner exists.
+     * v2.219.0 (ADR 0036): the eligible set is ranked by `rankAutoPick` —
+     * ranked choice over the room's queues, then a weighted roam.
      */
     private async autoPickAndActivate(
         db: any,
@@ -2571,7 +2575,17 @@ export class TournamentEngine {
         const recentlyPlayedSet = new Set(recentlyPlayed.map((r: any) => r.name.toLowerCase()));
         const finalEligible = eligible.filter((g: any) => !recentlyPlayedSet.has(g.name.toLowerCase()));
 
-        if (finalEligible.length === 0) {
+        // v2.219.0 (ADR 0036) — rank instead of a dart throw. Null only when
+        // every eligible name is already ACTIVE here (Tier 0 empty).
+        const ranked = finalEligible.length === 0 ? null : rankAutoPick(
+            finalEligible,
+            await AutoPickSignalService.load({
+                tournamentId, gameRoomId: tournamentRow.game_room_id,
+                names: finalEligible.map((g: any) => g.name),
+            }),
+        );
+
+        if (!ranked) {
             logWarn(`No eligible ${term.games} found for auto-pick in ${tournamentRow.name}.`);
             if (channelId) {
                 const color = getTournamentColor(tournamentRow.type);
@@ -2586,9 +2600,8 @@ export class TournamentEngine {
             return;
         }
 
-        // Pick one at random
-        const pick = finalEligible[Math.floor(Math.random() * finalEligible.length)]!;
-        logInfo(`   -> Auto-picked: ${pick.name} for ${tournamentRow.name}`);
+        const pick: any = ranked.pick;
+        logInfo(`   -> Auto-picked: ${pick.name} for ${tournamentRow.name} (tier ${ranked.tier}${ranked.points ? `, ${ranked.points} pts` : ''})`);
 
         // Create on iScored if client available
         let iscoredId: string | null = null;
@@ -2636,6 +2649,15 @@ export class TournamentEngine {
         );
         logInfo(`   -> Activated in DB: ${pick.name}`);
 
+        // Tier 1: the queues that chose it spend their rows on it (the new
+        // ACTIVE row above is a fresh id, never one of them).
+        let queueCredit: string | null = null;
+        if (ranked.tier === 1) {
+            const affected = await AutoPickSignalService.consumeContributors(ranked.contributors, gameId);
+            for (const pickerId of affected) await this.afterQueueConsumed(tournamentId, pickerId);
+            queueCredit = await AutoPickSignalService.queueCredit(ranked.contributors);
+        }
+
         RotationAuditService.log({
             gameRoomId: tournamentRow.game_room_id,
             tournamentId,
@@ -2650,6 +2672,7 @@ export class TournamentEngine {
                 replacedGame: completedGame.name,
                 candidatePool: finalEligible.length,
                 iscoredId,
+                autoPick: AutoPickSignalService.auditDetails(ranked),
             },
         }).catch(() => {});
 
@@ -2679,7 +2702,9 @@ export class TournamentEngine {
             const color = getTournamentColor(tournamentRow.type);
             const embed = new EmbedBuilder()
                 .setTitle(`Now Active: ${pick.name}`)
-                .setDescription(`**${pick.name}** has been auto-selected and activated for **${tournamentRow.name}**.`)
+                .setDescription(queueCredit
+                    ? `**${pick.name}** has been auto-selected for **${tournamentRow.name}** from the queues of ${queueCredit}.`
+                    : `**${pick.name}** has been auto-selected and activated for **${tournamentRow.name}**.`)
                 .setColor(color)
                 .setFooter({ text: tournamentRow.name })
                 .setTimestamp();

@@ -18,6 +18,8 @@ import { resolveLeaderboardPlaces } from '../utils/submissionAttribution.js';
 import { resolvePick, MAX_PLACES } from './pickResolution.js';
 import { RotationAuditService, type RotationSource } from '../services/RotationAuditService.js';
 import { queueSourceForPlace } from './TournamentEngine.js';
+import { rankAutoPick } from '../utils/autoPickRanking.js';
+import { AutoPickSignalService } from '../services/AutoPickSignalService.js';
 
 export class TimeoutManager {
     private static instance: TimeoutManager;
@@ -635,8 +637,10 @@ export class TimeoutManager {
     }
 
     /**
-     * All pickers timed out — select a random eligible game from the game_library,
-     * create it on iScored, and fill the QUEUED slot.
+     * All pickers timed out — select an eligible game from the catalogue,
+     * create it on iScored, and fill the QUEUED slot. v2.219.0 (ADR 0036): the
+     * eligible set is ranked by `rankAutoPick` — ranked choice over the room's
+     * queues, then a weighted roam.
      */
     private async fallbackToAutoSelection(game: Game): Promise<void> {
         const db = await getDatabase();
@@ -788,7 +792,17 @@ export class TimeoutManager {
                 g => !recentlyPlayedSet.has(g.name.toLowerCase())
             );
 
-            if (eligible.length === 0) {
+            // v2.219.0 (ADR 0036) — rank instead of a dart throw. Null only
+            // when every eligible name is already ACTIVE here (Tier 0 empty).
+            const ranked = eligible.length === 0 ? null : rankAutoPick(
+                eligible,
+                await AutoPickSignalService.load({
+                    tournamentId: game.tournamentId, gameRoomId: tournament.game_room_id,
+                    names: eligible.map(g => g.name),
+                }),
+            );
+
+            if (!ranked) {
                 // v2.77.0 — same orphan fix as the auto-pick-disabled branch:
                 // DELETE rather than leave a picker-less QUEUED row wedged at
                 // the head of the queue where nothing can see or clear it.
@@ -818,9 +832,8 @@ export class TimeoutManager {
                 return;
             }
 
-            // Pick one at random
-            const pick = eligible[Math.floor(Math.random() * eligible.length)]!;
-            logInfo(`Auto-selected: ${pick.name} for ${tournament.name}`);
+            const pick = ranked.pick;
+            logInfo(`Auto-selected: ${pick.name} for ${tournament.name} (tier ${ranked.tier}${ranked.points ? `, ${ranked.points} pts` : ''})`);
 
             // Create on iScored if credentials are available (per-room → env fallback).
             // Routes through IScoredSessionRegistry so this fallback path can't
@@ -857,6 +870,28 @@ export class TimeoutManager {
             );
             logInfo(`   -> Auto-selected and activated: ${pick.name}`);
 
+            // Tier 1: the queues that chose it spend their rows on it. The row
+            // just UPDATEd is the timed-out `[Pending Pick]` placeholder, which
+            // the signal loader never reads as a vote — so it can never be a
+            // contributor; `game.id` is passed as the keep-guard regardless.
+            let queueCredit: string | null = null;
+            if (ranked.tier === 1) {
+                const affected = await AutoPickSignalService.consumeContributors(ranked.contributors, game.id);
+                for (const pickerId of affected) {
+                    try {
+                        const { compactQueue } = await import('../services/PickQueueService.js');
+                        await compactQueue(game.tournamentId, pickerId);
+                    } catch (err) {
+                        logError('   -> Failed to compact the queue after auto-pick (continuing):', err);
+                    }
+                    try {
+                        const { QueueLowNudgeService } = await import('../services/QueueLowNudgeService.js');
+                        void QueueLowNudgeService.maybeNudge(pickerId, game.tournamentId).catch(() => {});
+                    } catch { /* never surfaces */ }
+                }
+                queueCredit = await AutoPickSignalService.queueCredit(ranked.contributors);
+            }
+
             RotationAuditService.log({
                 gameRoomId: tournament.game_room_id,
                 tournamentId: game.tournamentId,
@@ -872,6 +907,7 @@ export class TimeoutManager {
                     expiredPicker: game.pickerDiscordId ?? null,
                     candidatePool: eligible.length,
                     iscoredId,
+                    autoPick: AutoPickSignalService.auditDetails(ranked),
                 },
             }).catch(() => {});
 
@@ -880,7 +916,9 @@ export class TimeoutManager {
                 const color = getTournamentColor(tournament.type);
                 const embed = new EmbedBuilder()
                     .setTitle(`Now Active: ${pick.name}`)
-                    .setDescription(`All pickers timed out! **${pick.name}** has been auto-selected and activated for **${tournament.name}**.`)
+                    .setDescription(queueCredit
+                        ? `All pickers timed out! **${pick.name}** has been auto-selected for **${tournament.name}** from the queues of ${queueCredit}.`
+                        : `All pickers timed out! **${pick.name}** has been auto-selected and activated for **${tournament.name}**.`)
                     .setColor(color)
                     .setFooter({ text: tournament.name })
                     .setTimestamp();
