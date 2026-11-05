@@ -861,6 +861,20 @@ export class VpxScoreIngestService {
         });
         if (id == null) return { id, username };
 
+        // v2.220.0 (W93) — the best-per-player summary row. `submissions` is
+        // what the rotation close reads to crown its winner ("Top scorer
+        // (local DB)" in `processSlotMaintenance`), and every manual path
+        // writes it; this path never did, so a witness score that topped a
+        // rotation board was invisible to the close and the best TYPED score
+        // won instead (Krobs 31,269,280 vs Blegger 29,653,970, Weekly Grind -
+        // VPXS, 2026-11-04). Same key and columns as the web route's upsert;
+        // an existing higher row is kept (the delete path's recompute in
+        // `ScoreHistoryService` is the inverse of this write).
+        await VpxScoreIngestService.upsertSubmission({
+            gameId: target.id, gameRoomId: target.game_room_id, tournamentId: target.tournament_id ?? null,
+            canonicalUserId, username, score, playedAt, provenance,
+        });
+
         // The room board is served from `leaderboard_cache`, which has no
         // expiry: the manual submit routes, the per-row delete and the player
         // merge clear it, and until v2.165.0 this path never did. A witness
@@ -873,6 +887,53 @@ export class VpxScoreIngestService {
         const { LeaderboardService } = await import('./LeaderboardService.js');
         await LeaderboardService.invalidate(target.id);
         return { id, username };
+    }
+
+    /**
+     * v2.220.0 (W93) — write or raise the player's `submissions` row for this
+     * game: `<game id>-<board name lower>`, the key every manual submit path
+     * uses, so a witness score and a typed score for the same player collapse
+     * into one summary row. Only a HIGHER score replaces the stored one.
+     * `discord_user_id` is the canonical account (a paired device always has
+     * one); `submitted_by_user_id` goes through `normalizeSubmitterUserId`
+     * like every other writer. The migration-time backfill
+     * (`backfillWitnessSubmissions`) is this same rule in one SQL statement.
+     */
+    private static async upsertSubmission(args: {
+        gameId: string;
+        gameRoomId: string | null;
+        tournamentId: string | null;
+        canonicalUserId: string;
+        username: string;
+        score: number;
+        playedAt: string;
+        provenance: WitnessProvenance;
+    }): Promise<void> {
+        const { normalizeSubmitterUserId } = await import('./SubmissionContextService.js');
+        const db = await getDatabase();
+        const submissionId = `${args.gameId}-${args.username.toLowerCase()}`;
+        await db.run(
+            `INSERT INTO submissions (
+                id, game_id, discord_user_id, iscored_username, score, photo_url, timestamp,
+                submitted_from_room_id, submitted_during_tournament_id, submitted_by_user_id,
+                submitted_by_anonymous_name, merged_from_anonymous_identity_id, platform,
+                engine, device
+             ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)
+             ON CONFLICT(id) DO UPDATE SET
+                score = excluded.score,
+                timestamp = excluded.timestamp,
+                discord_user_id = excluded.discord_user_id,
+                iscored_username = excluded.iscored_username,
+                submitted_by_user_id = COALESCE(excluded.submitted_by_user_id, submissions.submitted_by_user_id),
+                submitted_during_tournament_id = COALESCE(excluded.submitted_during_tournament_id, submissions.submitted_during_tournament_id),
+                platform = COALESCE(excluded.platform, submissions.platform),
+                engine = COALESCE(NULLIF(excluded.engine, 'unknown'), submissions.engine, 'unknown'),
+                device = COALESCE(NULLIF(excluded.device, 'unknown'), submissions.device, 'unknown')
+             WHERE excluded.score > submissions.score`,
+            submissionId, args.gameId, args.canonicalUserId, args.username, args.score, args.playedAt,
+            args.gameRoomId, args.tournamentId, normalizeSubmitterUserId(args.canonicalUserId),
+            args.provenance.platform, args.provenance.engine, args.provenance.device,
+        );
     }
 
     /**

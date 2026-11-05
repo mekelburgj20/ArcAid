@@ -3539,6 +3539,17 @@ async function doInitDatabase(): Promise<Database> {
             const { runRatingsUnified } = await import('./migrations/ratingsUnified.js');
             await runRatingsUnified(db);
         } },
+        // v2.220.0 (W93): the witness ingest never wrote `submissions`, the
+        // best-per-player summary the rotation close crowns its winner from,
+        // so a cabinet / Castcade score at the top of a rotation board lost
+        // the win to the best typed score. The ingest writes it now; this
+        // gives every existing witness row its summary row so the boards
+        // already carrying witness scores resolve right at their next close.
+        { name: '206_witness_scores_into_submissions', handler: async (db) => {
+            const { backfillWitnessSubmissions } = await import('./migrations/witnessSubmissions.js');
+            const n = await backfillWitnessSubmissions(db);
+            console.log(`[migration 206] witness scores written into submissions: ${n}`);
+        } },
     ];
 
     for (const migration of migrations) {
