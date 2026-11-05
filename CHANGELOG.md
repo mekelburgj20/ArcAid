@@ -6,6 +6,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.220.0] - 2026-11-04 - A witness score can win a rotation (W93)
+
+Krobs' Castcade score of 31,269,280 on The Lord of the Rings sat at rank 1 on RTX's Weekly Grind - VPXS board
+all day; when the board rotated at 22:00 Chicago the close crowned Blegger's typed 29,653,970 and gave Blegger
+the pick. Nothing was lost on the ingest side: the score was on the board. The close never saw it.
+
+### Fixed
+- **Witness scores now reach `submissions`, the best-score-per-player summary the rotation close crowns its
+  winner from.** Every manual path (the three web submit routes, Discord `/submit-score`, the iScored sync and
+  the engine's final sync) wrote that row; the cabinet / Castcade ingest wrote only `score_history`, the trail
+  and the Global copy. So any rotation whose top score arrived from a Witness device crowned the best TYPED
+  score instead, and the `tournament_win` achievement and the pick followed it. The ingest's shared board write
+  (`VpxScoreIngestService.writeBoardRow`, used by the ingest and a host's reinstate) now upserts the player's
+  row with the same key and attribution as the web route; only a higher score replaces the stored one, so a
+  player's higher typed score is never lowered by a later witness play.
+- **Migration 206 backfills existing witness rows** so boards that already carry Witness scores at the top
+  resolve correctly at their next close. Orphaned rows are skipped and a higher existing summary row is kept.
+  Picks already made are not revisited (owner, 2026-11-04: keep the tournaments as they are).
+
 ## [2.219.0] - 2026-11-03 - Auto-pick chooses by ranked choice over the room's queues, then a weighted roam (A25)
 
 Owner, 2026-11-03: auto-pick felt like a dart board. When nobody picked the next table, Arcaid drew one
