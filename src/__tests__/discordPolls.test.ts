@@ -58,7 +58,7 @@ describe('postPoll', () => {
             durationHours: 93,
         });
 
-        expect(res).toEqual({ ok: true, value: { messageId: 'msg-1', answerIds: [1, 2] } });
+        expect(res).toEqual({ ok: true, value: { channelId: 'C1', messageId: 'msg-1', answerIds: [1, 2] } });
         expect(post).toHaveBeenCalledTimes(1);
         const [route, opts] = post.mock.calls[0]!;
         expect(route).toBe('/channels/C1/messages');
@@ -70,6 +70,27 @@ describe('postPoll', () => {
             allow_multiselect: false,
             layout_type: 1,
         });
+    });
+
+    it('a forum target (E8) creates a post named with the question and returns the thread id', async () => {
+        const { _resetChannelTypeCacheForTests } = await import('../utils/discord.js');
+        _resetChannelTypeCacheForTests();
+        get.mockImplementation(async (route: string) => {
+            if (route === '/channels/F1') return { id: 'F1', type: 15 };
+            if (route === '/channels/T1/messages/T1') return { id: 'T1', poll: { answers: [{ answer_id: 1 }, { answer_id: 2 }] } };
+            throw new Error(`unexpected ${route}`);
+        });
+        // The thread response carries no starter message: fetched by the thread's own id.
+        post.mockResolvedValue({ id: 'T1' });
+        const res = await postPoll({
+            channelId: 'F1', content: 'tally', question: 'Q'.repeat(150), answers: ['A', 'B'], durationHours: 10,
+        });
+        expect(res).toEqual({ ok: true, value: { channelId: 'T1', messageId: 'T1', answerIds: [1, 2] } });
+        const [route, opts] = post.mock.calls[0]!;
+        expect(route).toBe('/channels/F1/threads');
+        expect(opts.body.name).toBe('Q'.repeat(100));
+        expect(opts.body.message.content).toBe('tally');
+        expect(opts.body.message.poll.answers).toHaveLength(2);
     });
 
     it('caps the duration at 768 h and the answer text at 55 chars', async () => {

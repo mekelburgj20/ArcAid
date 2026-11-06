@@ -25,6 +25,7 @@ import { checkin } from './commands/checkin.js';
 import { reorderlineup } from './commands/reorderlineup.js';
 import { notifications } from './commands/notifications.js';
 import { handleCalloutMessage } from './callouts.js';
+import { registerGatewayChannelTypeLookup } from '../utils/discord.js';
 
 /**
  * Module-level handle to the live DiscordClient, set in the constructor so
@@ -69,6 +70,20 @@ export class DiscordClient {
         // Register this live instance so route/service code can reach real
         // gateway state via getDiscordClient() (S10 health surface).
         _instance = this;
+        // v2.221.0 (E8): forum-aware senders in utils/discord.ts read channel
+        // types from this gateway cache before falling back to REST.
+        registerGatewayChannelTypeLookup(id => this.getCachedChannelType(id));
+    }
+
+    /** A channel's type from the gateway cache; null when not ready or unknown. */
+    public getCachedChannelType(channelId: string): number | null {
+        try {
+            if (!this.client.isReady()) return null;
+            const channel = this.client.channels.cache.get(channelId);
+            return channel ? channel.type : null;
+        } catch {
+            return null;
+        }
     }
 
     private registerCommands(): void {
@@ -196,19 +211,35 @@ export class DiscordClient {
      * the bot isn't in the guild. The ROUTE turns those into a 400 with a
      * message; here they are simply "nothing to offer".
      */
-    public listGuildTextChannels(guildId: string): Array<{ id: string; name: string; parent: string | null }> {
+    public listGuildTextChannels(
+        guildId: string,
+        opts?: { includeForums?: boolean },
+    ): Array<{ id: string; name: string; parent: string | null; type: 'text' | 'announcement' | 'forum' }> {
         try {
             if (!this.client.isReady()) return [];
             const guild = this.client.guilds.cache.get(guildId);
             if (!guild) return [];
+            // v2.221.0 (E8): forums (GuildForum 15, GuildMedia 16) only for
+            // the announcement-channel picker, which posts a thread into them.
+            const isForum = (t: ChannelType) => t === ChannelType.GuildForum || t === ChannelType.GuildMedia;
             return guild.channels.cache
-                .filter(c => c.type === ChannelType.GuildText || c.type === ChannelType.GuildAnnouncement)
+                .filter(c => c.type === ChannelType.GuildText || c.type === ChannelType.GuildAnnouncement
+                    || (!!opts?.includeForums && isForum(c.type)))
                 .sort((a, b) => {
                     const parentDiff = (a.parent?.position ?? -1) - (b.parent?.position ?? -1);
                     if (parentDiff !== 0) return parentDiff;
-                    return (a.position ?? 0) - (b.position ?? 0);
+                    // Every kept type (text, announcement, forum, media) has a
+                    // position; the widened filter just no longer narrows it.
+                    const pos = (c: unknown) => (c as { position?: number }).position ?? 0;
+                    return pos(a) - pos(b);
                 })
-                .map(c => ({ id: c.id, name: c.name, parent: c.parent?.name ?? null }));
+                .map(c => ({
+                    id: c.id,
+                    name: c.name,
+                    parent: c.parent?.name ?? null,
+                    type: isForum(c.type) ? 'forum' as const
+                        : c.type === ChannelType.GuildAnnouncement ? 'announcement' as const : 'text' as const,
+                }));
         } catch {
             return [];
         }

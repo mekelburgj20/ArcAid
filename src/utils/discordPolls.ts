@@ -1,5 +1,6 @@
 import { REST, Routes } from 'discord.js';
 import { logWarn } from './logger.js';
+import { getChannelType, isForumChannelType, FORUM_POST_NAME_MAX } from './discord.js';
 
 /**
  * Discord poll I/O for the Season poll queue (docs/season-format-plan.md §5.3).
@@ -73,12 +74,24 @@ export interface PostPollInput {
 }
 
 export interface PostedPoll {
+    /**
+     * The channel the poll message lives in: `input.channelId` for a text
+     * channel, the NEW THREAD's id for a forum (v2.221.0, E8). A thread id is
+     * a valid channel id for every later call (voters, expire, edit, replies),
+     * so callers store this, never the forum id.
+     */
+    channelId: string;
     messageId: string;
     /** Discord's answer id per input answer, index-aligned with `answers`. */
     answerIds: number[];
 }
 
-/** `POST /channels/:id/messages` with a single-choice poll. */
+/**
+ * `POST /channels/:id/messages` with a single-choice poll. When the target is
+ * a forum (v2.221.0, E8) it is `POST /channels/:forumId/threads` instead: a
+ * new post named with the poll question (trimmed to 100 chars, so each week
+ * is its own post) whose starter message carries the poll.
+ */
 export async function postPoll(input: PostPollInput): Promise<DiscordResult<PostedPoll>> {
     const rest = restClient();
     if (!rest) return NO_TOKEN;
@@ -93,11 +106,30 @@ export async function postPoll(input: PostPollInput): Promise<DiscordResult<Post
         },
         allowed_mentions: { parse: [] as string[] },
     };
+    type PostedMessage = { id?: string; poll?: { answers?: Array<{ answer_id?: number }> } };
     try {
-        const res = await rest.post(Routes.channelMessages(input.channelId), { body }) as {
-            id?: string;
-            poll?: { answers?: Array<{ answer_id?: number }> };
-        };
+        let channelId = input.channelId;
+        let res: PostedMessage | null;
+        if (isForumChannelType(await getChannelType(input.channelId))) {
+            const thread = await rest.post(Routes.threads(input.channelId), {
+                body: { name: input.question.trim().slice(0, FORUM_POST_NAME_MAX) || 'Poll', message: body },
+            }) as { id?: string; message?: PostedMessage } | null;
+            if (!thread?.id) {
+                return toFailure(new Error('Discord returned no thread id'), 'post poll', input.channelId);
+            }
+            channelId = thread.id;
+            res = thread.message ?? null;
+            if (!res?.id) {
+                // A forum post's starter message shares the thread's id.
+                try {
+                    res = await rest.get(Routes.channelMessage(thread.id, thread.id)) as PostedMessage;
+                } catch {
+                    res = { id: thread.id };
+                }
+            }
+        } else {
+            res = await rest.post(Routes.channelMessages(input.channelId), { body }) as PostedMessage;
+        }
         if (!res?.id) {
             return toFailure(new Error('Discord returned no message id'), 'post poll', input.channelId);
         }
@@ -105,7 +137,7 @@ export async function postPoll(input: PostPollInput): Promise<DiscordResult<Post
         // when the response omits them so the mapping never goes missing.
         const returned = res.poll?.answers ?? [];
         const answerIds = input.answers.map((_, i) => returned[i]?.answer_id ?? i + 1);
-        return { ok: true, value: { messageId: res.id, answerIds } };
+        return { ok: true, value: { channelId, messageId: res.id, answerIds } };
     } catch (err) {
         return toFailure(err, 'post poll', input.channelId);
     }

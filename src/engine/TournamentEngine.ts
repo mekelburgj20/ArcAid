@@ -291,7 +291,7 @@ export class TournamentEngine {
         );
         if (!tournament) return;
 
-        const channelId = await resolveAnnouncementChannelId(tournament.game_room_id, tournament.discord_channel_id);
+        const channelId = await resolveAnnouncementChannelId(tournament.game_room_id, tournament.discord_channel_id, 'tournament');
         if (!channelId || (opts.skipChannelId && channelId === opts.skipChannelId)) return;
 
         let pickedBy: string | null = null;
@@ -1127,9 +1127,18 @@ export class TournamentEngine {
 
         const term = getTerminology(tournamentRow.mode);
         const { resolveAnnouncementChannelId } = await import('../utils/discord.js');
+        // v2.221.0 (E8): two kinds post from this path. `channelId` carries
+        // tournament posts (Now Active, Rotation, Congrats, season standings);
+        // `picksChannelId` carries pick prompts and warnings.
         const channelId: string | null = await resolveAnnouncementChannelId(
             tournamentRow.game_room_id,
             tournamentRow.discord_channel_id,
+            'tournament',
+        );
+        const picksChannelId: string | null = await resolveAnnouncementChannelId(
+            tournamentRow.game_room_id,
+            tournamentRow.discord_channel_id,
+            'picks',
         );
 
         logInfo(`Starting maintenance for ${term.tournament}: ${tournamentRow.name}`);
@@ -1156,7 +1165,7 @@ export class TournamentEngine {
                 await this.processSlotMaintenance(
                     db, tournamentRow, activeGame, queuedQueue, client,
                     creds?.publicUrl ?? null, creds?.gameroomName ?? null,
-                    term, channelId, tournamentId
+                    term, channelId, tournamentId, picksChannelId,
                 );
             }
 
@@ -1425,6 +1434,8 @@ export class TournamentEngine {
         term: ReturnType<typeof getTerminology>,
         channelId: string | null,
         tournamentId: string,
+        /** The `picks`-kind channel (E8); defaults to `channelId`. */
+        picksChannelId: string | null = channelId,
     ): Promise<void> {
         const hasPublicUrl = !!publicUrl;
         logInfo(`   Processing slot: ${activeGame.name}`);
@@ -2052,11 +2063,11 @@ export class TournamentEngine {
                 // tournament with auto_pick=0 cannot honor it; that case falls
                 // through to the admin-wait branch below instead.
                 logInfo(`   -> Cascade resolved to auto-pick. Selecting a ${term.game}.`);
-                await this.autoPickAndActivate(db, tournamentRow, tournamentId, activeGame, client, term, channelId);
+                await this.autoPickAndActivate(db, tournamentRow, tournamentId, activeGame, client, term, channelId, picksChannelId);
             } else if (!winnerPicks && autoPick) {
                 // Skip pick windows — immediately auto-select and activate
                 logInfo(`   -> No ${term.game} queued. winner_picks=off, auto_pick=on — auto-selecting immediately.`);
-                await this.autoPickAndActivate(db, tournamentRow, tournamentId, activeGame, client, term, channelId);
+                await this.autoPickAndActivate(db, tournamentRow, tournamentId, activeGame, client, term, channelId, picksChannelId);
             } else if (winnerPicks && pickerResolution) {
                 const { pickerId, pickerType, pickerLabel, announceExtra, onboardingNominee } = pickerResolution;
                 // Current behavior: give the resolved picker a pick window —
@@ -2128,7 +2139,7 @@ export class TournamentEngine {
                 // test-flake family (they outlive the test's DB reset).
                 if (onboardingNominee) {
                     trackBackground(
-                        this.announceNomineeOnboarding(onboardingNominee, tournamentRow, channelId, term)
+                        this.announceNomineeOnboarding(onboardingNominee, tournamentRow, picksChannelId, term)
                     ).catch(() => {});
                 }
 
@@ -2164,7 +2175,7 @@ export class TournamentEngine {
                     }).catch(() => {});
                 }
 
-                if (channelId) {
+                if (picksChannelId) {
                     const color = getTournamentColor(tournamentRow.type);
                     const pickerMention = await resolveUserMention(pickerId, pickerLabel, tournamentRow.game_room_id);
                     // The tournament is named in the title and the body, not
@@ -2180,7 +2191,7 @@ export class TournamentEngine {
                         .setColor(color)
                         .setFooter({ text: tournamentRow.name })
                         .setTimestamp();
-                    await sendChannelEmbed(channelId, embed, { pingUserIds: pickerMention.pingIds });
+                    await sendChannelEmbed(picksChannelId, embed, { pingUserIds: pickerMention.pingIds });
                 }
 
                 emitPickerAssigned({
@@ -2228,7 +2239,7 @@ export class TournamentEngine {
                 // tournament queue unowned by the winner, so the cascade above
                 // never fires it — the fill loop does, moments later. Saying
                 // "No Table Queued" right before it activates is false.
-                if (channelId && !(await this.hasRealQueuedGame(db, tournamentId))) {
+                if (picksChannelId && !(await this.hasRealQueuedGame(db, tournamentId))) {
                     const color = getTournamentColor(tournamentRow.type);
                     const description = pickAwardEnabled
                         ? `Auto-pick is disabled. A moderator should use \`/pick-game\` to select the next ${term.game}.`
@@ -2239,16 +2250,16 @@ export class TournamentEngine {
                         .setColor(color)
                         .setFooter({ text: tournamentRow.name })
                         .setTimestamp();
-                    await sendChannelEmbed(channelId, embed);
+                    await sendChannelEmbed(picksChannelId, embed);
                 }
             } else {
                 // winnerPicks=true but no winner found, or winnerPicks=true with auto_pick
                 if (autoPick) {
                     logInfo(`   -> No ${term.game} queued and no winner found. auto_pick=on — auto-selecting.`);
-                    await this.autoPickAndActivate(db, tournamentRow, tournamentId, activeGame, client, term, channelId);
+                    await this.autoPickAndActivate(db, tournamentRow, tournamentId, activeGame, client, term, channelId, picksChannelId);
                 } else {
                     logInfo(`   -> No ${term.game} queued and no winner found. auto_pick=off — waiting for admin.`);
-                    if (channelId && !(await this.hasRealQueuedGame(db, tournamentId))) {
+                    if (picksChannelId && !(await this.hasRealQueuedGame(db, tournamentId))) {
                         const color = getTournamentColor(tournamentRow.type);
                         const description = pickAwardEnabled
                             ? `A moderator should use \`/pick-game\` or \`/nominate-picker\`.`
@@ -2259,7 +2270,7 @@ export class TournamentEngine {
                             .setColor(color)
                             .setFooter({ text: tournamentRow.name })
                             .setTimestamp();
-                        await sendChannelEmbed(channelId, embed);
+                        await sendChannelEmbed(picksChannelId, embed);
                     }
                 }
             }
@@ -2510,6 +2521,8 @@ export class TournamentEngine {
         client: IScoredClient | null,
         term: ReturnType<typeof getTerminology>,
         channelId: string | null,
+        /** The `picks`-kind channel (E8) for "No Eligible"; defaults to `channelId`. */
+        picksChannelId: string | null = channelId,
     ): Promise<void> {
         // Guard: if tournament already has max active games, skip auto-pick
         const maxSlots = tournamentRow.max_active_games ?? 1;
@@ -2587,7 +2600,7 @@ export class TournamentEngine {
 
         if (!ranked) {
             logWarn(`No eligible ${term.games} found for auto-pick in ${tournamentRow.name}.`);
-            if (channelId) {
+            if (picksChannelId) {
                 const color = getTournamentColor(tournamentRow.type);
                 const embed = new EmbedBuilder()
                     .setTitle(`No Eligible ${term.games}`)
@@ -2595,7 +2608,7 @@ export class TournamentEngine {
                     .setColor(color)
                     .setFooter({ text: tournamentRow.name })
                     .setTimestamp();
-                await sendChannelEmbed(channelId, embed);
+                await sendChannelEmbed(picksChannelId, embed);
             }
             return;
         }

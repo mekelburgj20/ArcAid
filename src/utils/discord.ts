@@ -3,6 +3,7 @@ import { logError } from './logger.js';
 import { GameRoomSettingsService } from '../services/GameRoomSettingsService.js';
 import { isDiscordUserId, isGoogleUserId } from './identityProvider.js';
 import { trackBackground } from './backgroundTasks.js';
+import { DISCORD_ANNOUNCE_ROUTES_KEY, parseAnnounceRoutes, type AnnounceKind } from './discordAnnounceRoutes.js';
 
 /** Embed accent colors keyed by tournament tag or type. */
 const TAG_COLORS: Record<string, number> = {
@@ -25,6 +26,83 @@ export function getTournamentColor(type?: string | null): number {
     return TAG_COLORS[upper] ?? TAG_COLORS[type] ?? 0x888888;
 }
 
+/** Discord channel types that take a POST (thread), never a bare message: GuildForum, GuildMedia. */
+const FORUM_CHANNEL_TYPES: ReadonlySet<number> = new Set([15, 16]);
+
+export function isForumChannelType(type: number | null | undefined): boolean {
+    return typeof type === 'number' && FORUM_CHANNEL_TYPES.has(type);
+}
+
+/** Discord's cap on a thread (forum post) name. */
+export const FORUM_POST_NAME_MAX = 100;
+
+/**
+ * A forum post title from message text: the first non-empty line, with
+ * mentions, timestamps and bold/underline/strike markers removed (a thread
+ * name renders raw - a `<@id>` would show as a bare snowflake), trimmed to
+ * Discord's 100-char cap.
+ */
+export function forumPostName(text: string): string {
+    const firstLine = text.split('\n').find(l => l.trim() !== '') ?? '';
+    const cleaned = firstLine
+        .replace(/<@[!&]?\d+>/g, '')
+        .replace(/<#\d+>/g, '')
+        .replace(/<t:\d+(?::\w)?>/g, '')
+        .replace(/\*\*|__|~~/g, '')
+        .replace(/\s+/g, ' ')
+        .replace(/^[\s\u2014\u2013:,.-]+/, '')
+        .trim();
+    return (cleaned || 'Arcaid announcement').slice(0, FORUM_POST_NAME_MAX);
+}
+
+/**
+ * Optional gateway-cache lookup, registered by `DiscordClient` at
+ * construction so this module never imports the client (and tests that never
+ * build one never load it). Returns null when the gateway does not know.
+ */
+let gatewayChannelTypeLookup: ((channelId: string) => number | null) | null = null;
+export function registerGatewayChannelTypeLookup(fn: ((channelId: string) => number | null) | null): void {
+    gatewayChannelTypeLookup = fn;
+}
+
+const channelTypeCache = new Map<string, number>();
+
+/** Tests only. */
+export function _resetChannelTypeCacheForTests(): void {
+    channelTypeCache.clear();
+}
+
+/**
+ * A channel's Discord type (v2.221.0, E8): the gateway cache when the bot is
+ * connected, else `GET /channels/:id`. Cached per process (a channel never
+ * changes type); a failed lookup is not cached and returns null, which every
+ * sender treats as an ordinary text channel - the pre-E8 behaviour.
+ */
+export async function getChannelType(channelId: string): Promise<number | null> {
+    const cached = channelTypeCache.get(channelId);
+    if (cached !== undefined) return cached;
+    let type: number | null = null;
+    try {
+        type = gatewayChannelTypeLookup?.(channelId) ?? null;
+    } catch {
+        type = null;
+    }
+    if (type === null) {
+        const token = process.env.DISCORD_BOT_TOKEN;
+        if (token) {
+            try {
+                const rest = new REST({ version: '10' }).setToken(token);
+                const ch = await rest.get(Routes.channel(channelId)) as { type?: unknown } | null;
+                if (typeof ch?.type === 'number') type = ch.type;
+            } catch {
+                type = null;
+            }
+        }
+    }
+    if (type !== null) channelTypeCache.set(channelId, type);
+    return type;
+}
+
 /**
  * Sends a plain-text message to a Discord channel via the REST API.
  * Safe to call from engine classes that don't have access to the Client instance.
@@ -37,6 +115,14 @@ export async function sendChannelMessage(channelId: string, content: string): Pr
     }
     try {
         const rest = new REST({ version: '10' }).setToken(token);
+        // v2.221.0 (E8): a forum takes no bare message - the send becomes a
+        // new post titled with the content's first line.
+        if (isForumChannelType(await getChannelType(channelId))) {
+            await rest.post(Routes.threads(channelId), {
+                body: { name: forumPostName(content), message: { content } },
+            });
+            return;
+        }
         await rest.post(Routes.channelMessages(channelId), { body: { content } });
     } catch (err) {
         logError(`Failed to send message to channel ${channelId}:`, err);
@@ -205,6 +291,15 @@ export async function sendChannelEmbed(
     }
     try {
         const rest = new REST({ version: '10' }).setToken(token);
+        // v2.221.0 (E8): a forum takes no bare message - the embed becomes
+        // the starter message of a new post titled with the embed title.
+        if (isForumChannelType(await getChannelType(channelId))) {
+            const json = embed.toJSON();
+            await rest.post(Routes.threads(channelId), {
+                body: { name: forumPostName(json.title || json.description || ''), message: body },
+            });
+            return;
+        }
         await rest.post(Routes.channelMessages(channelId), { body });
     } catch (err) {
         logError(`Failed to send embed to channel ${channelId}:`, err);
@@ -414,7 +509,9 @@ export async function guildInteractionBlockReason(guildId: string): Promise<stri
 
 /**
  * Resolves the Discord channel that announcements for a tournament in this
- * room should target. Precedence: tournament-specific channel → per-room
+ * room should target. Precedence: room Discord off → null; tournament 'none'
+ * → null; tournament-specific channel → the room's `DISCORD_ANNOUNCE_ROUTES`
+ * route for `kind` (v2.221.0, E8) → per-room
  * `DISCORD_ANNOUNCEMENT_CHANNEL_ID` → env fallback. Returns `null` when the
  * room has DISCORD_ENABLED=false or no channel can be resolved.
  */
@@ -424,6 +521,7 @@ export const ANNOUNCE_NONE = 'none';
 export async function resolveAnnouncementChannelId(
     gameRoomId: string | null | undefined,
     tournamentChannelId: string | null | undefined,
+    kind: AnnounceKind = 'tournament',
 ): Promise<string | null> {
     if (!(await isDiscordEnabledForRoom(gameRoomId))) return null;
     // v2.140.0 — 'none' is the per-tournament "don't announce" sentinel. It
@@ -434,8 +532,12 @@ export async function resolveAnnouncementChannelId(
     // column — rather than a new flag — means every caller that already
     // resolves through here inherits the behaviour.
     if (tournamentChannelId === ANNOUNCE_NONE) return null;
+    // The narrower scope wins: a tournament with its own channel ignores the
+    // room's per-kind routes; one on "Room default" is what routes apply to.
     if (tournamentChannelId) return tournamentChannelId;
     if (gameRoomId) {
+        const route = parseAnnounceRoutes(await GameRoomSettingsService.get(gameRoomId, DISCORD_ANNOUNCE_ROUTES_KEY))[kind];
+        if (route) return route;
         const perRoom = await GameRoomSettingsService.get(gameRoomId, 'DISCORD_ANNOUNCEMENT_CHANNEL_ID');
         if (perRoom) return perRoom;
     }
