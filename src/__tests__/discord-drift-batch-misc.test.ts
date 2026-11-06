@@ -7,7 +7,6 @@ import { GameRoomSettingsService } from '../services/GameRoomSettingsService.js'
 import { GameRoomService } from '../services/GameRoomService.js';
 import { BanService } from '../services/BanService.js';
 import { TournamentEngine } from '../engine/TournamentEngine.js';
-import { createbackup } from '../discord/commands/createbackup.js';
 import { syncstate } from '../discord/commands/syncstate.js';
 import { setup } from '../discord/commands/setup.js';
 import { activategame } from '../discord/commands/activategame.js';
@@ -35,12 +34,7 @@ function makeInteraction(overrides: Record<string, unknown> = {}) {
     return { interaction, replies };
 }
 
-describe('drift-audit fix #2 — admin gates on /create-backup and /sync-state', () => {
-    it('/create-backup declares Administrator as its default member permission', () => {
-        const json = createbackup.data.toJSON() as { default_member_permissions?: string | null };
-        expect(json.default_member_permissions).toBe(PermissionFlagsBits.Administrator.toString());
-    });
-
+describe('drift-audit fix #2 — admin gate on /sync-state', () => {
     it('/sync-state declares Administrator as its default member permission', () => {
         const json = syncstate.data.toJSON() as { default_member_permissions?: string | null };
         expect(json.default_member_permissions).toBe(PermissionFlagsBits.Administrator.toString());

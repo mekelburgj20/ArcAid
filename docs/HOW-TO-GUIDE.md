@@ -380,7 +380,6 @@ These commands are available to all members in your Discord server.
 | `/view-queue` | Shows the games in your own pick queue | See what you have lined up if you win |
 | `/pick-game` | When nominated as picker, choose the next game from eligible options | It's your turn to pick! |
 | `/map-user` | Link your Discord account to your iScored username | First-time setup or username change |
-| `/create-backup` | Triggers a database backup | Before major changes |
 | `/sync-state` | Reconciles Arcaid's database with live iScored data | If scores seem out of sync |
 
 ### Admin Commands

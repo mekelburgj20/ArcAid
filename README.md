@@ -143,7 +143,6 @@ npm run dev            # Vite dev server with HMR
 | `/view-queue` | Show the games in your own pick queue |
 | `/pick-game` | Nominated picker selects the next game (shows eligible games only) |
 | `/map-user` | Add an iScored username as an alias of your Discord account. As of v2.8.0 this is **additive** — one Discord user can hold many iScored aliases; the command errors if the name is owned by a different user |
-| `/create-backup` | Trigger a database backup |
 | `/sync-state` | Reconcile local DB with live iScored data |
 
 ### Admin Commands

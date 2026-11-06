@@ -15,7 +15,6 @@ import { viewqueue } from './commands/viewqueue.js';
 import { forcemaintenance } from './commands/forcemaintenance.js';
 import { syncstate } from './commands/syncstate.js';
 import { runcleanup } from './commands/runcleanup.js';
-import { createbackup } from './commands/createbackup.js';
 import { pausepick } from './commands/pausepick.js';
 import { nominatepicker } from './commands/nominatepicker.js';
 import { mystats } from './commands/mystats.js';
@@ -90,7 +89,7 @@ export class DiscordClient {
         const commandList = [
             ping, setup, mapuser, pickgame, submitscore,
             listactive, listscores, viewstats, listwinners, viewqueue,
-            forcemaintenance, syncstate, runcleanup, createbackup, pausepick, nominatepicker, mystats,
+            forcemaintenance, syncstate, runcleanup, pausepick, nominatepicker, mystats,
             activategame, deactivategame, reorderlineup, notifications,
             checkin,
         ];

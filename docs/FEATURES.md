@@ -187,7 +187,6 @@ All six feed the same dedup/upsert path, so re-running any of them is safe and i
 | `/view-queue` | Show the games in your own pick queue |
 | `/pick-game` | Nominated picker selects the next game (eligible games only) |
 | `/map-user` | Add an iScored alias to your own Discord account |
-| `/create-backup` | Trigger a database backup |
 | `/sync-state` | Reconcile the local DB with live iScored data |
 | `/arcaid-notifications` | Manage Discord DM notification opt-ins |
 
