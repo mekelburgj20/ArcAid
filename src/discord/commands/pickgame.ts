@@ -482,7 +482,7 @@ export const pickgame: Command = {
 
                     if (!roomMember) {
                         const { resolveAnnouncementChannelId } = await import('../../utils/discord.js');
-                        const channelId = await resolveAnnouncementChannelId(tournament.game_room_id, tournament.discord_channel_id);
+                        const channelId = await resolveAnnouncementChannelId(tournament.game_room_id, tournament.discord_channel_id, 'picks');
                         const term = getTerminology(tournament.mode);
                         trackBackground(
                             TournamentEngine.getInstance().announceNomineeOnboarding(passPickUser.id, tournament, channelId, term)

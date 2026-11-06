@@ -32,6 +32,8 @@ const { getDatabase } = await import('../database/database.js');
 const { SeasonPollService } = await import('../services/SeasonPollService.js');
 const { SeasonScheduler } = await import('../engine/SeasonScheduler.js');
 const { createSeason, addCatalogueGame, refreshSeason, SEASON_CHANNEL } = await import('./seasonHelpers.js');
+const { _resetChannelTypeCacheForTests } = await import('../utils/discord.js');
+const { Routes } = await import('discord.js');
 
 // Friday 00:00 America/New_York (EDT) = 04:00Z.
 const WED_NOON = new Date('2026-10-14T12:00:00.000Z');
@@ -314,5 +316,58 @@ describe('SeasonScheduler.tick', () => {
         poll = (await SeasonPollService.getPoll(pollId))!;
         expect(poll.status).toBe('cancelled');
         expect(textPosts().some(t => t.includes('Send Polls'))).toBe(true);
+    });
+});
+
+describe('forum poll channel (E8)', () => {
+    const THREAD = '900000000000000777';
+
+    beforeEach(() => {
+        _resetChannelTypeCacheForTests();
+        get.mockImplementation(async (route: string) => {
+            if (route === Routes.channel(SEASON_CHANNEL)) return { id: SEASON_CHANNEL, type: 15 };
+            return { users: [] };
+        });
+    });
+
+    it('posts the poll as a new forum post and stores the THREAD id as the poll channel', async () => {
+        const { season, pollId } = await seasonWithDraft();
+        post.mockImplementation(async (route: string, opts?: { body?: any }) => {
+            if (route === Routes.threads(SEASON_CHANNEL)) {
+                const answers = opts!.body.message.poll.answers.map((_: unknown, i: number) => ({ answer_id: i + 1 }));
+                return { id: THREAD, message: { id: 'starter-1', poll: { answers } } };
+            }
+            return {};
+        });
+        await SeasonScheduler.getInstance().tick(WED_NOON);
+
+        const threadPosts = post.mock.calls.filter(c => c[0] === Routes.threads(SEASON_CHANNEL));
+        expect(threadPosts).toHaveLength(1);
+        const body = threadPosts[0]![1].body;
+        expect(body.name).toBe(SeasonPollService.defaultQuestion(season.name, 1).slice(0, 100));
+        expect(body.message.poll.answers.map((a: any) => a.poll_media.text)).toEqual(['Attack from Mars', 'Medieval Madness']);
+        expect(body.message.content).toContain('combined tally');
+        expect(post.mock.calls.some(c => c[0] === Routes.channelMessages(SEASON_CHANNEL))).toBe(false);
+
+        const poll = (await SeasonPollService.getPoll(pollId))!;
+        expect(poll).toMatchObject({ status: 'open', discord_channel_id: THREAD, discord_message_id: 'starter-1' });
+        // Every later message about this poll goes into its thread.
+        expect(await SeasonPollService.pollChannelFor(season, poll)).toBe(THREAD);
+    });
+
+    it('a forum that refuses the post names the forum permissions', async () => {
+        const { pollId } = await seasonWithDraft();
+        post.mockImplementation(async (route: string) => {
+            if (route === Routes.threads(SEASON_CHANNEL)) throw Object.assign(new Error('Missing Permissions'), { status: 403, code: 50013 });
+            return {};
+        });
+        await SeasonScheduler.getInstance().tick(WED_NOON);
+        await SeasonScheduler.getInstance().tick(new Date(WED_NOON.getTime() + 60_000));
+        await SeasonScheduler.getInstance().tick(new Date(WED_NOON.getTime() + 120_000));
+        expect((await SeasonPollService.getPoll(pollId))!.status).toBe('cancelled');
+        const notices = post.mock.calls
+            .filter(c => c[0] === Routes.threads(SEASON_CHANNEL) && typeof c[1]?.body?.message?.content === 'string')
+            .map(c => c[1].body.message.content as string);
+        expect(notices.some(t => t.includes('Create Posts') && t.includes('Send Messages in Threads') && t.includes('Send Polls'))).toBe(true);
     });
 });

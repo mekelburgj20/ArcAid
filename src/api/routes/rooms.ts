@@ -12,6 +12,7 @@ import { iscoredDeletesAllowed, ISCORED_DELETES_DISABLED_MESSAGE } from '../../u
 import { nextRotationIso } from '../../utils/cronUtils.js';
 import { roomTimezone, resolveTimezone, isValidTimeZone, ROOM_TIMEZONE_KEY } from '../../utils/roomTimezone.js';
 import { DISCORD_COMMAND_POLICY_KEY, serializeCommandPolicy } from '../../utils/discordCommandPolicy.js';
+import { DISCORD_ANNOUNCE_ROUTES_KEY, serializeAnnounceRoutes } from '../../utils/discordAnnounceRoutes.js';
 import {
     CreateTournamentSchema, UpdateTournamentSchema, ToggleTournamentActiveSchema,
     SettingsSchema,
@@ -4900,6 +4901,11 @@ router.post('/:roomId/settings', requireAuth, requireRoomAccess('roomId'), requi
             validationResult.data[DISCORD_COMMAND_POLICY_KEY] =
                 serializeCommandPolicy(validationResult.data[DISCORD_COMMAND_POLICY_KEY]);
         }
+        // v2.221.0 (E8): per-kind announcement channels, same treatment.
+        if (Object.prototype.hasOwnProperty.call(validationResult.data, DISCORD_ANNOUNCE_ROUTES_KEY)) {
+            validationResult.data[DISCORD_ANNOUNCE_ROUTES_KEY] =
+                serializeAnnounceRoutes(validationResult.data[DISCORD_ANNOUNCE_ROUTES_KEY]);
+        }
         await GameRoomSettingsService.saveMany(roomId, validationResult.data);
 
         // "Listed on Arcaid" is the room's only listing switch; is_public follows it.
@@ -7470,7 +7476,10 @@ router.get('/:roomId/admin/discord/channels', requireAuth, requireRoomAccess('ro
             });
         }
 
-        res.json({ channels: client.listGuildTextChannels(guildId) });
+        // `?forums=1` (v2.221.0, E8): the announcement-channel picker also
+        // offers forums, which get a new post per message.
+        const includeForums = req.query.forums === '1';
+        res.json({ channels: client.listGuildTextChannels(guildId, { includeForums }) });
     } catch (error) {
         logError('API Error (GET rooms/:roomId/admin/discord/channels):', error);
         res.status(500).json({ error: 'Internal Server Error' });

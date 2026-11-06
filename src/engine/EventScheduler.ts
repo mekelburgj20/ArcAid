@@ -463,7 +463,9 @@ export class EventScheduler {
             // ("don't announce") sentinel, and a local copy here is exactly
             // how the owner's test event ended up posting into the live
             // Daily Grind channel (2026-08-25).
-            const channelId = await resolveAnnouncementChannelId(target.game_room_id, target.discord_channel_id);
+            // Every event post (check-in, round start/end, results) is a
+            // tournament-kind post (v2.221.0, E8).
+            const channelId = await resolveAnnouncementChannelId(target.game_room_id, target.discord_channel_id, 'tournament');
             if (!channelId) return;
             await EventScheduler.nameRoomInFooter(embed, target.game_room_id);
             await sendChannelEmbed(channelId, embed);

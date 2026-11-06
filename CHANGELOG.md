@@ -6,6 +6,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.221.0] - 2026-11-05 - Per-kind announcement channels and forum posts (E8)
+
+Mox's server keeps lu-tourneys, lu-polls (a forum) and lu-tourney-talk under one hub, and asked for every alert
+to fall back to one default channel with an optional channel per alert type and a forum option (Q7). Until now a
+room had one announcement channel, and a forum could not take a bot post at all. GamerDad89's season 6 starts
+2026-11-06 and its first poll opens 2026-11-09.
+
+### Added
+- **Room Settings -> Discord -> Announcement channels.** Three rows, each a channel picker that saves at once:
+  **Tournament posts** (Now Active, winners, season standings, event rounds), **Pick prompts and warnings**
+  (Pick Needed, reminders, timeouts, nothing queued) and **Polls** (season polls and their notices). "Room
+  default channel" uses the Default Announcement Channel; a tournament with its own channel ignores the routes.
+  Stored as `game_room_settings.DISCORD_ANNOUNCE_ROUTES` (`{version:1, routes:{tournament, picks, polls}}`),
+  read only through `parseAnnounceRoutes` and re-serialized through it on save.
+- **`resolveAnnouncementChannelId` takes a kind** (default `tournament`). Order: room Discord off -> tournament
+  `none` -> the tournament's own channel -> the room's route for the kind -> the room default -> env. Every
+  announcement call site now names its kind.
+- **Forum channels.** A post into a forum (or media) channel creates a new forum post titled with the embed
+  title or the first line of the message (mentions and markdown removed, 100 characters max). A season poll
+  aimed at a forum gets its own post named with the poll question; the poll's stored channel becomes the new
+  thread, so vote sync, the tally edit, expiry and every later notice about that poll land in that thread. The
+  channel picker lists forums with " (forum)". A refused post into a forum names the forum permissions (Send
+  Messages / Create Posts, Send Messages in Threads, Send Polls).
+
+### Changed
+- The tie and no-eligible-table notices of a poll now go to the poll's own channel (its thread in a forum), not
+  the tournament announcement channel. A poll posted into the announcement channel sees no change.
+
 ## [2.220.0] - 2026-11-04 - A witness score can win a rotation (W93)
 
 Krobs' Castcade score of 31,269,280 on The Lord of the Rings sat at rank 1 on RTX's Weekly Grind - VPXS board

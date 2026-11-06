@@ -4,6 +4,7 @@ import { logInfo, logError, logWarn } from '../utils/logger.js';
 import { getTerminology } from '../utils/terminology.js';
 import { Game } from '../types/index.js';
 import { sendChannelMessage, sendChannelEmbed, getTournamentColor, resolveUserMention } from '../utils/discord.js';
+import type { AnnounceKind } from '../utils/discordAnnounceRoutes.js';
 import { TournamentEngine } from './TournamentEngine.js';
 // IScoredClient construction is owned by IScoredSessionRegistry.
 import { v4 as uuidv4 } from 'uuid';
@@ -93,16 +94,16 @@ export class TimeoutManager {
      * Resolves the announcement channel for a tournament.
      * Uses the tournament's discord_channel_id, falling back to the global env var.
      */
-    private async getChannelId(tournamentId: string | undefined): Promise<string | null> {
+    private async getChannelId(tournamentId: string | undefined, kind: AnnounceKind): Promise<string | null> {
         const { resolveAnnouncementChannelId } = await import('../utils/discord.js');
-        if (!tournamentId) return resolveAnnouncementChannelId(null, null);
+        if (!tournamentId) return resolveAnnouncementChannelId(null, null, kind);
 
         const db = await getDatabase();
         const row = await db.get(
             'SELECT discord_channel_id, game_room_id FROM tournaments WHERE id = ?',
             tournamentId,
         );
-        return resolveAnnouncementChannelId(row?.game_room_id ?? null, row?.discord_channel_id ?? null);
+        return resolveAnnouncementChannelId(row?.game_room_id ?? null, row?.discord_channel_id ?? null, kind);
     }
 
     private async handleTieredTimeout(game: Game, settings: { winnerWindowMin: number; runnerUpWindowMin: number }): Promise<void> {
@@ -166,7 +167,7 @@ export class TimeoutManager {
         try {
             const info = await this.getTournamentInfo(game.tournamentId);
             const term = getTerminology(info.mode);
-            const channelId = await this.getChannelId(game.tournamentId);
+            const channelId = await this.getChannelId(game.tournamentId, 'picks');
             logInfo(`Reminder for <@${game.pickerDiscordId}>: ${minsRemaining} minutes left.`);
 
             if (channelId) {
@@ -296,7 +297,7 @@ export class TimeoutManager {
 
             if (outcome.kind === 'auto') {
                 logWarn(`No eligible picker below the winner for game ${game.wonGameId}. Falling back to auto-select.`);
-                const channelId = await this.getChannelId(game.tournamentId);
+                const channelId = await this.getChannelId(game.tournamentId, 'picks');
                 if (channelId) {
                     const color = getTournamentColor(info.type);
                     const tournamentName = info.name ?? 'the tournament';
@@ -386,7 +387,7 @@ export class TimeoutManager {
                 }).catch(() => {});
             }
 
-            const channelId = await this.getChannelId(game.tournamentId);
+            const channelId = await this.getChannelId(game.tournamentId, 'picks');
             if (channelId) {
                 const color = getTournamentColor(info.type);
                 const runnerUpMention = await resolveUserMention(runnerUpId, runnerUpName || 'Runner-up', info.gameRoomId);
@@ -621,7 +622,7 @@ export class TimeoutManager {
             } catch { /* never surfaces */ }
         }
 
-        const channelId = await this.getChannelId(slot.tournamentId);
+        const channelId = await this.getChannelId(slot.tournamentId, 'tournament');
         if (channelId) {
             const color = getTournamentColor(info.type);
             const embed = new EmbedBuilder()
@@ -705,7 +706,7 @@ export class TimeoutManager {
                     gameName: '[Pending Pick]',
                     details: { reason: 'autopick_disabled', picker: game.pickerDiscordId ?? null },
                 }).catch(() => {});
-                const channelId = await this.getChannelId(game.tournamentId);
+                const channelId = await this.getChannelId(game.tournamentId, 'picks');
                 if (channelId) {
                     const term = getTerminology(tournament.mode);
                     const color = getTournamentColor(tournament.type);
@@ -818,7 +819,7 @@ export class TimeoutManager {
                     gameName: '[Pending Pick]',
                     details: { reason: 'no_eligible_games', picker: game.pickerDiscordId ?? null },
                 }).catch(() => {});
-                const channelId = await this.getChannelId(game.tournamentId);
+                const channelId = await this.getChannelId(game.tournamentId, 'picks');
                 if (channelId) {
                     const color = getTournamentColor(tournament.type);
                     const embed = new EmbedBuilder()
@@ -911,7 +912,7 @@ export class TimeoutManager {
                 },
             }).catch(() => {});
 
-            const channelId = await this.getChannelId(game.tournamentId);
+            const channelId = await this.getChannelId(game.tournamentId, 'tournament');
             if (channelId) {
                 const color = getTournamentColor(tournament.type);
                 const embed = new EmbedBuilder()

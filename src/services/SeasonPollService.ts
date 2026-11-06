@@ -5,6 +5,7 @@ import { logInfo, logWarn, logError } from '../utils/logger.js';
 import { nextRotationIso } from '../utils/cronUtils.js';
 import {
     resolveAnnouncementChannelId, isDiscordEnabledForRoom, sendChannelEmbed, sendChannelMessage, getTournamentColor,
+    getChannelType, isForumChannelType,
 } from '../utils/discord.js';
 import {
     postPoll, fetchAnswerVoters, expirePoll, editMessageContent, pollDurationHours,
@@ -719,7 +720,10 @@ export class SeasonPollService {
         const rule = (poll.tie_rule ?? t.poll_tie_rule) as SeasonTieRule;
         const { order, tied, tiedPositions } = this.rankCandidates(poll.id, candidates, tally, rule);
         const week = poll.slot_no;
-        const channelId = await resolveAnnouncementChannelId(t.game_room_id, t.discord_channel_id);
+        // v2.221.0 (E8): messages ABOUT the poll go where the poll is (its
+        // thread, when it was posted into a forum); the "Next up" embed below
+        // is a tournament post.
+        const channelId = await this.pollChannelFor(t, poll);
 
         // "Admin decides" HOLDS (ADR 0026): queue nothing, mark the poll tied
         // with no result, tell the channel. The rotation's existing empty-queue
@@ -764,7 +768,8 @@ export class SeasonPollService {
         );
         logInfo(`Season '${t.name}' week ${week} poll resolved: ${chosen.game_name} queued (${game.id})${tied ? ` after a tie (${rule})` : ''}.`);
 
-        if (!channelId) return;
+        const nextUpChannelId = await resolveAnnouncementChannelId(t.game_room_id, t.discord_channel_id, 'tournament');
+        if (!nextUpChannelId) return;
         const votes = (c: SeasonPollCandidateRow) => tally.get(c.position) ?? 0;
         const runnerUp = order.find(c => c.position !== chosen!.position);
         const score = runnerUp ? `${votes(chosen)} vote${votes(chosen) === 1 ? '' : 's'} to ${votes(runnerUp)}` : `${votes(chosen)} vote${votes(chosen) === 1 ? '' : 's'}`;
@@ -774,7 +779,7 @@ export class SeasonPollService {
         if (skipped.length) {
             desc += `\n${skipped.map(n => `**${n}**`).join(', ')} ${skipped.length === 1 ? 'is' : 'are'} not eligible for this tournament, so the next-ranked table goes in.`;
         }
-        await sendChannelEmbed(channelId, new EmbedBuilder()
+        await sendChannelEmbed(nextUpChannelId, new EmbedBuilder()
             .setTitle(`Next up: ${chosen.game_name} — ${t.name}`)
             .setDescription(desc)
             .setColor(getTournamentColor(t.type) || SEASON_COLOR)
@@ -820,7 +825,7 @@ export class SeasonPollService {
             pick.game_name, game.id, pollId,
         );
         logInfo(`Season '${t.name}' week ${poll.slot_no}: admin chose ${pick.game_name}${poll.result_game_name ? ` over ${poll.result_game_name}` : ' (nothing was queued)'}.`);
-        const channelId = await resolveAnnouncementChannelId(t.game_room_id, t.discord_channel_id);
+        const channelId = await resolveAnnouncementChannelId(t.game_room_id, t.discord_channel_id, 'tournament');
         if (channelId) {
             const rotationIso = nextRotationIso(t.cadence, now);
             const starts = rotationIso ? ` Starts <t:${Math.floor(Date.parse(rotationIso) / 1000)}:F>.` : '';
@@ -841,8 +846,10 @@ export class SeasonPollService {
 
     static async pollChannelFor(t: SeasonTournamentRow, poll: SeasonPollRow): Promise<string | null> {
         if (!(await isDiscordEnabledForRoom(t.game_room_id))) return null;
+        // After a post into a forum this column holds the poll's THREAD id
+        // (v2.221.0, E8), so every later message about the poll lands there.
         if (poll.discord_channel_id) return poll.discord_channel_id;
-        return resolveAnnouncementChannelId(t.game_room_id, t.discord_channel_id);
+        return resolveAnnouncementChannelId(t.game_room_id, t.discord_channel_id, 'polls');
     }
 
     /**
@@ -908,8 +915,11 @@ export class SeasonPollService {
                     await db.run(`UPDATE season_polls SET status = 'cancelled', posted_at = NULL WHERE id = ? AND status = 'open'`, poll.id);
                     postFailures.delete(poll.id);
                     logWarn(`Season '${t.name}' week ${poll.slot_no} poll cancelled after ${failures} failed posts to channel ${channelId}.`);
+                    const perms = isForumChannelType(await getChannelType(channelId))
+                        ? 'the bot needs **Send Messages / Create Posts**, **Send Messages in Threads** and **Send Polls** in this forum'
+                        : 'the bot needs **Send Messages** and **Send Polls** in this channel';
                     await sendChannelMessage(channelId,
-                        `⚠️ **${t.name}** — the week ${poll.slot_no} poll could not be posted here after ${failures} tries (${result.status === 403 ? 'the bot needs **Send Messages** and **Send Polls** in this channel' : result.message}). It has been cancelled; an admin can repost it.`);
+                        `⚠️ **${t.name}** — the week ${poll.slot_no} poll could not be posted here after ${failures} tries (${result.status === 403 ? perms : result.message}). It has been cancelled; an admin can repost it.`);
                 } else {
                     await db.run(`UPDATE season_polls SET status = 'draft', posted_at = NULL WHERE id = ? AND status = 'open'`, poll.id);
                     logWarn(`Season '${t.name}' week ${poll.slot_no} poll: post to channel ${channelId} failed (${failures}/${MAX_POST_FAILURES}); will retry next minute.`);
@@ -919,7 +929,9 @@ export class SeasonPollService {
             postFailures.delete(poll.id);
             await db.run(
                 'UPDATE season_polls SET discord_channel_id = ?, discord_message_id = ? WHERE id = ?',
-                channelId, result.value.messageId, poll.id,
+                // The channel the poll LIVES in: a forum post's thread id, so
+                // vote sync, expire and the content edit keep working (E8).
+                result.value.channelId, result.value.messageId, poll.id,
             );
             for (let i = 0; i < candidates.length; i++) {
                 await db.run(
@@ -975,7 +987,7 @@ export class SeasonPollService {
         } catch {
             return false; // a concurrent tick took the slot — it sends the reminder
         }
-        const channelId = await resolveAnnouncementChannelId(t.game_room_id, t.discord_channel_id);
+        const channelId = await resolveAnnouncementChannelId(t.game_room_id, t.discord_channel_id, 'polls');
         logInfo(`Season '${t.name}': no candidates prepared for the week ${slotNo} poll — reminder sent.`);
         if (channelId) {
             const adminUrl = t.room_slug ? ` ${roomUrl(t.room_slug)}/admin/tournaments` : '';
