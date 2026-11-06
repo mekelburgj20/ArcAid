@@ -371,6 +371,7 @@ These commands are available to all members in your Discord server.
 
 | Command | What It Does | When to Use |
 |---------|-------------|-------------|
+| `/join` | Join the room linked to this server. Open rooms join at once; Discord-role rooms check your roles; approval rooms send a request or auto-approve you. | First time in a server, to become a room member |
 | `/list-active` | Shows all currently active games across your tournaments | Check what games are currently running |
 | `/list-scores` | Shows the leaderboard for active games. Optional `@user` filter and pagination | See who's winning the current round |
 | `/submit-score` | Submit a score with a photo to iScored. Auto-links Discord account to iScored username on first use | After playing a game, submit your score |
@@ -379,8 +380,6 @@ These commands are available to all members in your Discord server.
 | `/list-winners` | Hall of fame showing recent tournament winners | See who's been winning lately |
 | `/view-queue` | Shows the games in your own pick queue | See what you have lined up if you win |
 | `/pick-game` | When nominated as picker, choose the next game from eligible options | It's your turn to pick! |
-| `/map-user` | Link your Discord account to your iScored username | First-time setup or username change |
-| `/sync-state` | Reconciles Arcaid's database with live iScored data | If scores seem out of sync |
 
 ### Admin Commands
 
@@ -395,7 +394,6 @@ These commands require the Discord Admin Role configured in your room settings.
 | `/pause-pick` | Inject a specific game into the tournament queue | Queue up a specific game to play next |
 | `/nominate-picker` | Manually assign picker rights to a user | Override the automatic picker selection |
 | `/reorder-lineup` | Reorder queued games in a tournament's iScored lineup | Rearrange the upcoming game order |
-| `/setup` | Configure Discord channels, roles, and pick windows | Initial bot setup or reconfiguration |
 
 ---
 

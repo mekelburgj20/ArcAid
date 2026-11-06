@@ -25,7 +25,6 @@ paths:
   - "src/utils/gameRunWindow.ts"
   - "src/utils/scoreCorrectionPolicy.ts"
   - "src/discord/**/submitscore.ts"
-  - "src/discord/**/mapuser.ts"
   - "admin-ui/src/components/SubmissionSheet*.tsx"
   - "admin-ui/src/components/CorrectScoreModal.tsx"
   - "admin-ui/src/components/ScoreboardComponents.tsx"
@@ -71,9 +70,9 @@ Loads when you touch score storage, submission resolution, identity/alias linkin
 
 ## Alias linking and merge
 
-- **`/map-user` is additive.** It adds an alias for the target Discord user and errors if the name is already mapped to a different user; no "replace" semantic, no `/unmap-user` (deferred) (v2.8.0).
-- **`user_mappings` writers:** `global.ts` (global-submit display-name claim), `mapuser.ts`, `submitscore.ts` — all `ON CONFLICT(iscored_username) DO NOTHING` — plus `MergeService.recordMerge` (pre-flight `MAPPING_CONFLICT` check inside the txn). **Discord OAuth login writes NO mapping** (`auth.ts` is not a writer, verified 2026-07-15): a logged-in web player gets `submitted_by_user_id` attribution and a `room_members.display_name` claim, but their room name is NOT a global alias until `/map-user`/merge links it — name-based stat resolvers (compare, enhanced player stats) read `user_mappings` only.
-- **`src/services/IdentityAliasEffectsService.ts` is the ONE place that knows what happens when an alias becomes linked (v2.127.0).** Every `user_mappings` writer must call `onAliasLinked(userId, name)`, gated on the INSERT actually inserting (`res.changes`, since they all `DO NOTHING`); every alias REMOVAL must call `onAliasUnlinked`. Callers: `IdentityClaimService.claim`/`approve`/`releaseAlias`, `mapuser.ts`, `submitscore.ts`, `global.ts`, `MergeService.recordMerge`.
+- **`/map-user` was retired (v2.222.0, E12)** — it let any Discord user claim any unmapped iScored name unreviewed; the reviewed path is the web identity claim (`IdentityClaimService`), and `/submit-score` still auto-maps on first use.
+- **`user_mappings` writers:** `global.ts` (global-submit display-name claim), `submitscore.ts` — all `ON CONFLICT(iscored_username) DO NOTHING` — plus `MergeService.recordMerge` (pre-flight `MAPPING_CONFLICT` check inside the txn). **Discord OAuth login writes NO mapping** (`auth.ts` is not a writer, verified 2026-07-15): a logged-in web player gets `submitted_by_user_id` attribution and a `room_members.display_name` claim, but their room name is NOT a global alias until a claim/merge links it — name-based stat resolvers (compare, enhanced player stats) read `user_mappings` only.
+- **`src/services/IdentityAliasEffectsService.ts` is the ONE place that knows what happens when an alias becomes linked (v2.127.0).** Every `user_mappings` writer must call `onAliasLinked(userId, name)`, gated on the INSERT actually inserting (`res.changes`, since they all `DO NOTHING`); every alias REMOVAL must call `onAliasUnlinked`. Callers: `IdentityClaimService.claim`/`approve`/`releaseAlias`, `submitscore.ts`, `global.ts`, `MergeService.recordMerge`.
   - (a) folds synthetic `iscored:<Name>` `room_members` rows onto the real account (earlier `joined_at` wins; display name carried over when the real row lacks one).
   - (b) re-attributes unowned SYNCED rows in `score_history` + `submissions` across ALL rooms — `submitted_by_user_id IS NULL AND discord_user_id LIKE 'iscored:%' AND merged_from_anonymous_identity_id IS NULL` — minus a **freeze gate** skipping rows whose `submitted_during_tournament_id` names a COMPLETED (`is_active = 0`) tournament, exactly as `MergeService.previewMerge` does.
   - (c) fire-and-forget `UserProfileService.hydrateFromDiscord`. `community_scores`/`global_scores` are never touched (sync writes neither).

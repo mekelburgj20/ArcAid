@@ -1,18 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import crypto from 'crypto';
-import { PermissionFlagsBits } from 'discord.js';
 import { setupTestDb, createTestRoom, createTestTournament, createTestGame } from './helpers.js';
 import { getDatabase } from '../database/database.js';
 import { GameRoomSettingsService } from '../services/GameRoomSettingsService.js';
 import { GameRoomService } from '../services/GameRoomService.js';
-import { BanService } from '../services/BanService.js';
 import { TournamentEngine } from '../engine/TournamentEngine.js';
-import { syncstate } from '../discord/commands/syncstate.js';
-import { setup } from '../discord/commands/setup.js';
 import { activategame } from '../discord/commands/activategame.js';
 import { deactivategame } from '../discord/commands/deactivategame.js';
 import { reorderlineup } from '../discord/commands/reorderlineup.js';
-import { mapuser } from '../discord/commands/mapuser.js';
+import { join } from '../discord/commands/join.js';
 
 function makeInteraction(overrides: Record<string, unknown> = {}) {
     const replies: unknown[] = [];
@@ -33,73 +29,6 @@ function makeInteraction(overrides: Record<string, unknown> = {}) {
     } as any;
     return { interaction, replies };
 }
-
-describe('drift-audit fix #2 — admin gate on /sync-state', () => {
-    it('/sync-state declares Administrator as its default member permission', () => {
-        const json = syncstate.data.toJSON() as { default_member_permissions?: string | null };
-        expect(json.default_member_permissions).toBe(PermissionFlagsBits.Administrator.toString());
-    });
-});
-
-describe('drift-audit fix #5 — /setup deprecation', () => {
-    beforeEach(async () => { await setupTestDb(); });
-
-    it('announcement-channel replies with the deprecation notice and writes nothing', async () => {
-        const { interaction, replies } = makeInteraction({
-            options: { getSubcommand: () => 'announcement-channel', getChannel: () => ({ id: 'chan-1', name: 'general' }) },
-        });
-        await setup.execute(interaction);
-
-        const text = JSON.stringify(replies[replies.length - 1]);
-        expect(text).toMatch(/retired/i);
-        expect(text).toMatch(/Settings → Discord/);
-
-        const db = await getDatabase();
-        const row = await db.get(`SELECT value FROM settings WHERE key = 'DISCORD_ANNOUNCEMENT_CHANNEL_ID'`);
-        expect(row).toBeUndefined();
-    });
-
-    it('admin-role replies with the deprecation notice and writes nothing', async () => {
-        const { interaction, replies } = makeInteraction({
-            options: { getSubcommand: () => 'admin-role', getRole: () => ({ id: 'role-1', name: 'Admin' }) },
-        });
-        await setup.execute(interaction);
-
-        const text = JSON.stringify(replies[replies.length - 1]);
-        expect(text).toMatch(/retired/i);
-        expect(text).toMatch(/obsolete/i);
-
-        const db = await getDatabase();
-        const row = await db.get(`SELECT value FROM settings WHERE key = 'DISCORD_ADMIN_ROLE_ID'`);
-        expect(row).toBeUndefined();
-    });
-
-    it('view reads the invoking guild\'s ACTUAL per-room DISCORD_ANNOUNCEMENT_CHANNEL_ID setting', async () => {
-        const roomId = await createTestRoom('setup-view-room');
-        await GameRoomSettingsService.set(roomId, 'DISCORD_GUILD_ID', 'guild-setup-view');
-        await GameRoomSettingsService.set(roomId, 'DISCORD_ANNOUNCEMENT_CHANNEL_ID', 'chan-real-1');
-
-        const { interaction, replies } = makeInteraction({
-            guildId: 'guild-setup-view',
-            options: { getSubcommand: () => 'view' },
-        });
-        await setup.execute(interaction);
-
-        const text = JSON.stringify(replies[replies.length - 1]);
-        expect(text).toContain('chan-real-1');
-    });
-
-    it('view says no room is linked when the guild maps to nothing', async () => {
-        const { interaction, replies } = makeInteraction({
-            guildId: 'guild-setup-unmapped',
-            options: { getSubcommand: () => 'view' },
-        });
-        await setup.execute(interaction);
-
-        const text = JSON.stringify(replies[replies.length - 1]);
-        expect(text).toMatch(/No Arcaid room is linked/i);
-    });
-});
 
 describe('drift-audit fix #7 — /activate-game autocomplete filters by tournament mode', () => {
     beforeEach(async () => { await setupTestDb(); });
@@ -244,43 +173,31 @@ describe('drift-audit fix #8 — /reorder-lineup scoped to the invoking guild', 
     });
 });
 
-describe('drift-audit fix #9 — /map-user ban check', () => {
-    beforeEach(async () => {
-        await setupTestDb();
-        BanService.clearCache();
+describe('E12 (v2.222.0) — /join registered, /sync-state /setup /map-user retired', () => {
+    it('/join carries NO default member permission (any member may run it)', () => {
+        const json = join.data.toJSON() as { name: string; default_member_permissions?: string | null };
+        expect(json.name).toBe('join');
+        expect(json.default_member_permissions ?? null).toBeNull();
     });
 
-    it('refuses a banned Discord user before writing a mapping', async () => {
-        const db = await getDatabase();
-        await db.run(
-            `INSERT INTO user_bans (id, discord_user_id, reason, banned_by) VALUES (?, ?, 'test ban', 'admin-1')`,
-            'ban-mapuser-1', 'mapuser-banned-1',
-        );
-        BanService.clearCache();
-
-        const { interaction, replies } = makeInteraction({
-            user: { id: 'mapuser-banned-1', tag: 'mapuser-banned-1#0000' },
-            options: { getString: () => 'SomeAlias', getUser: () => null },
-        });
-        await mapuser.execute(interaction);
-
-        const text = JSON.stringify(replies[replies.length - 1]);
-        expect(text).toMatch(/banned/i);
-        const mapping = await db.get('SELECT * FROM user_mappings WHERE discord_user_id = ?', 'mapuser-banned-1');
-        expect(mapping).toBeUndefined();
-    });
-
-    it('allows an unbanned user to map normally', async () => {
-        const { interaction, replies } = makeInteraction({
-            user: { id: 'mapuser-ok-1', tag: 'mapuser-ok-1#0000' },
-            options: { getString: () => 'SomeAlias', getUser: () => null },
-        });
-        await mapuser.execute(interaction);
-
-        const text = JSON.stringify(replies[replies.length - 1]);
-        expect(text).not.toMatch(/banned/i);
-        const db = await getDatabase();
-        const mapping = await db.get('SELECT * FROM user_mappings WHERE discord_user_id = ?', 'mapuser-ok-1');
-        expect(mapping).toBeTruthy();
+    it('registerCommands holds /join and none of the three retired commands', async () => {
+        const prevToken = process.env.DISCORD_BOT_TOKEN;
+        const prevClient = process.env.DISCORD_CLIENT_ID;
+        process.env.DISCORD_BOT_TOKEN = 'test-token';
+        process.env.DISCORD_CLIENT_ID = 'test-client';
+        try {
+            const { DiscordClient } = await import('../discord/DiscordClient.js');
+            const client = new DiscordClient();
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const names = Array.from(((client as any).commands as Map<string, unknown>).keys());
+            expect(names).toContain('join');
+            expect(names).not.toContain('sync-state');
+            expect(names).not.toContain('setup');
+            expect(names).not.toContain('map-user');
+            expect(names).toHaveLength(19);
+        } finally {
+            if (prevToken === undefined) delete process.env.DISCORD_BOT_TOKEN; else process.env.DISCORD_BOT_TOKEN = prevToken;
+            if (prevClient === undefined) delete process.env.DISCORD_CLIENT_ID; else process.env.DISCORD_CLIENT_ID = prevClient;
+        }
     });
 });

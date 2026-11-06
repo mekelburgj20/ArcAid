@@ -3,8 +3,6 @@ import { logInfo, logError, logWarn } from '../utils/logger.js';
 import { emitBotStatus } from '../api/websocket.js';
 import { Command } from './commands/index.js';
 import { ping } from './commands/ping.js';
-import { setup } from './commands/setup.js';
-import { mapuser } from './commands/mapuser.js';
 import { pickgame } from './commands/pickgame.js';
 import { submitscore } from './commands/submitscore.js';
 import { listactive } from './commands/listactive.js';
@@ -13,7 +11,6 @@ import { viewstats } from './commands/viewstats.js';
 import { listwinners } from './commands/listwinners.js';
 import { viewqueue } from './commands/viewqueue.js';
 import { forcemaintenance } from './commands/forcemaintenance.js';
-import { syncstate } from './commands/syncstate.js';
 import { runcleanup } from './commands/runcleanup.js';
 import { pausepick } from './commands/pausepick.js';
 import { nominatepicker } from './commands/nominatepicker.js';
@@ -23,6 +20,7 @@ import { deactivategame } from './commands/deactivategame.js';
 import { checkin } from './commands/checkin.js';
 import { reorderlineup } from './commands/reorderlineup.js';
 import { notifications } from './commands/notifications.js';
+import { join } from './commands/join.js';
 import { handleCalloutMessage } from './callouts.js';
 import { registerGatewayChannelTypeLookup } from '../utils/discord.js';
 
@@ -87,9 +85,9 @@ export class DiscordClient {
 
     private registerCommands(): void {
         const commandList = [
-            ping, setup, mapuser, pickgame, submitscore,
+            ping, join, pickgame, submitscore,
             listactive, listscores, viewstats, listwinners, viewqueue,
-            forcemaintenance, syncstate, runcleanup, pausepick, nominatepicker, mystats,
+            forcemaintenance, runcleanup, pausepick, nominatepicker, mystats,
             activategame, deactivategame, reorderlineup, notifications,
             checkin,
         ];

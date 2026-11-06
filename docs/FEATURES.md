@@ -101,7 +101,6 @@ All six feed the same dedup/upsert path, so re-running any of them is safe and i
 
 - **Global display name** [Player] — Logged-in players pick a globally-unique display name at `/account/settings` that renders on every leaderboard, ranking, stats page, lobby feed event, and Discord DM/announcement, in place of their raw iScored alias.
 - **Multi-alias identity linking** [Room Admin] — One Discord user can hold many iScored aliases; the admin Identity Merge tool consolidates them into a single player row per game. Forward attribution means future iScored scores under the merged alias auto-attribute to the linked Discord user going forward, not just historically. Reverse-merge cleanly undoes both.
-- **`/map-user` self-service alias linking** [Player] — Players can add an iScored username as an alias of their own Discord account via a Discord command (additive — doesn't replace existing aliases).
 - **Room-scoped first-claim names collapse into global identity where linked** — A player's per-room display-name claim and their global alias are recognized together on player stat pages, without creating a new identity record.
 - **Session persistence** — Login pages auto-redirect if a valid JWT already exists; JWT refresh tokens keep a session alive for 30 days with automatic silent refresh in the background.
 - **Account Settings** [Player] — One page to set the global display name, view linked iScored aliases, manage notification preferences, manage browser push subscriptions, and delete the account.
@@ -177,6 +176,7 @@ All six feed the same dedup/upsert path, so re-running any of them is safe and i
 
 | Command | Description |
 |---|---|
+| `/join` | Join the room linked to this server. Open rooms join at once; Discord-role rooms check your roles; approval rooms send a request or auto-approve you. |
 | `/list-active` | Show currently active games across all tournaments |
 | `/list-scores` | Leaderboard for active games (optional user filter, pagination) |
 | `/submit-score` | Submit a score + photo to iScored; prompts a star rating + comment afterward |
@@ -186,8 +186,6 @@ All six feed the same dedup/upsert path, so re-running any of them is safe and i
 | `/list-winners` | Hall of fame — recent tournament winners |
 | `/view-queue` | Show the games in your own pick queue |
 | `/pick-game` | Nominated picker selects the next game (eligible games only) |
-| `/map-user` | Add an iScored alias to your own Discord account |
-| `/sync-state` | Reconcile the local DB with live iScored data |
 | `/arcaid-notifications` | Manage Discord DM notification opt-ins |
 
 ### Admin commands
@@ -201,7 +199,6 @@ All six feed the same dedup/upsert path, so re-running any of them is safe and i
 | `/pause-pick` | Inject a specific game into the tournament queue |
 | `/nominate-picker` | Manually assign picker rights to a user |
 | `/reorder-lineup` | Reorder queued games in a tournament's iScored lineup |
-| `/setup` | Configure Discord channels, roles, and pick windows |
 
 ## 11. iScored Integration
 
