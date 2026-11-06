@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.221.1] - 2026-11-05 - Retire the /create-backup slash command
+
+GamerDad89 found `/arcaid-create-backup` ("Trigger BackupManager via Discord.") in his room's slash-command list and asked
+what it was. It wrote a full backup of the whole Arcaid database and assets to the server disk on demand, gated only by
+Discord's Administrator permission in ANY linked server. Backups have been scheduled (`BACKUP_SCHEDULE_CRON`) and
+available from the super-admin web UI since S9, so the command had no remaining use (owner, 2026-11-05).
+
+### Removed
+
+- `/create-backup` slash command (`src/discord/commands/createbackup.ts`) and its registration; the bot's next boot
+  re-deploys the global command set without it. Help page, README, FEATURES and HOW-TO-GUIDE rows dropped.
+
+---
 ## [2.221.0] - 2026-11-05 - Per-kind announcement channels and forum posts (E8)
 
 Mox's server keeps lu-tourneys, lu-polls (a forum) and lu-tourney-talk under one hub, and asked for every alert
