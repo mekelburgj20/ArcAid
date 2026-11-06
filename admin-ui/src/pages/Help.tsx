@@ -981,16 +981,15 @@ export default function Help() {
                 </tr>
               </thead>
               <tbody>
+                <tr><Td><Code>/join</Code></Td><Td>Join the room linked to this server. Open rooms join at once; Discord-role rooms check your roles; approval rooms send a request or auto-approve you.</Td><Td className="text-muted">First time in a server, to become a room member</Td></tr>
                 <tr><Td><Code>/list-active</Code></Td><Td>Shows all currently active games across your tournaments</Td><Td className="text-muted">Check what games are running</Td></tr>
                 <tr><Td><Code>/list-scores</Code></Td><Td>Shows the leaderboard for active games. Optional <Code>@user</Code> filter and pagination</Td><Td className="text-muted">See who is winning the current round</Td></tr>
                 <tr><Td><Code>/submit-score</Code></Td><Td>Submit a score with a photo to iScored. Auto-links Discord to iScored on first use</Td><Td className="text-muted">After playing, submit your score</Td></tr>
                 <tr><Td><Code>/view-stats</Code></Td><Td>Look up historical stats for any game (with autocomplete)</Td><Td className="text-muted">See all-time records for a game</Td></tr>
                 <tr><Td><Code>/my-stats</Code></Td><Td>Personal stats card: wins, win rate, average score, best score, recent games</Td><Td className="text-muted">Check your own performance</Td></tr>
                 <tr><Td><Code>/list-winners</Code></Td><Td>Hall of fame showing recent tournament winners</Td><Td className="text-muted">See who has been winning lately</Td></tr>
-                <tr><Td><Code>/view-selection</Code></Td><Td>Shows queued games and what is coming up next</Td><Td className="text-muted">See the upcoming lineup</Td></tr>
+                <tr><Td><Code>/view-queue</Code></Td><Td>Shows the games in your own pick queue</Td><Td className="text-muted">See what you have lined up if you win</Td></tr>
                 <tr><Td><Code>/pick-game</Code></Td><Td>Choose the next game when it is your turn to pick. Also handles your pick itself &mdash; <Code>forfeit:True</Code> passes it to the runner-up, <Code>pass-pick:@user</Code> hands it to someone else, <Code>clear:True</Code> resets your saved choice. Run with no options for a status check</Td><Td className="text-muted">It is your turn to pick, or you want to set/check what happens to your NEXT win</Td></tr>
-                <tr><Td><Code>/map-user</Code></Td><Td>Link your Discord account to your iScored username</Td><Td className="text-muted">First-time setup or username change</Td></tr>
-                <tr><Td><Code>/sync-state</Code></Td><Td>Reconciles Arcaid's database with live iScored data</Td><Td className="text-muted">If scores seem out of sync</Td></tr>
                 <tr><Td><Code>/arcaid-notifications</Code></Td><Td>Manage your notification preferences &mdash; opt in/out of Discord DMs per type (tournament win, turn to pick, dethroned, etc.)</Td><Td className="text-muted">Turn DM alerts on or off</Td></tr>
                 <tr><Td><Code>/ping</Code></Td><Td>Replies with Pong! A quick connectivity test</Td><Td className="text-muted">Check the bot is online</Td></tr>
               </tbody>
@@ -1020,7 +1019,6 @@ export default function Help() {
                 <tr><Td><Code>/pause-pick</Code></Td><Td>Inject a specific game into the tournament queue</Td><Td className="text-muted">Queue up a specific game next</Td></tr>
                 <tr><Td><Code>/nominate-picker</Code></Td><Td>Manually assign picker rights to a user</Td><Td className="text-muted">Override automatic picker selection</Td></tr>
                 <tr><Td><Code>/reorder-lineup</Code></Td><Td>Reorder queued games in a tournament's iScored lineup</Td><Td className="text-muted">Rearrange the upcoming game order</Td></tr>
-                <tr><Td><Code>/setup</Code></Td><Td>Retired: Discord settings now live on the web admin's Settings &rarr; Discord page. <Code>/setup view</Code> still shows which room(s) this server is linked to and their announcement channel</Td><Td className="text-muted">Checking which room a server is linked to</Td></tr>
               </tbody>
             </table>
           </div>

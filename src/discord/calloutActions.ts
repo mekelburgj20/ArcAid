@@ -472,7 +472,7 @@ function renderHowToClaim(room: CalloutRoom): string {
         `Scores you post under an iScored name only count as *yours* once that name is linked to your Discord account.`,
         `1. Sign in at ${roomUrl(room.slug)} with Discord.`,
         `2. Open ${accountSettingsUrl()} and claim the iScored name you play under.`,
-        `3. Ask an admin to run \`/map-user\` if the name is already taken by someone else.`,
+        `3. If the name is already owned by someone else, ask a room admin - they can sort it out with the identity tools in the room admin.`,
         `Once it is linked, picks, rank alerts and your standing all find you.`,
     ].join('\n');
 }

@@ -287,7 +287,7 @@ export default function PlayerDetail() {
             this player has no Discord identity to link Follow/merge tools to. */}
         {isRoomAdminHere && isPlayerUnlinked && (
           <p className="text-faint text-[11px] mt-2">
-            Admin: link this player's alias with <code>/map-user</code> on Discord, or the identity merge tool.
+            Admin: link this player's alias through the identity claims queue or the identity merge tool.
           </p>
         )}
       </div>

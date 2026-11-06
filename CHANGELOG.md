@@ -6,6 +6,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.222.0] - 2026-11-06 - /join and three retired slash commands
+
+A slash-command audit (owner-approved 2026-11-06, E12). Players had no way to join a room from Discord, and three
+commands predated multi-room or bypassed review.
+
+### Added
+
+- `/join` (`src/discord/commands/join.ts`): joins the room(s) linked to the invoking server. Open rooms join at once;
+  Discord-role rooms check the player's roles (`JoinRequestService.joinByDiscordRole`); approval rooms file a request
+  or auto-approve (`JoinRequestService.request`). Suspended rooms and banned players are refused. It resolves rooms
+  without the membership filter, since approval rooms the player has not joined are exactly the ones it serves. One
+  ephemeral line per linked room, with the room's link on success.
+
+### Removed
+
+- `/sync-state`: read env-fallback iScored credentials and wrote `games` by `iscored_id` across every room (cross-room,
+  pre-multi-room); the score poller keeps boards in sync.
+- `/setup`: a signpost to the web admin's Settings -> Discord page since the 2026-08 drift audit.
+- `/map-user`: let any Discord user claim any unmapped iScored name with no review; the web identity claim needs
+  room-admin approval and `/submit-score` still auto-maps on first use.
+- The bot's next boot re-deploys the global command set without them (19 commands). Help page, README, FEATURES and
+  HOW-TO-GUIDE rows dropped; the Help page's stale `/view-selection` row now reads `/view-queue` (G10).
+
+---
+
 ## [2.221.1] - 2026-11-05 - Retire the /create-backup slash command
 
 GamerDad89 found `/arcaid-create-backup` ("Trigger BackupManager via Discord.") in his room's slash-command list and asked

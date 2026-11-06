@@ -133,6 +133,7 @@ npm run dev            # Vite dev server with HMR
 ### Player Commands
 | Command | Description |
 |---------|-------------|
+| `/join` | Join the room linked to this server. Open rooms join at once; Discord-role rooms check your roles; approval rooms send a request or auto-approve you. |
 | `/list-active` | Show currently active games across all tournaments |
 | `/list-scores` | Leaderboard for active games (optional `@user` filter, pagination) |
 | `/submit-score` | Submit score + photo to iScored (auto-maps username on first use); prompts star rating + comment |
@@ -142,8 +143,6 @@ npm run dev            # Vite dev server with HMR
 | `/list-winners` | Hall of fame — recent tournament winners |
 | `/view-queue` | Show the games in your own pick queue |
 | `/pick-game` | Nominated picker selects the next game (shows eligible games only) |
-| `/map-user` | Add an iScored username as an alias of your Discord account. As of v2.8.0 this is **additive** — one Discord user can hold many iScored aliases; the command errors if the name is owned by a different user |
-| `/sync-state` | Reconcile local DB with live iScored data |
 
 ### Admin Commands
 | Command | Description |
@@ -155,7 +154,6 @@ npm run dev            # Vite dev server with HMR
 | `/pause-pick` | Inject a specific game into the tournament queue |
 | `/nominate-picker` | Manually assign picker rights to a user |
 | `/reorder-lineup` | Reorder queued games in a tournament's iScored lineup |
-| `/setup` | Configure Discord channels, roles, and pick windows |
 
 ## Configuration
 
