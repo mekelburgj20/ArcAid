@@ -860,7 +860,8 @@ describe('live answers', () => {
         const out = await renderCalloutAction('how_to_claim', s, rooms);
         expect(out).toContain('Claiming your name');
         expect(out).toContain('https://test.arcaid.app/account/settings');
-        expect(out).toContain('/map-user');
+        expect(out).not.toContain('/map-user');
+        expect(out).toContain('room admin');
     });
 
     it('every live answer degrades to null with no room, rather than throwing', async () => {
