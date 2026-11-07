@@ -31,7 +31,7 @@
 - **Per-room game tags** — Tag any catalogue game with custom labels (e.g. "WMS") via the per-row Tag button or bulk action bar; tags participate in tournament platform rules so a `Must = [WMS]` tournament admits only games tagged WMS in this room
 - **Library bulk operations** — Multi-select game rows then bulk-tag, bulk-activate (in a tournament), or bulk-pin to scoreboard. Selection persists across pagination
 - **Smart library search** — Single search box matches across name, manufacturer, year, designers, themes, table authors, aliases, platforms, and room tags. Inline year-range syntax: `2001-2020` or `Williams 2001-2020`
-- **Audit logging** — Admin action tracking with full history
+- **Activity log** — Room Admin → Activity (and an all-rooms super-admin view): 90 days of score outcomes including refusals, Witness/Castcade device activity, admin edits with before/after values, bot failures and tournament events; filter by player, date, tournament, game, type, keyword or "Problems only"; click a row for details; shareable filtered links, CSV export, live updates
 - **Public stats page** — Enhanced player metrics: average finish, top 5%, champion streak
 - **Session persistence** — Login pages auto-redirect if a valid JWT exists (24h expiry)
 - **Discord post-score rating flow** — Star rating buttons and comment modal after `/submit-score`
