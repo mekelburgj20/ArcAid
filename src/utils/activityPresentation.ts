@@ -1,4 +1,5 @@
 import { changeLabelList, settingLabel, type ActivityChange } from './activityDiff.js';
+import { channelDisplayName } from './channelNames.js';
 
 /**
  * G15 (v2.228.0, ADR 0037 §10 amendment) - how an activity row reads.
@@ -414,7 +415,7 @@ export function buildActivityDetail(
         }
         case 'bot': {
             add('Command', typeof d.command === 'string' ? `/${d.command}` : null);
-            add('Discord channel', typeof d.channelId === 'string' ? d.channelId : null);
+            add('Discord channel', typeof d.channelId === 'string' ? channelDisplayName(d.channelId) : null);
             add('Discord error code', typeof d.code === 'string' || typeof d.code === 'number' ? d.code : null);
             break;
         }
@@ -432,7 +433,13 @@ export function buildActivityDetail(
             add('Tournament', row.tournament_name);
             add('Game', row.game_name);
             const changes = changesList(d.changes);
-            if (changes && changes.length > 0) return { facts, changes, notes };
+            if (changes && changes.length > 0) {
+                // G16: a channel setting's before/after read as channel names.
+                const named = changes.map(c => (/CHANNEL_ID$/.test(c.key) && !c.secret)
+                    ? { ...c, from: c.from ? channelDisplayName(c.from) : c.from, to: c.to ? channelDisplayName(c.to) : c.to }
+                    : c);
+                return { facts, changes: named, notes };
+            }
             const action = auditActionOf(row.summary);
             const recorded = row.event_type === 'settings_change' ? keysList(d.keys)
                 : action === 'room.settings_update' || action === 'settings.update' ? (auditKeys ?? [])

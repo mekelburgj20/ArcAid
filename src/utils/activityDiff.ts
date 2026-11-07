@@ -133,10 +133,27 @@ function clip(v: string): string {
  * value deletes the row (both settings services), so it compares as unset,
  * except for keys in `emptyIsValue` (the global `SETUP_COMPLETE`).
  */
+/**
+ * Room-settings toggles that read as ON when nothing is stored — the
+ * `defaultOn: true` entries of the Settings page's toggle maps plus the inline
+ * `TOGGLE_DEFAULTS` literals (`admin-ui/src/pages/Settings.tsx`,
+ * `admin-ui/src/lib/displaySettings.ts`). Every other room toggle reads as OFF
+ * when unset. Locked to the page by `activity-toggle-defaults-parity.test.ts`.
+ */
+export const ROOM_TOGGLES_DEFAULT_ON: ReadonlySet<string> = new Set([
+    'KIOSK_ENABLED', 'KIOSK_AUTO_SCROLL', 'ISCORED_ALLOW_DELETE',
+    'ATGAMES_ENABLED', 'ISCORED_ENABLED', 'DISCORD_ENABLED', 'DISCORD_MENTIONS_ENABLED',
+    'GLOBAL_SCOREBOARD_ENABLED', 'ROOM_LISTED',
+    'SCOREBOARD_CARD_BG_FILL', 'SCOREBOARD_GAME_HEADER_ENABLED',
+    'SCOREBOARD_MOBILE_VERTICAL', 'SCOREBOARD_LOGO_ENABLED',
+]);
+
+const isFlag = (v: string | null): v is 'true' | 'false' => v === 'true' || v === 'false';
+
 export function diffSettings(
     before: Record<string, string>,
     patch: Record<string, unknown>,
-    opts: { emptyIsValue?: ReadonlySet<string> } = {},
+    opts: { emptyIsValue?: ReadonlySet<string>; toggleDefaultsOn?: ReadonlySet<string> } = {},
 ): ActivityChange[] {
     const out: ActivityChange[] = [];
     for (const [key, raw] of Object.entries(patch)) {
@@ -145,6 +162,13 @@ export function diffSettings(
         const from = Object.prototype.hasOwnProperty.call(before, key) ? before[key]! : null;
         const to = value === '' && !opts.emptyIsValue?.has(key) ? null : value;
         if ((from ?? null) === (to ?? null)) continue;
+        // G16 (owner 2026-11-07): a toggle going between "not set" and the
+        // value the page already showed by default changes nothing visible.
+        if (opts.toggleDefaultsOn && (from == null || to == null)) {
+            const set = from ?? to;
+            const shown = opts.toggleDefaultsOn.has(key) ? 'true' : 'false';
+            if (isFlag(set) && set === shown) continue;
+        }
         if (isSecretSetting(key)) {
             out.push({ key, label: settingLabel(key), secret: true });
         } else {

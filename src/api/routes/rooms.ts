@@ -93,7 +93,7 @@ import { TournamentScoresService } from '../../services/TournamentScoresService.
 import { ScoreProvenanceService } from '../../services/ScoreProvenanceService.js';
 import { AuditService } from '../../services/AuditService.js';
 import { ActivityLogService, fmtScore } from '../../services/ActivityLogService.js';
-import { describeChanges, diffSettings, diffTournament, tournamentSnapshotForDiff } from '../../utils/activityDiff.js';
+import { describeChanges, diffSettings, diffTournament, tournamentSnapshotForDiff, ROOM_TOGGLES_DEFAULT_ON } from '../../utils/activityDiff.js';
 import { checkEventSubmission, checkAttemptLimitSubmission } from '../../services/EventSubmissionGate.js';
 import { TournamentEntryService } from '../../services/TournamentEntryService.js';
 import { EventService, EventConfigError } from '../../services/EventService.js';
@@ -5016,7 +5016,7 @@ router.post('/:roomId/settings', requireAuth, requireRoomAccess('roomId'), requi
         // A save that changed nothing writes no activity row (the audit row
         // below still records the request).
         if (settingsBefore) {
-            const changes = diffSettings(settingsBefore, validationResult.data);
+            const changes = diffSettings(settingsBefore, validationResult.data, { toggleDefaultsOn: ROOM_TOGGLES_DEFAULT_ON });
             if (changes.length > 0) {
                 const what = describeChanges(changes, 'setting');
                 void ActivityLogService.record({

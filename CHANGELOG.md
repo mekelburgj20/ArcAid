@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.229.0] - 2026-11-07 - Activity log: Discord channels by name; default-only toggle saves ignored
+
+G16, the owner's answers to G15's open questions (2026-11-07: "1 yes, 2 not now, 3 ignore them").
+
+### Changed
+- **Discord channels show by name** (`#lu-tourneys`) in the activity log: a bot row's channel and the before/after of any `*_CHANNEL_ID` setting change. Resolved at read time from the bot's gateway cache (`src/utils/channelNames.ts`, registered by `DiscordClient` like the channel-type lookup); an unknown channel or a disconnected bot shows the id as before.
+- **A room settings save that only confirms a toggle's default records no change.** "(not set) -> on" for a toggle the page already showed as on (and "(not set) -> off" for one shown off) changed nothing visible. `ROOM_TOGGLES_DEFAULT_ON` in `src/utils/activityDiff.ts` lists the on-by-default room toggles; `activity-g16.test.ts` reads the Settings page's toggle maps and fails if the two drift. Global settings are unchanged.
+
+### Not done (owner: "not now")
+- Before/after diffs for poll edits, ranking groups, lobby config and per-game notes; those rows keep their one-line summary.
+
+---
+
 ## [2.228.0] - 2026-11-07 - Activity log: click a row for its details; admin edits record what changed
 
 G15 (ADR 0037 §10 amended, owner ask 2026-11-07). The owner, looking at prod: "if I want to see WHAT GamerDad89
