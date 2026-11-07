@@ -171,6 +171,7 @@ All six feed the same dedup/upsert path, so re-running any of them is safe and i
 - **Discord-disabled rooms excluded from cross-room queries** — A room can disable Discord entirely; its data is excluded from any slash command that spans rooms.
 - **Per-room announcement configuration** [Room Admin] — Announcement channel and admin role are configured per room, with a tournament-level override and an env-level fallback chain.
 - **Per-room slash-command policy** [Room Admin] — Room Settings → Discord → Slash commands turns each command on or off, limits it to channels and roles, and keeps replies private unless the command is set to "Visible to everyone". Each command (and the defaults) also has a "Roles whose reply is visible to everyone" picker: those roles may use the command and their replies post to the whole channel, while the plain roles get a private reply. Default roles apply to player commands too; the page warns when they gate one.
+- **Top-score posts** [Room Admin] — Optional: when a score lands in the top N (default 10) of a game, the bot posts "**Name** just scored **N** on **Game**! (Rank: X)" with a scoreboard link to the Tournament posts channel; a new #1 says who was dethroned. In a forum channel the posts go into the game's own thread.
 - **Embed color coding** — Daily/weekly/monthly/custom tournament announcements use distinct embed colors for at-a-glance recognition.
 
 ### Player commands

@@ -33,6 +33,7 @@ import { applyLibraryDefaults } from '../utils/gameLibraryDefaults.js';
 import { RotationAuditService, type RotationSource } from '../services/RotationAuditService.js';
 import { rankAutoPick } from '../utils/autoPickRanking.js';
 import { AutoPickSignalService } from '../services/AutoPickSignalService.js';
+import { DiscordScorePostService } from '../services/DiscordScorePostService.js';
 
 /**
  * Who/what asked for an activation, threaded from every `activateGame` caller
@@ -319,7 +320,9 @@ export class TournamentEngine {
             .setColor(getTournamentColor(tournament.type))
             .setFooter({ text: tournament.name })
             .setTimestamp();
-        await sendChannelEmbed(channelId, embed);
+        const sent = await sendChannelEmbed(channelId, embed);
+        // E13 (v2.225.0): a forum post becomes the game's thread for later score posts.
+        await DiscordScorePostService.rememberActivationThread(sent, opts.tournamentId, opts.gameName);
         logInfo(`   -> Announced activation of ${opts.gameName} for ${tournament.name}${pickedBy ? ` (picked by ${pickedBy})` : ''}`);
     }
 
@@ -1305,7 +1308,8 @@ export class TournamentEngine {
                         .setColor(color)
                         .setFooter({ text: tournamentRow.name })
                         .setTimestamp();
-                    await sendChannelEmbed(channelId, embed);
+                    const sent = await sendChannelEmbed(channelId, embed);
+                    await DiscordScorePostService.rememberActivationThread(sent, tournamentId, queuedRow.name);
                 }
 
                 slotsAvailable--;
@@ -2041,7 +2045,8 @@ export class TournamentEngine {
                     embed.setDescription(activatedClause);
                 }
                 embed.setFooter({ text: tournamentRow.name });
-                await sendChannelEmbed(channelId, embed, { pingUserIds });
+                const sent = await sendChannelEmbed(channelId, embed, { pingUserIds });
+                await DiscordScorePostService.rememberActivationThread(sent, tournamentRow.id, queuedRow.name);
             }
 
             emitGameRotated({
@@ -2721,7 +2726,8 @@ export class TournamentEngine {
                 .setColor(color)
                 .setFooter({ text: tournamentRow.name })
                 .setTimestamp();
-            await sendChannelEmbed(channelId, embed);
+            const sent = await sendChannelEmbed(channelId, embed);
+            await DiscordScorePostService.rememberActivationThread(sent, tournamentRow.id, pick.name);
         }
 
         emitGameRotated({

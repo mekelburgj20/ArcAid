@@ -22,6 +22,14 @@ export function roomUrl(slug: string): string {
     return `${publicBaseUrl()}/${slug}`;
 }
 
+/**
+ * A room's game page (`/:slug/games/:name` - the FE route keys on the game
+ * NAME, URL-encoded so spaces and punctuation like "WHO dunnit?" survive).
+ */
+export function gamePageUrl(slug: string, gameName: string): string {
+    return `${publicBaseUrl()}/${slug}/games/${encodeURIComponent(gameName)}`;
+}
+
 /** A room's Lobby - where the season/poll voting card lives. */
 export function roomLobbyUrl(slug: string): string {
     return `${publicBaseUrl()}/${slug}/lobby`;

@@ -13,6 +13,7 @@ import { nextRotationIso } from '../../utils/cronUtils.js';
 import { roomTimezone, resolveTimezone, isValidTimeZone, ROOM_TIMEZONE_KEY } from '../../utils/roomTimezone.js';
 import { DISCORD_COMMAND_POLICY_KEY, serializeCommandPolicy } from '../../utils/discordCommandPolicy.js';
 import { DISCORD_ANNOUNCE_ROUTES_KEY, serializeAnnounceRoutes } from '../../utils/discordAnnounceRoutes.js';
+import { DISCORD_SCORE_POSTS_TOP_N_KEY, serializeScorePostsTopN } from '../../utils/discordScorePosts.js';
 import {
     CreateTournamentSchema, UpdateTournamentSchema, ToggleTournamentActiveSchema,
     SettingsSchema,
@@ -4905,6 +4906,11 @@ router.post('/:roomId/settings', requireAuth, requireRoomAccess('roomId'), requi
         if (Object.prototype.hasOwnProperty.call(validationResult.data, DISCORD_ANNOUNCE_ROUTES_KEY)) {
             validationResult.data[DISCORD_ANNOUNCE_ROUTES_KEY] =
                 serializeAnnounceRoutes(validationResult.data[DISCORD_ANNOUNCE_ROUTES_KEY]);
+        }
+        // v2.225.0 (E13): top-score posts' cutoff, clamped through its parser.
+        if (Object.prototype.hasOwnProperty.call(validationResult.data, DISCORD_SCORE_POSTS_TOP_N_KEY)) {
+            validationResult.data[DISCORD_SCORE_POSTS_TOP_N_KEY] =
+                serializeScorePostsTopN(validationResult.data[DISCORD_SCORE_POSTS_TOP_N_KEY]);
         }
         await GameRoomSettingsService.saveMany(roomId, validationResult.data);
 

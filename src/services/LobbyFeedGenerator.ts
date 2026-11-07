@@ -166,6 +166,35 @@ export class LobbyFeedGenerator {
                 }
             }
 
+            // E13 (v2.225.0) — the Discord top-N score post. NOT gated on the
+            // feed toggles (same independence as the dethrone DM above); the
+            // room's DISCORD_SCORE_POSTS_ENABLED switch inside the service is
+            // the only gate, for every `source`. Only a score that IS the
+            // player's best posts: their rank is the rank of their best, so a
+            // lower re-play would announce someone else's rank. Fire-and-forget;
+            // a failure can never touch the submit.
+            const playerBest = currentRank > 0 ? sorted[currentRank - 1]![1] : null;
+            if (playerBest !== null && score >= playerBest) {
+                const runnerUp = sorted[1];
+                trackBackground((async () => {
+                    const { DiscordScorePostService } = await import('./DiscordScorePostService.js');
+                    await DiscordScorePostService.onScoreRanked({
+                        roomId: gameRoomId,
+                        gameName,
+                        displayName,
+                        score,
+                        rank: currentRank,
+                        total: sorted.length,
+                        isNewRoomTop,
+                        // Lazy: resolved only once the room switch and top-N pass.
+                        resolvePreviousTopName: isNewRoomTop
+                            ? () => previousTopLabel(db, gameRoomId, gameName, playerKey, score, discordUserId, runnerUp)
+                            : undefined,
+                        tournamentId: tournamentId ?? null,
+                    });
+                })().catch(err => logError('Discord score post hook failed:', err)));
+            }
+
             if (!isNewRoomTop && currentRank > 1 && currentRank <= 10 && isTypeEnabled(enabledTypes, 'rank_change')) {
                 // Rank change (top 10 only to reduce noise). Standalone `if` (not
                 // an else-if off new_high_score) so a rank-1 score with the
@@ -325,6 +354,58 @@ export class LobbyFeedGenerator {
             logError('LobbyFeedGenerator.onScoreSubmitted error:', error);
         }
     }
+}
+
+/**
+ * E13 — the label of the player a new room #1 took the top spot FROM, or null
+ * when nobody else was dethroned: a tie with the runner-up, the submitter
+ * improving a #1 they already held (their previous best from `score_history`,
+ * this score's own row skipped once), or the runner-up being another alias of
+ * the same Discord user. The label goes through the chain (`resolveUserLabels`
+ * for a linked alias, else the alias as stored) — never a raw id.
+ */
+async function previousTopLabel(
+    db: Awaited<ReturnType<typeof getDatabase>>,
+    gameRoomId: string,
+    gameName: string,
+    playerKey: string,
+    score: number,
+    discordUserId: string | undefined,
+    runnerUp: [string, number] | undefined,
+): Promise<string | null> {
+    if (!runnerUp) return null;
+    const [prevKey, prevScore] = runnerUp;
+    if (prevKey === playerKey || score <= prevScore) return null;
+
+    const own = await db.all<Array<{ score: number }>>(
+        `SELECT score FROM score_history
+          WHERE game_room_id = ? AND LOWER(game_name) = LOWER(?) AND LOWER(iscored_username) = ?
+          ORDER BY score DESC LIMIT 2`,
+        gameRoomId, gameName, playerKey,
+    );
+    const scores = own.map(r => r.score);
+    const self = scores.indexOf(score);
+    if (self >= 0) scores.splice(self, 1);
+    const previousBest = scores[0] ?? 0;
+    if (previousBest >= prevScore) return null; // they already held #1
+
+    const mapping = await db.get<{ discord_user_id: string | null }>(
+        'SELECT discord_user_id FROM user_mappings WHERE LOWER(iscored_username) = LOWER(?)',
+        prevKey,
+    );
+    if (mapping?.discord_user_id && discordUserId && mapping.discord_user_id === discordUserId) return null;
+    if (mapping?.discord_user_id) {
+        const { resolveUserLabels } = await import('./PlayerProfileResolver.js');
+        const labels = await resolveUserLabels([mapping.discord_user_id]);
+        if (labels[mapping.discord_user_id]) return labels[mapping.discord_user_id]!;
+    }
+    const alias = await db.get<{ name: string }>(
+        `SELECT iscored_username AS name FROM score_history
+          WHERE game_room_id = ? AND LOWER(game_name) = LOWER(?) AND LOWER(iscored_username) = ?
+          ORDER BY score DESC LIMIT 1`,
+        gameRoomId, gameName, prevKey,
+    );
+    return alias?.name ?? prevKey;
 }
 
 export function isTypeEnabled(enabledTypes: string[] | null, type: string): boolean {
