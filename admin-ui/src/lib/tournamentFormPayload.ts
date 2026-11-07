@@ -9,6 +9,7 @@ import { defaultEventState, utcIsoToWallTime, wallTimeToUtcIso } from './eventTi
 import { seasonPayload, seasonStateFromRow } from './seasonForm';
 import { pollPayload, pollStateFromRow } from './pollForm';
 import { integrityModeFromRow, integrityPayload, sanctionedRulesFromRow } from './integrityForm';
+import { parseTournamentAnnounceRoutes, serializeTournamentAnnounceRoutes } from './announceRoutes';
 
 /**
  * Plain functions shared between the Tournaments admin page's create and
@@ -27,6 +28,8 @@ export interface Tournament {
   platform_rules: string;
   guild_id?: string;
   discord_channel_id?: string;
+  /** v2.226.0 (E16) — per-kind overrides, read only through `parseTournamentAnnounceRoutes`. */
+  discord_announce_routes?: string | null;
   discord_role_id?: string;
   is_active: number;
   display_order: number;
@@ -168,6 +171,8 @@ export function toPayload(state: TournamentFormState, extra: Record<string, any>
     } : {}),
     platform_rules: state.platformRules,
     discord_channel_id: state.channel,
+    // '' clears every per-kind override; the server re-serializes the value.
+    discord_announce_routes: serializeTournamentAnnounceRoutes(state.announceRoutes),
     display_order: state.displayOrder,
     max_active_games: pollOn ? 1 : state.maxActiveGames,
     cleanup_rule: state.cleanupRule,
@@ -249,6 +254,7 @@ export function tournamentToFormState(t: Tournament, roomTimezone: string = DEFA
         : [...defaultEventState.rounds],
     },
     channel: t.discord_channel_id || '',
+    announceRoutes: parseTournamentAnnounceRoutes(t.discord_announce_routes),
     displayOrder: t.display_order || 0,
     maxActiveGames: t.max_active_games || 1,
     winnerPicks: t.winner_picks !== 0,

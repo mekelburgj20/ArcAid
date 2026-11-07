@@ -3,7 +3,7 @@ import { logError } from './logger.js';
 import { GameRoomSettingsService } from '../services/GameRoomSettingsService.js';
 import { isDiscordUserId, isGoogleUserId } from './identityProvider.js';
 import { trackBackground } from './backgroundTasks.js';
-import { DISCORD_ANNOUNCE_ROUTES_KEY, parseAnnounceRoutes, type AnnounceKind } from './discordAnnounceRoutes.js';
+import { DISCORD_ANNOUNCE_ROUTES_KEY, parseAnnounceRoutes, parseTournamentAnnounceRoutes, type AnnounceKind } from './discordAnnounceRoutes.js';
 
 /** Embed accent colors keyed by tournament tag or type. */
 const TAG_COLORS: Record<string, number> = {
@@ -539,11 +539,22 @@ export async function guildInteractionBlockReason(guildId: string): Promise<stri
 
 /**
  * Resolves the Discord channel that announcements for a tournament in this
- * room should target. Precedence: room Discord off → null; tournament 'none'
- * → null; tournament-specific channel → the room's `DISCORD_ANNOUNCE_ROUTES`
- * route for `kind` (v2.221.0, E8) → per-room
- * `DISCORD_ANNOUNCEMENT_CHANNEL_ID` → env fallback. Returns `null` when the
- * room has DISCORD_ENABLED=false or no channel can be resolved.
+ * room should target. The ONE resolver. Precedence (first hit wins):
+ *
+ *   1. room Discord off (DISCORD_ENABLED=false) → null;
+ *   2. the tournament's per-kind route for `kind`
+ *      (`tournaments.discord_announce_routes`, v2.226.0 E16, read through
+ *      `parseTournamentAnnounceRoutes`): `'none'` → null, a snowflake → it;
+ *   3. the tournament's catch-all `discord_channel_id`: `'none'` → null
+ *      (v2.140.0), a snowflake → it;
+ *   4. the room's `DISCORD_ANNOUNCE_ROUTES` route for `kind` (v2.221.0, E8);
+ *      for `scores` with no route, the room's `tournament` route;
+ *   5. per-room `DISCORD_ANNOUNCEMENT_CHANNEL_ID`;
+ *   6. `process.env.DISCORD_ANNOUNCEMENT_CHANNEL_ID`;
+ *   7. null.
+ *
+ * `tournamentRoutes` is the RAW `discord_announce_routes` column value; absent
+ * or null behaves exactly like the 3-arg form.
  */
 /** Stored in `tournaments.discord_channel_id` to mean "announce nowhere". */
 export const ANNOUNCE_NONE = 'none';
@@ -552,8 +563,13 @@ export async function resolveAnnouncementChannelId(
     gameRoomId: string | null | undefined,
     tournamentChannelId: string | null | undefined,
     kind: AnnounceKind = 'tournament',
+    tournamentRoutes?: string | null,
 ): Promise<string | null> {
     if (!(await isDiscordEnabledForRoom(gameRoomId))) return null;
+    // v2.226.0 (E16) — the tournament's per-kind override is the narrowest scope.
+    const perKind = parseTournamentAnnounceRoutes(tournamentRoutes)[kind];
+    if (perKind === ANNOUNCE_NONE) return null;
+    if (perKind) return perKind;
     // v2.140.0 — 'none' is the per-tournament "don't announce" sentinel. It
     // exists because an EMPTY channel id means "fall back to the room's
     // announcement channel", so before this there was no way to run a quiet
@@ -566,7 +582,9 @@ export async function resolveAnnouncementChannelId(
     // room's per-kind routes; one on "Room default" is what routes apply to.
     if (tournamentChannelId) return tournamentChannelId;
     if (gameRoomId) {
-        const route = parseAnnounceRoutes(await GameRoomSettingsService.get(gameRoomId, DISCORD_ANNOUNCE_ROUTES_KEY))[kind];
+        const roomRoutes = parseAnnounceRoutes(await GameRoomSettingsService.get(gameRoomId, DISCORD_ANNOUNCE_ROUTES_KEY));
+        // Top-score posts ride the Tournament posts route unless given their own.
+        const route = roomRoutes[kind] ?? (kind === 'scores' ? roomRoutes.tournament : null);
         if (route) return route;
         const perRoom = await GameRoomSettingsService.get(gameRoomId, 'DISCORD_ANNOUNCEMENT_CHANNEL_ID');
         if (perRoom) return perRoom;

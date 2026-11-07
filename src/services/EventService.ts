@@ -91,6 +91,8 @@ export interface EventTournamentRow {
     event_finished_at: string | null;
     event_result: string | null;
     discord_channel_id: string | null;
+    /** v2.226.0 (E16) — raw per-kind announcement overrides (parseTournamentAnnounceRoutes). */
+    discord_announce_routes?: string | null;
     /** v2.136.0 (ADR 0018) — non-null identifies a room-less Throwdown. */
     throwdown_code?: string | null;
     rematch_of_tournament_id?: string | null;

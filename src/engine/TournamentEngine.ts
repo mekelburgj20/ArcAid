@@ -287,12 +287,12 @@ export class TournamentEngine {
     }): Promise<void> {
         const db = await getDatabase();
         const tournament = await db.get(
-            'SELECT name, type, game_room_id, discord_channel_id FROM tournaments WHERE id = ?',
+            'SELECT name, type, game_room_id, discord_channel_id, discord_announce_routes FROM tournaments WHERE id = ?',
             opts.tournamentId,
         );
         if (!tournament) return;
 
-        const channelId = await resolveAnnouncementChannelId(tournament.game_room_id, tournament.discord_channel_id, 'tournament');
+        const channelId = await resolveAnnouncementChannelId(tournament.game_room_id, tournament.discord_channel_id, 'tournament', tournament.discord_announce_routes);
         if (!channelId || (opts.skipChannelId && channelId === opts.skipChannelId)) return;
 
         let pickedBy: string | null = null;
@@ -1137,11 +1137,13 @@ export class TournamentEngine {
             tournamentRow.game_room_id,
             tournamentRow.discord_channel_id,
             'tournament',
+            tournamentRow.discord_announce_routes,
         );
         const picksChannelId: string | null = await resolveAnnouncementChannelId(
             tournamentRow.game_room_id,
             tournamentRow.discord_channel_id,
             'picks',
+            tournamentRow.discord_announce_routes,
         );
 
         logInfo(`Starting maintenance for ${term.tournament}: ${tournamentRow.name}`);

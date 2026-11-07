@@ -6,6 +6,46 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.226.0] - 2026-11-06 - Per-category announcement channels per tournament, and a Top-score posts route
+
+E16 (owner-approved 2026-11-06). A tournament could only send ALL of its Discord posts to one channel (or none), and the
+new top-score posts (2.225.0) had no channel of their own, so a room could not keep glory posts out of its main
+tournament channel or quiet one kind of post for one tournament.
+
+### Added
+
+- A fourth announcement kind, **Top-score posts** (`scores`, "Glory and dethrone posts for top-N scores"), in
+  `ANNOUNCE_KINDS` and Room Settings -> Discord -> Announcement channels. With no route of its own it follows the room's
+  Tournament posts route, then the Default Announcement Channel (row caption "Same as Tournament posts unless set").
+  `DiscordScorePostService` resolves with kind `scores`; the "Post top scores to Discord" card now points at that row.
+- Per-tournament, per-category overrides: migration `208_tournaments_discord_announce_routes` adds
+  `tournaments.discord_announce_routes` (`{"version":1,"routes":{kind: "<channel id>" | "none"}}`), read only through
+  `parseTournamentAnnounceRoutes` and canonicalised through `serializeTournamentAnnounceRoutes`
+  (`src/utils/discordAnnounceRoutes.ts`; tolerant, never throws). The tournament create/update API accepts it (garbage
+  becomes no overrides, never a 400; omitted on update = unchanged).
+- Tournament form -> Announcements is now **Room defaults** / **Don't post to Discord** / **Customize per category**;
+  Customize shows one row per kind with Room default / Don't post / the server's channels (grouped by category, forums
+  labelled; shared `hooks/useGuildChannels.ts`), and a "A specific channel ID…" input when the channel list cannot
+  load. A tournament with a legacy specific channel opens as Customize with a caption naming that channel.
+
+### Changed
+
+- `resolveAnnouncementChannelId(room, catchAll, kind, tournamentRoutes?)` precedence: room Discord off -> the
+  tournament's per-kind route (`none` = don't post) -> the tournament's catch-all `discord_channel_id` (`none` = don't
+  post) -> the room route for the kind (for `scores`, else the room `tournament` route) -> room default -> env. Every
+  caller that reads a tournament's channel now also passes its routes (TournamentEngine activation + maintenance,
+  TimeoutManager, EventScheduler, SeasonPollService, Discord `/pick-game`, DiscordScorePostService). The 3-argument form
+  behaves exactly as before.
+- A forum used only for Top-score posts keeps its per-game thread in memory and never reuses or overwrites the
+  "Now Active" thread stored on the game (that one lives in the Tournament posts channel).
+
+### Fixed
+
+- The tournament API now accepts `discord_channel_id: "none"`; the "Don't post to Discord" choice (v2.140.0) was
+  rejected by the schema's Discord-id check.
+
+---
+
 ## [2.225.0] - 2026-11-06 - Discord posts for top scores and dethrones
 
 Mox's players missed the iScored bot's "a bit of glory" post (E13, owner-approved 2026-11-06): when a score lands

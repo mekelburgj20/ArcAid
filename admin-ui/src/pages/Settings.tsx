@@ -1559,7 +1559,7 @@ export default function Settings() {
               )}
 
               {/* v2.225.0 (E13) - top-N score posts and dethrones into the
-                  Tournament posts channel. Instant-save; linked guild only. */}
+                  Top-score posts channel (v2.226.0). Instant-save; linked guild only. */}
               {category === 'Discord' && !!settings.DISCORD_GUILD_ID?.trim() && (
                 <DiscordScorePosts
                   settings={settings}

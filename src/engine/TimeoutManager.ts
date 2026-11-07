@@ -101,10 +101,10 @@ export class TimeoutManager {
 
         const db = await getDatabase();
         const row = await db.get(
-            'SELECT discord_channel_id, game_room_id FROM tournaments WHERE id = ?',
+            'SELECT discord_channel_id, discord_announce_routes, game_room_id FROM tournaments WHERE id = ?',
             tournamentId,
         );
-        return resolveAnnouncementChannelId(row?.game_room_id ?? null, row?.discord_channel_id ?? null, kind);
+        return resolveAnnouncementChannelId(row?.game_room_id ?? null, row?.discord_channel_id ?? null, kind, row?.discord_announce_routes ?? null);
     }
 
     private async handleTieredTimeout(game: Game, settings: { winnerWindowMin: number; runnerUpWindowMin: number }): Promise<void> {

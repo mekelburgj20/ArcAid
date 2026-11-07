@@ -175,6 +175,58 @@ describe('DiscordScorePostService.onScoreRanked', () => {
         expect(post).not.toHaveBeenCalled();
     });
 
+    // E16 (v2.226.0) - top-score posts are kind `scores`.
+    async function setTournamentRoutes(routes: Record<string, string>) {
+        const db = await getDatabase();
+        await db.run('UPDATE tournaments SET discord_announce_routes = ? WHERE id = ?',
+            JSON.stringify({ version: 1, routes }), tournamentId);
+    }
+
+    it("a tournament whose scores route is 'none' posts nothing while its tournament kind still resolves", async () => {
+        await setSetting('DISCORD_SCORE_POSTS_ENABLED', 'true');
+        await setTournamentRoutes({ scores: 'none' });
+        await DiscordScorePostService.onScoreRanked(base());
+        expect(post).not.toHaveBeenCalled();
+        const { resolveAnnouncementChannelId } = await import('../utils/discord.js');
+        const db = await getDatabase();
+        const t = await db.get<{ discord_channel_id: string; discord_announce_routes: string }>(
+            'SELECT discord_channel_id, discord_announce_routes FROM tournaments WHERE id = ?', tournamentId);
+        expect(await resolveAnnouncementChannelId(roomId, t!.discord_channel_id, 'tournament', t!.discord_announce_routes)).toBe(TEXT);
+    });
+
+    it('a per-tournament scores route sends the post there, not to the catch-all', async () => {
+        await setSetting('DISCORD_SCORE_POSTS_ENABLED', 'true');
+        await setTournamentRoutes({ scores: '600000000000000009' });
+        await DiscordScorePostService.onScoreRanked(base());
+        expect(post.mock.calls[0]![0]).toBe(Routes.channelMessages('600000000000000009'));
+    });
+
+    it('a room scores route is used, and without one the room tournament route', async () => {
+        await setSetting('DISCORD_SCORE_POSTS_ENABLED', 'true');
+        await setTournamentChannel('');
+        await setSetting('DISCORD_ANNOUNCE_ROUTES', JSON.stringify({ version: 1, routes: { tournament: TEXT } }));
+        await DiscordScorePostService.onScoreRanked(base());
+        expect(post.mock.calls[0]![0]).toBe(Routes.channelMessages(TEXT));
+        _resetScorePostStateForTests(0);
+        await setSetting('DISCORD_ANNOUNCE_ROUTES', JSON.stringify({ version: 1, routes: { tournament: TEXT, scores: '600000000000000008' } }));
+        await DiscordScorePostService.onScoreRanked(base({ displayName: 'Mox' }));
+        expect(post.mock.calls[1]![0]).toBe(Routes.channelMessages('600000000000000008'));
+    });
+
+    it('a scores forum separate from the tournament channel never reuses or overwrites the activation thread', async () => {
+        await setSetting('DISCORD_SCORE_POSTS_ENABLED', 'true');
+        await setTournamentRoutes({ scores: FORUM });
+        const db = await getDatabase();
+        await db.run('UPDATE games SET discord_thread_id = ? WHERE id = ?', THREAD, gameId);
+        await DiscordScorePostService.onScoreRanked(base());
+        expect(post.mock.calls[0]![0]).toBe(Routes.threads(FORUM));
+        const row = await db.get<{ discord_thread_id: string | null }>('SELECT discord_thread_id FROM games WHERE id = ?', gameId);
+        expect(row!.discord_thread_id).toBe(THREAD);
+        // The next score goes into the in-memory scores thread.
+        await DiscordScorePostService.onScoreRanked(base({ displayName: 'Mox', rank: 4 }));
+        expect(post.mock.calls[1]![0]).toBe(Routes.channelMessages(NEW_THREAD));
+    });
+
     it('forum with a stored thread posts into that thread', async () => {
         await setSetting('DISCORD_SCORE_POSTS_ENABLED', 'true');
         await setTournamentChannel(FORUM);

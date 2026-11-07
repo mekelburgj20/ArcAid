@@ -55,8 +55,12 @@ export default function DiscordScorePosts({ settings, onSaveNow }: Props) {
         <div>
           <p className="text-sm font-medium text-primary">Post top scores to Discord</p>
           <p className="text-xs text-muted">
-            When a score lands in the top N of a game, the bot posts it to the room&rsquo;s Tournament
-            posts channel (a new #1 says who was dethroned).
+            When a score lands in the top N of a game, the bot posts it to Discord (a new #1 says who
+            was dethroned).
+          </p>
+          <p className="text-xs text-faint" data-testid="score-posts-where">
+            Where they go: the Top-score posts row under Announcement channels (same as Tournament posts
+            unless set); a tournament can override it in its own Announcements setting.
           </p>
         </div>
         <button
