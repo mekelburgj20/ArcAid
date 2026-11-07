@@ -200,6 +200,7 @@ middleware redacts them from request bodies.
 | Discord Guild ID | Discord server ID this room is linked to |
 | Default Announcement Channel | Default channel for tournament announcements (fallback when tournament has no channel set) |
 | Discord Admin Role | Discord role that grants admin command access |
+| Post top scores to Discord | When a score lands in the top N (default 10) of a game, the bot posts it to the Tournament posts channel; a new #1 names who was dethroned. In a forum, posts go into the game's thread. Off until turned on. |
 | iScored Username | Login for the room's iScored.info account |
 | iScored Password | Password for the iScored account |
 | iScored Public URL | Public leaderboard URL for score scraping |

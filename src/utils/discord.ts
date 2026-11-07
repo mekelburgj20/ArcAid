@@ -104,26 +104,54 @@ export async function getChannelType(channelId: string): Promise<number | null> 
 }
 
 /**
+ * What a successful channel send created (v2.225.0, E13). `threadId` is set
+ * only when the target was a forum and the send became a NEW post (the
+ * thread's id; its starter message shares that id). Existing callers ignore
+ * the result; a failed send returns nothing.
+ */
+export interface ChannelSendResult {
+    threadId: string | null;
+    messageId: string | null;
+}
+
+function idOf(res: unknown): string | null {
+    const id = (res as { id?: unknown } | null | undefined)?.id;
+    return typeof id === 'string' ? id : null;
+}
+
+/**
  * Sends a plain-text message to a Discord channel via the REST API.
  * Safe to call from engine classes that don't have access to the Client instance.
+ *
+ * `opts.threadName` overrides the forum post title (default: the first line
+ * via `forumPostName`); `opts.noMentions` sends `allowed_mentions: {parse: []}`
+ * so text taken from player names can never ping anyone.
  */
-export async function sendChannelMessage(channelId: string, content: string): Promise<void> {
+export async function sendChannelMessage(
+    channelId: string,
+    content: string,
+    opts?: { threadName?: string; noMentions?: boolean },
+): Promise<ChannelSendResult | void> {
     const token = process.env.DISCORD_BOT_TOKEN;
     if (!token) {
         logError('Cannot send Discord message: DISCORD_BOT_TOKEN is not set.');
         return;
     }
+    const message: Record<string, unknown> = { content };
+    if (opts?.noMentions) message.allowed_mentions = { parse: [] };
     try {
         const rest = new REST({ version: '10' }).setToken(token);
         // v2.221.0 (E8): a forum takes no bare message - the send becomes a
         // new post titled with the content's first line.
         if (isForumChannelType(await getChannelType(channelId))) {
-            await rest.post(Routes.threads(channelId), {
-                body: { name: forumPostName(content), message: { content } },
+            const thread = await rest.post(Routes.threads(channelId), {
+                body: { name: opts?.threadName ? forumPostName(opts.threadName) : forumPostName(content), message },
             });
-            return;
+            const threadId = idOf(thread);
+            return { threadId, messageId: threadId };
         }
-        await rest.post(Routes.channelMessages(channelId), { body: { content } });
+        const sent = await rest.post(Routes.channelMessages(channelId), { body: message });
+        return { threadId: null, messageId: idOf(sent) };
     } catch (err) {
         logError(`Failed to send message to channel ${channelId}:`, err);
     }
@@ -277,7 +305,7 @@ export async function sendChannelEmbed(
     channelId: string,
     embed: EmbedBuilder,
     opts?: { pingUserIds?: string[] },
-): Promise<void> {
+): Promise<ChannelSendResult | void> {
     const token = process.env.DISCORD_BOT_TOKEN;
     if (!token) {
         logError('Cannot send Discord embed: DISCORD_BOT_TOKEN is not set.');
@@ -295,12 +323,14 @@ export async function sendChannelEmbed(
         // the starter message of a new post titled with the embed title.
         if (isForumChannelType(await getChannelType(channelId))) {
             const json = embed.toJSON();
-            await rest.post(Routes.threads(channelId), {
+            const thread = await rest.post(Routes.threads(channelId), {
                 body: { name: forumPostName(json.title || json.description || ''), message: body },
             });
-            return;
+            const threadId = idOf(thread);
+            return { threadId, messageId: threadId };
         }
-        await rest.post(Routes.channelMessages(channelId), { body });
+        const sent = await rest.post(Routes.channelMessages(channelId), { body });
+        return { threadId: null, messageId: idOf(sent) };
     } catch (err) {
         logError(`Failed to send embed to channel ${channelId}:`, err);
     }

@@ -6,6 +6,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.225.0] - 2026-11-06 - Discord posts for top scores and dethrones
+
+Mox's players missed the iScored bot's "a bit of glory" post (E13, owner-approved 2026-11-06): when a score lands
+in the top N of a game, the bot now says so in the room's Tournament posts channel, and a new #1 names who it beat.
+
+### Added
+
+- Room Settings -> Discord -> "Post top scores to Discord" (`components/DiscordScorePosts.tsx`, instant-save):
+  `DISCORD_SCORE_POSTS_ENABLED` (absent = off, so existing rooms are untouched) and `DISCORD_SCORE_POSTS_TOP_N`
+  (1-50, default 10), read only through `src/utils/discordScorePosts.ts`; the settings POST clamps the number.
+- `DiscordScorePostService` posts `**Name** just scored **4,688,320** on **Game**! (Rank: 3)` plus
+  `Full scoreboard is at <game page>` (new `gamePageUrl` in `publicLinks.ts`), and ` — took #1 from **Name**` when a
+  new #1 beats a different player. Plain text, no pings (`allowed_mentions: {parse: []}`), names through the label
+  chain. Hooked from `LobbyFeedGenerator.onScoreSubmitted` (every submit path, every source), independent of the
+  lobby feed toggles, fire-and-forget; only a score that is the player's best posts. Kind `tournament` through
+  `resolveAnnouncementChannelId`. Posts for one game are spaced 20 s apart (in memory).
+- Forum channels: migration 207 adds `games.discord_thread_id`. The "Now Active" announcers store the forum post they
+  create there; score posts go into that thread, or create one titled with the game (and store it) when none exists.
+  `sendChannelMessage` / `sendChannelEmbed` now return `{threadId, messageId}` (existing callers ignore it), and
+  `sendChannelMessage` takes optional `threadName` / `noMentions`.
+
+---
+
 ## [2.224.0] - 2026-11-06 - Two-tier roles per slash command
 
 Owner-approved 2026-11-06 (E15, E14). A room wanted players to run `/list-scores` privately while a Tournament Creator

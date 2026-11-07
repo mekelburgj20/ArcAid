@@ -21,6 +21,7 @@ import { RotationAuditService, type RotationSource } from '../services/RotationA
 import { queueSourceForPlace } from './TournamentEngine.js';
 import { rankAutoPick } from '../utils/autoPickRanking.js';
 import { AutoPickSignalService } from '../services/AutoPickSignalService.js';
+import { DiscordScorePostService } from '../services/DiscordScorePostService.js';
 
 export class TimeoutManager {
     private static instance: TimeoutManager;
@@ -633,7 +634,9 @@ export class TimeoutManager {
                 .setColor(color)
                 .setFooter({ text: tournament?.name ?? '' })
                 .setTimestamp();
-            await sendChannelEmbed(channelId, embed);
+            const sent = await sendChannelEmbed(channelId, embed);
+            // E13 (v2.225.0): a forum post becomes the game's thread for later score posts.
+            await DiscordScorePostService.rememberActivationThread(sent, slot.tournamentId, queuedRow.name);
         }
     }
 
@@ -923,7 +926,8 @@ export class TimeoutManager {
                     .setColor(color)
                     .setFooter({ text: tournament.name })
                     .setTimestamp();
-                await sendChannelEmbed(channelId, embed);
+                const sent = await sendChannelEmbed(channelId, embed);
+                await DiscordScorePostService.rememberActivationThread(sent, game.tournamentId, pick.name);
             }
 
         } catch (error) {

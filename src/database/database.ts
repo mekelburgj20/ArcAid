@@ -3550,6 +3550,16 @@ async function doInitDatabase(): Promise<Database> {
             const n = await backfillWitnessSubmissions(db);
             console.log(`[migration 206] witness scores written into submissions: ${n}`);
         } },
+        // E13 (v2.225.0) - the forum post (thread) a game's Discord posts go
+        // into when its announcement channel is a forum: stored by the
+        // "Now Active" announcer, created lazily by the first top-score post
+        // (DiscordScorePostService). NULL = no thread yet / not a forum.
+        { name: '207_games_discord_thread_id', handler: async (db) => {
+            const cols = (await db.all(`PRAGMA table_info(games)`)) as Array<{ name: string }>;
+            if (!cols.some(c => c.name === 'discord_thread_id')) {
+                await db.exec(`ALTER TABLE games ADD COLUMN discord_thread_id TEXT`);
+            }
+        } },
     ];
 
     for (const migration of migrations) {
