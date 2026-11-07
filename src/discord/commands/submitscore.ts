@@ -23,6 +23,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { PreferencesService } from '../../services/PreferencesService.js';
+import { ActivityLogService, fmtScore } from '../../services/ActivityLogService.js';
 
 export interface ResolvedSubmitGame {
     id: string;
@@ -304,6 +305,7 @@ export const submitscore: Command = {
                 const { RoomAccessService } = await import('../../services/RoomAccessService.js');
                 const access = await RoomAccessService.checkMayWrite(game.game_room_id, interaction.user.id);
                 if (!access.ok) {
+                    logDiscordScoreRefusal(interaction.user.id, game, gameName, score, 'membership', access.message, game.tournament_id);
                     await interaction.editReply(access.message);
                     return;
                 }
@@ -324,6 +326,7 @@ export const submitscore: Command = {
                     roomId: game.game_room_id, gameName, userId: interaction.user.id,
                 });
                 if (!gate.ok) {
+                    logDiscordScoreRefusal(interaction.user.id, game, gameName, score, 'event', gate.message ?? null, game.tournament_id);
                     await interaction.editReply(gate.message!);
                     return;
                 }
@@ -343,6 +346,7 @@ export const submitscore: Command = {
                 const { checkAttemptLimitSubmission } = await import('../../services/EventSubmissionGate.js');
                 const attemptGate = await checkAttemptLimitSubmission(game.tournament_id);
                 if (!attemptGate.ok) {
+                    logDiscordScoreRefusal(interaction.user.id, game, gameName, score, 'limited attempts', attemptGate.message, game.tournament_id);
                     await interaction.editReply(attemptGate.message);
                     return;
                 }
@@ -350,6 +354,7 @@ export const submitscore: Command = {
                 const { TournamentEntryService } = await import('../../services/TournamentEntryService.js');
                 const rosterGate = await TournamentEntryService.checkRosterSubmission(game.tournament_id, interaction.user.id);
                 if (!rosterGate.ok) {
+                    logDiscordScoreRefusal(interaction.user.id, game, gameName, score, 'roster', rosterGate.message, game.tournament_id);
                     await interaction.editReply(rosterGate.message);
                     return;
                 }
@@ -394,6 +399,7 @@ export const submitscore: Command = {
 
             const provenance = ScoreProvenanceService.validate(scope, engine, device);
             if (!provenance.ok) {
+                logDiscordScoreRefusal(interaction.user.id, game, gameName, score, 'platform', provenance.error, game.tournament_id);
                 await interaction.editReply(provenance.error);
                 return;
             }
@@ -790,5 +796,35 @@ async function sendRatingFollowUp(
                 components: [],
             }).catch(() => {});
         }
+    });
+}
+
+/**
+ * G14 (ADR 0037) - a /submit-score refused by a gate is a `problem` row in
+ * the game's room activity log. Never throws.
+ */
+function logDiscordScoreRefusal(
+    userId: string,
+    game: { id: string; tournament_id: string | null; game_room_id: string | null },
+    gameName: string,
+    score: number,
+    gate: string,
+    message: string | null,
+    tournamentId: string | null,
+): void {
+    if (!game.game_room_id) return;
+    void ActivityLogService.record({
+        roomId: game.game_room_id,
+        category: 'score',
+        eventType: 'score_refused',
+        severity: 'problem',
+        userId,
+        tournamentId,
+        gameId: game.id,
+        gameName,
+        source: 'discord',
+        score,
+        summary: `Score ${fmtScore(score)} on ${gameName} refused (${gate}, Discord /submit-score)${message ? `: ${message}` : ''}`,
+        details: { gate, reasons: message ? [message] : [] },
     });
 }

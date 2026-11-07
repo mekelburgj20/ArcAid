@@ -319,6 +319,9 @@ export class AccountDeletionService {
             // is negligible; this is a one-time scan.
             await del('room_events',
                 "DELETE FROM room_events WHERE event_data LIKE '%' || ? || '%'", id);
+            // G14 (ADR 0037) - the activity log's rows about or by this user.
+            await del('activity_log',
+                'DELETE FROM activity_log WHERE canonical_user_id = ? OR actor_user_id = ?', id, id);
 
             // --- BUST cached rankings (they embed player name + avatar) ---
             // Only when something actually changed: a true no-op re-run has no cached

@@ -3,6 +3,7 @@ import express from 'express';
 import request from 'supertest';
 import { setupTestDb, createTestRoom } from './helpers.js';
 import { getDatabase } from '../database/database.js';
+import { drainBackgroundTasks } from '../utils/backgroundTasks.js';
 import { signToken } from '../api/auth.js';
 import { WitnessService, parseDeviceModel } from '../services/WitnessService.js';
 import { WitnessAdminViewService } from '../services/WitnessAdminViewService.js';
@@ -132,6 +133,9 @@ describe('W73 repeated reports do not churn the row', () => {
     it('stampDeviceModel writes only when a value differs', async () => {
         const app = await createTestApp();
         await pairDevice(app);
+        // G14: the pairing's activity-log row is written in the background; let it
+        // land before counting, so only stampDeviceModel's own writes are measured.
+        await drainBackgroundTasks();
         const db = await getDatabase();
         const changes = async () => (await db.get<{ n: number }>('SELECT total_changes() AS n'))!.n;
 

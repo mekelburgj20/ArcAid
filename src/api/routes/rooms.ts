@@ -92,6 +92,7 @@ import { RoomScoresService } from '../../services/RoomScoresService.js';
 import { TournamentScoresService } from '../../services/TournamentScoresService.js';
 import { ScoreProvenanceService } from '../../services/ScoreProvenanceService.js';
 import { AuditService } from '../../services/AuditService.js';
+import { ActivityLogService, fmtScore } from '../../services/ActivityLogService.js';
 import { checkEventSubmission, checkAttemptLimitSubmission } from '../../services/EventSubmissionGate.js';
 import { TournamentEntryService } from '../../services/TournamentEntryService.js';
 import { EventService, EventConfigError } from '../../services/EventService.js';
@@ -154,12 +155,45 @@ async function refuseNonMemberWrite(
     req: { user?: TokenPayload },
     res: { status: (n: number) => { json: (b: unknown) => unknown } },
     roomId: string,
+    scoreContext?: { gameName?: string | null; score?: number | null },
 ): Promise<boolean> {
     const { RoomAccessService } = await import('../../services/RoomAccessService.js');
     const access = await RoomAccessService.checkMayWrite(roomId, req.user?.discordId, req.user ?? null);
     if (access.ok) return false;
+    if (scoreContext) {
+        logScoreRefusal(req, roomId, { ...scoreContext, gate: 'membership', code: access.code, message: access.message });
+    }
     res.status(403).json({ error: access.message, code: access.code, roles: access.roleNames ?? [] });
     return true;
+}
+
+/**
+ * G14 (ADR 0037) - a typed score refused by a gate is a `problem` row in the
+ * room's activity log (it otherwise leaves no trace). Never throws.
+ */
+function logScoreRefusal(
+    req: { user?: TokenPayload },
+    roomId: string,
+    ctx: {
+        gameName?: string | null; score?: number | null; tournamentId?: string | null;
+        gate: string; code?: string | null; message?: string | null;
+    },
+): void {
+    const game = ctx.gameName || 'a game';
+    const scoreText = typeof ctx.score === 'number' ? `Score ${fmtScore(ctx.score)}` : 'Score';
+    void ActivityLogService.record({
+        roomId,
+        category: 'score',
+        eventType: 'score_refused',
+        severity: 'problem',
+        userId: req.user?.discordId ?? null,
+        tournamentId: ctx.tournamentId ?? null,
+        gameName: ctx.gameName ?? null,
+        source: 'web',
+        score: typeof ctx.score === 'number' ? ctx.score : null,
+        summary: `${scoreText} on ${game} refused (${ctx.gate})${ctx.message ? `: ${ctx.message}` : ''}`,
+        details: { gate: ctx.gate, code: ctx.code ?? null, reasons: ctx.message ? [ctx.message] : [] },
+    });
 }
 
 async function resolveSubmitUsername(
@@ -3046,7 +3080,7 @@ router.post('/:roomId/community-scores/:gameName', writeLimiter, requireDiscordU
         // here, so resolveSubmitUsername always takes the authed branch: the
         // client-supplied `username` is ignored entirely and the canonical
         // room name is resolved server-side (v2.54.0 username lock).
-        if (await refuseNonMemberWrite(req, res, roomId)) return;
+        if (await refuseNonMemberWrite(req, res, roomId, { gameName, score })) return;
         const resolvedName = await resolveSubmitUsername(req, roomId);
         if (!resolvedName.ok) return res.status(400).json({ error: resolvedName.error });
 
@@ -3056,7 +3090,10 @@ router.post('/:roomId/community-scores/:gameName', writeLimiter, requireDiscordU
         // `event` for any game that is not an event round, in which case
         // everything below behaves exactly as it did pre-v2.135.0.
         const gate = await checkEventSubmission({ roomId, gameName: gameName, userId: req.user!.discordId! });
-        if (!gate.ok) return res.status(409).json({ error: gate.message, code: gate.code });
+        if (!gate.ok) {
+            logScoreRefusal(req, roomId, { gameName, score, gate: 'event', code: gate.code, message: gate.message });
+            return res.status(409).json({ error: gate.message, code: gate.code });
+        }
 
         // v2.155.2 — resolve which games row this submission targets ONCE,
         // right after the gate (see the /submit-score site's comment for the
@@ -3073,10 +3110,16 @@ router.post('/:roomId/community-scores/:gameName', writeLimiter, requireDiscordU
         // v2.167.0 (ADR 0029) — a tournament that limits attempts takes
         // Castcade scores only; a typed score has no game start to count.
         const attemptGate = await checkAttemptLimitSubmission(resolvedTournamentId);
-        if (!attemptGate.ok) return res.status(409).json({ error: attemptGate.message, code: attemptGate.code });
+        if (!attemptGate.ok) {
+            logScoreRefusal(req, roomId, { gameName: gameName, score, tournamentId: resolvedTournamentId, gate: 'limited attempts', code: attemptGate.code, message: attemptGate.message });
+            return res.status(409).json({ error: attemptGate.message, code: attemptGate.code });
+        }
         // v2.179.0 (W39, ADR 0033 §6) — an invite-only tournament takes typed scores from its roster only.
         const rosterGate = await TournamentEntryService.checkRosterSubmission(resolvedTournamentId, req.user!.discordId!);
-        if (!rosterGate.ok) return res.status(403).json({ error: rosterGate.message, code: rosterGate.code });
+        if (!rosterGate.ok) {
+            logScoreRefusal(req, roomId, { gameName: gameName, score, tournamentId: resolvedTournamentId, gate: 'roster', code: rosterGate.code, message: rosterGate.message });
+            return res.status(403).json({ error: rosterGate.message, code: rosterGate.code });
+        }
 
         // v2.53.0: re-validate the engine/device pair server-side against the
         // game's resolved scope, and DERIVE the legacy platform from it (any
@@ -3088,7 +3131,10 @@ router.post('/:roomId/community-scores/:gameName', writeLimiter, requireDiscordU
             device: validationResult.data.device,
             tournamentId: resolvedTournamentId,
         });
-        if (!provenance.ok) return res.status(400).json({ error: provenance.error });
+        if (!provenance.ok) {
+            logScoreRefusal(req, roomId, { gameName: gameName, score, tournamentId: resolvedTournamentId, gate: 'platform', message: provenance.error });
+            return res.status(400).json({ error: provenance.error });
+        }
         const { engine, device, platform } = provenance;
 
         // Security: attribution derives from the verified token, never the
@@ -3171,7 +3217,7 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, requireDiscordUser,
         // v2.54.0 username lock — see the community-scores handler above.
         // requireDiscordUser guarantees an authed submitter, so the posted
         // `username` (if any) is ignored and the canonical name resolved.
-        if (await refuseNonMemberWrite(req, res, roomId)) return;
+        if (await refuseNonMemberWrite(req, res, roomId, { gameName, score })) return;
         const resolvedName = await resolveSubmitUsername(req, roomId);
         if (!resolvedName.ok) return res.status(400).json({ error: resolvedName.error });
 
@@ -3181,7 +3227,10 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, requireDiscordUser,
         // `event` for any game that is not an event round, in which case
         // everything below behaves exactly as it did pre-v2.135.0.
         const gate = await checkEventSubmission({ roomId, gameName: gameName, userId: req.user!.discordId! });
-        if (!gate.ok) return res.status(409).json({ error: gate.message, code: gate.code });
+        if (!gate.ok) {
+            logScoreRefusal(req, roomId, { gameName, score, gate: 'event', code: gate.code, message: gate.message });
+            return res.status(409).json({ error: gate.message, code: gate.code });
+        }
 
         // v2.155.1/v2.155.2 — resolve which games row this submission targets
         // ONCE, right after the gate, so the provenance check below, the
@@ -3207,10 +3256,16 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, requireDiscordUser,
         // v2.167.0 (ADR 0029) — a tournament that limits attempts takes
         // Castcade scores only; a typed score has no game start to count.
         const attemptGate = await checkAttemptLimitSubmission(resolvedTournamentId);
-        if (!attemptGate.ok) return res.status(409).json({ error: attemptGate.message, code: attemptGate.code });
+        if (!attemptGate.ok) {
+            logScoreRefusal(req, roomId, { gameName: gameName, score, tournamentId: resolvedTournamentId, gate: 'limited attempts', code: attemptGate.code, message: attemptGate.message });
+            return res.status(409).json({ error: attemptGate.message, code: attemptGate.code });
+        }
         // v2.179.0 (W39, ADR 0033 §6) — an invite-only tournament takes typed scores from its roster only.
         const rosterGate = await TournamentEntryService.checkRosterSubmission(resolvedTournamentId, req.user!.discordId!);
-        if (!rosterGate.ok) return res.status(403).json({ error: rosterGate.message, code: rosterGate.code });
+        if (!rosterGate.ok) {
+            logScoreRefusal(req, roomId, { gameName: gameName, score, tournamentId: resolvedTournamentId, gate: 'roster', code: rosterGate.code, message: rosterGate.message });
+            return res.status(403).json({ error: rosterGate.message, code: rosterGate.code });
+        }
 
         // v2.53.0: engine/device validated + legacy platform derived (see the
         // community-scores handler above). v2.155.2 — validated against the
@@ -3222,7 +3277,10 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, requireDiscordUser,
             device: validationResult.data.device,
             tournamentId: resolvedTournamentId,
         });
-        if (!provenance.ok) return res.status(400).json({ error: provenance.error });
+        if (!provenance.ok) {
+            logScoreRefusal(req, roomId, { gameName: gameName, score, tournamentId: resolvedTournamentId, gate: 'platform', message: provenance.error });
+            return res.status(400).json({ error: provenance.error });
+        }
         const { engine, device, platform } = provenance;
 
         // Check if photo is required
@@ -3368,7 +3426,7 @@ router.post('/:roomId/freeplay-score', writeLimiter, requireDiscordUser, require
         // v2.54.0 username lock — see the community-scores handler above.
         // requireDiscordUser guarantees an authed submitter, so the posted
         // `username` (if any) is ignored and the canonical name resolved.
-        if (await refuseNonMemberWrite(req, res, roomId)) return;
+        if (await refuseNonMemberWrite(req, res, roomId, { gameName: null, score })) return;
         const resolvedName = await resolveSubmitUsername(req, roomId);
         if (!resolvedName.ok) return res.status(400).json({ error: resolvedName.error });
 
@@ -3400,7 +3458,10 @@ router.post('/:roomId/freeplay-score', writeLimiter, requireDiscordUser, require
         const gate = await checkEventSubmission({
             roomId, gameName: globalGame.name, userId: req.user!.discordId!,
         });
-        if (!gate.ok) return res.status(409).json({ error: gate.message, code: gate.code });
+        if (!gate.ok) {
+            logScoreRefusal(req, roomId, { gameName: globalGame.name, score, gate: 'event', code: gate.code, message: gate.message });
+            return res.status(409).json({ error: gate.message, code: gate.code });
+        }
 
         // v2.155.1/v2.155.2 — resolve which games row this submission targets
         // ONCE, right after the gate, so the provenance check below, the
@@ -3422,10 +3483,16 @@ router.post('/:roomId/freeplay-score', writeLimiter, requireDiscordUser, require
         // v2.167.0 (ADR 0029) — a tournament that limits attempts takes
         // Castcade scores only; a typed score has no game start to count.
         const attemptGate = await checkAttemptLimitSubmission(resolvedTournamentId);
-        if (!attemptGate.ok) return res.status(409).json({ error: attemptGate.message, code: attemptGate.code });
+        if (!attemptGate.ok) {
+            logScoreRefusal(req, roomId, { gameName: globalGame.name, score, tournamentId: resolvedTournamentId, gate: 'limited attempts', code: attemptGate.code, message: attemptGate.message });
+            return res.status(409).json({ error: attemptGate.message, code: attemptGate.code });
+        }
         // v2.179.0 (W39, ADR 0033 §6) — an invite-only tournament takes typed scores from its roster only.
         const rosterGate = await TournamentEntryService.checkRosterSubmission(resolvedTournamentId, req.user!.discordId!);
-        if (!rosterGate.ok) return res.status(403).json({ error: rosterGate.message, code: rosterGate.code });
+        if (!rosterGate.ok) {
+            logScoreRefusal(req, roomId, { gameName: globalGame.name, score, tournamentId: resolvedTournamentId, gate: 'roster', code: rosterGate.code, message: rosterGate.message });
+            return res.status(403).json({ error: rosterGate.message, code: rosterGate.code });
+        }
 
         // v2.53.0: validate engine/device + derive the legacy platform for this
         // game in this room (uses the canonical name, since freeplay catalogue
@@ -3438,7 +3505,10 @@ router.post('/:roomId/freeplay-score', writeLimiter, requireDiscordUser, require
             device: validationResult.data.device,
             tournamentId: resolvedTournamentId,
         });
-        if (!provenance.ok) return res.status(400).json({ error: provenance.error });
+        if (!provenance.ok) {
+            logScoreRefusal(req, roomId, { gameName: globalGame.name, score, tournamentId: resolvedTournamentId, gate: 'platform', message: provenance.error });
+            return res.status(400).json({ error: provenance.error });
+        }
         const { engine, device, platform } = provenance;
 
         // Persist photo
@@ -8357,17 +8427,54 @@ router.get('/:roomId/admin/identity/:mergeId', requireAuth, requireRoomAccess('r
     }
 });
 
-// Room activity log
+// Room activity log (G14, ADR 0037). Filters in the query string
+// (player, from, to, tournament, game, category, type, q, problems, before,
+// limit); dates are read in the room's timezone. A room admin sees only this
+// room's rows, never raw ids, device ids, IPs or private detail keys.
 router.get('/:roomId/admin/activity', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
     try {
-        const { RoomEventService } = await import('../../services/RoomEventService.js');
+        const { ActivityLogService, parseActivityQuery } = await import('../../services/ActivityLogService.js');
+        const { resolveTournamentTimezone } = await import('../../utils/roomTimezone.js');
         const roomId = req.params.roomId as string;
-        const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
-        const offset = parseInt(req.query.offset as string) || 0;
-        const events = await RoomEventService.getRecent(roomId, limit, offset);
-        res.json(events);
+        const timezone = await resolveTournamentTimezone(null, roomId);
+        const filters = { ...parseActivityQuery(req.query as Record<string, unknown>), roomId, timezone };
+        const result = await ActivityLogService.query(filters, { superAdmin: req.user!.role === 'super_admin' });
+        res.json({ ...result, timezone });
     } catch (error) {
         logError('API Error (GET rooms/:roomId/admin/activity):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.get('/:roomId/admin/activity.csv', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const { ActivityLogService, parseActivityQuery } = await import('../../services/ActivityLogService.js');
+        const { resolveTournamentTimezone } = await import('../../utils/roomTimezone.js');
+        const roomId = req.params.roomId as string;
+        const timezone = await resolveTournamentTimezone(null, roomId);
+        const filters = { ...parseActivityQuery(req.query as Record<string, unknown>), roomId, timezone };
+        const csv = await ActivityLogService.exportCsv(filters, { superAdmin: false });
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', 'attachment; filename="activity.csv"');
+        res.send(csv);
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/admin/activity.csv):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// The Activity page's filter choices: this room's tournaments + its timezone.
+router.get('/:roomId/admin/activity/meta', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const db = await getDatabase();
+        const { resolveTournamentTimezone } = await import('../../utils/roomTimezone.js');
+        const tournaments = await db.all(
+            `SELECT id, name FROM tournaments WHERE game_room_id = ? ORDER BY is_active DESC, name COLLATE NOCASE`, roomId,
+        );
+        res.json({ tournaments, timezone: await resolveTournamentTimezone(null, roomId) });
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/admin/activity/meta):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

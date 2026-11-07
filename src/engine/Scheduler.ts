@@ -360,6 +360,14 @@ export class Scheduler {
             } catch (error) {
                 logError('Event scheduler error:', error);
             }
+            // G14 (ADR 0037) - device offline transitions and "launched, no
+            // score arrived" rows, on the same per-minute clock.
+            try {
+                const { ActivityLogService } = await import('../services/ActivityLogService.js');
+                await ActivityLogService.sweepDevices();
+            } catch (error) {
+                logError('Activity log device sweep error:', error);
+            }
         }, { timezone });
 
         this.tasks.set('__event_scheduler__', task);
@@ -396,6 +404,14 @@ export class Scheduler {
                 if (deleted > 0) logInfo(`Room event cleanup: removed ${deleted} old events.`);
             } catch (error) {
                 logError('Room event cleanup error:', error);
+            }
+            // G14 (ADR 0037 §8) - the activity log keeps 90 days.
+            try {
+                const { ActivityLogService } = await import('../services/ActivityLogService.js');
+                const pruned = await ActivityLogService.prune();
+                if (pruned > 0) logInfo(`Activity log prune: removed ${pruned} rows older than 90 days.`);
+            } catch (error) {
+                logError('Activity log prune error:', error);
             }
         }, { timezone });
 

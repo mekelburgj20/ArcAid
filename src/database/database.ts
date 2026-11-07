@@ -3571,6 +3571,67 @@ async function doInitDatabase(): Promise<Database> {
                 await db.exec(`ALTER TABLE tournaments ADD COLUMN discord_announce_routes TEXT`);
             }
         } },
+        // G14 (v2.227.0, ADR 0037) - the room activity log: one append-only
+        // timeline of scores, devices, admin actions, bot failures and
+        // tournament lifecycle, written at the choke points by
+        // ActivityLogService.record (never assembled at read time). NO foreign
+        // keys, like rotation_events: a row must outlive what it describes.
+        // `game_room_id` is decided at WRITE time and NULL for server-level and
+        // room-less rows (super-admin only). `dedupe_key` makes the backfill
+        // and the per-minute device sweep idempotent. Pruned at 90 days.
+        // `witness_devices.offline_logged_at` remembers that a device's
+        // offline transition has been logged, so it is logged once;
+        // `witness_observations.activity_checked_at` the same for the
+        // "launched, no score arrived" check of one session.
+        { name: '209_activity_log', handler: async (db) => {
+            await db.exec(`
+                CREATE TABLE IF NOT EXISTS activity_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    game_room_id TEXT,
+                    category TEXT NOT NULL,
+                    event_type TEXT NOT NULL,
+                    severity TEXT NOT NULL DEFAULT 'info',
+                    canonical_user_id TEXT,
+                    player_alias TEXT,
+                    actor_user_id TEXT,
+                    device_id TEXT,
+                    tournament_id TEXT,
+                    game_id TEXT,
+                    tournament_name TEXT,
+                    game_name TEXT,
+                    table_name TEXT,
+                    source TEXT,
+                    score INTEGER,
+                    summary TEXT NOT NULL DEFAULT '',
+                    details TEXT,
+                    dedupe_key TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_activity_log_room ON activity_log(game_room_id, created_at);
+                CREATE INDEX IF NOT EXISTS idx_activity_log_user ON activity_log(canonical_user_id, created_at);
+                CREATE INDEX IF NOT EXISTS idx_activity_log_severity ON activity_log(severity, created_at);
+                CREATE INDEX IF NOT EXISTS idx_activity_log_created ON activity_log(created_at);
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_activity_log_dedupe ON activity_log(dedupe_key) WHERE dedupe_key IS NOT NULL;
+            `);
+            const cols = (await db.all(`PRAGMA table_info(witness_devices)`)) as Array<{ name: string }>;
+            if (!cols.some(c => c.name === 'offline_logged_at')) {
+                await db.exec(`ALTER TABLE witness_devices ADD COLUMN offline_logged_at TEXT`);
+            }
+            // When the "launched, no score arrived" sweep evaluated a session (once).
+            const obsCols = (await db.all(`PRAGMA table_info(witness_observations)`)) as Array<{ name: string }>;
+            if (!obsCols.some(c => c.name === 'activity_checked_at')) {
+                await db.exec(`ALTER TABLE witness_observations ADD COLUMN activity_checked_at TEXT`);
+            }
+            // The backfill is a convenience, not schema: a failure is logged and
+            // the boot goes on (the table above already exists and is empty).
+            try {
+                const { backfillActivityLog } = await import('./migrations/activityLogBackfill.js');
+                const n = await backfillActivityLog(db);
+                console.log(`[migration 209] activity log backfilled: ${n} rows`);
+            } catch (err) {
+                console.error('[migration 209] activity log backfill failed (log starts empty):', err);
+            }
+        } },
     ];
 
     for (const migration of migrations) {

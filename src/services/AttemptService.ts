@@ -1,6 +1,7 @@
 import { getDatabase } from '../database/database.js';
 import { resolveUserLabels } from './PlayerProfileResolver.js';
 import { logInfo } from '../utils/logger.js';
+import { ActivityLogService } from './ActivityLogService.js';
 
 /**
  * Limited attempts (v2.167.0, ADR 0029): N game STARTS per player per `games`
@@ -821,6 +822,16 @@ export class AttemptService {
             adminUserId, attemptId,
         );
         if (res.changes !== 1) throw new AttemptVoidError('NOT_VOIDABLE', 409, 'This attempt is already void.');
+        // G14 (ADR 0037) - the void is an activity row in the tournament's room.
+        void ActivityLogService.record({
+            category: 'score', eventType: 'attempt_voided',
+            userId: row.canonical_user_id, actorUserId: adminUserId, deviceId: row.device_id,
+            tournamentId: row.tournament_id, gameId: row.game_id, tableName: row.table_name,
+            source: 'vpx', score: row.score,
+            summary: `Attempt ${row.attempt_no} on ${row.table_name || 'a table'} voided (was ${row.status})`,
+            details: { attemptId: row.id, previousStatus: row.status },
+            dedupeKey: `att-void:${row.id}`,
+        });
         return { previousStatus: row.status, scoreHistoryId: row.score_history_id };
     }
 
@@ -954,6 +965,14 @@ export class AttemptService {
 
         await AttemptService.markScored(row.id, { scoreHistoryId: landed.scoreHistoryId, score, endedTs });
         const after = (await db.get<{ attempt_no: number }>('SELECT attempt_no FROM attempts WHERE id = ?', row.id))!;
+        void ActivityLogService.record({
+            roomId: game.game_room_id, category: 'score', eventType: 'attempt_reinstated',
+            userId: row.canonical_user_id, actorUserId: adminUserId, deviceId: row.device_id,
+            tournamentId, gameId: game.id, gameName: game.name, tableName: row.table_name,
+            source: 'vpx', score,
+            summary: `Over-limit attempt on ${game.name} reinstated; score ${score.toLocaleString('en-US')} landed as attempt ${after.attempt_no}`,
+            details: { attemptId: row.id, scoreHistoryId: landed.scoreHistoryId },
+        });
 
         if (game.game_room_id) {
             try {

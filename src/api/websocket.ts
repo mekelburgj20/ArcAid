@@ -218,3 +218,13 @@ export function emitBotStatus(data: { online: boolean }) {
     if (!io) return;
     io.emit('bot:status', data);
 }
+
+/**
+ * G14 (ADR 0037) - "the activity log has new rows" for an open Activity page.
+ * Deliberately content-free: the room channel is joinable by any viewer of
+ * the room, so the page refetches through its authed admin API instead.
+ */
+export function emitActivityNew(roomId: string) {
+    if (!io) return;
+    io.to(`room:${roomId}`).emit('activity:new', {});
+}

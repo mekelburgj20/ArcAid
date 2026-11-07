@@ -18,6 +18,9 @@ paths:
   - "src/services/AutoScoreSuppression*.ts"
   - "src/services/RoomScores*.ts"
   - "src/services/IScoredSubmitSync.ts"
+  - "src/services/ActivityLog*.ts"
+  - "src/utils/activityMappings.ts"
+  - "admin-ui/src/components/ActivityTimeline.tsx"
   - "src/engine/gameCreation.ts"
   - "src/utils/scoreProvenance.ts"
   - "src/utils/platformRules.ts"
@@ -146,3 +149,10 @@ Loads when you touch score storage, submission resolution, identity/alias linkin
   - Example: WHO dunnit on `[vpx, vpxs, real, fx, fx_vr, atgames]` with legacy Must=`[atgames]` lifts to `devices.required=[atgames]`; the game qualifies and the picker shows all 6 platforms.
 - **Submit platforms.** `SubmissionSheet` reads `GET /api/submit/platforms` → `{ platforms, submittable, tournamentRules }`. One platform → read-only chip; 2+ → required dropdown. Chip caption: `fullGamePlatforms.length > 1` → "(only platform allowed by this tournament)" else "(only platform for this game)". Discord `/submit-score` auto-fills when 1, prompts when 2+. Server re-validates at every submit handler (`ensurePlatformAllowed`, also strict-excluded-only). `/leaderboard/:gameId?platform=X` returns `distinctPlatforms[]` for the GameDetail tab strip.
 - **When adding/changing a platform:** update `src/utils/platformMapping.ts` AND mirror to `admin-ui/src/lib/platforms.ts` (FE has its own copy of `CANONICAL_PLATFORMS` + `PLATFORM_ALIASES`). Forgetting causes silent FE/BE drift.
+
+## Activity log (G14, v2.227.0, ADR 0037)
+
+- **Every event source writes an activity row.** `activity_log` (migration 209) is the room admin's and super-admin's timeline (Room Admin -> Activity, `/admin/activity`); a write path added without `ActivityLogService.record` (or `recordForDevice`) is invisible there. Written at the choke points, never assembled at read time: `ScoreHistoryService.log` (every landing except `'vpx'`, whose landing the ingest's `trail` records with device + verdict), `deleteEvent`, `correctScore`, `AttemptService.void`/`reinstateAttempt`, `VpxScoreIngestService.trail` (every witness outcome), the typed-gate refusals in `rooms.ts` (`logScoreRefusal`) and `/submit-score` (`logDiscordScoreRefusal`), `WitnessService` pair / unpair / check-in / heartbeat-online / session launch+exit, `ActivityLogService.sweepDevices` (per minute: offline transitions + "launched, no score arrived"), `RotationAuditService.log`, `RoomEventService.log` (only `LIVE_MIRRORED_ROOM_EVENTS`), `TournamentEngine.queueGame`, `EventScheduler` round start / event finish, `SeasonPollService` poll open/close, `api/activityAdminMiddleware.ts` (admin writes), `sendChannelEmbed`/`sendChannelMessage` failures, `DiscordClient` refusals/failures, `SyncLogService.complete`, `ScoreSyncPoller` first failure.
+- **Room scope is decided at write time** (`game_room_id`; NULL = super-admin only). A device row goes to `ActivityLogService.roomsForDevice` (the device's routing NOW, through `deviceRoutesTo`); a Witness play that went to Global or matched nothing is room-less (ADR 0037 §5).
+- **`record` never throws and never fails the action**: it swallows, `logWarn`s and counts (`writeFailureStats`, shown on the super-admin page). Rows store ids; labels resolve at read (`resolveUserLabels`); `summary` never holds a player name. Room admins get no raw ids, device ids, IPs or `details` (only `reasons`).
+- Retention 90 days (`prune`, the 3 AM cron). The older stores' mapping lives once in `src/utils/activityMappings.ts` (live mirrors + the migration-209 backfill share it). `room_events` is still written (7 days) but nothing reads it for the page any more.

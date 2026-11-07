@@ -282,6 +282,14 @@ export class SyncLogService {
             completedAt,
             id
         );
+        // G14 (ADR 0037 §9) - a finished sync job is a server row (super-admin view).
+        const { ActivityLogService } = await import('./ActivityLogService.js');
+        void ActivityLogService.record({
+            roomId: null, category: 'server', eventType: 'sync_job_' + result.status,
+            severity: result.status === 'success' ? 'info' : 'problem',
+            summary: 'Sync job finished (' + result.status + ')' + (result.summary ? ': ' + result.summary : ''),
+            details: { syncLogId: id, imported: result.records_imported ?? 0, updated: result.records_updated ?? 0, reasons: (result.errors ?? []).slice(0, 5) },
+        });
 
         // Send Discord alert on failure
         if (result.status === 'error' || result.status === 'partial') {
