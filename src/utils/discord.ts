@@ -127,6 +127,17 @@ function idOf(res: unknown): string | null {
  * via `forumPostName`); `opts.noMentions` sends `allowed_mentions: {parse: []}`
  * so text taken from player names can never ping anyone.
  */
+/**
+ * G14 (ADR 0037) - a post the bot could not make is a `problem` row in the
+ * activity log of the room(s) using that channel. Lazy import: this module is
+ * loaded by nearly everything. Never throws.
+ */
+function logBotPostFailure(channelId: string, err: unknown, what: string): void {
+    trackBackground(import('../services/ActivityLogService.js')
+        .then(({ ActivityLogService }) => ActivityLogService.recordBotPostFailure(channelId, err, what))
+        .catch(() => { /* best effort */ }));
+}
+
 export async function sendChannelMessage(
     channelId: string,
     content: string,
@@ -154,6 +165,7 @@ export async function sendChannelMessage(
         return { threadId: null, messageId: idOf(sent) };
     } catch (err) {
         logError(`Failed to send message to channel ${channelId}:`, err);
+        logBotPostFailure(channelId, err, 'post a message');
     }
 }
 
@@ -333,6 +345,7 @@ export async function sendChannelEmbed(
         return { threadId: null, messageId: idOf(sent) };
     } catch (err) {
         logError(`Failed to send embed to channel ${channelId}:`, err);
+        logBotPostFailure(channelId, err, 'post an announcement');
     }
 }
 

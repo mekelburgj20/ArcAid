@@ -309,6 +309,18 @@ export class ScoreSyncPoller {
                 } catch (accountErr) {
                     const message = accountErr instanceof Error ? accountErr.message : String(accountErr);
                     const errs = this.recordAccountFailure(creds.gameroomName, message);
+                    // G14 (ADR 0037) - the first failure of a run of them is a problem
+                    // row on each room using this iScored account (or server-level).
+                    if (errs === 1) {
+                        const { ActivityLogService } = await import('../services/ActivityLogService.js');
+                        for (const rid of (roomIds.length > 0 ? roomIds : [null])) {
+                            void ActivityLogService.record({
+                                roomId: rid, category: 'server', eventType: 'iscored_poll_failed', severity: 'problem',
+                                summary: 'iScored score sync failed: ' + message.slice(0, 200),
+                                details: { reasons: [message.slice(0, 300)] },
+                            });
+                        }
+                    }
                     if (errs <= 3) {
                         logError(`ScoreSyncPoller: account ${creds.gameroomName} poll failed:`, accountErr);
                     } else if (errs === 4) {

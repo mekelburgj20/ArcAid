@@ -6,6 +6,16 @@ import { deleteScorePhotoFiles } from '../utils/scorePhotoCleanup.js';
 import { logInfo, logDebug } from '../utils/logger.js';
 import { AutoScoreSuppressionService, isAutoScoreSource } from './AutoScoreSuppressionService.js';
 import { isMachineReportedScore, isSelfCorrectionLocked, ScoreNotEditableError } from '../utils/scoreCorrectionPolicy.js';
+import { ActivityLogService, fmtScore } from './ActivityLogService.js';
+
+/** How a score source reads in the activity log. */
+export const SCORE_SOURCE_LABEL: Record<string, string> = {
+    tournament: 'typed',
+    community: 'typed, community',
+    sync: 'iScored sync',
+    atgames: 'AtGames',
+    vpx: 'Witness / Castcade',
+};
 
 /** A `score_history` row as the per-row delete machinery needs to see it. */
 export interface DeletableScoreRow {
@@ -273,7 +283,29 @@ export class ScoreHistoryService {
         if (params.gameRoomId) {
             await RoomMembershipService.addMember(submittedByUserId, params.gameRoomId, 'submission');
         }
-        return typeof inserted.lastID === 'number' ? inserted.lastID : null;
+        const newId = typeof inserted.lastID === 'number' ? inserted.lastID : null;
+        // G14 (ADR 0037) - every landed score is an activity row. A witness
+        // ('vpx') landing is recorded by the ingest's trail instead, with its
+        // device and verdict, so it is not written twice.
+        if (params.source !== 'vpx') {
+            void ActivityLogService.record({
+                roomId: params.gameRoomId,
+                category: 'score',
+                eventType: 'score_landed',
+                userId: submittedByUserId,
+                playerAlias: params.username,
+                tournamentId: submittedTournamentId,
+                gameId: params.gameId ?? null,
+                gameName: params.gameName,
+                source: params.source,
+                score: params.score,
+                summary: `Score ${fmtScore(params.score)} landed on ${params.gameName} (${SCORE_SOURCE_LABEL[params.source] ?? params.source})`,
+                details: { scoreHistoryId: newId, platform: params.platform ?? null },
+                dedupeKey: newId != null ? `sh:${newId}` : null,
+                createdAt: params.createdAt ?? null,
+            });
+        }
+        return newId;
     }
 
     /**
@@ -351,6 +383,23 @@ export class ScoreHistoryService {
             await this.recordAutoSuppressionForRow(row, actorId);
         }
         await db.run('DELETE FROM score_history WHERE id = ?', row.id);
+
+        // G14 (ADR 0037) - the delete is an activity row, whoever did it.
+        void ActivityLogService.record({
+            roomId: row.game_room_id,
+            category: 'score',
+            eventType: 'score_deleted',
+            userId: row.submitted_by_user_id,
+            playerAlias: row.iscored_username,
+            actorUserId: actorId,
+            tournamentId: row.submitted_during_tournament_id ?? null,
+            gameId: row.game_id,
+            gameName: row.game_name,
+            source: row.source,
+            score: row.score,
+            summary: `Score ${fmtScore(row.score)} on ${row.game_name} deleted`,
+            details: { scoreHistoryId: row.id, selfDelete: !!row.submitted_by_user_id && row.submitted_by_user_id === actorId },
+        });
 
         // S12: remove the score's evidence photo from disk now that its row is
         // gone (best-effort, never throws; a no-op when the row carried no photo).
@@ -611,6 +660,21 @@ export class ScoreHistoryService {
         const globalScoreId = await this.findFannedOutGlobalScoreId(row);
 
         await db.run('UPDATE score_history SET score = ? WHERE id = ?', newScore, row.id);
+        void ActivityLogService.record({
+            roomId: row.game_room_id,
+            category: 'score',
+            eventType: 'score_corrected',
+            userId: row.submitted_by_user_id,
+            playerAlias: row.iscored_username,
+            actorUserId: actorId,
+            tournamentId: row.submitted_during_tournament_id ?? null,
+            gameId: row.game_id,
+            gameName: row.game_name,
+            source: row.source,
+            score: newScore,
+            summary: `Score on ${row.game_name} corrected ${fmtScore(oldScore)} -> ${fmtScore(newScore)}`,
+            details: { scoreHistoryId: row.id, oldScore, newScore },
+        });
 
         if (communityTwinId !== null) {
             await db.run('UPDATE community_scores SET score = ? WHERE id = ?', newScore, communityTwinId);

@@ -7,6 +7,7 @@ import { emitLeaderboardUpdated } from '../api/websocket.js';
 import { applyLibraryDefaults } from '../utils/gameLibraryDefaults.js';
 import { eventEndGraceSec } from '../services/EventSubmissionGate.js';
 import { EventService, type EventRoundRow, type EventTournamentRow } from '../services/EventService.js';
+import { ActivityLogService } from '../services/ActivityLogService.js';
 
 /**
  * Live Event clock (v2.135.0, ADR 0017).
@@ -197,6 +198,11 @@ export class EventScheduler {
             if (round.game_room_id) emitLeaderboardUpdated(round.game_room_id, { gameId: round.id });
 
             logInfo(`Event round ${round.round_no} live: '${round.name}' for '${round.tournament_name}'.`);
+            void ActivityLogService.record({
+                roomId: round.game_room_id ?? null, category: 'lifecycle', eventType: 'event_round_started',
+                tournamentId: round.tournament_id, tournamentName: round.tournament_name, gameId: round.id, gameName: round.name,
+                summary: `Round ${round.round_no} (${round.name}) started`,
+            });
 
             const endsAt = Math.floor(Date.parse(round.scheduled_end_at) / 1000);
             await this.announce(round, new EmbedBuilder()
@@ -405,6 +411,13 @@ export class EventScheduler {
             // that blob holds identity keys only, by design.
             const winner = standings.standings[0];
             const podium = standings.standings.slice(0, 3);
+            void ActivityLogService.record({
+                category: 'lifecycle', eventType: 'event_finished',
+                userId: winner?.discord_user_id ?? null,
+                tournamentId: event.id, tournamentName: event.name,
+                summary: winner ? `${event.name} finished; winner decided` : `${event.name} finished with no scores`,
+                details: { rankedPlayers: result.standings.length },
+            });
 
             await this.announce(event, new EmbedBuilder()
                 .setTitle(`${event.name} — final standings`)

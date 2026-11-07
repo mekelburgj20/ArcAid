@@ -74,7 +74,7 @@ const WIPE_TABLES = [
     'auto_score_suppressions',
     'lobby_feed_events',
     'submission_drafts',
-    'room_events',
+    'activity_log',
     'maintenance_runs',
     'ban_content_actions',
     'merge_records',          // FK -> anonymous_identities: must precede it

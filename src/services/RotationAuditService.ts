@@ -2,6 +2,8 @@ import { getDatabase } from '../database/database.js';
 import { logError } from '../utils/logger.js';
 import { trackBackground } from '../utils/backgroundTasks.js';
 import { resolveUserLabels } from './PlayerProfileResolver.js';
+import { ActivityLogService } from './ActivityLogService.js';
+import { mapRotationEvent } from '../utils/activityMappings.js';
 
 /**
  * The decisions a rotation makes. Deliberately NOT a log of queue traffic —
@@ -190,6 +192,21 @@ export class RotationAuditService {
                 entry.gameName ?? null,
                 entry.details ? JSON.stringify(entry.details) : null,
             );
+            // G14 (ADR 0037) - every rotation decision is a lifecycle row too.
+            const mapped = mapRotationEvent({
+                eventType: entry.eventType, actor: entry.actor, source: entry.source ?? null,
+                queueOwner: entry.queueOwner ?? null, gameName: entry.gameName ?? null, details: entry.details ?? null,
+            });
+            void ActivityLogService.record({
+                roomId: entry.gameRoomId,
+                ...mapped,
+                tournamentId: entry.tournamentId ?? null,
+                tournamentName: entry.tournamentName ?? null,
+                gameId: entry.gameId ?? null,
+                gameName: entry.gameName ?? null,
+                source: entry.source ?? null,
+                details: { actor: entry.actor, ...(entry.details ?? {}) },
+            });
         } catch (err) {
             logError('RotationAuditService.log failed (non-fatal):', err);
         }

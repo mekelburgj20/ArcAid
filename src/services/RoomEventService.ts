@@ -1,51 +1,29 @@
-import { getDatabase } from '../database/database.js';
-import { trackBackground } from '../utils/backgroundTasks.js';
+import { ActivityLogService } from './ActivityLogService.js';
+import { mapRoomEvent } from '../utils/activityMappings.js';
 
-export interface RoomEvent {
-    id: number;
-    game_room_id: string;
-    event_type: string;
-    event_data: Record<string, any>;
-    created_at: string;
-}
-
+/**
+ * A thin forwarder into the activity log (G14, v2.227.0, ADR 0037).
+ *
+ * `room_events` (the old 7-day store) is retired: migration 209 copied it and
+ * migration 210 dropped it. Existing callers keep their one-line call; each
+ * event becomes an `activity_log` row through `mapRoomEvent`, which returns
+ * null for the types another writer already records (score landings,
+ * corrections and per-row deletes in `ScoreHistoryService`; rotations in
+ * `RotationAuditService`). Inside an admin request the row also suppresses
+ * the admin middleware's generic row and carries the admin as its actor.
+ * New code should call `ActivityLogService.record` directly.
+ */
 export class RoomEventService {
-    /**
-     * Callers fire this without awaiting (`.catch(() => {})`), so the write is
-     * registered with the background-task tracker: tests drain it before
-     * resetting the shared in-memory DB. Awaiting callers see identical
-     * behavior — the original promise (and its rejection) is returned.
-     */
+    /** Never rejects (`record` swallows); callers may still `.catch` or `await`. */
     static log(gameRoomId: string, eventType: string, eventData: Record<string, any> = {}): Promise<void> {
-        return trackBackground(this.writeEvent(gameRoomId, eventType, eventData));
-    }
-
-    private static async writeEvent(gameRoomId: string, eventType: string, eventData: Record<string, any>): Promise<void> {
-        const db = await getDatabase();
-        await db.run(
-            'INSERT INTO room_events (game_room_id, event_type, event_data) VALUES (?, ?, ?)',
-            gameRoomId, eventType, JSON.stringify(eventData)
-        );
-    }
-
-    static async getRecent(gameRoomId: string, limit: number = 50, offset: number = 0): Promise<RoomEvent[]> {
-        const db = await getDatabase();
-        const rows = await db.all(
-            'SELECT * FROM room_events WHERE game_room_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?',
-            gameRoomId, limit, offset
-        );
-        return rows.map((r: any) => ({
-            ...r,
-            event_data: JSON.parse(r.event_data || '{}'),
-        }));
-    }
-
-    static async cleanup(retentionDays: number = 7): Promise<number> {
-        const db = await getDatabase();
-        const result = await db.run(
-            "DELETE FROM room_events WHERE created_at < datetime('now', ?)",
-            `-${retentionDays} days`
-        );
-        return result.changes || 0;
+        const mapped = mapRoomEvent(eventType, eventData);
+        if (!mapped) return Promise.resolve();
+        return ActivityLogService.record({
+            roomId: gameRoomId,
+            ...mapped,
+            details: eventType === 'admin_login' && eventData.username
+                ? { ...eventData, actorName: eventData.username }
+                : eventData,
+        });
     }
 }

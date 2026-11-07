@@ -70,7 +70,7 @@ export default function SuperAdminDashboard() {
                 <Link
                   to={`/${room.slug}/admin/activity`}
                   className="text-neon-amber text-xs hover:underline no-underline"
-                  title="Per-room activity log — room_events table (scores, rotations, admin actions)"
+                  title="Per-room activity log (scores, devices, admin actions, bot problems, tournament lifecycle)"
                 >
                   Activity Log
                 </Link>

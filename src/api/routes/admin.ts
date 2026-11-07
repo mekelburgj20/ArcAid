@@ -758,6 +758,62 @@ router.post('/iscored-snapshots/:gameroom/:name/restore', async (req, res) => {
     }
 });
 
+// --- Activity log (G14, ADR 0037): every room + room-less/server rows ---
+// `room` = a room id, or `none` for room-less rows only; absent = all.
+
+async function superActivityFilters(q: Record<string, unknown>) {
+    const { parseActivityQuery } = await import('../../services/ActivityLogService.js');
+    const { serverTimezone } = await import('../../utils/roomTimezone.js');
+    const room = typeof q.room === 'string' ? q.room.trim() : '';
+    return {
+        ...parseActivityQuery(q),
+        timezone: serverTimezone(),
+        ...(room === 'none' ? { roomless: true } : room ? { roomId: room } : {}),
+    };
+}
+
+router.get('/activity', async (req, res) => {
+    try {
+        const { ActivityLogService } = await import('../../services/ActivityLogService.js');
+        const filters = await superActivityFilters(req.query as Record<string, unknown>);
+        const result = await ActivityLogService.query(filters, { superAdmin: true });
+        res.json({ ...result, timezone: filters.timezone, writeFailures: ActivityLogService.writeFailureStats() });
+    } catch (error) {
+        logError('API Error (GET /api/admin/activity):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.get('/activity.csv', async (req, res) => {
+    try {
+        const { ActivityLogService } = await import('../../services/ActivityLogService.js');
+        const filters = await superActivityFilters(req.query as Record<string, unknown>);
+        const csv = await ActivityLogService.exportCsv(filters, { superAdmin: true });
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', 'attachment; filename="activity.csv"');
+        res.send(csv);
+    } catch (error) {
+        logError('API Error (GET /api/admin/activity.csv):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.get('/activity/meta', async (req, res) => {
+    try {
+        const db = await getDatabase();
+        const { serverTimezone } = await import('../../utils/roomTimezone.js');
+        const room = typeof req.query.room === 'string' ? req.query.room : '';
+        const rooms = await db.all(`SELECT id, name FROM game_rooms ORDER BY name COLLATE NOCASE`);
+        const tournaments = room && room !== 'none'
+            ? await db.all(`SELECT id, name FROM tournaments WHERE game_room_id = ? ORDER BY is_active DESC, name COLLATE NOCASE`, room)
+            : [];
+        res.json({ rooms, tournaments, timezone: serverTimezone() });
+    } catch (error) {
+        logError('API Error (GET /api/admin/activity/meta):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 // --- Logs ---
 
 router.get('/logs', (req, res) => {

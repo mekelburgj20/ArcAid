@@ -362,6 +362,10 @@ export class DiscordClient {
                     const { guildInteractionBlockReason } = await import('../utils/discord.js');
                     const blockReason = await guildInteractionBlockReason(interaction.guildId);
                     if (blockReason) {
+                        const { ActivityLogService } = await import('../services/ActivityLogService.js');
+                        void ActivityLogService.recordCommandRefusal(
+                            interaction.guildId, interaction.user.id, interaction.commandName, blockReason,
+                        );
                         await interaction.reply({ content: blockReason, ephemeral: true });
                         return;
                     }
@@ -381,6 +385,11 @@ export class DiscordClient {
                         interaction.channelId, memberRoleIdsOf(interaction.member),
                     );
                     if (decision.refusal) {
+                        // G14 (ADR 0037) - a refusal is a problem row on the guild's room(s).
+                        const { ActivityLogService } = await import('../services/ActivityLogService.js');
+                        void ActivityLogService.recordCommandRefusal(
+                            interaction.guildId, interaction.user.id, interaction.commandName, decision.refusal,
+                        );
                         await interaction.reply({ content: decision.refusal, ephemeral: true });
                         return;
                     }
@@ -409,6 +418,13 @@ export class DiscordClient {
                 await command.execute(interaction);
             } catch (error) {
                 logError(`Error executing command /${interaction.commandName}:`, error);
+                if (interaction.guildId) {
+                    const { ActivityLogService } = await import('../services/ActivityLogService.js');
+                    void ActivityLogService.recordCommandRefusal(
+                        interaction.guildId, interaction.user.id, interaction.commandName,
+                        `the command failed (${error instanceof Error ? error.message : String(error)})`,
+                    );
+                }
                 if (interaction.replied || interaction.deferred) {
                     await interaction.followUp({ content: 'There was an error while executing this command!', ephemeral: true });
                 } else {
