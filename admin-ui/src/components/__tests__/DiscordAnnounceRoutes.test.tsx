@@ -77,4 +77,18 @@ describe('DiscordAnnounceRoutes', () => {
     fireEvent.change(screen.getByLabelText('Tournament posts'), { target: { value: '' } });
     expect(onSaveNow).toHaveBeenLastCalledWith({ [DISCORD_ANNOUNCE_ROUTES_KEY]: '' });
   });
+
+  it('E16: a fourth row, Top-score posts, defaults to the Tournament posts route and saves its own', async () => {
+    const onSaveNow = vi.fn();
+    render(<DiscordAnnounceRoutes roomId="r1" settings={{}} onSaveNow={onSaveNow} />);
+    const scores = screen.getByLabelText('Top-score posts') as HTMLSelectElement;
+    expect(scores.value).toBe('');
+    expect(within(scores).getAllByRole('option')[0]).toHaveTextContent('Same as Tournament posts');
+    expect(screen.getByText('Glory and dethrone posts for top-N scores')).toBeInTheDocument();
+    expect(screen.getByText('Same as Tournament posts unless set.')).toBeInTheDocument();
+    await within(scores).findByRole('option', { name: '#lu-tourney-talk' });
+    fireEvent.change(scores, { target: { value: TALK } });
+    expect(JSON.parse((onSaveNow.mock.calls[0][0] as Record<string, string>)[DISCORD_ANNOUNCE_ROUTES_KEY]))
+      .toEqual({ version: 1, routes: { scores: TALK } });
+  });
 });

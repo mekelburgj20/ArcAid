@@ -3,6 +3,8 @@ import ScheduleBuilder from './ScheduleBuilder';
 import EventSettingsFields from './EventSettingsFields';
 import { defaultEventState, type EventFormState } from '../lib/eventTime';
 import { InfoTip } from './Tooltip';
+import TournamentAnnounceRoutes from './TournamentAnnounceRoutes';
+import type { TournamentAnnounceRoutes as AnnounceRoutesState } from '../lib/announceRoutes';
 import { DEFAULT_TIMEZONE } from '../lib/timezone';
 import { defaultSeasonState, getSeasonErrors, type SeasonFormState } from '../lib/seasonForm';
 import {
@@ -85,7 +87,10 @@ export interface TournamentFormState {
   format: TournamentFormat;
   /** Only meaningful when `format === 'event'`. */
   event: EventFormState;
+  /** `discord_channel_id`: '' = room routes, 'none' = don't post, else a (legacy) catch-all channel. */
   channel: string;
+  /** v2.226.0 (E16) — `discord_announce_routes` per kind: '' / 'none' / a channel id. */
+  announceRoutes: AnnounceRoutesState;
   displayOrder: number;
   maxActiveGames: number;
   winnerPicks: boolean;
@@ -168,6 +173,7 @@ export const defaultFormState: TournamentFormState = {
   format: 'rotation',
   event: { ...defaultEventState, rounds: [...defaultEventState.rounds] },
   channel: '',
+  announceRoutes: {},
   displayOrder: 0,
   maxActiveGames: 1,
   winnerPicks: true,
@@ -1008,8 +1014,16 @@ export default function TournamentFormFields({ state, set, platforms, roomId, lo
   // if it is turned off). A Season alone forces nothing.
   const pollOn = !isEvent && state.poll.enabled;
   // 'Announcements' select — see the comment at its JSX. Only meaningful while
-  // the admin is mid-edit; the stored value is always state.channel.
-  const [channelMode, setChannelMode] = useState<'default' | 'custom' | 'none' | null>(null);
+  // the admin is mid-edit (picked Customize but set no row yet); the stored
+  // values are always state.channel + state.announceRoutes.
+  const [announceMode, setAnnounceMode] = useState<'default' | 'custom' | 'none' | null>(null);
+  const hasRouteOverrides = Object.values(state.announceRoutes ?? {}).some(v => !!v);
+  const derivedAnnounceMode: 'default' | 'custom' | 'none' = state.channel === 'none'
+    ? 'none'
+    : (state.channel !== '' || hasRouteOverrides) ? 'custom' : 'default';
+  // The stored values decide whenever they say something; the local pick only
+  // matters for "Customize" with no row set yet.
+  const currentAnnounceMode = derivedAnnounceMode === 'default' && announceMode === 'custom' ? 'custom' : derivedAnnounceMode;
 
   return (
     <>
@@ -1066,40 +1080,45 @@ export default function TournamentFormFields({ state, set, platforms, roomId, lo
         </div>
         <div>
           <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">
-            Announcements <InfoTip text="Where this tournament's Discord announcements go. 'Room default' uses the room's announcement channel; 'Don't post' keeps this tournament off Discord entirely — the right choice for a test run in a live room." />
+            Announcements <InfoTip text="Where this tournament's Discord announcements go. 'Room defaults' follows the room's Announcement channels; 'Don't post' keeps this tournament off Discord entirely — the right choice for a test run in a live room; 'Customize per category' picks a channel (or Don't post) for each kind of post." />
           </label>
           {/* v2.140.0 — an EMPTY channel falls back to the room's announcement
               channel, so before this select there was no way to run a QUIET
               tournament in a room that has one: the owner's AtGames test event
               posted straight into the live Daily Grind channel. 'none' is a
               sentinel the shared resolver recognises, stored in the same
-              column. channelMode overrides the derivation only while the admin
-              is mid-edit (picked "specific" but hasn't typed the id yet). */}
+              column. v2.226.0 (E16) — 'Customize per category' writes
+              discord_announce_routes (one entry per kind, 'none' allowed),
+              which beats the catch-all; a legacy specific catch-all channel
+              shows as Customize with a caption. announceMode overrides the
+              derivation only while the admin is mid-edit. */}
           <select
-            value={channelMode ?? (state.channel === '' ? 'default' : state.channel === 'none' ? 'none' : 'custom')}
+            aria-label="Announcements"
+            data-testid="tournament-announce-mode"
+            value={currentAnnounceMode}
             onChange={e => {
               const v = e.target.value as 'default' | 'custom' | 'none';
-              setChannelMode(v);
-              if (v === 'default') set('channel', '');
-              else if (v === 'none') set('channel', 'none');
+              setAnnounceMode(v);
+              if (v === 'default') { set('channel', ''); set('announceRoutes', {}); }
+              else if (v === 'none') { set('channel', 'none'); set('announceRoutes', {}); }
               else if (state.channel === 'none') set('channel', '');
             }}
             className={selectClass}
           >
-            <option value="default">Room default channel</option>
-            <option value="custom">A specific channel…</option>
+            <option value="default">Room defaults</option>
             <option value="none">Don't post to Discord</option>
+            <option value="custom">Customize per category</option>
           </select>
-          {(channelMode ?? (state.channel === '' ? 'default' : state.channel === 'none' ? 'none' : 'custom')) === 'custom' && (
-            <input
-              type="text" placeholder="Channel ID (right-click the channel → Copy Channel ID)"
-              value={state.channel === 'none' ? '' : state.channel}
-              onChange={e => set('channel', e.target.value)}
-              className={`${inputClass} mt-1.5`}
-            />
-          )}
         </div>
       </div>
+      {currentAnnounceMode === 'custom' && (
+        <TournamentAnnounceRoutes
+          roomId={roomId}
+          catchAll={state.channel}
+          routes={state.announceRoutes ?? {}}
+          onChange={routes => set('announceRoutes', routes)}
+        />
+      )}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
         <div>
           <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5 whitespace-nowrap">

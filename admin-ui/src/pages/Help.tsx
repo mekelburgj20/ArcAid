@@ -714,7 +714,7 @@ export default function Help() {
                 <tr><Td><strong>Winner / Runner-up Window</strong></Td><Td>Minutes the winner (then runner-up) has to pick before auto-selection</Td></tr>
                 <tr><Td><strong>Cleanup Rule</strong></Td><Td>What happens to finished games on iScored (see below)</Td></tr>
                 <tr><Td><strong>Platform Rules</strong></Td><Td>Require or exclude specific platforms (see below)</Td></tr>
-                <tr><Td><strong>Discord Channel</strong></Td><Td>Override the default announcement channel for this tournament</Td></tr>
+                <tr><Td><strong>Announcements</strong></Td><Td><strong>Room defaults</strong> follows the room&rsquo;s Announcement channels; <strong>Don&rsquo;t post to Discord</strong> keeps this tournament off Discord; <strong>Customize per category</strong> picks a channel (or Don&rsquo;t post) for each of Tournament posts, Pick prompts and warnings, Polls and Top-score posts</Td></tr>
               </tbody>
             </table>
           </div>
