@@ -18,6 +18,7 @@ import { RoomGameTagsService } from './RoomGameTagsService.js';
 import { GameRoomSettingsService } from './GameRoomSettingsService.js';
 import { resolveUserLabels } from './PlayerProfileResolver.js';
 import { getIO } from '../api/websocket.js';
+import { ActivityLogService } from './ActivityLogService.js';
 
 /**
  * Pick-by-poll queue (docs/season-format-plan.md §5, §13; ADR 0025 + 0026).
@@ -703,6 +704,12 @@ export class SeasonPollService {
             nowIso(now), poll.id,
         );
         if (res.changes !== 1) return false;
+        void ActivityLogService.record({
+            roomId: t.game_room_id, category: 'lifecycle', eventType: 'poll_closed',
+            tournamentId: t.id, tournamentName: t.name,
+            summary: 'Week ' + poll.slot_no + ' pick poll closed',
+            details: { pollId: poll.id },
+        });
         try {
             await this.resolveWinner(t, poll, now);
         } catch (err) {
@@ -898,6 +905,12 @@ export class SeasonPollService {
             nowIso(now), poll.id,
         );
         if (claim.changes !== 1) return false;
+        void ActivityLogService.record({
+            roomId: t.game_room_id, category: 'lifecycle', eventType: 'poll_opened',
+            tournamentId: t.id, tournamentName: t.name,
+            summary: 'Week ' + poll.slot_no + ' pick poll opened (' + candidates.length + ' tables)',
+            details: { pollId: poll.id },
+        });
 
         const channelId = await this.pollChannelFor(t, poll);
         if (channelId) {

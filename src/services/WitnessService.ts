@@ -2,6 +2,8 @@ import { randomBytes, createHash } from 'crypto';
 import { getDatabase } from '../database/database.js';
 import { logInfo, logWarn, logError } from '../utils/logger.js';
 import { tournamentFinishedSql } from '../utils/openCard.js';
+import { ActivityLogService } from './ActivityLogService.js';
+import { HEARTBEAT_STALE_SEC } from './EventLobbyService.js';
 
 /** W29 — a device target in words, for the audit row (ids, not names: the log outlives renames). */
 function targetLabel(t: { roomId: string | null; tournamentId: string | null; globalOnly: boolean }): string {
@@ -273,6 +275,10 @@ export class WitnessService {
 
         await WitnessService.stampDeviceModel(deviceId, modelInput);
         logInfo(`Witness: ${deviceType} device ${deviceId} paired to ${row.canonical_user_id}`);
+        void ActivityLogService.recordForDevice(deviceId, row.canonical_user_id, {
+            category: 'device', eventType: 'device_paired',
+            summary: `${deviceType === 'desktop' ? 'Castcade PC' : 'Witness cabinet'} paired`,
+        });
         return { token };
     }
 
@@ -369,6 +375,22 @@ export class WitnessService {
             deviceId, device.canonical_user_id, table, launch, exit, duration, via, kind, sample, restarts, partial,
         );
         await WitnessService.touchDevice(deviceId);
+        // G14 (ADR 0037) - a table SESSION's launch and exit are device rows
+        // (game rows are filed by the score ingest itself and are not shown).
+        // Keyed so a retried GET writes nothing new.
+        if (kind === 'session') {
+            void ActivityLogService.recordForDevice(deviceId, device.canonical_user_id, exit == null ? {
+                category: 'device', eventType: 'table_launched', tableName: table,
+                summary: `Launched ${table}`,
+                details: { launchTs: launch, via },
+                dedupeKey: `launch:${deviceId}:${launch}:${table}`,
+            } : {
+                category: 'device', eventType: 'table_exited', tableName: table,
+                summary: `Exited ${table}${duration != null ? ` after ${Math.round(duration / 60)} min` : ''}`,
+                details: { launchTs: launch, exitTs: exit, durationSec: duration, via },
+                dedupeKey: `exit:${deviceId}:${launch}:${table}`,
+            });
+        }
         return true;
     }
 
@@ -411,6 +433,13 @@ export class WitnessService {
         const stored = await db.get<{ server_ts: string }>(
             'SELECT server_ts FROM witness_checkins WHERE id = ?', res.lastID,
         );
+        // G14 (ADR 0037) - at most one check-in row per device per 10 minutes:
+        // the app checks in on every foreground, and the log is for people.
+        void ActivityLogService.recordForDevice(deviceId, device.canonical_user_id, {
+            category: 'device', eventType: 'device_checkin',
+            summary: 'Device checked in',
+            dedupeKey: `checkin:${deviceId}:${Math.floor(Date.now() / 600_000)}`,
+        });
         return { ts: stored?.server_ts ?? '', canonicalUserId: device.canonical_user_id };
     }
 
@@ -824,11 +853,25 @@ export class WitnessService {
         const device = await WitnessService.authenticateDevice(deviceId, token);
         if (!device) return null;
         const db = await getDatabase();
+        // G14 (ADR 0037) - an online TRANSITION only: a heartbeat after none, or
+        // after the stale window (HEARTBEAT_STALE_SEC, the lobby's own rule).
+        // Never a row per heartbeat. The offline half is the per-minute sweep.
+        const before = await db.get<{ stale: number | null }>(
+            `SELECT CASE WHEN heartbeat_at IS NULL THEN 1
+                         ELSE (strftime('%s', 'now') - strftime('%s', heartbeat_at)) > ? END AS stale
+               FROM witness_devices WHERE atgames_unique_id = ?`,
+            HEARTBEAT_STALE_SEC, deviceId,
+        );
         await db.run(
             `UPDATE witness_devices SET heartbeat_at = datetime('now'), last_seen_at = datetime('now')
               WHERE atgames_unique_id = ?`,
             deviceId,
         );
+        if (before?.stale) {
+            void ActivityLogService.recordForDevice(deviceId, device.canonical_user_id, {
+                category: 'device', eventType: 'device_online', summary: 'Device came online',
+            });
+        }
         await WitnessService.stampAppVersion(deviceId, appVersion);
         await WitnessService.stampDeviceModel(deviceId, modelInput);
         return { canonicalUserId: device.canonical_user_id };
@@ -1159,13 +1202,24 @@ export class WitnessService {
      */
     static async revokeDevice(canonicalUserId: string, atgamesUniqueId: string): Promise<boolean> {
         const db = await getDatabase();
+        // G14 (ADR 0037) - the unpair row lands in the rooms the device was sending to.
+        const rooms = await ActivityLogService.roomsForDevice(atgamesUniqueId, canonicalUserId).catch(() => [] as string[]);
         const res = await db.run(
             `UPDATE witness_devices SET revoked_at = datetime('now')
               WHERE atgames_unique_id = ? AND canonical_user_id = ? AND revoked_at IS NULL`,
             atgamesUniqueId, canonicalUserId,
         );
         const changed = (res.changes ?? 0) > 0;
-        if (changed) logInfo(`Witness: device ${atgamesUniqueId} unpaired by ${canonicalUserId}`);
+        if (changed) {
+            logInfo(`Witness: device ${atgamesUniqueId} unpaired by ${canonicalUserId}`);
+            for (const roomId of rooms.length > 0 ? rooms : [null]) {
+                void ActivityLogService.record({
+                    roomId, category: 'device', eventType: 'device_unpaired',
+                    userId: canonicalUserId, deviceId: atgamesUniqueId,
+                    summary: 'Device unpaired',
+                });
+            }
+        }
         return changed;
     }
 

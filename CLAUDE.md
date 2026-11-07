@@ -78,6 +78,7 @@ Each line is the rule; the named rule file has the detail and the why.
 - **Every new room-page notice** goes in the `PublicLayout` notice column through `components/DismissibleNotice.tsx` and `lib/roomNotices.ts`. → `admin-ui.md`
 - **Notifications:** adding a type touches `PREF_TYPE_KEYS`, the prefs interface, `getPrefsWithExplicit` defaults, the Discord `PREF_LABELS` and `AccountSettings.tsx`'s `NOTIF_TYPES`. → `discord.md`
 - **Fan-out try/catch swallows column errors silently.** When changing schema in any score table, verify every fan-out path's column references against the live schema.
+- **Every new event source writes an activity row** (`ActivityLogService.record` / `recordForDevice`; room decided at write time; `record` never throws; refusals are `problem` rows). A write path without one is invisible on Room Admin -> Activity (v2.227.0, ADR 0037). → `scores-identity.md`
 
 ## Owner rulings (do not reopen)
 

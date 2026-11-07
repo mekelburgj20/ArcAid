@@ -21,6 +21,7 @@ import integrityRouter from './routes/integrity.js';
 import witnessAdminRouter from './routes/witnessAdmin.js';
 import entryRouter from './routes/entry.js';
 import usersRouter from './routes/users.js';
+import { activityAdminLog } from './activityAdminMiddleware.js';
 
 export const serverEvents = new EventEmitter();
 
@@ -148,6 +149,11 @@ export function startApiServer(port: number = 3001) {
     // anything in production (see ROADMAP.md "Audit" and
     // src/api/auditMiddleware.ts). Every admin write that needs an audit
     // trail now calls `AuditService.log` explicitly at its call site.
+
+    // G14 (ADR 0037) - admin writes land in the activity log. Reads req.user
+    // at RESPONSE time, so mounting before the routers' requireAuth is fine.
+    app.use('/api/rooms/:roomId/admin', activityAdminLog);
+    app.use('/api/admin', activityAdminLog);
 
     // --- Mount Routers ---
     app.use('/api/auth', authRouter);

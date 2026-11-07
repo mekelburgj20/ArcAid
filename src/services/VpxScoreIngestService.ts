@@ -1,5 +1,6 @@
 import { getDatabase } from '../database/database.js';
 import { ScoreHistoryService } from './ScoreHistoryService.js';
+import { ActivityLogService } from './ActivityLogService.js';
 import { eventEndGraceSec } from './EventSubmissionGate.js';
 import { normalizeGameName } from '../utils/catalogueUtils.js';
 import { parseTournamentRules } from '../utils/platformRules.js';
@@ -1267,6 +1268,61 @@ export class VpxScoreIngestService {
     }
 
     /**
+     * G14 (ADR 0037) - the activity row for one ingest outcome, written beside
+     * its evidence trail row (every outcome passes through `trail`). A play
+     * inside a room's tournament is that room's row; one that went to Global
+     * or matched nothing is room-less (super-admin only, ADR 0037 §5).
+     * Refusals and unmatched plays are problems. Never throws.
+     */
+    private static activity(
+        input: VpxScoreInput, score: number, playedAt: string,
+        extra: {
+            outcome: string; gameId?: string | null; tournamentId?: string | null; gameRoomId?: string | null;
+            gameName?: string; verdict?: Verdict | null; reasons?: string[];
+        },
+    ): void {
+        const reasons = extra.reasons && extra.reasons.length > 0 ? extra.reasons : (extra.verdict?.reasons ?? []);
+        const where = extra.gameName ?? input.tableName;
+        const fmt = Math.floor(score).toLocaleString('en-US');
+        const why = reasons.length > 0 ? `: ${reasons.join('; ')}` : '';
+        const SUMMARY: Record<string, string> = {
+            ingested: `Score ${fmt} landed on ${where}`,
+            duplicate: `Score ${fmt} on ${where} was a repeat of one already on the board`,
+            attempt_refused: `Score ${fmt} on ${where} refused by Limited attempts${why}`,
+            not_sanctioned: `Score ${fmt} on ${where} refused by Sanctioned play${why}`,
+            suppressed: `Score ${fmt} on ${where} ignored - the player deleted this play`,
+            global: `Score ${fmt} on ${input.tableName} went to the Global Scoreboard${why}`,
+            global_duplicate: `Score ${fmt} on ${input.tableName} was already on the Global Scoreboard`,
+            no_match: `Score ${fmt} on ${input.tableName} matched no open game${why}`,
+            invalid: `Score on ${input.tableName} was invalid${why}`,
+        };
+        const problem = ['attempt_refused', 'not_sanctioned', 'no_match', 'invalid'].includes(extra.outcome)
+            || (extra.outcome === 'global' && reasons.length > 0);
+        const roomId = extra.gameRoomId ?? null;
+        const isRoomRow = !!roomId && ['ingested', 'duplicate', 'attempt_refused', 'not_sanctioned', 'suppressed'].includes(extra.outcome);
+        void ActivityLogService.record({
+            roomId: isRoomRow ? roomId : null,
+            category: 'score',
+            eventType: `witness_${extra.outcome}`,
+            severity: problem ? 'problem' : 'info',
+            userId: input.canonicalUserId,
+            deviceId: input.deviceId ?? null,
+            tournamentId: isRoomRow ? extra.tournamentId ?? null : null,
+            gameId: isRoomRow ? extra.gameId ?? null : null,
+            gameName: extra.gameName ?? null,
+            tableName: input.tableName,
+            source: 'vpx',
+            score,
+            summary: SUMMARY[extra.outcome] ?? `Score ${fmt} on ${input.tableName}: ${extra.outcome}${why}`,
+            details: {
+                reasons, playedAt, rom: input.rom ?? null,
+                deviceType: input.deviceType === 'desktop' ? 'desktop' : 'atgames',
+                verdict: extra.verdict?.verdict ?? null,
+            },
+        });
+    }
+
+    /**
      * The evidence trail (v2.165.0, ADR 0027): one row per witness score the
      * ingest saw, every outcome, both modes. Best-effort by construction — a
      * failure here must never cost the score, which is already decided.
@@ -1283,6 +1339,7 @@ export class VpxScoreIngestService {
             reasons?: string[];
         },
     ): Promise<void> {
+        VpxScoreIngestService.activity(input, score, playedAt, extra);
         if (!input.deviceId) return;
         VpxScoreIngestService.trailed.add(input);
         try {

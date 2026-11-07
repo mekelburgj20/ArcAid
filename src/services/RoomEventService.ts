@@ -1,5 +1,7 @@
 import { getDatabase } from '../database/database.js';
 import { trackBackground } from '../utils/backgroundTasks.js';
+import { ActivityLogService } from './ActivityLogService.js';
+import { LIVE_MIRRORED_ROOM_EVENTS, mapRoomEvent } from '../utils/activityMappings.js';
 
 export interface RoomEvent {
     id: number;
@@ -17,6 +19,22 @@ export class RoomEventService {
      * behavior — the original promise (and its rejection) is returned.
      */
     static log(gameRoomId: string, eventType: string, eventData: Record<string, any> = {}): Promise<void> {
+        // G14 (ADR 0037) - the types nothing else records also land in the
+        // activity log (see LIVE_MIRRORED_ROOM_EVENTS for why not all of them).
+        // `room_events` itself stays: it is the 7-day store the account-deletion
+        // scrub and test-wipe scripts know about; the Activity page no longer reads it.
+        if (LIVE_MIRRORED_ROOM_EVENTS.has(eventType)) {
+            const mapped = mapRoomEvent(eventType, eventData);
+            if (mapped) {
+                void ActivityLogService.record({
+                    roomId: gameRoomId,
+                    ...mapped,
+                    details: eventType === 'admin_login' && eventData.username
+                        ? { ...eventData, actorName: eventData.username }
+                        : eventData,
+                });
+            }
+        }
         return trackBackground(this.writeEvent(gameRoomId, eventType, eventData));
     }
 

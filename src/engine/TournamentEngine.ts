@@ -15,6 +15,7 @@ import { PickAwardGate } from '../services/PickAwardGate.js';
 import { emitGameRotated, emitPickerAssigned } from '../api/websocket.js';
 import { computePickDeadline, pickWindowFallback, pickPromptPushBody, pickFallbackPhrase, DEFAULT_WINNER_PICK_WINDOW_MIN, DEFAULT_RUNNERUP_PICK_WINDOW_MIN, windowMinForPicker } from '../utils/pickWindow.js';
 import { RoomEventService } from '../services/RoomEventService.js';
+import { ActivityLogService } from '../services/ActivityLogService.js';
 import { parsePlatformsList, parseTournamentRules, passesplatformRules, hasGameLevelPlatformRules } from '../utils/platformRules.js';
 import { UNKNOWN } from '../utils/scoreProvenance.js';
 import { MaintenanceRunService } from '../services/MaintenanceRunService.js';
@@ -384,6 +385,12 @@ export class TournamentEngine {
             'INSERT INTO games (id, tournament_id, name, iscored_id, style_id, status, picker_discord_id, queue_order, game_room_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
             game.id, game.tournamentId, game.name, game.iscoredId, game.styleId, game.status, pickerDiscordId || null, queueOrder, qTournament?.game_room_id ?? null
         );
+        // G14 (ADR 0037) - a pick entering the queue is a lifecycle row.
+        void ActivityLogService.record({
+            roomId: qTournament?.game_room_id ?? null, category: 'lifecycle', eventType: 'pick_queued',
+            userId: pickerDiscordId ?? null, tournamentId, gameId: game.id, gameName,
+            summary: `${gameName} queued as a pick`,
+        });
 
         return game;
     }

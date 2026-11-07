@@ -43,6 +43,7 @@ const History = lazy(() => import('./pages/History'));
 const Settings = lazy(() => import('./pages/Settings'));
 const Help = lazy(() => import('./pages/Help'));
 const ActivityLog = lazy(() => import('./pages/ActivityLog'));
+const SuperAdminActivity = lazy(() => import('./pages/SuperAdminActivity'));
 const GameStates = lazy(() => import('./pages/GameStates'));
 const Identity = lazy(() => import('./pages/Identity'));
 const JoinRequests = lazy(() => import('./pages/JoinRequests'));
@@ -174,6 +175,7 @@ function App() {
           <Route path="catalogue/approvals" element={<CatalogueApproval />} />
           <Route path="reports" element={<Reports />} />
           <Route path="backups" element={<Backups />} />
+          <Route path="activity" element={<SuperAdminActivity />} />
           <Route path="logs" element={<Logs />} />
           <Route path="settings" element={<GlobalSettings />} />
         </Route>
