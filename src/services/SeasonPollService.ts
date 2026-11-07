@@ -55,6 +55,8 @@ export interface SeasonTournamentRow {
     platform_rules: string | null;
     game_room_id: string | null;
     discord_channel_id: string | null;
+    /** v2.226.0 (E16) — raw per-kind announcement overrides; every reader selects `t.*`. */
+    discord_announce_routes?: string | null;
     is_active: number;
     format: string;
     /** NULL = not a Season (a poll-only rotation tournament). */
@@ -768,7 +770,7 @@ export class SeasonPollService {
         );
         logInfo(`Season '${t.name}' week ${week} poll resolved: ${chosen.game_name} queued (${game.id})${tied ? ` after a tie (${rule})` : ''}.`);
 
-        const nextUpChannelId = await resolveAnnouncementChannelId(t.game_room_id, t.discord_channel_id, 'tournament');
+        const nextUpChannelId = await resolveAnnouncementChannelId(t.game_room_id, t.discord_channel_id, 'tournament', t.discord_announce_routes);
         if (!nextUpChannelId) return;
         const votes = (c: SeasonPollCandidateRow) => tally.get(c.position) ?? 0;
         const runnerUp = order.find(c => c.position !== chosen!.position);
@@ -825,7 +827,7 @@ export class SeasonPollService {
             pick.game_name, game.id, pollId,
         );
         logInfo(`Season '${t.name}' week ${poll.slot_no}: admin chose ${pick.game_name}${poll.result_game_name ? ` over ${poll.result_game_name}` : ' (nothing was queued)'}.`);
-        const channelId = await resolveAnnouncementChannelId(t.game_room_id, t.discord_channel_id, 'tournament');
+        const channelId = await resolveAnnouncementChannelId(t.game_room_id, t.discord_channel_id, 'tournament', t.discord_announce_routes);
         if (channelId) {
             const rotationIso = nextRotationIso(t.cadence, now);
             const starts = rotationIso ? ` Starts <t:${Math.floor(Date.parse(rotationIso) / 1000)}:F>.` : '';
@@ -849,7 +851,7 @@ export class SeasonPollService {
         // After a post into a forum this column holds the poll's THREAD id
         // (v2.221.0, E8), so every later message about the poll lands there.
         if (poll.discord_channel_id) return poll.discord_channel_id;
-        return resolveAnnouncementChannelId(t.game_room_id, t.discord_channel_id, 'polls');
+        return resolveAnnouncementChannelId(t.game_room_id, t.discord_channel_id, 'polls', t.discord_announce_routes);
     }
 
     /**
@@ -987,7 +989,7 @@ export class SeasonPollService {
         } catch {
             return false; // a concurrent tick took the slot — it sends the reminder
         }
-        const channelId = await resolveAnnouncementChannelId(t.game_room_id, t.discord_channel_id, 'polls');
+        const channelId = await resolveAnnouncementChannelId(t.game_room_id, t.discord_channel_id, 'polls', t.discord_announce_routes);
         logInfo(`Season '${t.name}': no candidates prepared for the week ${slotNo} poll — reminder sent.`);
         if (channelId) {
             const adminUrl = t.room_slug ? ` ${roomUrl(t.room_slug)}/admin/tournaments` : '';

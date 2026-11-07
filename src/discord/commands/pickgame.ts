@@ -171,7 +171,7 @@ export const pickgame: Command = {
         try {
             const db = await getDatabase();
             const tournament = await db.get(
-                'SELECT id, name, type, mode, max_active_games, game_room_id, discord_channel_id FROM tournaments WHERE name = ? COLLATE NOCASE',
+                'SELECT id, name, type, mode, max_active_games, game_room_id, discord_channel_id, discord_announce_routes FROM tournaments WHERE name = ? COLLATE NOCASE',
                 tournamentName,
             );
 
@@ -482,7 +482,7 @@ export const pickgame: Command = {
 
                     if (!roomMember) {
                         const { resolveAnnouncementChannelId } = await import('../../utils/discord.js');
-                        const channelId = await resolveAnnouncementChannelId(tournament.game_room_id, tournament.discord_channel_id, 'picks');
+                        const channelId = await resolveAnnouncementChannelId(tournament.game_room_id, tournament.discord_channel_id, 'picks', tournament.discord_announce_routes);
                         const term = getTerminology(tournament.mode);
                         trackBackground(
                             TournamentEngine.getInstance().announceNomineeOnboarding(passPickUser.id, tournament, channelId, term)

@@ -3560,6 +3560,17 @@ async function doInitDatabase(): Promise<Database> {
                 await db.exec(`ALTER TABLE games ADD COLUMN discord_thread_id TEXT`);
             }
         } },
+        // E16 (v2.226.0) - per-tournament, per-kind announcement channels:
+        // {"version":1,"routes":{"tournament"|"picks"|"polls"|"scores": "<snowflake>"|"none"}}.
+        // Read ONLY through parseTournamentAnnounceRoutes
+        // (src/utils/discordAnnounceRoutes.ts). NULL = no per-kind override;
+        // discord_channel_id stays the whole-tournament catch-all.
+        { name: '208_tournaments_discord_announce_routes', handler: async (db) => {
+            const cols = (await db.all(`PRAGMA table_info(tournaments)`)) as Array<{ name: string }>;
+            if (!cols.some(c => c.name === 'discord_announce_routes')) {
+                await db.exec(`ALTER TABLE tournaments ADD COLUMN discord_announce_routes TEXT`);
+            }
+        } },
     ];
 
     for (const migration of migrations) {

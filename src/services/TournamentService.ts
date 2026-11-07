@@ -2,6 +2,7 @@ import { getDatabase } from '../database/database.js';
 import { normalizeWitnessFlagMode } from '../utils/witnessFlagMode.js';
 import { normalizeIntegrityMode, normalizeSanctionedRules } from '../utils/sanctionedRules.js';
 import { logError } from '../utils/logger.js';
+import { serializeTournamentAnnounceRoutes } from '../utils/discordAnnounceRoutes.js';
 import { PickAwardGate } from './PickAwardGate.js';
 import { parseTournamentRules, normalizeTournamentRulesInput } from '../utils/platformRules.js';
 
@@ -192,6 +193,8 @@ export class TournamentService {
         platform_rules?: any;
         guild_id?: string;
         discord_channel_id?: string;
+        /** v2.226.0 (E16) — raw per-kind overrides; omitted (update) = unchanged. */
+        discord_announce_routes?: string | null;
         discord_role_id?: string;
         is_active?: boolean;
         display_order?: number;
@@ -253,6 +256,14 @@ export class TournamentService {
         if (data.require_attempt_start) {
             await db.run('UPDATE tournaments SET require_attempt_start = 1 WHERE id = ?', data.id);
         }
+        // E16 (v2.226.0) — per-kind announcement overrides, canonicalised
+        // through the column's serializer ('' -> NULL).
+        if (data.discord_announce_routes) {
+            await db.run(
+                'UPDATE tournaments SET discord_announce_routes = ? WHERE id = ?',
+                serializeTournamentAnnounceRoutes(data.discord_announce_routes) || null, data.id,
+            );
+        }
         if (data.entry_mode !== undefined || data.entry_methods !== undefined) {
             const { TournamentEntryService } = await import('./TournamentEntryService.js');
             await TournamentEntryService.setConfig(
@@ -278,6 +289,8 @@ export class TournamentService {
         platform_rules?: any;
         guild_id?: string;
         discord_channel_id?: string;
+        /** v2.226.0 (E16) — raw per-kind overrides; omitted (update) = unchanged. */
+        discord_announce_routes?: string | null;
         discord_role_id?: string;
         is_active?: boolean;
         display_order?: number;
@@ -358,6 +371,13 @@ export class TournamentService {
             witnessFlagMode,
             id
         );
+        // E16 (v2.226.0) — omitted = unchanged; '' / null clears the overrides.
+        if (data.discord_announce_routes !== undefined) {
+            await db.run(
+                'UPDATE tournaments SET discord_announce_routes = ? WHERE id = ?',
+                serializeTournamentAnnounceRoutes(data.discord_announce_routes) || null, id,
+            );
+        }
         // W38 — same omission rule as the other integrity fields.
         if (data.require_attempt_start !== undefined) {
             await db.run('UPDATE tournaments SET require_attempt_start = ? WHERE id = ?', data.require_attempt_start ? 1 : 0, id);

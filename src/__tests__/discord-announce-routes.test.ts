@@ -44,16 +44,16 @@ const TEXT = '666666666666666666';
 describe('parseAnnounceRoutes', () => {
     it('reads every route of a valid value', () => {
         expect(parseAnnounceRoutes(JSON.stringify({ version: 1, routes: { tournament: TOURN, picks: PICKS, polls: POLLS } })))
-            .toEqual({ tournament: TOURN, picks: PICKS, polls: POLLS });
+            .toEqual({ tournament: TOURN, picks: PICKS, polls: POLLS, scores: null });
     });
 
     it('every route is optional', () => {
         expect(parseAnnounceRoutes(JSON.stringify({ version: 1, routes: { picks: PICKS } })))
-            .toEqual({ tournament: null, picks: PICKS, polls: null });
+            .toEqual({ tournament: null, picks: PICKS, polls: null, scores: null });
     });
 
     it('bad JSON, wrong version, wrong shapes and non-id values are null, never a throw', () => {
-        const none = { tournament: null, picks: null, polls: null };
+        const none = { tournament: null, picks: null, polls: null, scores: null };
         expect(parseAnnounceRoutes(null)).toEqual(none);
         expect(parseAnnounceRoutes(undefined)).toEqual(none);
         expect(parseAnnounceRoutes('')).toEqual(none);
@@ -65,7 +65,7 @@ describe('parseAnnounceRoutes', () => {
         expect(parseAnnounceRoutes(JSON.stringify({ version: 1, routes: { picks: 222, polls: 'general', tournament: '' } })))
             .toEqual(none);
         expect(parseAnnounceRoutes(JSON.stringify({ version: 1, routes: { picks: PICKS, polls: { id: POLLS } } })))
-            .toEqual({ tournament: null, picks: PICKS, polls: null });
+            .toEqual({ tournament: null, picks: PICKS, polls: null, scores: null });
     });
 
     it('serialize drops unusable routes and empties to ""', () => {

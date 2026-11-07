@@ -44,6 +44,7 @@ interface DueRoundRow extends EventRoundRow {
     tournament_name: string;
     tournament_type: string;
     discord_channel_id: string | null;
+    discord_announce_routes: string | null;
     end_grace_sec: number | null;
 }
 
@@ -145,7 +146,7 @@ export class EventScheduler {
             `SELECT g.id, g.tournament_id, g.game_room_id, g.name, g.status, g.round_no,
                     g.scheduled_start_at, g.scheduled_end_at, g.start_date, g.end_date, g.iscored_id,
                     t.name AS tournament_name, t.type AS tournament_type,
-                    t.discord_channel_id, t.end_grace_sec
+                    t.discord_channel_id, t.discord_announce_routes, t.end_grace_sec
                FROM games g
                JOIN tournaments t ON t.id = g.tournament_id
               WHERE t.format = 'event' AND t.is_active = 1
@@ -242,7 +243,7 @@ export class EventScheduler {
             `SELECT g.id, g.tournament_id, g.game_room_id, g.name, g.status, g.round_no,
                     g.scheduled_start_at, g.scheduled_end_at, g.start_date, g.end_date, g.iscored_id,
                     t.name AS tournament_name, t.type AS tournament_type,
-                    t.discord_channel_id, t.end_grace_sec
+                    t.discord_channel_id, t.discord_announce_routes, t.end_grace_sec
                FROM games g
                JOIN tournaments t ON t.id = g.tournament_id
               WHERE t.format = 'event' AND t.is_active = 1
@@ -454,7 +455,7 @@ export class EventScheduler {
     }
 
     private async announce(
-        target: { tournament_id?: string; discord_channel_id?: string | null; game_room_id: string | null },
+        target: { tournament_id?: string; discord_channel_id?: string | null; discord_announce_routes?: string | null; game_room_id: string | null },
         embed: EmbedBuilder,
     ): Promise<void> {
         try {
@@ -465,7 +466,7 @@ export class EventScheduler {
             // Daily Grind channel (2026-08-25).
             // Every event post (check-in, round start/end, results) is a
             // tournament-kind post (v2.221.0, E8).
-            const channelId = await resolveAnnouncementChannelId(target.game_room_id, target.discord_channel_id, 'tournament');
+            const channelId = await resolveAnnouncementChannelId(target.game_room_id, target.discord_channel_id, 'tournament', target.discord_announce_routes);
             if (!channelId) return;
             await EventScheduler.nameRoomInFooter(embed, target.game_room_id);
             await sendChannelEmbed(channelId, embed);

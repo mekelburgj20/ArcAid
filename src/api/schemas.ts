@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { containsBlockedTerm } from '../utils/contentBlocklist.js';
 import { normalizeTournamentRulesInput } from '../utils/platformRules.js';
 import { THEME_IDS } from '../utils/themeIds.js';
+import { serializeTournamentAnnounceRoutes } from '../utils/discordAnnounceRoutes.js';
 import {
     CALLOUT_ACTIONS, CALLOUT_CATEGORIES, CalloutAction, CalloutCategory,
 } from '../utils/callouts.js';
@@ -122,7 +123,17 @@ const TournamentBaseSchema = z.object({
     event: EventConfigSchema.optional(),
     platform_rules: platformRulesSchema,
     guild_id: z.string().optional().default(''),
-    discord_channel_id: discordIdSchema.optional().or(z.literal('')).default(''),
+    // 'none' = the v2.140.0 "Don't post to Discord" sentinel (honoured only by
+    // resolveAnnouncementChannelId); accepted here since v2.226.0.
+    discord_channel_id: discordIdSchema.optional().or(z.literal('')).or(z.literal('none')).default(''),
+    /**
+     * v2.226.0 (E16) — per-kind overrides, `{"version":1,"routes":{kind: id|'none'}}`.
+     * Canonicalised through `serializeTournamentAnnounceRoutes`: unusable
+     * entries are dropped and garbage becomes '' (= no overrides), never a 400.
+     * Absent on an update = keep the stored value.
+     */
+    discord_announce_routes: z.string().max(4000).nullish()
+        .transform(v => (v == null ? v : serializeTournamentAnnounceRoutes(v))),
     discord_role_id: discordIdSchema.optional().or(z.literal('')).default(''),
     is_active: z.boolean().default(true),
     display_order: z.number().int().min(0).default(0),

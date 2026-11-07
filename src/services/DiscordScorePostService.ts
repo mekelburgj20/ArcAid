@@ -31,8 +31,10 @@ import { logInfo, logError } from '../utils/logger.js';
  *   `onScoreRanked` fire-and-forget. The room switch is the only gate
  *   (`DISCORD_SCORE_POSTS_ENABLED`, absent = off; `DISCORD_SCORE_POSTS_TOP_N`,
  *   default 10, read only through `src/utils/discordScorePosts.ts`).
- * - **Channel**: the game's tournament channel through
- *   `resolveAnnouncementChannelId(room, tournamentChannel, 'tournament')`.
+ * - **Channel**: kind `scores` (v2.226.0, E16) through
+ *   `resolveAnnouncementChannelId(room, tournamentChannel, 'scores', tournamentRoutes)`:
+ *   the tournament's per-kind route, else its catch-all, else the room's
+ *   `scores` route, else the room's `tournament` route, else the room default.
  * - **Forums**: one post per score would be noise, so a forum target posts
  *   into the game's own thread, `games.discord_thread_id` (migration 207).
  *   The "Now Active" announcers store it (`rememberActivationThread`); when
@@ -96,11 +98,14 @@ interface GameTarget {
     id: string;
     discord_thread_id: string | null;
     tournament_channel_id: string | null;
+    /** Raw `tournaments.discord_announce_routes` (E16); parsed only by the resolver. */
+    tournament_announce_routes: string | null;
 }
 
 async function resolveGameTarget(params: ScoreRankedParams): Promise<GameTarget | null> {
     const db = await getDatabase();
-    const select = `SELECT g.id, g.discord_thread_id, t.discord_channel_id AS tournament_channel_id
+    const select = `SELECT g.id, g.discord_thread_id, t.discord_channel_id AS tournament_channel_id,
+                           t.discord_announce_routes AS tournament_announce_routes
                       FROM games g LEFT JOIN tournaments t ON t.id = g.tournament_id`;
     if (params.gameId) {
         const row = await db.get<GameTarget>(`${select} WHERE g.id = ?`, params.gameId);
@@ -150,7 +155,11 @@ export class DiscordScorePostService {
         try {
             const db = await getDatabase();
             const game = await resolveGameTarget(params);
-            const channelId = await resolveAnnouncementChannelId(params.roomId, game?.tournament_channel_id ?? null, 'tournament');
+            // v2.226.0 (E16): top-score posts are their own kind, `scores`;
+            // with no route of their own they follow the Tournament posts.
+            const channelId = await resolveAnnouncementChannelId(
+                params.roomId, game?.tournament_channel_id ?? null, 'scores', game?.tournament_announce_routes ?? null,
+            );
             if (!channelId) return;
 
             let previousTopName: string | null = null;
@@ -171,7 +180,15 @@ export class DiscordScorePostService {
             let where = channelId;
             if (isForumChannelType(await getChannelType(channelId))) {
                 const memKey = `${channelId}|${params.gameName.toLowerCase()}`;
-                const threadId = game?.discord_thread_id ?? memoryThreads.get(memKey) ?? null;
+                // The stored thread is the "Now Active" post, which lives in the
+                // TOURNAMENT-kind channel. Only reuse it (and only store into
+                // it) when score posts land in that same channel; a separate
+                // scores forum keeps its per-game thread in memory.
+                const tournamentChannelId = await resolveAnnouncementChannelId(
+                    params.roomId, game?.tournament_channel_id ?? null, 'tournament', game?.tournament_announce_routes ?? null,
+                );
+                const sharesThread = !!game && tournamentChannelId === channelId;
+                const threadId = (sharesThread ? game?.discord_thread_id : null) ?? memoryThreads.get(memKey) ?? null;
                 let sent: ChannelSendResult | void = undefined;
                 if (threadId) {
                     sent = await sendChannelMessage(threadId, content, { noMentions: true });
@@ -183,7 +200,7 @@ export class DiscordScorePostService {
                     sent = await sendChannelMessage(channelId, content, { threadName: params.gameName, noMentions: true });
                     if (sent?.threadId) {
                         where = sent.threadId;
-                        if (game) {
+                        if (game && sharesThread) {
                             await db.run('UPDATE games SET discord_thread_id = ? WHERE id = ?', sent.threadId, game.id);
                         } else {
                             memoryThreads.set(memKey, sent.threadId);
