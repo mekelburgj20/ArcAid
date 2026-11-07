@@ -45,7 +45,7 @@ describe('DiscordCommandPolicy', () => {
     expect(await screen.findByText('/list-active')).toBeInTheDocument();
     expect(screen.getByText('/pick-game')).toBeInTheDocument();
     expect(screen.getByText('Show the active games')).toBeInTheDocument();
-    expect(screen.getAllByText('Using defaults').length).toBe(4);
+    expect(screen.getAllByText('Using defaults').length).toBe(6);
   });
 
   it('toggling a command off saves the policy JSON at once', async () => {
@@ -58,8 +58,8 @@ describe('DiscordCommandPolicy', () => {
     const patch = onSaveNow.mock.calls[0][0] as Record<string, string>;
     expect(JSON.parse(patch[DISCORD_COMMAND_POLICY_KEY])).toEqual({
       version: 1,
-      defaults: { channelIds: [], roleIds: [] },
-      commands: { 'pick-game': { enabled: false, channelIds: [], roleIds: [], ephemeral: true } },
+      defaults: { channelIds: [], roleIds: [], publicRoleIds: [] },
+      commands: { 'pick-game': { enabled: false, channelIds: [], roleIds: [], ephemeral: true, publicRoleIds: [] } },
     });
   });
 
@@ -73,8 +73,8 @@ describe('DiscordCommandPolicy', () => {
     const patch = onSaveNow.mock.calls[0][0] as Record<string, string>;
     expect(JSON.parse(patch[DISCORD_COMMAND_POLICY_KEY])).toEqual({
       version: 1,
-      defaults: { channelIds: [], roleIds: [] },
-      commands: { 'list-active': { enabled: true, channelIds: [], roleIds: [], ephemeral: false } },
+      defaults: { channelIds: [], roleIds: [], publicRoleIds: [] },
+      commands: { 'list-active': { enabled: true, channelIds: [], roleIds: [], ephemeral: false, publicRoleIds: [] } },
     });
     rerender(<DiscordCommandPolicy roomId="r1" settings={{ [DISCORD_COMMAND_POLICY_KEY]: patch[DISCORD_COMMAND_POLICY_KEY] }} onSaveNow={onSaveNow} />);
     const now = screen.getByRole('checkbox', { name: 'Show /list-active replies to everyone' });
@@ -101,6 +101,58 @@ describe('DiscordCommandPolicy', () => {
     fireEvent.click(defaults.querySelector('input[type="checkbox"]')!);
     const patch = onSaveNow.mock.calls[0][0] as Record<string, string>;
     expect(JSON.parse(patch[DISCORD_COMMAND_POLICY_KEY]).defaults.roleIds).toEqual([ROLE]);
+  });
+
+  it('each command has a "visible to everyone" roles picker that saves publicRoleIds', async () => {
+    const onSaveNow = vi.fn();
+    render(<DiscordCommandPolicy roomId="r1" settings={{}} onSaveNow={onSaveNow} />);
+    await screen.findByText('/list-active');
+    const picker = screen.getByTestId('command-policy-public-roles-list-active');
+    expect(picker).toHaveTextContent('Roles whose reply is visible to everyone');
+    fireEvent.click(picker.querySelector('input[type="checkbox"]')!);
+    const patch = onSaveNow.mock.calls[0][0] as Record<string, string>;
+    expect(JSON.parse(patch[DISCORD_COMMAND_POLICY_KEY]).commands['list-active']).toEqual({
+      enabled: true, channelIds: [], roleIds: [], ephemeral: true, publicRoleIds: [ROLE],
+    });
+    expect(screen.queryByTestId('command-policy-public-caption-list-active')).not.toBeInTheDocument();
+  });
+
+  it('the defaults block has its own public-roles picker, and "Visible to everyone" captions the command picker', async () => {
+    const onSaveNow = vi.fn();
+    const stored = JSON.stringify({ version: 1, defaults: { channelIds: [], roleIds: [] }, commands: { 'list-active': { ephemeral: false } } });
+    render(<DiscordCommandPolicy roomId="r1" settings={{ [DISCORD_COMMAND_POLICY_KEY]: stored }} onSaveNow={onSaveNow} />);
+    await screen.findByText('/list-active');
+    expect(screen.getByTestId('command-policy-public-caption-list-active')).toHaveTextContent('Every allowed role already posts publicly.');
+    fireEvent.click(screen.getByTestId('command-policy-default-public-roles').querySelector('input[type="checkbox"]')!);
+    const patch = onSaveNow.mock.calls[0][0] as Record<string, string>;
+    expect(JSON.parse(patch[DISCORD_COMMAND_POLICY_KEY]).defaults).toEqual({ channelIds: [], roleIds: [], publicRoleIds: [ROLE] });
+  });
+
+  it('captions the defaults and warns when default roles gate player commands', async () => {
+    mockedGet.mockImplementation((url: string) => {
+      if (url.endsWith('/admin/discord/commands')) {
+        return Promise.resolve({ commands: [
+          { name: 'list-scores', description: 'Scores', adminOnly: false },
+          { name: 'my-stats', description: 'Stats', adminOnly: false },
+          { name: 'run-cleanup', description: 'Cleanup', adminOnly: true },
+        ] });
+      }
+      if (url.endsWith('/admin/discord/roles')) return Promise.resolve({ roles: [{ id: ROLE, name: 'Players', position: 1, managed: false }] });
+      return Promise.resolve({});
+    });
+    const gated = JSON.stringify({ defaults: { roleIds: [ROLE] }, commands: { 'my-stats': { roleIds: ['4000000000000000009'] } } });
+    const { rerender } = render(<DiscordCommandPolicy roomId="r1" settings={{ [DISCORD_COMMAND_POLICY_KEY]: gated }} onSaveNow={vi.fn()} />);
+    await screen.findByText('/list-scores');
+    expect(screen.getByTestId('command-policy-defaults-caption')).toHaveTextContent(
+      'Applies to every command, player ones included. To lock admin commands only, set roles on those commands and leave this empty.',
+    );
+    const warning = await screen.findByTestId('command-policy-defaults-warning');
+    expect(warning).toHaveTextContent('Default roles are gating player commands: /list-scores. Players without Players cannot use them.');
+    expect(warning).not.toHaveTextContent('/run-cleanup');
+    expect(warning).not.toHaveTextContent('/my-stats');
+    rerender(<DiscordCommandPolicy roomId="r1" settings={{}} onSaveNow={vi.fn()} />);
+    expect(screen.queryByTestId('command-policy-defaults-warning')).not.toBeInTheDocument();
+    expect(screen.getByTestId('command-policy-defaults-caption')).toBeInTheDocument();
   });
 
   it('degrades to the server message when the bot is offline', async () => {

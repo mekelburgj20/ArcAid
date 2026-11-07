@@ -246,11 +246,17 @@ export class DiscordClient {
      * The registered slash commands (v2.217.0, E7), for the room Settings
      * command-policy editor - the live set, so the UI never hardcodes names.
      */
-    public listCommands(): Array<{ name: string; description: string }> {
+    public listCommands(): Array<{ name: string; description: string; adminOnly: boolean }> {
         return this.commands
             .map(command => {
-                const json = command.data.toJSON() as { name: string; description?: string };
-                return { name: json.name, description: json.description ?? '' };
+                const json = command.data.toJSON() as {
+                    name: string; description?: string; default_member_permissions?: string | null;
+                };
+                // v2.224.0 (E14): a command with default member permissions is
+                // an admin command; the policy UI warns when default roles gate
+                // the player ones (adminOnly false).
+                const perms = json.default_member_permissions;
+                return { name: json.name, description: json.description ?? '', adminOnly: perms !== undefined && perms !== null };
             })
             .sort((a, b) => a.name.localeCompare(b.name));
     }
@@ -311,15 +317,18 @@ export class DiscordClient {
 
                 // v2.217.0 (E7) - the room's slash-command policy. A refused
                 // command offers no suggestions; fail-open on error.
+                // v2.224.0 (E15): it offers ONE explanatory choice instead of
+                // an empty list ("No options match your search" read as a bug).
                 if (interaction.guildId) {
                     try {
-                        const { commandPolicyBlockReason, memberRoleIdsOf } = await import('../utils/discordCommandPolicy.js');
+                        const { commandPolicyBlockReason, memberRoleIdsOf, policyRefusedAutocompleteChoices } =
+                            await import('../utils/discordCommandPolicy.js');
                         const refused = await commandPolicyBlockReason(
                             interaction.guildId, interaction.user.id, interaction.commandName,
                             interaction.channelId, memberRoleIdsOf(interaction.member),
                         );
                         if (refused) {
-                            await interaction.respond([]);
+                            await interaction.respond(policyRefusedAutocompleteChoices());
                             return;
                         }
                     } catch (policyErr) {

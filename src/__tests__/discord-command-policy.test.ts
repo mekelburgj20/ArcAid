@@ -10,6 +10,8 @@ import {
     forceEphemeralReplies,
     serializeCommandPolicy,
     memberRoleIdsOf,
+    policyRefusedAutocompleteChoices,
+    POLICY_REFUSED_CHOICE_VALUE,
     DISCORD_COMMAND_POLICY_KEY,
 } from '../utils/discordCommandPolicy.js';
 import { MessageFlags } from 'discord.js';
@@ -29,7 +31,7 @@ describe('parseCommandPolicy', () => {
     it('absent / empty / garbage read as allow-everything', () => {
         for (const raw of [null, undefined, '', 'not json', '[]', '42', '{"commands": "x"}']) {
             const p = parseCommandPolicy(raw);
-            expect(p.defaults).toEqual({ channelIds: [], roleIds: [] });
+            expect(p.defaults).toEqual({ channelIds: [], roleIds: [], publicRoleIds: [] });
             expect(p.commands).toEqual({});
             expect(evaluateCommandPolicy(p, { commandName: 'ping', channelId: CH_A, memberRoleIds: [] })).toEqual({ allowed: true, ephemeral: true });
         }
@@ -48,7 +50,7 @@ describe('parseCommandPolicy', () => {
 
     it('a visible command keeps the policy from serializing away', () => {
         const s = serializeCommandPolicy(JSON.stringify({ commands: { ping: { ephemeral: false } } }));
-        expect(JSON.parse(s).commands.ping).toEqual({ enabled: true, channelIds: [], roleIds: [], ephemeral: false });
+        expect(JSON.parse(s).commands.ping).toEqual({ enabled: true, channelIds: [], roleIds: [], ephemeral: false, publicRoleIds: [] });
         expect(serializeCommandPolicy(JSON.stringify({ commands: { ping: { ephemeral: true } } }))).toBe('');
     });
 
@@ -69,9 +71,81 @@ describe('parseCommandPolicy', () => {
         expect(serializeCommandPolicy(JSON.stringify({ commands: { ping: { enabled: true } } }))).toBe('');
         const s = serializeCommandPolicy(JSON.stringify({ commands: { ping: { enabled: false, channelIds: ['x'] } } }));
         expect(JSON.parse(s)).toEqual({
-            version: 1, defaults: { channelIds: [], roleIds: [] },
-            commands: { ping: { enabled: false, channelIds: [], roleIds: [], ephemeral: true } },
+            version: 1, defaults: { channelIds: [], roleIds: [], publicRoleIds: [] },
+            commands: { ping: { enabled: false, channelIds: [], roleIds: [], ephemeral: true, publicRoleIds: [] } },
         });
+    });
+});
+
+// v2.224.0 (E15) - two role tiers: roleIds = private reply, publicRoleIds = visible reply.
+describe('publicRoleIds (two-tier roles)', () => {
+    it('round-trips through serialize, drops bad ids, and alone keeps the policy stored', () => {
+        const s = serializeCommandPolicy(JSON.stringify({
+            defaults: { publicRoleIds: [ROLE_Y, 'nope'] },
+            commands: { 'list-scores': { roleIds: [ROLE_X], publicRoleIds: [ROLE_Y, ROLE_Y] } },
+        }));
+        const back = parseCommandPolicy(s);
+        expect(back.defaults).toEqual({ channelIds: [], roleIds: [], publicRoleIds: [ROLE_Y] });
+        expect(back.commands['list-scores']).toEqual({ enabled: true, channelIds: [], roleIds: [ROLE_X], ephemeral: true, publicRoleIds: [ROLE_Y] });
+        expect(serializeCommandPolicy(s)).toBe(s);
+        expect(serializeCommandPolicy(JSON.stringify({ commands: { ping: { publicRoleIds: [ROLE_Y] } } }))).not.toBe('');
+    });
+
+    it('a stored policy without the field parses exactly as before', () => {
+        const p = parseCommandPolicy(JSON.stringify({
+            version: 1, defaults: { channelIds: [], roleIds: [ROLE_X] },
+            commands: { ping: { enabled: true, channelIds: [], roleIds: [ROLE_Y], ephemeral: false } },
+        }));
+        expect(p.defaults.publicRoleIds).toEqual([]);
+        expect(p.commands.ping!.publicRoleIds).toEqual([]);
+        expect(evaluateCommandPolicy(p, { commandName: 'ping', channelId: CH_A, memberRoleIds: [ROLE_Y] })).toEqual({ allowed: true, ephemeral: false });
+        expect(evaluateCommandPolicy(p, { commandName: 'ping', channelId: CH_A, memberRoleIds: [ROLE_X] })).toMatchObject({ allowed: false, reason: 'role', roleIds: [ROLE_Y] });
+    });
+
+    const policy = parseCommandPolicy(JSON.stringify({
+        commands: { 'list-scores': { roleIds: [ROLE_X], publicRoleIds: [ROLE_Y] } },
+    }));
+
+    it('a publicRoleIds role alone is allowed, and the reply is visible', () => {
+        expect(evaluateCommandPolicy(policy, { commandName: 'list-scores', channelId: CH_A, memberRoleIds: [ROLE_Y] }))
+            .toEqual({ allowed: true, ephemeral: false });
+    });
+
+    it('a roleIds-only member is allowed with a private reply', () => {
+        expect(evaluateCommandPolicy(policy, { commandName: 'list-scores', channelId: CH_A, memberRoleIds: [ROLE_X] }))
+            .toEqual({ allowed: true, ephemeral: true });
+    });
+
+    it('holding neither refuses, naming the union', () => {
+        expect(evaluateCommandPolicy(policy, { commandName: 'list-scores', channelId: CH_A, memberRoleIds: [] }))
+            .toMatchObject({ allowed: false, reason: 'role', roleIds: [ROLE_X, ROLE_Y] });
+    });
+
+    it('publicRoleIds alone (no roleIds) still restricts who may run it', () => {
+        const p = parseCommandPolicy(JSON.stringify({ commands: { ping: { publicRoleIds: [ROLE_Y] } } }));
+        expect(evaluateCommandPolicy(p, { commandName: 'ping', channelId: CH_A, memberRoleIds: [ROLE_X] }))
+            .toMatchObject({ allowed: false, reason: 'role', roleIds: [ROLE_Y] });
+    });
+
+    it('ephemeral:false still wins for a roleIds-only member', () => {
+        const p = parseCommandPolicy(JSON.stringify({
+            commands: { 'list-scores': { roleIds: [ROLE_X], publicRoleIds: [ROLE_Y], ephemeral: false } },
+        }));
+        expect(evaluateCommandPolicy(p, { commandName: 'list-scores', channelId: CH_A, memberRoleIds: [ROLE_X] }))
+            .toEqual({ allowed: true, ephemeral: false });
+    });
+
+    it('defaults.publicRoleIds is inherited when the rule list is empty and replaced when not', () => {
+        const p = parseCommandPolicy(JSON.stringify({
+            defaults: { publicRoleIds: [ROLE_Y] },
+            commands: { 'list-scores': { publicRoleIds: [ROLE_X] } },
+        }));
+        // Unlisted command inherits the default public tier.
+        expect(evaluateCommandPolicy(p, { commandName: 'ping', channelId: CH_A, memberRoleIds: [ROLE_Y] })).toEqual({ allowed: true, ephemeral: false });
+        expect(evaluateCommandPolicy(p, { commandName: 'ping', channelId: CH_A, memberRoleIds: [ROLE_X] })).toMatchObject({ allowed: false, reason: 'role' });
+        // The rule's own list replaces the default.
+        expect(evaluateCommandPolicy(p, { commandName: 'list-scores', channelId: CH_A, memberRoleIds: [ROLE_X] })).toEqual({ allowed: true, ephemeral: false });
+        expect(evaluateCommandPolicy(p, { commandName: 'list-scores', channelId: CH_A, memberRoleIds: [ROLE_Y] })).toMatchObject({ allowed: false, reason: 'role' });
     });
 });
 
@@ -139,6 +213,17 @@ describe('evaluateCommandPolicy', () => {
         expect(evaluateCommandPolicy(policy, { commandName: 'pick-game', channelId: CH_B, memberRoleIds: ['999999', ROLE_Y] }).allowed).toBe(true);
         expect(evaluateCommandPolicy(policy, { commandName: 'pick-game', channelId: CH_B, memberRoleIds: ['999999'] }))
             .toMatchObject({ allowed: false, reason: 'role' });
+    });
+});
+
+describe('policyRefusedAutocompleteChoices', () => {
+    it('is one explanatory choice within Discord limits, carrying the sentinel', () => {
+        const choices = policyRefusedAutocompleteChoices();
+        expect(choices).toHaveLength(1);
+        expect(choices[0]!.value).toBe(POLICY_REFUSED_CHOICE_VALUE);
+        expect(choices[0]!.name).toMatch(/^Not allowed here/);
+        expect(choices[0]!.name.length).toBeLessThanOrEqual(100);
+        expect(choices[0]!.value.length).toBeLessThanOrEqual(100);
     });
 });
 
@@ -219,6 +304,23 @@ describe('commandPolicyBlockReason', () => {
         await room('cp-e-c', 'Charlie', { commands: { ping: { ephemeral: false } } });
         await room('cp-e-d', 'Delta', { commands: { ping: { enabled: false } } });
         expect(await commandPolicyDecision(GUILD, 'u', 'ping', CH_A, [], noRoles)).toEqual({ refusal: null, ephemeral: false });
+    });
+
+    it('public role tier: visible for that member, private for the rest, refusal names both tiers', async () => {
+        await room('cp-pub', 'Pub', { commands: { 'list-scores': { roleIds: [ROLE_X], publicRoleIds: [ROLE_Y] } } });
+        expect(await commandPolicyDecision(GUILD, 'u', 'list-scores', CH_A, [ROLE_Y], noRoles)).toEqual({ refusal: null, ephemeral: false });
+        expect(await commandPolicyDecision(GUILD, 'u', 'list-scores', CH_A, [ROLE_X], noRoles)).toEqual({ refusal: null, ephemeral: true });
+        const lister = () => [{ id: ROLE_X, name: 'Players' }, { id: ROLE_Y, name: 'Tournament Creator' }];
+        expect(await commandPolicyBlockReason(GUILD, 'u', 'list-scores', CH_A, [], lister))
+            .toBe('/list-scores is limited to the roles "Players" or "Tournament Creator" in this server.');
+    });
+
+    it('multi-room guild: a public role is visible only when EVERY allowing room says so for the member', async () => {
+        await room('cp-pub-a', 'Alpha', { commands: { 'list-scores': { publicRoleIds: [ROLE_Y] } } });
+        const beta = await room('cp-pub-b', 'Beta', { commands: { 'list-scores': { roleIds: [ROLE_Y] } } });
+        expect(await commandPolicyDecision(GUILD, 'u', 'list-scores', CH_A, [ROLE_Y], noRoles)).toEqual({ refusal: null, ephemeral: true });
+        await GameRoomSettingsService.set(beta, DISCORD_COMMAND_POLICY_KEY, JSON.stringify({ commands: { 'list-scores': { roleIds: [ROLE_X], publicRoleIds: [ROLE_Y] } } }));
+        expect(await commandPolicyDecision(GUILD, 'u', 'list-scores', CH_A, [ROLE_Y], noRoles)).toEqual({ refusal: null, ephemeral: false });
     });
 
     it('multi-room guild: all refuse -> first room by name gives the reason', async () => {
