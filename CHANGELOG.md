@@ -6,6 +6,46 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.228.0] - 2026-11-07 - Activity log: click a row for its details; admin edits record what changed
+
+G15 (ADR 0037 §10 amended, owner ask 2026-11-07). The owner, looking at prod: "if I want to see WHAT GamerDad89
+changed in room.settings_update, I'd like to be able to click on the event and get the details." Rows read
+"Admin action: room.settings_update / by GamerDad89" and recorded only the setting NAMES; the Save button posts
+every setting on the page, so even the names said nothing about what changed.
+
+### Added
+
+- Every timeline row opens an inline details panel (a button: keyboard accessible, wraps at phone width, never
+  ellipsized): the exact time to the second in the row's room timezone, who (admin and/or player), and the row's
+  facts by type - score rows (score, or old -> new for a correction; game / table; tournament; source; platform; the
+  gate and code for a refusal; Witness outcome, verdict, ROM, played-at), device rows (Castcade PC / Witness
+  cabinet, device model, table, launched / exited / duration, last heartbeat), bot rows (command or channel, the
+  Discord error), lifecycle rows (tournament, game, ranked players, pick window), admin rows (what changed, below).
+- The details are CURATED server-side (`src/utils/activityPresentation.ts`, `buildActivityDetail`): a per-type
+  allowlist, so a room admin never receives an IP, token, hash, raw user / device id, or a play routed to another
+  room. The super-admin additionally gets the raw JSON, collapsed under "Raw".
+- Admin edits record a changed-keys diff (`src/utils/activityDiff.ts`): room settings (`POST
+  /rooms/:roomId/settings`), server settings (`POST /admin/settings`, room-less) and tournament edits (`PUT
+  /rooms/:roomId/tournaments/:id`, every stored column plus an event's rounds, cadence split into its fields) read
+  the stored values BEFORE the save and record `{changes: [{key, label, from, to}]}` for only the keys whose value
+  changed. A Save-all that changed one setting records one change. A secret (`isEncryptedKey`, or a key named like a
+  password / secret / token / hash / private key / API key) records `{key, label, secret: true}` - "changed", never a
+  value, not even ciphertext. A save that changed nothing writes NO activity row (`ActivityLogService.suppressAdminRow`
+  also stops the middleware's generic row); the `audit_log` row is still written as before (keys only).
+- Human labels for the common setting keys (a server-side map for the log only; unknown keys show as the key).
+  JSON values (slash-command policy, announcement routes, platform rules) render pretty-printed over several lines.
+
+### Changed
+
+- Admin rows read as sentences, applied at READ time so the 3,511 backfilled rows benefit too: "GamerDad89 changed
+  2 settings: Default announcement channel, Room timezone", "GamerDad89 created a pick poll", "GamerDad89 changed
+  1 tournament setting on Weekly Grind: Max active games". The audit action names and the middleware's generic paths are mapped; an unknown one falls back to a
+  cleaned-up name (`did "some new thing"`).
+- Rows from before v2.228.0 keep what was stored: the panel lists the setting names that were recorded (for a
+  backfilled `room.settings_update` row, read from its `audit_log` row - keys only) with "Values weren't recorded
+  before v2.228.0", and for a multi-key save, that a full Save sends every setting so the list may include settings
+  that did not change.
+
 ## [2.227.0] - 2026-11-06 - Room activity log: one filterable timeline of what happened
 
 G14 (ADR 0037, owner-approved spec 2026-11-07). "Why didn't Krobs' score post from his PC?" had no answer in the UI:

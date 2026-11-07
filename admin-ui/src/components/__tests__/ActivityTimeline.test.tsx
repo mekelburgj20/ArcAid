@@ -89,3 +89,88 @@ describe('ActivityTimeline', () => {
     await waitFor(() => expect(screen.getByTestId('loc').textContent).toBe('?player=Krobs'));
   });
 });
+
+/**
+ * G15 (v2.228.0) - every row opens an inline details panel: the server's
+ * curated facts, an admin edit's change table (before/after, a secret as
+ * "changed"), past rows' recorded setting names with their note, and the raw
+ * JSON only when the server sent it (super-admin).
+ */
+const SETTINGS_ROW = {
+  ...ROW, id: 8, category: 'admin', event_type: 'settings_change', severity: 'info', player: null,
+  actor: 'GamerDad89', device: null, table_name: null,
+  summary: 'GamerDad89 changed 3 settings: Room timezone, Slash-command policy, iScored password',
+  reasons: [],
+  detail: {
+    facts: [],
+    changes: [
+      { key: 'ROOM_TIMEZONE', label: 'Room timezone', from: 'America/Chicago', to: 'America/New_York' },
+      { key: 'DISCORD_COMMAND_POLICY', label: 'Slash-command policy', from: null, to: '{"version":1,"commands":{"submit-score":"members"}}' },
+      { key: 'ISCORED_PASSWORD', label: 'iScored password', secret: true },
+    ],
+  },
+};
+const PAST_ROW = {
+  ...SETTINGS_ROW, id: 9, summary: 'GamerDad89 saved 2 settings: Theme, Kiosk mode',
+  detail: {
+    facts: [], recordedKeys: ['Theme', 'Kiosk mode'],
+    notes: ["Values weren't recorded before v2.228.0; only the setting names were.",
+      'A full Save sends every setting on the page, so this list may include settings that did not change.'],
+  },
+};
+
+describe('ActivityTimeline details panel', () => {
+  beforeEach(() => {
+    mockedGet.mockImplementation((url: string) => url.startsWith('/rooms/r1/admin/activity/meta')
+      ? Promise.resolve({ tournaments: [], timezone: 'America/Chicago' })
+      : Promise.resolve({ rows: [SETTINGS_ROW, PAST_ROW, ROW], nextBefore: null, timezone: 'America/Chicago' }));
+  });
+
+  it('expands a settings row into a change table; a secret shows as changed, JSON is pretty-printed', async () => {
+    renderAt('/a');
+    const toggle = (await screen.findByText(/changed 3 settings/)).closest('button')!;
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    const table = screen.getByRole('table');
+    expect(table).toHaveTextContent('Room timezone');
+    expect(table).toHaveTextContent('America/Chicago');
+    expect(table).toHaveTextContent('America/New_York');
+    expect(table).toHaveTextContent('(not set)');
+    expect(table).toHaveTextContent(/iScored password\s*Changed \(secret; values are never recorded\)/);
+    // The command policy reads over several lines, not one giant line.
+    const pretty = screen.getByText((_, el) => el?.tagName === 'PRE' && (el.textContent ?? '').includes('"submit-score": "members"'));
+    expect(pretty.textContent).toContain('\n');
+    const panel = screen.getByRole('region', { name: 'Activity details' });
+    expect(panel).toHaveTextContent(/Admin\s*GamerDad89/);
+    expect(panel).toHaveTextContent('When');
+    // No raw section for a room admin.
+    expect(screen.queryByText(/Raw/)).not.toBeInTheDocument();
+    fireEvent.click(toggle);
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+  });
+
+  it('a past row lists the recorded setting names with the note', async () => {
+    renderAt('/a');
+    fireEvent.click((await screen.findByText(/saved 2 settings/)).closest('button')!);
+    expect(screen.getByText('Settings saved')).toBeInTheDocument();
+    expect(screen.getByText('Kiosk mode')).toBeInTheDocument();
+    expect(screen.getByText(/Values weren't recorded before v2\.228\.0/)).toBeInTheDocument();
+    expect(screen.getByText(/may include settings that did not change/)).toBeInTheDocument();
+  });
+
+  it('super-admin rows carry a collapsed raw section', async () => {
+    mockedGet.mockImplementation((url: string) => url.startsWith('/admin/activity/meta')
+      ? Promise.resolve({ rooms: [], tournaments: [], timezone: 'America/Chicago' })
+      : Promise.resolve({
+        rows: [{ ...ROW, detail: { facts: [{ label: 'Table', value: 'Twilight Zone' }] }, details: { durationSec: 2280 } }],
+        nextBefore: null, timezone: 'America/Chicago',
+      }));
+    render(<MemoryRouter><ActivityTimeline mode="super" /></MemoryRouter>);
+    fireEvent.click((await screen.findByText(/no score arrived/)).closest('button')!);
+    expect(screen.getByText('Twilight Zone')).toBeInTheDocument();
+    expect(screen.getByText('Raw (super-admin)')).toBeInTheDocument();
+    expect(screen.getByText(/"durationSec": 2280/)).toBeInTheDocument();
+  });
+});

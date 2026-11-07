@@ -93,6 +93,7 @@ import { TournamentScoresService } from '../../services/TournamentScoresService.
 import { ScoreProvenanceService } from '../../services/ScoreProvenanceService.js';
 import { AuditService } from '../../services/AuditService.js';
 import { ActivityLogService, fmtScore } from '../../services/ActivityLogService.js';
+import { describeChanges, diffSettings, diffTournament, tournamentSnapshotForDiff } from '../../utils/activityDiff.js';
 import { checkEventSubmission, checkAttemptLimitSubmission } from '../../services/EventSubmissionGate.js';
 import { TournamentEntryService } from '../../services/TournamentEntryService.js';
 import { EventService, EventConfigError } from '../../services/EventService.js';
@@ -4982,6 +4983,15 @@ router.post('/:roomId/settings', requireAuth, requireRoomAccess('roomId'), requi
             validationResult.data[DISCORD_SCORE_POSTS_TOP_N_KEY] =
                 serializeScorePostsTopN(validationResult.data[DISCORD_SCORE_POSTS_TOP_N_KEY]);
         }
+        // G15 (v2.228.0): the stored values BEFORE the save, so the activity
+        // row records only what actually changed. A read failure must not
+        // fail the save; the row then falls back to the keys sent.
+        let settingsBefore: Record<string, string> | null = null;
+        try {
+            settingsBefore = await GameRoomSettingsService.getAll(roomId);
+        } catch (err) {
+            logError('Activity diff: reading room settings before save failed:', err);
+        }
         await GameRoomSettingsService.saveMany(roomId, validationResult.data);
 
         // "Listed on Arcaid" is the room's only listing switch; is_public follows it.
@@ -5001,9 +5011,29 @@ router.post('/:roomId/settings', requireAuth, requireRoomAccess('roomId'), requi
             }
         }
 
-        // Log activity event
-        const { RoomEventService } = await import('../../services/RoomEventService.js');
-        RoomEventService.log(roomId, 'settings_change', { keys: Object.keys(validationResult.data) }).catch(() => {});
+        // G15 (v2.228.0, ADR 0037 §10): the activity row is the changed keys
+        // with before/after values; a secret records "changed", never a value.
+        // A save that changed nothing writes no activity row (the audit row
+        // below still records the request).
+        if (settingsBefore) {
+            const changes = diffSettings(settingsBefore, validationResult.data);
+            if (changes.length > 0) {
+                const what = describeChanges(changes, 'setting');
+                void ActivityLogService.record({
+                    roomId, category: 'admin', eventType: 'settings_change',
+                    summary: what.charAt(0).toUpperCase() + what.slice(1),
+                    details: { changes },
+                });
+            } else {
+                ActivityLogService.suppressAdminRow();
+            }
+        } else {
+            void ActivityLogService.record({
+                roomId, category: 'admin', eventType: 'settings_change',
+                summary: `Settings saved: ${Object.keys(validationResult.data).join(', ')}`,
+                details: { keys: Object.keys(validationResult.data) },
+            });
+        }
 
         // Explicit audit write — auditMiddleware does NOT fire on router
         // routes. Room settings can include secrets (ENCRYPTED_SETTING_KEYS,
@@ -5109,6 +5139,9 @@ router.put('/:roomId/tournaments/:id', requireAuth, requireRoomAccess('roomId'),
         const validationResult = validate(UpdateTournamentSchema, req.body);
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
         const data = { ...validationResult.data, game_room_id: req.params.roomId as string };
+        // G15 (v2.228.0): the tournament as stored before the edit, for the
+        // activity row's changed-fields diff. Never fails the edit.
+        const tournamentBefore = await tournamentSnapshotForDiff(req.params.id as string).catch(() => null);
         try {
             await TournamentService.update(req.params.id as string, data);
         } catch (err) {
@@ -5129,6 +5162,25 @@ router.put('/:roomId/tournaments/:id', requireAuth, requireRoomAccess('roomId'),
                     return res.status(err.code === 'ROUND_LOCKED' ? 409 : 400).json({ error: err.message, code: err.code });
                 }
                 throw err;
+            }
+        }
+
+        // G15 (v2.228.0): only the fields that changed; an edit that changed
+        // nothing writes no activity row.
+        const tournamentAfter = tournamentBefore
+            ? await tournamentSnapshotForDiff(req.params.id as string).catch(() => null)
+            : null;
+        if (tournamentBefore && tournamentAfter) {
+            const changes = diffTournament(tournamentBefore, tournamentAfter);
+            if (changes.length > 0) {
+                void ActivityLogService.record({
+                    roomId: req.params.roomId as string, category: 'admin', eventType: 'tournament_updated',
+                    tournamentId: req.params.id as string,
+                    summary: `Tournament edited: ${describeChanges(changes, 'field')}`,
+                    details: { changes },
+                });
+            } else {
+                ActivityLogService.suppressAdminRow();
             }
         }
 

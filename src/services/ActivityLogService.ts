@@ -2,6 +2,7 @@ import { getDatabase } from '../database/database.js';
 import { logWarn } from '../utils/logger.js';
 import { trackBackground } from '../utils/backgroundTasks.js';
 import { activityRequestContext } from '../utils/activityRequestContext.js';
+import { adminSummary, auditActionOf, buildActivityDetail, type ActivityDetail } from '../utils/activityPresentation.js';
 
 /**
  * G14 (v2.227.0, ADR 0037) - the room activity log.
@@ -105,6 +106,11 @@ export interface ActivityRow {
     score: number | null;
     summary: string;
     reasons: string[];
+    /**
+     * G15 (v2.228.0) - the curated details panel: a per-type allowlist built
+     * here, never ids, IPs, tokens or hashes. Both readers get it.
+     */
+    detail: ActivityDetail;
     /** Super-admin only. */
     canonical_user_id?: string | null;
     actor_user_id?: string | null;
@@ -118,7 +124,7 @@ type DbRow = {
     device_id: string | null; tournament_id: string | null; game_id: string | null;
     tournament_name: string | null; game_name: string | null; table_name: string | null;
     source: string | null; score: number | null; summary: string; details: string | null;
-    room_name: string | null;
+    dedupe_key: string | null; room_name: string | null; device_model: string | null;
 };
 
 /** Sentinel submitter ids that are never a person. */
@@ -194,6 +200,16 @@ export class ActivityLogService {
 
     static writeFailureStats(): { count: number; last: string | null } {
         return { count: ActivityLogService.failures, last: ActivityLogService.lastFailure };
+    }
+
+    /**
+     * G15 - inside an admin write, mark the action as already accounted for
+     * WITHOUT writing a row, so the middleware's generic row is skipped too.
+     * For a save that changed nothing (ADR 0037 §10 amendment).
+     */
+    static suppressAdminRow(): void {
+        const store = activityRequestContext.getStore();
+        if (store) store.wrote = true;
     }
 
     /** Test hook. */
@@ -702,8 +718,9 @@ export class ActivityLogService {
         const limit = Math.min(Math.max(Math.floor(f.limit ?? 50), 1), 5000);
         const { sql, params } = await ActivityLogService.where(f);
         const raw = await db.all<DbRow[]>(
-            `SELECT a.*, r.name AS room_name FROM activity_log a
+            `SELECT a.*, r.name AS room_name, wd.device_model_name AS device_model FROM activity_log a
                LEFT JOIN game_rooms r ON r.id = a.game_room_id
+               LEFT JOIN witness_devices wd ON wd.atgames_unique_id = a.device_id
              ${sql} ORDER BY a.id DESC LIMIT ?`,
             ...params, limit + 1,
         );
@@ -714,6 +731,7 @@ export class ActivityLogService {
         const labels = await resolveUserLabels(page.flatMap(r => [r.canonical_user_id, r.actor_user_id].filter((v): v is string => !!v)));
         const { roomTimezonesFor, resolveTimezone } = await import('../utils/roomTimezone.js');
         const tzs = await roomTimezonesFor(page.map(r => r.game_room_id).filter((v): v is string => !!v));
+        const auditKeys = await ActivityLogService.auditSettingKeys(page);
 
         const rows = page.map((r): ActivityRow => {
             const details = safeParse(r.details);
@@ -730,6 +748,8 @@ export class ActivityLogService {
             const actor = r.actor_user_id
                 ? (labels[r.actor_user_id] ?? (typeof details?.actorName === 'string' ? details.actorName : 'an admin'))
                 : (typeof details?.actorName === 'string' ? details.actorName : null);
+            const keys = auditKeys.get(r.id) ?? null;
+            const presentable = { ...r, device_model: r.device_model ?? null };
             const row: ActivityRow = {
                 id: r.id,
                 created_at: r.created_at,
@@ -745,8 +765,9 @@ export class ActivityLogService {
                 table_name: r.table_name,
                 source: r.source,
                 score: r.score,
-                summary: r.summary,
+                summary: adminSummary(presentable, details, actor, keys) ?? r.summary,
                 reasons,
+                detail: buildActivityDetail(presentable, details, keys),
             };
             if (opts.superAdmin) {
                 row.room_id = r.game_room_id;
@@ -761,6 +782,34 @@ export class ActivityLogService {
             return row;
         });
         return { rows, nextBefore: more ? page[page.length - 1]!.id : null };
+    }
+
+    /**
+     * Rows backfilled from `audit_log` (dedupe `al:<id>`) for a settings save
+     * carry no keys of their own; the audit row has them. Only the KEYS are
+     * read (never values, IPs or the actor).
+     */
+    private static async auditSettingKeys(page: DbRow[]): Promise<Map<number, string[]>> {
+        const want = new Map<number, number>();
+        for (const r of page) {
+            const action = r.category === 'admin' ? auditActionOf(r.summary) : null;
+            const m = /^al:(\d+)$/.exec(r.dedupe_key ?? '');
+            if (m && (action === 'room.settings_update' || action === 'settings.update')) want.set(Number(m[1]), r.id);
+        }
+        const out = new Map<number, string[]>();
+        if (want.size === 0) return out;
+        try {
+            const db = await getDatabase();
+            const ids = [...want.keys()];
+            const audits = await db.all<Array<{ id: number; details: string | null }>>(
+                `SELECT id, details FROM audit_log WHERE id IN (${ids.map(() => '?').join(',')})`, ...ids,
+            );
+            for (const a of audits) {
+                const keys = safeParse(a.details)?.keys;
+                if (Array.isArray(keys)) out.set(want.get(a.id)!, keys.filter((k): k is string => typeof k === 'string'));
+            }
+        } catch { /* the audit row may be pruned; the row still reads */ }
+        return out;
     }
 
     /** The filtered rows as CSV (up to 5000, newest first). */
