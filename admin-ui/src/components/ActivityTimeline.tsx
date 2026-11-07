@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { AlertTriangle, Download, RefreshCw } from 'lucide-react';
+import { AlertTriangle, ChevronDown, ChevronRight, Download, RefreshCw } from 'lucide-react';
 import { api } from '../lib/api';
 import { getSocket } from '../lib/websocket';
 import { useLiveRefresh } from '../hooks/useLiveRefresh';
 import {
   ACTIVITY_CATEGORIES, ACTIVITY_FILTER_KEYS, activityQueryString, formatActivityTime,
-  type ActivityPage, type ActivityRow,
+  formatActivityTimeExact, formatChangeValue,
+  type ActivityChange, type ActivityPage, type ActivityRow,
 } from '../lib/activityLog';
 import NeonCard from './NeonCard';
 import LoadingState from './LoadingState';
@@ -18,6 +19,11 @@ import LoadingState from './LoadingState';
  * shareable link; the server applies them (dates in the room timezone).
  * Names arrive already resolved through the label chain; this page never
  * renders a raw id.
+ *
+ * G15 (v2.228.0): every row opens an inline details panel (the server's
+ * curated `detail`: facts by event type, an admin edit's changed keys with
+ * before/after values, a secret as "changed"). The super-admin also gets the
+ * row's raw JSON, collapsed.
  */
 
 interface Meta {
@@ -288,38 +294,140 @@ function TextFilters({ params, onApply, children }: {
 }
 
 function ActivityItem({ row, showRoom }: { row: ActivityRow; showRoom: boolean }) {
+  const [open, setOpen] = useState(false);
+  const panelId = useId();
   const cat = ACTIVITY_CATEGORIES.find(c => c.key === row.category);
   const problem = row.severity === 'problem';
   const context = [row.tournament_name, row.game_name && row.game_name !== row.table_name ? row.game_name : null, row.table_name]
     .filter((v): v is string => !!v);
+  // Admin rows name the admin in their summary already.
+  const actorInSummary = row.category === 'admin' && !!row.actor && row.summary.startsWith(row.actor);
   return (
-    <li className={`py-3 flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-3 ${problem ? 'border-l-2 border-l-neon-coral pl-2' : ''}`}>
-      <div className="flex items-center gap-2 sm:w-44 flex-shrink-0">
-        <span className="text-xs text-faint whitespace-nowrap">{formatActivityTime(row.created_at, row.tz)}</span>
-        <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${cat?.color ?? 'text-muted border-border bg-raised'}`}>
-          {cat?.label ?? row.category}
+    <li className={`py-3 ${problem ? 'border-l-2 border-l-neon-coral pl-2' : ''}`}>
+      <button type="button" onClick={() => setOpen(o => !o)} aria-expanded={open} aria-controls={panelId}
+        className="w-full text-left bg-transparent border-0 p-0 cursor-pointer flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-3 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-neon-cyan/60">
+        <span className="flex items-center gap-2 sm:w-44 flex-shrink-0">
+          {open
+            ? <ChevronDown size={14} className="text-faint flex-shrink-0" aria-hidden="true" />
+            : <ChevronRight size={14} className="text-faint flex-shrink-0" aria-hidden="true" />}
+          <span className="text-xs text-faint whitespace-nowrap">{formatActivityTime(row.created_at, row.tz)}</span>
+          <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${cat?.color ?? 'text-muted border-border bg-raised'}`}>
+            {cat?.label ?? row.category}
+          </span>
         </span>
-      </div>
-      <div className="min-w-0 flex-1 space-y-1">
-        <p className="text-sm text-primary break-words">
-          {problem && <AlertTriangle size={14} className="inline mr-1 -mt-0.5 text-neon-coral" aria-label="Problem" />}
-          {row.player && <span className="font-semibold">{row.player}: </span>}
-          {row.summary}
-        </p>
-        {row.reasons.length > 0 && (
-          <ul className="text-xs text-muted list-disc pl-4 space-y-0.5">
-            {row.reasons.map((reason, i) => <li key={i} className="break-words">{reason}</li>)}
-          </ul>
-        )}
-        <p className="text-xs text-faint break-words">
-          {[
-            showRoom ? (row.room_name ?? 'No room') : null,
-            ...context,
-            row.device,
-            row.actor ? `by ${row.actor}` : null,
-          ].filter(Boolean).join(' · ')}
-        </p>
-      </div>
+        <span className="min-w-0 flex-1 space-y-1 block">
+          <span className="block text-sm text-primary break-words">
+            {problem && <AlertTriangle size={14} className="inline mr-1 -mt-0.5 text-neon-coral" aria-label="Problem" />}
+            {row.player && <span className="font-semibold">{row.player}: </span>}
+            {row.summary}
+          </span>
+          {row.reasons.length > 0 && (
+            <span className="block text-xs text-muted space-y-0.5">
+              {row.reasons.map((reason, i) => <span key={i} className="block break-words">- {reason}</span>)}
+            </span>
+          )}
+          <span className="block text-xs text-faint break-words">
+            {[
+              showRoom ? (row.room_name ?? 'No room') : null,
+              ...context,
+              row.device,
+              row.actor && !actorInSummary ? `by ${row.actor}` : null,
+            ].filter(Boolean).join(' · ')}
+          </span>
+        </span>
+      </button>
+      {open && <ActivityDetailPanel id={panelId} row={row} showRoom={showRoom} />}
     </li>
+  );
+}
+
+const factLabel = 'text-xs text-faint';
+const factValue = 'text-sm text-primary break-words min-w-0';
+
+function ActivityDetailPanel({ id, row, showRoom }: { id: string; row: ActivityRow; showRoom: boolean }) {
+  const detail = row.detail;
+  const who = [
+    row.actor ? { label: row.category === 'admin' ? 'Admin' : 'Done by', value: row.actor } : null,
+    row.player ? { label: 'Player', value: row.player } : null,
+  ].filter((v): v is { label: string; value: string } => !!v);
+  return (
+    <div id={id} role="region" aria-label="Activity details"
+      className="mt-2 sm:ml-[11.75rem] rounded border border-border/60 bg-raised/40 p-3 space-y-3">
+      <dl className="grid grid-cols-1 sm:grid-cols-[minmax(7rem,auto)_1fr] gap-x-4 gap-y-1">
+        <dt className={factLabel}>When</dt>
+        <dd className={factValue}>{formatActivityTimeExact(row.created_at, row.tz)}</dd>
+        {showRoom && (<>
+          <dt className={factLabel}>Room</dt>
+          <dd className={factValue}>{row.room_name ?? 'No room'}</dd>
+        </>)}
+        {who.map(w => (
+          <div key={w.label} className="contents">
+            <dt className={factLabel}>{w.label}</dt>
+            <dd className={factValue}>{w.value}</dd>
+          </div>
+        ))}
+        {(detail?.facts ?? []).map((f, i) => (
+          <div key={`${f.label}-${i}`} className="contents">
+            <dt className={factLabel}>{f.label}</dt>
+            <dd className={factValue}>{f.time ? formatActivityTimeExact(f.value, row.tz) : f.value}</dd>
+          </div>
+        ))}
+      </dl>
+
+      {detail?.changes && detail.changes.length > 0 && <ChangeTable changes={detail.changes} />}
+
+      {detail?.recordedKeys && detail.recordedKeys.length > 0 && (
+        <div className="space-y-1">
+          <p className={factLabel}>Settings saved</p>
+          <ul className="flex flex-wrap gap-1.5">
+            {detail.recordedKeys.map((k, i) => (
+              <li key={`${k}-${i}`} className="text-xs text-primary border border-border rounded px-2 py-0.5 break-words max-w-full">{k}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {(detail?.notes ?? []).map((n, i) => <p key={i} className="text-xs text-muted italic break-words">{n}</p>)}
+
+      {row.details && (
+        <details className="text-xs">
+          <summary className="cursor-pointer text-faint">Raw (super-admin)</summary>
+          <pre className="mt-1 whitespace-pre-wrap break-all text-muted">{JSON.stringify(row.details, null, 2)}</pre>
+        </details>
+      )}
+    </div>
+  );
+}
+
+function ChangeValue({ value }: { value: string | null | undefined }) {
+  if (value == null) return <span className="text-faint italic">(not set)</span>;
+  return <pre className="whitespace-pre-wrap break-words font-mono text-xs text-primary m-0">{formatChangeValue(value)}</pre>;
+}
+
+function ChangeTable({ changes }: { changes: ActivityChange[] }) {
+  return (
+    <table className="w-full table-fixed text-left border-collapse">
+      <caption className="sr-only">What changed</caption>
+      <thead>
+        <tr className="text-xs text-faint">
+          <th scope="col" className="font-normal pb-1 pr-2 w-1/4">Changed</th>
+          <th scope="col" className="font-normal pb-1 pr-2">Before</th>
+          <th scope="col" className="font-normal pb-1">After</th>
+        </tr>
+      </thead>
+      <tbody>
+        {changes.map(c => (
+          <tr key={c.key} className="align-top border-t border-border/30">
+            <th scope="row" className="text-sm font-semibold text-primary py-1 pr-2 break-words">{c.label}</th>
+            {c.secret ? (
+              <td colSpan={2} className="text-sm text-muted py-1">Changed (secret; values are never recorded)</td>
+            ) : (<>
+              <td className="py-1 pr-2 min-w-0"><ChangeValue value={c.from} /></td>
+              <td className="py-1 min-w-0"><ChangeValue value={c.to} /></td>
+            </>)}
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }

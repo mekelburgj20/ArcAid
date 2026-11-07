@@ -61,6 +61,15 @@ the missing score.
 10. **What room admins never see:** IP addresses, device tokens, raw ids, and plays a member's device
     routed to another room.
 
+    *Amended 2026-11-07 (owner ask, G15, v2.228.0):* every row opens a details panel. Room admins get
+    **curated details**, not the raw JSON: a per-type allowlist of fields built server-side
+    (`buildActivityDetail`; score, Witness, device, bot, lifecycle and admin rows each name what they show),
+    still never IPs, tokens, hashes, raw user or device ids, or plays routed to other rooms. The super-admin
+    additionally sees the raw JSON (collapsed). Admin edits (room settings, server settings, tournament edits)
+    record only the keys whose value changed, with before and after values; a secret records that it changed,
+    never a value (not even ciphertext); a save that changed nothing writes no row. Rows recorded before this
+    keep what was stored and say so.
+
 ## Consequences
 
 - "Why didn't X's score post?" becomes a filter: player = X, Problems only. For a client-side refusal it

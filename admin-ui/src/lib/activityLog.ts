@@ -3,6 +3,30 @@
  * category chips, URL filter keys, time formatting).
  */
 
+/** One line of a row's details panel (G15). `time`: `value` is a SQLite UTC stamp. */
+export interface ActivityFact {
+  label: string;
+  value: string;
+  time?: boolean;
+}
+
+/** One changed key of an admin edit. A secret carries no values. */
+export interface ActivityChange {
+  key: string;
+  label: string;
+  from?: string | null;
+  to?: string | null;
+  secret?: boolean;
+}
+
+/** The curated details panel the server builds per row (G15, v2.228.0). */
+export interface ActivityDetail {
+  facts: ActivityFact[];
+  changes?: ActivityChange[];
+  recordedKeys?: string[];
+  notes?: string[];
+}
+
 export interface ActivityRow {
   id: number;
   created_at: string;
@@ -22,6 +46,10 @@ export interface ActivityRow {
   score: number | null;
   summary: string;
   reasons: string[];
+  /** Absent on a server older than v2.228.0. */
+  detail?: ActivityDetail;
+  /** Super-admin only: the raw stored JSON. */
+  details?: Record<string, unknown> | null;
 }
 
 export interface ActivityPage {
@@ -54,6 +82,35 @@ export function formatActivityTime(utc: string, tz: string): string {
   } catch {
     return new Date(ms).toLocaleString();
   }
+}
+
+/** The exact moment, to the second, with the zone named (the details panel). */
+export function formatActivityTimeExact(utc: string, tz: string): string {
+  const ms = Date.parse(utc.replace(' ', 'T') + 'Z');
+  if (!Number.isFinite(ms)) return utc;
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      timeZone: tz, weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
+      hour: 'numeric', minute: '2-digit', second: '2-digit', timeZoneName: 'short',
+    }).format(new Date(ms));
+  } catch {
+    return new Date(ms).toLocaleString();
+  }
+}
+
+/**
+ * A changed value as readable text: JSON (command policy, announcement
+ * routes, platform rules) pretty-printed over several lines, never one giant
+ * line; anything else as it is.
+ */
+export function formatChangeValue(v: string): string {
+  const t = v.trim();
+  if ((t.startsWith('{') && t.endsWith('}')) || (t.startsWith('[') && t.endsWith(']'))) {
+    try {
+      return JSON.stringify(JSON.parse(t), null, 2);
+    } catch { /* not JSON after all */ }
+  }
+  return v;
 }
 
 /** The filter part of the URL as an API query string (`?a=b`, or ''). */

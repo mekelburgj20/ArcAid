@@ -913,7 +913,35 @@ router.post('/settings', async (req, res) => {
             return res.status(400).json({ error: 'ADMIN_PASSWORD_HASH cannot be set via this endpoint' });
         }
 
+        // G15 (v2.228.0): stored values BEFORE the save, for the activity
+        // row's changed-keys diff. A read failure must not fail the save.
+        let settingsBefore: Record<string, string> | null = null;
+        try {
+            settingsBefore = await SettingsService.getAll();
+        } catch (err) {
+            logError('Activity diff: reading server settings before save failed:', err);
+        }
+
         const { needsRestart } = await SettingsService.saveMany(settings);
+
+        // G15 (v2.228.0, ADR 0037 §10): a room-less (super-admin only) row of
+        // the keys that changed; secrets record "changed", never a value. A
+        // save that changed nothing writes no activity row.
+        if (settingsBefore) {
+            const { ActivityLogService } = await import('../../services/ActivityLogService.js');
+            const { describeChanges, diffSettings } = await import('../../utils/activityDiff.js');
+            const changes = diffSettings(settingsBefore, settings, { emptyIsValue: new Set(['SETUP_COMPLETE']) });
+            if (changes.length > 0) {
+                const what = describeChanges(changes, 'server setting');
+                void ActivityLogService.record({
+                    roomId: null, category: 'admin', eventType: 'settings_change',
+                    summary: what.charAt(0).toUpperCase() + what.slice(1),
+                    details: { changes },
+                });
+            } else {
+                ActivityLogService.suppressAdminRow();
+            }
+        }
 
         // Explicit audit write — auditMiddleware does NOT fire on router routes.
         // Global settings can include secrets (ENCRYPTED_SETTING_KEYS) — log the
