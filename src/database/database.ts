@@ -340,19 +340,10 @@ async function doInitDatabase(): Promise<Database> {
         )
     `);
 
-    // 11. Room events (activity log)
-    await db.exec(`
-        CREATE TABLE IF NOT EXISTS room_events (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            game_room_id TEXT NOT NULL,
-            event_type TEXT NOT NULL,
-            event_data TEXT DEFAULT '{}',
-            created_at TEXT DEFAULT (datetime('now')),
-            FOREIGN KEY (game_room_id) REFERENCES game_rooms (id) ON DELETE CASCADE
-        );
-        CREATE INDEX IF NOT EXISTS idx_room_events_room_type ON room_events(game_room_id, event_type);
-        CREATE INDEX IF NOT EXISTS idx_room_events_created ON room_events(created_at)
-    `);
+    // 11. (retired) `room_events` was the 7-day room activity store. G14
+    // (v2.227.0, ADR 0037) replaced it with `activity_log`: migration 209
+    // copies what an upgraded DB still holds, migration 210 drops it, and a
+    // fresh DB never creates it.
 
     // 12. Global game catalogue
     await db.exec(`
@@ -1579,6 +1570,9 @@ async function doInitDatabase(): Promise<Database> {
                 'lobby_feed_events', 'lobby_announcements', 'community_shelf_items',
             ];
             for (const t of roomChildren) {
+                // `room_events` no longer exists on a fresh DB (retired v2.227.0).
+                const exists = await db.get(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`, t);
+                if (!exists) continue;
                 await db.run(`DELETE FROM ${t} WHERE game_room_id NOT IN (SELECT id FROM game_rooms)`);
             }
             await db.run(`DELETE FROM room_members WHERE room_id NOT IN (SELECT id FROM game_rooms)`);
@@ -3631,6 +3625,13 @@ async function doInitDatabase(): Promise<Database> {
             } catch (err) {
                 console.error('[migration 209] activity log backfill failed (log starts empty):', err);
             }
+        } },
+        // G14 (v2.227.0, owner ruling 2026-11-07) - retire `room_events`. MUST stay
+        // after 209: 209's backfill copies the last days it holds into
+        // activity_log first. Nothing writes or reads it any more; a fresh DB
+        // never had it (the base schema no longer creates it).
+        { name: '210_drop_room_events', handler: async (db) => {
+            await db.exec(`DROP TABLE IF EXISTS room_events`);
         } },
     ];
 

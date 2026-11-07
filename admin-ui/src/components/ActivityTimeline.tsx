@@ -197,7 +197,13 @@ export default function ActivityTimeline({ mode, roomId }: { mode: 'room' | 'sup
             className="text-sm text-muted border border-border rounded px-3 py-2 bg-transparent cursor-pointer hover:text-primary inline-flex items-center gap-1">
             <Download size={14} /> CSV
           </button>
-          {timezone && <span className="text-xs text-faint">Times in {timezone.replace(/_/g, ' ')}</span>}
+          {timezone && (
+            <span className="text-xs text-faint">
+              {mode === 'super'
+                ? `Dates and times use each row's room timezone (rows with no room: ${timezone.replace(/_/g, ' ')})`
+                : `Dates and times in ${timezone.replace(/_/g, ' ')}`}
+            </span>
+          )}
         </div>
       </NeonCard>
 

@@ -4,7 +4,6 @@ import { logInfo, logWarn, logError } from '../utils/logger.js';
 import { Tournament, CadenceConfig, CleanupRule } from '../types/index.js';
 import { TournamentEngine } from './TournamentEngine.js';
 import { TimeoutManager } from './TimeoutManager.js';
-import { RoomEventService } from '../services/RoomEventService.js';
 import { VpsImportService } from '../services/VpsImportService.js';
 import { getNextRunTime } from '../utils/cronUtils.js';
 import { roomTimezonesFor, resolveTimezone } from '../utils/roomTimezone.js';
@@ -99,8 +98,8 @@ export class Scheduler {
         // Season poll clock — post, mirror, close and resolve the poll queue
         this.startSeasonScheduler();
 
-        // Daily cleanup of old room events (3 AM)
-        this.startRoomEventCleanup();
+        // Daily activity-log prune (3 AM, 90-day retention)
+        this.startActivityLogPrune();
 
         // Daily prune of the rotation decision trail (3:15 AM, 180-day retention)
         this.startRotationLogPrune();
@@ -394,18 +393,12 @@ export class Scheduler {
     }
 
     /**
-     * Schedules a daily cleanup of old room events at 3 AM.
+     * Daily prune of the activity log at 3 AM (G14, ADR 0037 §8: 90 days).
+     * Took over the slot of the retired room_events cleanup.
      */
-    private startRoomEventCleanup(): void {
+    private startActivityLogPrune(): void {
         const timezone = process.env.BOT_TIMEZONE || 'America/Chicago';
         const task = cron.schedule('0 3 * * *', async () => {
-            try {
-                const deleted = await RoomEventService.cleanup(7);
-                if (deleted > 0) logInfo(`Room event cleanup: removed ${deleted} old events.`);
-            } catch (error) {
-                logError('Room event cleanup error:', error);
-            }
-            // G14 (ADR 0037 §8) - the activity log keeps 90 days.
             try {
                 const { ActivityLogService } = await import('../services/ActivityLogService.js');
                 const pruned = await ActivityLogService.prune();
@@ -415,8 +408,8 @@ export class Scheduler {
             }
         }, { timezone });
 
-        this.tasks.set('__room_event_cleanup__', task);
-        logInfo('Room event cleanup scheduled (daily at 3 AM).');
+        this.tasks.set('__activity_log_prune__', task);
+        logInfo('Activity log prune scheduled (daily at 3 AM).');
     }
 
     /**

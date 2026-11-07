@@ -68,15 +68,10 @@ export function mapRotationEvent(e: {
 }
 
 /**
- * Room events that are mirrored LIVE. Score submissions / corrections /
- * per-row deletes are recorded by `ScoreHistoryService` itself, and admin
- * route writes by the admin-write middleware, so mirroring them too would
- * write each twice. The backfill (no middleware history) maps every type.
+ * A legacy room-event type as an activity row, or null when another writer
+ * already records it (ScoreHistoryService, RotationAuditService). Used by the
+ * `RoomEventService` forwarder and the migration-209 backfill.
  */
-export const LIVE_MIRRORED_ROOM_EVENTS = new Set([
-    'admin_login', 'identity_merge', 'score_deleted',
-]);
-
 export function mapRoomEvent(type: string, d: Record<string, any>): MappedActivity | null {
     switch (type) {
         // Covered by ScoreHistoryService.log / correctScore.

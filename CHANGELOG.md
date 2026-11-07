@@ -26,27 +26,41 @@ slash-command refusal left no trace at all.
   pagination), CSV export (formula-safe), 90-day `prune` on the 3 AM cron, and the per-minute `sweepDevices`.
 - Write points: every landed score (`ScoreHistoryService.log`), correction, delete, attempt void / reinstate; refusals
   by the membership, event, attempt, roster and platform gates on the three web submit routes and Discord
-  `/submit-score` (problem rows); every Witness / Castcade ingest outcome (room rows inside a room's tournament;
-  Global / no_match / invalid are room-less); device pair / unpair / check-in (one per 10 min) / online and offline
-  transitions / table launch and exit; "launched, no score arrived" (a session of 60 s or more whose exit is 10 min
-  old with no witness score from that device between launch and exit + 10 min); admin writes under
-  `/api/rooms/:roomId/admin/*` and `/api/admin/*` (new `activityAdminMiddleware`, reads the user at response time,
-  stores no IP and no body values); bot command refusals and failures, and failed channel posts with Discord's error;
+  `/submit-score` (problem rows); every Witness / Castcade ingest outcome except repeats (room rows inside a room's
+  tournament; Global / no_match / invalid are room-less; `duplicate` / `global_duplicate` write no row, live or
+  backfilled); device pair / unpair / check-in (one per 10 min) / online and offline transitions / table launch and
+  exit (offline is `info`, and a `problem` only in a routed room where the player was checked in to an unfinished
+  event, or an event round or a Limited-attempts game was open - so a nightly power-off never shows under Problems
+  only); "launched, no score arrived" (a session of 60 s or more whose exit is 10 min old with no witness score from
+  that device between launch and exit + 10 min); admin writes under `/api/admin/*` and room-admin writes under
+  `/api/rooms/:roomId/*` that passed `requireRoomAccess` and match an explicit allowlist (`/admin/*`, settings,
+  tournaments, events, games, library, ranking groups, lobby, admins, imports, verify) - new `activityAdminMiddleware`,
+  reads the user at response time, stores no IP and no body values, and skips its generic row when the handler
+  recorded a richer one in the same request (no double rows); a player's score submission is never an admin row;
+  bot command refusals and failures, and failed channel posts with Discord's error;
   rotation decisions, picks queued, event rounds started / events finished, polls opened / closed; sync jobs and the
   first iScored poller failure (server rows).
 - Room Admin -> Activity is now the timeline: filter bar (player, game or table, keyword, tournament, date range,
   category chips, **Problems only**), filters in the URL (shareable), CSV, live refresh (`activity:new` ping on the
   room channel, content-free, plus `useLiveRefresh`), times in the room timezone, mobile-width layout. Super-admin ->
   Activity (`/admin/activity`) is the same component across every room plus room-less rows, with a room filter and the
-  write-failure count.
+  write-failure count; its date range is read per row in that row's room timezone (room-less rows: the server zone),
+  and the filter hint says so.
 - `GET /api/rooms/:roomId/admin/activity` (+ `.csv`, `/meta`) and `GET /api/admin/activity` (+ `.csv`, `/meta`).
   Room admins never see raw ids, device ids, IPs or detail JSON.
 
 ### Changed
 
 - `GET /api/rooms/:roomId/admin/activity` returns `{ rows, nextBefore, timezone }` from `activity_log` (was an
-  array of `room_events`). `room_events` is still written for 7 days; nothing on the page reads it.
-- Account deletion also removes the user's `activity_log` rows.
+  array of `room_events`).
+- Account deletion removes the user's `activity_log` rows (its `room_events` JSON scrub is gone with the table).
+
+### Removed
+
+- **`room_events` is retired.** Migration 209 copies what it still holds (7 days) into `activity_log`; migration
+  `210_drop_room_events` then drops it; a fresh database never creates it. `RoomEventService.log` is now a thin
+  forwarder into the activity log, its 7-day 3 AM cleanup became the activity-log prune, and the test-wipe script
+  clears `activity_log` instead.
 
 ## [2.226.0] - 2026-11-06 - Per-category announcement channels per tournament, and a Top-score posts route
 

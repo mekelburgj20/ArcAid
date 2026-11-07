@@ -59,7 +59,7 @@ describe('ActivityTimeline', () => {
     expect(screen.getByText('Krobs:')).toBeInTheDocument();
     expect(screen.getByText(/sent no score for it/)).toBeInTheDocument();
     expect(screen.getByText(/Castcade \(PC\)/)).toBeInTheDocument();
-    expect(screen.getByText('Times in America/Chicago')).toBeInTheDocument();
+    expect(screen.getByText('Dates and times in America/Chicago')).toBeInTheDocument();
   });
 
   it('sends the URL filters to the server and toggles Problems only into the URL', async () => {
@@ -69,6 +69,16 @@ describe('ActivityTimeline', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Problems only' }));
     await waitFor(() => expect(screen.getByTestId('loc').textContent).toContain('problems=1'));
     await waitFor(() => expect(mockedGet).toHaveBeenCalledWith('/rooms/r1/admin/activity?player=krobs&tournament=t1&problems=1'));
+  });
+
+  it('super-admin: says dates are read per row in its room timezone', async () => {
+    mockedGet.mockImplementation((url: string) => url.startsWith('/admin/activity/meta')
+      ? Promise.resolve({ rooms: [], tournaments: [], timezone: 'America/Chicago' })
+      : Promise.resolve({ rows: [ROW], nextBefore: null, timezone: 'America/Chicago' }));
+    render(<MemoryRouter><ActivityTimeline mode="super" /></MemoryRouter>);
+    expect(await screen.findByText("Dates and times use each row's room timezone (rows with no room: America/Chicago)"))
+      .toBeInTheDocument();
+    expect(screen.getByText(/^Room$/)).toBeInTheDocument();
   });
 
   it('applies the typed player filter on submit', async () => {

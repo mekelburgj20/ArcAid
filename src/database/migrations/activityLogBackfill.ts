@@ -41,7 +41,7 @@ export async function backfillActivityLog(db: Database): Promise<number> {
                 (created_at, game_room_id, category, event_type, severity, canonical_user_id, device_id,
                  tournament_id, game_id, tournament_name, game_name, table_name, source, score, summary, details, dedupe_key)
             SELECT e.created_at,
-                   CASE WHEN e.outcome IN ('ingested','duplicate','attempt_refused','not_sanctioned','suppressed') THEN e.game_room_id END,
+                   CASE WHEN e.outcome IN ('ingested','attempt_refused','not_sanctioned','suppressed') THEN e.game_room_id END,
                    'score', 'witness_' || e.outcome,
                    CASE WHEN e.outcome IN ('attempt_refused','not_sanctioned','no_match','invalid')
                           OR (e.outcome = 'global' AND e.reasons NOT IN ('[]', '')) THEN 'problem' ELSE 'info' END,
@@ -68,7 +68,7 @@ export async function backfillActivityLog(db: Database): Promise<number> {
               LEFT JOIN tournaments t ON t.id = e.tournament_id
               LEFT JOIN games g ON g.id = e.game_id
               LEFT JOIN witness_devices d ON d.atgames_unique_id = e.device_id
-             WHERE e.created_at >= ${since}
+             WHERE e.created_at >= ${since} AND e.outcome NOT IN ('duplicate', 'global_duplicate')
         `));
 
         // Attempts an admin voided.
@@ -118,10 +118,14 @@ export async function backfillActivityLog(db: Database): Promise<number> {
             });
         }
 
-        // Room events (7 days survive).
-        const events = await db.all<Array<{ id: number; game_room_id: string; event_type: string; event_data: string | null; created_at: string }>>(
-            `SELECT * FROM room_events WHERE created_at >= ${since}`,
-        );
+        // Room events (7 days survive). Only an upgraded DB has the table:
+        // migration 210 drops it right after this, and a fresh DB never had it.
+        const hasRoomEvents = !!(await db.get(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'room_events'`));
+        const events = hasRoomEvents
+            ? await db.all<Array<{ id: number; game_room_id: string; event_type: string; event_data: string | null; created_at: string }>>(
+                `SELECT * FROM room_events WHERE created_at >= ${since}`,
+            )
+            : [];
         for (const e of events) {
             let data: Record<string, any> = {};
             try { data = e.event_data ? JSON.parse(e.event_data) : {}; } catch { data = {}; }

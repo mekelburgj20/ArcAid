@@ -1281,25 +1281,25 @@ export class VpxScoreIngestService {
             gameName?: string; verdict?: Verdict | null; reasons?: string[];
         },
     ): void {
+        // Owner ruling 2026-11-07: a repeat writes no row (its landing row already exists).
+        if (extra.outcome === 'duplicate' || extra.outcome === 'global_duplicate') return;
         const reasons = extra.reasons && extra.reasons.length > 0 ? extra.reasons : (extra.verdict?.reasons ?? []);
         const where = extra.gameName ?? input.tableName;
         const fmt = Math.floor(score).toLocaleString('en-US');
         const why = reasons.length > 0 ? `: ${reasons.join('; ')}` : '';
         const SUMMARY: Record<string, string> = {
             ingested: `Score ${fmt} landed on ${where}`,
-            duplicate: `Score ${fmt} on ${where} was a repeat of one already on the board`,
             attempt_refused: `Score ${fmt} on ${where} refused by Limited attempts${why}`,
             not_sanctioned: `Score ${fmt} on ${where} refused by Sanctioned play${why}`,
             suppressed: `Score ${fmt} on ${where} ignored - the player deleted this play`,
             global: `Score ${fmt} on ${input.tableName} went to the Global Scoreboard${why}`,
-            global_duplicate: `Score ${fmt} on ${input.tableName} was already on the Global Scoreboard`,
             no_match: `Score ${fmt} on ${input.tableName} matched no open game${why}`,
             invalid: `Score on ${input.tableName} was invalid${why}`,
         };
         const problem = ['attempt_refused', 'not_sanctioned', 'no_match', 'invalid'].includes(extra.outcome)
             || (extra.outcome === 'global' && reasons.length > 0);
         const roomId = extra.gameRoomId ?? null;
-        const isRoomRow = !!roomId && ['ingested', 'duplicate', 'attempt_refused', 'not_sanctioned', 'suppressed'].includes(extra.outcome);
+        const isRoomRow = !!roomId && ['ingested', 'attempt_refused', 'not_sanctioned', 'suppressed'].includes(extra.outcome);
         void ActivityLogService.record({
             roomId: isRoomRow ? roomId : null,
             category: 'score',

@@ -47,6 +47,8 @@ export function requireRoomAccess(paramName: string = 'roomId') {
 
         // Super admins can access all rooms
         if (req.user.role === 'super_admin') {
+            // G14 - the activity log's admin-write middleware reads this.
+            res.locals.roomAdminChecked = true;
             next();
             return;
         }
@@ -62,6 +64,7 @@ export function requireRoomAccess(paramName: string = 'roomId') {
             return;
         }
 
+        res.locals.roomAdminChecked = true;
         next();
     };
 }

@@ -1,6 +1,7 @@
 import { getDatabase } from '../database/database.js';
 import { logWarn } from '../utils/logger.js';
 import { trackBackground } from '../utils/backgroundTasks.js';
+import { activityRequestContext } from '../utils/activityRequestContext.js';
 
 /**
  * G14 (v2.227.0, ADR 0037) - the room activity log.
@@ -207,6 +208,23 @@ export class ActivityLogService {
      * promise is registered with the background-task tracker either way.
      */
     static record(entry: ActivityEntry): Promise<void> {
+        // Inside an admin write (activityAdminMiddleware): this row is the
+        // record of the action, so the middleware's generic row is skipped,
+        // and an admin row with no actor names the admin who made the request.
+        const store = activityRequestContext.getStore();
+        if (store) {
+            store.wrote = true;
+            if (entry.category === 'admin' && !entry.actorUserId) {
+                const actor = store.actor();
+                if (actor) {
+                    entry = {
+                        ...entry,
+                        actorUserId: actor.userId,
+                        details: actor.name ? { ...(entry.details ?? {}), actorName: actor.name } : entry.details,
+                    };
+                }
+            }
+        }
         return trackBackground(ActivityLogService.write(entry).catch((err) => {
             ActivityLogService.failures++;
             const msg = err instanceof Error ? err.message : String(err);
@@ -326,12 +344,18 @@ export class ActivityLogService {
      * A device event: one row per room the device routes to now, or one
      * room-less row when it routes to none. Never rejects.
      */
-    static recordForDevice(deviceId: string, canonicalUserId: string, entry: Omit<ActivityEntry, 'roomId' | 'deviceId' | 'userId'>): Promise<void> {
+    static recordForDevice(
+        deviceId: string, canonicalUserId: string, entry: Omit<ActivityEntry, 'roomId' | 'deviceId' | 'userId'>,
+        severityFor?: (roomId: string | null) => Promise<ActivitySeverity>,
+    ): Promise<void> {
         // Tracked as a whole: the routing lookup runs before `record` registers itself.
-        return trackBackground(ActivityLogService.recordForDeviceNow(deviceId, canonicalUserId, entry));
+        return trackBackground(ActivityLogService.recordForDeviceNow(deviceId, canonicalUserId, entry, severityFor));
     }
 
-    private static async recordForDeviceNow(deviceId: string, canonicalUserId: string, entry: Omit<ActivityEntry, 'roomId' | 'deviceId' | 'userId'>): Promise<void> {
+    private static async recordForDeviceNow(
+        deviceId: string, canonicalUserId: string, entry: Omit<ActivityEntry, 'roomId' | 'deviceId' | 'userId'>,
+        severityFor?: (roomId: string | null) => Promise<ActivitySeverity>,
+    ): Promise<void> {
         let rooms: string[] = [];
         let deviceType: string | null = null;
         try {
@@ -345,8 +369,9 @@ export class ActivityLogService {
         }
         const details = { ...(entry.details ?? {}), deviceType: deviceType === 'desktop' ? 'desktop' : 'atgames' };
         const targets: Array<string | null> = rooms.length > 0 ? rooms : [null];
-        await Promise.all(targets.map(roomId => ActivityLogService.record({
+        await Promise.all(targets.map(async roomId => ActivityLogService.record({
             ...entry,
+            ...(severityFor ? { severity: await severityFor(roomId).catch((): ActivitySeverity => 'info') } : {}),
             details,
             roomId,
             deviceId,
@@ -360,7 +385,8 @@ export class ActivityLogService {
      *
      * 1. **Offline**: a device whose last heartbeat is older than
      *    `HEARTBEAT_STALE_SEC` (the lobby's rule) and whose offline has not
-     *    been logged since that heartbeat -> one `problem` row. Only devices
+     *    been logged since that heartbeat -> one row per routed room, `info`
+     *    unless `deviceMatteredInRoom` says it mattered there. Only devices
      *    heard from in the last 24 h, so a long-dead device is not announced.
      * 2. **Launched, no score arrived** (the rule, ADR 0037 Consequences): a
      *    table SESSION observation that ran at least `NO_SCORE_MIN_SEC`, whose
@@ -397,12 +423,18 @@ export class ActivityLogService {
             );
             if (claim.changes !== 1) continue;
             offline++;
+            // Owner ruling 2026-11-07: offline is `info` unless it mattered in THAT
+            // room (decided per routed room), so a nightly power-off is never a problem.
+            const { WitnessService } = await import('./WitnessService.js');
+            const target = await WitnessService.getDeviceTarget(d.atgames_unique_id);
             await ActivityLogService.recordForDevice(d.atgames_unique_id, d.canonical_user_id, {
-                category: 'device', eventType: 'device_offline', severity: 'problem',
+                category: 'device', eventType: 'device_offline',
                 summary: 'Device stopped responding (no heartbeat for over 5 minutes)',
                 details: { lastHeartbeat: d.heartbeat_at },
                 createdAt: d.heartbeat_at,
-            });
+            }, async (roomId) => (roomId && await ActivityLogService.deviceMatteredInRoom(
+                roomId, d.canonical_user_id, target.tournamentId,
+            )) ? 'problem' : 'info');
         }
 
         const sessions = await db.all<Array<{
@@ -500,6 +532,31 @@ export class ActivityLogService {
         })());
     }
 
+    /**
+     * Did a device going quiet matter in this room right now (owner ruling
+     * 2026-11-07)? True when the player is checked in to an unfinished event
+     * of the room, or the room has an open event round or an open game in a
+     * Limited-attempts tournament. The device already routes to the room; a
+     * device pinned to one tournament only counts that tournament.
+     */
+    static async deviceMatteredInRoom(roomId: string, canonicalUserId: string, pinnedTournamentId: string | null): Promise<boolean> {
+        const db = await getDatabase();
+        const row = await db.get(
+            `SELECT 1 FROM tournaments t
+              WHERE t.game_room_id = ? AND (? IS NULL OR t.id = ?)
+                AND (
+                    (t.format = 'event' AND t.event_finished_at IS NULL
+                       AND EXISTS (SELECT 1 FROM tournament_participants tp WHERE tp.tournament_id = t.id AND tp.user_id = ?))
+                 OR (t.format = 'event' AND EXISTS (SELECT 1 FROM games g WHERE g.tournament_id = t.id AND g.status = 'ACTIVE'))
+                 OR (t.max_attempts IS NOT NULL AND t.is_active = 1
+                       AND EXISTS (SELECT 1 FROM games g WHERE g.tournament_id = t.id AND g.status = 'ACTIVE'))
+                )
+              LIMIT 1`,
+            roomId, pinnedTournamentId, pinnedTournamentId, canonicalUserId,
+        );
+        return !!row;
+    }
+
     /** Daily retention prune (ADR 0037 §8). */
     static async prune(retentionDays: number = ACTIVITY_RETENTION_DAYS): Promise<number> {
         const db = await getDatabase();
@@ -563,14 +620,53 @@ export class ActivityLogService {
             }
             clauses.push(`(${parts.join(' OR ')})`);
         }
-        const tz = f.timezone || 'UTC';
-        if (f.from) {
-            const from = zonedDayStartUtc(f.from, tz);
-            if (from) { clauses.push('a.created_at >= ?'); params.push(from); }
-        }
-        if (f.to) {
-            const to = zonedDayStartUtc(f.to, tz, 1);
-            if (to) { clauses.push('a.created_at < ?'); params.push(to); }
+        if (f.from || f.to) {
+            const range = (tz: string): { sql: string; params: unknown[] } | null => {
+                const parts: string[] = [];
+                const ps: unknown[] = [];
+                const from = f.from ? zonedDayStartUtc(f.from, tz) : null;
+                const to = f.to ? zonedDayStartUtc(f.to, tz, 1) : null;
+                if (from) { parts.push('a.created_at >= ?'); ps.push(from); }
+                if (to) { parts.push('a.created_at < ?'); ps.push(to); }
+                return parts.length ? { sql: parts.join(' AND '), params: ps } : null;
+            };
+            const defaultTz = f.timezone || 'UTC';
+            if (f.roomId !== undefined || f.roomless) {
+                const r = range(defaultTz);
+                if (r) { clauses.push(r.sql); params.push(...r.params); }
+            } else {
+                // Super-admin across rooms (owner ruling 2026-11-07): each row's
+                // dates are read in ITS room's zone; rooms with no valid zone and
+                // room-less rows use `defaultTz` (the server zone, the end of the
+                // resolveTimezone chain).
+                const db = await getDatabase();
+                const { roomTimezonesFor } = await import('../utils/roomTimezone.js');
+                const roomIds = (await db.all<Array<{ id: string }>>('SELECT id FROM game_rooms')).map(r => r.id);
+                const byTz = new Map<string, string[]>();
+                for (const [roomId, tz] of await roomTimezonesFor(roomIds)) {
+                    if (tz === defaultTz) continue;
+                    byTz.set(tz, [...(byTz.get(tz) ?? []), roomId]);
+                }
+                const ors: string[] = [];
+                const orParams: unknown[] = [];
+                const grouped: string[] = [];
+                for (const [tz, ids] of byTz) {
+                    const r = range(tz);
+                    if (!r) continue;
+                    ors.push(`(a.game_room_id IN (${ids.map(() => '?').join(',')}) AND ${r.sql})`);
+                    orParams.push(...ids, ...r.params);
+                    grouped.push(...ids);
+                }
+                const r = range(defaultTz);
+                if (r) {
+                    const notGrouped = grouped.length
+                        ? `(a.game_room_id IS NULL OR a.game_room_id NOT IN (${grouped.map(() => '?').join(',')}))`
+                        : '1=1';
+                    ors.push(`(${notGrouped} AND ${r.sql})`);
+                    orParams.push(...grouped, ...r.params);
+                }
+                if (ors.length) { clauses.push(`(${ors.join(' OR ')})`); params.push(...orParams); }
+            }
         }
         if (f.tournamentId) { clauses.push('a.tournament_id = ?'); params.push(f.tournamentId); }
         if (f.game && f.game.trim()) {

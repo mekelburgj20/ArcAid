@@ -260,10 +260,14 @@ async function seedWorld(): Promise<SeedContext> {
          VALUES (?, 'friend_score', 'friend scored', 'other-player', ?)`,
         roomId, user1,
     );
-    // room_events — no dedicated user column; the 18+ char id lives inside the JSON blob.
+    // activity_log (G14) — a row about the user and one they acted in.
     await db.run(
-        `INSERT INTO room_events (game_room_id, event_type, event_data) VALUES (?, 'score', ?)`,
-        roomId, JSON.stringify({ discordUserId: user1, note: 'seeded' }),
+        `INSERT INTO activity_log (game_room_id, category, event_type, canonical_user_id, summary) VALUES (?, 'score', 'score_landed', ?, 'seeded')`,
+        roomId, user1,
+    );
+    await db.run(
+        `INSERT INTO activity_log (game_room_id, category, event_type, actor_user_id, summary) VALUES (?, 'admin', 'admin_action', ?, 'seeded')`,
+        roomId, user1,
     );
 
     // ================= user1: ANONYMIZE non-score tables =================
@@ -371,8 +375,8 @@ async function seedWorld(): Promise<SeedContext> {
         roomId, user2,
     );
     await db.run(
-        `INSERT INTO room_events (game_room_id, event_type, event_data) VALUES (?, 'score', ?)`,
-        roomId, JSON.stringify({ discordUserId: user2, note: 'seeded' }),
+        `INSERT INTO activity_log (game_room_id, category, event_type, canonical_user_id, summary) VALUES (?, 'score', 'score_landed', ?, 'seeded')`,
+        roomId, user2,
     );
     await db.run(
         `INSERT INTO submissions
@@ -468,9 +472,9 @@ describe('S12 — AccountDeletionService.anonymizeUser (data effects)', () => {
         expect(await count(
             'SELECT COUNT(*) AS n FROM lobby_feed_events WHERE player_id = ? OR target_user_id = ?', ctx.user1, ctx.user1,
         )).toBe(0);
-        // Best-effort JSON scrub of room_events referencing the id.
+        // The activity log's rows about or by the user (G14).
         expect(await count(
-            `SELECT COUNT(*) AS n FROM room_events WHERE event_data LIKE '%' || ? || '%'`, ctx.user1,
+            'SELECT COUNT(*) AS n FROM activity_log WHERE canonical_user_id = ? OR actor_user_id = ?', ctx.user1, ctx.user1,
         )).toBe(0);
     });
 
@@ -684,7 +688,7 @@ describe('S12 — AccountDeletionService.anonymizeUser (data effects)', () => {
         expect(await count('SELECT COUNT(*) AS n FROM room_members WHERE user_id = ?', ctx.user2)).toBe(1);
         expect(await count('SELECT COUNT(*) AS n FROM lobby_feed_events WHERE player_id = ?', ctx.user2)).toBe(1);
         expect(await count(
-            `SELECT COUNT(*) AS n FROM room_events WHERE event_data LIKE '%' || ? || '%'`, ctx.user2,
+            'SELECT COUNT(*) AS n FROM activity_log WHERE canonical_user_id = ? AND summary = ?', ctx.user2, 'seeded',
         )).toBe(1);
 
         // user2 score rows keep FULL attribution (nothing de-identified).

@@ -314,12 +314,8 @@ export class AccountDeletionService {
             await del('lobby_feed_events',
                 'DELETE FROM lobby_feed_events WHERE player_id = ? OR target_user_id = ?', id, id);
 
-            // --- BEST-EFFORT room_events JSON scrub (no dedicated user column) ---
-            // The discord id is a unique ~18-digit token, so a false substring match
-            // is negligible; this is a one-time scan.
-            await del('room_events',
-                "DELETE FROM room_events WHERE event_data LIKE '%' || ? || '%'", id);
-            // G14 (ADR 0037) - the activity log's rows about or by this user.
+            // G14 (ADR 0037) - the activity log's rows about or by this user
+            // (it replaced room_events, whose best-effort JSON scrub lived here).
             await del('activity_log',
                 'DELETE FROM activity_log WHERE canonical_user_id = ? OR actor_user_id = ?', id, id);
 
