@@ -23,6 +23,7 @@ import { notifications } from './commands/notifications.js';
 import { join } from './commands/join.js';
 import { handleCalloutMessage } from './callouts.js';
 import { registerGatewayChannelTypeLookup } from '../utils/discord.js';
+import { registerGatewayChannelNameLookup } from '../utils/channelNames.js';
 
 /**
  * Module-level handle to the live DiscordClient, set in the constructor so
@@ -70,6 +71,19 @@ export class DiscordClient {
         // v2.221.0 (E8): forum-aware senders in utils/discord.ts read channel
         // types from this gateway cache before falling back to REST.
         registerGatewayChannelTypeLookup(id => this.getCachedChannelType(id));
+        // G16: the activity log shows channel names, not ids.
+        registerGatewayChannelNameLookup(id => this.getCachedChannelName(id));
+    }
+
+    /** A channel's name from the gateway cache; null when not ready, unknown or nameless. */
+    public getCachedChannelName(channelId: string): string | null {
+        try {
+            if (!this.client.isReady()) return null;
+            const channel = this.client.channels.cache.get(channelId);
+            return channel && 'name' in channel && typeof channel.name === 'string' ? channel.name : null;
+        } catch {
+            return null;
+        }
     }
 
     /** A channel's type from the gateway cache; null when not ready or unknown. */
