@@ -12,11 +12,18 @@ import { discordExcludedRoomIds } from './discordRoomFilter.js';
  * `game_room_settings` key, `DISCORD_COMMAND_POLICY`:
  *
  *   { "version": 1,
- *     "defaults": { "channelIds": string[], "roleIds": string[] },
+ *     "defaults": { "channelIds": string[], "roleIds": string[], "publicRoleIds": string[] },
  *     "commands": { [name]: { "enabled": boolean, "channelIds": string[], "roleIds": string[],
- *                             "ephemeral": boolean } } }
+ *                             "publicRoleIds": string[], "ephemeral": boolean } } }
  *
  * The rules (keep them this simple):
+ *   - Two role tiers (v2.224.0, E15): `roleIds` = roles that may use the
+ *     command with a PRIVATE reply; `publicRoleIds` = roles that may use it
+ *     with the reply VISIBLE to everyone. Absent `publicRoleIds` = [] (a
+ *     stored policy from before 2.224.0 parses exactly as it did).
+ *     ALLOWED when the effective `roleIds ∪ publicRoleIds` is empty or the
+ *     member holds any role in it. VISIBLE when `ephemeral === false` OR the
+ *     member holds a role in the effective `publicRoleIds`; else ephemeral.
  *   - `ephemeral` (v2.218.0, E9): absent = true. Every command's replies are
  *     private to the person who ran it until the room flips that command to
  *     visible. `true` is ENFORCED by `forceEphemeralReplies` below (the
@@ -28,8 +35,9 @@ import { discordExcludedRoomIds } from './discordRoomFilter.js';
  *     warn naming the room (see `loadRoomPolicy`), never throws.
  *   - A command not present in `commands` -> enabled, inherits the defaults.
  *   - Effective channel list = the command's `channelIds` when non-empty, else
- *     `defaults.channelIds`; empty = any channel. Same for roles. A member
- *     passes the role test when they hold ANY listed role.
+ *     `defaults.channelIds`; empty = any channel. Same for `roleIds` and, on
+ *     its own, `publicRoleIds`. A member passes the role test when they hold
+ *     ANY role in either effective list.
  *   - `enabled: false` -> refused everywhere in that room's guild.
  *   - Ids are Discord snowflakes; anything not matching `SNOWFLAKE_RE` is
  *     dropped on parse.
@@ -61,11 +69,16 @@ export interface CommandRule {
      * this version), so an error a command already sends ephemerally stays so.
      */
     ephemeral: boolean;
+    /**
+     * v2.224.0 (E15): roles that may use the command AND get a reply visible
+     * to everyone. Empty = inherit `defaults.publicRoleIds`.
+     */
+    publicRoleIds: string[];
 }
 
 export interface CommandPolicy {
     version: 1;
-    defaults: { channelIds: string[]; roleIds: string[] };
+    defaults: { channelIds: string[]; roleIds: string[]; publicRoleIds: string[] };
     commands: Record<string, CommandRule>;
 }
 
@@ -82,7 +95,7 @@ export interface CommandPolicyDecision {
 }
 
 export function emptyCommandPolicy(): CommandPolicy {
-    return { version: 1, defaults: { channelIds: [], roleIds: [] }, commands: {} };
+    return { version: 1, defaults: { channelIds: [], roleIds: [], publicRoleIds: [] }, commands: {} };
 }
 
 function idList(v: unknown): string[] {
@@ -111,6 +124,7 @@ function parseWithStatus(raw: string | null | undefined): { policy: CommandPolic
     if (isObject(parsed.defaults)) {
         policy.defaults.channelIds = idList(parsed.defaults.channelIds);
         policy.defaults.roleIds = idList(parsed.defaults.roleIds);
+        policy.defaults.publicRoleIds = idList(parsed.defaults.publicRoleIds);
     }
     if (isObject(parsed.commands)) {
         for (const [name, rule] of Object.entries(parsed.commands)) {
@@ -120,6 +134,7 @@ function parseWithStatus(raw: string | null | undefined): { policy: CommandPolic
                 channelIds: idList(rule.channelIds),
                 roleIds: idList(rule.roleIds),
                 ephemeral: rule.ephemeral !== false,
+                publicRoleIds: idList(rule.publicRoleIds),
             };
         }
     }
@@ -136,9 +151,11 @@ export function parseCommandPolicy(raw: string | null | undefined): CommandPolic
  * no restriction AND no command flipped to visible.
  */
 export function isEmptyCommandPolicy(policy: CommandPolicy): boolean {
-    if (policy.defaults.channelIds.length > 0 || policy.defaults.roleIds.length > 0) return false;
+    const d = policy.defaults;
+    if (d.channelIds.length > 0 || d.roleIds.length > 0 || d.publicRoleIds.length > 0) return false;
     return Object.values(policy.commands).every(
-        r => r.enabled && r.ephemeral && r.channelIds.length === 0 && r.roleIds.length === 0,
+        r => r.enabled && r.ephemeral && r.channelIds.length === 0 && r.roleIds.length === 0
+            && r.publicRoleIds.length === 0,
     );
 }
 
@@ -160,7 +177,10 @@ export function evaluateCommandPolicy(
 ): CommandPolicyVerdict {
     const rule = policy.commands[ctx.commandName];
     const channelIds = rule && rule.channelIds.length > 0 ? rule.channelIds : policy.defaults.channelIds;
-    const roleIds = rule && rule.roleIds.length > 0 ? rule.roleIds : policy.defaults.roleIds;
+    const privateRoleIds = rule && rule.roleIds.length > 0 ? rule.roleIds : policy.defaults.roleIds;
+    const publicRoleIds = rule && rule.publicRoleIds.length > 0 ? rule.publicRoleIds : policy.defaults.publicRoleIds;
+    // Either tier lets the member in; the refusal names the union (v2.224.0, E15).
+    const roleIds = Array.from(new Set([...privateRoleIds, ...publicRoleIds]));
     if (rule && rule.enabled === false) {
         return { allowed: false, reason: 'disabled', channelIds, roleIds };
     }
@@ -170,7 +190,9 @@ export function evaluateCommandPolicy(
     if (roleIds.length > 0 && !ctx.memberRoleIds.some(r => roleIds.includes(r))) {
         return { allowed: false, reason: 'role', channelIds, roleIds };
     }
-    return { allowed: true, ephemeral: rule ? rule.ephemeral : true };
+    const visibleToAll = rule ? rule.ephemeral === false : false;
+    const publicRole = ctx.memberRoleIds.some(r => publicRoleIds.includes(r));
+    return { allowed: true, ephemeral: !(visibleToAll || publicRole) };
 }
 
 /** One warn per (room, stored value), not one per interaction. */
@@ -236,7 +258,9 @@ async function defaultRoleLister(): Promise<RoleLister> {
  * ephemeral. Allowed when ANY remaining room allows it (a room with no policy
  * allows everything, ephemeral). When all refuse, the first room by name
  * supplies the reason. Visible (ephemeral false) only when EVERY room that
- * allows the command says so - the private default wins a disagreement.
+ * allows the command says so for THIS member (its `ephemeral: false`, or the
+ * member holds one of its `publicRoleIds`) - the private default wins a
+ * disagreement.
  *
  * `userId` is accepted for symmetry with the other Discord gates and future
  * per-user rules; today the decision is channel + roles only.
@@ -301,6 +325,24 @@ export async function commandPolicyBlockReason(
     listRoles?: RoleLister,
 ): Promise<string | null> {
     return (await commandPolicyDecision(guildId, userId, commandName, channelId, memberRoleIds, listRoles)).refusal;
+}
+
+/**
+ * v2.224.0 (E15): what a REFUSED autocomplete shows instead of an empty list
+ * (Discord renders `respond([])` as "No options match your search", which
+ * reads as a bug). The value is a sentinel no game / tournament id or name
+ * equals; picking it and submitting runs the chat-input dispatch, whose
+ * `commandPolicyDecision` refuses the same member in the same channel before
+ * any command code sees the value. Every autocompleted option today is a
+ * STRING option, so a string value is valid for all of them.
+ */
+export const POLICY_REFUSED_CHOICE_VALUE = '__arcaid_policy_refused__';
+
+export function policyRefusedAutocompleteChoices(): Array<{ name: string; value: string }> {
+    return [{
+        name: "Not allowed here — this command is limited by the room's slash-command policy",
+        value: POLICY_REFUSED_CHOICE_VALUE,
+    }];
 }
 
 type ReplyMethod = 'reply' | 'deferReply' | 'followUp';

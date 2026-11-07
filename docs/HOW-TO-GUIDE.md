@@ -365,6 +365,8 @@ Results are paginated at 20 per page.
 
 Your players interact with Arcaid primarily through Discord slash commands. Here's what each command does and when to use it.
 
+Room admins choose which commands the bot answers, and who may use them, in **Room Settings → Discord → Slash commands**. Replies are private to the person who ran the command unless you tick "Visible to everyone"; to let only some roles post publicly (for example, a Tournament Creator showing `/list-scores` to the channel while players see it privately), add those roles to the command's "Roles whose reply is visible to everyone" picker. Roles set under "Defaults for every command" apply to player commands too, so leave that empty if you only want to lock admin commands.
+
 ### Player Commands
 
 These commands are available to all members in your Discord server.

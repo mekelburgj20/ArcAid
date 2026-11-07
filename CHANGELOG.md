@@ -6,6 +6,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.224.0] - 2026-11-06 - Two-tier roles per slash command
+
+Owner-approved 2026-11-06 (E15, E14). A room wanted players to run `/list-scores` privately while a Tournament Creator
+runs it and the whole channel sees the standings; one `ephemeral` switch per command could not say both. And in Mox's
+room a role placed in "Defaults for every command" silently refused `/submit-score`, `/list-scores` and `/my-stats` to
+every player without it.
+
+### Added
+
+- `publicRoleIds` on each command rule and on `defaults` in `DISCORD_COMMAND_POLICY`
+  (`src/utils/discordCommandPolicy.ts`): roles that may use the command AND get a reply visible to everyone. Inherits
+  like `roleIds` (a non-empty command list replaces the default list). A stored policy without the field parses as
+  before. Decision: allowed when the effective `roleIds ∪ publicRoleIds` is empty or the member holds one of them (the
+  refusal names the union by role name); visible when the command is "Visible to everyone" OR the member holds a
+  `publicRoleIds` role; otherwise private. Several rooms on one guild: visible only when every allowing room says so
+  for that member.
+- Room Settings -> Discord -> Slash commands: a "Roles whose reply is visible to everyone" picker per command and in
+  the defaults block (dimmed, with "Every allowed role already posts publicly.", while the command is already visible).
+- The defaults block now says it applies to player commands too, and warns by name when default roles gate a player
+  command that has no roles of its own. `GET /api/rooms/:roomId/admin/discord/commands` returns `adminOnly` per
+  command (from the command's Discord default member permissions) so the warning hard-codes no command names.
+
+### Changed
+
+- A command the policy refuses no longer answers autocomplete with an empty list (Discord shows "No options match your
+  search", which read as a bug on `/submit-score`'s game list). It offers one choice explaining that the room's
+  slash-command policy limits the command; its value is a sentinel, and submitting it is refused by the same policy
+  check before any command code runs.
+
+---
+
 ## [2.222.0] - 2026-11-06 - /join and three retired slash commands
 
 A slash-command audit (owner-approved 2026-11-06, E12). Players had no way to join a room from Discord, and three

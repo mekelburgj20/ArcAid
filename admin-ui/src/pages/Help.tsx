@@ -966,6 +966,9 @@ export default function Help() {
         <SectionHeading id="discord-commands">10. Discord Bot Commands</SectionHeading>
         <p className="text-muted text-sm mb-4">
           Players interact with Arcaid primarily through Discord slash commands.
+          Room admins choose which commands the bot answers, and who may use them, in Room Settings &rarr; Discord &rarr; Slash commands.
+          Replies are private unless a command is set to &ldquo;Visible to everyone&rdquo;, or the person holds one of its
+          &ldquo;Roles whose reply is visible to everyone&rdquo; (handy for a Tournament Creator who posts standings for the channel).
         </p>
 
         {/* Player Commands */}

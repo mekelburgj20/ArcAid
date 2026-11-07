@@ -11,7 +11,11 @@ import { api } from '../lib/api';
  *   - a command not in `commands` is enabled and uses the defaults;
  *   - a command's channel (or role) list, when non-empty, replaces the default
  *     list; an empty list everywhere means "any";
- *   - holding ANY listed role passes the role test.
+ *   - holding ANY listed role passes the role test;
+ *   - two role tiers (v2.224.0, E15): `roleIds` may use the command with a
+ *     private reply, `publicRoleIds` may use it with the reply visible to
+ *     everyone. Allowed = either tier (or both empty); visible = the
+ *     command's "Visible to everyone" switch OR a `publicRoleIds` role.
  *
  * Like ChatResponsesSettings, EVERY CONTROL HERE COMMITS ON INTERACTION via
  * `onSaveNow` (optimistic, rolled back by the page on failure) - never the
@@ -33,17 +37,20 @@ interface Rule {
   roleIds: string[];
   /** v2.218.0 (E9): absent = true; replies are private to whoever ran the command. */
   ephemeral: boolean;
+  /** v2.224.0 (E15): roles whose reply is visible to everyone; empty = use the defaults. */
+  publicRoleIds: string[];
 }
 
-const DEFAULT_RULE: Rule = { enabled: true, channelIds: [], roleIds: [], ephemeral: true };
+const DEFAULT_RULE: Rule = { enabled: true, channelIds: [], roleIds: [], ephemeral: true, publicRoleIds: [] };
 
 interface Policy {
   version: 1;
-  defaults: { channelIds: string[]; roleIds: string[] };
+  defaults: { channelIds: string[]; roleIds: string[]; publicRoleIds: string[] };
   commands: Record<string, Rule>;
 }
 
-interface BotCommand { name: string; description: string }
+/** `adminOnly` (v2.224.0, E14): the command carries Discord default member permissions. */
+interface BotCommand { name: string; description: string; adminOnly?: boolean }
 interface GuildChannel { id: string; name: string; parent: string | null }
 interface GuildRole { id: string; name: string; position: number; managed: boolean }
 
@@ -58,13 +65,17 @@ function isObj(v: unknown): v is Record<string, unknown> {
 
 /** Tolerant read; anything unparseable is the allow-everything policy. */
 function parsePolicy(raw: string | undefined): Policy {
-  const policy: Policy = { version: 1, defaults: { channelIds: [], roleIds: [] }, commands: {} };
+  const policy: Policy = { version: 1, defaults: { channelIds: [], roleIds: [], publicRoleIds: [] }, commands: {} };
   if (!raw) return policy;
   let parsed: unknown;
   try { parsed = JSON.parse(raw); } catch { return policy; }
   if (!isObj(parsed)) return policy;
   if (isObj(parsed.defaults)) {
-    policy.defaults = { channelIds: ids(parsed.defaults.channelIds), roleIds: ids(parsed.defaults.roleIds) };
+    policy.defaults = {
+      channelIds: ids(parsed.defaults.channelIds),
+      roleIds: ids(parsed.defaults.roleIds),
+      publicRoleIds: ids(parsed.defaults.publicRoleIds),
+    };
   }
   if (isObj(parsed.commands)) {
     for (const [name, rule] of Object.entries(parsed.commands)) {
@@ -74,6 +85,7 @@ function parsePolicy(raw: string | undefined): Policy {
         channelIds: ids(rule.channelIds),
         roleIds: ids(rule.roleIds),
         ephemeral: rule.ephemeral !== false,
+        publicRoleIds: ids(rule.publicRoleIds),
       };
     }
   }
@@ -84,10 +96,11 @@ function parsePolicy(raw: string | undefined): Policy {
 function serializePolicy(policy: Policy): string {
   const commands: Record<string, Rule> = {};
   for (const [name, rule] of Object.entries(policy.commands)) {
-    if (!rule.enabled || !rule.ephemeral || rule.channelIds.length > 0 || rule.roleIds.length > 0) commands[name] = rule;
+    if (!rule.enabled || !rule.ephemeral || rule.channelIds.length > 0 || rule.roleIds.length > 0
+      || rule.publicRoleIds.length > 0) commands[name] = rule;
   }
   const empty = policy.defaults.channelIds.length === 0 && policy.defaults.roleIds.length === 0
-    && Object.keys(commands).length === 0;
+    && policy.defaults.publicRoleIds.length === 0 && Object.keys(commands).length === 0;
   if (empty) return '';
   return JSON.stringify({ version: 1, defaults: policy.defaults, commands });
 }
@@ -205,18 +218,37 @@ export default function DiscordCommandPolicy({ roomId, settings, onSaveNow }: Pr
   const channelOptions: Option[] = channels.map(c => ({ id: c.id, label: `#${c.name}`, hint: c.parent }));
   const roleOptions: Option[] = roles.map(r => ({ id: r.id, label: r.name, hint: r.managed ? '(bot role)' : null }));
 
+  // E14 (v2.224.0): default roles gate PLAYER commands too. Warn when the
+  // defaults carry a role and an enabled player command (`adminOnly === false`
+  // from the live bot) has no roles of its own, so it inherits that gate.
+  const defaultGateRoleIds = Array.from(new Set([...policy.defaults.roleIds, ...policy.defaults.publicRoleIds]));
+  const gatedPlayerCommands = defaultGateRoleIds.length === 0 || !commands ? [] : commands
+    .filter(c => c.adminOnly === false)
+    .filter(c => {
+      const rule = ruleFor(c.name);
+      return rule.enabled && rule.roleIds.length === 0 && rule.publicRoleIds.length === 0;
+    })
+    .map(c => `/${c.name}`);
+  const defaultGateRoleNames = defaultGateRoleIds
+    .map(id => roleOptions.find(o => o.id === id)?.label ?? 'Unknown role')
+    .join(' or ');
+
   return (
     <div className="pt-3 mt-3 border-t border-border/30 space-y-3" data-testid="discord-command-policy">
       <div>
         <p className="text-sm font-medium text-primary">Slash commands</p>
         <p className="text-xs text-muted">
           Choose which Arcaid commands the bot answers in your server, and limit them to roles or channels. Leave a list empty to allow any.
-          Replies are private to the person who ran the command unless you turn on &ldquo;Visible to everyone&rdquo; for it.
+          Replies are private to the person who ran the command unless you turn on &ldquo;Visible to everyone&rdquo; for it,
+          or the person holds one of its &ldquo;Roles whose reply is visible to everyone&rdquo; (those roles may also use it).
         </p>
       </div>
 
       <div className="rounded border border-border/50 p-2">
         <p className="text-xs font-display uppercase tracking-wider text-neon-cyan/70">Defaults for every command</p>
+        <p className="text-xs text-muted" data-testid="command-policy-defaults-caption">
+          Applies to every command, player ones included. To lock admin commands only, set roles on those commands and leave this empty.
+        </p>
         <div className="flex flex-col sm:flex-row sm:gap-3">
           <MultiPick
             label="Channels"
@@ -239,6 +271,21 @@ export default function DiscordCommandPolicy({ roomId, settings, onSaveNow }: Pr
             testId="command-policy-default-roles"
           />
         </div>
+        <MultiPick
+          label="Roles whose reply is visible to everyone"
+          emptyText="None"
+          options={roleOptions}
+          selected={policy.defaults.publicRoleIds}
+          unknownLabel="Unknown role"
+          unavailable={rolesMessage}
+          onChange={next => save({ ...policy, defaults: { ...policy.defaults, publicRoleIds: next } })}
+          testId="command-policy-default-public-roles"
+        />
+        {gatedPlayerCommands.length > 0 && (
+          <p role="alert" className="mt-1 text-xs text-neon-magenta" data-testid="command-policy-defaults-warning">
+            Default roles are gating player commands: {gatedPlayerCommands.join(', ')}. Players without {defaultGateRoleNames} cannot use them.
+          </p>
+        )}
       </div>
 
       {commands === null ? (
@@ -300,6 +347,26 @@ export default function DiscordCommandPolicy({ roomId, settings, onSaveNow }: Pr
                     onChange={next => updateRule(cmd.name, { roleIds: next })}
                     testId={`command-policy-roles-${cmd.name}`}
                   />
+                </div>
+                <div
+                  className={`${rule.enabled ? '' : 'opacity-50 pointer-events-none'} ${rule.ephemeral ? '' : 'opacity-50'}`}
+                  aria-disabled={!rule.enabled}
+                >
+                  <MultiPick
+                    label="Roles whose reply is visible to everyone"
+                    emptyText="Using defaults"
+                    options={roleOptions}
+                    selected={rule.publicRoleIds}
+                    unknownLabel="Unknown role"
+                    unavailable={rolesMessage}
+                    onChange={next => updateRule(cmd.name, { publicRoleIds: next })}
+                    testId={`command-policy-public-roles-${cmd.name}`}
+                  />
+                  {!rule.ephemeral && (
+                    <p className="text-xs text-faint" data-testid={`command-policy-public-caption-${cmd.name}`}>
+                      Every allowed role already posts publicly.
+                    </p>
+                  )}
                 </div>
               </div>
             );
