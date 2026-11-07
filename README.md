@@ -232,7 +232,7 @@ middleware redacts them from request bodies.
 | Platform Rules | `Must be available on` (game-level eligibility — game must list ≥1 required platform) and `Not allowed on` (submission-level filter — score's selected platform can't be in this list). Two orthogonal axes — see ADR 0009 |
 | Cleanup Rule | What happens to completed games: immediate hide, retain last N, or scheduled cron |
 | Max Active Games | How many games can be active simultaneously (1–10) |
-| Discord Channel | Override announcement channel per tournament |
+| Announcements | Room defaults, Don't post to Discord, or Customize per category (a channel or Don't post for each of Tournament posts, Pick prompts, Polls and Top-score posts) |
 | Discord Role | Optional role mention in announcements |
 
 ## Tech Stack

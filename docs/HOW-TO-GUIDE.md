@@ -218,7 +218,7 @@ Fill in the creation form at the top of the page:
 | **Max Active Games** | How many games run simultaneously in this tournament (1–10) |
 | **Cleanup Rule** | What happens to finished games on iScored |
 | **Platform Rules** | Require or exclude specific platforms for game eligibility |
-| **Discord Channel** | Override the default announcement channel for this tournament |
+| **Announcements** | **Room defaults** follows the room's Announcement channels; **Don't post to Discord** keeps this tournament off Discord; **Customize per category** picks a channel (or Don't post) for each of Tournament posts, Pick prompts and warnings, Polls and Top-score posts |
 
 {Image of the Create Tournament form}
 
