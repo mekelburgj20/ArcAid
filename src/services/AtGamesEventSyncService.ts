@@ -475,8 +475,10 @@ export class AtGamesEventSyncService {
         const end = new Date(endWithGraceMs).toISOString();
 
         const client = new AtGamesPrivateClient(creds);
+        // Trimmed: the client finds the new tournament again by exact name, and a
+        // trailing space typed into the event name must not break that match.
         const created = await client.createPrivateTournament({
-            name: tournament.name, startDate: start, endDate: end, gameIds,
+            name: tournament.name.trim(), startDate: start, endDate: end, gameIds,
         });
 
         await db.run(

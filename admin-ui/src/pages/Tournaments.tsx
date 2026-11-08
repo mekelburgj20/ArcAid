@@ -365,7 +365,9 @@ export default function Tournaments() {
       setAtgamesCode({ name, code: res.inviteCode });
       fetchTournaments();
     } catch (err) {
-      toast(`Event saved, but AtGames said no: ${(err as Error)?.message || 'unknown error'}. Fix it, then use Rounds → Create on AtGames.`, 'error');
+      // Not "AtGames said no": most refusals are Arcaid's own checks (no room
+      // account, a table with no AtGames match) and never reach AtGames.
+      toast(`Event saved, but the AtGames tournament was not created: ${(err as Error)?.message || 'unknown error'}. Fix it, then use Rounds → Create on AtGames.`, 'error');
     }
   };
 

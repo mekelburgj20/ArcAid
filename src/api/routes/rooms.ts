@@ -2068,6 +2068,10 @@ router.post('/:roomId/admin/tournaments/:tournamentId/atgames-create', requireAu
             });
             return res.json({ success: true, ...result });
         } catch (err) {
+            // Every refusal leaves a log line. Without one, a create that fails
+            // on Arcaid's own checks (no room account, no catalogue match) leaves
+            // nothing on the server to explain it.
+            if (err instanceof Error) logWarn(`AtGames create refused for event ${tournamentId}: ${err.message}`);
             if (err instanceof AtGamesSyncError) {
                 return res.status(err.code === 'NOT_FOUND' ? 404 : 400).json({ error: err.message, code: err.code });
             }

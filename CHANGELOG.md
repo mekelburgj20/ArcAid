@@ -6,6 +6,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.230.1] - 2026-11-08 - A failed AtGames create now says why
+
+A31.1. The first live create-on-save attempt showed only "AtGames said no: Request failed", and the server logged
+nothing, so the cause could not be found. Four small fixes:
+
+- **The admin UI names the HTTP status** when a failed response has no JSON body (`Request failed (HTTP 502 Bad Gateway)`),
+  instead of a bare "Request failed". This applies to every admin call (`lib/api.ts`).
+- **Every AtGames create refusal is logged** as a WARN with the event id and the reason. Arcaid's own checks (no room
+  AtGames account, no catalogue match) used to answer the admin and leave nothing on the server.
+- **The failure message no longer blames AtGames.** It reads "the AtGames tournament was not created", because most
+  refusals are Arcaid's own checks and never reach AtGames.
+- **The event name is trimmed before it goes to AtGames,** and the lookup of the new tournament compares trimmed
+  names. A trailing space in the event name could otherwise create the tournament on AtGames but fail to find it.
+
 ## [2.230.0] - 2026-11-08 - Create the AtGames tournament when you save an event; join code on the row
 
 A31 (owner-asked 2026-11-08). Creating an AtGames private tournament for a Live Event used to be a separate step,
