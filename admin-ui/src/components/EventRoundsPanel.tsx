@@ -481,6 +481,14 @@ export default function EventRoundsPanel({ roomId, roomSlug, tournament, onClose
                 {inviteCode && (
                     <p className="text-xs text-neon-cyan mb-2">
                         Players join on their cabinet with invitation code <span className="font-mono font-bold">{inviteCode}</span>.
+                        <button
+                            type="button"
+                            onClick={async () => {
+                                try { await navigator.clipboard.writeText(inviteCode); toast('Join code copied', 'success'); }
+                                catch { toast(`Could not copy — the code is ${inviteCode}`, 'error'); }
+                            }}
+                            className="ml-2 px-2 py-0.5 rounded border border-neon-cyan/40 hover:bg-neon-cyan/15 transition-colors"
+                        >Copy</button>
                     </p>
                 )}
                 <div className="flex gap-2 items-center flex-wrap">
