@@ -423,7 +423,7 @@ export class AtGamesPrivateClient {
 
         const list = await this.listPrivateTournaments();
         const created = list
-            .filter(t => t.name === input.name)
+            .filter(t => (t.name ?? '').trim() === input.name.trim())
             .sort((a, b) => Date.parse(b.createdAt ?? '') - Date.parse(a.createdAt ?? ''))[0];
         if (!created) {
             throw new Error(

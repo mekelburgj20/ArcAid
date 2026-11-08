@@ -90,6 +90,15 @@ async function tryRefreshAdminToken(): Promise<string | null> {
   }
 }
 
+/**
+ * The message for a failed response whose body is not JSON (a proxy error
+ * page, a timeout). It names the status, which is the only clue left; the old
+ * bare "Request failed" gave the admin nothing to report.
+ */
+function nonJsonFailure(res: Response): string {
+  return `Request failed (HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ''})`;
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {
     ...(options?.headers as Record<string, string> || {}),
@@ -113,7 +122,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
       headers['Authorization'] = `Bearer ${newToken}`;
       const retryRes = await fetch(`${BASE}${path}`, { ...options, headers });
       if (!retryRes.ok) {
-        const error = await retryRes.json().catch(() => ({ error: 'Request failed' }));
+        const error = await retryRes.json().catch(() => ({ error: nonJsonFailure(retryRes) }));
         throw new ApiError(error.error || `HTTP ${retryRes.status}`, retryRes.status, error);
       }
       return retryRes.json();
@@ -132,7 +141,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   }
 
   if (!res.ok) {
-    const error = await res.json().catch(() => ({ error: 'Request failed' }));
+    const error = await res.json().catch(() => ({ error: nonJsonFailure(res) }));
     throw new ApiError(error.error || `HTTP ${res.status}`, res.status, error);
   }
   return res.json();
