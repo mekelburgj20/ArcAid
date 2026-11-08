@@ -113,6 +113,11 @@ export default function Tournaments() {
   const [editTarget, setEditTarget] = useState<Tournament | null>(null);
   /** v2.135.0 — the run-an-event panel (rounds + check-in roster). */
   const [roundsTarget, setRoundsTarget] = useState<Tournament | null>(null);
+  // Create-on-save: tick it on an event form and the AtGames private
+  // tournament is created right after the event saves, then its join code is
+  // shown in a dialog (players type it on their cabinet).
+  const [createOnAtGames, setCreateOnAtGames] = useState(false);
+  const [atgamesCode, setAtgamesCode] = useState<{ name: string; code: string | null } | null>(null);
   const [seasonTarget, setSeasonTarget] = useState<Tournament | null>(null);
   /** v2.166.0 (ADR 0027) — required tables + the Castcade evidence trail. */
   const [integrityTarget, setIntegrityTarget] = useState<Tournament | null>(null);
@@ -332,9 +337,13 @@ export default function Tournaments() {
 
   const handleCreate = async () => {
     if (!createForm.state.name.trim() || !createForm.state.tag.trim()) return;
+    const id = uuidv4();
+    const name = createForm.state.name.trim();
+    const alsoAtGames = createForm.state.format === 'event' && createOnAtGames && createForm.state.maxAttempts == null;
     try {
-      await api.post(`/rooms/${room.roomId}/tournaments`, toPayload(createForm.state, { id: uuidv4(), is_active: true }));
+      await api.post(`/rooms/${room.roomId}/tournaments`, toPayload(createForm.state, { id, is_active: true }));
       createForm.reset(defaultFormStateFor(roomTz));
+      setCreateOnAtGames(false);
       toast('Tournament created', 'success');
       fetchTournaments();
     } catch (err) {
@@ -343,6 +352,29 @@ export default function Tournaments() {
       // tournament). `api.ts` surfaces the server's `error` string as the
       // Error message, so show it rather than a generic failure.
       toast((err as Error)?.message || 'Failed to create tournament', 'error');
+      return;
+    }
+    if (!alsoAtGames) return;
+    // The event is saved either way; an AtGames refusal (no account, a table
+    // with no AtGames match) leaves it unlinked, and Rounds → Create on AtGames
+    // retries once the cause is fixed.
+    try {
+      const res = await api.post<{ atgamesTournamentId: string; inviteCode: string | null }>(
+        `/rooms/${room.roomId}/admin/tournaments/${id}/atgames-create`, {},
+      );
+      setAtgamesCode({ name, code: res.inviteCode });
+      fetchTournaments();
+    } catch (err) {
+      toast(`Event saved, but AtGames said no: ${(err as Error)?.message || 'unknown error'}. Fix it, then use Rounds → Create on AtGames.`, 'error');
+    }
+  };
+
+  const copyText = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast('Join code copied', 'success');
+    } catch {
+      toast(`Could not copy — the code is ${text}`, 'info');
     }
   };
 
@@ -461,6 +493,13 @@ export default function Tournaments() {
                   )}
                   {chip && (
                     <span className={`ml-2 text-xs px-2 py-0.5 rounded border ${tone}`}>{chip.text}</span>
+                  )}
+                  {t.format === 'event' && t.atgames_invite_code && (
+                    <button
+                      type="button" onClick={() => copyText(t.atgames_invite_code!)}
+                      title="AtGames join code — players type it on their cabinet. Click to copy."
+                      className="ml-2 text-xs px-2 py-0.5 rounded border bg-neon-cyan/10 text-neon-cyan border-neon-cyan/40 hover:bg-neon-cyan/20 whitespace-nowrap"
+                    >AtGames code <span className="font-mono font-bold">{t.atgames_invite_code}</span></button>
                   )}
                   {t.season && t.season.table_count != null && (
                     <span className="ml-2 text-xs px-2 py-0.5 rounded border bg-neon-purple/15 text-neon-purple border-neon-purple/40 whitespace-nowrap">
@@ -706,6 +745,24 @@ export default function Tournaments() {
           roomId={room.roomId}
           roomTimezone={roomTz}
         />
+        {createForm.state.format === 'event' && (
+          <label className="flex items-start gap-2 mb-4 text-sm cursor-pointer">
+            <input
+              type="checkbox" className="mt-1"
+              checked={createOnAtGames && createForm.state.maxAttempts == null}
+              disabled={createForm.state.maxAttempts != null}
+              onChange={e => setCreateOnAtGames(e.target.checked)}
+            />
+            <span>
+              <span className="text-primary">Also create it on AtGames</span>
+              <span className="block text-xs text-faint">
+                {createForm.state.maxAttempts != null
+                  ? 'Not available with limited attempts — AtGames cannot report game starts, so its scores are refused on a limited event.'
+                  : "Creates the AtGames private tournament when you save, from these rounds' tables and times, and shows the join code players type on their cabinet. Uses this room's AtGames account (Settings → Integrations); every table needs an AtGames match."}
+              </span>
+            </span>
+          </label>
+        )}
         <NeonButton
           onClick={handleCreate}
           disabled={
@@ -868,6 +925,34 @@ export default function Tournaments() {
               }}>
                 {displayNameSaving ? 'Saving...' : 'Save'}
               </NeonButton>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AtGames join code, shown once right after create-on-save */}
+      {atgamesCode && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-surface border border-border rounded-lg p-6 w-full max-w-md text-center">
+            <h2 className="font-display text-lg font-bold mb-2">Created on AtGames</h2>
+            {atgamesCode.code ? (
+              <>
+                <p className="text-muted text-sm mb-4">
+                  Players join <span className="text-primary font-medium">{atgamesCode.name}</span> on their cabinet with this code:
+                </p>
+                <p className="font-mono font-bold text-4xl tracking-widest text-neon-cyan mb-4 select-all break-all">{atgamesCode.code}</p>
+                <p className="text-xs text-faint mb-4">It also stays on the tournament's row in the list below — click it to copy.</p>
+              </>
+            ) : (
+              <p className="text-muted text-sm mb-4">
+                The tournament was created, but AtGames did not return a join code. Look it up on atgames.net.
+              </p>
+            )}
+            <div className="flex gap-2 justify-center">
+              {atgamesCode.code && (
+                <NeonButton onClick={() => copyText(atgamesCode.code!)}>Copy code</NeonButton>
+              )}
+              <NeonButton variant="ghost" onClick={() => setAtgamesCode(null)}>Done</NeonButton>
             </div>
           </div>
         </div>

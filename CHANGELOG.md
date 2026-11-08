@@ -6,6 +6,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.230.0] - 2026-11-08 - Create the AtGames tournament when you save an event; join code on the row
+
+A31 (owner-asked 2026-11-08). Creating an AtGames private tournament for a Live Event used to be a separate step,
+found only by opening the saved event's Rounds panel, and the join code players type on their cabinet was shown
+only there.
+
+- **"Also create it on AtGames"** on the Create New Tournament form (Event format only). On save, the event is
+  created first, then the existing `atgames-create` route runs for it; a dialog shows the join code large with a
+  Copy button. If AtGames refuses (no room account, a table with no AtGames match), the event stays saved and the
+  toast names the reason and the retry (Rounds → Create on AtGames).
+- Disabled when the form sets limited attempts: an AtGames pull is refused on a limited tournament (ADR 0029).
+- **The join code sits on the event's row** in the tournament list ("AtGames code XXXX", click to copy), and the
+  Rounds panel's code line gained a Copy button.
+- Front end only; no route, schema or service change.
+
 ## [2.229.0] - 2026-11-07 - Activity log: Discord channels by name; default-only toggle saves ignored
 
 G16, the owner's answers to G15's open questions (2026-11-07: "1 yes, 2 not now, 3 ignore them").
