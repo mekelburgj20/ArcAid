@@ -480,11 +480,11 @@ router.post('/link/atgames', requireDiscordUser, async (req, res) => {
         const { randomUUID } = await import('crypto');
 
         let session;
+        const client = new AtGamesPrivateClient({ email, password, deviceFp: randomUUID() });
         try {
             // force=true: never reuse a cached session for a VERIFICATION —
             // the whole point is that these credentials work right now.
-            session = await new AtGamesPrivateClient({ email, password, deviceFp: randomUUID() })
-                .ensureSession(true);
+            session = await client.ensureSession(true);
         } catch (err) {
             if (err instanceof AtGamesAuthError) {
                 // 401-shaped regardless of AtGames' exact status: the player
@@ -492,6 +492,10 @@ router.post('/link/atgames', requireDiscordUser, async (req, res) => {
                 return res.status(401).json({ error: 'AtGames did not accept that email and password', code: 'ATGAMES_AUTH' });
             }
             throw err;
+        } finally {
+            // The sign-in only proves ownership; never keep the player's
+            // session afterwards (v2.232.0).
+            client.forget();
         }
         if (session.accountId == null) {
             return res.status(502).json({ error: 'AtGames signed in but returned no account id — try again later' });
