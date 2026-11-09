@@ -433,6 +433,54 @@ export class AtGamesPrivateClient {
         return created;
     }
 
+    /**
+     * Joins this account to a private tournament by invitation code.
+     *
+     * Contract read from atgames.net's own "Join with code" dialog (2026-11-08):
+     * `POST /user/tournaments/private/memberships` with `{invitationCode}`; the
+     * reply is the joined tournament. AtGames' refusal text (bad code, already
+     * a member) travels up as the error message, since it is the only reason.
+     */
+    async joinPrivateTournament(invitationCode: string): Promise<{ id: number | null; name: string | null }> {
+        const session = await this.ensureSession();
+        try {
+            const res = await axios.post(
+                `${API_BASE}${PRIVATE_TOURNAMENTS_PATH}/memberships`,
+                { invitationCode },
+                {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Accept: 'application/json',
+                        Authorization: `Bearer ${session.token}`,
+                        fp: this.creds.deviceFp,
+                    },
+                    timeout: REQUEST_TIMEOUT_MS,
+                },
+            );
+            const data = (res.data ?? {}) as { id?: unknown; name?: unknown; tournament?: { id?: unknown; name?: unknown } };
+            const t = data.tournament ?? data;
+            const id = Number(t.id);
+            return { id: Number.isFinite(id) ? id : null, name: typeof t.name === 'string' ? t.name : null };
+        } catch (err) {
+            const status = statusOf(err);
+            if (status == null) throw err;
+            const text = responseBodyText(err);
+            throw new AtGamesApiError(
+                `AtGames did not let you join (HTTP ${status})${text ? ` — ${text}` : ''}`,
+                status, text,
+            );
+        }
+    }
+
+    /**
+     * Drops this account's cached session. A PLAYER's sign-in (join, account
+     * link) is used once and forgotten, so Arcaid never holds a working key to
+     * a player's AtGames account afterwards (owner 2026-11-08: no liability).
+     */
+    forget(): void {
+        sessions.delete(this.cacheKey);
+    }
+
     /** Every private tournament this account can see. */
     async listPrivateTournaments(): Promise<AtGamesPrivateTournamentSummary[]> {
         const data = await this.authedGet<unknown>(PRIVATE_TOURNAMENTS_PATH);

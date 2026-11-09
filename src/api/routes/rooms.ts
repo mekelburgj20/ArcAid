@@ -57,7 +57,7 @@ import {
 import { SeasonPollService, SeasonPollError, type SeasonTournamentRow } from '../../services/SeasonPollService.js';
 import { SeasonConfigError, TournamentFormatLockedError } from '../../services/TournamentService.js';
 import { RotationAuditService } from '../../services/RotationAuditService.js';
-import { writeLimiter, pickLimiter, pickAlertsLimiter, guestContentLimiter } from '../rateLimit.js';
+import { writeLimiter, pickLimiter, pickAlertsLimiter, guestContentLimiter, authLimiter } from '../rateLimit.js';
 import { isAllowedImage } from '../uploadValidation.js';
 import { withUploadErrors } from '../uploadMiddleware.js';
 import { TournamentEngine } from '../../engine/TournamentEngine.js';
@@ -5462,6 +5462,14 @@ router.get('/:roomId/events/:id', roomVisibilityGate, optionalDiscordUser, async
             rounds: boards ?? [],
             standings: standings ?? null,
             lobby,
+            // v2.232.0 (A33) — an AtGames-linked event offers "Join on AtGames".
+            // The code (for joining on a cabinet by hand) goes to signed-in
+            // viewers only; the join route reads it from the row, not the client.
+            atgames: (() => {
+                const code = (event as { atgames_invite_code?: string | null }).atgames_invite_code?.trim() || null;
+                if (!code) return null;
+                return { joinable: !event.event_finished_at, code: viewerId ? code : null };
+            })(),
             viewer: {
                 canCheckIn: !!viewerId && checkinOpen && !participant,
                 reason: !viewerId ? 'LOGIN_REQUIRED'
@@ -5507,6 +5515,91 @@ router.post('/:roomId/events/:id/checkin', writeLimiter, roomVisibilityGate, req
             return res.status(403).json({ error: error.message, code: error.code });
         }
         logError('API Error (POST rooms/:roomId/events/:id/checkin):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Join this event's AtGames private tournament as the viewer (v2.232.0, A33).
+//
+// Joining has to be done AS the player's own AtGames account, so the player
+// types their AtGames email and password. They are used for this one request
+// and forgotten: the session is dropped before the response, and nothing but
+// the `atgames:<id>` link row is kept (owner 2026-11-08: "Ask for password each
+// time. I don't want the liability."). The invitation code comes from the
+// event row, never from the client. Joining also links the account, through
+// the SAME AtGamesIdentityService.linkAccount the Account Settings link uses.
+router.post('/:roomId/events/:id/atgames-join', authLimiter, roomVisibilityGate, requireDiscordUser, requireNotBanned, async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const viewerId = req.user!.discordId!;
+        const event = await resolveRoomEvent(roomId, req.params.id as string);
+        if (!event) return res.status(404).json({ error: 'Event not found' });
+        if (event.event_finished_at) return res.status(400).json({ error: 'This event is over' });
+
+        const db = await getDatabase();
+        const row = await db.get<{ atgames_invite_code: string | null }>(
+            'SELECT atgames_invite_code FROM tournaments WHERE id = ?', event.id,
+        );
+        const code = row?.atgames_invite_code?.trim();
+        if (!code) return res.status(400).json({ error: 'This event has no AtGames tournament to join', code: 'NOT_LINKED' });
+
+        const email = typeof req.body?.email === 'string' ? req.body.email.trim() : '';
+        const password = typeof req.body?.password === 'string' ? req.body.password : '';
+        if (!email || !password) return res.status(400).json({ error: 'AtGames email and password are required' });
+
+        const { AtGamesPrivateClient, AtGamesAuthError, AtGamesApiError } = await import('../../services/AtGamesPrivateClient.js');
+        const { AtGamesIdentityService, AtGamesLinkError } = await import('../../services/AtGamesIdentityService.js');
+        const { randomUUID } = await import('crypto');
+        const client = new AtGamesPrivateClient({ email, password, deviceFp: randomUUID() });
+        try {
+            let session;
+            try {
+                session = await client.ensureSession(true);
+            } catch (err) {
+                if (err instanceof AtGamesAuthError) {
+                    return res.status(401).json({ error: 'AtGames did not accept that email and password', code: 'ATGAMES_AUTH' });
+                }
+                throw err;
+            }
+
+            // Link first: a player who is already in the AtGames tournament
+            // still gets linked, so their scores carry their name.
+            let linked = false;
+            let linkConflict = false;
+            if (session.accountId != null) {
+                try {
+                    await AtGamesIdentityService.linkAccount(session.accountId, viewerId);
+                    linked = true;
+                } catch (err) {
+                    if (err instanceof AtGamesLinkError && err.code === 'LINK_CONFLICT') linkConflict = true;
+                    else throw err;
+                }
+            }
+
+            let joined;
+            try {
+                joined = await client.joinPrivateTournament(code);
+            } catch (err) {
+                if (err instanceof AtGamesApiError) {
+                    logWarn(`AtGames join refused for account ${session.accountId ?? '?'} on event ${event.id}: ${err.message}`);
+                    return res.status(502).json({ error: err.message, code: 'ATGAMES_REJECTED', linked, linkConflict });
+                }
+                throw err;
+            }
+
+            logInfo(`AtGames join: account ${session.accountId ?? '?'} joined AtGames tournament ${joined.id ?? '?'} for event ${event.id}`);
+            void ActivityLogService.record({
+                roomId, category: 'lifecycle', eventType: 'atgames_joined', userId: viewerId,
+                tournamentId: event.id, tournamentName: event.name, source: 'atgames',
+                summary: 'Joined the AtGames tournament from Arcaid',
+                details: { atgamesAccountId: session.accountId, linked, linkConflict },
+            });
+            return res.json({ success: true, tournamentName: joined.name ?? event.name, linked, linkConflict });
+        } finally {
+            client.forget();
+        }
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/events/:id/atgames-join):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

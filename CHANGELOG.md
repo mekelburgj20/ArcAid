@@ -6,6 +6,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.232.0] - 2026-11-08 - Join the AtGames tournament from the event page
+
+A33 (owner 2026-11-08). Joining an event's AtGames private tournament meant going to atgames.net, finding "Join with
+code" and typing the code the host read out. Now the event page has a **Join on AtGames** button:
+
+- **The player signs in with their AtGames email and password, and Arcaid joins them.** The code is filled in by the
+  server from the event, so nobody types it. Owner ruling: ask for the password every time, keep nothing. The player's
+  AtGames session is dropped as soon as the join finishes, whether it worked or not.
+- **Joining also links the player's AtGames account** (the same link as Account Settings), so their cabinet scores
+  show their name. An account already linked to someone else still joins, and the player is told.
+- **The Account Settings link now drops the player's session too.** It used to stay in server memory for the token's
+  life (about a week).
+- The event page shows the code itself to signed-in viewers, for joining on the cabinet by hand.
+- Joining counts as a login attempt for rate limiting (5 a minute). A successful join writes an activity row.
+
 ## [2.231.0] - 2026-11-08 - AtGames scores come in on their own
 
 A32 (owner 2026-11-08: "It needs to happen automatically"). An AtGames-linked event used to show no scores until a
