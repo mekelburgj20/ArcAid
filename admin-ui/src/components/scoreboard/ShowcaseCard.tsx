@@ -13,6 +13,7 @@ import { qrEdgeMetrics, DEFAULT_QR_OFFSET_PX } from '../../lib/scoreboardConfig'
 import { useCoverFraming } from './useCoverFraming';
 import { tournamentChipLabel } from './tournamentChip';
 import CardAttemptStart from './CardAttemptStart';
+import CardAtGamesJoin from './CardAtGamesJoin';
 import CardAttemptsLeft from './CardAttemptsLeft';
 
 interface ShowcaseCardProps {
@@ -402,6 +403,15 @@ export default function ShowcaseCard({
 
           {/* W56 — Start attempts, directly above the footer (the card's action strip). */}
           <CardAttemptStart
+            lb={lb}
+            className="px-6"
+            style={{
+              borderTopColor: cardBgFill ? 'rgba(255,255,255,0.15)' : theme.footerBorder,
+              ...(cardBgFill ? { background: 'rgba(0,0,0,0.3)' } : {}),
+            }}
+          />
+          {/* v2.234.0 (A36) — Join on AtGames, same strip. */}
+          <CardAtGamesJoin
             lb={lb}
             className="px-6"
             style={{

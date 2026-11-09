@@ -116,3 +116,49 @@ describe('POST /:roomId/events/:id/atgames-join', () => {
         expect(signed.body.atgames).toEqual({ joinable: true, code: 'ETX2MKJ' });
     });
 });
+
+describe('GET /:roomId/atgames/joinable (A36, scoreboard card button)', () => {
+    it('lists only ACTIVE rounds of linked, unfinished events; the code only for a signed-in viewer', async () => {
+        await setupTestDb();
+        await seedLinkedEvent();
+        const db = await getDatabase();
+        const a = await app();
+
+        // Round still SCHEDULED: no button yet.
+        let res = await request(a).get(`/api/rooms/${linkedRoom}/atgames/joinable`);
+        expect(res.body.games).toEqual([]);
+
+        await db.run(`UPDATE games SET status = 'ACTIVE' WHERE tournament_id = ? AND round_no = 1`, linkedEvent);
+        const round = await db.get<{ id: string }>('SELECT id FROM games WHERE tournament_id = ? AND round_no = 1', linkedEvent);
+
+        res = await request(a).get(`/api/rooms/${linkedRoom}/atgames/joinable`);
+        expect(res.body.games).toEqual([{ gameId: round!.id, tournamentId: linkedEvent, tournamentName: 'Card Night', code: null }]);
+
+        const token = signToken({ role: 'player', gameRoomIds: [], discordId: 'p-2', username: 'p-2' });
+        res = await request(a).get(`/api/rooms/${linkedRoom}/atgames/joinable`).set('Authorization', `Bearer ${token}`);
+        expect(res.body.games[0].code).toBe('CARD123');
+
+        // Finished event: gone.
+        await db.run(`UPDATE tournaments SET event_finished_at = datetime('now') WHERE id = ?`, linkedEvent);
+        res = await request(a).get(`/api/rooms/${linkedRoom}/atgames/joinable`);
+        expect(res.body.games).toEqual([]);
+    });
+});
+
+let linkedRoom = '';
+let linkedEvent = '';
+async function seedLinkedEvent() {
+    linkedRoom = await createTestRoom(`card-${crypto.randomUUID().slice(0, 8)}`, 'Card Room');
+    linkedEvent = crypto.randomUUID();
+    const db = await getDatabase();
+    await db.run(
+        `INSERT INTO tournaments (id, name, type, mode, cadence, is_active, game_room_id, format, atgames_tournament_id, atgames_invite_code)
+         VALUES (?, 'Card Night', 'DG', 'pinball', '{"timezone":"UTC"}', 1, ?, 'event', '1262', 'CARD123')`,
+        linkedEvent, linkedRoom,
+    );
+    const start = Date.now() + 60 * 60_000;
+    await EventService.createOrUpdateEvent(linkedEvent, {
+        rounds: [{ roundNo: 1, gameName: 'Arkanoid (Pinball)', scheduledStartAt: new Date(start).toISOString(), scheduledEndAt: new Date(start + 30 * 60_000).toISOString() }],
+        checkinRequired: false,
+    });
+}

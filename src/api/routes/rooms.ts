@@ -5576,6 +5576,38 @@ router.post('/:roomId/events/:id/checkin', writeLimiter, roomVisibilityGate, req
     }
 });
 
+// The room's live round cards a viewer can join on AtGames (v2.234.0, A36):
+// ACTIVE rounds of unfinished events linked to an AtGames private tournament.
+// The scoreboard reads this ONCE per load and puts "Join on AtGames" on those
+// cards, where "Start attempts" sits. The code goes to signed-in viewers only,
+// same as the event page.
+router.get('/:roomId/atgames/joinable', roomVisibilityGate, optionalDiscordUser, async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const db = await getDatabase();
+        const rows = await db.all<Array<{ game_id: string; tournament_id: string; tournament_name: string; code: string }>>(
+            `SELECT g.id AS game_id, t.id AS tournament_id, t.name AS tournament_name, t.atgames_invite_code AS code
+               FROM games g
+               JOIN tournaments t ON t.id = g.tournament_id
+              WHERE t.game_room_id = ? AND t.format = 'event' AND t.is_active = 1
+                AND t.event_finished_at IS NULL
+                AND t.atgames_invite_code IS NOT NULL AND TRIM(t.atgames_invite_code) != ''
+                AND g.round_no IS NOT NULL AND g.status = 'ACTIVE'`,
+            roomId,
+        );
+        const signedIn = !!req.user?.discordId;
+        res.json({
+            games: rows.map(r => ({
+                gameId: r.game_id, tournamentId: r.tournament_id, tournamentName: r.tournament_name,
+                code: signedIn ? r.code.trim() : null,
+            })),
+        });
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/atgames/joinable):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 // Join this event's AtGames private tournament as the viewer (v2.232.0, A33).
 //
 // Joining has to be done AS the player's own AtGames account, so the player

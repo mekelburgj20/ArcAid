@@ -18,6 +18,8 @@ import { TAB_LABELS } from '../lib/scoresCopy';
 import { SeasonPollLobbyNudge } from '../components/SeasonPollCard';
 import { CardAttemptStartContext } from '../components/scoreboard/cardAttemptStartContext';
 import { useRoomAttemptStarts } from '../hooks/useRoomAttemptStarts';
+import { useRoomAtGamesJoin } from '../hooks/useRoomAtGamesJoin';
+import { CardAtGamesJoinContext } from '../components/scoreboard/cardAtGamesJoinContext';
 
 type ScoresTab = 'tournaments' | 'room' | 'global';
 
@@ -111,12 +113,15 @@ export default function Scoreboard() {
   // S4: the leaderboard/rankings viewer-rank ("Your best — Rank #N") needs the
   // PLAYER token (Discord session), not the admin token (null for public viewers).
   const playerHeaders = usePlayerHeaders();
-  const { discordUser, playerToken } = useViewerAuth();
+  const { discordUser, playerToken, loginWithDiscord } = useViewerAuth();
 
   // W56 (ADR 0033 §4) — the viewer's "Start attempts" list for this room: ONE
   // room-level read, handed to every card through context (no per-card fetch).
   // A guest has no list, so the cards draw no control.
   const { value: attemptStartValue, reload: reloadAttemptStarts } = useRoomAttemptStarts(roomId, playerToken);
+  // v2.234.0 (A36) — the room's AtGames-joinable round cards, same pattern.
+  const { value: atgamesJoinValue, reload: reloadAtGamesJoin, dialog: atgamesJoinDialog } =
+    useRoomAtGamesJoin(roomId, playerToken, () => loginWithDiscord(slug ?? '', `/${slug ?? ''}`));
 
   const deviceType = window.innerWidth <= 640 ? 'mobile' : 'desktop';
 
@@ -182,6 +187,7 @@ export default function Scoreboard() {
     if (!roomId) return;
     // W56 — a rotation or a round change can open/close a start-required table.
     void reloadAttemptStarts();
+    void reloadAtGamesJoin();
     try {
       const res = await fetch(`/api/rooms/${roomId}/leaderboard`, { headers: playerHeaders });
       if (res.ok) setLeaderboards(await res.json());
@@ -266,6 +272,7 @@ export default function Scoreboard() {
 
   return (
     <CardAttemptStartContext.Provider value={attemptStartValue}>
+    <CardAtGamesJoinContext.Provider value={atgamesJoinValue}>
       <ScoreboardSurface
         config={config}
         roomName={roomName}
@@ -384,6 +391,8 @@ export default function Scoreboard() {
         />
       )}
 
+      {atgamesJoinDialog}
+    </CardAtGamesJoinContext.Provider>
     </CardAttemptStartContext.Provider>
   );
 }

@@ -16,6 +16,7 @@ import { formatScore, parseServerDate } from '../../lib/format';
 import { resolveRowClick, opensQuickView, QUICK_VIEW_HINT } from '../../lib/scoreGesture';
 import { tournamentChipLabel } from './tournamentChip';
 import CardAttemptStart from './CardAttemptStart';
+import CardAtGamesJoin from './CardAtGamesJoin';
 import CardAttemptsLeft from './CardAttemptsLeft';
 
 /**
@@ -521,6 +522,7 @@ export default function ArcadeCard({
                control stays glued to it instead of floating mid-card. */}
         <div className="relative z-[2] mt-auto">
         <CardAttemptStart lb={lb} style={{ borderTopColor: 'var(--sb-card-footer-border)' }} />
+        <CardAtGamesJoin lb={lb} style={{ borderTopColor: 'var(--sb-card-footer-border)' }} />
         <div
           className="relative z-[2] flex items-start justify-between gap-2 rounded-b-[8px] border-t px-3"
           style={{

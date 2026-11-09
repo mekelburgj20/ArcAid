@@ -14,6 +14,7 @@ import { formatScore, parseServerDate } from '../../lib/format';
 import { resolveRowClick, opensQuickView, QUICK_VIEW_HINT } from '../../lib/scoreGesture';
 import { tournamentChipLabel } from './tournamentChip';
 import CardAttemptStart from './CardAttemptStart';
+import CardAtGamesJoin from './CardAtGamesJoin';
 import CardAttemptsLeft from './CardAttemptsLeft';
 
 interface BannerCardProps {
@@ -388,6 +389,7 @@ export default function BannerCard({
 
       {/* W56 — Start attempts, directly above the footer (the card's action strip). */}
       <CardAttemptStart lb={lb} />
+      <CardAtGamesJoin lb={lb} />
 
       {/* Footer */}
       <div className="border-t border-border/30 px-3 flex justify-between items-start text-[10px] sb-fs-10 text-faint" style={{ paddingTop: 8, paddingBottom: 8 + qrMetrics.footerExtra }}>
