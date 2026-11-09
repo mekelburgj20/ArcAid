@@ -41,6 +41,32 @@ const EVENT_COLOR = 0xFF4D6D;
 
 const MEDALS = ['🥇', '🥈', '🥉'];
 
+/** How often a live AtGames-linked event is read from AtGames. */
+export const ATGAMES_AUTO_PULL_INTERVAL_MS = 2 * 60_000;
+/** After a failed read (bad password, AtGames down), wait this long before trying again. */
+export const ATGAMES_AUTO_PULL_BACKOFF_MS = 15 * 60_000;
+
+/**
+ * Whether the clock should read this event from AtGames now.
+ *
+ * A round about to close always gets a read, even inside the backoff: the
+ * round closes later in this same tick, the event can finish with it, and a
+ * score left on AtGames after that would never be counted. Otherwise read
+ * every interval, and back off after a failure so a wrong password is not
+ * retried against AtGames every two minutes.
+ */
+export function atgamesPullDue(
+    nowMs: number,
+    closingThisTick: boolean,
+    lastAttemptMs: number | undefined,
+    lastFailed: boolean,
+): boolean {
+    if (closingThisTick) return true;
+    if (lastAttemptMs === undefined) return true;
+    const wait = lastFailed ? ATGAMES_AUTO_PULL_BACKOFF_MS : ATGAMES_AUTO_PULL_INTERVAL_MS;
+    return nowMs - lastAttemptMs >= wait;
+}
+
 interface DueRoundRow extends EventRoundRow {
     tournament_name: string;
     tournament_type: string;
@@ -53,6 +79,8 @@ export class EventScheduler {
     private static instance: EventScheduler;
     /** Reentrancy guard: a slow tick (iScored board creation) must not overlap the next minute's. */
     private running = false;
+    /** Last AtGames read per event. In memory: a restart just reads again on the next tick. */
+    private atgamesPulls = new Map<string, { atMs: number; failed: boolean }>();
 
     public static getInstance(): EventScheduler {
         if (!EventScheduler.instance) EventScheduler.instance = new EventScheduler();
@@ -76,6 +104,8 @@ export class EventScheduler {
             for (const step of [
                 () => this.openCheckIns(now),
                 () => this.startDueRounds(now),
+                // Before endDueRounds: a round's last read must land before it closes.
+                () => this.pullAtGamesScores(now),
                 () => this.endDueRounds(now),
                 () => this.finishCompletedEvents(now),
             ]) {
@@ -242,6 +272,69 @@ export class EventScheduler {
     }
 
     // --- Step 3: rounds end ------------------------------------------------
+
+    // --- AtGames auto-pull -----------------------------------------------
+
+    /**
+     * Reads every live AtGames-linked event from AtGames and writes new scores
+     * (v2.231.0, A32). It is the same `syncTournament` the host's "Pull scores"
+     * button runs, so the window check, the dedup and the identity link behave
+     * identically; a repeat read adds nothing.
+     */
+    private async pullAtGamesScores(now: Date): Promise<void> {
+        const db = await getDatabase();
+        const rows = await db.all<Array<{
+            tournament_id: string; tournament_name: string; game_room_id: string | null;
+            end_grace_sec: number | null; scheduled_end_at: string | null;
+        }>>(
+            `SELECT t.id AS tournament_id, t.name AS tournament_name, t.game_room_id, t.end_grace_sec,
+                    g.scheduled_end_at
+               FROM tournaments t
+               JOIN games g ON g.tournament_id = t.id
+              WHERE t.format = 'event' AND t.is_active = 1
+                AND t.atgames_tournament_id IS NOT NULL AND t.atgames_tournament_id != ''
+                AND (t.max_attempts IS NULL OR t.max_attempts < 1)
+                AND g.round_no IS NOT NULL AND g.status = 'ACTIVE'`,
+        );
+        if (rows.length === 0) return;
+
+        const nowMs = now.getTime();
+        const events = new Map<string, { name: string; roomId: string | null; closing: boolean }>();
+        for (const r of rows) {
+            const endMs = r.scheduled_end_at ? Date.parse(r.scheduled_end_at) : NaN;
+            // The same test endDueRounds uses to close the round in this tick.
+            const closing = Number.isFinite(endMs)
+                && endMs + eventEndGraceSec({ end_grace_sec: r.end_grace_sec }) * 1000 <= nowMs;
+            const e = events.get(r.tournament_id);
+            if (e) e.closing = e.closing || closing;
+            else events.set(r.tournament_id, { name: r.tournament_name, roomId: r.game_room_id, closing });
+        }
+
+        const { AtGamesEventSyncService } = await import('../services/AtGamesEventSyncService.js');
+        for (const [tournamentId, ev] of events) {
+            const last = this.atgamesPulls.get(tournamentId);
+            if (!atgamesPullDue(nowMs, ev.closing, last?.atMs, last?.failed ?? false)) continue;
+            try {
+                const result = await AtGamesEventSyncService.syncTournament(tournamentId);
+                this.atgamesPulls.set(tournamentId, { atMs: nowMs, failed: false });
+                if (ev.roomId) {
+                    for (const gameId of result.affectedGameIds) emitLeaderboardUpdated(ev.roomId, { gameId });
+                }
+            } catch (err) {
+                this.atgamesPulls.set(tournamentId, { atMs: nowMs, failed: true });
+                const msg = err instanceof Error ? err.message : String(err);
+                logWarn(`AtGames auto-pull failed for event '${ev.name}' (${tournamentId}): ${msg}`);
+                // One row per event per distinct reason, so a bad password
+                // shows on Room Admin -> Activity once, not every 15 minutes.
+                void ActivityLogService.record({
+                    roomId: ev.roomId, category: 'score', eventType: 'atgames_pull_failed', severity: 'problem',
+                    tournamentId, tournamentName: ev.name, source: 'atgames',
+                    summary: `AtGames scores could not be read: ${msg}`,
+                    dedupeKey: `atgames_pull_failed:${tournamentId}:${msg.slice(0, 120)}`,
+                });
+            }
+        }
+    }
 
     private async endDueRounds(now: Date): Promise<void> {
         const db = await getDatabase();
