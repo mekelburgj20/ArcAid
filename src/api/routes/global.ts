@@ -12,7 +12,7 @@ import { raSearchHandler, raImportHandler } from '../raCatalogueHandlers.js';
 import { validate } from '../validate.js';
 import { isAllowedImage } from '../uploadValidation.js';
 import { withUploadErrors } from '../uploadMiddleware.js';
-import { UpdatePreferencesSchema, SetRoomThemeSchema, PushSubscriptionSchema, PushUnsubscribeSchema, MAX_SCORE, PublicCreateRoomSchema, GlobalScoreSubmissionSchema, CreateThrowdownSchema, ThrowdownScoreSchema } from '../schemas.js';
+import { UpdatePreferencesSchema, SetRoomThemeSchema, SetPilePinnedSchema, PushSubscriptionSchema, PushUnsubscribeSchema, MAX_SCORE, PublicCreateRoomSchema, GlobalScoreSubmissionSchema, CreateThrowdownSchema, ThrowdownScoreSchema } from '../schemas.js';
 import { SettingsService } from '../../services/SettingsService.js';
 import { GameRoomService } from '../../services/GameRoomService.js';
 import { GlobalGameService } from '../../services/GlobalGameService.js';
@@ -764,6 +764,42 @@ router.put('/me/room-themes/:roomId', requireDiscordUser, async (req, res) => {
         res.json({ roomThemes });
     } catch (error) {
         logError('API Error (PUT /api/me/room-themes/:roomId):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// v2.236.0 (B23) — the tournaments whose "past games" pile this viewer keeps
+// open on room scoreboards. Per user, not per device or room (a tournament id
+// is unique across rooms); a guest keeps the same list in localStorage only.
+router.get('/me/pinned-piles', requireDiscordUser, async (req, res) => {
+    try {
+        const { PreferencesService } = await import('../../services/PreferencesService.js');
+        const pinnedPiles = await PreferencesService.getPinnedPiles(req.user!.discordId!);
+        res.json({ pinnedPiles });
+    } catch (error) {
+        logError('API Error (GET /api/me/pinned-piles):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.put('/me/pinned-piles/:tournamentId', requireDiscordUser, async (req, res) => {
+    try {
+        const validationResult = validate(SetPilePinnedSchema, req.body);
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+        const tournamentId = (req.params.tournamentId as string).trim();
+        if (!tournamentId || tournamentId.length > 100) {
+            return res.status(400).json({ error: 'Invalid tournament id' });
+        }
+
+        const { PreferencesService } = await import('../../services/PreferencesService.js');
+        const pinnedPiles = await PreferencesService.setPilePinned(
+            req.user!.discordId!,
+            tournamentId,
+            validationResult.data.pinned,
+        );
+        res.json({ pinnedPiles });
+    } catch (error) {
+        logError('API Error (PUT /api/me/pinned-piles/:tournamentId):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

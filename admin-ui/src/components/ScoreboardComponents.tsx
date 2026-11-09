@@ -116,6 +116,11 @@ export interface GameLeaderboard {
   rankings: RankedEntry[];
   nextMaintenanceAt?: string | null;
   globalGameId?: string | null;
+  /** v2.236.0 (B23) — the owning tournament (null on a pinned board); the
+   *  room board groups a tournament's finished cards into one pile by it. */
+  tournamentId?: string | null;
+  /** v2.236.0 (B23) — when a COMPLETED card's run ended (ISO); null while live. */
+  endedAt?: string | null;
   /**
    * v2.190.0 (W22) — event rounds only. Under 'prevent' the round's flagged
    * scores are left out of `rankings` and listed here (shown, never ranked).

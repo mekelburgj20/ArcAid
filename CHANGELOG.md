@@ -6,6 +6,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.236.0] - 2026-11-09 - Past games stack behind the live card
+
+B23. Owner screenshot 2026-11-09 (RTX Pinball): the Daily Grind kept four finished, locked cards on the Tournaments tab
+beside its one live card, and they pushed the live tables off-screen.
+
+### Added
+
+- **A tournament's finished cards fold into one pile behind its live card** on the public room board. The newest few
+  peek out to the right of the live card, and a count chip shows how many there are. Click the pile and they open in a
+  row right after the live card, newest first. A spine beside the live card then offers Fold, Keep open (pin) and the
+  tournament's results page. Pinning keeps that tournament's pile open on every visit; clicking the pin again folds it
+  and forgets it.
+- **Keep open is remembered for the player, not the device.** `GET`/`PUT /api/me/pinned-piles[/:tournamentId]` store
+  tournament ids in `scoreboard_prefs.pinnedPiles`, beside `roomThemes` (capped at 200, newest kept). A guest's pins
+  live in localStorage (`arcaid-pinned-piles`), which also gives a signed-in player a flash-free first paint.
+- The room board (`GET /api/rooms/:roomId/leaderboard`) now sends `tournamentId` on every card and `endedAt` on finished
+  ones. Grouping goes by tournament id, not name, because two tournaments can share a name.
+
+### Notes
+
+- Which finished cards stay on the board is still the tournament's cleanup rule; this only changes how they are drawn.
+- A search lays the board flat again, so a match is never hidden in a pile. The admin Leaderboard stays flat because
+  every card there carries its controls strip, and so does the kiosk, where there is nobody to open a pile.
+- In Grid layout the live card is 44px narrower than its neighbours, because the gutter shares its grid column. In the
+  rail and on phones the slot widens instead.
+
 ## [2.235.2] - 2026-11-09 - Game Names suggests the right table
 
 Owner screenshot 2026-11-09: "Kung Fu Panda Pinball" suggested (and preselected) the 1975 LTD "Kung Fu", and "Getaway - High

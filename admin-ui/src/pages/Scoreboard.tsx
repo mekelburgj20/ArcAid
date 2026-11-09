@@ -20,6 +20,7 @@ import { CardAttemptStartContext } from '../components/scoreboard/cardAttemptSta
 import { useRoomAttemptStarts } from '../hooks/useRoomAttemptStarts';
 import { useRoomAtGamesJoin } from '../hooks/useRoomAtGamesJoin';
 import { CardAtGamesJoinContext } from '../components/scoreboard/cardAtGamesJoinContext';
+import { usePinnedPiles } from '../hooks/usePinnedPiles';
 
 type ScoresTab = 'tournaments' | 'room' | 'global';
 
@@ -122,6 +123,8 @@ export default function Scoreboard() {
   // v2.234.0 (A36) — the room's AtGames-joinable round cards, same pattern.
   const { value: atgamesJoinValue, reload: reloadAtGamesJoin, dialog: atgamesJoinDialog } =
     useRoomAtGamesJoin(roomId, playerToken, () => loginWithDiscord(slug ?? '', `/${slug ?? ''}`));
+  // v2.236.0 (B23) — which tournaments' past-games piles this viewer keeps open.
+  const pinnedPiles = usePinnedPiles(playerToken);
 
   const deviceType = window.innerWidth <= 640 ? 'mobile' : 'desktop';
 
@@ -289,6 +292,7 @@ export default function Scoreboard() {
         // opens the same quick popup the title opens.
         onOpenQuickView={setQuickViewLb}
         searchFilter={tournamentSearch}
+        historyPiles={pinnedPiles}
         // S14: reserve room for the fixed-bottom lobby ticker so it doesn't
         // cover the last row of cards.
         scrollPaddingBottom={roomId ? 40 : undefined}

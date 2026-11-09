@@ -888,7 +888,7 @@ export class LeaderboardService {
     /**
      * Get leaderboards for all active games, optionally filtered by game room.
      */
-    static async getActiveLeaderboards(gameRoomId?: string): Promise<Array<{ gameId: string; gameName: string; displayName: string | null; tournamentName: string; tournamentType: string; imageUrl: string | null; gameStatus: string; catalogueStyleId: string | null; logoStyleId: string | null; bgStyleId: string | null; styleHeaderDisabled: boolean; bgZoom: number | null; bgPosX: number | null; bgPosY: number | null; externalUrl: string | null; notes: string | null; rankings: RankedEntry[]; nextMaintenanceAt: string | null; globalGameId: string | null; selfCorrectionLocked: boolean }>> {
+    static async getActiveLeaderboards(gameRoomId?: string): Promise<Array<{ gameId: string; gameName: string; displayName: string | null; tournamentName: string; tournamentType: string; imageUrl: string | null; gameStatus: string; catalogueStyleId: string | null; logoStyleId: string | null; bgStyleId: string | null; styleHeaderDisabled: boolean; bgZoom: number | null; bgPosX: number | null; bgPosY: number | null; externalUrl: string | null; notes: string | null; rankings: RankedEntry[]; nextMaintenanceAt: string | null; globalGameId: string | null; selfCorrectionLocked: boolean; tournamentId: string | null; endedAt: string | null }>> {
         const db = await getDatabase();
 
         const roomFilter = gameRoomId ? ' AND t.game_room_id = ?' : '';
@@ -1179,6 +1179,13 @@ export class LeaderboardService {
                 nextMaintenanceAt,
                 globalGameId: game.global_game_id || null,
                 selfCorrectionLocked: game.self_correction_locked === 1,
+                // v2.236.0 (B23): the public board stacks a tournament's
+                // retained COMPLETED cards into one pile under its live card,
+                // newest first. The name is not a safe grouping key (two
+                // tournaments may share one), and the admin card order can
+                // move a retained card, so the pile needs both of these.
+                tournamentId: game.tournament_id || null,
+                endedAt: game.status === 'COMPLETED' ? (game.end_date || null) : null,
                 // v2.190.0 (W22): event rounds only — absent on every other card.
                 ...eventOverlayExtras(eventOverlays.get(game.id)),
             });

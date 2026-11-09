@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Plus } from 'lucide-react';
 import type { GameLeaderboard, RankingGroupData, RankedEntry } from '../ScoreboardComponents';
 import {
@@ -11,6 +11,9 @@ import {
   getTitleSizeClass,
 } from '../ScoreboardComponents';
 import CardRouter from './CardRouter';
+import HistoryPile, { PILE_GUTTER_PX, PILE_MAX_EDGES } from './HistoryPile';
+import { buildHistoryPiles, type BoardUnit } from '../../lib/historyPiles';
+import type { PinnedPilesState } from '../../hooks/usePinnedPiles';
 import HorizontalScrollNav, { type HScrollMetrics } from '../HorizontalScrollNav';
 import { deriveCardProps, deriveScoreboardConfig, getCardWidth, qrEdgeMetrics } from '../../lib/scoreboardConfig';
 import { compareByRank } from '../../lib/searchRank';
@@ -135,6 +138,16 @@ export interface ScoreboardSurfaceProps {
   /** Free-text game-name filter (public search box). */
   searchFilter?: string;
 
+  /**
+   * v2.236.0 (B23) — fold each tournament's retained COMPLETED cards into a
+   * "past games" pile behind its live card (`lib/historyPiles.ts`), with the
+   * viewer's pinned-open state. Only the public page passes it. The admin
+   * Leaderboard keeps every card flat because each one carries its controls
+   * strip, and the kiosk because a TV has nobody to open a pile. A search
+   * also lays the board flat, so a match is never hidden in a pile.
+   */
+  historyPiles?: PinnedPilesState;
+
   /** Fixed-position page overlays (score flash, toast). Rendered inside the
    *  root, before the `<style>` block — where the public page had them. */
   overlays?: ReactNode;
@@ -226,6 +239,7 @@ export default function ScoreboardSurface({
   renderUnderRankingCard,
   renderCardOverlay,
   searchFilter,
+  historyPiles,
   overlays,
   headerExtras,
   aboveCards,
@@ -290,6 +304,31 @@ export default function ScoreboardSurface({
   if (trimmedSearch) {
     visibleLeaderboards.sort(compareByRank(trimmedSearch, lb => lb.displayName || lb.gameName));
   }
+
+  // v2.236.0 (B23) — past-games piles. A pile the viewer opened stays open
+  // until they fold it or reload; a PINNED pile opens on every visit.
+  const [openPiles, setOpenPiles] = useState<ReadonlySet<string>>(() => new Set());
+  const boardUnits: BoardUnit<LeaderboardWithViewer>[] = historyPiles && !trimmedSearch
+    ? buildHistoryPiles(visibleLeaderboards)
+    : visibleLeaderboards.map(lb => ({ kind: 'card' as const, lb }));
+  const setPileOpen = (tid: string, open: boolean) => setOpenPiles(prev => {
+    const next = new Set(prev);
+    if (open) next.add(tid); else next.delete(tid);
+    return next;
+  });
+  const pileExpanded = (tid: string) => openPiles.has(tid) || !!historyPiles?.isPinned(tid);
+  /** Open, or fold — folding a pinned pile also unpins it ("click again to
+   *  undo the expand and they will all fold back", owner 2026-11-09). */
+  const togglePile = (tid: string) => {
+    if (!pileExpanded(tid)) { setPileOpen(tid, true); return; }
+    setPileOpen(tid, false);
+    if (historyPiles?.isPinned(tid)) historyPiles.setPinned(tid, false);
+  };
+  const togglePilePin = (tid: string) => {
+    const pinned = !!historyPiles?.isPinned(tid);
+    historyPiles?.setPinned(tid, !pinned);
+    setPileOpen(tid, !pinned);
+  };
 
   // v2.9x — "ticker" is a full-width marquee strip, not a per-group card, so
   // it never participates in the inline-with-game-cards grid/sticky-column
@@ -449,6 +488,68 @@ export default function ScoreboardSurface({
       )
     ) : null
   );
+
+  type SlotLayout = 'grid' | 'vertical' | 'horizontal';
+  const wheelPad = !useNewCards && headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : {};
+  /** Rail/column slot width; a pile slot adds its gutter so the live card keeps its full width. */
+  const slotWidth = (extra: number) => `min(${cardWidth + extra}px, calc(100vw - 2rem))`;
+
+  /** One game card's layout item, per layout branch. (v2.2.8: the overlay
+   *  Link was removed — the title is a Link inside CardRouter instead.) */
+  const renderGameSlot = (lb: LeaderboardWithViewer, layout: SlotLayout) => {
+    if (layout === 'grid') return (
+      <div key={lb.gameId} className={`relative group/card scoreboard-card-slot${slotFillClass}`} style={{ ...wheelPad, overflow: 'visible', minWidth: 0, marginBottom: cardMarginBottom || undefined }}>
+        {submitButton(lb, 'corner')}
+        {renderSlotContent(lb)}
+      </div>
+    );
+    if (layout === 'vertical') return (
+      <div key={lb.gameId} className={`relative group/card scoreboard-card-slot${slotFillClass}`} style={{ width: slotWidth(0), maxWidth: '100%', marginBottom: cardMarginBottom || undefined }}>
+        {submitButton(lb, 'corner')}
+        {renderSlotContent(lb)}
+      </div>
+    );
+    return (
+      <div key={lb.gameId} className="flex-shrink-0 relative group/card scoreboard-card-slot" style={{ width: slotWidth(0), ...wheelPad, marginBottom: cardMarginBottom || undefined }}>
+        {submitButton(lb, 'inset')}
+        {renderSlotContent(lb)}
+      </div>
+    );
+  };
+
+  /** v2.236.0 (B23) — a tournament's live card + its past-games pile. Folded:
+   *  one slot. Open: that slot (its gutter now a spine) followed by every
+   *  finished card as an ordinary slot, newest first. The pile slot keeps one
+   *  key in both states so the live card never remounts. */
+  const renderPile = (unit: Extract<BoardUnit<LeaderboardWithViewer>, { kind: 'pile' }>, layout: SlotLayout) => {
+    const { tournamentId: tid, top, history } = unit;
+    const expanded = pileExpanded(tid);
+    const pile = (
+      <HistoryPile
+        tournamentName={top.tournamentName}
+        historyCount={history.length}
+        expanded={expanded}
+        pinned={!!historyPiles?.isPinned(tid)}
+        onToggle={() => togglePile(tid)}
+        onTogglePin={() => togglePilePin(tid)}
+        resultsHref={slug ? `/${slug}/tournaments/${encodeURIComponent(tid)}` : undefined}
+        top={<>{submitButton(top, layout === 'horizontal' ? 'inset' : 'corner')}{renderSlotContent(top)}</>}
+        behind={expanded ? [] : history.slice(0, PILE_MAX_EDGES).map(lb => <Fragment key={lb.gameId}>{renderCard(lb)}</Fragment>)}
+      />
+    );
+    const key = `pile-${tid}`;
+    const slot = layout === 'grid' ? (
+      <div key={key} className={`relative scoreboard-card-slot${slotFillClass}`} style={{ ...wheelPad, overflow: 'visible', minWidth: 0, marginBottom: cardMarginBottom || undefined }}>{pile}</div>
+    ) : layout === 'vertical' ? (
+      <div key={key} className={`relative scoreboard-card-slot${slotFillClass}`} style={{ width: slotWidth(PILE_GUTTER_PX), maxWidth: '100%', marginBottom: cardMarginBottom || undefined }}>{pile}</div>
+    ) : (
+      <div key={key} className="flex-shrink-0 relative scoreboard-card-slot" style={{ width: slotWidth(PILE_GUTTER_PX), ...wheelPad, marginBottom: cardMarginBottom || undefined }}>{pile}</div>
+    );
+    return expanded ? [slot, ...history.map(lb => renderGameSlot(lb, layout))] : [slot];
+  };
+
+  const renderBoard = (layout: SlotLayout) => boardUnits.flatMap(unit =>
+    unit.kind === 'card' ? [renderGameSlot(unit.lb, layout)] : renderPile(unit, layout));
 
   const rootClass = embedded
     // Embedded: the host page already scrolls. `overflow-x-hidden` stands in
@@ -695,13 +796,7 @@ export default function ScoreboardSurface({
                 ...(useNewCards || gameColumns !== '2' ? { gridTemplateColumns: `repeat(auto-fill, minmax(min(${gridMinTrack}px, 100%), 1fr))` } : {}),
               }}
             >
-              {visibleLeaderboards.map(lb => (
-                <div key={lb.gameId} className={`relative group/card scoreboard-card-slot${slotFillClass}`} style={{ ...(!useNewCards && headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : {}), overflow: 'visible', minWidth: 0, marginBottom: cardMarginBottom || undefined }}>
-                  {/* v2.2.8: overlay Link removed — title is a Link inside CardRouter instead. */}
-                  {submitButton(lb, 'corner')}
-                  {renderSlotContent(lb)}
-                </div>
-              ))}
+              {renderBoard('grid')}
               {inlineRankings && rankingGroups.map(({ group, rankings }) => (
                 <div key={`rank-${group.id}`} className={`scoreboard-card-slot${slotFillClass}`} style={{ overflow: 'visible', minWidth: 0, marginBottom: cardMarginBottom || undefined }}>
                   {renderRankingSlot(group, rankings)}
@@ -713,13 +808,7 @@ export default function ScoreboardSurface({
           /* Vertical scroll — single column centered */
           <div className="flex-1 min-w-0">
             <div className="scoreboard-vertical-layout flex flex-col items-center" style={{ gap: useNewCards ? newConfig.cardSpacing : 20 }}>
-              {visibleLeaderboards.map(lb => (
-                <div key={lb.gameId} className={`relative group/card scoreboard-card-slot${slotFillClass}`} style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, maxWidth: '100%', marginBottom: cardMarginBottom || undefined }}>
-                  {/* v2.2.8: overlay Link removed — title is a Link inside CardRouter instead. */}
-                  {submitButton(lb, 'corner')}
-                  {renderSlotContent(lb)}
-                </div>
-              ))}
+              {renderBoard('vertical')}
               {inlineRankings && rankingGroups.map(({ group, rankings }) => (
                 <div key={`rank-${group.id}`} className={`scoreboard-card-slot${slotFillClass}`} style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, maxWidth: '100%', marginBottom: cardMarginBottom || undefined }}>
                   {renderRankingSlot(group, rankings)}
@@ -732,13 +821,7 @@ export default function ScoreboardSurface({
           <div className="flex-1 min-w-0">
             <HorizontalScrollNav className="-mx-4 sm:-mx-6 scoreboard-hscroll-layout" showArrows={hscrollArrows} onScrollMetrics={onHscrollMetrics}>
               <div className={`flex pb-2 px-4 sm:px-6 ${useNewCards ? '' : 'gap-3 sm:gap-5'} ${isBanner ? 'scoreboard-banner-scroll' : ''}`} style={useNewCards ? { gap: newConfig.cardSpacing } : undefined}>
-                {visibleLeaderboards.map(lb => (
-                  <div key={lb.gameId} className="flex-shrink-0 relative group/card scoreboard-card-slot" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, ...(!useNewCards && headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : {}), marginBottom: cardMarginBottom || undefined }}>
-                    {/* v2.2.8: overlay Link removed — title is a Link inside CardRouter instead. */}
-                    {submitButton(lb, 'inset')}
-                    {renderSlotContent(lb)}
-                  </div>
-                ))}
+                {renderBoard('horizontal')}
                 {inlineRankings && rankingGroups.map(({ group, rankings }) => (
                   <div key={`rank-${group.id}`} className="flex-shrink-0 scoreboard-card-slot" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, marginBottom: cardMarginBottom || undefined }}>
                     {renderRankingSlot(group, rankings)}
