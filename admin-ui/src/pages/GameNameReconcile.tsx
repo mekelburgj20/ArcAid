@@ -15,7 +15,7 @@ import { parseServerDate } from '../lib/format';
  */
 
 interface Suggestion {
-  id: string; name: string; manufacturer: string | null; year: number | null; platforms: string[]; atgames: boolean;
+  id: string; name: string; manufacturer: string | null; year: number | null; platforms: string[]; atgames: boolean; sure?: boolean;
 }
 interface Orphan {
   roomId: string; roomName: string; roomSlug: string; name: string; spellings: string[];
@@ -56,7 +56,7 @@ function SuggestionLabel({ s }: { s: Suggestion }) {
 
 function OrphanRow({ orphan, onMerged }: { orphan: Orphan; onMerged: () => void }) {
   const { toast } = useToast();
-  const [target, setTarget] = useState<Suggestion | null>(orphan.suggestions[0] ?? null);
+  const [target, setTarget] = useState<Suggestion | null>(orphan.suggestions[0]?.sure ? orphan.suggestions[0] : null);
   const [extra, setExtra] = useState<Suggestion[]>([]);
   const [query, setQuery] = useState('');
   const [preview, setPreview] = useState<Preview | null>(null);

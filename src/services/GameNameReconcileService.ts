@@ -43,6 +43,8 @@ export interface CatalogueSuggestion {
     year: number | null;
     platforms: string[];
     atgames: boolean;
+    /** Suggestions only: a clear winner the page may preselect. */
+    sure?: boolean;
 }
 
 export interface OrphanName {
@@ -92,9 +94,9 @@ function toSuggestion(r: CatalogueRow): CatalogueSuggestion {
 
 /**
  * Catalogue rows that look like the name a room used. Ranked: same normalized
- * name, then a longer catalogue name that starts with it ("arkanoid" ->
- * "arkanoid pinball"), then a shorter one it starts with, then a plain
- * substring. Only suggestions: the super-admin picks.
+ * name first, then by how many words the two names share (Dice overlap,
+ * ignoring "The" and "Pinball"). Only suggestions: the super-admin picks;
+ * `sure` marks the one row the page may preselect.
  */
 export function suggestFor(
     orphan: string,
@@ -102,19 +104,39 @@ export function suggestFor(
     limit = 5,
 ): CatalogueSuggestion[] {
     const n = normalizeGameName(orphan);
-    const lower = orphan.trim().toLowerCase();
-    if (!n && !lower) return [];
-    const scored: Array<{ score: number; row: CatalogueRow }> = [];
+    const words = nameWords(n);
+    if (words.size === 0) return [];
+    const scored: Array<{ score: number; exact: boolean; covers: boolean; row: CatalogueRow }> = [];
     for (const c of catalogue) {
-        let score = 0;
-        if (n && c.norm === n) score = 4;
-        else if (n && c.norm.startsWith(`${n} `)) score = 3;
-        else if (n && c.norm && n.startsWith(`${c.norm} `)) score = 2;
-        else if (lower.length >= 3 && c.lower.includes(lower)) score = 1;
-        if (score > 0) scored.push({ score, row: c.row });
+        const theirs = nameWords(c.norm);
+        let shared = 0;
+        for (const w of words) if (theirs.has(w)) shared++;
+        if (shared === 0) continue;
+        // Dice overlap of the two word sets: "Kung Fu Panda Pinball" is far
+        // closer to "DreamWorks Kung Fu Panda Pinball" than to "Kung Fu".
+        const dice = (2 * shared) / (words.size + theirs.size);
+        const exact = c.norm === n ? 1 : 0;
+        if (!exact && dice < 0.3) continue;
+        scored.push({ score: exact * 2 + dice, exact: exact === 1, covers: shared === words.size, row: c.row });
     }
     scored.sort((a, b) => b.score - a.score || a.row.name.length - b.row.name.length || a.row.name.localeCompare(b.row.name));
-    return scored.slice(0, limit).map(s => toSuggestion(s.row));
+    const top = scored.slice(0, limit);
+    // Preselect only a clear winner: the same normalized name, or the one
+    // suggestion that holds every word of the room's name.
+    const covering = top.filter(s => s.covers);
+    return top.map((s, i) => ({
+        ...toSuggestion(s.row),
+        sure: i === 0 && (s.exact || (s.covers && covering.length === 1)),
+    }));
+}
+
+const FILLER_WORDS = new Set(['the', 'a', 'an', 'and', 'of', 'pinball']);
+
+/** The words of a normalized name, without filler ("The", trailing ", The", "Pinball"). */
+function nameWords(norm: string): Set<string> {
+    const all = norm.split(/[\s-]+/).filter(Boolean);
+    const kept = all.filter(w => !FILLER_WORDS.has(w));
+    return new Set(kept.length ? kept : all);
 }
 
 export class GameNameReconcileService {
