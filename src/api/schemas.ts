@@ -358,6 +358,11 @@ export const SetRoomThemeSchema = z.object({
     theme: themeIdSchema.nullable(),
 });
 
+// v2.236.0 (B23) — PUT /api/me/pinned-piles/:tournamentId
+export const SetPilePinnedSchema = z.object({
+    pinned: z.boolean(),
+});
+
 // S15 web push — the browser PushSubscription shape (endpoint + the two
 // client-generated encryption keys). Push endpoints are always https URLs;
 // the keys are base64url (p256dh ≈ 87 chars, auth ≈ 22) — bounds + charset

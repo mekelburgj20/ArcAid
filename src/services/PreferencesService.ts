@@ -44,8 +44,19 @@ export type DeviceType = 'desktop' | 'mobile';
  */
 export type RoomThemes = Record<string, ThemeId>;
 
-/** Stored format: { desktop: {...}, mobile: {...}, roomThemes: {...} } */
-type DevicePrefs = { desktop: ScoreboardPrefs; mobile: ScoreboardPrefs; roomThemes: RoomThemes };
+/**
+ * v2.236.0 (B23) — the tournaments whose "past games" pile this viewer has
+ * pinned OPEN on room scoreboards. A tournament id is unique across rooms, so
+ * one flat list covers them all. Like `roomThemes` it is not per device (the
+ * owner asked for it to be "remembered for that user", 2026-11-09) and rides
+ * as a top-level key beside the device blobs. Newest pin last; capped.
+ */
+export type PinnedPiles = string[];
+export const PINNED_PILES_MAX = 200;
+const PINNED_PILE_ID_MAX_LEN = 100;
+
+/** Stored format: { desktop: {...}, mobile: {...}, roomThemes: {...}, pinnedPiles: [...] } */
+type DevicePrefs = { desktop: ScoreboardPrefs; mobile: ScoreboardPrefs; roomThemes: RoomThemes; pinnedPiles: PinnedPiles };
 
 export class PreferencesService {
     static async getTheme(discordUserId: string): Promise<ThemeId | null> {
@@ -199,7 +210,7 @@ export class PreferencesService {
      * Handles migration from old flat format → nested { desktop, mobile }.
      */
     private static parseDevicePrefs(raw: string | null | undefined): DevicePrefs {
-        if (!raw) return { desktop: {}, mobile: {}, roomThemes: {} };
+        if (!raw) return { desktop: {}, mobile: {}, roomThemes: {}, pinnedPiles: [] };
         try {
             const parsed = JSON.parse(raw);
             // New format: { desktop: {...}, mobile: {...}, roomThemes: {...} }
@@ -213,14 +224,33 @@ export class PreferencesService {
                     // undefined, or a device-pref save would drop the room
                     // themes on the floor.
                     roomThemes: this.sanitizeRoomThemes(parsed.roomThemes),
+                    // v2.236.0 — same rule: every writer round-trips this
+                    // object, so a missing list must come back as [] or a
+                    // theme or device save would drop the viewer's pins.
+                    pinnedPiles: this.sanitizePinnedPiles(parsed.pinnedPiles),
                 };
             }
             // Old flat format: treat as desktop prefs, migrate
             if (parsed && typeof parsed === 'object') {
-                return { desktop: parsed, mobile: {}, roomThemes: {} };
+                return { desktop: parsed, mobile: {}, roomThemes: {}, pinnedPiles: [] };
             }
         } catch { /* fall through */ }
-        return { desktop: {}, mobile: {}, roomThemes: {} };
+        return { desktop: {}, mobile: {}, roomThemes: {}, pinnedPiles: [] };
+    }
+
+    /** Keeps distinct, non-empty, short string ids, newest last, capped. */
+    private static sanitizePinnedPiles(raw: unknown): PinnedPiles {
+        if (!Array.isArray(raw)) return [];
+        const out: string[] = [];
+        for (const id of raw) {
+            if (typeof id !== 'string') continue;
+            const trimmed = id.trim();
+            if (!trimmed || trimmed.length > PINNED_PILE_ID_MAX_LEN) continue;
+            const at = out.indexOf(trimmed);
+            if (at !== -1) out.splice(at, 1);
+            out.push(trimmed);
+        }
+        return out.slice(-PINNED_PILES_MAX);
     }
 
     /** Drops anything that isn't a `roomId -> ThemeId` pair. */
@@ -292,6 +322,36 @@ export class PreferencesService {
         else delete devicePrefs.roomThemes[roomId];
         await this.persistDevicePrefs(discordUserId, devicePrefs);
         return devicePrefs.roomThemes;
+    }
+
+    /** The tournaments whose past-games pile this viewer keeps open (v2.236.0). */
+    static async getPinnedPiles(discordUserId: string): Promise<PinnedPiles> {
+        const db = await getDatabase();
+        const row = await db.get(
+            'SELECT scoreboard_prefs FROM user_preferences WHERE discord_user_id = ?',
+            discordUserId,
+        );
+        return this.parseDevicePrefs(row?.scoreboard_prefs).pinnedPiles;
+    }
+
+    /**
+     * Pin (or unpin) one tournament's past-games pile open. Re-pinning moves
+     * the id to the newest end, so the cap drops the pins touched longest ago.
+     */
+    static async setPilePinned(discordUserId: string, tournamentId: string, pinned: boolean): Promise<PinnedPiles> {
+        const id = tournamentId.trim();
+        if (!id || id.length > PINNED_PILE_ID_MAX_LEN) throw new Error('Invalid tournament id');
+        const db = await getDatabase();
+        const row = await db.get(
+            'SELECT scoreboard_prefs FROM user_preferences WHERE discord_user_id = ?',
+            discordUserId,
+        );
+        const devicePrefs = this.parseDevicePrefs(row?.scoreboard_prefs);
+        const next = devicePrefs.pinnedPiles.filter(existing => existing !== id);
+        if (pinned) next.push(id);
+        devicePrefs.pinnedPiles = next.slice(-PINNED_PILES_MAX);
+        await this.persistDevicePrefs(discordUserId, devicePrefs);
+        return devicePrefs.pinnedPiles;
     }
 
     /**
