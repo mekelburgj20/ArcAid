@@ -6,6 +6,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.235.0] - 2026-11-08 - Game Names: merge history recorded under names the catalogue does not have
+
+A35 (owner 2026-11-08: super-admin, all rooms). Scores, rounds and a room's game list tie to a game by its name. A round
+typed "Arkanoid", where the catalogue (and AtGames) calls the table "Arkanoid (Pinball)", collected history that joins
+nothing. 2.233.0 stopped new ones; this cleans up the old ones.
+
+- **New super-admin page: Game Names** (`/admin/game-names`). It lists every game name in room history that no
+  approved catalogue game has, grouped by room, with how many scores, games and comments use it, and suggested catalogue
+  games (AtGames tables marked; "Arkanoid" suggests "Arkanoid (Pinball)"). A search box finds any other catalogue game.
+- **Preview first.** It counts every row that would move. It refuses to merge a game still linked to an iScored board
+  (iScored matches by name and would write the old name back), or a merge that would leave two live cards with one name
+  in a room. It warns when a live card will change name.
+- **Merge, one room at a time.** In one transaction it renames the room's games and rounds (and points them at the
+  catalogue game), score history, community scores and comments, merges the room's game-list entry (keeping its style),
+  and moves the key on deleted cabinet scores so they stay deleted. The same name in another room is left alone. Each
+  merge writes an audit entry and an activity row.
+- **Undo.** Every changed row's previous value is kept (migration 211), so Undo restores exactly those rows; a score
+  added since the merge keeps the new name.
+- Not yet: scores that never reached the Global Scoreboard because their name matched nothing are not added to it by a
+  merge (A35.1).
+
 ## [2.234.0] - 2026-11-08 - Join on AtGames from the score card
 
 A36 (owner 2026-11-08: put the Join button where "Start attempts" sits on the score cards). The Join on AtGames
