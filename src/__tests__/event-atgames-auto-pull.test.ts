@@ -3,7 +3,7 @@ import crypto from 'crypto';
 
 /**
  * A32 (v2.231.0): the event clock reads a live AtGames-linked event from
- * AtGames on its own, every 2 minutes, and always once more just before a
+ * AtGames on its own, every minute (v2.233.0; 2 min in v2.231.0), and always once more just before a
  * round closes, so the host never has to press "Pull scores". Owner,
  * 2026-11-08: "It needs to happen automatically."
  *
@@ -40,8 +40,11 @@ describe('atgamesPullDue', () => {
     const now = 10_000_000;
     it('reads the first time, then once per interval', () => {
         expect(atgamesPullDue(now, false, undefined, false)).toBe(true);
-        expect(atgamesPullDue(now, false, now - MINUTE, false)).toBe(false);
+        expect(atgamesPullDue(now, false, now - 30_000, false)).toBe(false);
         expect(atgamesPullDue(now, false, now - ATGAMES_AUTO_PULL_INTERVAL_MS, false)).toBe(true);
+        // A tick that lands a little early still counts as the next minute
+        // (without the slack, reads slipped to every OTHER tick).
+        expect(atgamesPullDue(now, false, now - 59_970, false)).toBe(true);
     });
     it('backs off after a failure', () => {
         expect(atgamesPullDue(now, false, now - ATGAMES_AUTO_PULL_INTERVAL_MS, true)).toBe(false);
@@ -104,10 +107,10 @@ describe('EventScheduler AtGames auto-pull', () => {
         await s.tick(new Date(base + 10_000));              // round goes live, first read
         expect(syncCalls).toEqual([linked]);
 
-        await s.tick(new Date(base + MINUTE + 10_000));     // 1 min later: too soon
+        await s.tick(new Date(base + 40_000));              // 30 s later: too soon
         expect(syncCalls).toHaveLength(1);
 
-        await s.tick(new Date(base + 2 * MINUTE + 10_000)); // interval reached
+        await s.tick(new Date(base + MINUTE + 9_970));      // next tick, landing a little early
         expect(syncCalls).toHaveLength(2);
 
         await s.tick(new Date(base + 31 * MINUTE + 50_000)); // inside the grace: a normal read

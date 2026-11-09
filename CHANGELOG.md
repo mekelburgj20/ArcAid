@@ -6,6 +6,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.233.0] - 2026-11-08 - Event rounds must be catalogue games; errors stay readable
+
+A34 (owner 2026-11-08). A host typed "Arkanoid" as an event round on a phone. The catalogue (and AtGames) calls the
+table "Arkanoid (Pinball)", so the round joined nothing and creating it on AtGames failed. The error then vanished
+before it could be read.
+
+- **The round's game field shows a visible list of catalogue matches** as you type, with AtGames tables marked. It
+  replaces a browser suggestion list that most phones barely show. A name with no match says "Not a catalogue game"
+  before you save.
+- **Saving refuses a round whose game is not in the catalogue** (`GAME_NOT_IN_CATALOGUE`), checked before anything is
+  written. A matching name is stored in the catalogue's own spelling, and the round records which catalogue game it
+  is. A round keeping the name it already had is exempt, so older events can still be edited.
+- **"Also create it on AtGames" checks first whether the room's AtGames account is free.** AtGames allows one running
+  or upcoming tournament per account. If one is open, the form says which one and until when, and saves nothing.
+- **AtGames scores are fetched every minute during a live round**, not every 2. The 2-minute setting was really
+  fetching every 3 minutes: the once-a-minute clock lands a few milliseconds early or late, so a tick 59.97 seconds
+  after the last fetch counted as too soon. Fetches now allow 10 seconds of slack. A score shows up within about a
+  minute of the player exiting the table.
+- **Error messages stay on screen until you tap them away**; success messages still clear after 4 seconds. At most
+  three show at once, and they fit the width of a phone screen.
+
 ## [2.232.0] - 2026-11-08 - Join the AtGames tournament from the event page
 
 A33 (owner 2026-11-08). Joining an event's AtGames private tournament meant going to atgames.net, finding "Join with

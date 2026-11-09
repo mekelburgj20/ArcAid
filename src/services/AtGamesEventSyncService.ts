@@ -498,6 +498,34 @@ export class AtGamesEventSyncService {
     }
 
     /**
+     * The AtGames tournament this room's account already OWNS that is running
+     * or upcoming, if any (v2.233.0, A34).
+     *
+     * AtGames lets an account own only one at a time ("You can own only one
+     * active or upcoming private tournament at a time", 2026-11-08), so the
+     * create form asks first instead of saving an event that then cannot get
+     * its AtGames tournament. `null` = free; also `null` when AtGames does not
+     * say who owns what, so an unknown shape never blocks a create.
+     */
+    static async ownedOpenTournament(gameRoomId: string): Promise<{ name: string; end: string | null } | null> {
+        const creds = await getAtGamesCredsForRoom(gameRoomId);
+        if (!creds) {
+            throw new AtGamesSyncError(
+                'NO_CREDENTIALS',
+                'This room has no AtGames account configured (set ATGAMES_EMAIL and ATGAMES_PASSWORD)',
+            );
+        }
+        const list = await new AtGamesPrivateClient(creds).listPrivateTournaments();
+        const now = Date.now();
+        const open = list.find(t => {
+            if (t.membershipRole !== 'OWNER') return false;
+            const end = t.end ? Date.parse(t.end) : NaN;
+            return Number.isFinite(end) ? end > now : false;
+        });
+        return open ? { name: open.name, end: open.end ?? null } : null;
+    }
+
+    /**
      * Builds `AtGames game id -> rounds playing that game`.
      *
      * The join runs through the catalogue: a round's `games.name` matches a

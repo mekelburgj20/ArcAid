@@ -340,6 +340,25 @@ export default function Tournaments() {
     const id = uuidv4();
     const name = createForm.state.name.trim();
     const alsoAtGames = createForm.state.format === 'event' && createOnAtGames && createForm.state.maxAttempts == null;
+    // v2.233.0 (A34): AtGames lets the room's account own ONE running or
+    // upcoming tournament, so ask before saving an event it could not link.
+    // An unknown answer (AtGames unreachable) does not block; the create says why.
+    if (alsoAtGames) {
+      try {
+        const check = await api.get<{ status: 'free' | 'busy' | 'no_account' | 'unknown'; tournament?: { name: string; end: string | null } | null; error?: string }>(
+          `/rooms/${room.roomId}/admin/atgames/owned-open`,
+        );
+        if (check.status === 'busy' && check.tournament) {
+          const until = check.tournament.end ? ` until ${new Date(check.tournament.end).toLocaleString()}` : '';
+          toast(`This room's AtGames account already runs "${check.tournament.name}"${until}, and AtGames allows one at a time. Untick "Also create it on AtGames" to save without it, or wait until it ends.`, 'error');
+          return;
+        }
+        if (check.status === 'no_account') {
+          toast('This room has no AtGames account yet. Add it under Settings → AtGames, or untick "Also create it on AtGames".', 'error');
+          return;
+        }
+      } catch { /* the create itself reports any refusal */ }
+    }
     try {
       await api.post(`/rooms/${room.roomId}/tournaments`, toPayload(createForm.state, { id, is_active: true }));
       createForm.reset(defaultFormStateFor(roomTz));

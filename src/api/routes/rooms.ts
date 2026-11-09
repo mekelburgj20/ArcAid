@@ -2038,6 +2038,29 @@ router.post('/:roomId/admin/tournaments/:tournamentId/atgames-sync', requireAuth
 // name, window and game list all derived from the event itself, invitation
 // code stored and returned so the host can read it to players. Refuses when a
 // link already exists (clear it by passing a new id to atgames-sync).
+// Whether this room's AtGames account is free to create a tournament (v2.233.0,
+// A34). AtGames allows one running-or-upcoming tournament per owner, so the
+// create form asks before saving an event it could not link. A failed check
+// answers `unknown` rather than blocking: the create itself still says why.
+router.get('/:roomId/admin/atgames/owned-open', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const { AtGamesEventSyncService, AtGamesSyncError } = await import('../../services/AtGamesEventSyncService.js');
+        try {
+            const open = await AtGamesEventSyncService.ownedOpenTournament(req.params.roomId as string);
+            return res.json({ status: open ? 'busy' : 'free', tournament: open });
+        } catch (err) {
+            if (err instanceof AtGamesSyncError && err.code === 'NO_CREDENTIALS') {
+                return res.json({ status: 'no_account', error: err.message });
+            }
+            logWarn(`AtGames owned-open check failed for room ${req.params.roomId}: ${err instanceof Error ? err.message : String(err)}`);
+            return res.json({ status: 'unknown', error: err instanceof Error ? err.message : 'AtGames check failed' });
+        }
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/admin/atgames/owned-open):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 router.post('/:roomId/admin/tournaments/:tournamentId/atgames-create', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
     try {
         const db = await getDatabase();
@@ -5098,11 +5121,39 @@ router.get('/:roomId/tournaments', async (req, res) => {
     }
 });
 
+/**
+ * Refusal body when a round names a game the catalogue does not have, else
+ * null. On success the rounds are rewritten IN PLACE to the catalogue's
+ * spelling, so the save stores the canonical name.
+ */
+async function roundGamesRefusal(
+    tournamentId: string | null,
+    event: { rounds: Array<{ roundNo: number; gameName: string; scheduledStartAt: string; scheduledEndAt: string }> },
+): Promise<{ error: string; code: string; games: string[] } | null> {
+    const { rounds, missing } = await EventService.checkRoundGames(tournamentId, event.rounds);
+    if (missing.length > 0) {
+        const list = missing.map(n => `"${n}"`).join(', ');
+        return {
+            error: `${list} ${missing.length === 1 ? 'is' : 'are'} not in the game catalogue. Pick each round's game from the list as you type (AtGames' own tables often end in "(Pinball)").`,
+            code: 'GAME_NOT_IN_CATALOGUE',
+            games: missing,
+        };
+    }
+    event.rounds = rounds;
+    return null;
+}
+
 router.post('/:roomId/tournaments', requireAuth, requireRoomAccess('roomId'), requireNotBanned, async (req, res) => {
     try {
         const validationResult = validate(CreateTournamentSchema, req.body);
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
         const data = { ...validationResult.data, game_room_id: req.params.roomId as string };
+        // v2.233.0 (A34): every round must be a catalogue game, checked before
+        // anything is written.
+        if (data.format === 'event' && data.event?.rounds) {
+            const refusal = await roundGamesRefusal(null, data.event);
+            if (refusal) return res.status(400).json(refusal);
+        }
         try {
             await TournamentService.create(data);
         } catch (err) {
@@ -5146,6 +5197,12 @@ router.put('/:roomId/tournaments/:id', requireAuth, requireRoomAccess('roomId'),
         // G15 (v2.228.0): the tournament as stored before the edit, for the
         // activity row's changed-fields diff. Never fails the edit.
         const tournamentBefore = await tournamentSnapshotForDiff(req.params.id as string).catch(() => null);
+        // v2.233.0 (A34): before the tournament row is touched, so a refused
+        // round leaves the whole edit unsaved.
+        if (data.format === 'event' && data.event?.rounds) {
+            const refusal = await roundGamesRefusal(req.params.id as string, data.event);
+            if (refusal) return res.status(400).json(refusal);
+        }
         try {
             await TournamentService.update(req.params.id as string, data);
         } catch (err) {

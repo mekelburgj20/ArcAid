@@ -470,14 +470,15 @@ export default function EventRoundsPanel({ roomId, roomSlug, tournament, onClose
                 </p>
 
                 {/* P7 — scores off an AtGames private tournament. The event clock
-                    reads it every 2 minutes while a round is live (v2.231.0);
+                    reads it every minute while a round is live (v2.231.0, every minute
+                    since v2.233.0);
                     these buttons read it now. A repeat read adds nothing. */}
                 <h3 className="font-display text-xs font-bold uppercase tracking-wider text-muted mt-6 mb-2">AtGames scores</h3>
                 <p className="text-xs text-faint mb-2">
                     Reads scores straight off an AtGames private tournament, so players on a cabinet
-                    don't have to type anything in. While a round is live, scores come in on their own
-                    every 2 minutes. Pull scores fetches them now; Preview shows what a pull would do
-                    and changes nothing. Cabinets send a score when the player exits the table.
+                    don't have to type anything in. While a round is live, a score shows up on its own
+                    within about a minute of the player exiting the table (that is when a cabinet sends
+                    it). Pull scores fetches now; Preview shows what a pull would do and changes nothing.
                 </p>
                 {inviteCode && (
                     <p className="text-xs text-neon-cyan mb-2">
