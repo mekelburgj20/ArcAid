@@ -14,6 +14,7 @@ import { formatScore, parseServerDate } from '../../lib/format';
 import { resolveRowClick, opensQuickView, QUICK_VIEW_HINT } from '../../lib/scoreGesture';
 import { tournamentChipLabel } from './tournamentChip';
 import CardAttemptStart from './CardAttemptStart';
+import CardAtGamesJoin from './CardAtGamesJoin';
 import CardAttemptsLeft from './CardAttemptsLeft';
 
 interface MinimalCardProps {
@@ -313,6 +314,7 @@ export default function MinimalCard({
 
       {/* W56 — Start attempts, directly above the footer (the card's action strip). */}
       <CardAttemptStart lb={lb} className="px-5" />
+      <CardAtGamesJoin lb={lb} className="px-5" />
 
       {/* Footer */}
       <div className="border-t border-border/30 px-5 flex justify-between items-start relative z-[1]" style={{ paddingTop: 10, paddingBottom: 10 + qrMetrics.footerExtra }}>

@@ -6,6 +6,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.234.0] - 2026-11-08 - Join on AtGames from the score card
+
+A36 (owner 2026-11-08: put the Join button where "Start attempts" sits on the score cards). The Join on AtGames
+button was only on the event's own page. Now every live round card of an AtGames-linked event carries it:
+
+- **Join on AtGames sits in the card's action strip,** directly above the footer, where Start attempts appears, in
+  every card style. The two never meet: a limited-attempts event cannot be fed by AtGames.
+- **Tapping it opens the AtGames sign-in** (the same form as the event page: password asked every time, never kept)
+  over the scoreboard. A signed-out viewer is asked to log in first. Signed-in viewers also see the code, for joining
+  on the cabinet by hand.
+- **After joining, the card reads "Joined on AtGames"** in that browser. Arcaid cannot see AtGames' member list, so a
+  join made elsewhere still shows the button; joining twice is harmless.
+- One room-level read per scoreboard load (`GET /api/rooms/:roomId/atgames/joinable`): ACTIVE rounds of unfinished
+  events linked to an AtGames tournament.
+
 ## [2.233.0] - 2026-11-08 - Event rounds must be catalogue games; errors stay readable
 
 A34 (owner 2026-11-08). A host typed "Arkanoid" as an event round on a phone. The catalogue (and AtGames) calls the
