@@ -3662,6 +3662,31 @@ async function doInitDatabase(): Promise<Database> {
                 CREATE INDEX IF NOT EXISTS idx_game_name_reconcile_rows ON game_name_reconcile_rows(reconcile_id);
             `);
         } },
+        // A40 (v2.237.0, owner 2026-11-09) - who is in an event's AtGames
+        // tournament, per player, on the server. "Joined" used to live in one
+        // browser's localStorage, so another device, a reload of the event page
+        // or a join made in the AtGames app all showed Join again. `via` says
+        // how Arcaid knows: 'arcaid' (joined through Arcaid), 'verified' (the
+        // player's own AtGames list already had it), 'self' (the player said
+        // so). Backfilled from the `atgames_joined` activity rows that every
+        // Arcaid join since v2.232.0 wrote. An event delete takes its rows.
+        { name: '212_atgames_event_joins', handler: async (db) => {
+            await db.exec(`
+                CREATE TABLE IF NOT EXISTS atgames_event_joins (
+                    tournament_id TEXT NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
+                    user_id TEXT NOT NULL,
+                    via TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    PRIMARY KEY (tournament_id, user_id)
+                );
+                INSERT OR IGNORE INTO atgames_event_joins (tournament_id, user_id, via, created_at)
+                SELECT a.tournament_id, a.canonical_user_id, 'arcaid', MIN(a.created_at)
+                  FROM activity_log a
+                  JOIN tournaments t ON t.id = a.tournament_id
+                 WHERE a.event_type = 'atgames_joined' AND a.canonical_user_id IS NOT NULL
+                 GROUP BY a.tournament_id, a.canonical_user_id;
+            `);
+        } },
     ];
 
     for (const migration of migrations) {

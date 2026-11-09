@@ -1,5 +1,7 @@
 import { useState } from 'react';
+import { CheckCircle2 } from 'lucide-react';
 import { playerApi } from '../lib/playerApi';
+import type { AtGamesJoinedVia } from './scoreboard/cardAtGamesJoinContext';
 
 /**
  * "Join on AtGames" for an event linked to an AtGames private tournament
@@ -13,6 +15,11 @@ import { playerApi } from '../lib/playerApi';
  *
  * `AtGamesJoinForm` is the sign-in form alone; the event page wraps it in this
  * panel and the scoreboard card in a dialog (v2.234.0, A36).
+ *
+ * v2.237.0 (A40) — "Joined" is the server's answer for this player (`joinedVia`),
+ * so a join made on another device or in the AtGames app shows here too. A
+ * player already in the tournament is told so instead of refused, and
+ * `AtGamesAlreadyJoined` lets a player who joined outside Arcaid say so.
  */
 
 /** The joined message, or null while not yet joined. */
@@ -20,7 +27,7 @@ export function AtGamesJoinForm({ roomId, eventId, playerToken, onJoined, onCanc
     roomId: string;
     eventId: string;
     playerToken: string | null;
-    onJoined: (message: string) => void;
+    onJoined: (message: string, via: AtGamesJoinedVia) => void;
     onCancel: () => void;
 }) {
     const [email, setEmail] = useState('');
@@ -32,12 +39,16 @@ export function AtGamesJoinForm({ roomId, eventId, playerToken, onJoined, onCanc
         setBusy(true);
         setError('');
         try {
-            const res = await playerApi.post<{ tournamentName: string; linkConflict: boolean }>(
+            const res = await playerApi.post<{ tournamentName: string; linkConflict: boolean; alreadyMember?: boolean }>(
                 `/rooms/${roomId}/events/${eventId}/atgames-join`, { email, password }, { token: playerToken },
             );
+            const opening = res.alreadyMember
+                ? `You're already in ${res.tournamentName} on AtGames.`
+                : `You joined ${res.tournamentName}.`;
             onJoined(res.linkConflict
-                ? `You joined ${res.tournamentName}. That AtGames account is linked to a different Arcaid player, so your scores will show under that player.`
-                : `You joined ${res.tournamentName}. Play on your cabinet; your score posts when you exit the table.`);
+                ? `${opening} That AtGames account is linked to a different Arcaid player, so your scores will show under that player.`
+                : `${opening} Play on your cabinet; your score posts when you exit the table.`,
+            res.alreadyMember ? 'verified' : 'arcaid');
         } catch (err) {
             setError((err as Error)?.message || 'Could not join on AtGames.');
         } finally {
@@ -84,6 +95,49 @@ export function AtGamesJoinForm({ roomId, eventId, playerToken, onJoined, onCanc
     );
 }
 
+/**
+ * "Already joined in the AtGames app?" (A40). Arcaid cannot read AtGames'
+ * member list, so a player who joined in the AtGames app or on atgames.net
+ * says so here: no AtGames sign-in, and it only changes what Arcaid shows.
+ */
+export function AtGamesAlreadyJoined({ roomId, eventId, playerToken, onMarked }: {
+    roomId: string;
+    eventId: string;
+    playerToken: string | null;
+    onMarked: (via: AtGamesJoinedVia) => void;
+}) {
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState('');
+
+    const mark = async () => {
+        setBusy(true);
+        setError('');
+        try {
+            const res = await playerApi.post<{ joinedVia: AtGamesJoinedVia | null }>(
+                `/rooms/${roomId}/events/${eventId}/atgames-joined`, {}, { token: playerToken },
+            );
+            onMarked(res.joinedVia ?? 'self');
+        } catch (err) {
+            setError((err as Error)?.message || 'Could not save that.');
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    return (
+        <div className="grid gap-1">
+            <div className="flex items-center gap-x-3 gap-y-2 flex-wrap">
+                <p className="text-xs text-faint">Already joined in the AtGames app or on atgames.net?</p>
+                <button
+                    type="button" onClick={() => void mark()} disabled={busy}
+                    className="px-3 py-1.5 rounded border border-border bg-raised text-primary text-xs hover:border-neon-cyan transition-colors disabled:opacity-50"
+                >{busy ? 'Saving…' : "I've joined"}</button>
+            </div>
+            {error && <p className="text-xs text-neon-magenta">{error}</p>}
+        </div>
+    );
+}
+
 interface Props {
     roomId: string;
     eventId: string;
@@ -91,12 +145,54 @@ interface Props {
     /** Null when the viewer is signed out (the server withholds it). */
     code: string | null;
     signedIn: boolean;
+    /** v2.237.0 (A40) — how Arcaid knows this viewer is in it, or null. */
+    joinedVia?: AtGamesJoinedVia | null;
     onLogin: () => void;
 }
 
-export default function AtGamesJoinPanel({ roomId, eventId, playerToken, code, signedIn, onLogin }: Props) {
+export default function AtGamesJoinPanel({ roomId, eventId, playerToken, code, signedIn, joinedVia = null, onLogin }: Props) {
     const [open, setOpen] = useState(false);
     const [done, setDone] = useState<string | null>(null);
+    // What this page changed since the event loaded; the server's answer otherwise.
+    const [changed, setChanged] = useState<{ via: AtGamesJoinedVia | null } | null>(null);
+    const [undoError, setUndoError] = useState('');
+    const via = changed ? changed.via : joinedVia;
+
+    const undo = async () => {
+        setUndoError('');
+        try {
+            const res = await playerApi.delete<{ joinedVia: AtGamesJoinedVia | null }>(
+                `/rooms/${roomId}/events/${eventId}/atgames-joined`, { token: playerToken },
+            );
+            setDone(null);
+            setChanged({ via: res.joinedVia ?? null });
+        } catch (err) {
+            setUndoError((err as Error)?.message || 'Could not undo that.');
+        }
+    };
+
+    if (signedIn && via) {
+        return (
+            <section className="mb-6 p-4 rounded border border-border bg-surface" data-testid="atgames-join">
+                <p className="text-sm text-primary inline-flex items-center gap-1.5">
+                    <CheckCircle2 size={16} aria-hidden="true" className="shrink-0 text-neon-green" />
+                    Joined on AtGames
+                </p>
+                <p className="text-xs text-faint mt-0.5">
+                    {done ?? (via === 'self'
+                        ? 'You marked this yourself. Your cabinet scores come in on their own.'
+                        : 'Your cabinet scores come in on their own.')}
+                </p>
+                {via === 'self' && (
+                    <button
+                        type="button" onClick={() => void undo()}
+                        className="mt-2 text-xs text-muted underline underline-offset-2 hover:text-primary"
+                    >Not joined after all? Undo</button>
+                )}
+                {undoError && <p className="text-xs text-neon-magenta mt-1">{undoError}</p>}
+            </section>
+        );
+    }
 
     return (
         <section className="mb-6 p-4 rounded border border-border bg-surface" data-testid="atgames-join">
@@ -109,7 +205,7 @@ export default function AtGamesJoinPanel({ roomId, eventId, playerToken, code, s
                     </p>
                 </div>
                 <div className="ml-auto">
-                    {done ? null : signedIn ? (
+                    {signedIn ? (
                         !open && (
                             <button
                                 type="button" onClick={() => setOpen(true)}
@@ -125,14 +221,21 @@ export default function AtGamesJoinPanel({ roomId, eventId, playerToken, code, s
                 </div>
             </div>
 
-            {done && <p className="text-sm text-neon-green mt-3">{done}</p>}
-
-            {open && !done && (
+            {open && (
                 <div className="mt-4 pt-3 border-t border-border/40 sm:max-w-sm">
                     <AtGamesJoinForm
                         roomId={roomId} eventId={eventId} playerToken={playerToken}
-                        onJoined={msg => { setDone(msg); setOpen(false); }}
+                        onJoined={(msg, joined) => { setDone(msg); setChanged({ via: joined }); setOpen(false); }}
                         onCancel={() => setOpen(false)}
+                    />
+                </div>
+            )}
+
+            {signedIn && (
+                <div className="mt-3 pt-3 border-t border-border/40">
+                    <AtGamesAlreadyJoined
+                        roomId={roomId} eventId={eventId} playerToken={playerToken}
+                        onMarked={marked => { setDone(null); setChanged({ via: marked }); setOpen(false); }}
                     />
                 </div>
             )}
