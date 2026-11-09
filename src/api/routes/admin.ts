@@ -1404,6 +1404,103 @@ router.post('/catalogue/games/merge', async (req, res) => {
     }
 });
 
+// --- A35 (v2.235.0): reconcile game names the catalogue does not have ---
+//
+// Room history recorded under a name no approved catalogue row has ("Arkanoid"
+// where the catalogue says "Arkanoid (Pinball)") joins nothing. These list the
+// orphans across every room, preview a merge into a catalogue game, run it one
+// room at a time, and undo it. The service holds the rules; see
+// GameNameReconcileService.
+
+async function reconcileErrorResponse(res: import('express').Response, err: unknown, where: string) {
+    const { GameNameReconcileError } = await import('../../services/GameNameReconcileService.js');
+    if (err instanceof GameNameReconcileError) {
+        const status = err.code === 'NOT_FOUND' ? 404 : err.code === 'BLOCKED' || err.code === 'ALREADY_UNDONE' ? 409 : 400;
+        return res.status(status).json({ error: err.message, code: err.code });
+    }
+    logError(`API Error (${where}):`, err);
+    return res.status(500).json({ error: 'Internal Server Error' });
+}
+
+router.get('/game-names/orphans', async (_req, res) => {
+    try {
+        const { GameNameReconcileService } = await import('../../services/GameNameReconcileService.js');
+        res.json({ orphans: await GameNameReconcileService.listOrphans() });
+    } catch (error) {
+        await reconcileErrorResponse(res, error, 'GET /api/admin/game-names/orphans');
+    }
+});
+
+router.get('/game-names/catalogue-search', async (req, res) => {
+    try {
+        const { GameNameReconcileService } = await import('../../services/GameNameReconcileService.js');
+        res.json({ games: await GameNameReconcileService.searchCatalogue(String(req.query.q ?? '')) });
+    } catch (error) {
+        await reconcileErrorResponse(res, error, 'GET /api/admin/game-names/catalogue-search');
+    }
+});
+
+router.post('/game-names/preview', async (req, res) => {
+    try {
+        const { roomId, fromName, toGlobalGameId } = req.body ?? {};
+        if (!roomId || !fromName || !toGlobalGameId) return res.status(400).json({ error: 'roomId, fromName and toGlobalGameId are required' });
+        const { GameNameReconcileService } = await import('../../services/GameNameReconcileService.js');
+        res.json(await GameNameReconcileService.preview(String(roomId), String(fromName), String(toGlobalGameId)));
+    } catch (error) {
+        await reconcileErrorResponse(res, error, 'POST /api/admin/game-names/preview');
+    }
+});
+
+router.post('/game-names/reconcile', async (req, res) => {
+    try {
+        const { roomId, fromName, toGlobalGameId } = req.body ?? {};
+        if (!roomId || !fromName || !toGlobalGameId) return res.status(400).json({ error: 'roomId, fromName and toGlobalGameId are required' });
+        const { GameNameReconcileService } = await import('../../services/GameNameReconcileService.js');
+        const actor = req.user!.discordId || req.user!.username || req.user!.localAdminId || 'admin';
+        const result = await GameNameReconcileService.apply(String(roomId), String(fromName), String(toGlobalGameId), req.user!.discordId ?? null);
+        await AuditService.log({
+            actor, action: 'catalogue.name_reconcile', target_type: 'game_room', target_id: String(roomId),
+            details: JSON.stringify({ reconcileId: result.id, from: result.preview.fromName, to: result.preview.to, counts: result.preview.counts }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+        try {
+            const { emitLeaderboardUpdated } = await import('../websocket.js');
+            for (const gameId of result.affectedGameIds) emitLeaderboardUpdated(String(roomId), { gameId });
+        } catch { /* socket optional */ }
+        res.json({ success: true, id: result.id, preview: result.preview });
+    } catch (error) {
+        await reconcileErrorResponse(res, error, 'POST /api/admin/game-names/reconcile');
+    }
+});
+
+router.get('/game-names/reconciles', async (_req, res) => {
+    try {
+        const { GameNameReconcileService } = await import('../../services/GameNameReconcileService.js');
+        res.json({ reconciles: await GameNameReconcileService.history() });
+    } catch (error) {
+        await reconcileErrorResponse(res, error, 'GET /api/admin/game-names/reconciles');
+    }
+});
+
+router.post('/game-names/reconciles/:id/undo', async (req, res) => {
+    try {
+        const { GameNameReconcileService } = await import('../../services/GameNameReconcileService.js');
+        const id = req.params.id as string;
+        const result = await GameNameReconcileService.undo(id, req.user!.discordId ?? null);
+        await AuditService.log({
+            actor: req.user!.discordId || req.user!.username || req.user!.localAdminId || 'admin',
+            action: 'catalogue.name_reconcile_undo', target_type: 'game_name_reconcile', target_id: id,
+            details: JSON.stringify({ restored: result.restored }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+        res.json({ success: true, restored: result.restored });
+    } catch (error) {
+        await reconcileErrorResponse(res, error, 'POST /api/admin/game-names/reconciles/:id/undo');
+    }
+});
+
 /**
  * v2.13.0: bulk-merge IPDB-shared duplicates whose rows pass the
  * safe-merge heuristic (same year, compatible manufacturers, no

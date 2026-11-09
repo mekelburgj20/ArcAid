@@ -37,6 +37,8 @@ Loads when you touch the global catalogue, its importers, ratings, My Tables, or
 - **Pending-approval flow.** Room admins propose new globals via `POST /:roomId/game_library/submit_to_global` (`status='pending'`); super-admins approve/reject/merge at `/admin/catalogue/approvals`. Public `GET /global/games` hard-codes `status='approved'`.
 - **`GlobalGameService.findCandidates(input)`** is the read-only dedup walker (extracted from `upsert`'s hierarchy) powering the per-room contribution proposal endpoints.
 
+- **Off-catalogue names are merged ONLY through Game Names (v2.235.0, A35).** `GameNameReconcileService` (super-admin `/admin/game-names`, routes `/api/admin/game-names/*`) is the one writer that renames `games.name` / `score_history.game_name` / `community_scores.game_name` / `game_comments.game_name` / the room's `game_room_game_library` row and moves `auto_score_suppressions.game_key`, one ROOM at a time, recording every old value in `game_name_reconcile_rows` (migration 211) so Undo is exact. It refuses iScored-linked games (the poller matches by name) and two live cards under one name, and refuses a name already in the catalogue (that is `GlobalGameService.merge`). Logs (`activity_log`, `rotation_events`, `lobby_feed_events`) are history and are never rewritten. A new name-keyed table must be added to the merge AND its undo.
+
 ## My Tables and ratings
 
 - **My Tables (v2.206.0, C2).** `player_tables(user_id, global_game_id, platform)` is a player's own inventory, keyed on `global_games.id` so variants stay distinct; `platform` is a canonical ENGINE id or `''` ("owned, platform unspecified", the ONLY row for a generically owned table). `PlayerTablesService` is the one reader/writer; `setOwnership` REPLACES a game's rows.

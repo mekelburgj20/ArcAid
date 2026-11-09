@@ -30,6 +30,7 @@ const Logs = lazy(() => import('./pages/Logs'));
 const StyleCatalogue = lazy(() => import('./pages/StyleCatalogue'));
 const GlobalCatalogue = lazy(() => import('./pages/GlobalCatalogue'));
 const CatalogueApproval = lazy(() => import('./pages/CatalogueApproval'));
+const GameNameReconcile = lazy(() => import('./pages/GameNameReconcile'));
 const Reports = lazy(() => import('./pages/Reports'));
 
 // Pages — Room Admin (lazy)
@@ -173,6 +174,7 @@ function App() {
           <Route path="styles" element={<StyleCatalogue />} />
           <Route path="catalogue" element={<GlobalCatalogue />} />
           <Route path="catalogue/approvals" element={<CatalogueApproval />} />
+          <Route path="game-names" element={<GameNameReconcile />} />
           <Route path="reports" element={<Reports />} />
           <Route path="backups" element={<Backups />} />
           <Route path="activity" element={<SuperAdminActivity />} />

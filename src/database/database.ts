@@ -3633,6 +3633,35 @@ async function doInitDatabase(): Promise<Database> {
         { name: '210_drop_room_events', handler: async (db) => {
             await db.exec(`DROP TABLE IF EXISTS room_events`);
         } },
+        // A35 (v2.235.0, owner 2026-11-08) - the super-admin reconcile of game
+        // names the catalogue does not have ("Arkanoid" vs AtGames' "Arkanoid
+        // (Pinball)"). One row per merge, plus the previous value of EVERY row
+        // it changed, so Undo restores exactly that and nothing written later.
+        // A room delete takes its merges with it (declared cascade).
+        { name: '211_game_name_reconciles', handler: async (db) => {
+            await db.exec(`
+                CREATE TABLE IF NOT EXISTS game_name_reconciles (
+                    id TEXT PRIMARY KEY,
+                    game_room_id TEXT NOT NULL REFERENCES game_rooms(id) ON DELETE CASCADE,
+                    from_name TEXT NOT NULL,
+                    to_name TEXT NOT NULL,
+                    to_global_game_id TEXT NOT NULL,
+                    counts TEXT NOT NULL DEFAULT '{}',
+                    created_by TEXT,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    undone_at TEXT,
+                    undone_by TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_game_name_reconciles_room ON game_name_reconciles(game_room_id, created_at);
+                CREATE TABLE IF NOT EXISTS game_name_reconcile_rows (
+                    reconcile_id TEXT NOT NULL REFERENCES game_name_reconciles(id) ON DELETE CASCADE,
+                    table_name TEXT NOT NULL,
+                    row_key TEXT NOT NULL,
+                    old_value TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_game_name_reconcile_rows ON game_name_reconcile_rows(reconcile_id);
+            `);
+        } },
     ];
 
     for (const migration of migrations) {
