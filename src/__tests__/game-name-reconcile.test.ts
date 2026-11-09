@@ -88,6 +88,20 @@ describe('GameNameReconcileService', () => {
         expect(suggestFor('space invaders', cat).map(s => s.name)).toEqual(['Space Invaders', 'Space Invaders (Pinball)']);
     });
 
+    it('ranks by shared words and preselects only a clear winner (owner screenshot 2026-11-09)', () => {
+        const cat = ['Kung Fu', 'DreamWorks Kung Fu Panda Pinball', 'Getaway', 'The Getaway - High Speed II',
+            'Tomb Raider Pinball: Secrets of Croft Manor', 'Arkanoid (Pinball)', 'Arkanoid: Revenge of Doh'].map(name => ({
+            row: { id: name, name, manufacturer: null, year: null, platforms: '[]', atgames_id: null, normalized_name: null },
+            norm: normalizeGameName(name), lower: name.toLowerCase(),
+        }));
+        const top = (n: string) => suggestFor(n, cat)[0]!;
+        expect(top('Kung Fu Panda Pinball')).toMatchObject({ name: 'DreamWorks Kung Fu Panda Pinball', sure: true });
+        expect(top('Getaway - High Speed II, The')).toMatchObject({ name: 'The Getaway - High Speed II', sure: true });
+        expect(top('Secrets of Croft Manor')).toMatchObject({ name: 'Tomb Raider Pinball: Secrets of Croft Manor', sure: true });
+        // Two tables hold every word of "Arkanoid": suggest both, preselect neither.
+        expect(suggestFor('Arkanoid', cat).map(s => s.sure)).toEqual([false, false]);
+    });
+
     it('merges every table in that room only, then Undo restores exactly those rows', async () => {
         const db = await getDatabase();
         const preview = await GameNameReconcileService.preview(roomA, 'Arkanoid', pinballId);

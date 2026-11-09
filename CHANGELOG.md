@@ -6,6 +6,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.235.2] - 2026-11-09 - Game Names suggests the right table
+
+Owner screenshot 2026-11-09: "Kung Fu Panda Pinball" suggested (and preselected) the 1975 LTD "Kung Fu", and "Getaway - High
+Speed II, The" preselected Allied Leisure's "Getaway", because suggestions only checked whether one name started with the other.
+
+- Suggestions now rank by shared words (ignoring "The", a trailing ", The" and "Pinball"), with the same normalized name first.
+  "Kung Fu Panda Pinball" now suggests "DreamWorks Kung Fu Panda Pinball" first.
+- A suggestion is preselected only when it is the same name, or the one suggestion holding every word of the room's name.
+  Otherwise nothing is selected and the super-admin picks.
+
 ## [2.235.1] - 2026-11-08 - Forum season polls carry their poll
 
 E19 (seen on prod 2026-11-08, Mox Game Room). A Pick-by-poll poll routed to a Discord FORUM channel came out as a forum

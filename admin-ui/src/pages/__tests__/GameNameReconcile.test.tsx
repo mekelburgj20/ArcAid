@@ -18,7 +18,7 @@ const { default: GameNameReconcile } = await import('../GameNameReconcile');
 const ORPHAN = {
   roomId: 'r1', roomName: 'Alpha Room', roomSlug: 'alpha', name: 'Arkanoid', spellings: ['Arkanoid'],
   counts: { games: 1, activeGames: 0, scores: 4, communityScores: 0, comments: 0 }, lastScoreAt: null,
-  suggestions: [{ id: 'gg-ark', name: 'Arkanoid (Pinball)', manufacturer: null, year: null, platforms: ['atgames_native'], atgames: true }],
+  suggestions: [{ id: 'gg-ark', name: 'Arkanoid (Pinball)', manufacturer: null, year: null, platforms: ['atgames_native'], atgames: true, sure: true }],
 };
 const PREVIEW = {
   roomId: 'r1', fromName: 'Arkanoid', spellings: ['Arkanoid'], to: { id: 'gg-ark', name: 'Arkanoid (Pinball)' },
