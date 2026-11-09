@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import crypto from 'crypto';
-import { setupTestDb, createTestRoom } from './helpers.js';
+import { setupTestDb, createTestRoom, seedCatalogueGames } from './helpers.js';
 import { getDatabase } from '../database/database.js';
 import { signToken } from '../api/auth.js';
 import { Scheduler } from '../engine/Scheduler.js';
@@ -80,6 +80,7 @@ describe('W33 — an event never runs on a rotation cron', () => {
     let roomId: string;
     beforeEach(async () => {
         await setupTestDb();
+        await seedCatalogueGames('Medieval Madness', 'TNA', 'A', 'B', 'Attack from Mars');
         roomId = await createTestRoom(`w33-${crypto.randomUUID().slice(0, 8)}`, 'W33');
         await disableIScored(roomId);
     });
@@ -139,6 +140,7 @@ describe('W33 — format is fixed once created (owner ruling 2026-10-25)', () =>
     let roomId: string;
     beforeEach(async () => {
         await setupTestDb();
+        await seedCatalogueGames('Medieval Madness', 'TNA', 'A', 'B', 'Attack from Mars');
         roomId = await createTestRoom(`w33f-${crypto.randomUUID().slice(0, 8)}`, 'W33 Format');
         await disableIScored(roomId);
     });
@@ -204,6 +206,7 @@ describe('W33 — one open-card rule: finished closes, paused stays open', () =>
 
     beforeEach(async () => {
         await setupTestDb();
+        await seedCatalogueGames('Medieval Madness', 'TNA', 'A', 'B', 'Attack from Mars');
         roomId = await createTestRoom(`w33o-${crypto.randomUUID().slice(0, 8)}`, 'W33 Open');
         await disableIScored(roomId);
         finishedEventId = await insertTournament(roomId, {
@@ -258,6 +261,7 @@ describe('W33 — one open-card rule: finished closes, paused stays open', () =>
 describe('W33 — finishing an event closes its leftover cards', () => {
     it('the finish step completes a non-round ACTIVE game along with the event', async () => {
         await setupTestDb();
+        await seedCatalogueGames('Medieval Madness', 'TNA', 'A', 'B', 'Attack from Mars');
         const roomId = await createTestRoom(`w33e-${crypto.randomUUID().slice(0, 8)}`, 'W33 Finish');
         await disableIScored(roomId);
         const eventId = await insertTournament(roomId, { format: 'event', cadence: { timezone: 'UTC' } });
@@ -282,6 +286,7 @@ describe('W33 — finishing an event closes its leftover cards', () => {
 describe('W34 — migration 190 repairs rows already broken', () => {
     it('strips an event cron, keeps the zone, closes a finished event\'s ACTIVE game, and is idempotent', async () => {
         await setupTestDb();
+        await seedCatalogueGames('Medieval Madness', 'TNA', 'A', 'B', 'Attack from Mars');
         const roomId = await createTestRoom(`w34-${crypto.randomUUID().slice(0, 8)}`, 'W34');
         const finishedAt = '2026-10-25T23:00:00.000Z';
         const brokenEvent = await insertTournament(roomId, {

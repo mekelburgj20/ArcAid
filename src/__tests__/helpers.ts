@@ -113,3 +113,20 @@ export async function createTestSubmission(gameId: string, opts: {
 
     return id;
 }
+
+/**
+ * Approved catalogue rows for these names (skips any that exist). Event saves
+ * through the admin routes refuse a round whose game is not in the catalogue
+ * (v2.233.0, A34), so a route-level event test seeds the names it uses.
+ */
+export async function seedCatalogueGames(...names: string[]) {
+    const db = await getDatabase();
+    for (const name of names) {
+        const exists = await db.get('SELECT 1 FROM global_games WHERE LOWER(name) = LOWER(?)', name);
+        if (exists) continue;
+        await db.run(
+            `INSERT INTO global_games (id, name, type, status) VALUES (?, ?, 'pinball', 'approved')`,
+            crypto.randomUUID(), name,
+        );
+    }
+}

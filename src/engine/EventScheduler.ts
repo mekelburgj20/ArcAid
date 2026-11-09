@@ -41,8 +41,17 @@ const EVENT_COLOR = 0xFF4D6D;
 
 const MEDALS = ['🥇', '🥈', '🥉'];
 
-/** How often a live AtGames-linked event is read from AtGames. */
-export const ATGAMES_AUTO_PULL_INTERVAL_MS = 2 * 60_000;
+/**
+ * How often a live AtGames-linked event is read from AtGames: every tick
+ * (v2.233.0; was 2 min in v2.231.0, too slow for people watching the board).
+ */
+export const ATGAMES_AUTO_PULL_INTERVAL_MS = 60_000;
+/**
+ * The per-minute tick does not land on the same millisecond each time; a tick
+ * 59.97 s after the last read must still count as a minute, or reads slip to
+ * every OTHER tick (the 2-minute interval read every 3 minutes in practice).
+ */
+export const ATGAMES_AUTO_PULL_SLACK_MS = 10_000;
 /** After a failed read (bad password, AtGames down), wait this long before trying again. */
 export const ATGAMES_AUTO_PULL_BACKOFF_MS = 15 * 60_000;
 
@@ -53,7 +62,7 @@ export const ATGAMES_AUTO_PULL_BACKOFF_MS = 15 * 60_000;
  * round closes later in this same tick, the event can finish with it, and a
  * score left on AtGames after that would never be counted. Otherwise read
  * every interval, and back off after a failure so a wrong password is not
- * retried against AtGames every two minutes.
+ * retried against AtGames every minute.
  */
 export function atgamesPullDue(
     nowMs: number,
@@ -64,7 +73,7 @@ export function atgamesPullDue(
     if (closingThisTick) return true;
     if (lastAttemptMs === undefined) return true;
     const wait = lastFailed ? ATGAMES_AUTO_PULL_BACKOFF_MS : ATGAMES_AUTO_PULL_INTERVAL_MS;
-    return nowMs - lastAttemptMs >= wait;
+    return nowMs - lastAttemptMs >= wait - ATGAMES_AUTO_PULL_SLACK_MS;
 }
 
 interface DueRoundRow extends EventRoundRow {

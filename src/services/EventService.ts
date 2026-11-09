@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { getDatabase } from '../database/database.js';
 import { IdentityLinkService } from './IdentityLinkService.js';
 import { applyLibraryDefaults } from '../utils/gameLibraryDefaults.js';
+import { catalogueIdForName } from '../utils/ratingTarget.js';
 import { logInfo } from '../utils/logger.js';
 import type { EventAggregateMethod } from '../types/index.js';
 
@@ -226,6 +227,7 @@ export class EventService {
                         if (prior.name.toLowerCase() !== input.gameName.toLowerCase()) {
                             await applyLibraryDefaults(db, tournament.game_room_id, prior.id, input.gameName);
                         }
+                        await db.run('UPDATE games SET global_game_id = ? WHERE id = ?', await catalogueIdForName(db, input.gameName), prior.id);
                     }
                     continue;
                 }
@@ -237,6 +239,9 @@ export class EventService {
                     input.roundNo, input.scheduledStartAt, input.scheduledEndAt,
                 );
                 await applyLibraryDefaults(db, tournament.game_room_id, gameId, input.gameName);
+                // v2.233.0 (A34): the round names its catalogue game, so the Global
+                // Scoreboard fan-out reads the id instead of re-matching the name.
+                await db.run('UPDATE games SET global_game_id = ? WHERE id = ?', await catalogueIdForName(db, input.gameName), gameId);
             }
 
             await db.run(
@@ -283,6 +288,43 @@ export class EventService {
         }
 
         return EventService.getRounds(tournamentId);
+    }
+
+    /**
+     * Holds every round to a catalogue game (v2.233.0, A34; owner 2026-11-08:
+     * block a name the catalogue does not have).
+     *
+     * A typed name that matches no approved `global_games` row joins nothing:
+     * not the Global Scoreboard, not AtGames, not later history under the
+     * right name ("Arkanoid" vs AtGames' "Arkanoid (Pinball)"). Matching names
+     * are rewritten to the catalogue's own spelling. A round keeping the name
+     * it already has is exempt, so an event saved before this rule (or a round
+     * already played) can still be edited.
+     *
+     * Called by the admin save routes BEFORE anything is written. Not inside
+     * createOrUpdateEvent: Throwdowns and tests save rounds through that too.
+     */
+    static async checkRoundGames(
+        tournamentId: string | null,
+        rounds: EventRoundInput[],
+    ): Promise<{ rounds: EventRoundInput[]; missing: string[] }> {
+        const db = await getDatabase();
+        const existing = tournamentId ? await EventService.getRounds(tournamentId) : [];
+        const priorName = new Map(existing.map(r => [r.round_no, r.name.toLowerCase()]));
+        const missing: string[] = [];
+        const out: EventRoundInput[] = [];
+        for (const round of rounds) {
+            const name = (round.gameName ?? '').trim();
+            if (priorName.get(round.roundNo) === name.toLowerCase()) { out.push(round); continue; }
+            const hit = name
+                ? await db.get<{ name: string }>(
+                    `SELECT name FROM global_games WHERE status = 'approved' AND LOWER(name) = LOWER(?) LIMIT 1`, name,
+                )
+                : undefined;
+            if (hit) out.push({ ...round, gameName: hit.name });
+            else { if (name) missing.push(name); out.push(round); }
+        }
+        return { rounds: out, missing: [...new Set(missing)] };
     }
 
     /**

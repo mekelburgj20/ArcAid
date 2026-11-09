@@ -111,13 +111,23 @@ export function DateTimeField({ value, onChange, disabled, invalid, label }: {
     );
 }
 
+interface CatalogueHit { name: string; platforms: string[] }
+
+function parsePlatforms(raw: unknown): string[] {
+    if (Array.isArray(raw)) return raw.map(String);
+    if (typeof raw !== 'string') return [];
+    try { const v = JSON.parse(raw); return Array.isArray(v) ? v.map(String) : []; } catch { return []; }
+}
+
 /**
- * Game name with a suggestion list from the room's library.
+ * Game name with a VISIBLE list of catalogue matches (v2.233.0, A34).
  *
- * A free-text input with a `<datalist>`, not a picker modal: an event round is
- * one of up to twelve fields on a form the admin is already filling in, and
- * making each one a modal round-trip would be miserable. The name is validated
- * server-side against the catalogue at activation time anyway.
+ * It used to be a `<datalist>`, which most phones barely show, so a host typed
+ * "Arkanoid" and saved a name the catalogue does not have ("Arkanoid
+ * (Pinball)" is AtGames' table) — and the round then joined nothing. The list
+ * now opens under the field, AtGames tables are marked, and a name that is not
+ * a catalogue game says so before the save. The server refuses it anyway
+ * (`GAME_NOT_IN_CATALOGUE`); this is the early, friendly half.
  */
 function GameNameInput({ roomId, value, onChange, invalid }: {
     roomId: string | undefined;
@@ -126,38 +136,86 @@ function GameNameInput({ roomId, value, onChange, invalid }: {
     invalid?: boolean;
 }) {
     const listId = useId();
-    const [suggestions, setSuggestions] = useState<string[]>([]);
+    const [hits, setHits] = useState<CatalogueHit[]>([]);
+    const [loaded, setLoaded] = useState<string | null>(null);
+    const [open, setOpen] = useState(false);
+    const [active, setActive] = useState(-1);
     const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+    const query = value.trim();
 
     useEffect(() => {
-        if (!roomId || value.trim().length < 2) { setSuggestions([]); return; }
+        if (!roomId || query.length < 2) { setHits([]); setLoaded(null); return; }
         clearTimeout(timer.current);
         timer.current = setTimeout(async () => {
             try {
-                const rows = await api.get<Array<{ name: string }>>(
-                    `/rooms/${roomId}/game_library/search?q=${encodeURIComponent(value.trim())}`,
+                const rows = await api.get<Array<{ name: string; platforms?: unknown }>>(
+                    `/rooms/${roomId}/game_library/search?q=${encodeURIComponent(query)}`,
                 );
-                setSuggestions(rows.map(r => r.name).slice(0, 20));
+                setHits(rows.slice(0, 10).map(r => ({ name: r.name, platforms: parsePlatforms(r.platforms) })));
+                setLoaded(query);
             } catch {
-                // A failed lookup costs the admin autocomplete, nothing more —
-                // the field is free text and the server validates the name.
-                setSuggestions([]);
+                // A failed lookup costs the list, nothing more: the server
+                // still checks the name on save.
+                setHits([]);
+                setLoaded(null);
             }
         }, 250);
         return () => clearTimeout(timer.current);
-    }, [roomId, value]);
+    }, [roomId, query]);
+
+    const exact = hits.some(h => h.name.toLowerCase() === query.toLowerCase());
+    // Only claim "not in the catalogue" once the lookup for THIS text is back.
+    const unknown = query.length >= 2 && loaded === query && !exact;
+
+    const pick = (name: string) => { onChange(name); setOpen(false); setActive(-1); };
 
     return (
-        <>
+        <div className="relative">
             <input
-                type="text" list={listId} placeholder="Game name" value={value}
-                onChange={e => onChange(e.target.value)}
-                className={`${inputClass} ${invalid ? 'border-neon-magenta' : ''}`}
+                type="text" placeholder="Search the catalogue" value={value} autoComplete="off"
+                role="combobox" aria-expanded={open && hits.length > 0} aria-controls={listId}
+                aria-autocomplete="list"
+                onChange={e => { onChange(e.target.value); setOpen(true); setActive(-1); }}
+                onFocus={() => setOpen(true)}
+                // Delay so a tap on a result lands before the list closes.
+                onBlur={() => setTimeout(() => setOpen(false), 150)}
+                onKeyDown={e => {
+                    if (!open || hits.length === 0) return;
+                    if (e.key === 'ArrowDown') { e.preventDefault(); setActive(i => Math.min(i + 1, hits.length - 1)); }
+                    else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(i => Math.max(i - 1, 0)); }
+                    else if (e.key === 'Enter' && active >= 0) { e.preventDefault(); pick(hits[active]!.name); }
+                    else if (e.key === 'Escape') setOpen(false);
+                }}
+                className={`${inputClass} ${invalid || unknown ? 'border-neon-magenta' : ''}`}
             />
-            <datalist id={listId}>
-                {suggestions.map(name => <option key={name} value={name} />)}
-            </datalist>
-        </>
+            {open && hits.length > 0 && !(exact && hits.length === 1) && (
+                <ul
+                    id={listId} role="listbox"
+                    className="absolute z-30 left-0 right-0 mt-1 max-h-72 overflow-y-auto rounded border border-border bg-surface shadow-xl shadow-black/40"
+                >
+                    {hits.map((h, i) => (
+                        <li key={h.name} role="option" aria-selected={i === active}>
+                            <button
+                                type="button"
+                                onMouseDown={e => e.preventDefault()}
+                                onClick={() => pick(h.name)}
+                                className={`w-full text-left px-3 py-2.5 text-sm flex items-center gap-2 hover:bg-raised ${i === active ? 'bg-raised' : ''}`}
+                            >
+                                <span className="text-primary min-w-0 break-words">{h.name}</span>
+                                {h.platforms.includes('atgames_native') && (
+                                    <span className="ml-auto shrink-0 text-[10px] px-1.5 py-0.5 rounded border border-neon-cyan/40 text-neon-cyan">AtGames</span>
+                                )}
+                            </button>
+                        </li>
+                    ))}
+                </ul>
+            )}
+            {unknown && (
+                <p className="text-xs text-neon-magenta mt-1">
+                    Not a catalogue game. Pick one from the list{hits.length === 0 ? ' (try fewer letters)' : ''}.
+                </p>
+            )}
+        </div>
     );
 }
 

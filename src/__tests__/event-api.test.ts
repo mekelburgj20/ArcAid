@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import crypto from 'crypto';
-import { setupTestDb, createTestRoom } from './helpers.js';
+import { setupTestDb, createTestRoom, seedCatalogueGames } from './helpers.js';
 import { getDatabase } from '../database/database.js';
 import { signToken } from '../api/auth.js';
 import { EventService } from '../services/EventService.js';
@@ -24,6 +24,7 @@ import { EventService } from '../services/EventService.js';
 
 async function createTestApp() {
     await setupTestDb();
+    await seedCatalogueGames('Medieval Madness', 'TNA', 'A', 'B', 'Attack from Mars');
     const app = express();
     app.use(express.json());
     const { default: roomsRouter } = await import('../api/routes/rooms.js');

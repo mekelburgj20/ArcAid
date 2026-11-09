@@ -65,6 +65,9 @@ Loads when you touch any front-end file under `admin-ui/`. Cross-cutting invaria
   - `vite dev` serves `public/sw.js` raw with the placeholder intact — harmless, dev never goes through the build plugin.
 - **Never swap an `admin-ui/public/` asset in place — new filename every time.** Same-name overwrites go stale for days: `manifest.json` is no-cache and other public statics are `max-age=86400`, and the PWA/OS icon cache compounds it (a user saw the old app icon even after delete+reinstall). Renaming (`-v2` style, plus a `manifest.json?v=N` link when icons change) is the actual fix. Hashed `/assets/*` bundle output is immune (immutable by content hash). (v2.45.1)
 
+## Toasts
+- **An error toast stays until tapped (v2.233.0)**; success/info clear after 4 s; at most three on screen; errors carry `role="alert"` and a Dismiss button. A long refusal on a phone vanished before it could be read (owner 2026-11-08). Do not reintroduce an auto-timeout for errors.
+
 ## Styling gotchas
 - **Touch-screen inputs are 16px (v2.203.2).** iOS Safari zooms the page in on focus of any text field under 16px and stays zoomed; an unlayered `@media (pointer: coarse) { input, select, textarea { font-size: 16px } }` in `admin-ui/src/index.css` outranks every `text-sm`/`text-xs` utility. Never fix it with `maximum-scale=1` (Android then blocks pinch-zoom), and never give a touch input an `!important` size under 16px.
 - **Tailwind on Windows:** must use `@tailwindcss/postcss` (NOT `@tailwindcss/vite` — oxide scanner fails silently).
