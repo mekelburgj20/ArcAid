@@ -6,6 +6,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.231.0] - 2026-11-08 - AtGames scores come in on their own
+
+A32 (owner 2026-11-08: "It needs to happen automatically"). An AtGames-linked event used to show no scores until a
+host pressed **Pull scores** in the Rounds panel. Now the event clock does it:
+
+- **While a round is live, the event is read from AtGames every 2 minutes**, through the same pull the button runs
+  (same window check, same duplicate check, same account links), so a repeat read adds nothing.
+- **The tick that closes a round always reads first**, even right after a read. The event can finish in that same
+  tick, and a score still sitting on AtGames after that would never count.
+- **A failed read backs off to every 15 minutes** (a wrong password is not retried against AtGames every 2 minutes)
+  and leaves one "AtGames scores could not be read" problem row on Room Admin -> Activity per event per reason.
+- Limited-attempt events are skipped (AtGames still cannot feed them, ADR 0029).
+- **Pull scores** and **Preview** stay, as "read now" and a dry run. The panel text now says scores arrive on their
+  own and that a cabinet sends a score when the player exits the table.
+
 ## [2.230.1] - 2026-11-08 - A failed AtGames create now says why
 
 A31.1. The first live create-on-save attempt showed only "AtGames said no: Request failed", and the server logged

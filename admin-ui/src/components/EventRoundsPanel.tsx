@@ -469,14 +469,15 @@ export default function EventRoundsPanel({ roomId, roomSlug, tournament, onClose
                     Adding a player by hand works even after check-in has closed — that is what it is for.
                 </p>
 
-                {/* P7 — pull scores off an AtGames private tournament. Manual by
-                    design for now: the host presses it, and pressing it twice is
-                    harmless because the ingest drops duplicates. */}
+                {/* P7 — scores off an AtGames private tournament. The event clock
+                    reads it every 2 minutes while a round is live (v2.231.0);
+                    these buttons read it now. A repeat read adds nothing. */}
                 <h3 className="font-display text-xs font-bold uppercase tracking-wider text-muted mt-6 mb-2">AtGames scores</h3>
                 <p className="text-xs text-faint mb-2">
                     Reads scores straight off an AtGames private tournament, so players on a cabinet
-                    don't have to type anything in. Paste the number from the end of the tournament's
-                    address on atgames.net. Preview first — it shows what would happen and changes nothing.
+                    don't have to type anything in. While a round is live, scores come in on their own
+                    every 2 minutes. Pull scores fetches them now; Preview shows what a pull would do
+                    and changes nothing. Cabinets send a score when the player exits the table.
                 </p>
                 {inviteCode && (
                     <p className="text-xs text-neon-cyan mb-2">
