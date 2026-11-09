@@ -68,6 +68,13 @@ export interface PostPollInput {
     channelId: string;
     /** Message content above the poll — carries the combined tally + web link. */
     content: string;
+    /**
+     * Forum targets only (v2.235.1, E19): the text of the forum post's starter
+     * message, which cannot carry the poll. Absent = `content`. The caller's
+     * later tally edits target the POLL message, so a starter copy of the
+     * tally line would go stale — pass the headline without it.
+     */
+    starterContent?: string;
     question: string;
     answers: string[];
     durationHours: number;
@@ -88,9 +95,15 @@ export interface PostedPoll {
 
 /**
  * `POST /channels/:id/messages` with a single-choice poll. When the target is
- * a forum (v2.221.0, E8) it is `POST /channels/:forumId/threads` instead: a
- * new post named with the poll question (trimmed to 100 chars, so each week
- * is its own post) whose starter message carries the poll.
+ * a forum (v2.221.0, E8) it is TWO calls (v2.235.1, E19): `POST
+ * /channels/:forumId/threads` creates a new post named with the poll question
+ * (trimmed to 100 chars, so each week is its own post) whose starter message
+ * carries only `starterContent` — Discord silently IGNORES `poll` on a forum
+ * starter message — then `POST /channels/:threadId/messages` posts the poll
+ * into that thread. The returned `messageId` is the POLL message (never the
+ * thread/starter id, which answers 10102 Unknown poll). If the second post
+ * fails the result is a failure; the caller retries and the text-only post
+ * left behind is harmless (no delete is attempted).
  */
 export async function postPoll(input: PostPollInput): Promise<DiscordResult<PostedPoll>> {
     const rest = restClient();
@@ -111,21 +124,23 @@ export async function postPoll(input: PostPollInput): Promise<DiscordResult<Post
         let channelId = input.channelId;
         let res: PostedMessage | null;
         if (isForumChannelType(await getChannelType(input.channelId))) {
+            // Discord ignores `poll` on a forum starter message (E19), so the
+            // post opens with text only and the poll follows inside the thread.
+            const starter = {
+                content: input.starterContent ?? input.content,
+                allowed_mentions: body.allowed_mentions,
+            };
             const thread = await rest.post(Routes.threads(input.channelId), {
-                body: { name: input.question.trim().slice(0, FORUM_POST_NAME_MAX) || 'Poll', message: body },
-            }) as { id?: string; message?: PostedMessage } | null;
+                body: { name: input.question.trim().slice(0, FORUM_POST_NAME_MAX) || 'Poll', message: starter },
+            }) as { id?: string } | null;
             if (!thread?.id) {
                 return toFailure(new Error('Discord returned no thread id'), 'post poll', input.channelId);
             }
             channelId = thread.id;
-            res = thread.message ?? null;
-            if (!res?.id) {
-                // A forum post's starter message shares the thread's id.
-                try {
-                    res = await rest.get(Routes.channelMessage(thread.id, thread.id)) as PostedMessage;
-                } catch {
-                    res = { id: thread.id };
-                }
+            try {
+                res = await rest.post(Routes.channelMessages(thread.id), { body }) as PostedMessage;
+            } catch (err) {
+                return toFailure(err, 'post poll into forum thread', thread.id);
             }
         } else {
             res = await rest.post(Routes.channelMessages(input.channelId), { body }) as PostedMessage;
@@ -143,9 +158,25 @@ export async function postPoll(input: PostPollInput): Promise<DiscordResult<Post
     }
 }
 
+/** Discord's JSON error code for "Unknown poll". */
+export const UNKNOWN_POLL_CODE = 10102;
+/**
+ * `channelId/messageId` pairs already warned about as Unknown poll (E19). The
+ * per-minute vote sync would otherwise log the same 404 forever for a poll
+ * that does not exist (the pre-v2.235.1 forum posts stored the thread id).
+ */
+const warnedUnknownPoll = new Set<string>();
+
+/** Test-only: forget which Unknown-poll messages were already warned about. */
+export function _resetUnknownPollWarningsForTests(): void {
+    warnedUnknownPoll.clear();
+}
+
 /**
  * Every voter (user id) for one answer, paginating on `after` with
- * `limit=100` until a short page.
+ * `limit=100` until a short page. A 404 / 10102 (Unknown poll) is logged once
+ * per message, then returned quietly — still `ok: false`, so no vote is ever
+ * removed on it.
  */
 export async function fetchAnswerVoters(
     channelId: string,
@@ -171,6 +202,15 @@ export async function fetchAnswerVoters(
         }
         return { ok: true, value: voters };
     } catch (err) {
+        const e = err as { status?: unknown; code?: unknown; message?: unknown };
+        if (e?.status === 404 && e?.code === UNKNOWN_POLL_CODE) {
+            const key = `${channelId}/${messageId}`;
+            if (warnedUnknownPoll.has(key)) {
+                return { ok: false, status: 404, code: UNKNOWN_POLL_CODE, message: typeof e.message === 'string' ? e.message : String(err) };
+            }
+            warnedUnknownPoll.add(key);
+            return toFailure(err, `read voters for answer ${answerId} (message ${messageId} is not a poll; further Unknown poll errors for it are not logged)`, channelId);
+        }
         return toFailure(err, `read voters for answer ${answerId}`, channelId);
     }
 }
