@@ -6,6 +6,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.235.1] - 2026-11-08 - Forum season polls carry their poll
+
+E19 (seen on prod 2026-11-08, Mox Game Room). A Pick-by-poll poll routed to a Discord FORUM channel came out as a forum
+post with the text only and no poll, and the vote sync then logged `Unknown poll` (404, code 10102) every minute.
+
+### Fixed
+
+- **A forum poll is now two messages.** Discord silently ignores `poll` on the starter message of a new forum post, so
+  `postPoll` creates the post with the headline only (the question + the "vote in the Arcaid Lobby" link, no tally line,
+  since the tally edits target the poll message and would leave a starter copy stale), then posts the poll into the new
+  thread. Arcaid stores the thread id as the poll channel (unchanged) and the POLL message's id, not the thread's. If the
+  second post fails the poll stays a draft and retries next minute; the text-only post is left in place.
+- **An Unknown poll is warned once.** `fetchAnswerVoters` logs a 404 / 10102 once per message and stays quiet after; it
+  still reports a failure, so no Discord vote is ever removed on it. A poll already posted the old way stays broken on
+  the Discord side (Arcaid Lobby votes still count); an admin can repost it.
+
 ## [2.235.0] - 2026-11-08 - Game Names: merge history recorded under names the catalogue does not have
 
 A35 (owner 2026-11-08: super-admin, all rooms). Scores, rounds and a room's game list tie to a game by its name. A round

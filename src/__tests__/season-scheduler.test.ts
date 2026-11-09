@@ -330,12 +330,13 @@ describe('forum poll channel (E8)', () => {
         });
     });
 
-    it('posts the poll as a new forum post and stores the THREAD id as the poll channel', async () => {
+    it('posts a text-only forum post, the poll INTO its thread, and stores the THREAD id + POLL message id (E19)', async () => {
         const { season, pollId } = await seasonWithDraft();
         post.mockImplementation(async (route: string, opts?: { body?: any }) => {
-            if (route === Routes.threads(SEASON_CHANNEL)) {
-                const answers = opts!.body.message.poll.answers.map((_: unknown, i: number) => ({ answer_id: i + 1 }));
-                return { id: THREAD, message: { id: 'starter-1', poll: { answers } } };
+            if (route === Routes.threads(SEASON_CHANNEL)) return { id: THREAD, message: { id: THREAD } };
+            if (route === Routes.channelMessages(THREAD) && opts?.body?.poll) {
+                const answers = opts.body.poll.answers.map((_: unknown, i: number) => ({ answer_id: i + 1 }));
+                return { id: 'poll-msg-1', poll: { answers } };
             }
             return {};
         });
@@ -345,12 +346,19 @@ describe('forum poll channel (E8)', () => {
         expect(threadPosts).toHaveLength(1);
         const body = threadPosts[0]![1].body;
         expect(body.name).toBe(SeasonPollService.defaultQuestion(season.name, 1).slice(0, 100));
-        expect(body.message.poll.answers.map((a: any) => a.poll_media.text)).toEqual(['Attack from Mars', 'Medieval Madness']);
-        expect(body.message.content).toContain('combined tally');
+        // The starter carries the headline only: no poll (Discord drops it) and no tally (it would go stale).
+        expect(body.message.poll).toBeUndefined();
+        expect(body.message.content).toContain(`**${SeasonPollService.defaultQuestion(season.name, 1)}**`);
+        expect(body.message.content).not.toContain('combined tally');
         expect(post.mock.calls.some(c => c[0] === Routes.channelMessages(SEASON_CHANNEL))).toBe(false);
 
+        const inThread = post.mock.calls.filter(c => c[0] === Routes.channelMessages(THREAD) && c[1]?.body?.poll);
+        expect(inThread).toHaveLength(1);
+        expect(inThread[0]![1].body.poll.answers.map((a: any) => a.poll_media.text)).toEqual(['Attack from Mars', 'Medieval Madness']);
+        expect(inThread[0]![1].body.content).toContain('combined tally');
+
         const poll = (await SeasonPollService.getPoll(pollId))!;
-        expect(poll).toMatchObject({ status: 'open', discord_channel_id: THREAD, discord_message_id: 'starter-1' });
+        expect(poll).toMatchObject({ status: 'open', discord_channel_id: THREAD, discord_message_id: 'poll-msg-1' });
         // Every later message about this poll goes into its thread.
         expect(await SeasonPollService.pollChannelFor(season, poll)).toBe(THREAD);
     });

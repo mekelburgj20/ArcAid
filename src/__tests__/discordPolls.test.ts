@@ -23,10 +23,17 @@ vi.mock('discord.js', async (importOriginal) => {
     return { ...actual, REST };
 });
 
+const { warn } = vi.hoisted(() => ({ warn: vi.fn() }));
+vi.mock('../utils/logger.js', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../utils/logger.js')>();
+    return { ...actual, logWarn: warn };
+});
+
 process.env.DISCORD_BOT_TOKEN = 'test-token';
 
 const {
     postPoll, fetchAnswerVoters, expirePoll, editMessageContent, pollDurationHours, MAX_POLL_DURATION_H,
+    _resetUnknownPollWarningsForTests,
 } = await import('../utils/discordPolls.js');
 
 beforeEach(() => {
@@ -72,25 +79,59 @@ describe('postPoll', () => {
         });
     });
 
-    it('a forum target (E8) creates a post named with the question and returns the thread id', async () => {
-        const { _resetChannelTypeCacheForTests } = await import('../utils/discord.js');
-        _resetChannelTypeCacheForTests();
-        get.mockImplementation(async (route: string) => {
-            if (route === '/channels/F1') return { id: 'F1', type: 15 };
-            if (route === '/channels/T1/messages/T1') return { id: 'T1', poll: { answers: [{ answer_id: 1 }, { answer_id: 2 }] } };
-            throw new Error(`unexpected ${route}`);
+    describe('forum target (E8, E19)', () => {
+        beforeEach(async () => {
+            const { _resetChannelTypeCacheForTests } = await import('../utils/discord.js');
+            _resetChannelTypeCacheForTests();
+            get.mockImplementation(async (route: string) => {
+                if (route === '/channels/F1') return { id: 'F1', type: 15 };
+                throw new Error(`unexpected ${route}`);
+            });
         });
-        // The thread response carries no starter message: fetched by the thread's own id.
-        post.mockResolvedValue({ id: 'T1' });
-        const res = await postPoll({
-            channelId: 'F1', content: 'tally', question: 'Q'.repeat(150), answers: ['A', 'B'], durationHours: 10,
+
+        it('creates a text-only post, then posts the poll INTO the thread and returns the poll message id', async () => {
+            post.mockImplementation(async (route: string) => {
+                if (route === '/channels/F1/threads') return { id: 'T1', message: { id: 'T1' } };
+                if (route === '/channels/T1/messages') return { id: 'P1', poll: { answers: [{ answer_id: 7 }, { answer_id: 8 }] } };
+                throw new Error(`unexpected ${route}`);
+            });
+            const res = await postPoll({
+                channelId: 'F1', content: 'headline\ntally', starterContent: 'headline',
+                question: 'Q'.repeat(150), answers: ['A', 'B'], durationHours: 10,
+            });
+            expect(res).toEqual({ ok: true, value: { channelId: 'T1', messageId: 'P1', answerIds: [7, 8] } });
+            expect(post).toHaveBeenCalledTimes(2);
+
+            const [route1, opts1] = post.mock.calls[0]!;
+            expect(route1).toBe('/channels/F1/threads');
+            expect(opts1.body.name).toBe('Q'.repeat(100));
+            expect(opts1.body.message).toEqual({ content: 'headline', allowed_mentions: { parse: [] } });
+            expect(opts1.body.message.poll).toBeUndefined();
+
+            const [route2, opts2] = post.mock.calls[1]!;
+            expect(route2).toBe('/channels/T1/messages');
+            expect(opts2.body.content).toBe('headline\ntally');
+            expect(opts2.body.poll.answers).toHaveLength(2);
+            expect(opts2.body.allowed_mentions).toEqual({ parse: [] });
         });
-        expect(res).toEqual({ ok: true, value: { channelId: 'T1', messageId: 'T1', answerIds: [1, 2] } });
-        const [route, opts] = post.mock.calls[0]!;
-        expect(route).toBe('/channels/F1/threads');
-        expect(opts.body.name).toBe('Q'.repeat(100));
-        expect(opts.body.message.content).toBe('tally');
-        expect(opts.body.message.poll.answers).toHaveLength(2);
+
+        it('the starter falls back to content when no starterContent is given', async () => {
+            post.mockImplementation(async (route: string) => (route === '/channels/F1/threads'
+                ? { id: 'T1' }
+                : { id: 'P1', poll: { answers: [{ answer_id: 1 }] } }));
+            await postPoll({ channelId: 'F1', content: 'tally', question: 'q', answers: ['A'], durationHours: 2 });
+            expect(post.mock.calls[0]![1].body.message.content).toBe('tally');
+        });
+
+        it('a failed poll post into the thread is a failure (no delete attempted)', async () => {
+            post.mockImplementation(async (route: string) => {
+                if (route === '/channels/F1/threads') return { id: 'T1' };
+                throw Object.assign(new Error('Missing Permissions'), { status: 403, code: 50013 });
+            });
+            const res = await postPoll({ channelId: 'F1', content: 'x', question: 'q', answers: ['A'], durationHours: 2 });
+            expect(res).toEqual({ ok: false, status: 403, code: 50013, message: 'Missing Permissions' });
+            expect(post).toHaveBeenCalledTimes(2);
+        });
     });
 
     it('caps the duration at 768 h and the answer text at 55 chars', async () => {
@@ -138,6 +179,20 @@ describe('fetchAnswerVoters', () => {
         get.mockRejectedValue(Object.assign(new Error('Unknown Message'), { status: 404, code: 10008 }));
         const res = await fetchAnswerVoters('C1', 'msg-1', 1);
         expect(res).toEqual({ ok: false, status: 404, code: 10008, message: 'Unknown Message' });
+    });
+
+    it('an Unknown poll (404 / 10102) is warned once per message, and stays a failure (E19)', async () => {
+        _resetUnknownPollWarningsForTests();
+        warn.mockClear();
+        get.mockRejectedValue(Object.assign(new Error('Unknown poll'), { status: 404, code: 10102 }));
+        for (let i = 0; i < 3; i++) {
+            const res = await fetchAnswerVoters('T1', 'T1', 1);
+            expect(res).toEqual({ ok: false, status: 404, code: 10102, message: 'Unknown poll' });
+        }
+        expect(warn).toHaveBeenCalledTimes(1);
+        // A different message is its own warning.
+        await fetchAnswerVoters('T2', 'T2', 1);
+        expect(warn).toHaveBeenCalledTimes(2);
     });
 });
 

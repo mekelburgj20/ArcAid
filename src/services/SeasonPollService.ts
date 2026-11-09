@@ -9,6 +9,7 @@ import {
 } from '../utils/discord.js';
 import {
     postPoll, fetchAnswerVoters, expirePoll, editMessageContent, pollDurationHours,
+    _resetUnknownPollWarningsForTests,
 } from '../utils/discordPolls.js';
 import { parsePlatformsList, parseTournamentRules, passesplatformRules, hasAnyPlatformRules } from '../utils/platformRules.js';
 import { catalogueTypesForTournamentMode } from '../utils/tournamentMode.js';
@@ -862,6 +863,19 @@ export class SeasonPollService {
     }
 
     /**
+     * Line 1 of `buildContent`: the bold question + web link, no tally. Also
+     * the whole starter message of a forum post (v2.235.1, E19), which never
+     * gets the tally edits (they target the poll message), so it must not
+     * carry a tally that would go stale.
+     */
+    static buildHeadline(t: SeasonTournamentRow, poll: SeasonPollRow): string {
+        const question = poll.question || this.defaultQuestion(t.name, poll.slot_no);
+        // The web ballot lives on the room's LOBBY (v2.162.3), so the link goes there, not to the room root.
+        const link = t.room_slug ? ` — vote here or in the Arcaid Lobby: ${roomUrl(t.room_slug)}/lobby` : ' — vote here';
+        return `**${question}**${link}`;
+    }
+
+    /**
      * The message content above the native poll: line 1 is the question + web
      * link, line 2 is the MERGED tally (Arcaid Lobby + Discord, one vote per person,
      * web wins) as its own bold line — owner ruling 2026-10-18 after the demo:
@@ -870,9 +884,6 @@ export class SeasonPollService {
      * vote-on-behalf API), so the line also says so.
      */
     static buildContent(t: SeasonTournamentRow, poll: SeasonPollRow, candidates: SeasonPollCandidateRow[], tally: Map<number, number>): string {
-        const question = poll.question || this.defaultQuestion(t.name, poll.slot_no);
-        // The web ballot lives on the room's LOBBY (v2.162.3), so the link goes there, not to the room root.
-        const link = t.room_slug ? ` — vote here or in the Arcaid Lobby: ${roomUrl(t.room_slug)}/lobby` : ' — vote here';
         const counted = candidates
             .map(c => ({ name: c.game_name, n: tally.get(c.position) ?? 0 }))
             .filter(c => c.n > 0)
@@ -881,7 +892,7 @@ export class SeasonPollService {
         const combined = counted.length
             ? `${counted.map(c => `${c.name} ${c.n}`).join(' · ')} — ${total} vote${total === 1 ? '' : 's'}`
             : 'no votes yet';
-        return `**${question}**${link}\n🗳️ **Arcaid Lobby + Discord combined tally: ${combined}** · the bars below count Discord votes only`;
+        return `${this.buildHeadline(t, poll)}\n🗳️ **Arcaid Lobby + Discord combined tally: ${combined}** · the bars below count Discord votes only`;
     }
 
     /**
@@ -919,6 +930,8 @@ export class SeasonPollService {
             const result = await postPoll({
                 channelId,
                 content: this.buildContent(t, poll, candidates, tally),
+                // Forum only: the post's starter message (the poll follows in the thread).
+                starterContent: this.buildHeadline(t, poll),
                 question,
                 answers: candidates.map(c => c.game_name),
                 durationHours: pollDurationHours(poll.closes_at ?? now, now),
@@ -946,6 +959,8 @@ export class SeasonPollService {
                 'UPDATE season_polls SET discord_channel_id = ?, discord_message_id = ? WHERE id = ?',
                 // The channel the poll LIVES in: a forum post's thread id, so
                 // vote sync, expire and the content edit keep working (E8).
+                // The message id is the POLL message, which in a forum is the
+                // second message in the thread, never the starter (E19).
                 result.value.channelId, result.value.messageId, poll.id,
             );
             for (let i = 0; i < candidates.length; i++) {
@@ -1233,5 +1248,6 @@ export class SeasonPollService {
         postFailures.clear();
         lastTallySig.clear();
         warnedEmptyDraft.clear();
+        _resetUnknownPollWarningsForTests();
     }
 }
