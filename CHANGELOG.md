@@ -6,6 +6,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.237.0] - 2026-11-09 - AtGames "Joined" follows the player
+
+A40 (owner 2026-11-09). Players who joined an event's AtGames tournament in the AtGames app or on atgames.net still
+saw "Playing on an AtGames cabinet? Join this event's AtGames tournament…" and a Join button on the event page and
+on every round card. Arcaid cannot read an AtGames tournament's member list (the tournament detail carries scores
+only), so it now uses everything it can see or be told:
+
+- **Joining from Arcaid when you are already in the tournament now says so** instead of failing. After the AtGames
+  sign-in, Arcaid reads the player's own AtGames tournament list first; if this event's tournament is in it (by id
+  or invitation code), there is no second join and the reply is "You're already in … on AtGames". The account is
+  still linked, as before. If that list cannot be read, the join goes ahead as it did.
+- **"Already joined in the AtGames app or on atgames.net? I've joined"** on the event page and in the card's join
+  dialog marks the player joined with no AtGames sign-in. It only changes what Arcaid shows. The event page offers
+  "Not joined after all? Undo" for a mark the player made themselves; a join Arcaid saw cannot be undone this way.
+- **"Joined" is stored per player on the server** (new `atgames_event_joins`, migration 212), not in one browser's
+  localStorage. The event page and every round card agree, on every device. Before this, the event page forgot a
+  join on reload and the cards remembered it only in the browser that joined. The table is backfilled from the
+  activity log's `atgames_joined` rows, so joins made since v2.232.0 carry over.
+- **A linked player whose AtGames score in the event has already been pulled shows as Joined**: only a member's
+  score reaches the tournament. This uses the scores Arcaid already reads every minute; no new AtGames call.
+- `GET /api/rooms/:roomId/atgames/joinable` rows and the event payload's `atgames` gain `joinedVia`
+  (`arcaid` / `verified` / `scores` / `self`, or null; always null signed out). New player routes:
+  `POST` / `DELETE /api/rooms/:roomId/events/:id/atgames-joined`. Activity rows: `atgames_joined` (now also for
+  "already in it"), `atgames_join_declared`, `atgames_join_undeclared`.
+- Still not possible: marking an UNLINKED player joined before their first score, or reading AtGames' member list
+  (A41 waits on one capture of whether atgames.net shows the owner one).
+
 ## [2.236.0] - 2026-11-09 - Past games stack behind the live card
 
 B23. Owner screenshot 2026-11-09 (RTX Pinball): the Daily Grind kept four finished, locked cards on the Tournaments tab

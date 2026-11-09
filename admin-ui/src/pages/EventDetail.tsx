@@ -11,6 +11,7 @@ import { WitnessBadge, NOT_COUNTED_LABEL, NOT_COUNTED_TITLE, type WitnessVerdict
 import { ApiError } from '../lib/api';
 import { playerApi } from '../lib/playerApi';
 import AtGamesJoinPanel from '../components/AtGamesJoinPanel';
+import type { AtGamesJoinedVia } from '../components/scoreboard/cardAtGamesJoinContext';
 
 /**
  * `/:slug/events/:id` — the public face of a Live Event (v2.135.0, ADR 0017).
@@ -104,7 +105,7 @@ interface EventPayload {
     /** v2.159.0 — the check-in lobby; empty once round 1 starts. Absent from a Throwdown. */
     lobby?: LobbyEntry[];
     /** v2.232.0 (A33) — present when the event is linked to an AtGames private tournament. */
-    atgames?: { joinable: boolean; code: string | null } | null;
+    atgames?: { joinable: boolean; code: string | null; joinedVia?: AtGamesJoinedVia | null } | null;
     viewer: {
         canCheckIn: boolean;
         reason: 'LOGIN_REQUIRED' | 'ALREADY_CHECKED_IN' | 'CHECKIN_CLOSED' | null;
@@ -399,6 +400,7 @@ export default function EventDetail({ throwdownCode }: EventDetailProps = {}) {
                 <AtGamesJoinPanel
                     roomId={roomId} eventId={event.id} playerToken={playerToken}
                     code={data.atgames.code} signedIn={!!discordUser}
+                    joinedVia={data.atgames.joinedVia ?? null}
                     onLogin={() => loginWithDiscord(roomSlug ?? '', `/${roomSlug}/events/${event.id}`)}
                 />
             )}

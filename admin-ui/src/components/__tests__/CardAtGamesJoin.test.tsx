@@ -34,7 +34,7 @@ describe('CardAtGamesJoin', () => {
         expect(open).toHaveBeenCalledWith(item);
     });
 
-    it('says Joined once this browser joined that tournament', () => {
+    it('says Joined once the viewer is known to be in that tournament', () => {
         renderWith({ byGameId: { g1: item }, joined: new Set(['t1']), open: vi.fn() });
         expect(screen.getByText('Joined on AtGames')).toBeTruthy();
         expect(screen.queryByRole('button')).toBeNull();

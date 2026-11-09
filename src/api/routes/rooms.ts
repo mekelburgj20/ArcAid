@@ -93,6 +93,7 @@ import { TournamentScoresService } from '../../services/TournamentScoresService.
 import { ScoreProvenanceService } from '../../services/ScoreProvenanceService.js';
 import { AuditService } from '../../services/AuditService.js';
 import { ActivityLogService, fmtScore } from '../../services/ActivityLogService.js';
+import { AtGamesJoinService } from '../../services/AtGamesJoinService.js';
 import { describeChanges, diffSettings, diffTournament, tournamentSnapshotForDiff, ROOM_TOGGLES_DEFAULT_ON } from '../../utils/activityDiff.js';
 import { checkEventSubmission, checkAttemptLimitSubmission } from '../../services/EventSubmissionGate.js';
 import { TournamentEntryService } from '../../services/TournamentEntryService.js';
@@ -5522,10 +5523,15 @@ router.get('/:roomId/events/:id', roomVisibilityGate, optionalDiscordUser, async
             // v2.232.0 (A33) — an AtGames-linked event offers "Join on AtGames".
             // The code (for joining on a cabinet by hand) goes to signed-in
             // viewers only; the join route reads it from the row, not the client.
-            atgames: (() => {
+            // v2.237.0 (A40) — `joinedVia` says whether (and how) Arcaid knows
+            // this viewer is already in it, so the panel shows Joined instead.
+            atgames: await (async () => {
                 const code = (event as { atgames_invite_code?: string | null }).atgames_invite_code?.trim() || null;
                 if (!code) return null;
-                return { joinable: !event.event_finished_at, code: viewerId ? code : null };
+                const joinedVia = viewerId
+                    ? (await AtGamesJoinService.joinedVia([event.id], viewerId)).get(event.id) ?? null
+                    : null;
+                return { joinable: !event.event_finished_at, code: viewerId ? code : null, joinedVia };
             })(),
             viewer: {
                 canCheckIn: !!viewerId && checkinOpen && !participant,
@@ -5595,11 +5601,15 @@ router.get('/:roomId/atgames/joinable', roomVisibilityGate, optionalDiscordUser,
                 AND g.round_no IS NOT NULL AND g.status = 'ACTIVE'`,
             roomId,
         );
-        const signedIn = !!req.user?.discordId;
+        const viewerId = req.user?.discordId ?? null;
+        // v2.237.0 (A40) — per viewer, server-side: joined on any device, by
+        // any route Arcaid can see (its own Join, the player's word, a pulled score).
+        const joined = await AtGamesJoinService.joinedVia(rows.map(r => r.tournament_id), viewerId);
         res.json({
             games: rows.map(r => ({
                 gameId: r.game_id, tournamentId: r.tournament_id, tournamentName: r.tournament_name,
-                code: signedIn ? r.code.trim() : null,
+                code: viewerId ? r.code.trim() : null,
+                joinedVia: joined.get(r.tournament_id) ?? null,
             })),
         });
     } catch (error) {
@@ -5626,8 +5636,8 @@ router.post('/:roomId/events/:id/atgames-join', authLimiter, roomVisibilityGate,
         if (event.event_finished_at) return res.status(400).json({ error: 'This event is over' });
 
         const db = await getDatabase();
-        const row = await db.get<{ atgames_invite_code: string | null }>(
-            'SELECT atgames_invite_code FROM tournaments WHERE id = ?', event.id,
+        const row = await db.get<{ atgames_invite_code: string | null; atgames_tournament_id: string | null }>(
+            'SELECT atgames_invite_code, atgames_tournament_id FROM tournaments WHERE id = ?', event.id,
         );
         const code = row?.atgames_invite_code?.trim();
         if (!code) return res.status(400).json({ error: 'This event has no AtGames tournament to join', code: 'NOT_LINKED' });
@@ -5665,6 +5675,33 @@ router.post('/:roomId/events/:id/atgames-join', authLimiter, roomVisibilityGate,
                 }
             }
 
+            // v2.237.0 (A40) — a player who joined in the AtGames app or on
+            // atgames.net is already in it. Their own tournament list says so,
+            // and AtGames would refuse a second join, which read as a failure.
+            // A failed look is not a refusal: fall through to the join.
+            let alreadyMember = false;
+            try {
+                const mine = await client.listPrivateTournaments();
+                alreadyMember = AtGamesJoinService.isMember(mine, { atgamesId: row?.atgames_tournament_id, code });
+            } catch (err) {
+                logWarn(`AtGames join: could not read account ${session.accountId ?? '?'}'s tournaments before joining event ${event.id}: ${(err as Error)?.message ?? err}`);
+            }
+            // The AtGames side is done either way; a failed bookkeeping write
+            // must not turn it into an error.
+            const remember = (via: 'arcaid' | 'verified') => AtGamesJoinService.record(event.id, viewerId, via)
+                .catch(err => logWarn(`AtGames join: could not record the join for event ${event.id}: ${(err as Error)?.message ?? err}`));
+            if (alreadyMember) {
+                await remember('verified');
+                logInfo(`AtGames join: account ${session.accountId ?? '?'} was already in the AtGames tournament for event ${event.id}`);
+                void ActivityLogService.record({
+                    roomId, category: 'lifecycle', eventType: 'atgames_joined', userId: viewerId,
+                    tournamentId: event.id, tournamentName: event.name, source: 'atgames',
+                    summary: 'Was already in the AtGames tournament (checked from Arcaid)',
+                    details: { atgamesAccountId: session.accountId, linked, linkConflict, alreadyMember: true },
+                });
+                return res.json({ success: true, tournamentName: event.name, linked, linkConflict, alreadyMember: true });
+            }
+
             let joined;
             try {
                 joined = await client.joinPrivateTournament(code);
@@ -5676,6 +5713,7 @@ router.post('/:roomId/events/:id/atgames-join', authLimiter, roomVisibilityGate,
                 throw err;
             }
 
+            await remember('arcaid');
             logInfo(`AtGames join: account ${session.accountId ?? '?'} joined AtGames tournament ${joined.id ?? '?'} for event ${event.id}`);
             void ActivityLogService.record({
                 roomId, category: 'lifecycle', eventType: 'atgames_joined', userId: viewerId,
@@ -5683,12 +5721,65 @@ router.post('/:roomId/events/:id/atgames-join', authLimiter, roomVisibilityGate,
                 summary: 'Joined the AtGames tournament from Arcaid',
                 details: { atgamesAccountId: session.accountId, linked, linkConflict },
             });
-            return res.json({ success: true, tournamentName: joined.name ?? event.name, linked, linkConflict });
+            return res.json({ success: true, tournamentName: joined.name ?? event.name, linked, linkConflict, alreadyMember: false });
         } finally {
             client.forget();
         }
     } catch (error) {
         logError('API Error (POST rooms/:roomId/events/:id/atgames-join):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// "Already joined in the AtGames app?" (v2.237.0, A40). Arcaid cannot read an
+// AtGames tournament's member list, so a player who joined in the AtGames app
+// or on atgames.net says so here; no AtGames call, no password. The mark only
+// changes what Arcaid shows. DELETE takes back the player's own mark and
+// nothing else (a join Arcaid saw stays). Both answer the viewer's `joinedVia`
+// afterwards, which may still be set when Arcaid knows another way.
+router.post('/:roomId/events/:id/atgames-joined', writeLimiter, roomVisibilityGate, requireDiscordUser, requireNotBanned, async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const viewerId = req.user!.discordId!;
+        const event = await resolveRoomEvent(roomId, req.params.id as string);
+        if (!event) return res.status(404).json({ error: 'Event not found' });
+        if (event.event_finished_at) return res.status(400).json({ error: 'This event is over' });
+        const code = (event as { atgames_invite_code?: string | null }).atgames_invite_code?.trim();
+        if (!code) return res.status(400).json({ error: 'This event has no AtGames tournament', code: 'NOT_LINKED' });
+
+        await AtGamesJoinService.record(event.id, viewerId, 'self');
+        void ActivityLogService.record({
+            roomId, category: 'lifecycle', eventType: 'atgames_join_declared', userId: viewerId,
+            tournamentId: event.id, tournamentName: event.name, source: 'atgames',
+            summary: 'Said they already joined the AtGames tournament outside Arcaid',
+        });
+        const joinedVia = (await AtGamesJoinService.joinedVia([event.id], viewerId)).get(event.id) ?? null;
+        res.json({ success: true, joinedVia });
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/events/:id/atgames-joined):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.delete('/:roomId/events/:id/atgames-joined', roomVisibilityGate, requireDiscordUser, async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const viewerId = req.user!.discordId!;
+        const event = await resolveRoomEvent(roomId, req.params.id as string);
+        if (!event) return res.status(404).json({ error: 'Event not found' });
+
+        const removed = await AtGamesJoinService.clearSelf(event.id, viewerId);
+        if (removed) {
+            void ActivityLogService.record({
+                roomId, category: 'lifecycle', eventType: 'atgames_join_undeclared', userId: viewerId,
+                tournamentId: event.id, tournamentName: event.name, source: 'atgames',
+                summary: 'Took back "already joined" for the AtGames tournament',
+            });
+        }
+        const joinedVia = (await AtGamesJoinService.joinedVia([event.id], viewerId)).get(event.id) ?? null;
+        res.json({ success: true, joinedVia });
+    } catch (error) {
+        logError('API Error (DELETE rooms/:roomId/events/:id/atgames-joined):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
