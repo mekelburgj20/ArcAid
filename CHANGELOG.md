@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.240.1] - 2026-11-10 - Activity log badges stay in their column
+
+G19. Owner 2026-11-10 (screenshot): "The activity items are running in to each other." On Room Admin -> Activity the
+TOURNAMENT category badge ran over the start of each row's summary ("TOURNAMsoggybacon: ...").
+
+- **Cause.** The time + badge column was a fixed 11rem. "Nov 9, 10:00 PM" plus the widest label, TOURNAMENT, needs about
+  14rem, so the badge spilled into the summary. The time is printed in the viewer's own locale, so no fixed width is safe.
+- **Fix.** The column has a minimum width (15rem) instead of a fixed one, so an unusually long time or label widens that
+  row rather than overlapping it; the time has its own minimum width so the badges line up in one column; a badge never
+  wraps. Phone layout (time and badge above the summary) is unchanged.
+
+Files: `admin-ui/src/components/ActivityTimeline.tsx`.
+
 ## [2.240.0] - 2026-11-10 - Table art and avatars on the results pages
 
 B25. Owner 2026-11-10: "The History pages need some love ... put in some of the table art next to each game ... and
