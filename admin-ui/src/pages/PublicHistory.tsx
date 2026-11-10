@@ -6,6 +6,7 @@ import { RESULTS_PAGE } from '../lib/pageLayout';
 import { TOURNAMENT_TYPE_COLORS } from '../components/TournamentTypeBadge';
 import RunFeed from '../components/results/RunFeed';
 import { useRoom } from '../contexts/RoomContext';
+import { roomFetch } from '../lib/roomFetch';
 
 /**
  * `/:slug/history` — every finished run in the room.
@@ -44,7 +45,7 @@ export default function PublicHistory() {
   useEffect(() => {
     if (!roomId) return;
     let cancelled = false;
-    fetch(`/api/rooms/${roomId}/tournaments`)
+    roomFetch(`/api/rooms/${roomId}/tournaments`)
       .then(r => (r.ok ? r.json() : []))
       .then((rows: unknown) => {
         if (cancelled || !Array.isArray(rows)) return;

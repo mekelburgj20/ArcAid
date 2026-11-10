@@ -11,6 +11,7 @@ import PinnedMessage from '../components/lobby/PinnedMessage';
 import AnnouncementsRail from '../components/lobby/AnnouncementsRail';
 import FeedItem from '../components/lobby/FeedItem';
 import CommunityShelf from '../components/lobby/CommunityShelf';
+import { roomFetch } from '../lib/roomFetch';
 
 interface FeedEvent {
   id: number;
@@ -72,9 +73,9 @@ export default function Lobby() {
   useEffect(() => {
     if (!roomId) return;
     Promise.all([
-      fetch(`/api/rooms/${roomId}/lobby/config`).then(r => r.ok ? r.json() : null),
-      fetch(`/api/rooms/${roomId}/lobby/announcements`).then(r => r.ok ? r.json() : []),
-      fetch(`/api/rooms/${roomId}/lobby/shelf`).then(r => r.ok ? r.json() : []),
+      roomFetch(`/api/rooms/${roomId}/lobby/config`).then(r => r.ok ? r.json() : null),
+      roomFetch(`/api/rooms/${roomId}/lobby/announcements`).then(r => r.ok ? r.json() : []),
+      roomFetch(`/api/rooms/${roomId}/lobby/shelf`).then(r => r.ok ? r.json() : []),
     ]).then(([cfg, ann, shelf]) => {
       if (cfg) setConfig(cfg);
       setAnnouncements(ann || []);

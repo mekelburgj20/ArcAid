@@ -8,6 +8,7 @@ import RankLine from '../components/results/RankLine';
 import RunFeed from '../components/results/RunFeed';
 import { RESULTS_PAGE } from '../lib/pageLayout';
 import { useRoom } from '../contexts/RoomContext';
+import { roomFetch } from '../lib/roomFetch';
 
 /**
  * `/:slug/tournaments/:tournamentId` — one tournament's results.
@@ -159,7 +160,7 @@ export default function TournamentDetail() {
     if (!roomId || !tournamentId) return;
     setLoading(true);
     setNotFound(false);
-    fetch(`/api/rooms/${roomId}/tournaments/${tournamentId}/scores`)
+    roomFetch(`/api/rooms/${roomId}/tournaments/${tournamentId}/scores`)
       .then(r => {
         if (r.status === 404) { setNotFound(true); return null; }
         return r.ok ? r.json() : null;
@@ -173,7 +174,7 @@ export default function TournamentDetail() {
   useEffect(() => {
     if (!roomId) return;
     let cancelled = false;
-    fetch(`/api/rooms/${roomId}/tournaments`)
+    roomFetch(`/api/rooms/${roomId}/tournaments`)
       .then(r => (r.ok ? r.json() : []))
       .then((rows: unknown) => {
         if (cancelled || !Array.isArray(rows)) return;

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Flame, TrendingUp, Target, Trophy, Gamepad2, Star, Users, Crown, Hourglass } from 'lucide-react';
 import { getSocket } from '../lib/websocket';
 import { relativeTimeFrom } from '../lib/format';
+import { roomFetch } from '../lib/roomFetch';
 
 interface TickerFeedEvent {
   id: number;
@@ -49,7 +50,7 @@ export default function ScoreboardTicker({ roomId }: ScoreboardTickerProps) {
   useEffect(() => {
     if (!roomId) return;
     let cancelled = false;
-    fetch(`/api/rooms/${roomId}/lobby/feed?limit=15`)
+    roomFetch(`/api/rooms/${roomId}/lobby/feed?limit=15`)
       .then(r => r.ok ? r.json() : [])
       .then((data: TickerFeedEvent[]) => {
         if (cancelled) return;

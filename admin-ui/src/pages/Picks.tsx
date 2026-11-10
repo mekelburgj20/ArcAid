@@ -24,6 +24,7 @@ import {
 import { compareByRank } from '../lib/searchRank';
 import RatingBadge from '../components/RatingBadge';
 import { compareByRating } from '../lib/ratingSort';
+import { roomFetch } from '../lib/roomFetch';
 
 interface GameAvailabilityEntry {
   name: string;
@@ -328,7 +329,7 @@ export default function Picks() {
   // Load tournaments for this room
   useEffect(() => {
     if (!roomId) return;
-    fetch(`/api/rooms/${roomId}/tournaments`)
+    roomFetch(`/api/rooms/${roomId}/tournaments`)
       .then(r => r.json())
       .then((ts: TournamentOption[]) => {
         const actives = ts.filter((t: any) => t.is_active);
@@ -358,7 +359,7 @@ export default function Picks() {
     const t = tournaments.find(x => x.id === selectedTournamentId);
     const urlValue = t ? tournamentSlug(t.name) : selectedTournamentId;
     setSearchParams({ t: urlValue });
-    fetch(`/api/rooms/${roomId}/game-availability/${selectedTournamentId}`)
+    roomFetch(`/api/rooms/${roomId}/game-availability/${selectedTournamentId}`)
       .then(r => r.json())
       .then(setData)
       .catch(() => {})
@@ -683,7 +684,7 @@ export default function Picks() {
     fetchPickStatus();
     refreshPickAlerts();
     if (selectedTournamentId) {
-      fetch(`/api/rooms/${roomId}/game-availability/${selectedTournamentId}`)
+      roomFetch(`/api/rooms/${roomId}/game-availability/${selectedTournamentId}`)
         .then(r => r.json())
         .then(setData)
         .catch(() => {});

@@ -27,6 +27,7 @@ import ConfirmModal from './ConfirmModal';
 import TourController from './TourController';
 import NotificationNudgeBanner from './NotificationNudgeBanner';
 import UpdateNudgeBanner from './UpdateNudgeBanner';
+import { roomFetch } from '../lib/roomFetch';
 
 interface PublicLayoutProps {
   gameRoomName?: string;
@@ -132,7 +133,7 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
     }
     // Otherwise, check if there are newer events
     if (!resolvedRoomId) return;
-    fetch(`/api/rooms/${resolvedRoomId}/lobby/feed?limit=1`)
+    roomFetch(`/api/rooms/${resolvedRoomId}/lobby/feed?limit=1`)
       .then(r => r.ok ? r.json() : null)
       .then(events => {
         if (!events?.length) return;

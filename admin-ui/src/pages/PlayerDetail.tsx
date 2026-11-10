@@ -14,6 +14,7 @@ import GameArt from '../components/GameArt';
 import { RESULTS_PAGE } from '../lib/pageLayout';
 import { PlayerAvatar } from '../components/ScoreboardComponents';
 import { gameArtFor } from '../lib/gameArt';
+import { roomFetch } from '../lib/roomFetch';
 
 interface Achievements {
   tournamentWins: number;
@@ -87,7 +88,7 @@ export default function PlayerDetail() {
 
   useEffect(() => {
     if (!id || !roomId) return;
-    fetch(`/api/rooms/${roomId}/stats/enhanced/player/${encodeURIComponent(id)}`)
+    roomFetch(`/api/rooms/${roomId}/stats/enhanced/player/${encodeURIComponent(id)}`)
       .then(r => r.ok ? r.json() : null)
       .then(data => { if (data) setStats(data); })
       .catch(() => {})
@@ -109,7 +110,7 @@ export default function PlayerDetail() {
     const uid = encodeURIComponent(ratedUserId);
     const key = `${roomId ?? ''}|${ratedUserId}`;
     if (roomId) {
-      fetch(`/api/rooms/${roomId}/ratings/by-user/${uid}`)
+      roomFetch(`/api/rooms/${roomId}/ratings/by-user/${uid}`)
         .then(r => (r.ok ? r.json() : null))
         .then(body => { if (!cancelled && Array.isArray(body?.ratings)) setRoomRatingsFor({ key, rows: body.ratings }); })
         .catch(() => {});

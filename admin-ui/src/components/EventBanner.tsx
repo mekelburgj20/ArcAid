@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import DismissibleNotice from './DismissibleNotice';
 import { ROOM_NOTICE_DISMISSED_EVENT, dismissNotice, eventNoticeKey, isNoticeDismissed } from '../lib/roomNotices';
+import { roomFetch } from '../lib/roomFetch';
 
 /**
  * Live/upcoming event banner for the room's public pages (v2.141.0).
@@ -73,7 +74,7 @@ export default function EventBanner({ roomId, roomSlug, roomName }: { roomId: st
         let cancelled = false;
         (async () => {
             try {
-                const res = await fetch(`/api/rooms/${roomId}/tournaments`);
+                const res = await roomFetch(`/api/rooms/${roomId}/tournaments`);
                 if (!res.ok) return;
                 const rows = (await res.json()) as EventTournament[];
                 const now = Date.now();

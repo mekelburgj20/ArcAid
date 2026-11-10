@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import SubmissionSheet from '../components/SubmissionSheet';
 import { getPortal } from '../lib/portal';
+import { roomFetch } from '../lib/roomFetch';
 
 /**
  * Standalone score-submit page (e.g. the QR code target from scoreboard cards).
@@ -31,7 +32,7 @@ export default function ScoreSubmit() {
                 if (cancelled) return;
                 setRoomId(id);
 
-                const info = await fetch(`/api/rooms/${id}/games/${gameId}/info`);
+                const info = await roomFetch(`/api/rooms/${id}/games/${gameId}/info`);
                 if (!info.ok) throw new Error('Game not found');
                 const data = await info.json();
                 if (cancelled) return;
