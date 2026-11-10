@@ -227,7 +227,7 @@ Lane: `src/services/{GameRoom,GameRoomSettings,Settings,RoomEvent,Dashboard,Lobb
 - **G16** `done 2.229.0` Activity log shows Discord channels by name; default-only toggle saves ignored · pr: #459
 - **G17** `idea` Before/after diffs for the remaining admin edits — season poll edits, ranking groups, lobby config, per-game style/notes (they read as one-line summaries since 2.228.0; owner 2026-11-07: "not now") · needs: G15 · spec: CHANGELOG 2.229.0 "Not done"
 - **G18** `idea` Room background and logo images are served as uploaded (backgrounds 0.9–1.1 MB PNG); a cold first visit to a room spends 3–5 s on them. Resize/convert at upload (WebP, capped width) like the catalogue art · spec: 2026-11-09 Playwright timing of /rtx_pinball
-- **G19** `active` [BUG] Activity log rows: the TOURNAMENT category badge overflows its fixed-width column and covers the start of the summary (owner screenshot 2026-11-10) · owner: opus@fix/activity-badge-overlap · since: 2026-11-10 · branch: fix/activity-badge-overlap · touches: admin-ui/src/components/ActivityTimeline.tsx
+- **G19** `claimed` [BUG] Activity log rows: the TOURNAMENT category badge overflows its fixed-width column and covers the start of the summary (owner screenshot 2026-11-10) · owner: opus@fix/activity-badge-overlap · since: 2026-11-10 · branch: fix/activity-badge-overlap · pr: #478 · touches: admin-ui/src/components/ActivityTimeline.tsx
 
 ## W. Witness and Castcade integration
 
