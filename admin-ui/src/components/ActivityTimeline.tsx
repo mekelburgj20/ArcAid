@@ -306,12 +306,15 @@ function ActivityItem({ row, showRoom }: { row: ActivityRow; showRoom: boolean }
     <li className={`py-3 ${problem ? 'border-l-2 border-l-neon-coral pl-2' : ''}`}>
       <button type="button" onClick={() => setOpen(o => !o)} aria-expanded={open} aria-controls={panelId}
         className="w-full text-left bg-transparent border-0 p-0 cursor-pointer flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-3 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-neon-cyan/60">
-        <span className="flex items-center gap-2 sm:w-44 flex-shrink-0">
+        {/* A minimum width, never a fixed one: the time is in the viewer's
+            locale, so a long time + "Tournament" grows the column instead of
+            spilling over the summary. */}
+        <span className="flex items-center gap-2 sm:min-w-[15rem] flex-shrink-0">
           {open
             ? <ChevronDown size={14} className="text-faint flex-shrink-0" aria-hidden="true" />
             : <ChevronRight size={14} className="text-faint flex-shrink-0" aria-hidden="true" />}
-          <span className="text-xs text-faint whitespace-nowrap">{formatActivityTime(row.created_at, row.tz)}</span>
-          <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${cat?.color ?? 'text-muted border-border bg-raised'}`}>
+          <span className="text-xs text-faint whitespace-nowrap sm:min-w-[6.5rem]">{formatActivityTime(row.created_at, row.tz)}</span>
+          <span className={`text-[10px] font-bold uppercase tracking-wider whitespace-nowrap px-2 py-0.5 rounded border ${cat?.color ?? 'text-muted border-border bg-raised'}`}>
             {cat?.label ?? row.category}
           </span>
         </span>
