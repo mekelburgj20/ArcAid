@@ -587,8 +587,17 @@ export default function GameLibrary() {
     if (!activateTarget) return;
     setActivatingFor(tournamentId);
     try {
-      await api.post(`${prefix}/tournaments/${tournamentId}/activate-game`, { gameName: activateTarget });
-      toast(`${activateTarget} activated!`, 'success');
+      const result = await api.post<{ iscoredStatus?: 'pending' | 'skipped' }>(
+        `${prefix}/tournaments/${tournamentId}/activate-game`, { gameName: activateTarget },
+      );
+      // The iScored board is built after the response (F10); a failure shows
+      // on Room Admin -> Activity.
+      toast(
+        result?.iscoredStatus === 'pending'
+          ? `${activateTarget} activated! Its iScored board is being created.`
+          : `${activateTarget} activated!`,
+        'success',
+      );
       setActivateTarget(null);
     } catch (err: any) {
       toast(err.message || 'Failed to activate game', 'error');

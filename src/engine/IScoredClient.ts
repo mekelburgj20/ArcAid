@@ -31,7 +31,7 @@ async function withRetry<T>(fn: () => Promise<T>, label: string, maxAttempts: nu
     throw new Error('Unreachable');
 }
 
-import { parseGetGameNamesPayload } from '../utils/iscoredGameNames.js';
+import { parseGetGameNamesPayload, isConfirmedEmptyGameList, pickCreatedGameRow } from '../utils/iscoredGameNames.js';
 
 const SCREENSHOT_DIR = path.join(process.cwd(), 'data', 'playwright-errors');
 
@@ -244,15 +244,29 @@ export class IScoredClient {
                     (el as HTMLElement).style.opacity = '1';
                 });
 
+                // Wait for AJAX to populate the list. Rows first, THEN the
+                // visible check: an empty <ul> has no height, so Playwright
+                // never calls it visible, and waiting for that first failed
+                // every call on a room with no games (ProBros, 2026-11-10).
+                const hasRows = await this.page.locator('ul#orderGameUL > li').first()
+                    .waitFor({ state: 'attached', timeout: 5000 })
+                    .then(() => true, () => false);
+                if (!hasRows) {
+                    if (await list.isVisible()) {
+                        logDebug('No list items appeared in lineup (may be empty).');
+                        return;
+                    }
+                    if (await this.lineupConfirmedEmpty()) {
+                        logInfo('iScored lineup is empty: this room has no games.');
+                        return;
+                    }
+                    logDebug(`Lineup list has no rows yet (attempt ${i + 1}).`);
+                    continue;
+                }
+
                 await list.waitFor({ state: 'visible', timeout: 5000 });
 
                 if (await list.isVisible()) {
-                    // Wait for AJAX to populate the list
-                    try {
-                        await this.page.locator('ul#orderGameUL > li').first().waitFor({ state: 'attached', timeout: 5000 });
-                    } catch {
-                        logDebug('No list items appeared in lineup (may be empty).');
-                    }
                     return;
                 }
             } catch {
@@ -261,6 +275,26 @@ export class IScoredClient {
         }
 
         throw new Error('Failed to load Lineup list after 3 attempts.');
+    }
+
+    /**
+     * Asks iScored's own game list (the endpoint `getGamesOnIScored` reads)
+     * whether this room has no games, so an empty lineup is not mistaken for
+     * one that is still loading. Any failure answers false.
+     */
+    private async lineupConfirmedEmpty(): Promise<boolean> {
+        if (!this.page) return false;
+        try {
+            const res = await this.page.evaluate(async () => {
+                const r = await fetch('/settingsCommands.php?c=getGameNames', {
+                    headers: { 'x-requested-with': 'XMLHttpRequest' },
+                });
+                return { ok: r.ok, text: r.ok ? await r.text() : '' };
+            });
+            return isConfirmedEmptyGameList(res);
+        } catch {
+            return false;
+        }
     }
 
     /**
@@ -471,13 +505,13 @@ export class IScoredClient {
             // Identify the newly created row by ID-diff against the pre-create snapshot.
             const after = await this.getAllGames();
             const newRows = after.filter(g => g.id !== '' && !beforeIds.has(g.id));
-            if (newRows.length === 0) {
+            const newGame = pickCreatedGameRow(newRows, gameName);
+            if (!newGame) {
                 throw new Error(`Failed to find newly created ${getTerminology().game} in lineup.`);
             }
             if (newRows.length > 1) {
-                logWarn(`createGame: ${newRows.length} new rows after create — expected 1. Names: ${newRows.map(g => `"${g.name}"`).join(', ')}. Selecting last.`);
+                logWarn(`createGame: ${newRows.length} new rows after create — expected 1. Names: ${newRows.map(g => `"${g.name}"`).join(', ')}. Selected "${newGame.name}" (${newGame.id}).`);
             }
-            const newGame = newRows[newRows.length - 1]!;
 
             if (newGame.name.toUpperCase() !== gameName.toUpperCase()) {
                 logInfo(`iScored stored name as "${newGame.name}" (requested "${gameName}").`);
