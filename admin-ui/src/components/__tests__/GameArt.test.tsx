@@ -11,14 +11,24 @@ describe('GameArt', () => {
     expect(img).toHaveAttribute('alt', '');
     expect(img).toHaveAttribute('aria-hidden', 'true');
     expect(img).toHaveAttribute('loading', 'lazy');
-    expect(img).toHaveStyle({ width: '40px', height: '40px' });
+    expect(img).toHaveAttribute('width', '40');
+    expect(img.style.getPropertyValue('--art')).toBe('40px');
+    expect(img.style.getPropertyValue('--art-sm')).toBe('40px');
   });
 
   it('with no art, draws the game\'s initials on a tile the same size', () => {
     render(<GameArt src={null} name="Attack from Mars" size={40} />);
     const tile = screen.getByTestId('game-art-fallback');
     expect(tile).toHaveTextContent('AM');
-    expect(tile).toHaveStyle({ width: '40px', height: '40px' });
+    expect(tile.style.getPropertyValue('--art')).toBe('40px');
+  });
+
+  it('takes its own phone size (v2.241.0)', () => {
+    render(<GameArt src="/a.png" name="Godzilla" size={112} mobileSize={84} />);
+    const img = screen.getByTestId('game-art');
+    expect(img.style.getPropertyValue('--art')).toBe('112px');
+    expect(img.style.getPropertyValue('--art-sm')).toBe('84px');
+    expect(img.className).toContain('sm:w-[var(--art)]');
   });
 
   it('falls back to the initials when the art fails to load, and tries a new src again', () => {

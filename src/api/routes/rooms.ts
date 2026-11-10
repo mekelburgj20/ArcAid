@@ -4878,13 +4878,64 @@ router.get('/:roomId/dashboard', async (req, res) => {
     }
 });
 
+/**
+ * One History row per run, decorated for the list:
+ * - v2.238.0 (B24): the winner is the run board's rank 1, the same board the
+ *   run's card showed, with the name resolved at read (it used to be the best
+ *   `submissions` row under its raw iScored name). `winner_name` is the label;
+ *   `winner_username` stays the routing key for `/players/:name`.
+ * - v2.240.0 (B25): the table's art and the winner's avatar.
+ * - v2.241.0 (B26): with `withStandings`, the run's whole final board
+ *   (`standings`, rank 1 first), for the run cards.
+ */
+async function decorateRuns(
+    rows: Array<Record<string, unknown> & { game_id: string }>,
+    withStandings: boolean,
+) {
+    const { LeaderboardService } = await import('../../services/LeaderboardService.js');
+    const { GameArtService } = await import('../../services/GameArtService.js');
+    const ids = rows.map(r => r.game_id);
+    const [summaries, boards, art] = await Promise.all([
+        withStandings ? Promise.resolve(null) : LeaderboardService.getRunSummaries(ids),
+        withStandings ? LeaderboardService.getRunStandings(ids) : Promise.resolve(null),
+        GameArtService.artForNames(rows.map(r => r.game_name as string)),
+    ]);
+    return rows.map(row => {
+        const board = boards?.get(row.game_id) ?? null;
+        const summary = summaries?.get(row.game_id) ?? null;
+        const winner = board ? (board[0] ?? null) : (summary?.winner ?? null);
+        return {
+            ...row,
+            image_url: art.get(GameArtService.key(String(row.game_name ?? ''))) ?? null,
+            winner_name: winner ? (winner.display_name ?? winner.iscored_username) : null,
+            winner_username: winner?.iscored_username ?? null,
+            winner_score: winner?.score ?? null,
+            winner_discord_user_id: winner?.discord_user_id ?? null,
+            winner_avatar_hash: winner?.avatar_hash ?? null,
+            winner_avatar_url: winner?.avatar_url ?? null,
+            players: board ? board.length : (summary?.players ?? 0),
+            ...(board ? {
+                standings: board.map(e => ({
+                    rank: e.rank,
+                    iscored_username: e.iscored_username,
+                    display_name: e.display_name ?? null,
+                    score: e.score,
+                    discord_user_id: e.discord_user_id,
+                    avatar_hash: e.avatar_hash ?? null,
+                    avatar_url: e.avatar_url ?? null,
+                })),
+            } : {}),
+        };
+    });
+}
+
 // History
 router.get('/:roomId/history', async (req, res) => {
     try {
         const validationResult = validate(HistoryQuerySchema, req.query);
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
 
-        const { limit, tournament_id, type, run } = validationResult.data;
+        const { limit, tournament_id, type, run, week: weekParam, standings } = validationResult.data;
         let { page } = validationResult.data;
         const db = await getDatabase();
 
@@ -4911,6 +4962,58 @@ router.get('/:roomId/history', async (req, res) => {
             ...params
         );
         const total = countRow?.total ?? 0;
+
+        // v2.241.0 (B26): WEEK mode (`?week=N`), used by the run cards on
+        // History and the tournament page. Week 0 is the seven days ending at
+        // the newest run in the filter (not "now", so a finished tournament's
+        // first week is never empty); week N steps back N whole weeks from
+        // there. `?run=` answers the week that holds that run. Page mode
+        // (below) is unchanged for the admin History page.
+        if (weekParam !== undefined) {
+            const DAY_MS = 86_400_000;
+            const jdToIso = (jd: number) => new Date((jd - 2440587.5) * DAY_MS).toISOString();
+            const anchorRow = await db.get<{ jd: number | null }>(
+                `SELECT MAX(julianday(g.end_date)) AS jd FROM games g JOIN tournaments t ON g.tournament_id = t.id
+                 WHERE ${whereClause} AND g.end_date IS NOT NULL`,
+                ...params,
+            );
+            const anchor = anchorRow?.jd ?? null;
+            let week = weekParam;
+            if (anchor !== null && run) {
+                const at = await db.get<{ jd: number | null }>(
+                    `SELECT julianday(g.end_date) AS jd FROM games g JOIN tournaments t ON g.tournament_id = t.id
+                     WHERE ${whereClause} AND g.id = ?`,
+                    ...params, run,
+                );
+                if (at?.jd != null) week = Math.max(0, Math.floor((anchor - at.jd) / 7));
+            }
+            if (anchor === null) {
+                return res.json({ results: [], total, week: 0, window: null, has_newer: false, has_older: false });
+            }
+            const to = anchor - 7 * week;
+            const from = to - 7;
+            const weekRows = await db.all<Array<Record<string, unknown> & { game_id: string }>>(
+                `SELECT g.id AS game_id, t.id AS tournament_id, g.name AS game_name, t.name AS tournament_name,
+                        t.type AS tournament_type, g.start_date, g.end_date
+                 FROM games g JOIN tournaments t ON g.tournament_id = t.id
+                 WHERE ${whereClause} AND julianday(g.end_date) > ? AND julianday(g.end_date) <= ?
+                 ORDER BY g.end_date DESC, g.id DESC
+                 LIMIT 300`,
+                ...params, from, to,
+            );
+            const older = await db.get(
+                `SELECT 1 AS x FROM games g JOIN tournaments t ON g.tournament_id = t.id
+                 WHERE ${whereClause} AND julianday(g.end_date) <= ? LIMIT 1`,
+                ...params, from,
+            );
+            const results = await decorateRuns(weekRows, standings === '1');
+            return res.json({
+                results, total, week,
+                window: { from: jdToIso(from), to: jdToIso(to) },
+                has_newer: week > 0,
+                has_older: !!older,
+            });
+        }
 
         // v2.238.0 (B24): `?run=<gameId>` (a deep link to one run) answers the
         // PAGE that holds that run, so the run is always in the list it opens.
@@ -4945,36 +5048,7 @@ router.get('/:roomId/history', async (req, res) => {
             ...params, limit, offset
         );
 
-        // v2.238.0 (B24): the winner is the run board's rank 1, the same board
-        // the run's card showed, with the name resolved at read. It used to be
-        // the best `submissions` row under its raw iScored name, which could
-        // differ from the tournament page's winner for the same run.
-        // `winner_name` is the label to render; `winner_username` stays the
-        // routing key for `/players/:name`.
-        // v2.240.0 (B25): each row also carries its table art and the winner's
-        // avatar (resolved with the name, never stored).
-        const { LeaderboardService } = await import('../../services/LeaderboardService.js');
-        const { GameArtService } = await import('../../services/GameArtService.js');
-        const [summaries, art] = await Promise.all([
-            LeaderboardService.getRunSummaries(rows.map(r => r.game_id)),
-            GameArtService.artForNames(rows.map(r => r.game_name as string)),
-        ]);
-        const results = rows.map(row => {
-            const summary = summaries.get(row.game_id);
-            const winner = summary?.winner ?? null;
-            return {
-                ...row,
-                image_url: art.get(GameArtService.key(String(row.game_name ?? ''))) ?? null,
-                winner_name: winner ? (winner.display_name ?? winner.iscored_username) : null,
-                winner_username: winner?.iscored_username ?? null,
-                winner_score: winner?.score ?? null,
-                winner_discord_user_id: winner?.discord_user_id ?? null,
-                winner_avatar_hash: winner?.avatar_hash ?? null,
-                winner_avatar_url: winner?.avatar_url ?? null,
-                players: summary?.players ?? 0,
-            };
-        });
-
+        const results = await decorateRuns(rows, standings === '1');
         res.json({ results, total, page, limit });
     } catch (error) {
         logError('API Error (GET rooms/:roomId/history):', error);

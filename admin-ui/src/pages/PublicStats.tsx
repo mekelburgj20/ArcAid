@@ -377,15 +377,15 @@ export default function PublicStats() {
                     className="grid grid-cols-[40px_1fr_auto] sm:grid-cols-[40px_1fr_80px_80px_70px_70px_60px] gap-2 px-4 py-3 border-b border-border/20 last:border-0 items-center hover:bg-raised/50 transition-colors no-underline group"
                   >
                     <span className="text-faint font-display font-bold text-center">{i + 1}</span>
-                    <span className="flex items-center gap-2.5 min-w-0">
+                    <span className="flex items-center gap-3 min-w-0">
                       <PlayerAvatar
                         username={name}
                         discordUserId={p.discord_user_id}
                         avatarHash={p.avatar_hash}
                         avatarUrl={p.avatar_url}
-                        size={28}
+                        size={44}
                       />
-                      <span className="font-medium text-sm text-primary group-hover:text-neon-cyan transition-colors truncate">{name}</span>
+                      <span className="font-medium text-base text-primary group-hover:text-neon-cyan transition-colors truncate">{name}</span>
                     </span>
                     <span className="hidden sm:block text-center text-sm text-muted">{p.games_played}</span>
                     <span className="hidden sm:block text-center text-sm text-muted">{p.avg_finish_position.toFixed(1)}</span>
@@ -429,9 +429,9 @@ export default function PublicStats() {
                   className="grid grid-cols-[40px_1fr_auto] sm:grid-cols-[40px_1fr_90px_90px_100px_90px] gap-2 px-4 py-3 border-b border-border/20 last:border-0 items-center hover:bg-raised/50 transition-colors no-underline group"
                 >
                   <span className="text-faint font-display font-bold text-center">{i + 1}</span>
-                  <span className="flex items-center gap-2.5 min-w-0">
-                    <GameArt src={g.image_url} name={g.name} size={36} />
-                    <span className="font-medium text-sm text-primary group-hover:text-neon-cyan transition-colors truncate">{g.name}</span>
+                  <span className="flex items-center gap-3 min-w-0">
+                    <GameArt src={g.image_url} name={g.name} size={72} mobileSize={48} />
+                    <span className="font-medium text-base text-primary group-hover:text-neon-cyan transition-colors truncate">{g.name}</span>
                   </span>
                   <span className="hidden sm:block text-center text-sm text-muted">{g.submissions}</span>
                   <span className="hidden sm:block text-center text-sm text-muted">{g.players}</span>
