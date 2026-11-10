@@ -229,3 +229,36 @@ describe('PublicHistory — tournament filter and URL state', () => {
     expect(screen.getByTestId('location').textContent).toBe('/test-room/history?type=DG');
   });
 });
+
+/** v2.240.0 (B25) — table art beside each game and the winner's avatar. */
+describe('PublicHistory — table art and winner avatars', () => {
+  beforeEach(() => vi.restoreAllMocks());
+
+  it('each row shows the table art and the winner\'s avatar, in both layouts', async () => {
+    mockFetch([{
+      ...ROWS[0],
+      image_url: '/api/catalogue-images/who.png',
+      winner_discord_user_id: '111111111111111111',
+      winner_avatar_hash: 'abc123',
+      winner_avatar_url: null,
+    }]);
+    renderHistory();
+
+    const rows = await screen.findAllByRole('link', { name: /Daily Grind — WHO dunnit scores/ });
+    expect(rows).toHaveLength(2); // mobile + desktop
+    for (const row of rows) {
+      expect(within(row).getByTestId('game-art')).toHaveAttribute('src', '/api/catalogue-images/who.png');
+      const avatar = within(row).getByAltText('PixelWizard');
+      expect(avatar.getAttribute('src')).toContain('abc123');
+    }
+  });
+
+  it('a row without art draws the game\'s initials; a row without a winner has no avatar', async () => {
+    mockFetch([ROWS[1]]);
+    renderHistory();
+
+    await waitFor(() => expect(screen.getAllByText('Medieval Madness').length).toBeGreaterThan(0));
+    expect(screen.getAllByTestId('game-art-fallback')[0]).toHaveTextContent('MM');
+    expect(screen.queryAllByRole('img')).toHaveLength(0);
+  });
+});

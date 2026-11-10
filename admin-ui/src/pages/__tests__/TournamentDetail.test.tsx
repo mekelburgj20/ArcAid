@@ -309,3 +309,60 @@ describe('TournamentDetail', () => {
     });
   });
 });
+
+/** v2.240.0 (B25) — table art and player avatars on the tournament page. */
+describe('TournamentDetail — table art and avatars', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    fetchMock.mockReset();
+    scores = {
+      status: 200,
+      body: {
+        ...PAYLOAD,
+        boards: PAYLOAD.boards.map((b, i) => ({
+          ...b,
+          image_url: i === 0 ? '/api/catalogue-images/who.png' : null,
+          scores: b.scores.map(r => ({ ...r, avatar_hash: r.iscored_username === 'PixelWizard' ? 'pixhash' : null })),
+        })),
+      },
+    };
+    runs = {
+      results: RUNS.map((r, i) => ({
+        ...r,
+        image_url: i === 0 ? '/api/catalogue-images/who.png' : null,
+        winner_discord_user_id: r.winner_name ? '111111111111111111' : null,
+        winner_avatar_hash: r.winner_name ? 'winhash' : null,
+      })),
+      total: RUNS.length, page: 1, limit: 20,
+    };
+    stubFetch();
+  });
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it('each run shows its table art and the winner\'s avatar', async () => {
+    renderPage();
+    const list = await screen.findByRole('list', { name: 'Runs, newest first' });
+    const rows = within(list).getAllByRole('button');
+    expect(within(rows[0]!).getByTestId('game-art')).toHaveAttribute('src', '/api/catalogue-images/who.png');
+    expect(within(rows[0]!).getByAltText('Pixel').getAttribute('src')).toContain('winhash');
+    // No art: initials. No winner: no avatar.
+    expect(within(rows[1]!).getByTestId('game-art-fallback')).toHaveTextContent('MM');
+    expect(within(rows[1]!).queryAllByRole('img')).toHaveLength(0);
+  });
+
+  it('a run\'s final standings show each player\'s avatar', async () => {
+    RUN_BOARDS['g-who-1'] = [
+      { rank: 1, iscored_username: 'FlipperFrenzy', display_name: 'Flipper', score: 500, discord_user_id: '222222222222222222', avatar_hash: 'fliphash' },
+    ];
+    renderPage('?run=g-who-1&page=1');
+    const board = await screen.findByTestId('run-board');
+    expect(within(board).getByAltText('Flipper').getAttribute('src')).toContain('fliphash');
+  });
+
+  it('By table: each board leads with its table art, and rows carry avatars', async () => {
+    renderPage('?view=tables');
+    await waitFor(() => expect(screen.getByRole('link', { name: 'WHO dunnit' })).toBeInTheDocument());
+    expect(screen.getAllByTestId('game-art')[0]).toHaveAttribute('src', '/api/catalogue-images/who.png');
+    expect(screen.getByAltText('Pixel').getAttribute('src')).toContain('pixhash');
+  });
+});

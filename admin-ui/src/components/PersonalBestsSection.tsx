@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 import { Search } from 'lucide-react';
 import { formatScore, scoreTitle } from '../lib/format';
 import { compareByRank } from '../lib/searchRank';
+import { gameArtFor } from '../lib/gameArt';
+import GameArt from './GameArt';
 
 /**
  * A Personal Best row. Two call sites share this shape (v2.82.0 — moved from
@@ -122,6 +124,7 @@ export function PersonalBestsSection({
   rankHeader = 'Room Rank',
   showRoomCaption = false,
   wrapTitles = false,
+  gameArt,
 }: {
   personalBests?: PersonalBestRow[];
   /** Room slug to link into when a row doesn't carry its own `room_slug`
@@ -142,6 +145,10 @@ export function PersonalBestsSection({
    *  Stats. Rows grow taller to fit — accepted. Default off so PlayerDetail
    *  keeps its existing truncating layout exactly as before. */
   wrapTitles?: boolean;
+  /** v2.240.0 (B25) — table art keyed by lowercased game name (the player
+   *  page's `gameArt`). When given, each row leads with the table's art;
+   *  omitted (My Stats) the rows are unchanged. */
+  gameArt?: Record<string, string>;
 }) {
   const [query, setQuery] = useState('');
   const [showAll, setShowAll] = useState(false);
@@ -250,7 +257,12 @@ export function PersonalBestsSection({
             return (
               <Fragment key={i}>
                 <span className={`${nameCell} col-span-2 sm:col-span-1 pl-5 pr-5 sm:pr-3 min-w-0`}>
-                  {nameNode}
+                  {gameArt ? (
+                    <span className="flex items-center gap-3 min-w-0 max-w-full">
+                      <GameArt src={gameArtFor(gameArt, pb.game_name)} name={pb.game_name} size={32} />
+                      {nameNode}
+                    </span>
+                  ) : nameNode}
                   {isGlobal && (
                     // "Global Scoreboard" (not bare "Global") — a room score
                     // can ALSO fan out to the Global Scoreboard, so a bare

@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ChevronDown, ChevronLeft, Circle } from 'lucide-react';
 import { formatScore, scoreTitle } from '../lib/format';
-import { playerName } from '../components/ScoreboardComponents';
+import { playerName, PlayerAvatar } from '../components/ScoreboardComponents';
 import { TournamentTypeBadge } from '../components/TournamentTypeBadge';
+import GameArt from '../components/GameArt';
 import { useRoom } from '../contexts/RoomContext';
 
 /**
@@ -32,6 +33,8 @@ interface ScoreRow {
   discord_user_id: string;
   iscored_username: string;
   display_name: string | null;
+  avatar_hash?: string | null;
+  avatar_url?: string | null;
   score: number;
   created_at: string | null;
 }
@@ -39,6 +42,8 @@ interface ScoreRow {
 interface Board {
   game_key: string;
   game_name: string;
+  /** v2.240.0 (B25): the table's art. */
+  image_url?: string | null;
   slot_count: number;
   start_date: string | null;
   end_date: string | null;
@@ -69,6 +74,11 @@ interface RunRow {
   winner_username: string | null;
   winner_score: number | null;
   players: number;
+  /** v2.240.0 (B25): the table's art and the winner's avatar. */
+  image_url?: string | null;
+  winner_discord_user_id?: string | null;
+  winner_avatar_hash?: string | null;
+  winner_avatar_url?: string | null;
 }
 
 interface RunsResponse {
@@ -83,7 +93,17 @@ interface RunEntry {
   rank: number;
   iscored_username: string;
   display_name: string | null;
+  discord_user_id?: string | null;
+  avatar_hash?: string | null;
+  avatar_url?: string | null;
   score: number;
+}
+
+/** What `RankLine` needs to draw a player's avatar. */
+interface AvatarSource {
+  discordUserId?: string | null;
+  avatarHash?: string | null;
+  avatarUrl?: string | null;
 }
 
 interface TournamentOption {
@@ -128,7 +148,7 @@ const RANK_TINT = (rank: number) =>
  * carries the podium, no trophy icons (owner call, 2026-08-02). The score is
  * content-sized and never shrinks; the name beside it yields instead.
  */
-function RankLine({ slug, rank, username, label, score, date }: {
+function RankLine({ slug, rank, username, label, score, date, avatar }: {
   slug: string | undefined;
   rank: number;
   username: string;
@@ -136,12 +156,23 @@ function RankLine({ slug, rank, username, label, score, date }: {
   score: number;
   /** By table only: when the score was set. Omitted on a run's board. */
   date?: string | null;
+  /** v2.240.0 (B25): the player's avatar, beside the rank. */
+  avatar?: AvatarSource;
 }) {
   return (
     <div className="flex items-center gap-3 px-4 py-2.5">
       <span className={`font-display font-bold text-sm w-6 text-center flex-shrink-0 ${RANK_TINT(rank)}`}>
         {rank}
       </span>
+      {avatar && (
+        <PlayerAvatar
+          username={label}
+          discordUserId={avatar.discordUserId}
+          avatarHash={avatar.avatarHash}
+          avatarUrl={avatar.avatarUrl}
+          size={26}
+        />
+      )}
       {/* Name + date share the ONE flexible column: stacked on phones (where
           an inline date would starve the name), inline from `sm` up. */}
       <span className="min-w-0 flex flex-col sm:flex-row sm:items-baseline sm:gap-2">
@@ -209,6 +240,7 @@ function RunBoard({ roomId, slug, gameId }: { roomId: string; slug: string | und
           username={row.iscored_username}
           label={playerName(row)}
           score={row.score}
+          avatar={{ discordUserId: row.discord_user_id, avatarHash: row.avatar_hash, avatarUrl: row.avatar_url }}
         />
       ))}
     </div>
@@ -294,16 +326,24 @@ function RunsView({ roomId, slug, tournamentId }: { roomId: string; slug: string
                 onClick={() => toggleRun(run.game_id)}
                 aria-expanded={open}
                 aria-controls={panelId}
-                className={`w-full text-left px-4 py-3 flex items-start gap-3 cursor-pointer transition-colors hover:bg-raised/50 ${open ? 'bg-raised/40' : ''}`}
+                className={`w-full text-left px-4 py-3 flex items-center gap-3 cursor-pointer transition-colors hover:bg-raised/50 ${open ? 'bg-raised/40' : ''}`}
               >
+                <GameArt src={run.image_url} name={run.game_name} size={52} />
                 <span className="min-w-0 flex-1 flex flex-col gap-1">
                   <span className="flex items-baseline gap-2 min-w-0">
                     <span className="min-w-0 truncate font-display font-bold text-sm text-primary">{run.game_name}</span>
                     <span className="ml-auto flex-shrink-0 whitespace-nowrap text-xs text-faint">{runDate(run.end_date)}</span>
                   </span>
-                  <span className="flex items-baseline gap-2 min-w-0 text-sm">
+                  <span className="flex items-center gap-2 min-w-0 text-sm">
                     {run.winner_name ? (
                       <>
+                        <PlayerAvatar
+                          username={run.winner_name}
+                          discordUserId={run.winner_discord_user_id}
+                          avatarHash={run.winner_avatar_hash}
+                          avatarUrl={run.winner_avatar_url}
+                          size={20}
+                        />
                         <span className="min-w-0 truncate text-neon-amber font-medium">{run.winner_name}</span>
                         <span className="flex-shrink-0 whitespace-nowrap tabular-nums font-display text-neon-amber" title={scoreTitle(run.winner_score)}>
                           {formatScore(run.winner_score)}
@@ -320,7 +360,7 @@ function RunsView({ roomId, slug, tournamentId }: { roomId: string; slug: string
                 <ChevronDown
                   size={16}
                   aria-hidden="true"
-                  className={`mt-0.5 flex-shrink-0 text-faint transition-transform motion-reduce:transition-none ${open ? 'rotate-180' : ''}`}
+                  className={`flex-shrink-0 text-faint transition-transform motion-reduce:transition-none ${open ? 'rotate-180' : ''}`}
                 />
               </button>
               {open && (
@@ -384,7 +424,9 @@ function TablesView({ slug, boards }: { slug: string | undefined; boards: Board[
           <section key={board.game_key} className="bg-surface border border-border rounded-lg overflow-hidden">
             {/* Card header stacks on phones: sharing one line with the slot
                 date range left the game name a ~90px sliver. */}
-            <div className="px-4 py-3 border-b border-border/50 flex flex-col sm:flex-row sm:items-baseline gap-x-2 min-w-0">
+            <div className="px-4 py-3 border-b border-border/50 flex items-center gap-3 min-w-0">
+              <GameArt src={board.image_url} name={board.game_name} size={40} />
+              <div className="min-w-0 flex-1 flex flex-col sm:flex-row sm:items-baseline gap-x-2">
               <span className="flex items-baseline gap-2 min-w-0">
                 <Link
                   to={`/${slug}/games/${encodeURIComponent(board.game_name)}`}
@@ -401,6 +443,7 @@ function TablesView({ slug, boards }: { slug: string | undefined; boards: Board[
               {slotRange && (
                 <span className="sm:ml-auto flex-shrink-0 whitespace-nowrap text-xs text-faint">{slotRange}</span>
               )}
+              </div>
             </div>
 
             <div className="divide-y divide-border/20">
@@ -413,6 +456,7 @@ function TablesView({ slug, boards }: { slug: string | undefined; boards: Board[
                   label={playerName(row)}
                   score={row.score}
                   date={row.created_at}
+                  avatar={{ discordUserId: row.discord_user_id, avatarHash: row.avatar_hash, avatarUrl: row.avatar_url }}
                 />
               ))}
             </div>

@@ -6,6 +6,8 @@ import { useRoom } from '../contexts/RoomContext';
 import { STATS_RANGE_PRESETS, presetToRange, weekInputToRange, type StatsRangePreset } from '../lib/statsWindow';
 import { compareByRank } from '../lib/searchRank';
 import { relativeTimeFrom } from '../lib/format';
+import GameArt from '../components/GameArt';
+import { PlayerAvatar } from '../components/ScoreboardComponents';
 
 interface PlayerSummary {
   /** Arcaid profile username (v2.141.1) — searchable, never displayed here. */
@@ -19,10 +21,15 @@ interface PlayerSummary {
   avg_finish_position: number;
   top5_rate: number;
   champion_streak: number;
+  /** v2.240.0 (B25): the player's avatar, resolved at read. */
+  avatar_hash?: string | null;
+  avatar_url?: string | null;
 }
 
 interface GameActivity {
   name: string;
+  /** v2.240.0 (B25): the table's art. */
+  image_url?: string | null;
   submissions: number;
   players: number;
   top_score: number;
@@ -359,16 +366,27 @@ export default function PublicStats() {
                       // Falls back to discord_user_id when player has no
                       // iScored alias (endpoint auto-detects either format).
                       // display_name carries the pre-resolved human name so
-                      // the modal header reads correctly. PlayerSummary
-                      // doesn't carry avatar_hash; modal renders a fallback.
+                      // the modal header reads correctly. v2.240.0: the
+                      // avatar rides along too.
                       iscored_username: p.iscored_username || p.discord_user_id,
                       display_name: name,
                       discord_user_id: p.discord_user_id,
+                      avatar_hash: p.avatar_hash ?? null,
+                      avatar_url: p.avatar_url ?? null,
                     }}
                     className="grid grid-cols-[40px_1fr_auto] sm:grid-cols-[40px_1fr_80px_80px_70px_70px_60px] gap-2 px-4 py-3 border-b border-border/20 last:border-0 items-center hover:bg-raised/50 transition-colors no-underline group"
                   >
                     <span className="text-faint font-display font-bold text-center">{i + 1}</span>
-                    <span className="font-medium text-sm text-primary group-hover:text-neon-cyan transition-colors truncate">{name}</span>
+                    <span className="flex items-center gap-2.5 min-w-0">
+                      <PlayerAvatar
+                        username={name}
+                        discordUserId={p.discord_user_id}
+                        avatarHash={p.avatar_hash}
+                        avatarUrl={p.avatar_url}
+                        size={28}
+                      />
+                      <span className="font-medium text-sm text-primary group-hover:text-neon-cyan transition-colors truncate">{name}</span>
+                    </span>
                     <span className="hidden sm:block text-center text-sm text-muted">{p.games_played}</span>
                     <span className="hidden sm:block text-center text-sm text-muted">{p.avg_finish_position.toFixed(1)}</span>
                     <span className="hidden sm:block text-center text-sm text-muted">{Math.round(p.top5_rate * 100)}%</span>
@@ -411,7 +429,10 @@ export default function PublicStats() {
                   className="grid grid-cols-[40px_1fr_auto] sm:grid-cols-[40px_1fr_90px_90px_100px_90px] gap-2 px-4 py-3 border-b border-border/20 last:border-0 items-center hover:bg-raised/50 transition-colors no-underline group"
                 >
                   <span className="text-faint font-display font-bold text-center">{i + 1}</span>
-                  <span className="font-medium text-sm text-primary group-hover:text-neon-cyan transition-colors truncate">{g.name}</span>
+                  <span className="flex items-center gap-2.5 min-w-0">
+                    <GameArt src={g.image_url} name={g.name} size={36} />
+                    <span className="font-medium text-sm text-primary group-hover:text-neon-cyan transition-colors truncate">{g.name}</span>
+                  </span>
                   <span className="hidden sm:block text-center text-sm text-muted">{g.submissions}</span>
                   <span className="hidden sm:block text-center text-sm text-muted">{g.players}</span>
                   <span className="hidden sm:block text-center text-sm font-display text-neon-amber" title={g.top_score.toLocaleString()}>

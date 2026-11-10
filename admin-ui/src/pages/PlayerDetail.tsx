@@ -10,6 +10,9 @@ import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { useRoom } from '../contexts/RoomContext';
 import { decodeViewerClaims } from '../lib/viewerClaims';
 import { formatScore, scoreTitle } from '../lib/format';
+import GameArt from '../components/GameArt';
+import { PlayerAvatar } from '../components/ScoreboardComponents';
+import { gameArtFor } from '../lib/gameArt';
 
 interface Achievements {
   tournamentWins: number;
@@ -40,6 +43,12 @@ interface PlayerStats {
   personalBests?: PersonalBestRow[];
   /** WP2 — S14 social loops. May be absent on stale caches. */
   participationStreak?: { currentWeeks: number; bestWeeks: number };
+  /** v2.240.0 (B25): the player's display name and avatar, resolved at read. */
+  displayName?: string | null;
+  avatarHash?: string | null;
+  avatarUrl?: string | null;
+  /** v2.240.0 (B25): table art for every game the page names, keyed by lowercased name. */
+  gameArt?: Record<string, string>;
 }
 
 const ACHIEVEMENT_LABELS: Record<Achievements['recent'][number]['type'], string> = {
@@ -178,6 +187,11 @@ export default function PlayerDetail() {
   }
 
   const displayName = stats.iscoredUsername || `Player ${stats.discordUserId.slice(-4)}`;
+  // v2.240.0 (B25): the heading and share text use the player's display name
+  // (names resolve display_name first). `displayName` stays the iScored name
+  // the name report targets.
+  const headerName = stats.displayName || displayName;
+  const art = (name: string | null | undefined) => gameArtFor(stats.gameArt, name);
   const isPlayerUnlinked = !stats.discordUserId;
   const canFollow = !!discordUser?.discordId && !!stats.discordUserId && discordUser.discordId !== stats.discordUserId;
   // (a) Unlinked-player affordance — a viewer who's logged in but viewing an
@@ -224,10 +238,21 @@ export default function PlayerDetail() {
             </Link>
           )}
         </div>
-        <h2 className="font-display text-xl font-bold mt-1">{displayName}</h2>
-        {stats.iscoredUsername && (
-          <p className="text-faint text-xs mt-0.5">iScored: {stats.iscoredUsername}</p>
-        )}
+        <div className="flex items-center gap-3 mt-2">
+          <PlayerAvatar
+            username={headerName}
+            discordUserId={stats.discordUserId}
+            avatarHash={stats.avatarHash}
+            avatarUrl={stats.avatarUrl}
+            size={56}
+          />
+          <div className="min-w-0">
+            <h2 className="font-display text-xl font-bold break-words">{headerName}</h2>
+            {stats.iscoredUsername && stats.iscoredUsername !== headerName && (
+              <p className="text-faint text-xs mt-0.5">iScored: {stats.iscoredUsername}</p>
+            )}
+          </div>
+        </div>
 
         {/* WP2 — S14 social loops: Follow + Compare */}
         <div className="flex items-center gap-2 mt-3">
@@ -267,8 +292,8 @@ export default function PlayerDetail() {
           {/* S16 — Web Share (clipboard fallback). Compare's muted treatment so
               Follow stays the row's single cyan primary action. */}
           <ShareButton
-            title={`${displayName} · Arcaid`}
-            text={`Check out ${displayName}'s scores and stats on Arcaid!`}
+            title={`${headerName} · Arcaid`}
+            text={`Check out ${headerName}'s scores and stats on Arcaid!`}
             path={`/${slug}/players/${encodeURIComponent(id || '')}`}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded border border-border text-xs font-medium text-muted hover:text-primary hover:border-neon-cyan/40 transition-colors cursor-pointer"
           />
@@ -372,11 +397,17 @@ export default function PlayerDetail() {
                     key={i}
                     className="flex items-center gap-3 px-5 py-2.5 border-b border-border/30 last:border-0"
                   >
-                    <AchievementIcon type={a.type} />
+                    {/* A trophy with no game keeps the art column's width so every row's text lines up. */}
+                    {a.game_name
+                      ? <GameArt src={art(a.game_name)} name={a.game_name} size={40} />
+                      : <span className="w-10 flex-shrink-0 flex justify-center"><AchievementIcon type={a.type} size={18} /></span>}
                     <div className="flex-1 min-w-0">
-                      <p className="text-primary text-sm font-medium truncate">
-                        {ACHIEVEMENT_LABELS[a.type]}
-                        {a.game_name ? ` · ${a.game_name}` : ''}
+                      <p className="text-primary text-sm font-medium truncate flex items-center gap-1.5">
+                        {a.game_name && <AchievementIcon type={a.type} size={12} />}
+                        <span className="min-w-0 truncate">
+                          {ACHIEVEMENT_LABELS[a.type]}
+                          {a.game_name ? ` · ${a.game_name}` : ''}
+                        </span>
                       </p>
                       <p className="text-faint text-xs">{new Date(a.earned_at).toLocaleDateString()}</p>
                     </div>
@@ -393,9 +424,10 @@ export default function PlayerDetail() {
             <h2 className="font-display text-sm text-muted uppercase tracking-wider mb-3">Best Game</h2>
             <Link
               to={`/${slug}/games/${encodeURIComponent(stats.bestGame)}`}
-              className="inline-block bg-surface border border-border rounded-lg px-5 py-3 text-primary hover:text-neon-cyan no-underline transition-colors font-medium"
+              className="inline-flex items-center gap-3 bg-surface border border-border rounded-lg pl-3 pr-5 py-3 text-primary hover:text-neon-cyan no-underline transition-colors font-medium max-w-full"
             >
-              {stats.bestGame}
+              <GameArt src={art(stats.bestGame)} name={stats.bestGame} size={56} />
+              <span className="min-w-0 break-words">{stats.bestGame}</span>
             </Link>
           </div>
         )}
@@ -455,8 +487,10 @@ export default function PlayerDetail() {
               {stats.recentScores.map((s, i) => (
                 <div
                   key={i}
-                  className="flex flex-col sm:flex-row sm:items-center gap-0.5 sm:gap-3 px-5 py-3 border-b border-border/30 last:border-0"
+                  className="flex items-center gap-3 px-4 sm:px-5 py-3 border-b border-border/30 last:border-0"
                 >
+                  <GameArt src={art(s.game_name)} name={s.game_name} size={40} />
+                  <div className="min-w-0 flex-1 flex flex-col sm:flex-row sm:items-center gap-0.5 sm:gap-3">
                   <Link
                     to={`/${slug}/games/${encodeURIComponent(s.game_name)}`}
                     className="min-w-0 sm:flex-1 truncate text-primary hover:text-neon-cyan no-underline transition-colors font-medium"
@@ -474,6 +508,7 @@ export default function PlayerDetail() {
                       {formatScore(s.score)}
                     </span>
                   </div>
+                  </div>
                 </div>
               ))}
             </div>
@@ -481,7 +516,7 @@ export default function PlayerDetail() {
         )}
 
         {/* Personal Bests */}
-        <PersonalBestsSection personalBests={stats.personalBests} slug={slug} />
+        <PersonalBestsSection personalBests={stats.personalBests} slug={slug} gameArt={stats.gameArt} />
       </main>
     </div>
   );

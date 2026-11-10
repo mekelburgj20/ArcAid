@@ -6,6 +6,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.240.0] - 2026-11-10 - Table art and avatars on the results pages
+
+B25. Owner 2026-11-10: "The History pages need some love ... put in some of the table art next to each game ... and
+the winner's profile avatar so they can easily identify. This is a very boring view. Do this everywhere it makes sense."
+
+- **History:** each row leads with the table's art; the winner shows with their avatar. The page is a step wider so
+  winner and tournament names fit beside the new column.
+- **Tournament page:** each run leads with its table art and shows the winner's avatar; a run's final standings show
+  every player's avatar; on "By table" each board leads with its art and every row has the avatar.
+- **Player page:** the heading shows the player's avatar and display name (it showed the raw iScored name; the
+  iScored name stays as the line under it when it differs). Table art beside each game in Trophies, Best Game,
+  Recent Scores and Personal Bests.
+- **Stats page:** avatars on the Players list (and in the player popup it opens), table art on the Games list.
+- A table with no art shows its initials on a plain tile, so the column still lines up.
+- Server: one art rule, `GameArtService` (the approved catalogue row matched by name: local file, then wheel, then
+  remote URL; the art a score card falls back to). `GET /:roomId/history` rows gain `image_url` and
+  `winner_discord_user_id` / `winner_avatar_hash` / `winner_avatar_url`; tournament boards gain `image_url`;
+  `stats/games-activity` rows gain `image_url`; `stats/enhanced/players` rows gain `avatar_hash` / `avatar_url`
+  (and fill `display_name` from the profile when the alias query had none); `stats/enhanced/player/:id` gains
+  `displayName`, `avatarHash`, `avatarUrl` and a `gameArt` map. Names and avatars resolve at read through
+  `resolveProfiles`; nothing is stored.
+
+Notes: no migration. Art is the CATALOGUE art; a room's per-game style backgrounds (the card's first choice) are not
+used in these lists. Not changed: the admin History page, Compare and My Stats.
+
 ## [2.239.0] - 2026-11-10 - Round times move to the Activity log; no more "unwitnessed"
 
 A42 (owner 2026-11-09/10). Two things on the event page read wrong to players.

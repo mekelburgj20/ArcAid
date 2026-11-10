@@ -2407,7 +2407,8 @@ router.get('/:roomId/stats/enhanced/player/:identifier', async (req, res) => {
             ? await StatsService.getEnhancedPlayerStats(identifier, roomId)
             : await StatsService.getEnhancedPlayerStatsByUsername(identifier, roomId);
         if (!stats) return res.status(404).json({ error: 'Player not found' });
-        res.json(stats);
+        // v2.240.0 (B25): name, avatar and table art for the player page.
+        res.json(await StatsService.withPagePresentation(stats));
     } catch (error) {
         logError('API Error (GET rooms/:roomId/stats/enhanced/player/:identifier):', error);
         res.status(500).json({ error: 'Internal Server Error' });
@@ -4950,16 +4951,26 @@ router.get('/:roomId/history', async (req, res) => {
         // differ from the tournament page's winner for the same run.
         // `winner_name` is the label to render; `winner_username` stays the
         // routing key for `/players/:name`.
+        // v2.240.0 (B25): each row also carries its table art and the winner's
+        // avatar (resolved with the name, never stored).
         const { LeaderboardService } = await import('../../services/LeaderboardService.js');
-        const summaries = await LeaderboardService.getRunSummaries(rows.map(r => r.game_id));
+        const { GameArtService } = await import('../../services/GameArtService.js');
+        const [summaries, art] = await Promise.all([
+            LeaderboardService.getRunSummaries(rows.map(r => r.game_id)),
+            GameArtService.artForNames(rows.map(r => r.game_name as string)),
+        ]);
         const results = rows.map(row => {
             const summary = summaries.get(row.game_id);
             const winner = summary?.winner ?? null;
             return {
                 ...row,
+                image_url: art.get(GameArtService.key(String(row.game_name ?? ''))) ?? null,
                 winner_name: winner ? (winner.display_name ?? winner.iscored_username) : null,
                 winner_username: winner?.iscored_username ?? null,
                 winner_score: winner?.score ?? null,
+                winner_discord_user_id: winner?.discord_user_id ?? null,
+                winner_avatar_hash: winner?.avatar_hash ?? null,
+                winner_avatar_url: winner?.avatar_url ?? null,
                 players: summary?.players ?? 0,
             };
         });

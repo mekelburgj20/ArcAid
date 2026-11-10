@@ -1,6 +1,8 @@
 import { getDatabase } from '../database/database.js';
 import { AchievementService } from './AchievementService.js';
 import { isProviderUserId } from '../utils/identityProvider.js';
+import { resolveProfiles } from './PlayerProfileResolver.js';
+import { GameArtService } from './GameArtService.js';
 import type { IdentityCandidates } from './IdentityCandidateService.js';
 
 /**
@@ -1438,6 +1440,22 @@ export class StatsService {
             };
         });
 
+        // v2.240.0 (B25): avatars for the Players list, resolved at read
+        // through the one profile chain (a real account id owns its row; a
+        // synthetic `iscored:*` id resolves through its alias mapping). The
+        // query's own display_name (mapped aliases only) stays first.
+        const profiles = await resolveProfiles(results.map((r: any) => ({
+            submitted_by_user_id: isProviderUserId(r.discord_user_id) ? r.discord_user_id : null,
+            discord_user_id: r.discord_user_id,
+            iscored_username: r.iscored_username,
+        })));
+        results.forEach((r: any, i: number) => {
+            const profile = profiles[i]!;
+            r.display_name = r.display_name ?? profile.display_name;
+            r.avatar_hash = profile.avatar_hash;
+            r.avatar_url = profile.avatar_url;
+        });
+
         // Sort by wins DESC
         results.sort((a: any, b: any) => b.wins - a.wins);
         return results;
@@ -1599,7 +1617,7 @@ export class StatsService {
                 WHERE ${cConds.join(' AND ')}
                 GROUP BY LOWER(cs.game_name)` : '';
 
-        return db.all(`
+        const rows = await db.all<Array<{ name: string; submissions: number; players: number; top_score: number; last_activity: string | null }>>(`
             SELECT
                 name,
                 SUM(submissions) AS submissions,
@@ -1623,6 +1641,44 @@ export class StatsService {
             GROUP BY name_key
             ORDER BY submissions DESC, last_activity DESC
         `, ...tParams, ...(includeCommunity ? cParams : []));
+        // v2.240.0 (B25): each game's table art for the Games list.
+        const art = await GameArtService.artForNames(rows.map(r => r.name));
+        return rows.map(r => ({ ...r, image_url: art.get(GameArtService.key(r.name)) ?? null }));
+    }
+
+    /**
+     * v2.240.0 (B25) — what the player page draws besides the numbers: the
+     * player's display name and avatar (resolved at read through the one
+     * profile chain) and the art of every game the page names (`gameArt`,
+     * keyed by `GameArtService.key`). Applied by the route to both lookups
+     * (by account id and by iScored name) so neither return shape changes.
+     */
+    static async withPagePresentation<T extends {
+        discordUserId: string | null;
+        iscoredUsername: string | null;
+        bestGame: string | null;
+        recentScores: Array<{ game_name: string }>;
+        achievements?: { recent: Array<{ game_name: string | null }> };
+        personalBests?: Array<{ game_name: string }>;
+    }>(stats: T): Promise<T & { displayName: string | null; avatarHash: string | null; avatarUrl: string | null; gameArt: Record<string, string> }> {
+        const [profile] = await resolveProfiles([{
+            submitted_by_user_id: stats.discordUserId && isProviderUserId(stats.discordUserId) ? stats.discordUserId : null,
+            discord_user_id: stats.discordUserId,
+            iscored_username: stats.iscoredUsername,
+        }]);
+        const gameArt = await GameArtService.artRecord([
+            stats.bestGame,
+            ...stats.recentScores.map(s => s.game_name),
+            ...(stats.achievements?.recent ?? []).map(a => a.game_name),
+            ...(stats.personalBests ?? []).map(p => p.game_name),
+        ]);
+        return {
+            ...stats,
+            displayName: profile?.display_name ?? null,
+            avatarHash: profile?.avatar_hash ?? null,
+            avatarUrl: profile?.avatar_url ?? null,
+            gameArt,
+        };
     }
 
     /**

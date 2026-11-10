@@ -1,6 +1,7 @@
 import { getDatabase } from '../database/database.js';
 import { UNKNOWN } from '../utils/scoreProvenance.js';
 import { resolveProfiles } from './PlayerProfileResolver.js';
+import { GameArtService } from './GameArtService.js';
 
 /**
  * Per-tournament score boards — every score submitted DURING one tournament,
@@ -68,6 +69,8 @@ export interface TournamentScoreBoard {
     game_key: string;
     /** Display casing for the game. */
     game_name: string;
+    /** v2.240.0 (B25): the table's art (`GameArtService`), null when the catalogue has none. */
+    image_url: string | null;
     /** How many `games` slots this tournament ran for this game (0 = slot deleted). */
     slot_count: number;
     /** Dates/status of the MOST RECENT slot; all null when `slot_count === 0`. */
@@ -225,6 +228,7 @@ export class TournamentScoresService {
                 board = {
                     game_key: row.game_key,
                     game_name: row.game_name,
+                    image_url: null,
                     slot_count: slotList.length,
                     start_date: newest?.start_date ?? null,
                     end_date: newest?.end_date ?? null,
@@ -254,7 +258,11 @@ export class TournamentScoresService {
         });
 
         const boards = [...boardsByKey.values()];
-        for (const board of boards) board.winner = board.scores[0] ?? null;
+        const art = await GameArtService.artForNames(boards.map(b => b.game_name));
+        for (const board of boards) {
+            board.winner = board.scores[0] ?? null;
+            board.image_url = art.get(GameArtService.key(board.game_name)) ?? null;
+        }
 
         // Most recently completed slot first. Boards whose slot was deleted (or
         // hasn't ended) have no end_date and sort to the back, ordered by their
