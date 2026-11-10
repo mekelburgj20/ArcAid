@@ -11,6 +11,7 @@ import { useRoom } from '../contexts/RoomContext';
 import { decodeViewerClaims } from '../lib/viewerClaims';
 import { formatScore, scoreTitle } from '../lib/format';
 import GameArt from '../components/GameArt';
+import { RESULTS_PAGE } from '../lib/pageLayout';
 import { PlayerAvatar } from '../components/ScoreboardComponents';
 import { gameArtFor } from '../lib/gameArt';
 
@@ -218,7 +219,7 @@ export default function PlayerDetail() {
   return (
     <div>
       {/* Page Header */}
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 pt-6 pb-2">
+      <div className={`${RESULTS_PAGE} pt-6 pb-2`}>
         {/* v2.13.16 — primary back link returns to the originating leaderboard
             when ?from is present (set by PlayerNameLink); secondary "All
             Players" link is always available. */}
@@ -238,16 +239,16 @@ export default function PlayerDetail() {
             </Link>
           )}
         </div>
-        <div className="flex items-center gap-3 mt-2">
+        <div className="flex items-center gap-4 mt-3">
           <PlayerAvatar
             username={headerName}
             discordUserId={stats.discordUserId}
             avatarHash={stats.avatarHash}
             avatarUrl={stats.avatarUrl}
-            size={56}
+            size={96}
           />
           <div className="min-w-0">
-            <h2 className="font-display text-xl font-bold break-words">{headerName}</h2>
+            <h2 className="font-display text-2xl sm:text-3xl font-bold break-words">{headerName}</h2>
             {stats.iscoredUsername && stats.iscoredUsername !== headerName && (
               <p className="text-faint text-xs mt-0.5">iScored: {stats.iscoredUsername}</p>
             )}
@@ -331,7 +332,7 @@ export default function PlayerDetail() {
         />
       )}
 
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 py-6">
+      <main className={`${RESULTS_PAGE} py-6`}>
         {/* Stat Cards */}
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8">
           <StatCard label="Games Played" value={stats.totalGamesPlayed.toString()} color="text-neon-cyan" />
@@ -399,10 +400,10 @@ export default function PlayerDetail() {
                   >
                     {/* A trophy with no game keeps the art column's width so every row's text lines up. */}
                     {a.game_name
-                      ? <GameArt src={art(a.game_name)} name={a.game_name} size={40} />
-                      : <span className="w-10 flex-shrink-0 flex justify-center"><AchievementIcon type={a.type} size={18} /></span>}
+                      ? <GameArt src={art(a.game_name)} name={a.game_name} size={80} mobileSize={56} />
+                      : <span className="w-[56px] sm:w-[80px] flex-shrink-0 flex justify-center"><AchievementIcon type={a.type} size={22} /></span>}
                     <div className="flex-1 min-w-0">
-                      <p className="text-primary text-sm font-medium truncate flex items-center gap-1.5">
+                      <p className="text-primary text-base font-medium truncate flex items-center gap-1.5">
                         {a.game_name && <AchievementIcon type={a.type} size={12} />}
                         <span className="min-w-0 truncate">
                           {ACHIEVEMENT_LABELS[a.type]}
@@ -426,8 +427,8 @@ export default function PlayerDetail() {
               to={`/${slug}/games/${encodeURIComponent(stats.bestGame)}`}
               className="inline-flex items-center gap-3 bg-surface border border-border rounded-lg pl-3 pr-5 py-3 text-primary hover:text-neon-cyan no-underline transition-colors font-medium max-w-full"
             >
-              <GameArt src={art(stats.bestGame)} name={stats.bestGame} size={56} />
-              <span className="min-w-0 break-words">{stats.bestGame}</span>
+              <GameArt src={art(stats.bestGame)} name={stats.bestGame} size={112} mobileSize={84} />
+              <span className="min-w-0 break-words font-display text-lg sm:text-xl">{stats.bestGame}</span>
             </Link>
           </div>
         )}
@@ -489,11 +490,11 @@ export default function PlayerDetail() {
                   key={i}
                   className="flex items-center gap-3 px-4 sm:px-5 py-3 border-b border-border/30 last:border-0"
                 >
-                  <GameArt src={art(s.game_name)} name={s.game_name} size={40} />
+                  <GameArt src={art(s.game_name)} name={s.game_name} size={80} mobileSize={56} />
                   <div className="min-w-0 flex-1 flex flex-col sm:flex-row sm:items-center gap-0.5 sm:gap-3">
                   <Link
                     to={`/${slug}/games/${encodeURIComponent(s.game_name)}`}
-                    className="min-w-0 sm:flex-1 truncate text-primary hover:text-neon-cyan no-underline transition-colors font-medium"
+                    className="min-w-0 sm:flex-1 truncate text-base sm:text-lg text-primary hover:text-neon-cyan no-underline transition-colors font-medium"
                   >
                     {s.game_name}
                   </Link>

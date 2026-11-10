@@ -295,6 +295,10 @@ export const HistoryQuerySchema = z.object({
     type: z.string().optional(),
     /** v2.238.0 (B24): a run's game id; the response answers the page holding it. */
     run: z.string().max(100).optional(),
+    /** v2.241.0 (B26): week mode — 0 is the 7 days ending at the newest run in the filter. */
+    week: z.coerce.number().int().min(0).max(5200).optional(),
+    /** v2.241.0 (B26): '1' adds each run's whole final board (`standings`). */
+    standings: z.enum(['0', '1']).optional(),
 });
 
 export const BackupRestoreParamsSchema = z.object({

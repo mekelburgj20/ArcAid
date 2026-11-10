@@ -58,32 +58,17 @@ PAYLOAD.boards[0]!.winner = PAYLOAD.boards[0]!.scores[0]! as never;
 PAYLOAD.boards[1]!.winner = PAYLOAD.boards[1]!.scores[0]! as never;
 
 /** Two runs of one table plus one empty run, newest first (the server's order). */
-const RUNS = [
-  {
-    game_id: 'g-who-2', tournament_id: 't-1', game_name: 'WHO dunnit',
-    start_date: '2026-01-10T00:00:00.000Z', end_date: '2026-01-11T00:00:00.000Z',
-    winner_name: 'Pixel', winner_username: 'PixelWizard', winner_score: 1_234_567_890_123, players: 4,
-  },
-  {
-    game_id: 'g-mm', tournament_id: 't-1', game_name: 'Medieval Madness',
-    start_date: '2026-01-04T00:00:00.000Z', end_date: '2026-01-05T00:00:00.000Z',
-    winner_name: null, winner_username: null, winner_score: null, players: 0,
-  },
-  {
-    game_id: 'g-who-1', tournament_id: 't-1', game_name: 'WHO dunnit',
-    start_date: '2026-01-01T00:00:00.000Z', end_date: '2026-01-02T00:00:00.000Z',
-    winner_name: 'Flipper', winner_username: 'FlipperFrenzy', winner_score: 500, players: 1,
-  },
-];
-
-const RUN_BOARDS: Record<string, unknown[]> = {
-  'g-who-2': [
-    { rank: 1, iscored_username: 'PixelWizard', display_name: 'Pixel', score: 1_234_567_890_123 },
-    { rank: 2, iscored_username: 'TiltMonster', display_name: null, score: 9_450_000 },
-  ],
-  'g-who-1': [
-    { rank: 1, iscored_username: 'FlipperFrenzy', display_name: 'Flipper', score: 500 },
-  ],
+/** The Runs view's week (the shared RunFeed draws it; RunFeed.test.tsx pins its behaviour). */
+const WEEK = {
+  results: [{
+    game_id: 'g-who-2', tournament_id: 't-1', game_name: 'WHO dunnit', tournament_name: 'Daily Grind', tournament_type: 'DG',
+    start_date: '2026-01-10T00:00:00.000Z', end_date: '2026-01-11T00:00:00.000Z', image_url: null,
+    winner_name: 'Pixel', winner_username: 'PixelWizard', winner_score: 100, players: 1,
+    standings: [{ rank: 1, iscored_username: 'PixelWizard', display_name: 'Pixel', score: 100 }],
+  }],
+  total: 1, week: 0,
+  window: { from: '2026-01-04T00:00:00.000Z', to: '2026-01-11T00:00:00.000Z' },
+  has_newer: false, has_older: false,
 };
 
 const TOURNAMENTS = [
@@ -101,7 +86,6 @@ const fmtDate = (iso: string) =>
   new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 
 let scores: { status: number; body: unknown };
-let runs: { results: unknown[]; total: number; page: number; limit: number };
 const fetchMock = vi.fn();
 
 function stubFetch() {
@@ -110,9 +94,7 @@ function stubFetch() {
       ok: status >= 200 && status < 300, status, json: () => Promise.resolve(body),
     });
     if (url.includes('/scores')) return j(scores.body, scores.status);
-    if (url.includes('/history?')) return j(runs);
-    const board = url.match(/\/leaderboard\/([^?]+)/);
-    if (board) return j({ rankings: RUN_BOARDS[decodeURIComponent(board[1]!)] ?? [] });
+    if (url.includes('/history?')) return j(WEEK);
     if (url.endsWith('/tournaments')) return j(TOURNAMENTS);
     return j(null, 404);
   });
@@ -144,7 +126,6 @@ describe('TournamentDetail', () => {
     vi.restoreAllMocks();
     fetchMock.mockReset();
     scores = { status: 200, body: PAYLOAD };
-    runs = { results: RUNS, total: RUNS.length, page: 1, limit: 20 };
     stubFetch();
   });
   afterEach(() => { vi.unstubAllGlobals(); });
@@ -191,70 +172,21 @@ describe('TournamentDetail', () => {
   });
 
   describe('Runs (the default view)', () => {
-    it('lists the tournament\'s runs newest first: table, date, winner, players', async () => {
+    it('shows this tournament\'s latest week of runs as cards, without repeating the tournament on each', async () => {
       renderPage();
-      const list = await screen.findByRole('list', { name: 'Runs, newest first' });
-      expect(fetched('/history?')).toEqual(['/api/rooms/room-1/history?tournament_id=t-1&limit=20&page=1']);
-
-      const rows = within(list).getAllByRole('button');
-      expect(rows).toHaveLength(3);
-      expect(rows[0]).toHaveTextContent('WHO dunnit');
-      expect(rows[0]).toHaveTextContent('Pixel');
-      expect(rows[0]).toHaveTextContent('1.2T');
-      expect(rows[0]).toHaveTextContent('4 players');
-      expect(rows[1]).toHaveTextContent('No scores');
-      expect(rows[1]).toHaveTextContent('0 players');
-      expect(rows[2]).toHaveTextContent('1 player');
-      for (const row of rows) expect(row).toHaveAttribute('aria-expanded', 'false');
+      const [card] = await screen.findAllByTestId('run-card');
+      const q = new URL(fetched('/history?')[0]!, 'http://x');
+      expect(Object.fromEntries(q.searchParams)).toEqual({ week: '0', standings: '1', tournament_id: 't-1' });
+      expect(within(card!).getByRole('link', { name: 'WHO dunnit' })).toBeInTheDocument();
+      expect(within(card!).queryByRole('link', { name: 'Daily Grind' })).toBeNull();
+      expect(within(card!).getByTestId('run-board')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Runs' })).toHaveAttribute('aria-pressed', 'true');
     });
 
-    it('a row opens that run\'s final standings from the run\'s own board, and closes again', async () => {
-      renderPage();
-      const list = await screen.findByRole('list', { name: 'Runs, newest first' });
-      const older = within(list).getAllByRole('button')[2]!;
-      fireEvent.click(older);
-
-      expect(older).toHaveAttribute('aria-expanded', 'true');
-      const board = await screen.findByTestId('run-board');
-      expect(fetched('/leaderboard/')).toEqual(['/api/rooms/room-1/leaderboard/g-who-1']);
-      expect(within(board).getByRole('link', { name: 'Flipper' }))
-        .toHaveAttribute('href', '/test-room/players/FlipperFrenzy');
-      expect(location()).toBe('/test-room/tournaments/t-1?run=g-who-1&page=1');
-
-      fireEvent.click(older);
-      expect(older).toHaveAttribute('aria-expanded', 'false');
-      expect(screen.queryByTestId('run-board')).toBeNull();
-      expect(location()).toBe('/test-room/tournaments/t-1?page=1');
-    });
-
-    it('?run= deep-links one run: the server answers its page and the run is open', async () => {
-      runs = { results: [RUNS[2]], total: 21, page: 2, limit: 20 };
-      renderPage('?run=g-who-1');
-
-      const board = await screen.findByTestId('run-board');
-      expect(fetched('/history?')[0]).toBe('/api/rooms/room-1/history?tournament_id=t-1&limit=20&page=1&run=g-who-1');
-      expect(screen.getByRole('button', { expanded: true })).toHaveTextContent('WHO dunnit');
-      expect(within(board).getByText('Flipper')).toBeInTheDocument();
-      expect(screen.getByText('Page 2 of 2')).toBeInTheDocument();
-    });
-
-    it('paging asks for an explicit page and never jumps back to the open run', async () => {
-      runs = { results: [RUNS[2]], total: 21, page: 2, limit: 20 };
-      renderPage('?run=g-who-1');
-      await screen.findByTestId('run-board');
-
-      runs = { results: RUNS.slice(0, 2), total: 21, page: 1, limit: 20 };
-      fireEvent.click(screen.getByRole('button', { name: 'Newer' }));
-      await waitFor(() => expect(location()).toBe('/test-room/tournaments/t-1?run=g-who-1&page=1'));
-      await waitFor(() => expect(fetched('/history?').at(-1))
-        .toBe('/api/rooms/room-1/history?tournament_id=t-1&limit=20&page=1'));
-    });
-
-    it('a tournament with no finished runs says so', async () => {
-      runs = { results: [], total: 0, page: 1, limit: 20 };
-      renderPage();
-      await waitFor(() => expect(screen.getByText('No finished runs yet.')).toBeInTheDocument());
+    it('a ?run= deep link reaches the feed', async () => {
+      renderPage('?run=g-who-2');
+      await screen.findAllByTestId('run-card');
+      expect(new URL(fetched('/history?')[0]!, 'http://x').searchParams.get('run')).toBe('g-who-2');
     });
   });
 
@@ -299,9 +231,9 @@ describe('TournamentDetail', () => {
         screen.getByText('No scores were submitted during this tournament.')).toBeInTheDocument());
     });
 
-    it('switching views drops the other view\'s run and page', async () => {
-      renderPage('?run=g-who-1&page=1');
-      await screen.findByTestId('run-board');
+    it('switching views drops the other view\'s run and week', async () => {
+      renderPage('?run=g-who-2&week=1');
+      await screen.findAllByTestId('run-card');
       fireEvent.click(screen.getByRole('button', { name: 'By table' }));
       expect(location()).toBe('/test-room/tournaments/t-1?view=tables');
       fireEvent.click(screen.getByRole('button', { name: 'Runs' }));
@@ -311,7 +243,7 @@ describe('TournamentDetail', () => {
 });
 
 /** v2.240.0 (B25) — table art and player avatars on the tournament page. */
-describe('TournamentDetail — table art and avatars', () => {
+describe('TournamentDetail — By table art and avatars', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     fetchMock.mockReset();
@@ -326,43 +258,16 @@ describe('TournamentDetail — table art and avatars', () => {
         })),
       },
     };
-    runs = {
-      results: RUNS.map((r, i) => ({
-        ...r,
-        image_url: i === 0 ? '/api/catalogue-images/who.png' : null,
-        winner_discord_user_id: r.winner_name ? '111111111111111111' : null,
-        winner_avatar_hash: r.winner_name ? 'winhash' : null,
-      })),
-      total: RUNS.length, page: 1, limit: 20,
-    };
     stubFetch();
   });
   afterEach(() => { vi.unstubAllGlobals(); });
 
-  it('each run shows its table art and the winner\'s avatar', async () => {
-    renderPage();
-    const list = await screen.findByRole('list', { name: 'Runs, newest first' });
-    const rows = within(list).getAllByRole('button');
-    expect(within(rows[0]!).getByTestId('game-art')).toHaveAttribute('src', '/api/catalogue-images/who.png');
-    expect(within(rows[0]!).getByAltText('Pixel').getAttribute('src')).toContain('winhash');
-    // No art: initials. No winner: no avatar.
-    expect(within(rows[1]!).getByTestId('game-art-fallback')).toHaveTextContent('MM');
-    expect(within(rows[1]!).queryAllByRole('img')).toHaveLength(0);
-  });
-
-  it('a run\'s final standings show each player\'s avatar', async () => {
-    RUN_BOARDS['g-who-1'] = [
-      { rank: 1, iscored_username: 'FlipperFrenzy', display_name: 'Flipper', score: 500, discord_user_id: '222222222222222222', avatar_hash: 'fliphash' },
-    ];
-    renderPage('?run=g-who-1&page=1');
-    const board = await screen.findByTestId('run-board');
-    expect(within(board).getByAltText('Flipper').getAttribute('src')).toContain('fliphash');
-  });
-
-  it('By table: each board leads with its table art, and rows carry avatars', async () => {
+  it('each board leads with its table art, and rows carry avatars', async () => {
     renderPage('?view=tables');
     await waitFor(() => expect(screen.getByRole('link', { name: 'WHO dunnit' })).toBeInTheDocument());
-    expect(screen.getAllByTestId('game-art')[0]).toHaveAttribute('src', '/api/catalogue-images/who.png');
+    const art = screen.getAllByTestId('game-art')[0]!;
+    expect(art).toHaveAttribute('src', '/api/catalogue-images/who.png');
+    expect(art).toHaveAttribute('width', '80');
     expect(screen.getByAltText('Pixel').getAttribute('src')).toContain('pixhash');
   });
 });

@@ -6,6 +6,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.241.0] - 2026-11-10 - Results pages: wider, bigger art, week-by-week run cards
+
+B26. Owner 2026-11-10: wide empty margins left the content narrow; table art should "shine prominently" (2x), with
+larger titles and avatars; History should show a week at a time, each run as its own card with its final standings
+open, and one switch to collapse or expand them all.
+
+- **Wider:** History, the tournament page and the player page share one content width (`lib/pageLayout.ts`
+  `RESULTS_PAGE`: up to 1600px with the Stats page's side padding) instead of a narrow centered column.
+- **Week by week, as cards:** History and the tournament page's Runs view show one week of runs at a time, newest
+  week first, with Newer / Older to step between weeks (`?week=N`). Week 1 is the seven days ending at the newest run,
+  so a tournament that finished months ago still opens on a full week. Each run is its own card: table art, game
+  title, tournament (on History), date, player count, winner with avatar and score, and the run's final standings
+  open by default. Two columns of cards on wide screens, one on phones. A deep link (`?run=`, from the card chip,
+  the pile, Lobby result items and Discord posts) opens the week holding that run and marks its card.
+- **Collapse all / Expand all:** one button above the cards folds or opens every card's standings (remembered on
+  this device); each card's chevron still opens or closes just that card.
+- **Bigger:** table art 2x on desktop (cards 112px, By-table boards 80px, player page 80-112px, Stats Games 72px;
+  smaller on phones), larger game titles, larger avatars (standings 40px, card winner 36px, player heading 96px,
+  Stats Players 44px).
+- Server: `GET /:roomId/history` gains week mode (`week`; answers `week`, `window`, `has_newer`, `has_older`;
+  `run` answers that run's week) and `standings=1` (each run's whole final board, from
+  `LeaderboardService.getRunStandings`, the same boards the winner comes from). Page mode is unchanged for the admin
+  History page.
+
+Notes: no migration. A week with no finished games shows as empty with Newer / Older still offered. The History
+table with columns is replaced by the cards; the tag and tournament filters stay.
+
 ## [2.240.1] - 2026-11-10 - Activity log badges stay in their column
 
 G19. Owner 2026-11-10 (screenshot): "The activity items are running in to each other." On Room Admin -> Activity the

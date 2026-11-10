@@ -259,7 +259,7 @@ export function PersonalBestsSection({
                 <span className={`${nameCell} col-span-2 sm:col-span-1 pl-5 pr-5 sm:pr-3 min-w-0`}>
                   {gameArt ? (
                     <span className="flex items-center gap-3 min-w-0 max-w-full">
-                      <GameArt src={gameArtFor(gameArt, pb.game_name)} name={pb.game_name} size={32} />
+                      <GameArt src={gameArtFor(gameArt, pb.game_name)} name={pb.game_name} size={64} mobileSize={48} />
                       {nameNode}
                     </span>
                   ) : nameNode}

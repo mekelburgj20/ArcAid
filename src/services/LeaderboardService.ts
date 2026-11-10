@@ -583,15 +583,67 @@ export class LeaderboardService {
      */
     static async getRunSummaries(gameIds: string[]): Promise<Map<string, { winner: RankedEntry | null; players: number }>> {
         const out = new Map<string, { winner: RankedEntry | null; players: number }>();
-        const ids = [...new Set(gameIds)];
-        if (ids.length === 0) return out;
-
-        const overlays = await this.getEventRoundOverlays(ids);
+        const { overlays, rowsByGame, windows } = await this.loadRunRows(gameIds);
         for (const [id, overlay] of overlays) {
             out.set(id, { winner: overlay.rankings[0] ?? null, players: overlay.rankings.length });
         }
+        const tops: CachedRankedRow[] = [];
+        const topWindows: Array<ScoreWindow | null> = [];
+        const topIds: string[] = [];
+        for (const [id, rows] of rowsByGame) {
+            out.set(id, { winner: null, players: rows.length });
+            if (rows[0]) {
+                tops.push(rows[0]);
+                topWindows.push(windows.get(id) ?? null);
+                topIds.push(id);
+            }
+        }
+        const hydrated = await this.hydrate(tops, topWindows);
+        topIds.forEach((id, i) => { out.get(id)!.winner = hydrated[i] ?? null; });
+        return out;
+    }
+
+    /**
+     * v2.241.0 (B26) — each RUN's whole final board, for the run cards on
+     * History and the tournament page (standings shown open by default). The
+     * same boards `getRunSummaries` reads its winner from, so a card's rank 1
+     * is always its winner; ONE hydrate for every row of every run.
+     */
+    static async getRunStandings(gameIds: string[]): Promise<Map<string, RankedEntry[]>> {
+        const out = new Map<string, RankedEntry[]>();
+        const { overlays, rowsByGame, windows } = await this.loadRunRows(gameIds);
+        for (const [id, overlay] of overlays) out.set(id, overlay.rankings);
+        const flat: CachedRankedRow[] = [];
+        const flatWindows: Array<ScoreWindow | null> = [];
+        for (const [id, rows] of rowsByGame) {
+            for (const row of rows) { flat.push(row); flatWindows.push(windows.get(id) ?? null); }
+        }
+        const hydrated = await this.hydrate(flat, flatWindows);
+        let cursor = 0;
+        for (const [id, rows] of rowsByGame) {
+            out.set(id, hydrated.slice(cursor, cursor + rows.length));
+            cursor += rows.length;
+        }
+        return out;
+    }
+
+    /**
+     * The shared read behind `getRunSummaries` / `getRunStandings`: event
+     * rounds' overlays, and every other run's identity-stable rows (one cache
+     * read for all ids, a recalculate only for a miss) plus their windows.
+     */
+    private static async loadRunRows(gameIds: string[]): Promise<{
+        overlays: Map<string, EventRoundOverlay>;
+        rowsByGame: Map<string, CachedRankedRow[]>;
+        windows: Map<string, ScoreWindow>;
+    }> {
+        const ids = [...new Set(gameIds)];
+        const rowsByGame = new Map<string, CachedRankedRow[]>();
+        if (ids.length === 0) return { overlays: new Map(), rowsByGame, windows: new Map() };
+
+        const overlays = await this.getEventRoundOverlays(ids);
         const plain = ids.filter(id => !overlays.has(id));
-        if (plain.length === 0) return out;
+        if (plain.length === 0) return { overlays, rowsByGame, windows: new Map() };
 
         const db = await getDatabase();
         const cachedRows = await db.all(
@@ -603,23 +655,9 @@ export class LeaderboardService {
             const rows = parseCacheEnvelope(r.rankings);
             if (rows) cacheMap.set(r.game_id, rows);
         }
-
+        for (const id of plain) rowsByGame.set(id, cacheMap.get(id) ?? await this.recalculateRows(id));
         const windows = await this.loadWindows(plain);
-        const tops: CachedRankedRow[] = [];
-        const topWindows: Array<ScoreWindow | null> = [];
-        const topIds: string[] = [];
-        for (const id of plain) {
-            const rows = cacheMap.get(id) ?? await this.recalculateRows(id);
-            out.set(id, { winner: null, players: rows.length });
-            if (rows[0]) {
-                tops.push(rows[0]);
-                topWindows.push(windows.get(id) ?? null);
-                topIds.push(id);
-            }
-        }
-        const hydrated = await this.hydrate(tops, topWindows);
-        topIds.forEach((id, i) => { out.get(id)!.winner = hydrated[i] ?? null; });
-        return out;
+        return { overlays, rowsByGame, windows };
     }
 
     /**
