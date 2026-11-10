@@ -198,6 +198,7 @@ Lane: `src/engine/{IScoredApiClient,IScoredClient,IScoredNotificationGate,IScore
 - **F7** `done 2.184.2` Reconcile iScored names every game it will delete, with a second confirm
 - **F8** `idea` Link an EXISTING iScored board to an Arcaid game (converting a live iScored tournament, Spectre probros_gaming 2026-10-27): activation and pin always create a NEW board today, so the only link is a hand-written prod `games.iscored_id`; ~half a day · touches: src/api/routes/rooms.ts, src/engine/gameCreation.ts
 - **F9** `idea` A room's iScored poll is refused "Sorry, this user does not have API access enabled" (prod log 2026-11-07 17:3xZ, first boot of 2.227.0; room not identified) — find the room on the super-admin Activity page (Server rows, the poller failure row since 2.227.0), then either the owner enables iScored API access or the room turns iScored off; possibly Spectre's board (see Now) · spec: this line
+- **F10** `claimed` Activation never waits on iScored — web Activate + web pick commit in Arcaid first and build the board after the response (Cloudflare cuts at 100 s, HTTP 524); an empty iScored lineup is zero games, not an error (ProBros 2026-11-10: iScored emptied 11-01/02, every White Water activation timed out) · owner: opus@wt-wobbly-wiggling-starfish · since: 2026-11-10 · branch: fix/f10-iscored-activation · touches: src/api/routes/rooms.ts, admin-ui/src/pages/GameLibrary.tsx
 
 ## G. Room settings, admin UI structure, a11y, PWA
 
