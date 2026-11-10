@@ -4,6 +4,7 @@ import { ArrowLeftRight, Search, X, Trophy } from 'lucide-react';
 import { formatScore } from '../lib/format';
 import { useRoom } from '../contexts/RoomContext';
 import { compareByRank } from '../lib/searchRank';
+import { roomFetch } from '../lib/roomFetch';
 
 /**
  * WP2 — S14 social loops: head-to-head player comparison.
@@ -69,7 +70,7 @@ export default function ComparePlayers() {
   // Fetch player list for the picker.
   useEffect(() => {
     if (!roomId) return;
-    fetch(`/api/rooms/${roomId}/stats/enhanced/players`)
+    roomFetch(`/api/rooms/${roomId}/stats/enhanced/players`)
       .then(r => (r.ok ? r.json() : []))
       .then(list => setPlayers(list || []))
       .catch(() => {});
@@ -81,7 +82,7 @@ export default function ComparePlayers() {
     let cancelled = false;
     setLoading(true);
     setError('');
-    fetch(`/api/rooms/${roomId}/stats/compare?a=${encodeURIComponent(aParam)}&b=${encodeURIComponent(bParam)}`)
+    roomFetch(`/api/rooms/${roomId}/stats/compare?a=${encodeURIComponent(aParam)}&b=${encodeURIComponent(bParam)}`)
       .then(r => {
         if (!r.ok) throw new Error('compare-failed');
         return r.json();

@@ -6,6 +6,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.241.1] - 2026-11-10 - Approval-required rooms: room pages load for members
+
+D19. Owner 2026-11-10 (screenshot): "Full Leaderboard" on Game Of Dog in Mox's Game Room opened a game page with
+only Community and Tips, and "No community scores yet".
+
+- **Cause:** in a room set to "Approval required" (`JOIN_POLICY=approval`), the server answers a room read only when it
+  carries the viewer's login (`roomVisibilityGate`). The Scoreboard sent it; most other room pages read without it,
+  and every one of them turns a refusal into an empty list. So a member saw the cards on Scores, then a blank page
+  everywhere they clicked: the game page (no board, no Leaderboard tab), History, the tournament page, player pages,
+  Stats, Compare, the Lobby, Picks, rankings standings, the score-history expand on a card, the player quick view,
+  the event banner and the score ticker. Players (v2.99.1) and parts of Picks (v2.98.0) had been fixed one page at a
+  time.
+- **Fix:** one helper, `admin-ui/src/lib/roomFetch.ts`, sends the signed-in player's login with a room read (read at
+  call time, so it is always the latest refreshed token); 56 reads across 21 files now go through it, including the
+  game page's ratings read. Signed out, it is exactly the plain request it replaces, so open rooms are unchanged.
+- **Guard:** `lib/__tests__/roomFetch.test.ts` scans the UI source and fails on any plain room read with no options,
+  so a new page cannot bring the bug back. Only `/portal` and `/scoreboard-config` answer before the check.
+
+Notes: front end only, no migration. Kiosk mode now shows an approval room's board when the browser is signed in as
+a member (its gate already admitted members; its reads did not). Guests still get the join gate, as before.
+
 ## [2.241.0] - 2026-11-10 - Results pages: wider, bigger art, week-by-week run cards
 
 B26. Owner 2026-11-10: wide empty margins left the content narrow; table art should "shine prominently" (2x), with

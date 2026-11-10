@@ -36,6 +36,7 @@ import ConfirmModal from '../components/ConfirmModal';
 import ScorePhotoModal from '../components/ScorePhotoModal';
 import { useToast } from '../components/Toast';
 import { attemptsLeft } from '../lib/attemptsLeft';
+import { roomFetch } from '../lib/roomFetch';
 
 interface RankedEntry {
   rank: number;
@@ -434,7 +435,7 @@ export default function GameDetail() {
   useEffect(() => {
     if (!name || !roomId) return;
 
-    fetch(`/api/rooms/${roomId}/stats/game/${encodeURIComponent(name)}`)
+    roomFetch(`/api/rooms/${roomId}/stats/game/${encodeURIComponent(name)}`)
       .then(r => r.ok ? r.json() : null)
       .then(setStats)
       .catch(() => {})
@@ -450,7 +451,7 @@ export default function GameDetail() {
     {
       const ratingHeaders: Record<string, string> = {};
       if (viewerClaims?.discordId) ratingHeaders['x-user-id'] = viewerClaims.discordId;
-      fetch(`/api/rooms/${roomId}/ratings/${encodeURIComponent(name)}`, { headers: ratingHeaders })
+      roomFetch(`/api/rooms/${roomId}/ratings/${encodeURIComponent(name)}`, { headers: ratingHeaders })
         .then(r => r.ok ? r.json() : null)
         .then(data => { if (data) setRatingInfo(data); })
         .catch(() => {});
@@ -485,7 +486,7 @@ export default function GameDetail() {
     const historyId = parseInt(scoreParam, 10);
     if (!Number.isInteger(historyId) || historyId <= 0) return;
     let cancelled = false;
-    fetch(`/api/rooms/${roomId}/score-share/${historyId}`)
+    roomFetch(`/api/rooms/${roomId}/score-share/${historyId}`)
       .then(r => r.ok ? r.json() : null)
       .then((data: { playerName: string; score: number; photoUrl: string | null } | null) => {
         if (cancelled || !data) return;
@@ -518,7 +519,7 @@ export default function GameDetail() {
       return;
     }
     let cancelled = false;
-    fetch(`/api/rooms/${roomId}/leaderboard/${leaderboard.gameId}?engine=${encodeURIComponent(selectedEngine)}`)
+    roomFetch(`/api/rooms/${roomId}/leaderboard/${leaderboard.gameId}?engine=${encodeURIComponent(selectedEngine)}`)
       .then(r => r.ok ? r.json() : null)
       .then((data: { rankings?: RankedEntry[] } | null) => {
         if (cancelled) return;
@@ -553,7 +554,7 @@ export default function GameDetail() {
     // (roomId, gameId, selectedEngine) — none of which change on a new
     // score — so nudge it directly, same as the delete paths do.
     if (leaderboard?.gameId && selectedEngine) {
-      fetch(`/api/rooms/${roomId}/leaderboard/${leaderboard.gameId}?engine=${encodeURIComponent(selectedEngine)}`)
+      roomFetch(`/api/rooms/${roomId}/leaderboard/${leaderboard.gameId}?engine=${encodeURIComponent(selectedEngine)}`)
         .then(r => r.ok ? r.json() : null)
         .then((data: { rankings?: RankedEntry[] } | null) => {
           setFilteredRankings(Array.isArray(data?.rankings) ? data!.rankings! : []);
@@ -645,7 +646,7 @@ export default function GameDetail() {
     if (!roomId || !integrityTournamentId) return;
     const tournamentId = integrityTournamentId;
     let cancelled = false;
-    fetch(`/api/rooms/${roomId}/tournaments/${tournamentId}/integrity`)
+    roomFetch(`/api/rooms/${roomId}/tournaments/${tournamentId}/integrity`)
       .then(r => r.ok ? r.json() : null)
       .then((data: {
         mode?: string; verdicts?: IntegrityVerdictMap; quits?: QuitMap; signed?: SignedMap;
@@ -722,21 +723,21 @@ export default function GameDetail() {
    * /score-counts/:gameId endpoints must never be called against it.
    */
   const loadScores = (rid: string, gameName: string) => {
-    fetch(`/api/rooms/${rid}/leaderboard`)
+    roomFetch(`/api/rooms/${rid}/leaderboard`)
       .then(r => r.ok ? r.json() : [])
       .then((boards: GameLeaderboard[]) => {
         const match = boards.find(b => b.gameName.toLowerCase() === gameName.toLowerCase());
         if (match) {
           setLeaderboard(match);
           // Fetch score counts for conditional expand icons
-          fetch(`/api/rooms/${rid}/score-counts/${match.gameId}`)
+          roomFetch(`/api/rooms/${rid}/score-counts/${match.gameId}`)
             .then(r => r.ok ? r.json() : {})
             .then(setScoreCounts)
             .catch(() => {});
           // v2.58.0: pull the distinct engines separately so the "All" view can
           // render the segmented tab strip. Bulk leaderboard list endpoint
           // doesn't include this; the per-game endpoint does.
-          fetch(`/api/rooms/${rid}/leaderboard/${match.gameId}`)
+          roomFetch(`/api/rooms/${rid}/leaderboard/${match.gameId}`)
             .then(r => r.ok ? r.json() : null)
             .then((data: (Pick<GameLeaderboard, 'notCounted' | 'witnessFlagMode' | 'witnessByHistoryId'> & { distinctEngines?: string[]; rankings?: RankedEntry[]; tournamentId?: string | null }) | null) => {
               if (!data) return;
@@ -764,7 +765,7 @@ export default function GameDetail() {
         // Non-active games (pinned/room-only games with no ACTIVE tournament
         // board) aren't in the active-boards list above. Fall back to the
         // Room Scores card for this game — see the doc comment above.
-        fetch(`/api/rooms/${rid}/room-scores?search=${encodeURIComponent(gameName)}&limit=10`)
+        roomFetch(`/api/rooms/${rid}/room-scores?search=${encodeURIComponent(gameName)}&limit=10`)
           .then(r => r.ok ? r.json() : null)
           .then((payload: { data?: GameLeaderboard[] } | null) => {
             const card = payload?.data?.find(c => c.gameName.toLowerCase() === gameName.toLowerCase());
@@ -772,7 +773,7 @@ export default function GameDetail() {
             setLeaderboard(card);
             // Score counts keyed by name (fallback cards have no games-table
             // id to key the id-based score-counts endpoint on).
-            fetch(`/api/rooms/${rid}/score-counts?gameNames=${encodeURIComponent(gameName)}`)
+            roomFetch(`/api/rooms/${rid}/score-counts?gameNames=${encodeURIComponent(gameName)}`)
               .then(r => r.ok ? r.json() : null)
               .then((data: { counts?: Record<string, Record<string, number>> } | null) => {
                 if (data?.counts?.[gameName]) setScoreCounts(data.counts[gameName]);
@@ -784,23 +785,23 @@ export default function GameDetail() {
       .catch(() => {});
 
     // Load all-time player rankings for this game
-    fetch(`/api/rooms/${rid}/stats/game/${encodeURIComponent(gameName)}/players`)
+    roomFetch(`/api/rooms/${rid}/stats/game/${encodeURIComponent(gameName)}/players`)
       .then(r => r.ok ? r.json() : [])
       .then(setGamePlayerRankings)
       .catch(() => {});
   };
 
   const loadCommunityData = (rid: string, gameName: string) => {
-    fetch(`/api/rooms/${rid}/community-scores/${encodeURIComponent(gameName)}`)
+    roomFetch(`/api/rooms/${rid}/community-scores/${encodeURIComponent(gameName)}`)
       .then(r => r.ok ? r.json() : [])
       .then(setCommunityBoard)
       .catch(() => {});
 
-    fetch(`/api/rooms/${rid}/community-scores/${encodeURIComponent(gameName)}?history=1`)
+    roomFetch(`/api/rooms/${rid}/community-scores/${encodeURIComponent(gameName)}?history=1`)
       .then(r => r.ok ? r.json() : [])
       .then(() => {
         // Load recent history separately
-        fetch(`/api/rooms/${rid}/community-scores/recent`)
+        roomFetch(`/api/rooms/${rid}/community-scores/recent`)
           .then(r => r.ok ? r.json() : [])
           .then((all: CommunityHistoryEntry[]) => {
             // Filter to this game
@@ -925,7 +926,7 @@ export default function GameDetail() {
       // page reflects the change immediately even before the websocket
       // `leaderboard:updated` broadcast lands.
       if (leaderboard?.gameId) {
-        fetch(`/api/rooms/${roomId}/leaderboard/${leaderboard.gameId}`)
+        roomFetch(`/api/rooms/${roomId}/leaderboard/${leaderboard.gameId}`)
           .then(r => r.ok ? r.json() : null)
           .then((data: { rankings?: RankedEntry[] } | null) => {
             if (data?.rankings) {
@@ -936,14 +937,14 @@ export default function GameDetail() {
         // scoreCounts gates the ▼ expand icon on each leaderboard row; if the
         // deleted row dropped a player below the >1 threshold, the icon
         // should disappear.
-        fetch(`/api/rooms/${roomId}/score-counts/${leaderboard.gameId}`)
+        roomFetch(`/api/rooms/${roomId}/score-counts/${leaderboard.gameId}`)
           .then(r => r.ok ? r.json() : {})
           .then(setScoreCounts)
           .catch(() => {});
         // Engine-filtered view is fetched separately and isn't refreshed
         // by setting `leaderboard.rankings`; nudge the effect to re-run.
         if (selectedEngine) {
-          fetch(`/api/rooms/${roomId}/leaderboard/${leaderboard.gameId}?engine=${encodeURIComponent(selectedEngine)}`)
+          roomFetch(`/api/rooms/${roomId}/leaderboard/${leaderboard.gameId}?engine=${encodeURIComponent(selectedEngine)}`)
             .then(r => r.ok ? r.json() : null)
             .then((data: { rankings?: RankedEntry[] } | null) => {
               setFilteredRankings(Array.isArray(data?.rankings) ? data!.rankings! : []);
@@ -951,7 +952,7 @@ export default function GameDetail() {
             .catch(() => {});
         }
       }
-      fetch(`/api/rooms/${roomId}/stats/game/${encodeURIComponent(name as string)}/players`)
+      roomFetch(`/api/rooms/${roomId}/stats/game/${encodeURIComponent(name as string)}/players`)
         .then(r => r.ok ? r.json() : [])
         .then(setGamePlayerRankings)
         .catch(() => {});
@@ -1059,7 +1060,7 @@ export default function GameDetail() {
     if (!roomId || !name) return;
     setExpandedPlayer(playerUsername);
     setHistoryLoading(true);
-    fetch(`/api/rooms/${roomId}/score-history/${encodeURIComponent(name)}/player/${encodeURIComponent(playerUsername)}`)
+    roomFetch(`/api/rooms/${roomId}/score-history/${encodeURIComponent(name)}/player/${encodeURIComponent(playerUsername)}`)
       .then(r => r.ok ? r.json() : [])
       .then(setPlayerHistory)
       .catch(() => setPlayerHistory([]))
@@ -1070,7 +1071,7 @@ export default function GameDetail() {
     if (!roomId || !name) return;
     setShowGameHistory(!showGameHistory);
     if (!showGameHistory && gameHistory.length === 0) {
-      fetch(`/api/rooms/${roomId}/score-history/${encodeURIComponent(name)}`)
+      roomFetch(`/api/rooms/${roomId}/score-history/${encodeURIComponent(name)}`)
         .then(r => r.ok ? r.json() : [])
         .then(setGameHistory)
         .catch(() => {});
@@ -1086,7 +1087,7 @@ export default function GameDetail() {
     setPlayerError('');
     setPlayerStats(null);
     setPlayerScoreHistory([]);
-    fetch(`/api/rooms/${roomId}/stats/game/${encodeURIComponent(name)}/player/${encodeURIComponent(trimmed)}`)
+    roomFetch(`/api/rooms/${roomId}/stats/game/${encodeURIComponent(name)}/player/${encodeURIComponent(trimmed)}`)
       .then(r => {
         if (r.status === 404) { setPlayerError('No stats found for this player on this game.'); return null; }
         if (!r.ok) { setPlayerError('Failed to load stats.'); return null; }
@@ -1097,7 +1098,7 @@ export default function GameDetail() {
       .finally(() => setPlayerLoading(false));
 
     // Also load score history
-    fetch(`/api/rooms/${roomId}/score-history/${encodeURIComponent(name)}/player/${encodeURIComponent(trimmed)}`)
+    roomFetch(`/api/rooms/${roomId}/score-history/${encodeURIComponent(name)}/player/${encodeURIComponent(trimmed)}`)
       .then(r => r.ok ? r.json() : [])
       .then(setPlayerScoreHistory)
       .catch(() => {});

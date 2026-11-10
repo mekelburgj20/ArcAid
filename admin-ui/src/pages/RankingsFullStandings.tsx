@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { ChevronLeft } from 'lucide-react';
 import { useRoom } from '../contexts/RoomContext';
 import { PlayerAvatar, playerName, METHOD_LABELS } from '../components/ScoreboardComponents';
+import { roomFetch } from '../lib/roomFetch';
 
 /**
  * `/:slug/rankings/:groupId` — the full-standings destination page for the
@@ -55,7 +56,7 @@ export default function RankingsFullStandings() {
     if (!roomId || !groupId) return;
     setLoading(true);
     setNotFound(false);
-    fetch(`/api/rooms/${roomId}/ranking-groups/${groupId}/rankings`)
+    roomFetch(`/api/rooms/${roomId}/ranking-groups/${groupId}/rankings`)
       .then(r => {
         if (r.status === 404) { setNotFound(true); return null; }
         return r.ok ? r.json() : null;

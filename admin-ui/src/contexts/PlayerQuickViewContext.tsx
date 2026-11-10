@@ -13,6 +13,7 @@ import { Link } from 'react-router-dom';
 import { X, ExternalLink, Flame, Users, Trophy, Target, Medal, UserPlus, UserCheck, GitCompare } from 'lucide-react';
 import { PlayerAvatar, playerName } from '../components/ScoreboardComponents';
 import { useViewerAuth } from './ViewerAuthContext';
+import { roomFetch } from '../lib/roomFetch';
 
 /**
  * v2.13.16 — public-side player quick-view modal context.
@@ -135,7 +136,7 @@ function PlayerQuickViewModal({ slug, entry, fromTab, onClose }: OpenArgs & { on
           if (!cancelled) { setNotFound(true); setLoading(false); }
           return;
         }
-        const r = await fetch(`/api/rooms/${room.id}/stats/enhanced/player/${encodeURIComponent(entry.iscored_username)}`);
+        const r = await roomFetch(`/api/rooms/${room.id}/stats/enhanced/player/${encodeURIComponent(entry.iscored_username)}`);
         if (!r.ok) {
           if (!cancelled) { setNotFound(true); setLoading(false); }
           return;

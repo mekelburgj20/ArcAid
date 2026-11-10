@@ -7,6 +7,7 @@ import { PlayerAvatar, playerName } from '../ScoreboardComponents';
 import { TournamentTypeBadge } from '../TournamentTypeBadge';
 import GameArt from '../GameArt';
 import RankLine from './RankLine';
+import { roomFetch } from '../../lib/roomFetch';
 
 /**
  * Past runs a WEEK at a time, one card per run with its final standings open
@@ -131,7 +132,7 @@ export default function RunFeed({ roomId, slug, tournamentId, type, showTourname
     if (jumpTo) q.set('run', jumpTo);
     const empty: RunWeek = { results: [], total: 0, week, window: null, has_newer: false, has_older: false };
     const key = `${roomId}|${tournamentId ?? ''}|${type ?? ''}|${week}|${jumpTo ?? ''}`;
-    fetch(`/api/rooms/${roomId}/history?${q}`)
+    roomFetch(`/api/rooms/${roomId}/history?${q}`)
       .then(r => (r.ok ? r.json() : null))
       .then((json: RunWeek | null) => {
         if (!cancelled) setLoaded({ key, data: json && Array.isArray(json.results) ? json : empty });

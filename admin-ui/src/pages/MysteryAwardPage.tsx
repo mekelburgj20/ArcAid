@@ -8,6 +8,7 @@ import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { usePickAwardEnabled } from '../hooks/usePickAwardEnabled';
 import { useToast } from '../components/Toast';
 import { getPortal } from '../lib/portal';
+import { roomFetch } from '../lib/roomFetch';
 
 /**
  * Standalone Mystery Award page (v2.0.1) — shareable URL for Discord.
@@ -68,7 +69,7 @@ export default function MysteryAwardPage() {
 
     useEffect(() => {
         if (!roomId) return;
-        fetch(`/api/rooms/${roomId}/tournaments`)
+        roomFetch(`/api/rooms/${roomId}/tournaments`)
             .then(r => r.ok ? r.json() : [])
             .then((ts: Array<{ id: string; name: string; type: string; is_active: boolean }>) => {
                 // v2.2.6 — keep every active tournament so the user can pick
@@ -87,7 +88,7 @@ export default function MysteryAwardPage() {
         if (!roomId || !selectedTournamentId) return;
         setReady(false);
         setAvailableGames([]);
-        fetch(`/api/rooms/${roomId}/game-availability/${selectedTournamentId}`)
+        roomFetch(`/api/rooms/${roomId}/game-availability/${selectedTournamentId}`)
             .then(r => r.ok ? r.json() : null)
             .then((data: AvailabilityData | null) => {
                 if (!data) return;

@@ -8,6 +8,8 @@
 // object, or {} on any failure — cards degrade to "no expand available"
 // rather than throwing.
 
+import { roomFetch } from '../../lib/roomFetch';
+
 type ScoreCounts = Record<string, number>;
 
 interface PendingBatch {
@@ -62,7 +64,7 @@ async function fetchChunk(
   let counts: Record<string, ScoreCounts> = {};
   try {
     const idsParam = gameIds.map(encodeURIComponent).join(',');
-    const res = await fetch(`/api/rooms/${roomId}/score-counts?gameIds=${idsParam}`);
+    const res = await roomFetch(`/api/rooms/${roomId}/score-counts?gameIds=${idsParam}`);
     const data = res.ok ? await res.json() : { counts: {} };
     counts = data?.counts || {};
   } catch {

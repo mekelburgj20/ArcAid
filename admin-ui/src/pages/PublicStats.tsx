@@ -8,6 +8,7 @@ import { compareByRank } from '../lib/searchRank';
 import { relativeTimeFrom } from '../lib/format';
 import GameArt from '../components/GameArt';
 import { PlayerAvatar } from '../components/ScoreboardComponents';
+import { roomFetch } from '../lib/roomFetch';
 
 interface PlayerSummary {
   /** Arcaid profile username (v2.141.1) — searchable, never displayed here. */
@@ -92,7 +93,7 @@ export default function PublicStats() {
   // (Rankings.tsx uses the same one for its tournament picker).
   useEffect(() => {
     if (!roomId) return;
-    fetch(`/api/rooms/${roomId}/tournaments`)
+    roomFetch(`/api/rooms/${roomId}/tournaments`)
       .then(r => r.ok ? r.json() : [])
       .then((rows: TournamentOption[]) => {
         const types = Array.from(new Set((rows || []).map(t => t.type).filter(Boolean))).sort();
@@ -121,9 +122,9 @@ export default function PublicStats() {
     const suffix = qs.toString() ? `?${qs.toString()}` : '';
     (async () => {
       const [playersRes, gamesRes, overviewRes] = await Promise.all([
-        fetch(`/api/rooms/${roomId}/stats/enhanced/players${suffix}`).then(r => r.ok ? r.json() : []),
-        fetch(`/api/rooms/${roomId}/stats/games-activity${suffix}`).then(r => r.ok ? r.json() : []),
-        fetch(`/api/rooms/${roomId}/stats/overview`).then(r => r.ok ? r.json() : null),
+        roomFetch(`/api/rooms/${roomId}/stats/enhanced/players${suffix}`).then(r => r.ok ? r.json() : []),
+        roomFetch(`/api/rooms/${roomId}/stats/games-activity${suffix}`).then(r => r.ok ? r.json() : []),
+        roomFetch(`/api/rooms/${roomId}/stats/overview`).then(r => r.ok ? r.json() : null),
       ]);
       setPlayers(playersRes || []);
       setGames(gamesRes || []);

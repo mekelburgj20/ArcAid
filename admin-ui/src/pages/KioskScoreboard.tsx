@@ -8,6 +8,7 @@ import { getSocket } from '../lib/websocket';
 import { useLiveRefresh } from '../hooks/useLiveRefresh';
 import { getPortal } from '../lib/portal';
 import { relativeTimeFrom } from '../lib/format';
+import { roomFetch } from '../lib/roomFetch';
 
 /**
  * v2.90.0 — kiosk migration onto the shared `ScoreboardSurface` (the same
@@ -65,15 +66,15 @@ export default function KioskScoreboard() {
   const loadData = useCallback(async () => {
     if (!roomId) return;
     try {
-      const res = await fetch(`/api/rooms/${roomId}/leaderboard`);
+      const res = await roomFetch(`/api/rooms/${roomId}/leaderboard`);
       if (res.ok) setLeaderboards(await res.json());
     } catch { /* ignore */ }
     try {
-      const res = await fetch(`/api/rooms/${roomId}/rankings`);
+      const res = await roomFetch(`/api/rooms/${roomId}/rankings`);
       if (res.ok) setRankingGroups(await res.json());
     } catch { /* ignore */ }
     try {
-      const res = await fetch(`/api/rooms/${roomId}/lobby/feed?limit=15`);
+      const res = await roomFetch(`/api/rooms/${roomId}/lobby/feed?limit=15`);
       if (res.ok) {
         const events = await res.json();
         setFeedEvents(events.filter((e: any) => !e.target_user_id));

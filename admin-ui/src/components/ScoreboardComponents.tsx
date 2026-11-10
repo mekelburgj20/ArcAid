@@ -17,6 +17,7 @@ import { SHOWCASE_THEMES, DEFAULT_SHOWCASE_THEME } from '../lib/scoreboardThemes
 import { formatScore, parseServerDate } from '../lib/format';
 import { getTournamentColorHex } from '../lib/tournamentColors';
 import { resolveAvatarUrl } from '../lib/avatar';
+import { roomFetch } from '../lib/roomFetch';
 
 // --- Shared interfaces ---
 
@@ -464,7 +465,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
     if (!roomId) return;
     setExpandedPlayer(username);
     setHistoryLoading(true);
-    fetch(`/api/rooms/${roomId}/score-history/${encodeURIComponent(lb.gameName)}/player/${encodeURIComponent(username)}`)
+    roomFetch(`/api/rooms/${roomId}/score-history/${encodeURIComponent(lb.gameName)}/player/${encodeURIComponent(username)}`)
       .then(r => r.ok ? r.json() : [])
       .then(h => { if (!unmountedRef.current) setPlayerHistory(h); })
       .catch(() => { if (!unmountedRef.current) setPlayerHistory([]); })

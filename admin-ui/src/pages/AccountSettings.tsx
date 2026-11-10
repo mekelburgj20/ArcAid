@@ -14,6 +14,7 @@ import GlobalSharingSection from '../components/GlobalSharingSection';
 import WitnessRecentPlays from '../components/WitnessRecentPlays';
 import WitnessBuildChip from '../components/WitnessBuildChip';
 import WitnessModelLabel from '../components/WitnessModelLabel';
+import { roomFetch } from '../lib/roomFetch';
 
 type AvatarProvider = 'discord' | 'google';
 
@@ -184,7 +185,7 @@ export default function AccountSettings() {
   const loadWitnessTournaments = useCallback(async (roomId: string) => {
     if (!roomId) return;
     try {
-      const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/tournaments`);
+      const res = await roomFetch(`/api/rooms/${encodeURIComponent(roomId)}/tournaments`);
       if (!res.ok) return;
       const rows = await res.json();
       setWitnessTournaments(prev => ({

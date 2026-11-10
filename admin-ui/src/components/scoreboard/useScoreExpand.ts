@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { fetchScoreCounts } from './scoreCountsBatcher';
+import { roomFetch } from '../../lib/roomFetch';
 
 export interface ScoreHistoryEntry {
   id: number;
@@ -59,7 +60,7 @@ export function useScoreExpand(roomId: string | undefined, gameId: string, gameN
     if (!roomId) return;
     setExpandedPlayer(username);
     setHistoryLoading(true);
-    fetch(`/api/rooms/${roomId}/score-history/${encodeURIComponent(gameName)}/player/${encodeURIComponent(username)}`)
+    roomFetch(`/api/rooms/${roomId}/score-history/${encodeURIComponent(gameName)}/player/${encodeURIComponent(username)}`)
       .then(r => r.ok ? r.json() : [])
       .then(h => { if (!unmountedRef.current) setPlayerHistory(h); })
       .catch(() => { if (!unmountedRef.current) setPlayerHistory([]); })
