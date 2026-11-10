@@ -125,13 +125,6 @@ interface EventDetailProps {
 const name = (r: { display_name: string | null; iscored_username: string }) =>
     r.display_name || r.iscored_username;
 
-/** `+MM:SS` since the round opened — the number that makes a fast score visible. */
-function elapsed(sec: number | null): string {
-    if (sec == null) return '';
-    const clamped = Math.max(0, sec);
-    return `+${String(Math.floor(clamped / 60)).padStart(2, '0')}:${String(clamped % 60).padStart(2, '0')}`;
-}
-
 /** Live countdown to an instant. Ticks once a second; empty once passed. */
 function useCountdown(target: string | null): string {
     const [, force] = useState(0);
@@ -657,8 +650,9 @@ export default function EventDetail({ throwdownCode }: EventDetailProps = {}) {
                                                 {name(row)}
                                                 {!row.participant && <span className="ml-1 text-xs text-faint">(not checked in)</span>}
                                             </td>
+                                            {/* A42 (v2.239.0): no "+MM:SS since the round opened" here —
+                                                round timing is the runner's, in Room Admin -> Activity. */}
                                             <td className="py-2 px-3 text-right font-mono text-faint whitespace-nowrap w-24">
-                                                {elapsed(row.elapsed_sec)}
                                                 {row.flagged && (
                                                     <span className="ml-1 text-neon-amber" title="Posted unusually soon after the round opened">⚡</span>
                                                 )}

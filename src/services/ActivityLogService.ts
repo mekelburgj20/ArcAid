@@ -2,7 +2,9 @@ import { getDatabase } from '../database/database.js';
 import { logWarn } from '../utils/logger.js';
 import { trackBackground } from '../utils/backgroundTasks.js';
 import { activityRequestContext } from '../utils/activityRequestContext.js';
-import { adminSummary, auditActionOf, buildActivityDetail, type ActivityDetail } from '../utils/activityPresentation.js';
+import {
+    adminSummary, auditActionOf, buildActivityDetail, roundTimeLabel, utcMs, type ActivityDetail,
+} from '../utils/activityPresentation.js';
 
 /**
  * G14 (v2.227.0, ADR 0037) - the room activity log.
@@ -104,6 +106,13 @@ export interface ActivityRow {
     table_name: string | null;
     source: string | null;
     score: number | null;
+    /**
+     * A42 (v2.239.0) - on a score that landed on an event round, how long
+     * after the round opened it landed ("16h 25m into round 1"); else null.
+     * Round timing is for the tournament runner, so it lives here and not on
+     * the public event page or the Discord results post.
+     */
+    round_time: string | null;
     summary: string;
     reasons: string[];
     /**
@@ -126,6 +135,9 @@ type DbRow = {
     source: string | null; score: number | null; summary: string; details: string | null;
     dedupe_key: string | null; room_name: string | null; device_model: string | null;
 };
+
+/** A42 - the event types that are a score LANDING, and so get round timing. */
+const ROUND_TIMED_EVENTS = new Set(['score_landed', 'witness_ingested']);
 
 /** Sentinel submitter ids that are never a person. */
 const NON_PERSON_IDS = new Set(['SYSTEM', 'COMMUNITY', 'ANON', '']);
@@ -732,6 +744,7 @@ export class ActivityLogService {
         const { roomTimezonesFor, resolveTimezone } = await import('../utils/roomTimezone.js');
         const tzs = await roomTimezonesFor(page.map(r => r.game_room_id).filter((v): v is string => !!v));
         const auditKeys = await ActivityLogService.auditSettingKeys(page);
+        const rounds = await ActivityLogService.roundTimings(page);
 
         const rows = page.map((r): ActivityRow => {
             const details = safeParse(r.details);
@@ -749,7 +762,14 @@ export class ActivityLogService {
                 ? (labels[r.actor_user_id] ?? (typeof details?.actorName === 'string' ? details.actorName : 'an admin'))
                 : (typeof details?.actorName === 'string' ? details.actorName : null);
             const keys = auditKeys.get(r.id) ?? null;
-            const presentable = { ...r, device_model: r.device_model ?? null };
+            const timing = rounds.get(r.id);
+            const presentable = {
+                ...r,
+                device_model: r.device_model ?? null,
+                round_no: timing?.roundNo ?? null,
+                round_opened_at: timing?.openedAt ?? null,
+                round_elapsed_sec: timing?.elapsedSec ?? null,
+            };
             const row: ActivityRow = {
                 id: r.id,
                 created_at: r.created_at,
@@ -765,6 +785,7 @@ export class ActivityLogService {
                 table_name: r.table_name,
                 source: r.source,
                 score: r.score,
+                round_time: timing ? roundTimeLabel(timing.roundNo, timing.elapsedSec) : null,
                 summary: adminSummary(presentable, details, actor, keys) ?? r.summary,
                 reasons,
                 detail: buildActivityDetail(presentable, details, keys),
@@ -782,6 +803,48 @@ export class ActivityLogService {
             return row;
         });
         return { rows, nextBefore: more ? page[page.length - 1]!.id : null };
+    }
+
+    /**
+     * A42 (v2.239.0) - for each row that is a score LANDING on an event round:
+     * the round number, when it opened, and how long after that the play
+     * landed. Computed at read from the round's `scheduled_start_at`, the same
+     * start the round board measures from, so a rescheduled round re-times
+     * its rows the way the board would. The play time is the row's own time
+     * (`ScoreHistoryService.log` stamps an AtGames row with AtGames' time), or
+     * a Witness play's `playedAt` (its trail row is written at ingest).
+     */
+    private static async roundTimings(page: DbRow[]): Promise<Map<number, { roundNo: number; openedAt: string; elapsedSec: number }>> {
+        const out = new Map<number, { roundNo: number; openedAt: string; elapsedSec: number }>();
+        const landings = page.filter(r => r.game_id && ROUND_TIMED_EVENTS.has(r.event_type));
+        if (landings.length === 0) return out;
+        const ids = [...new Set(landings.map(r => r.game_id!))];
+        const db = await getDatabase();
+        const rounds = new Map<string, { round_no: number; scheduled_start_at: string }>();
+        for (let i = 0; i < ids.length; i += 500) {
+            const chunk = ids.slice(i, i + 500);
+            const found = await db.all<Array<{ id: string; round_no: number; scheduled_start_at: string }>>(
+                `SELECT id, round_no, scheduled_start_at FROM games
+                  WHERE id IN (${chunk.map(() => '?').join(',')})
+                    AND round_no IS NOT NULL AND scheduled_start_at IS NOT NULL`,
+                ...chunk,
+            );
+            for (const g of found) rounds.set(g.id, g);
+        }
+        for (const r of landings) {
+            const round = rounds.get(r.game_id!);
+            if (!round) continue;
+            const playedAt = r.event_type.startsWith('witness_') ? safeParse(r.details)?.playedAt : undefined;
+            const playedMs = utcMs(playedAt) ?? utcMs(r.created_at);
+            const openedMs = utcMs(round.scheduled_start_at);
+            if (playedMs == null || openedMs == null) continue;
+            out.set(r.id, {
+                roundNo: round.round_no,
+                openedAt: round.scheduled_start_at,
+                elapsedSec: Math.floor((playedMs - openedMs) / 1000),
+            });
+        }
+        return out;
     }
 
     /**
@@ -816,7 +879,7 @@ export class ActivityLogService {
     static async exportCsv(f: ActivityFilters, opts: { superAdmin: boolean }): Promise<string> {
         const { rows } = await ActivityLogService.query({ ...f, before: undefined, limit: 5000 }, opts);
         const header = ['time', 'timezone', ...(opts.superAdmin ? ['room'] : []), 'category', 'type', 'severity',
-            'player', 'actor', 'device', 'tournament', 'game', 'table', 'source', 'score', 'summary', 'reasons'];
+            'player', 'actor', 'device', 'tournament', 'game', 'table', 'source', 'score', 'round_time', 'summary', 'reasons'];
         const esc = (v: unknown) => {
             const s = v == null ? '' : String(v);
             // Leading = + - @ would be read as a formula by spreadsheet apps.
@@ -828,7 +891,7 @@ export class ActivityLogService {
             lines.push([
                 localTime(r.created_at, r.tz), r.tz, ...(opts.superAdmin ? [r.room_name ?? '(no room)'] : []),
                 r.category, r.event_type, r.severity, r.player, r.actor, r.device,
-                r.tournament_name, r.game_name, r.table_name, r.source, r.score, r.summary, r.reasons.join('; '),
+                r.tournament_name, r.game_name, r.table_name, r.source, r.score, r.round_time, r.summary, r.reasons.join('; '),
             ].map(esc).join(','));
         }
         return lines.join('\r\n') + '\r\n';

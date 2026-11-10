@@ -330,6 +330,7 @@ function ActivityItem({ row, showRoom }: { row: ActivityRow; showRoom: boolean }
             {[
               showRoom ? (row.room_name ?? 'No room') : null,
               ...context,
+              row.round_time,
               row.device,
               row.actor && !actorInSummary ? `by ${row.actor}` : null,
             ].filter(Boolean).join(' · ')}

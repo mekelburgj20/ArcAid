@@ -6,6 +6,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.239.0] - 2026-11-10 - Round times move to the Activity log; no more "unwitnessed"
+
+A42 (owner 2026-11-09/10). Two things on the event page read wrong to players.
+
+- **Round times are for the tournament runner.** The round board and the Discord "Round N results" post printed
+  each score's time since the round opened as `+MM:SS`, with minutes past 60 ("+985:54" = 16 h 26 min). Players
+  could not read it and do not need it. Both now show names and scores only. A room admin finds the timing in
+  **Room Admin → Activity**: every score that landed on an event round reads "16h 25m into round 1" beside its
+  tournament and game, and its details panel shows the round, when the round opened and the exact time into it.
+  The Player and Tournament filters were already there; the CSV export gains a `round_time` column. Computed at
+  read from the round's scheduled start (the same start the board measured from), so it covers scores logged
+  before this release. AtGames scores are timed from AtGames' own timestamp, Witness plays from the game's end.
+- **No more grey "unwitnessed".** It sat beside every cabinet score the Arcaid Witness had not vouched for. On an
+  AtGames-pulled score from a player without the Witness app it read as an accusation, and other players took it
+  for a cheating mark. A score now shows ✓ when the Witness vouched for its timing, ⚠ when the game started before
+  the round opened, and nothing otherwise (the scoreboard cards already worked this way). Verdicts, standings and
+  Witness flag mode are unchanged.
+- The ⚡ "posted unusually soon after the round opened" mark, which shows only when the host sets a minimum time,
+  is unchanged.
+
 ## [2.238.1] - 2026-11-10 - Activating a game never waits on iScored
 
 F10. ProBros Gaming (2026-11-10): activating White Water for the weekly sat on "Activating..." and then showed a

@@ -87,4 +87,24 @@ describe('W30 - event Discord posts name the room', () => {
         expect(final.embed.title).toBe('Friday Night Flip — final standings');
         expect(footer(final.embed)).toMatch(/^Aggregate: .+ · in Arcaid Witness Demo$/);
     });
+
+    // A42 (v2.239.0, owner 2026-11-10): the "+MM:SS since the round opened"
+    // meant nothing to players ("+985:54"); round timing is the runner's, in
+    // Room Admin -> Activity.
+    it('the round results post lists names and scores only, no time since the round opened', async () => {
+        const scheduler = EventScheduler.getInstance();
+        await scheduler.tick(new Date(base + 10_000));
+        const db = await getDatabase();
+        const round = await db.get<{ id: string }>(`SELECT id FROM games WHERE tournament_id = ? AND round_no = 1`, tid);
+        const { ScoreHistoryService } = await import('../services/ScoreHistoryService.js');
+        await ScoreHistoryService.log({
+            gameName: 'Medieval Madness', gameRoomId: roomId, gameId: round!.id, tournamentId: tid,
+            username: 'Krobs', discordUserId: 'atgames:42', score: 1_234_560, source: 'atgames',
+            createdAt: '2026-09-01 20:05:07',
+        });
+
+        await scheduler.tick(new Date(base + 22 * MINUTE));
+        const results = sent.find(s => s.embed.title?.includes('results'))!;
+        expect(results.embed.description).toBe('🥇 **Krobs** — 1,234,560');
+    });
 });

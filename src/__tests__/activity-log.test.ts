@@ -485,3 +485,92 @@ describe('backfill (migration 209)', () => {
         expect(JSON.parse(nm.details).reasons).toEqual(['no open game']);
     });
 });
+
+/**
+ * A42 (v2.239.0, owner 2026-11-10) - round timing is the tournament runner's,
+ * so it left the public event page and the Discord results post and lives on
+ * the activity row: a score that LANDED on an event round says how long after
+ * the round opened it landed. Read-time, from the round's scheduled start.
+ */
+describe('round timing on score rows (A42)', () => {
+    beforeEach(async () => {
+        await setupTestDb();
+        ActivityLogService._resetFailuresForTests();
+    });
+
+    async function createRound(roomId: string, startIso: string) {
+        const db = await getDatabase();
+        const tournamentId = crypto.randomUUID();
+        await db.run(
+            `INSERT INTO tournaments (id, name, type, mode, cadence, is_active, game_room_id, format)
+             VALUES (?, 'ATGAMES_TEST_3', 'EV', 'pinball', '{"timezone":"UTC"}', 1, ?, 'event')`,
+            tournamentId, roomId,
+        );
+        const gameId = crypto.randomUUID();
+        await db.run(
+            `INSERT INTO games (id, tournament_id, name, status, game_room_id, start_date, round_no, scheduled_start_at, scheduled_end_at)
+             VALUES (?, ?, 'Aerobatics', 'ACTIVE', ?, ?, 1, ?, ?)`,
+            gameId, tournamentId, roomId, startIso, startIso,
+            new Date(Date.parse(startIso) + 2 * 86_400_000).toISOString(),
+        );
+        return { tournamentId, gameId };
+    }
+
+    it('times an AtGames landing from the round start, in the row and the details panel', async () => {
+        const roomId = await createTestRoom('a42', 'Arcaid Witness Demo');
+        const { tournamentId, gameId } = await createRound(roomId, '2026-11-07T18:00:00.000Z');
+        await ScoreHistoryService.log({
+            gameName: 'Aerobatics', gameRoomId: roomId, gameId, tournamentId,
+            username: 'Chalatalove', discordUserId: 'atgames:777', score: 3_206_800, source: 'atgames',
+            createdAt: '2026-11-08 10:25:54',
+        });
+        await drainBackgroundTasks();
+
+        const { rows: page } = await ActivityLogService.query({ roomId }, { superAdmin: false });
+        const landed = page.find(r => r.event_type === 'score_landed')!;
+        expect(landed.round_time).toBe('16h 25m into round 1');
+        expect(landed.detail.facts).toEqual(expect.arrayContaining([
+            { label: 'Round', value: 'Round 1' },
+            { label: 'Round opened', value: '2026-11-07 18:00:00', time: true },
+            { label: 'Into the round', value: '16h 25m 54s' },
+        ]));
+
+        const csv = await ActivityLogService.exportCsv({ roomId }, { superAdmin: false });
+        expect(csv.split('\r\n')[0]).toContain(',score,round_time,summary,');
+        expect(csv).toContain('16h 25m into round 1');
+    });
+
+    it("times a Witness landing from its playedAt, not the trail row's write time", async () => {
+        const roomId = await createTestRoom('a42w', 'Room W');
+        const { gameId } = await createRound(roomId, '2026-11-07T18:00:00.000Z');
+        await ActivityLogService.record({
+            roomId, category: 'score', eventType: 'witness_ingested', userId: USER, gameId,
+            source: 'vpx', score: 50_000, summary: 'Score 50,000 landed on Aerobatics',
+            details: { playedAt: '2026-11-07 18:04:12', reasons: [] },
+        });
+        await drainBackgroundTasks();
+        const { rows: page } = await ActivityLogService.query({ roomId }, { superAdmin: false });
+        expect(page[0]!.round_time).toBe('4m 12s into round 1');
+    });
+
+    it('leaves rotation scores and non-landing rows on a round untimed', async () => {
+        const roomId = await createTestRoom('a42n', 'Room N');
+        const rotation = await createGame(roomId);
+        const { gameId } = await createRound(roomId, '2026-11-07T18:00:00.000Z');
+        await ActivityLogService.record({
+            category: 'score', eventType: 'score_landed', userId: USER, gameId: rotation.gameId,
+            source: 'tournament', score: 10, summary: 'Score 10 landed',
+        });
+        await ActivityLogService.record({
+            roomId, category: 'score', eventType: 'score_deleted', userId: USER, gameId,
+            source: 'atgames', score: 20, summary: 'Score 20 deleted',
+        });
+        await drainBackgroundTasks();
+        const { rows: page } = await ActivityLogService.query({ roomId }, { superAdmin: false });
+        expect(page).toHaveLength(2);
+        for (const r of page) {
+            expect(r.round_time).toBeNull();
+            expect(r.detail.facts.map(f => f.label)).not.toContain('Into the round');
+        }
+    });
+});

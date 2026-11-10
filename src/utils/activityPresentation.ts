@@ -250,6 +250,40 @@ export interface PresentableRow {
     score: number | null;
     device_id: string | null;
     device_model: string | null;
+    /**
+     * A42 (v2.239.0) - a score that LANDED on an event round: the round, when
+     * it opened, and how long after that the play landed. Set by
+     * `ActivityLogService.query` at read; absent on every other row.
+     */
+    round_no?: number | null;
+    round_opened_at?: string | null;
+    round_elapsed_sec?: number | null;
+}
+
+/**
+ * A42 (v2.239.0) - a span as `42s` / `4m 12s` / `16h 25m` / `2d 3h 10m`;
+ * `exact` adds the seconds to the longer forms. The sign is dropped (the
+ * caller words "before"/"into").
+ */
+export function fmtSpan(totalSec: number, exact = false): string {
+    const s = Math.abs(Math.floor(totalSec));
+    const d = Math.floor(s / 86400);
+    const h = Math.floor((s % 86400) / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    const parts = d > 0 ? [`${d}d`, `${h}h`, `${m}m`]
+        : h > 0 ? [`${h}h`, `${m}m`]
+        : m > 0 ? [`${m}m`, `${sec}s`]
+        : [`${sec}s`];
+    if (exact && (d > 0 || h > 0)) parts.push(`${sec}s`);
+    return parts.join(' ');
+}
+
+/** A42 - the row line's round note: "16h 25m into round 1". */
+export function roundTimeLabel(roundNo: number, elapsedSec: number): string {
+    return elapsedSec < 0
+        ? `${fmtSpan(elapsedSec)} before round ${roundNo} opened`
+        : `${fmtSpan(elapsedSec)} into round ${roundNo}`;
 }
 
 function keysList(v: unknown): string[] {
@@ -330,8 +364,8 @@ function fmtInt(n: unknown): string | null {
     return typeof n === 'number' && Number.isFinite(n) ? Math.floor(n).toLocaleString('en-US') : null;
 }
 
-/** Any stamp (ISO, SQLite UTC, epoch seconds) as SQLite UTC text, or null. */
-function utcStamp(v: unknown): string | null {
+/** Any stamp (ISO, SQLite UTC, epoch seconds) as epoch milliseconds, or null. */
+export function utcMs(v: unknown): number | null {
     let ms: number;
     if (typeof v === 'number' && Number.isFinite(v)) ms = v < 1e12 ? v * 1000 : v;
     else if (typeof v === 'string' && v.trim()) {
@@ -339,7 +373,13 @@ function utcStamp(v: unknown): string | null {
         const iso = /[zZ]$|[+-]\d\d:?\d\d$/.test(s) ? s : s.replace(' ', 'T') + 'Z';
         ms = Date.parse(iso);
     } else return null;
-    if (!Number.isFinite(ms)) return null;
+    return Number.isFinite(ms) ? ms : null;
+}
+
+/** Any stamp (ISO, SQLite UTC, epoch seconds) as SQLite UTC text, or null. */
+function utcStamp(v: unknown): string | null {
+    const ms = utcMs(v);
+    if (ms == null) return null;
     return new Date(ms).toISOString().replace('T', ' ').replace(/\.\d+Z$/, '');
 }
 
@@ -385,6 +425,12 @@ export function buildActivityDetail(
                 add('Score', fmtInt(row.score));
             }
             gameAndTable();
+            if (row.round_no != null && row.round_elapsed_sec != null) {
+                add('Round', `Round ${row.round_no}`);
+                addTime('Round opened', row.round_opened_at);
+                add(row.round_elapsed_sec < 0 ? 'Before the round opened' : 'Into the round',
+                    fmtSpan(row.round_elapsed_sec, true));
+            }
             if (row.event_type.startsWith('witness_')) {
                 const outcome = row.event_type.slice('witness_'.length);
                 add('Outcome', WITNESS_OUTCOME[outcome] ?? outcome.replace(/_/g, ' '));

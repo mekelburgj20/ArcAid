@@ -415,13 +415,12 @@ export class EventScheduler {
         const board = await EventResultService.getRoundBoard(event, row);
         const top = board.scores.slice(0, 3);
 
+        // A42 (v2.239.0): no "+MM:SS since the round opened" here. Round timing
+        // is for the tournament runner (Room Admin -> Activity), not the post.
         const lines = top.length
             ? top.map((s, i) => {
-                const elapsed = s.elapsed_sec != null
-                    ? ` · +${String(Math.floor(s.elapsed_sec / 60)).padStart(2, '0')}:${String(s.elapsed_sec % 60).padStart(2, '0')}`
-                    : '';
                 const name = s.display_name || s.iscored_username;
-                return `${MEDALS[i] ?? ''} **${name}** — ${s.score.toLocaleString()}${elapsed}${s.flagged ? ' ⚠️' : ''}`;
+                return `${MEDALS[i] ?? ''} **${name}** — ${s.score.toLocaleString()}${s.flagged ? ' ⚠️' : ''}`;
             }).join('\n')
             : '_No scores were posted this round._';
 
