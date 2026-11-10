@@ -61,8 +61,10 @@ function playDuration(sec: number): string {
  *
  * A BADGE — under 'prevent' the RANKING already left a flagged score out
  * upstream (ADR 0031); this only shows what the witness saw. `unwitnessed` is
- * the neutral default (most players have no paired cabinet), so it renders as
- * quiet grey text and never as a warning.
+ * the neutral default (most players have no paired device) and renders
+ * NOTHING (A42, v2.239.0): the grey "unwitnessed" word read as an accusation
+ * on every AtGames-pulled score (owner 2026-11-09). Only ✓ and ⚠ say
+ * anything; no mark means nothing to say, as on the scoreboard cards.
  *
  * A check-in verdict shows NO duration on purpose: the cabinet attested it was
  * free before this score, which dates the play but does not measure it.
@@ -102,20 +104,7 @@ export function WitnessBadge({ witness }: { witness?: WitnessVerdict | null }) {
             >⚠</span>
         );
     }
-    if (witness.sample === 'exit') {
-        return (
-            <span
-                className="ml-1 text-faint text-xs"
-                title="This table has no ROM, so the cabinet read the score once when the player left. The table was opened before the round started, so the cabinet cannot say when this game began. Open the table after the round starts to have it witnessed."
-            >unwitnessed</span>
-        );
-    }
-    return (
-        <span
-            className="ml-1 text-faint text-xs"
-            title="No Witness evidence for this score — most players have no paired Witness device (cabinet or desktop)"
-        >unwitnessed</span>
-    );
+    return null;
 }
 
 /**

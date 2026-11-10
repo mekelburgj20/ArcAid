@@ -88,6 +88,21 @@ describe('ActivityTimeline', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
     await waitFor(() => expect(screen.getByTestId('loc').textContent).toBe('?player=Krobs'));
   });
+
+  // A42 (v2.239.0): round timing left the public event page for this row line.
+  it('shows how far into the round a score landed, beside its tournament and game', async () => {
+    const landed = {
+      ...ROW, id: 11, category: 'score', event_type: 'score_landed', severity: 'info', player: 'Chalatalove',
+      device: null, tournament_name: 'ATGAMES_TEST_3', game_name: 'Aerobatics', table_name: null,
+      source: 'atgames', score: 3206800, summary: 'Score 3,206,800 landed on Aerobatics (AtGames)', reasons: [],
+      round_time: '16h 25m into round 1',
+    };
+    mockedGet.mockImplementation((url: string) => url.startsWith('/rooms/r1/admin/activity/meta')
+      ? Promise.resolve({ tournaments: [], timezone: 'America/Chicago' })
+      : Promise.resolve({ rows: [landed], nextBefore: null, timezone: 'America/Chicago' }));
+    renderAt('/a');
+    expect(await screen.findByText('ATGAMES_TEST_3 · Aerobatics · 16h 25m into round 1')).toBeInTheDocument();
+  });
 });
 
 /**

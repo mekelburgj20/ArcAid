@@ -44,6 +44,11 @@ export interface ActivityRow {
   table_name: string | null;
   source: string | null;
   score: number | null;
+  /**
+   * A42 (v2.239.0) - on a score that landed on an event round, how long after
+   * the round opened ("16h 25m into round 1"). Absent on an older server.
+   */
+  round_time?: string | null;
   summary: string;
   reasons: string[];
   /** Absent on a server older than v2.228.0. */

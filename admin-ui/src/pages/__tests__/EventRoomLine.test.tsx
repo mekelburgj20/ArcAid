@@ -70,3 +70,41 @@ describe('EventDetail header (W30)', () => {
     expect(screen.queryByTestId('event-room-line')).toBeNull();
   });
 });
+
+/**
+ * A42 (v2.239.0) - the round board is for players: no "+MM:SS since the round
+ * opened" (owner 2026-11-10: "+985:54" meant nothing; the runner reads round
+ * timing in Room Admin -> Activity) and no grey "unwitnessed" (owner
+ * 2026-11-09: on an AtGames-pulled score it read as an accusation).
+ */
+describe('EventDetail round board (A42)', () => {
+  it('shows the score and a ✓, never the time since the round opened or "unwitnessed"', async () => {
+    roomRef.current = { roomId: 'room-1', roomSlug: 'wizard', roomName: 'Arcaid Witness Demo' };
+    const verdict = { method: null, launchTs: null, exitTs: null, durationSec: null, table: null };
+    getMock.mockReset().mockResolvedValue({
+      ...payload,
+      event: { ...payload.event, state: 'live' },
+      rounds: [{
+        roundNo: 1, gameId: 'g1', gameName: 'Aerobatics', status: 'ACTIVE',
+        scheduledStartAt: '2026-10-27T18:00:00.000Z', scheduledEndAt: '2026-10-29T18:00:00.000Z',
+        scores: [
+          { rank: 1, identity_key: 'a', iscored_username: 'Chalatalove', display_name: null, score: 3206800,
+            created_at: null, elapsed_sec: 59154, flagged: false, participant: true,
+            witness: { ...verdict, status: 'unwitnessed' } },
+          { rank: 2, identity_key: 'b', iscored_username: 'mekelburgj', display_name: null, score: 2462400,
+            created_at: null, elapsed_sec: 17017, flagged: false, participant: true,
+            witness: { ...verdict, status: 'verified', method: 'checkin' } },
+        ],
+      }],
+    });
+    render(
+      <MemoryRouter initialEntries={['/wizard/events/ev1']}>
+        <Routes><Route path="/:slug/events/:id" element={<EventDetail />} /></Routes>
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText('Chalatalove')).toBeInTheDocument();
+    expect(screen.getByText('checked in')).toBeInTheDocument();
+    expect(screen.queryByText(/unwitnessed/)).toBeNull();
+    expect(screen.queryByText(/\+\d+:\d\d/)).toBeNull();
+  });
+});
