@@ -13,6 +13,8 @@ import { useCoverFraming } from './useCoverFraming';
 import { formatScore, parseServerDate } from '../../lib/format';
 import { resolveRowClick, opensQuickView, QUICK_VIEW_HINT } from '../../lib/scoreGesture';
 import { tournamentChipLabel } from './tournamentChip';
+import TournamentChipLink from './TournamentChipLink';
+import { cardTimerText } from './cardTimer';
 import CardAttemptStart from './CardAttemptStart';
 import CardAtGamesJoin from './CardAtGamesJoin';
 import CardAttemptsLeft from './CardAttemptsLeft';
@@ -41,6 +43,8 @@ interface MinimalCardProps {
   /** v2.2.8 — title-click nav target. */
   titleLinkTo?: string;
   titleLinkOnClick?: (e: React.MouseEvent) => void;
+  /** v2.238.0 (B24) — where the tournament chip leads; omitted = a plain chip. */
+  chipLinkTo?: string;
   /** v2.109.0 (score-gesture-photos) — opens the game quick popup. */
   onOpenQuickView?: () => void;
 }
@@ -64,6 +68,7 @@ export default function MinimalCard({
   onSubmitScore: _onSubmitScore,  // v2.2.8: unused (title is a Link); kept for CardRouter spread compat
   titleLinkTo,
   titleLinkOnClick,
+  chipLinkTo,
   onOpenQuickView,
 }: MinimalCardProps) {
   const displayName = lb.displayName || lb.gameName;
@@ -96,6 +101,8 @@ export default function MinimalCard({
     }, 60000);
     return () => clearInterval(interval);
   }, [lb.nextMaintenanceAt]);
+  // v2.238.0 (B24): a finished card shows when it ended in the timer slot.
+  const timerText = cardTimerText(lb, countdown);
 
   // Build visible entries with viewer injection
   let visibleEntries = lb.rankings.slice(0, maxScores);
@@ -191,15 +198,17 @@ export default function MinimalCard({
               Pinned
             </span>
           ) : chipLabel && (
-            <span className="sb-art-text text-[11px] uppercase tracking-wider text-muted">
-              {chipLabel}
-            </span>
+            <TournamentChipLink to={chipLinkTo} lb={lb}>
+              <span className="sb-art-text text-[11px] uppercase tracking-wider text-muted">
+                {chipLabel}
+              </span>
+            </TournamentChipLink>
           )}
           {lb.gameStatus === 'COMPLETED' && (
             <Lock size={14} strokeWidth={2.5} className="text-neon-amber flex-shrink-0" />
           )}
-          {showTimer && countdown && (
-            <span className="sb-art-text text-[10px] text-faint">{countdown}</span>
+          {showTimer && timerText && (
+            <span className="sb-art-text text-[10px] text-faint">{timerText}</span>
           )}
         </div>
       </div>

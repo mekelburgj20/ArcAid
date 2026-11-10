@@ -12,6 +12,8 @@ import { CircuitBoardBackground, GlowNodes, ScanlineOverlay, PodiumBackground } 
 import { qrEdgeMetrics, DEFAULT_QR_OFFSET_PX } from '../../lib/scoreboardConfig';
 import { useCoverFraming } from './useCoverFraming';
 import { tournamentChipLabel } from './tournamentChip';
+import TournamentChipLink from './TournamentChipLink';
+import { cardTimerText } from './cardTimer';
 import CardAttemptStart from './CardAttemptStart';
 import CardAtGamesJoin from './CardAtGamesJoin';
 import CardAttemptsLeft from './CardAttemptsLeft';
@@ -41,6 +43,8 @@ interface ShowcaseCardProps {
   /** v2.2.8 — title-click nav target. */
   titleLinkTo?: string;
   titleLinkOnClick?: (e: React.MouseEvent) => void;
+  /** v2.238.0 (B24) — where the tournament chip leads; omitted = a plain chip. */
+  chipLinkTo?: string;
   /** v2.109.0 (score-gesture-photos) — opens the game quick popup. */
   onOpenQuickView?: () => void;
 }
@@ -78,6 +82,7 @@ export default function ShowcaseCard({
   onSubmitScore: _onSubmitScore,  // v2.2.8: unused (title is a Link); kept for CardRouter spread compat
   titleLinkTo,
   titleLinkOnClick,
+  chipLinkTo,
   onOpenQuickView,
 }: ShowcaseCardProps) {
   const { bgImage, styleHeaderUrl } = resolveImages(lb);
@@ -103,6 +108,8 @@ export default function ShowcaseCard({
     }, 60000);
     return () => clearInterval(interval);
   }, [lb.nextMaintenanceAt]);
+  // v2.238.0 (B24): a finished card shows when it ended in the timer slot.
+  const timerText = cardTimerText(lb, countdown);
 
   const podiumEntries = lb.rankings.slice(0, 3);
   const listEntries = lb.rankings.slice(3, maxScores);
@@ -306,6 +313,7 @@ export default function ShowcaseCard({
                 // / community rows have no tournament context to surface).
                 if (!label) return null;
                 return (
+              <TournamentChipLink to={chipLinkTo} lb={lb}>
               <span className="sb-fs-10" style={{
                 padding: '4px 12px',
                 borderRadius: tBadge ? 4 : (theme.badgeBorder ? 4 : 6),
@@ -322,6 +330,7 @@ export default function ShowcaseCard({
               }}>
                 {label}
               </span>
+              </TournamentChipLink>
                 );
               })()}
               {lb.gameStatus === 'COMPLETED' && (
@@ -334,14 +343,14 @@ export default function ShowcaseCard({
                 // contrast-tuned, unlike a raw hex.
                 <Lock size={15} strokeWidth={2.5} style={{ color: 'var(--color-neon-amber)', flexShrink: 0 }} />
               )}
-              {showTimer && countdown && (
+              {showTimer && timerText && (
                 <span className="sb-fs-9" style={{
                   fontSize: 9,
                   color: cardBgFill ? 'rgba(255,255,255,0.7)' : theme.timerColor,
                   fontFamily: theme.monoFontFamily,
                   letterSpacing: 1,
                 }}>
-                  {countdown}
+                  {timerText}
                 </span>
               )}
             </div>

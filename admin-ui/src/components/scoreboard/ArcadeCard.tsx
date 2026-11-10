@@ -15,6 +15,8 @@ import { useCoverFraming } from './useCoverFraming';
 import { formatScore, parseServerDate } from '../../lib/format';
 import { resolveRowClick, opensQuickView, QUICK_VIEW_HINT } from '../../lib/scoreGesture';
 import { tournamentChipLabel } from './tournamentChip';
+import TournamentChipLink from './TournamentChipLink';
+import { cardTimerText } from './cardTimer';
 import CardAttemptStart from './CardAttemptStart';
 import CardAtGamesJoin from './CardAtGamesJoin';
 import CardAttemptsLeft from './CardAttemptsLeft';
@@ -91,6 +93,8 @@ interface ArcadeCardProps {
   onSubmitScore?: (lb: GameLeaderboard) => void;
   titleLinkTo?: string;
   titleLinkOnClick?: (e: React.MouseEvent) => void;
+  /** v2.238.0 (B24) — where the tournament chip leads; omitted = a plain chip. */
+  chipLinkTo?: string;
   /** v2.109.0 (score-gesture-photos) — opens the game quick popup. */
   onOpenQuickView?: () => void;
 }
@@ -212,6 +216,7 @@ export default function ArcadeCard({
   onSubmitScore,
   titleLinkTo,
   titleLinkOnClick,
+  chipLinkTo,
   onOpenQuickView,
 }: ArcadeCardProps) {
   const { bgImage, styleHeaderUrl } = resolveImages(lb);
@@ -233,6 +238,8 @@ export default function ArcadeCard({
     }, 60000);
     return () => clearInterval(interval);
   }, [lb.nextMaintenanceAt]);
+  // v2.238.0 (B24): a finished card shows when it ended in the timer slot.
+  const timerText = cardTimerText(lb, countdown);
 
   // Viewer-row injection — identical rule to Banner/Minimal: when the signed-in
   // viewer ranks below the visible window, the last visible slot is given up to
@@ -400,6 +407,7 @@ export default function ArcadeCard({
             {(label || lb.gameStatus === 'COMPLETED') && (
               <div className="pointer-events-auto flex items-center justify-center gap-1.5">
                 {label && (
+                  <TournamentChipLink to={chipLinkTo} lb={lb}>
                   <span
                     data-testid="arcade-chip"
                     className="sb-fs-10 rounded-[4px] border px-2 py-[3px] text-[10px] font-semibold uppercase tracking-[0.5px]"
@@ -411,6 +419,7 @@ export default function ArcadeCard({
                   >
                     {label}
                   </span>
+                  </TournamentChipLink>
                 )}
                 {lb.gameStatus === 'COMPLETED' && (
                   <Lock size={15} strokeWidth={2.5} className="shrink-0 text-neon-amber" aria-label="Locked" />
@@ -435,19 +444,19 @@ export default function ArcadeCard({
 
             {/* Art off: the countdown joins the stack, since the art corner it
                 normally rides no longer exists. */}
-            {!gameHeaderEnabled && showTimer && countdown && (
-              <span className="sb-art-text sb-fs-10 font-mono text-[10px] text-muted">{countdown}</span>
+            {!gameHeaderEnabled && showTimer && timerText && (
+              <span className="sb-art-text sb-fs-10 font-mono text-[10px] text-muted">{timerText}</span>
             )}
           </div>
 
           {/* The countdown rides the bottom-left of the art, out of the
               title's way and off the podium's first row. */}
-          {gameHeaderEnabled && showTimer && countdown && (
+          {gameHeaderEnabled && showTimer && timerText && (
             <span
               className="sb-fs-10 absolute bottom-1 left-2 z-[2] font-mono text-[10px]"
               style={{ color: 'var(--sb-art-meta-strong)', textShadow: 'var(--sb-art-title-shadow)' }}
             >
-              {countdown}
+              {timerText}
             </span>
           )}
         </div>

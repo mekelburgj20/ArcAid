@@ -4883,8 +4883,8 @@ router.get('/:roomId/history', async (req, res) => {
         const validationResult = validate(HistoryQuerySchema, req.query);
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
 
-        const { page, limit, tournament_id, type } = validationResult.data;
-        const offset = (page - 1) * limit;
+        const { limit, tournament_id, type, run } = validationResult.data;
+        let { page } = validationResult.data;
         const db = await getDatabase();
 
         const conditions: string[] = ["g.status IN ('COMPLETED', 'ARCHIVED')"];
@@ -4911,7 +4911,23 @@ router.get('/:roomId/history', async (req, res) => {
         );
         const total = countRow?.total ?? 0;
 
-        const results = await db.all(
+        // v2.238.0 (B24): `?run=<gameId>` (a deep link to one run) answers the
+        // PAGE that holds that run, so the run is always in the list it opens.
+        // The `g.id` tie-break keeps that page and every other page stable.
+        if (run) {
+            const at = await db.get<{ rn: number }>(
+                `SELECT rn FROM (
+                    SELECT g.id, ROW_NUMBER() OVER (ORDER BY g.end_date DESC, g.id DESC) AS rn
+                    FROM games g JOIN tournaments t ON g.tournament_id = t.id
+                    WHERE ${whereClause}
+                ) WHERE id = ?`,
+                ...params, run,
+            );
+            if (at) page = Math.ceil(at.rn / limit);
+        }
+        const offset = (page - 1) * limit;
+
+        const rows = await db.all<Array<Record<string, unknown> & { game_id: string }>>(
             `SELECT
                 g.id AS game_id,
                 t.id AS tournament_id,
@@ -4919,22 +4935,34 @@ router.get('/:roomId/history', async (req, res) => {
                 t.name AS tournament_name,
                 t.type AS tournament_type,
                 g.start_date,
-                g.end_date,
-                s.iscored_username AS winner_name,
-                s.score AS winner_score
+                g.end_date
             FROM games g
             JOIN tournaments t ON g.tournament_id = t.id
-            LEFT JOIN (
-                SELECT game_id, iscored_username, score,
-                       ROW_NUMBER() OVER (PARTITION BY game_id ORDER BY score DESC) AS rn
-                FROM submissions
-                WHERE orphaned_at IS NULL
-            ) s ON s.game_id = g.id AND s.rn = 1
             WHERE ${whereClause}
-            ORDER BY g.end_date DESC
+            ORDER BY g.end_date DESC, g.id DESC
             LIMIT ? OFFSET ?`,
             ...params, limit, offset
         );
+
+        // v2.238.0 (B24): the winner is the run board's rank 1, the same board
+        // the run's card showed, with the name resolved at read. It used to be
+        // the best `submissions` row under its raw iScored name, which could
+        // differ from the tournament page's winner for the same run.
+        // `winner_name` is the label to render; `winner_username` stays the
+        // routing key for `/players/:name`.
+        const { LeaderboardService } = await import('../../services/LeaderboardService.js');
+        const summaries = await LeaderboardService.getRunSummaries(rows.map(r => r.game_id));
+        const results = rows.map(row => {
+            const summary = summaries.get(row.game_id);
+            const winner = summary?.winner ?? null;
+            return {
+                ...row,
+                winner_name: winner ? (winner.display_name ?? winner.iscored_username) : null,
+                winner_username: winner?.iscored_username ?? null,
+                winner_score: winner?.score ?? null,
+                players: summary?.players ?? 0,
+            };
+        });
 
         res.json({ results, total, page, limit });
     } catch (error) {

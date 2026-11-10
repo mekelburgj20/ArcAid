@@ -39,6 +39,8 @@ export interface CardRouterProps {
   /** v2.2.8 — title-click navigation target (replaces the old GameCard Link overlay). */
   titleLinkTo?: string;
   titleLinkOnClick?: (e: React.MouseEvent) => void;
+  /** v2.238.0 (B24) — where the tournament chip leads (`tournamentChipLink`). */
+  chipLinkTo?: string;
   /**
    * v2.109.0 (score-gesture-photos) — opens the game's quick popup; every
    * card row's click routes here once it's expanded (or immediately for a
@@ -71,6 +73,7 @@ export default function CardRouter({
   onSubmitScore,
   titleLinkTo,
   titleLinkOnClick,
+  chipLinkTo,
   onOpenQuickView,
 }: CardRouterProps) {
   const commonProps = {
@@ -93,6 +96,7 @@ export default function CardRouter({
     onSubmitScore,
     titleLinkTo,
     titleLinkOnClick,
+    chipLinkTo,
     onOpenQuickView,
   };
 

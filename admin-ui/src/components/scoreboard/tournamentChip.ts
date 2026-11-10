@@ -1,4 +1,5 @@
 import type { GameLeaderboard } from '../ScoreboardComponents';
+import { tournamentResultsPath } from '../../lib/tournamentLinks';
 
 /**
  * The tournament chip on score cards names the tournament's **Tag**
@@ -16,4 +17,29 @@ import type { GameLeaderboard } from '../ScoreboardComponents';
  */
 export function tournamentChipLabel(lb: Pick<GameLeaderboard, 'tournamentType' | 'tournamentName'>): string | null {
   return lb.tournamentType || lb.tournamentName || null;
+}
+
+/**
+ * v2.238.0 (B24) — where the chip leads: the tournament's results page. A
+ * finished card opens its own run there (`?run=`), a live card the page's
+ * list of runs. Undefined for a pinned board or a card with no tournament, so
+ * that chip stays plain text. Pages that want the link (public board, admin
+ * Leaderboard) pass `tournamentChipLink(slug)` to the surface; the kiosk does
+ * not, so a wall display has no links.
+ */
+export function tournamentChipLink(slug: string) {
+  return (lb: Pick<GameLeaderboard, 'isPinned' | 'tournamentId' | 'gameStatus' | 'gameId'>): string | undefined => {
+    if (!slug || lb.isPinned || !lb.tournamentId) return undefined;
+    return tournamentResultsPath(slug, lb.tournamentId, lb.gameStatus === 'COMPLETED' ? lb.gameId : null);
+  };
+}
+
+/** The chip link's accessible name: the chip itself only shows the tag. */
+export function tournamentChipLinkLabel(
+  lb: Pick<GameLeaderboard, 'tournamentName' | 'tournamentType' | 'gameStatus' | 'displayName' | 'gameName'>,
+): string {
+  const name = lb.tournamentName || lb.tournamentType || 'Tournament';
+  return lb.gameStatus === 'COMPLETED'
+    ? `${name}: ${lb.displayName || lb.gameName} final standings`
+    : `${name} results`;
 }

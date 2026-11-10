@@ -153,3 +153,44 @@ describe('FeedItem — relative time parsing (bare SQLite timestamps)', () => {
     expect(screen.getByText('3h ago')).toBeInTheDocument();
   });
 });
+
+// ---------------------------------------------------------------------------
+// v2.238.0 (B24) — a tournament result opens that run's final standings.
+// ---------------------------------------------------------------------------
+
+function resultEvent(overrides: Record<string, any> = {}) {
+  return {
+    id: 2,
+    type: 'tournament_results',
+    icon: null,
+    title: 'Daily Grind complete — PeteG takes 1st!',
+    subtitle: 'Godzilla',
+    game_name: 'Godzilla',
+    tournament_id: 't-dg',
+    created_at: new Date().toISOString(),
+    metadata: { score: 104264550, gameId: 'g-godzilla' },
+    ...overrides,
+  };
+}
+
+describe('FeedItem — tournament_results', () => {
+  it('links to the run on the tournament page', () => {
+    renderItem(resultEvent());
+    expect(screen.getByRole('link')).toHaveAttribute('href', '/rtx_pinball/tournaments/t-dg?run=g-godzilla');
+  });
+
+  it('an older row without the run id opens the tournament page', () => {
+    renderItem(resultEvent({ metadata: { score: 1 } }));
+    expect(screen.getByRole('link')).toHaveAttribute('href', '/rtx_pinball/tournaments/t-dg');
+  });
+
+  it('a row without a tournament keeps the game-page link', () => {
+    renderItem(resultEvent({ tournament_id: null }));
+    expect(screen.getByRole('link')).toHaveAttribute('href', '/rtx_pinball/games/Godzilla');
+  });
+
+  it('other game items still open the game page', () => {
+    renderItem(resultEvent({ type: 'new_high_score', title: 'New high score' }));
+    expect(screen.getByRole('link')).toHaveAttribute('href', '/rtx_pinball/games/Godzilla');
+  });
+});

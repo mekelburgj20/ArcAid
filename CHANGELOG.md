@@ -6,6 +6,38 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.238.0] - 2026-11-10 - Past results one click from the card
+
+B24 (audit 2026-11-09, owner 2026-11-10: "build all four as one PR"). A previous tournament's scores were reachable only
+through Stats -> History, which filtered by a hard-coded list of four tags, forgot its filter on Back, and opened a page
+that merged every run of a table, so no page showed one run's final standings. The card's tournament chip led nowhere.
+
+- **The tournament chip on every card is a link** to the tournament's results; on a finished card it opens that run.
+  Its accessible name and tooltip name the tournament ("Daily Grind results", "Daily Grind: Godzilla final
+  standings"), since the chip only shows the tag. Public board and admin Leaderboard; the kiosk stays link-free;
+  a pinned board's chip is unchanged.
+- **The tournament page (`/:slug/tournaments/:id`) opens on Runs:** every finished run, newest first, with date,
+  table, winner, score and player count. A row opens that run's final standings, read from the run's own board
+  (the board its card showed). `?run=<gameId>` opens one run; the server answers the page that holds it, so a link
+  to a run from months ago still lands on it. The merged per-table boards are the "By table" view
+  (`?view=tables`). A switcher in the header moves between the room's tournaments.
+- **History** gains a tournament filter, takes its type options from the room's own tags, keeps filters and page
+  in the URL (`?tournament=&type=&page=`), and each row opens its run on the tournament page.
+- **One winner rule for every list of runs:** the run board's rank 1, named at read
+  (`LeaderboardService.getRunSummaries`, batched). History used the best `submissions` row under its raw iScored
+  name, so History and the tournament page could crown different people for the same run.
+  `GET /:roomId/history` rows gain `winner_username` (the routing key) and `players`; `winner_name` is now the
+  display label. It also takes `run`, and orders by `end_date DESC, id DESC` so pages are stable.
+- **A finished card shows "Ended Tue, Nov 3"** where a live card shows its countdown (same slot, same
+  Show-timer setting), from the board's `endedAt`.
+- **Lobby result items and Discord close posts link to the run:** the `tournament_results` feed row carries
+  `metadata.gameId` (an older row opens the tournament page), and the Rotation embed ends with a
+  "Final standings" link (`tournamentRunUrl`, `src/utils/publicLinks.ts`).
+
+Notes: no migration. The winner shown in History can change for a past run where the best `submissions` row and
+the run's board disagreed, or where the player has a display name (owner accepted 2026-11-10). The winner's DM,
+achievements and the rotation's own winner decision are unchanged (they still read `submissions`).
+
 ## [2.237.0] - 2026-11-09 - AtGames "Joined" follows the player
 
 A40 (owner 2026-11-09). Players who joined an event's AtGames tournament in the AtGames app or on atgames.net still

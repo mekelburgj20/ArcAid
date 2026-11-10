@@ -30,6 +30,15 @@ export function gamePageUrl(slug: string, gameName: string): string {
     return `${publicBaseUrl()}/${slug}/games/${encodeURIComponent(gameName)}`;
 }
 
+/**
+ * One run's final standings on the tournament page (v2.238.0, B24):
+ * `/:slug/tournaments/:id?run=<gameId>` opens the Runs tab with that run
+ * expanded. Same shape as the FE's `tournamentResultsPath` (lib/tournamentLinks.ts).
+ */
+export function tournamentRunUrl(slug: string, tournamentId: string, gameId: string): string {
+    return `${publicBaseUrl()}/${slug}/tournaments/${encodeURIComponent(tournamentId)}?run=${encodeURIComponent(gameId)}`;
+}
+
 /** A room's Lobby - where the season/poll voting card lives. */
 export function roomLobbyUrl(slug: string): string {
     return `${publicBaseUrl()}/${slug}/lobby`;
