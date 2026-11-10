@@ -9,6 +9,7 @@ import type { GameLeaderboard, RankingGroupData } from '../components/Scoreboard
 import ScoreboardSurface from '../components/scoreboard/ScoreboardSurface';
 import type { LeaderboardWithViewer } from '../components/scoreboard/ScoreboardSurface';
 import { tournamentCardTitleLink, tournamentCardTitleClick } from '../components/scoreboard/tournamentCardTitle';
+import { tournamentChipLink } from '../components/scoreboard/tournamentChip';
 import RoomScoresView from '../components/RoomScoresView';
 import GlobalScoresView from '../components/GlobalScoresView';
 import GameQuickView from '../components/GameQuickView';
@@ -286,6 +287,7 @@ export default function Scoreboard() {
         viewerUsername={viewerUsername}
         onSubmitScore={(lb) => setSelectedGame(lb)}
         titleLinkTo={tournamentCardTitleLink(slug || '')}
+        chipLinkTo={tournamentChipLink(slug || '')}
         titleLinkOnClick={tournamentCardTitleClick(setQuickViewLb)}
         // v2.109.0 (score-gesture-photos) — a click that opens the popup
         // (once a row is expanded, or immediately for a single-score row)

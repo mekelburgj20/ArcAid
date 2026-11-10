@@ -569,6 +569,60 @@ export class LeaderboardService {
     }
 
     /**
+     * v2.238.0 (B24) — the winner and player count of each RUN, read off the
+     * same board the run's card shows (`getForGame`, so an event round ranks
+     * by its round board). This is the ONE winner rule for every list of past
+     * runs (History, the tournament page's Runs tab): before it, History took
+     * the best `submissions` row with its raw iScored name while the tournament
+     * page took a different query's rank 1 with the display name, and the two
+     * pages could crown different people for the same run.
+     *
+     * Batched like `getActiveLeaderboards`: one cache read for every id, a
+     * recalculate only for a miss, and ONE hydrate over the rank-1 rows alone
+     * (names resolve at read, never from the cache).
+     */
+    static async getRunSummaries(gameIds: string[]): Promise<Map<string, { winner: RankedEntry | null; players: number }>> {
+        const out = new Map<string, { winner: RankedEntry | null; players: number }>();
+        const ids = [...new Set(gameIds)];
+        if (ids.length === 0) return out;
+
+        const overlays = await this.getEventRoundOverlays(ids);
+        for (const [id, overlay] of overlays) {
+            out.set(id, { winner: overlay.rankings[0] ?? null, players: overlay.rankings.length });
+        }
+        const plain = ids.filter(id => !overlays.has(id));
+        if (plain.length === 0) return out;
+
+        const db = await getDatabase();
+        const cachedRows = await db.all(
+            `SELECT game_id, rankings FROM leaderboard_cache WHERE game_id IN (${plain.map(() => '?').join(',')})`,
+            ...plain,
+        );
+        const cacheMap = new Map<string, CachedRankedRow[]>();
+        for (const r of cachedRows as any[]) {
+            const rows = parseCacheEnvelope(r.rankings);
+            if (rows) cacheMap.set(r.game_id, rows);
+        }
+
+        const windows = await this.loadWindows(plain);
+        const tops: CachedRankedRow[] = [];
+        const topWindows: Array<ScoreWindow | null> = [];
+        const topIds: string[] = [];
+        for (const id of plain) {
+            const rows = cacheMap.get(id) ?? await this.recalculateRows(id);
+            out.set(id, { winner: null, players: rows.length });
+            if (rows[0]) {
+                tops.push(rows[0]);
+                topWindows.push(windows.get(id) ?? null);
+                topIds.push(id);
+            }
+        }
+        const hydrated = await this.hydrate(tops, topWindows);
+        topIds.forEach((id, i) => { out.get(id)!.winner = hydrated[i] ?? null; });
+        return out;
+    }
+
+    /**
      * v2.190.0 (W22) — which of `gameIds` are EVENT ROUNDS: a `games` row with a
      * `round_no` whose tournament is `format = 'event'`. One query for the whole
      * set (the only cost this feature adds to a board with no event on it), plus

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Flame, TrendingUp, Target, Trophy, Gamepad2, Crown, Users, Megaphone, Star, Zap, Hourglass } from 'lucide-react';
 import { relativeTimeFrom } from '../../lib/format';
+import { tournamentResultsPath } from '../../lib/tournamentLinks';
 
 interface FeedEvent {
   id: number;
@@ -10,6 +11,7 @@ interface FeedEvent {
   title: string;
   subtitle: string | null;
   game_name: string | null;
+  tournament_id?: string | null;
   created_at: string;
   metadata?: Record<string, any> | null;
 }
@@ -88,8 +90,22 @@ interface FeedItemProps {
   slug: string;
 }
 
+/**
+ * Where a feed item leads. A tournament result opens that run's final
+ * standings (v2.238.0, B24: `metadata.gameId` names the run; an older row
+ * without it opens the tournament page). Everything else that names a game
+ * opens the game page.
+ */
+function feedItemLink(event: FeedEvent, slug: string): string | null {
+  if (event.type === 'tournament_results' && event.tournament_id && slug) {
+    const runId = typeof event.metadata?.gameId === 'string' ? event.metadata.gameId : null;
+    return tournamentResultsPath(slug, event.tournament_id, runId);
+  }
+  return event.game_name ? `/${slug}/games/${encodeURIComponent(event.game_name)}` : null;
+}
+
 export default function FeedItem({ event, slug }: FeedItemProps) {
-  const link = event.game_name ? `/${slug}/games/${encodeURIComponent(event.game_name)}` : null;
+  const link = feedItemLink(event, slug);
   const typeInfo = TYPE_ICONS[event.type] || { icon: Target, color: 'text-muted' };
   const Icon = typeInfo.icon;
 

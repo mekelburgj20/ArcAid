@@ -38,6 +38,7 @@ const { getDatabase } = await import('../database/database.js');
 const { GameRoomSettingsService } = await import('../services/GameRoomSettingsService.js');
 const { PickAwardGate } = await import('../services/PickAwardGate.js');
 const { TournamentEngine } = await import('../engine/TournamentEngine.js');
+const { tournamentRunUrl } = await import('../utils/publicLinks.js');
 
 // A real-shaped Discord snowflake, so the mention resolver treats it as
 // mentionable (the incident's actual id).
@@ -92,6 +93,29 @@ describe('rotation copy — who gets pinged, who gets named', () => {
         expect(rotation!.embed.description).toContain('**Winner:** **PeteG**');
         expect(rotation!.embed.description).not.toContain('<@');
         expect(rotation!.opts?.pingUserIds ?? []).toEqual([]);
+    });
+
+    // v2.238.0 (B24): the close post and the Lobby result item both lead to
+    // the run's final standings on the tournament page.
+    it('links the run\'s final standings, and the Lobby result item names the run', async () => {
+        const { db, roomId, tournamentId, activeId } = await seedWin();
+
+        await TournamentEngine.getInstance().runMaintenance(tournamentId);
+
+        const { slug } = await db.get('SELECT slug FROM game_rooms WHERE id = ?', roomId);
+        const link = tournamentRunUrl(slug, tournamentId, activeId);
+        expect(link.endsWith(`/${slug}/tournaments/${tournamentId}?run=${activeId}`)).toBe(true);
+        const rotation = byTitle((t) => t.endsWith('— Rotation'));
+        expect(rotation!.embed.description).toContain(`[Final standings](${link})`);
+
+        // The Lobby item is emitted fire-and-forget after the close.
+        await vi.waitFor(async () => {
+            const row = await db.get(
+                `SELECT metadata FROM lobby_feed_events WHERE type = 'tournament_results' AND tournament_id = ?`,
+                tournamentId,
+            );
+            expect(JSON.parse(row?.metadata ?? '{}')).toMatchObject({ gameId: activeId });
+        });
     });
 });
 

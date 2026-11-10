@@ -293,6 +293,8 @@ export const HistoryQuerySchema = z.object({
     limit: z.coerce.number().int().min(1).max(100).default(20),
     tournament_id: z.string().optional(),
     type: z.string().optional(),
+    /** v2.238.0 (B24): a run's game id; the response answers the page holding it. */
+    run: z.string().max(100).optional(),
 });
 
 export const BackupRestoreParamsSchema = z.object({

@@ -24,12 +24,13 @@ import { resolveProfiles } from './PlayerProfileResolver.js';
  * ## Winner semantics
  *
  * A board's winner is its own rank-1 row, i.e. the best score submitted inside
- * the tournament window. This can differ from the winner shown on
- * `GET /:roomId/history`, which ranks `submissions` (best-EVER per player per
- * game, including scores set outside the window). Self-consistency with what
- * this page displays beats agreement with a different query's definition — a
- * board that crowned someone who appears nowhere in its own list would be a
- * bug report waiting to happen.
+ * the tournament window, across EVERY run of the table (this view merges
+ * runs). It can therefore differ from a single run's winner, which
+ * `GET /:roomId/history` and the tournament page's Runs view take from that
+ * run's own board (`LeaderboardService.getRunSummaries`, v2.238.0).
+ * Self-consistency with what this page displays beats agreement with a
+ * different question's answer — a board that crowned someone who appears
+ * nowhere in its own list would be a bug report waiting to happen.
  *
  * ## One asymmetry worth knowing
  *

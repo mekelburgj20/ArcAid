@@ -22,6 +22,7 @@ import { useCardReorder, type CardDragHandleProps } from '../components/scoreboa
 import type { HScrollMetrics } from '../components/HorizontalScrollNav';
 import { displaySettingChanged } from '../lib/displaySettings';
 import { tournamentCardTitleLink, tournamentCardTitleClick } from '../components/scoreboard/tournamentCardTitle';
+import { tournamentChipLink } from '../components/scoreboard/tournamentChip';
 import { ADMIN_CARD_CHROME_Z_INDEX, CARD_EDIT_OVERLAY_Z_INDEX } from '../components/scoreboard/cardStacking';
 import { fitWholeImageZoom } from '../lib/bgFraming';
 import CardFramingDragOverlay, { useFramingGeometry } from '../components/scoreboard/CardFramingDragOverlay';
@@ -749,6 +750,7 @@ export default function Leaderboard() {
         leaderboards={surfaceLeaderboards}
         rankingGroups={surfaceRankingGroups}
         titleLinkTo={tournamentCardTitleLink(room.roomSlug || '')}
+        chipLinkTo={tournamentChipLink(room.roomSlug || '')}
         titleLinkOnClick={tournamentCardTitleClick(setQuickViewLb)}
         /* v2.118.0 — the arrow overlays reach the viewport edge, so on this
            page the right-hand one sat over the display-settings rail and ate

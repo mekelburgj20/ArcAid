@@ -14,6 +14,7 @@ import CardRouter from './CardRouter';
 import HistoryPile, { PILE_GUTTER_PX, PILE_MAX_EDGES } from './HistoryPile';
 import { buildHistoryPiles, type BoardUnit } from '../../lib/historyPiles';
 import type { PinnedPilesState } from '../../hooks/usePinnedPiles';
+import { tournamentResultsPath } from '../../lib/tournamentLinks';
 import HorizontalScrollNav, { type HScrollMetrics } from '../HorizontalScrollNav';
 import { deriveCardProps, deriveScoreboardConfig, getCardWidth, qrEdgeMetrics } from '../../lib/scoreboardConfig';
 import { compareByRank } from '../../lib/searchRank';
@@ -110,6 +111,10 @@ export interface ScoreboardSurfaceProps {
   /** Per-card title click handler (opens the page's quick-view modal). Both
    *  pages pass `tournamentCardTitleClick` from `./tournamentCardTitle`. */
   titleLinkOnClick?: (lb: GameLeaderboard) => (e: React.MouseEvent) => void;
+  /** v2.238.0 (B24) — where each card's tournament chip leads. Pages pass
+   *  `tournamentChipLink` from `./tournamentChip`; the kiosk passes nothing,
+   *  so a wall display has no links. */
+  chipLinkTo?: (lb: GameLeaderboard) => string | undefined;
   /**
    * v2.109.0 (score-gesture-photos) — opens the page's quick popup for a
    * card. Fires on ANY card row's click once it's expanded (or immediately
@@ -234,6 +239,7 @@ export default function ScoreboardSurface({
   onSubmitScore,
   titleLinkTo,
   titleLinkOnClick,
+  chipLinkTo,
   onOpenQuickView,
   renderUnderCard,
   renderUnderRankingCard,
@@ -423,6 +429,7 @@ export default function ScoreboardSurface({
         gameTitleStyle={newConfig.gameTitleStyle}
         onSubmitScore={onSubmitScore}
         titleLinkTo={titleLinkTo?.(lb)} titleLinkOnClick={titleLinkOnClick?.(lb)}
+        chipLinkTo={chipLinkTo?.(lb)}
         onOpenQuickView={openQuickViewFor(lb)}
       />
     ) : (
@@ -532,7 +539,7 @@ export default function ScoreboardSurface({
         pinned={!!historyPiles?.isPinned(tid)}
         onToggle={() => togglePile(tid)}
         onTogglePin={() => togglePilePin(tid)}
-        resultsHref={slug ? `/${slug}/tournaments/${encodeURIComponent(tid)}` : undefined}
+        resultsHref={slug ? tournamentResultsPath(slug, tid) : undefined}
         top={<>{submitButton(top, layout === 'horizontal' ? 'inset' : 'corner')}{renderSlotContent(top)}</>}
         behind={expanded ? [] : history.slice(0, PILE_MAX_EDGES).map(lb => <Fragment key={lb.gameId}>{renderCard(lb)}</Fragment>)}
       />

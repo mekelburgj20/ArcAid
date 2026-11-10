@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { ChevronRight, Trophy } from 'lucide-react';
 import { formatScore, scoreTitle } from '../lib/format';
+import { tournamentResultsPath } from '../lib/tournamentLinks';
 import { TournamentTypeBadge as TypeBadge, TOURNAMENT_TYPE_COLORS } from '../components/TournamentTypeBadge';
 import { useRoom } from '../contexts/RoomContext';
 
@@ -14,8 +15,16 @@ interface HistoryEntry {
   tournament_type: string;
   start_date: string;
   end_date: string;
+  /** v2.238.0 (B24): the run board's rank 1, its name resolved at read. */
   winner_name: string | null;
   winner_score: number | null;
+}
+
+interface TournamentOption {
+  id: string;
+  name: string;
+  type?: string | null;
+  is_active?: number | boolean;
 }
 
 interface HistoryResponse {
@@ -40,11 +49,13 @@ const HEAD_CELL = 'flex items-center self-stretch py-2 border-b border-border/50
 const CELL = 'flex items-center self-stretch min-w-0 py-3 border-b border-border/20 transition-colors group-hover:bg-raised/50';
 
 /**
- * Rows whose `tournament_id` is null (pre-v2.76 responses, or a legacy row) stay
- * non-interactive rather than linking to a page that can't resolve.
+ * A row opens its RUN on the tournament page (v2.238.0, B24: `?run=`, the
+ * run's own final standings). Rows whose `tournament_id` is null (pre-v2.76
+ * responses, or a legacy row) stay non-interactive rather than linking to a
+ * page that can't resolve.
  */
 function rowLink(item: HistoryEntry, slug: string | undefined): string | null {
-  return item.tournament_id && slug ? `/${slug}/tournaments/${item.tournament_id}` : null;
+  return item.tournament_id && slug ? tournamentResultsPath(slug, item.tournament_id, item.game_id) : null;
 }
 
 const rowLabel = (item: HistoryEntry) => `${item.tournament_name} — ${item.game_name} scores`;
@@ -62,32 +73,68 @@ export default function PublicHistory() {
   const { roomId, roomSlug } = useRoom();
   const [data, setData] = useState<HistoryResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [page, setPage] = useState(1);
-  const [typeFilter, setTypeFilter] = useState('');
+  const [tournaments, setTournaments] = useState<TournamentOption[]>([]);
+  // v2.238.0 (B24): filters and page live in the URL, so a filtered list can
+  // be shared and Back returns to it (`?tournament=&type=&page=`).
+  const [params, setParams] = useSearchParams();
+  const tournamentFilter = params.get('tournament') ?? '';
+  const typeFilter = params.get('type') ?? '';
+  const page = Math.max(1, Number(params.get('page')) || 1);
   const limit = 20;
+
+  const update = (patch: Record<string, string | null>) => {
+    const next = new URLSearchParams(params);
+    for (const [k, v] of Object.entries(patch)) {
+      if (!v) next.delete(k); else next.set(k, v);
+    }
+    setParams(next);
+  };
 
   useEffect(() => {
     if (!roomId) return;
     setLoading(true);
-    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
-    if (typeFilter) params.set('type', typeFilter);
+    const q = new URLSearchParams({ page: String(page), limit: String(limit) });
+    if (tournamentFilter) q.set('tournament_id', tournamentFilter);
+    if (typeFilter) q.set('type', typeFilter);
 
-    fetch(`/api/rooms/${roomId}/history?${params}`)
+    fetch(`/api/rooms/${roomId}/history?${q}`)
       .then(r => r.ok ? r.json() : { results: [], total: 0, page: 1, limit })
       .then(setData)
       .catch(() => setData({ results: [], total: 0, page: 1, limit }))
       .finally(() => setLoading(false));
-  }, [roomId, page, typeFilter]);
+  }, [roomId, page, tournamentFilter, typeFilter]);
+
+  // The room's tournaments, for the tournament filter (and its tags for the
+  // type filter). Optional: without them the page still lists everything.
+  useEffect(() => {
+    if (!roomId) return;
+    let cancelled = false;
+    fetch(`/api/rooms/${roomId}/tournaments`)
+      .then(r => (r.ok ? r.json() : []))
+      .then((rows: unknown) => {
+        if (cancelled || !Array.isArray(rows)) return;
+        setTournaments((rows as TournamentOption[])
+          .filter(t => t && typeof t.id === 'string' && typeof t.name === 'string')
+          .sort((a, b) => (Number(!!b.is_active) - Number(!!a.is_active)) || a.name.localeCompare(b.name)));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [roomId]);
 
   const totalPages = data ? Math.ceil(data.total / limit) : 0;
-  // Static list (matches TypeBadge's known types) rather than deriving from
-  // the current page's results — deriving from paginated/filtered data would
-  // make the filter's own options shrink once a filter is applied.
-  const tournamentTypes = Object.keys(TOURNAMENT_TYPE_COLORS);
+  // The room's own tags (B24: the old static list named four tags many rooms
+  // don't use and none they invented). The static list is the fallback while
+  // the tournaments haven't loaded. Never derived from the current page's
+  // results, which would shrink the options once a filter is applied.
+  const tournamentTypes = useMemo(() => {
+    const own = [...new Set(tournaments.map(t => (t.type || '').trim()).filter(Boolean))].sort();
+    return own.length > 0 ? own : Object.keys(TOURNAMENT_TYPE_COLORS);
+  }, [tournaments]);
+  const selectClass = 'bg-raised border border-border rounded px-3 py-2 text-sm text-primary focus:outline-none focus:border-neon-cyan/60 w-full sm:w-auto';
 
   return (
     <div>
-      {/* Page Header + filter */}
+      {/* Page Header + filters */}
       <div className="max-w-4xl mx-auto px-4 sm:px-6 pt-6 pb-2 flex flex-col gap-3 sm:flex-row sm:items-center justify-between">
         <div className="flex items-center gap-3">
           <h2 className="font-display text-xl font-bold">History</h2>
@@ -95,17 +142,44 @@ export default function PublicHistory() {
             {data ? `${data.total} completed game${data.total !== 1 ? 's' : ''}` : ''}
           </span>
         </div>
-        <select
-          value={typeFilter}
-          onChange={e => { setTypeFilter(e.target.value); setPage(1); }}
-          className="bg-raised border border-border rounded px-3 py-2 text-sm text-primary focus:outline-none focus:border-neon-cyan/60 w-full sm:w-auto"
-        >
-          <option value="">All Types</option>
-          {tournamentTypes.map(type => (
-            <option key={type} value={type}>{type}</option>
-          ))}
-        </select>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          {tournaments.length > 0 && (
+            <select
+              aria-label="Tournament"
+              value={tournamentFilter}
+              onChange={e => update({ tournament: e.target.value, page: null })}
+              className={`${selectClass} sm:max-w-[16rem]`}
+            >
+              <option value="">All tournaments</option>
+              {tournaments.map(t => (
+                <option key={t.id} value={t.id}>{t.name}</option>
+              ))}
+            </select>
+          )}
+          <select
+            aria-label="Type"
+            value={typeFilter}
+            onChange={e => update({ type: e.target.value, page: null })}
+            className={selectClass}
+          >
+            <option value="">All Types</option>
+            {tournamentTypes.map(type => (
+              <option key={type} value={type}>{type}</option>
+            ))}
+          </select>
+        </div>
       </div>
+      {tournamentFilter && roomSlug && (
+        <div className="max-w-4xl mx-auto px-4 sm:px-6">
+          <Link
+            to={tournamentResultsPath(roomSlug, tournamentFilter)}
+            className="inline-flex items-center gap-1 text-xs text-muted hover:text-neon-cyan no-underline transition-colors"
+          >
+            Open the tournament page
+            <ChevronRight size={12} aria-hidden="true" />
+          </Link>
+        </div>
+      )}
 
       <main className="max-w-4xl mx-auto px-4 sm:px-6 py-6">
         {loading ? (
@@ -249,14 +323,14 @@ export default function PublicHistory() {
             </span>
             <div className="flex gap-2">
               <button
-                onClick={() => setPage(p => Math.max(1, p - 1))}
+                onClick={() => update({ page: page > 2 ? String(page - 1) : null })}
                 disabled={page <= 1}
                 className="px-3 py-1.5 text-sm rounded border border-border text-muted hover:text-primary hover:border-neon-cyan/40 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
               >
                 Previous
               </button>
               <button
-                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                onClick={() => update({ page: String(Math.min(totalPages, page + 1)) })}
                 disabled={page >= totalPages}
                 className="px-3 py-1.5 text-sm rounded border border-border text-muted hover:text-primary hover:border-neon-cyan/40 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
               >

@@ -247,3 +247,79 @@ describe('GET /api/rooms/:roomId/history — ids for click-through', () => {
         });
     });
 });
+
+/**
+ * v2.238.0 (B24) — one winner rule for every list of past runs: the run
+ * board's rank 1 (the board the run's card showed), named at read. Before it
+ * History crowned the best `submissions` row under its raw iScored name, so it
+ * could disagree with the tournament page for the same run.
+ */
+describe('GET /api/rooms/:roomId/history — run winners and deep links (B24)', () => {
+    it('names each run\'s own rank 1 with the display name, and counts its players', async () => {
+        const app = await createTestApp();
+        const db = await getDatabase();
+        const roomId = await createTestRoom();
+        const tId = await createTestTournament(roomId, { name: 'Daily Grind', type: 'DG' });
+        // Two runs of ONE table in one tournament: each run's board is its own.
+        const run1 = await createTestGame(tId, {
+            name: 'WHO dunnit', status: 'COMPLETED',
+            startDate: '2026-01-01T00:00:00.000Z', endDate: '2026-01-02T00:00:00.000Z',
+        });
+        const run2 = await createTestGame(tId, {
+            name: 'WHO dunnit', status: 'COMPLETED',
+            startDate: '2026-01-05T00:00:00.000Z', endDate: '2026-01-06T00:00:00.000Z',
+        });
+        await db.run(`INSERT INTO user_profiles (discord_user_id, display_name) VALUES ('u-ann', 'Annie')`);
+        await insertHistoryScore({ gameRoomId: roomId, gameName: 'WHO dunnit', username: 'Ann', submittedByUserId: 'u-ann', score: 300, tournamentId: tId, createdAt: '2026-01-01T05:00:00.000Z' });
+        await insertHistoryScore({ gameRoomId: roomId, gameName: 'WHO dunnit', username: 'Bob', score: 200, tournamentId: tId, createdAt: '2026-01-01T06:00:00.000Z' });
+        await insertHistoryScore({ gameRoomId: roomId, gameName: 'WHO dunnit', username: 'Bob', score: 900, tournamentId: tId, createdAt: '2026-01-05T05:00:00.000Z' });
+
+        const res = await request(app).get(`/api/rooms/${roomId}/history?tournament_id=${tId}`);
+
+        expect(res.status).toBe(200);
+        const byId = new Map(res.body.results.map((r: { game_id: string }) => [r.game_id, r]));
+        // Run 1: Ann's 300 wins under her display name; Bob's 900 from run 2
+        // does not leak back into it.
+        expect(byId.get(run1)).toMatchObject({
+            winner_name: 'Annie', winner_username: 'Ann', winner_score: 300, players: 2,
+        });
+        expect(byId.get(run2)).toMatchObject({
+            winner_name: 'Bob', winner_username: 'Bob', winner_score: 900, players: 1,
+        });
+        // Newest run first.
+        expect(res.body.results.map((r: { game_id: string }) => r.game_id)).toEqual([run2, run1]);
+    });
+
+    it('a run nobody played has no winner and zero players', async () => {
+        const app = await createTestApp();
+        const roomId = await createTestRoom();
+        const tId = await createTestTournament(roomId);
+        await createTestGame(tId, { name: 'Empty Table', status: 'COMPLETED', endDate: '2026-02-01T00:00:00.000Z' });
+
+        const res = await request(app).get(`/api/rooms/${roomId}/history`);
+
+        expect(res.body.results[0]).toMatchObject({
+            winner_name: null, winner_username: null, winner_score: null, players: 0,
+        });
+    });
+
+    it('?run= answers the page that holds that run', async () => {
+        const app = await createTestApp();
+        const roomId = await createTestRoom();
+        const tId = await createTestTournament(roomId);
+        const oldest = await createTestGame(tId, { name: 'A', status: 'COMPLETED', endDate: '2026-03-01T00:00:00.000Z' });
+        await createTestGame(tId, { name: 'B', status: 'COMPLETED', endDate: '2026-03-02T00:00:00.000Z' });
+        await createTestGame(tId, { name: 'C', status: 'COMPLETED', endDate: '2026-03-03T00:00:00.000Z' });
+
+        const res = await request(app).get(`/api/rooms/${roomId}/history?tournament_id=${tId}&limit=2&run=${oldest}`);
+
+        expect(res.body.page).toBe(2);
+        expect(res.body.total).toBe(3);
+        expect(res.body.results.map((r: { game_id: string }) => r.game_id)).toEqual([oldest]);
+
+        // An id outside the filter (or unknown) leaves the requested page alone.
+        const miss = await request(app).get(`/api/rooms/${roomId}/history?tournament_id=${tId}&limit=2&page=1&run=nope`);
+        expect(miss.body.page).toBe(1);
+        expect(miss.body.results).toHaveLength(2);
+    });
+});

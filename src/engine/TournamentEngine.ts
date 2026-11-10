@@ -25,7 +25,7 @@ import { catalogueTypeMatchesTournamentMode } from '../utils/tournamentMode.js';
 import { trackBackground } from '../utils/backgroundTasks.js';
 import { PickDispositionService } from '../services/PickDispositionService.js';
 import { resolveSubmissionPlayerId, resolveLeaderboardPlaces, resolveStrippedLeaders } from '../utils/submissionAttribution.js';
-import { accountSettingsUrl } from '../utils/publicLinks.js';
+import { accountSettingsUrl, tournamentRunUrl } from '../utils/publicLinks.js';
 import { resolvePick, MAX_PLACES } from './pickResolution.js';
 import { tournamentUrlSlug } from '../utils/tournamentSlug.js';
 import { QUEUE_ORDER_SQL } from '../utils/queueOrder.js';
@@ -411,6 +411,26 @@ export class TournamentEngine {
         const { compactQueue } = await import('../services/PickQueueService.js');
         await compactQueue(row.tournament_id, row.picker_discord_id);
         return true;
+    }
+
+    /**
+     * v2.238.0 (B24) — the close post's "Final standings" link: the run on the
+     * tournament page. Null when the room has no slug (no page to link to);
+     * never throws, the post goes out without the link instead.
+     */
+    private async runStandingsLink(
+        db: Awaited<ReturnType<typeof getDatabase>>,
+        gameRoomId: string | null,
+        tournamentId: string,
+        gameId: string,
+    ): Promise<string | null> {
+        if (!gameRoomId) return null;
+        try {
+            const room = await db.get<{ slug: string | null }>('SELECT slug FROM game_rooms WHERE id = ?', gameRoomId);
+            return room?.slug ? tournamentRunUrl(room.slug, tournamentId, gameId) : null;
+        } catch {
+            return null;
+        }
     }
 
     /**
@@ -1684,7 +1704,9 @@ export class TournamentEngine {
                     tournamentId: tournamentRow.id,
                     playerId: winnerId || undefined,
                     gameName: activeGame.name,
-                    metadata: { score: winnerScore },
+                    // v2.238.0 (B24): the run, so the Lobby item opens its
+                    // final standings (`/:slug/tournaments/:id?run=`).
+                    metadata: { score: winnerScore, gameId: activeGame.id },
                 }).catch(() => {});
             }).catch(() => {});
 
@@ -1747,6 +1769,9 @@ export class TournamentEngine {
             // `strippedLeaderNarrative`. Do not re-add a second claim message
             // elsewhere; one line per stripped leader, in one place.
             if (strippedNarrative) desc += `\n\n${strippedNarrative}`;
+            // v2.238.0 (B24): link the run's final standings on the site.
+            const standingsLink = await this.runStandingsLink(db, tournamentRow.game_room_id, tournamentId, activeGame.id);
+            if (standingsLink) desc += `\n[Final standings](${standingsLink})`;
             embed.setDescription(desc);
             await sendChannelEmbed(channelId, embed);
         }
