@@ -6,6 +6,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.238.1] - 2026-11-10 - Activating a game never waits on iScored
+
+F10. ProBros Gaming (2026-11-10): activating White Water for the weekly sat on "Activating..." and then showed a
+timeout, four times. ProBros' iScored room had been emptied around 2026-11-01/02 (the nightly snapshots go from 82
+games to 0) and the room has moved to Arcaid, but its iScored switch was still on. Every activation first tried to
+build the White Water board on iScored, the lineup loader treated "no games" as a failure and retried for about
+110 s, and Cloudflare cut the request at 100 s (HTTP 524). Nothing was activated, and the weekly had no tables
+from 2026-11-08 on.
+
+### Fixed
+- **The web Activate button (Game Library) and a player's win pick on the web activate the game in Arcaid first and
+  answer at once.** The iScored board is built after the answer, then linked to the game and the room's lineup
+  reordered. If iScored fails, the game stays live with no board and Room Admin -> Activity shows a problem row,
+  for example "White Water is live in Arcaid, but its iScored board could not be created: (iScored's error). Retry
+  from Game States -> Create on iScored." Until the board links, a web score on that game is not copied to iScored. The Activate toast says
+  "Its iScored board is being created." when one is on its way; the route answers `iscoredStatus: 'pending'` or
+  `'skipped'`.
+- **An empty iScored lineup is a room with no games, not an error.** An empty list has no height, so the "wait until
+  visible" step could never pass; the loader now waits for rows first and, when there are none, accepts "empty"
+  only when iScored's own game list (`getGameNames`) answers OK with no games. Anything else retries as before.
+- **When a create finds more than one new lineup row, it takes the one named like the requested game** (apostrophes
+  ignored, as iScored strips them) instead of always the last.
+
+Not changed: Discord `/activate-game` and `/pick-game` still build the board first (Discord waits up to 15 minutes,
+so they show iScored's real error instead of timing out), and the rotation cron's auto-pick is untouched.
+
 ## [2.238.0] - 2026-11-10 - Past results one click from the card
 
 B24 (audit 2026-11-09, owner 2026-11-10: "build all four as one PR"). A previous tournament's scores were reachable only

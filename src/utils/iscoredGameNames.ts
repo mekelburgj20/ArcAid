@@ -90,3 +90,47 @@ function parseTags(v: unknown): string[] {
     }
     return [];
 }
+
+/**
+ * Whether iScored's `settingsCommands.php?c=getGameNames` answer says the room
+ * has NO games: an OK response whose body is `[]`, `null` or empty.
+ *
+ * `IScoredClient.navigateToLineup` asks this when the lineup list is on the
+ * page but holds no rows. An empty `<ul>` has no height, so Playwright never
+ * calls it visible, and the visible-wait failed every call on a room with no
+ * games (ProBros, 2026-11-10: their iScored room was emptied, and every
+ * activation died in `getAllGames` with "Failed to load Lineup list"). A
+ * failed fetch or a non-empty list is NOT confirmation: the lineup may still
+ * be loading, so the caller retries as before.
+ */
+export function isConfirmedEmptyGameList(res: { ok: boolean; text: string }): boolean {
+    if (!res.ok) return false;
+    const body = (res.text ?? '').trim();
+    if (body === '' || body === 'null') return true;
+    try {
+        const parsed = JSON.parse(body);
+        return Array.isArray(parsed) && parsed.length === 0;
+    } catch {
+        return false;
+    }
+}
+
+/** trim + lowercase + apostrophes removed; iScored strips apostrophes on save. */
+function matchKey(name: string): string {
+    return String(name ?? '').trim().toLowerCase().replace(/['’]/g, '');
+}
+
+/**
+ * Which lineup row `createGame` just made, from the rows that were not there
+ * before. One new row is the normal case. More than one means the "before"
+ * read missed rows (or two creates overlapped): prefer the row whose name
+ * matches the requested one (iScored strips apostrophes, so the match does
+ * too), and fall back to the last row only when no name matches.
+ */
+export function pickCreatedGameRow<T extends { id: string; name: string }>(newRows: T[], requestedName: string): T | null {
+    if (newRows.length === 0) return null;
+    if (newRows.length === 1) return newRows[0]!;
+    const wanted = matchKey(requestedName);
+    const named = newRows.filter(r => matchKey(r.name) === wanted);
+    return named.length > 0 ? named[named.length - 1]! : newRows[newRows.length - 1]!;
+}

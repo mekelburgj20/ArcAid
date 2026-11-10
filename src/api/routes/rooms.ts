@@ -8,7 +8,7 @@ import { requireAuth, requireRoomAccess, requireDiscordUser, optionalDiscordUser
 import type { TokenPayload } from '../auth.js';
 import { validate } from '../validate.js';
 import { isProviderUserId, isDiscordUserId } from '../../utils/identityProvider.js';
-import { iscoredDeletesAllowed, ISCORED_DELETES_DISABLED_MESSAGE } from '../../utils/iscoredCreds.js';
+import { iscoredDeletesAllowed, ISCORED_DELETES_DISABLED_MESSAGE, type IScoredCreds } from '../../utils/iscoredCreds.js';
 import { nextRotationIso } from '../../utils/cronUtils.js';
 import { roomTimezone, resolveTimezone, isValidTimeZone, ROOM_TIMEZONE_KEY } from '../../utils/roomTimezone.js';
 import { DISCORD_COMMAND_POLICY_KEY, serializeCommandPolicy } from '../../utils/discordCommandPolicy.js';
@@ -61,6 +61,7 @@ import { writeLimiter, pickLimiter, pickAlertsLimiter, guestContentLimiter, auth
 import { isAllowedImage } from '../uploadValidation.js';
 import { withUploadErrors } from '../uploadMiddleware.js';
 import { TournamentEngine } from '../../engine/TournamentEngine.js';
+import { createIScoredBoardAfterActivation } from '../../engine/iscoredBoardAfterActivation.js';
 import type { StatsWindowFilters } from '../../services/StatsService.js';
 // IScoredClient is constructed inside IScoredSessionRegistry; routes acquire
 // sessions via the registry, never directly.
@@ -1200,24 +1201,15 @@ router.post('/:roomId/pick-game', pickLimiter, requireDiscordUser, requireNotBan
         if (pendingPick) {
             // User has a win pick — fulfil it
             if (hasOpenSlot) {
-                // Activate immediately — create on iScored if enabled
+                // Activate immediately; the iScored board (when enabled) is
+                // built after the response (F10, see the admin activate route).
                 const { GameRoomSettingsService: GRS } = await import('../../services/GameRoomSettingsService.js');
                 const iscoredEnabled = (await GRS.get(roomId, 'ISCORED_ENABLED')) !== 'false';
                 const hasCredentials = iscoredEnabled && !!(process.env.ISCORED_USERNAME && process.env.ISCORED_PASSWORD);
-
-                let iscoredId: string | undefined;
+                let credsForPick: IScoredCreds | null = null;
                 if (hasCredentials) {
                     const { getIScoredCredsForRoom } = await import('../../utils/iscoredCreds.js');
-                    const credsForPick = await getIScoredCredsForRoom(roomId);
-                    if (credsForPick) {
-                        const { IScoredSessionRegistry } = await import('../../engine/IScoredSessionRegistry.js');
-                        iscoredId = await IScoredSessionRegistry.getInstance().withSession(credsForPick, async (client) => {
-                            const id = await client.createGame(resolvedName, styleId);
-                            await client.setGameTags(id, tournament.type);
-                            await client.setGameStatus(id, { locked: false, hidden: false });
-                            return id;
-                        });
-                    }
+                    credsForPick = await getIScoredCredsForRoom(roomId);
                 }
 
                 // Delete the pending pick placeholder and activate the real game
@@ -1232,15 +1224,23 @@ router.post('/:roomId/pick-game', pickLimiter, requireDiscordUser, requireNotBan
                     gameName: '[Pending Pick]',
                     details: { reason: 'repurposed', picker: discordId, pickedGame: resolvedName },
                 });
-                await engine.activateGame(tournamentId, resolvedName, styleId, iscoredId, false, {
+                const activated = await engine.activateGame(tournamentId, resolvedName, styleId, undefined, false, {
                     actor: `player:${discordId}`,
                     source: 'web_pick',
                     queueOwner: discordId,
                 });
 
-                // Reorder iScored lineup in background, scoped to this room.
-                if (hasCredentials) {
-                    engine.reorderIScoredLineup(roomId).catch(() => {});
+                // Build, link, then reorder this room's lineup; never throws.
+                if (credsForPick) {
+                    void createIScoredBoardAfterActivation({
+                        roomId,
+                        tournamentId,
+                        tournamentType: tournament.type,
+                        gameId: activated.id,
+                        gameName: resolvedName,
+                        styleId,
+                        creds: credsForPick,
+                    });
                 }
 
                 // v2.155.7 — announce to the tournament channel. Until now a
@@ -6096,28 +6096,21 @@ router.post('/:roomId/tournaments/:id/activate-game', requireAuth, requireRoomAc
         // per-room config and went straight to env, allowing activations to
         // succeed against env creds while later deactivations failed against
         // misconfigured per-room creds — leaving orphaned games on iScored.
-        let iscoredId: string | undefined;
         const { GameRoomSettingsService } = await import('../../services/GameRoomSettingsService.js');
         const iscoredSetting = await GameRoomSettingsService.get(req.params.roomId as string, 'ISCORED_ENABLED');
         const iscoredEnabled = iscoredSetting !== 'false';
         const { getIScoredCredsForRoom } = await import('../../utils/iscoredCreds.js');
         const creds = iscoredEnabled ? await getIScoredCredsForRoom(req.params.roomId as string) : null;
-        const hasCredentials = !!creds;
-        if (hasCredentials) {
-            const { IScoredSessionRegistry } = await import('../../engine/IScoredSessionRegistry.js');
-            iscoredId = await IScoredSessionRegistry.getInstance().withSession(creds!, async (client) => {
-                const id = await client.createGame(gameName, styleId);
-                await client.setGameTags(id, tournament.type);
-                await client.setGameStatus(id, { locked: false, hidden: false });
-                return id;
-            });
-        }
 
+        // F10: activate in Arcaid FIRST and answer; the iScored board is built
+        // after the response (createIScoredBoardAfterActivation). Building it
+        // inside the request outran Cloudflare's 100 s limit, and an iScored
+        // failure refused the activation (ProBros, 2026-11-10).
         await db.exec('BEGIN TRANSACTION');
         try {
             let game;
             try {
-                game = await engine.activateGame(tournamentId, gameName, styleId, iscoredId, false, {
+                game = await engine.activateGame(tournamentId, gameName, styleId, undefined, false, {
                     actor: adminActor(req),
                     source: 'admin_manual',
                 });
@@ -6134,7 +6127,7 @@ router.post('/:roomId/tournaments/:id/activate-game', requireAuth, requireRoomAc
             }
             await db.exec('COMMIT');
             logInfo(`Admin activated game: ${gameName} for tournament ${tournamentId}`);
-            res.json({ success: true, gameId: game.id });
+            res.json({ success: true, gameId: game.id, iscoredStatus: creds ? 'pending' : 'skipped' });
 
             // Announce activation in Discord — through the shared helper, so
             // the admin page, web picks and both slash commands post the same
@@ -6146,10 +6139,17 @@ router.post('/:roomId/tournaments/:id/activate-game', requireAuth, requireRoomAc
                 logWarn('Failed to send activation announcement:', err)
             );
 
-            if (hasCredentials) {
-                engine.reorderIScoredLineup().catch(err =>
-                    logWarn('Failed to reorder iScored lineup after activation:', err)
-                );
+            // Builds, links, then reorders the lineup; never throws.
+            if (creds) {
+                void createIScoredBoardAfterActivation({
+                    roomId: req.params.roomId as string,
+                    tournamentId,
+                    tournamentType: tournament.type,
+                    gameId: game.id,
+                    gameName,
+                    styleId,
+                    creds,
+                });
             }
         } catch (dbError) {
             await db.exec('ROLLBACK');
