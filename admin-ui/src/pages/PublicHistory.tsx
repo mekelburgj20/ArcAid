@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { ChevronRight, Trophy } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 import { formatScore, scoreTitle } from '../lib/format';
 import { tournamentResultsPath } from '../lib/tournamentLinks';
 import { TournamentTypeBadge as TypeBadge, TOURNAMENT_TYPE_COLORS } from '../components/TournamentTypeBadge';
 import { useRoom } from '../contexts/RoomContext';
+import GameArt from '../components/GameArt';
+import { PlayerAvatar } from '../components/ScoreboardComponents';
 
 interface HistoryEntry {
   /** v2.76: ids ship so each row can link through to the tournament's boards. */
@@ -18,6 +20,12 @@ interface HistoryEntry {
   /** v2.238.0 (B24): the run board's rank 1, its name resolved at read. */
   winner_name: string | null;
   winner_score: number | null;
+  /** v2.240.0 (B25): the table's art and the winner's avatar. */
+  image_url?: string | null;
+  winner_username?: string | null;
+  winner_discord_user_id?: string | null;
+  winner_avatar_hash?: string | null;
+  winner_avatar_url?: string | null;
 }
 
 interface TournamentOption {
@@ -56,6 +64,23 @@ const CELL = 'flex items-center self-stretch min-w-0 py-3 border-b border-border
  */
 function rowLink(item: HistoryEntry, slug: string | undefined): string | null {
   return item.tournament_id && slug ? tournamentResultsPath(slug, item.tournament_id, item.game_id) : null;
+}
+
+/** The winner: avatar, then name. Empty state when nobody posted. */
+function Winner({ item, avatarSize }: { item: HistoryEntry; avatarSize: number }) {
+  if (!item.winner_name) return <span className="min-w-0 truncate text-faint">No submissions</span>;
+  return (
+    <>
+      <PlayerAvatar
+        username={item.winner_name}
+        discordUserId={item.winner_discord_user_id}
+        avatarHash={item.winner_avatar_hash}
+        avatarUrl={item.winner_avatar_url}
+        size={avatarSize}
+      />
+      <span className="min-w-0 truncate">{item.winner_name}</span>
+    </>
+  );
 }
 
 const rowLabel = (item: HistoryEntry) => `${item.tournament_name} — ${item.game_name} scores`;
@@ -135,7 +160,7 @@ export default function PublicHistory() {
   return (
     <div>
       {/* Page Header + filters */}
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 pt-6 pb-2 flex flex-col gap-3 sm:flex-row sm:items-center justify-between">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 pt-6 pb-2 flex flex-col gap-3 sm:flex-row sm:items-center justify-between">
         <div className="flex items-center gap-3">
           <h2 className="font-display text-xl font-bold">History</h2>
           <span className="text-xs text-muted">
@@ -170,7 +195,7 @@ export default function PublicHistory() {
         </div>
       </div>
       {tournamentFilter && roomSlug && (
-        <div className="max-w-4xl mx-auto px-4 sm:px-6">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6">
           <Link
             to={tournamentResultsPath(roomSlug, tournamentFilter)}
             className="inline-flex items-center gap-1 text-xs text-muted hover:text-neon-cyan no-underline transition-colors"
@@ -181,7 +206,7 @@ export default function PublicHistory() {
         </div>
       )}
 
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 py-6">
+      <main className="max-w-5xl mx-auto px-4 sm:px-6 py-6">
         {loading ? (
           <div className="flex justify-center py-12">
             <div className="w-8 h-8 border-2 border-neon-cyan/30 border-t-neon-cyan rounded-full animate-spin" />
@@ -200,7 +225,9 @@ export default function PublicHistory() {
                 const winner = item.winner_name;
                 const to = rowLink(item, roomSlug);
                 const body = (
-                  <div className="flex flex-col gap-1 min-w-0">
+                  <div className="flex items-center gap-3 min-w-0">
+                  <GameArt src={item.image_url} name={item.game_name} size={56} />
+                  <div className="flex flex-1 flex-col gap-1 min-w-0">
                     {/* The type tag is pushed to the right edge rather than
                         sitting inline after the name, so the tags line up down
                         the list instead of starting at a name-dependent
@@ -214,9 +241,8 @@ export default function PublicHistory() {
                       </span>
                     </div>
                     <div className="flex items-baseline gap-2 min-w-0">
-                      <span className={`flex items-center gap-1 min-w-0 text-sm ${winner ? 'text-neon-green font-medium' : 'text-faint'}`}>
-                        {winner ? <Trophy size={12} className="flex-shrink-0" /> : null}
-                        <span className="min-w-0 truncate">{winner || 'No submissions'}</span>
+                      <span className={`flex items-center gap-1.5 min-w-0 text-sm ${winner ? 'text-neon-green font-medium' : 'text-faint'}`}>
+                        <Winner item={item} avatarSize={18} />
                       </span>
                       <span
                         className="ml-auto flex-shrink-0 whitespace-nowrap tabular-nums text-sm font-display text-neon-amber"
@@ -231,6 +257,7 @@ export default function PublicHistory() {
                         {shortDate(item.end_date)}
                       </span>
                     </div>
+                  </div>
                   </div>
                 );
                 const shell = 'block px-4 py-3 border-b border-border/20 last:border-0';
@@ -260,8 +287,9 @@ export default function PublicHistory() {
                 clipping, and the type tag gets its own track so tournament
                 names line up instead of starting at a badge-dependent offset.
                 Cell padding (not a grid gap) keeps the row hover unbroken. */}
-            <div className="hidden sm:grid grid-cols-[minmax(0,1.4fr)_auto_minmax(0,1fr)_minmax(0,1fr)_auto_auto_auto] items-center [&>*:last-child>*]:border-b-0">
-              <span className={`${HEAD_CELL} pl-4 pr-3`}>Game</span>
+            <div className="hidden sm:grid grid-cols-[auto_minmax(0,1.4fr)_auto_minmax(0,1fr)_minmax(0,1fr)_auto_auto_auto] items-center [&>*:last-child>*]:border-b-0">
+              <span className={`${HEAD_CELL} pl-4 pr-3`} aria-hidden="true" />
+              <span className={`${HEAD_CELL} pr-3`}>Game</span>
               <span className={`${HEAD_CELL} pr-3`}>Type</span>
               <span className={`${HEAD_CELL} pr-3`}>Tournament</span>
               <span className={`${HEAD_CELL} pr-3`}>Winner</span>
@@ -273,16 +301,18 @@ export default function PublicHistory() {
                 const to = rowLink(item, roomSlug);
                 const cells = (
                   <>
-                    <span className={`${CELL} pl-4 pr-3`}>
+                    <span className={`${CELL} pl-4 pr-3 py-2`}>
+                      <GameArt src={item.image_url} name={item.game_name} size={40} />
+                    </span>
+                    <span className={`${CELL} pr-3`}>
                       <span className="min-w-0 truncate font-medium text-sm text-primary">{item.game_name}</span>
                     </span>
                     <span className={`${CELL} pr-3`}><TypeBadge type={item.tournament_type} /></span>
                     <span className={`${CELL} pr-3`}>
                       <span className="min-w-0 truncate text-sm text-muted">{item.tournament_name}</span>
                     </span>
-                    <span className={`${CELL} pr-3 gap-1 text-sm ${winner ? 'text-neon-green font-medium' : 'text-faint'}`}>
-                      {winner ? <Trophy size={12} className="flex-shrink-0" /> : null}
-                      <span className="min-w-0 truncate">{winner || 'No submissions'}</span>
+                    <span className={`${CELL} pr-3 gap-2 text-sm ${winner ? 'text-neon-green font-medium' : 'text-faint'}`}>
+                      <Winner item={item} avatarSize={22} />
                     </span>
                     <span
                       className={`${CELL} pr-3 justify-end whitespace-nowrap tabular-nums text-sm font-display text-neon-amber`}

@@ -161,3 +161,39 @@ describe('PlayerDetail — admin hint for unlinked players (c)', () => {
     expect(screen.queryByText(/link this player's alias/i)).toBeNull();
   });
 });
+
+/** v2.240.0 (B25) — the player's avatar and display name, and table art beside every game. */
+describe('PlayerDetail — avatar and table art', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    localStorage.clear();
+  });
+
+  it('heads the page with the avatar and display name, and puts art beside each game', async () => {
+    vi.stubGlobal('fetch', vi.fn((url: string) => {
+      const body = url.includes('/stats/enhanced/player/')
+        ? {
+            ...STATS_BASE,
+            discordUserId: '333333333333333333',
+            displayName: 'Cy',
+            avatarHash: 'cyhash',
+            bestGame: 'Godzilla',
+            recentScores: [{ game_name: 'Godzilla', score: 700, date: '2026-11-01T00:00:00.000Z' }],
+            personalBests: [{ game_name: 'Funhouse', best_score: 5, room_rank: 1, total_players: 2, achieved_at: '2026-11-01T00:00:00.000Z' }],
+            gameArt: { godzilla: '/api/catalogue-images/godzilla.png' },
+          }
+        : [];
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(body) });
+    }) as unknown as typeof fetch);
+
+    renderAt('/rtx_pinball/players/TargetAlias');
+
+    expect(await screen.findByRole('heading', { name: 'Cy' })).toBeInTheDocument();
+    expect(screen.getByText('iScored: TargetAlias')).toBeInTheDocument();
+    expect(screen.getByAltText('Cy').getAttribute('src')).toContain('cyhash');
+    // Best Game + Recent Scores: Godzilla's art; Personal Bests: Funhouse has none.
+    expect(screen.getAllByTestId('game-art').map(img => img.getAttribute('src')))
+      .toEqual(['/api/catalogue-images/godzilla.png', '/api/catalogue-images/godzilla.png']);
+    expect(screen.getByTestId('game-art-fallback')).toHaveTextContent('FU');
+  });
+});
