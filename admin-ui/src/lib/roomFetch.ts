@@ -18,7 +18,7 @@
  *
  * Only `/portal` and `/scoreboard-config` answer before the gate; every other
  * `/api/rooms/:roomId/...` read goes through here
- * (`lib/__tests__/roomFetchGuard.test.ts`).
+ * (guard: `lib/__tests__/roomFetch.test.ts`).
  */
 const PLAYER_TOKEN_KEY = 'arcaid_player_token';
 
