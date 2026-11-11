@@ -97,6 +97,8 @@ Each line is the rule; the named rule file has the detail and the why.
 | 2026-10-25 | A joined Throwdown is reachable from every un-pinned device, Global-only included | ADR 0032 |
 | 2026-10-26 | Every existing Witness device moved to "All my rooms" | migration 191, ADR 0033 |
 | 2026-11-01 | "Skip the CI tests" = `[skip tests]` direct to main | working agreement |
+| 2026-11-09 | No "unwitnessed" word: public integrity marks are ✓ and ⚠ only | ADR 0038, `witness.md` |
+| 2026-11-10 | Round timing is the runner's (Room Admin → Activity), never on public boards or Discord | ADR 0038, `events.md` |
 | ADR 0018 | Personal rooms were REJECTED; Throwdowns are room-less | `events.md` |
 | ADR 0034 | The room owner decides whether a room is listed | `rooms-tournaments.md` |
 
