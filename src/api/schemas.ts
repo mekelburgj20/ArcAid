@@ -440,6 +440,8 @@ export const RESERVED_ROOM_SLUGS = [
     'account', 'scoreboard', 'games', 'api', 'assets', 'kiosk', 'submit',
     'create', 'createroom', 'room', 'rooms', 'settings', 'static', 'public',
     'www', 'arcaid', 'help', 'about',
+    // v2.243.0 (W96): /castcade/join/<invite> is a server-rendered page.
+    'castcade',
 ];
 
 // Public self-serve room creation (v2.33.0). Deliberately narrower than

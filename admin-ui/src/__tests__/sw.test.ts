@@ -237,6 +237,20 @@ describe('sw.js', () => {
     });
   });
 
+  describe('the Castcade join page (W96)', () => {
+    it('is left to the browser and never cached: its URL can hold a host address', async () => {
+      const fetchImpl = vi.fn(async (request: { url: string }) => makeResponse(request.url));
+      const sw = loadServiceWorker({ fetchImpl });
+      const req = makeRequest('https://arcaid.app/castcade/join/ABCDEF', { mode: 'navigate' });
+
+      const response = await dispatchFetch(sw, req);
+
+      expect(response).toBeUndefined(); // no respondWith
+      expect(fetchImpl).not.toHaveBeenCalled();
+      expect(sw.store.get(STATIC_CACHE)?.has(req.url)).toBeFalsy();
+    });
+  });
+
   describe('navigation (network-first)', () => {
     it('caches a successful navigation response in STATIC_CACHE', async () => {
       const sw = loadServiceWorker({});

@@ -87,6 +87,12 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // The Castcade join page (/castcade/join/<invite>, server-rendered, W96):
+  // not ours to handle. Its URL can hold a host's address, so it must never
+  // be written to a cache; returning without respondWith leaves it to the
+  // browser's own network path.
+  if (new URL(request.url).pathname.startsWith('/castcade/')) return;
+
   // Navigation requests: network-first with cache fallback.
   if (request.mode === 'navigate') {
     event.respondWith(

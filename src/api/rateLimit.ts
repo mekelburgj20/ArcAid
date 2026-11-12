@@ -67,6 +67,21 @@ export const ogPreviewLimiter = rateLimit({
 });
 
 /**
+ * The Castcade join page (`/castcade/join/<invite>`, W96): 60 requests per minute per IP.
+ * A public, server-rendered page outside the /api generalLimiter. It reads no database, so the cap is only
+ * there to bound the work one address can ask for. Same number as `ogPreviewLimiter`, its neighbour on the
+ * non-API surface. The 429 body is a constant: nothing of the request is in it.
+ */
+export const castcadeJoinLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 60,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req: any) => ipKeyGenerator(req.ip),
+    message: 'Too many requests. Please try again in a minute.',
+});
+
+/**
  * Public room creation: 3 per hour per Discord user.
  *
  * Cloned from globalSubmitLimiter's per-discordId pattern (see its comment
