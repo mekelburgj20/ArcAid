@@ -8,6 +8,7 @@ paths:
   - "src/services/GlobalGameRom*.ts"
   - "src/services/AtGamesIdentity*.ts"
   - "src/utils/witness*.ts"
+  - "src/api/matchRelay.ts"
   - "src/utils/sanctionedRules.ts"
   - "src/utils/tournamentEntry.ts"
   - "src/utils/quitEvidence.ts"
@@ -148,3 +149,7 @@ Loads when you touch the Witness device ingest/verification, VPX score routing, 
 - **The overlay is applied INSIDE `LeaderboardService.getForGame` / `getForGameByProvenance` / `getForGameByPlatform` (v2.192.0, W52),** so Discord `/list-scores`, the `/submit-score` rank reply and the chat `leaders` / `my_rank` actions rank an event round as the standings do.
 - **Stats exclusion:** `StatsService.getGameStats` (avg, unique players, all-time high) and `getGamePlayerRankings` take `excludeHistoryIds` (the game page passes `EventResultService.preventedHistoryIds`); `getGameStats`' `recentResults` names a finished round's round-board rank-1 as its winner.
 - **Read the column only through `normalizeWitnessFlagMode`** (`src/utils/witnessFlagMode.ts`).
+
+## Castcade match relay (v2.242.0, W8.4, ADR 0039)
+
+`src/api/matchRelay.ts` (`match:host` / `match:join` / `match:relay` / `match:leave`, registered per socket by `initWebSocket`) carries Castcade's match control frames between a host and its clients so the host forwards no port. Rules: **`data` is opaque** (a string, 256 KB cap; never parse, log or store it); **star topology** (client → host only, host → one named peer; never fan a frame out to the room); **auth is `WitnessService.verifyDevice`** on every host / join, fail closed; **in memory, one process** (no table; a second ArcAid process breaks it, see the ADR). The room key is the invite code; the roster check (W8.2 / W8.3) plugs into `admitJoin`. The wire contract is shared with the Castcade companion: do not rename an event, an ack field or an error word without changing Castcade in the same step. It is not a score path and writes no activity row.

@@ -69,3 +69,4 @@ You do **not** need an ADR for routine bug fixes, code style preferences, or any
 | 0036 | [Auto-pick is ranked choice over the room's queues, then a weighted roam](0036-auto-pick-ranked-choice.md) | accepted (built v2.219.0) | 2026-11-03 |
 | 0037 | [One room activity log: a filterable timeline for room admins and the super-admin](0037-room-activity-log.md) | accepted | 2026-11-07 |
 | 0038 | [Public boards show evidence, not its absence and not round timing](0038-public-boards-show-evidence-not-absence-or-timing.md) | accepted (built v2.239.0) | 2026-11-10 |
+| 0039 | [ArcAid relays Castcade match control messages: in memory, keyed by invite code, paired device required](0039-castcade-match-relay.md) | accepted (built v2.242.0) | 2026-11-12 |
