@@ -832,6 +832,22 @@ export class WitnessService {
         };
     }
 
+    /**
+     * The same device-token check for a caller outside this service that needs
+     * only "is this a paired, unrevoked device, and whose": the Castcade match
+     * relay (W8.4, `src/api/matchRelay.ts`). Trims the id like every other
+     * entry point; null for unknown / revoked / wrong token, undifferentiated.
+     * Read-only: it does not touch `last_seen_at`.
+     */
+    static async verifyDevice(
+        rawDeviceId: string, token: string,
+    ): Promise<{ deviceId: string; canonicalUserId: string } | null> {
+        const deviceId = (rawDeviceId || '').trim();
+        if (!deviceId || !token) return null;
+        const device = await WitnessService.authenticateDevice(deviceId, token);
+        return device ? { deviceId, canonicalUserId: device.canonical_user_id } : null;
+    }
+
     private static async touchDevice(deviceId: string): Promise<void> {
         const db = await getDatabase();
         await db.run(

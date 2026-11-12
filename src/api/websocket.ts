@@ -4,6 +4,7 @@ import { logInfo, logError } from '../utils/logger.js';
 import { verifyToken } from './auth.js';
 import { RoomAccessService } from '../services/RoomAccessService.js';
 import { getDatabase } from '../database/database.js';
+import { matchRelay } from './matchRelay.js';
 
 let io: SocketServer | null = null;
 
@@ -68,6 +69,10 @@ export function initWebSocket(httpServer: HttpServer): SocketServer {
             methods: ['GET', 'POST'],
         },
         path: '/socket.io',
+        // Pinned, not left to the default: the Castcade match relay (W8.4)
+        // carries `data` strings up to 256 KB, and a frame over this limit
+        // closes the connection instead of reaching the relay's own size check.
+        maxHttpBufferSize: 1e6,
     });
 
     io.on('connection', (socket) => {
@@ -110,6 +115,11 @@ export function initWebSocket(httpServer: HttpServer): SocketServer {
         socket.on('leave:room', (roomId: string) => {
             socket.leave(`room:${roomId}`);
         });
+
+        // Castcade match relay (W8.4, ADR 0039): the `match:*` events. They
+        // need a paired Witness device in the handshake; a socket that never
+        // emits one is unaffected.
+        matchRelay.register(socket);
     });
 
     logInfo('WebSocket server initialized');
