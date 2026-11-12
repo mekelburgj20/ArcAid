@@ -30,7 +30,15 @@ container behind Caddy (`reverse_proxy arcaid:3001`), with no cluster, no PM2, n
   anonymous sockets connect and use `join:room` / `join:lobby` / `join:game` exactly as before; they get
   `unauthorized` on any `match:*` event.
 - **The room is the match's invite code** (six uppercase letters), owned by the device that hosted it. Another device
-  gets `code_in_use`. Knowing the code plus being a paired device is the whole admission test today.
+  gets `code_in_use`. Until the host locks the room, knowing the code plus being a paired device is the admission test.
+- **The host locks the room when the match starts** (`match:lock`, host only). After that `match:join` answers `locked`
+  to any device that never held a seat in this room; a device that did may re-join, so reconnects keep working. The
+  room remembers the device ids ever seated and sends them to no one. Until the roster exists, the lock plus the host
+  seeing every joiner by name in the lobby before starting is the answer to "anyone with the code can join".
+- **A revoked device leaves a match under way.** A seated socket's verdict is trusted for 60 s; its next `match:relay`
+  after that starts one device read. A device that no longer verifies gets `match:error { error: 'unauthorized' }` and
+  loses its seat (the host is sent `match:peer left`; if it is the host, the room closes with `host_gone`). The cost is
+  one primary-key read per active socket per minute. A seated socket that sends nothing is not re-read.
 - **The roster seam is `admitJoin(device, code)`** in `MatchRelayOptions`, called after auth and before a socket is
   admitted. When matches become Throwdowns with a roster, that function looks the match up and tests
   `device.canonicalUserId`. Nothing else has to change.
@@ -45,9 +53,10 @@ container behind Caddy (`reverse_proxy arcaid:3001`), with no cluster, no PM2, n
   sent meanwhile are dropped silently), and ends at 12 h. A restart of the process (every deploy) ends
   every live match's control channel; clients see their socket drop and the host re-hosts.
 - **Limits.** 200 relayed messages per 10 s per client socket, and per destination peer on the host socket (its
-  send-to-all is one emit per client, and all client-to-client signalling passes through it); `match:host` / `match:join` attempts capped per device and per
-  IP; 8 `no_such_match` answers in 10 minutes lock the device and the IP out for 15 minutes, so six-letter codes cannot
-  be enumerated. `maxHttpBufferSize` is pinned at 1 MB.
+  send-to-all is one emit per client, and all client-to-client signalling passes through it); `match:host` / `match:join` attempts capped per device (20 a
+  minute) and per IP (60 a minute, counted before the token check); 8 `no_such_match` answers in 10 minutes lock the
+  DEVICE out for 15 minutes. An IP is never locked out for misses: an address is shared, the device is the
+  authenticated thing. A `locked` answer is not a miss. `maxHttpBufferSize` is pinned at 1 MB.
 
 ## Consequences
 
@@ -66,5 +75,9 @@ container behind Caddy (`reverse_proxy arcaid:3001`), with no cluster, no PM2, n
   needed either way, and coturn is a second service to run and secure.
 - **Persist rooms in SQLite** - survives a restart only if sockets also reconnect and re-identify, which is the same
   re-host the companion does anyway; it would put match metadata in the database for no behaviour gained.
+- **Lock the IP out for wrong codes as well** - built first, removed 2026-11-12: one guesser locked out everyone on the
+  same network. What is left to a guesser: about 1,000 guesses a day per paired device (7 per 10 minutes without
+  tripping the lockout), at most 86,400 a day per address, against 26^6 = 309 million codes, to reach a room that is
+  unlocked, where the host sees the joiner before starting.
 - **Accept unauthenticated sockets that know the code** - the code is six letters; a paired device ties every room and
   every guess to an account, which is what makes the lockout meaningful.

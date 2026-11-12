@@ -24,6 +24,10 @@ import { WitnessService } from '../services/WitnessService.js';
  *     second process needs sticky sessions plus a shared room registry first.
  *   - Only `match:*` events need a paired Witness device (`auth: { deviceId,
  *     deviceToken }` in the handshake). Every other socket event is untouched.
+ *     A seated device is verified again at most once a minute, on its next
+ *     frame, so a revoked device leaves a match under way.
+ *   - The host locks the room when the match starts (`match:lock`): after that
+ *     only a device that already held a seat may join (reconnects).
  *
  * The room is keyed by the match's invite code. The roster check the original
  * W8.4 asked for (W8.2 / W8.3) does not exist yet; `admitJoin` is its seam.
@@ -41,16 +45,23 @@ export const MATCH_MAX_ROOMS = 2000;                // memory bound for the proc
 export const MATCH_ATTEMPT_WINDOW_MS = 60_000;
 export const MATCH_ATTEMPTS_PER_DEVICE = 20;
 export const MATCH_ATTEMPTS_PER_IP = 60;
-/** Code-guessing lockout: this many `no_such_match` inside the window locks the key out. */
+/**
+ * Code-guessing lockout: this many `no_such_match` inside the window locks the
+ * DEVICE out. Never the IP: the device is authenticated, and an address is
+ * shared (a household, a venue, a carrier NAT), so one guesser must not lock
+ * out everyone behind it. The IP keeps only the raw attempt cap above.
+ */
 export const MATCH_MISS_LIMIT = 8;
 export const MATCH_MISS_WINDOW_MS = 10 * 60_000;
 export const MATCH_LOCKOUT_MS = 15 * 60_000;
+/** A seated device's verdict is trusted this long, then re-read on its next `match:relay`. */
+export const MATCH_REVERIFY_MS = 60_000;
 
 const CODE_RE = /^[A-Z]{6}$/;
 
 export type MatchError =
     | 'unauthorized' | 'rate_limited' | 'bad_code' | 'code_in_use' | 'server_busy'
-    | 'no_such_match' | 'full'
+    | 'no_such_match' | 'full' | 'locked'
     | 'not_in_match' | 'no_such_peer' | 'too_large' | 'invalid_message';
 
 export interface MatchDevice {
@@ -89,6 +100,8 @@ interface Room {
     host: RelaySocket | null;           // null while the host is away (grace)
     clients: Map<string, RelaySocket>;  // peer id -> socket
     hostWindows: Map<string, RelayWindow>;  // peer id -> the host's send budget to that peer
+    locked: boolean;                    // `match:lock`: no new devices
+    everSeated: Set<string>;            // device ids that ever held a seat here; NEVER sent to any socket
     graceTimer: ReturnType<typeof setTimeout> | null;
     expiryTimer: ReturnType<typeof setTimeout>;
 }
@@ -97,6 +110,7 @@ interface Seat {
     room: Room;
     role: 'host' | 'client';
     peer?: string;
+    verifiedAt: number;                 // when this socket's device last verified
 }
 
 interface Window { start: number; count: number; }
@@ -151,6 +165,9 @@ export class MatchRelay {
             this.vacate(socket, 'host_left');
             // Emitted with or without a payload: the ack is whichever argument is a function.
             asAck(typeof payload === 'function' ? payload : ack)({ ok: true });
+        });
+        socket.on('match:lock', (payload: unknown, ack: unknown) => {
+            this.onLock(socket, asAck(typeof payload === 'function' ? payload : ack));
         });
         socket.on('match:relay', (payload: unknown) => {
             this.onRelay(socket, payload);
@@ -241,15 +258,16 @@ export class MatchRelay {
      * Shared front door of `match:host` and `match:join`: IP limit, device
      * auth, device limit. Returns the device, or the error to ack.
      */
-    private async admit(socket: RelaySocket): Promise<{ device: MatchDevice; ipKey: string; deviceKey: string } | { error: MatchError }> {
-        const ipKey = `ip:${clientIp(socket)}`;
-        // Counted BEFORE the token check, so guessing tokens is capped too.
-        if (this.lockedOut(ipKey) || this.overAttemptLimit(ipKey, MATCH_ATTEMPTS_PER_IP)) return { error: 'rate_limited' };
+    private async admit(socket: RelaySocket): Promise<{ device: MatchDevice; deviceKey: string } | { error: MatchError }> {
+        // The IP has a raw attempt cap only. It is counted BEFORE the token
+        // check, so guessing tokens is capped too; it is never locked out for
+        // the misses of the verified devices behind it.
+        if (this.overAttemptLimit(`ip:${clientIp(socket)}`, MATCH_ATTEMPTS_PER_IP)) return { error: 'rate_limited' };
         const device = await this.deviceOf(socket);
         if (!device) return { error: 'unauthorized' };
         const deviceKey = `dev:${device.deviceId}`;
         if (this.lockedOut(deviceKey) || this.overAttemptLimit(deviceKey, MATCH_ATTEMPTS_PER_DEVICE)) return { error: 'rate_limited' };
-        return { device, ipKey, deviceKey };
+        return { device, deviceKey };
     }
 
     // ---- match:host ---------------------------------------------------------
@@ -273,7 +291,7 @@ export class MatchRelay {
             if (held && !(held.room === existing && held.role === 'host')) this.vacate(socket, 'host_left');
             if (existing.graceTimer) { clearTimeout(existing.graceTimer); existing.graceTimer = null; }
             existing.host = socket;
-            this.seats.set(socket.id, { room: existing, role: 'host' });
+            this.seats.set(socket.id, { room: existing, role: 'host', verifiedAt: Date.now() });
             const peers = [...existing.clients.keys()];
             ack({ ok: true, peers });
             // A resumed host may have lost its state: tell it again who is in the room.
@@ -293,13 +311,15 @@ export class MatchRelay {
             host: socket,
             clients: new Map(),
             hostWindows: new Map(),
+            locked: false,
+            everSeated: new Set([device.deviceId]),
             graceTimer: null,
             expiryTimer: setTimeout(() => this.closeRoom(room, 'expired'), MATCH_ROOM_TTL_MS),
         };
         room.expiryTimer.unref?.();
         this.rooms.set(code, room);
         this.hostedBy.set(device.deviceId, room);
-        this.seats.set(socket.id, { room, role: 'host' });
+        this.seats.set(socket.id, { room, role: 'host', verifiedAt: Date.now() });
         logInfo(`Match relay: room opened (${this.rooms.size} live)`);
         ack({ ok: true, peers: [] });
     }
@@ -309,16 +329,18 @@ export class MatchRelay {
     private async onJoin(socket: RelaySocket, payload: unknown, ack: Ack): Promise<void> {
         const gate = await this.admit(socket);
         if ('error' in gate) return ack({ ok: false, error: gate.error });
-        const { device, ipKey, deviceKey } = gate;
+        const { device, deviceKey } = gate;
 
         const code = (payload as { code?: unknown } | null)?.code;
         const room = typeof code === 'string' && CODE_RE.test(code) ? this.rooms.get(code) : undefined;
         if (!room) {
             // A malformed code is a miss too: one answer, one counter.
-            this.recordMiss(ipKey);
             this.recordMiss(deviceKey);
             return ack({ ok: false, error: 'no_such_match' });
         }
+        // A started match takes no strangers. A device that held a seat before
+        // (a reconnect) still gets in. Not a miss: the code was right.
+        if (room.locked && !room.everSeated.has(device.deviceId)) return ack({ ok: false, error: 'locked' });
 
         let allowed = false;
         try { allowed = await this.admitJoin(device, room.code); } catch { allowed = false; }
@@ -327,7 +349,10 @@ export class MatchRelay {
         if (this.rooms.get(room.code) !== room) return ack({ ok: false, error: 'no_such_match' });
 
         const seat = this.seats.get(socket.id);
-        if (seat?.room === room && seat.role === 'client') return ack({ ok: true, peer: seat.peer });
+        if (seat?.room === room && seat.role === 'client') {
+            seat.verifiedAt = Date.now();
+            return ack({ ok: true, peer: seat.peer });
+        }
         if (seat?.room === room && seat.role === 'host') return ack({ ok: false, error: 'unauthorized' });
 
         if (room.clients.size + 1 >= MATCH_MAX_SOCKETS) return ack({ ok: false, error: 'full' });
@@ -335,12 +360,42 @@ export class MatchRelay {
 
         const peer = randomBytes(9).toString('base64url');
         room.clients.set(peer, socket);
-        this.seats.set(socket.id, { room, role: 'client', peer });
+        room.everSeated.add(device.deviceId);
+        this.seats.set(socket.id, { room, role: 'client', peer, verifiedAt: Date.now() });
         ack({ ok: true, peer });
         room.host?.emit('match:peer', { peer, state: 'joined' });
     }
 
+    // ---- match:lock ---------------------------------------------------------
+
+    /** Host only. Idempotent; there is no unlock (a new match is a new code). */
+    private onLock(socket: RelaySocket, ack: Ack): void {
+        const seat = this.seats.get(socket.id);
+        if (seat?.role !== 'host') return ack({ ok: false, error: 'unauthorized' });
+        seat.room.locked = true;
+        ack({ ok: true });
+    }
+
     // ---- match:relay --------------------------------------------------------
+
+    /**
+     * A revoked device must not stay in a match. The verdict from host / join
+     * is trusted for MATCH_REVERIFY_MS; the first frame after that starts ONE
+     * device read (the stamp moves first, so a burst cannot start a second).
+     * The frame that triggered it is not held back: holding would reorder the
+     * stream, and the read settles within milliseconds.
+     */
+    private reverify(socket: RelaySocket, seat: Seat): void {
+        const now = Date.now();
+        if (now - seat.verifiedAt < MATCH_REVERIFY_MS) return;
+        seat.verifiedAt = now;
+        void this.deviceOf(socket).then((device) => {
+            if (device || this.seats.get(socket.id) !== seat) return;
+            socket.emit('match:error', { error: 'unauthorized' });
+            if (seat.role === 'host') this.closeRoom(seat.room, 'host_gone');
+            else this.vacate(socket, 'host_gone');
+        });
+    }
 
     /** One fixed window; false when this message is over the limit (one `rate_limited` notice per window). */
     private underRate(socket: RelaySocket, windows: Map<string, RelayWindow>, key: string): boolean {
@@ -387,6 +442,8 @@ export class MatchRelay {
             });
             return;
         }
+
+        this.reverify(socket, seat);
 
         const data = body?.data;
         if (typeof data !== 'string') {

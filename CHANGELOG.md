@@ -12,7 +12,7 @@ W8.4, re-scoped by the owner 2026-11-12. A Castcade match is hosted by one playe
 player had to forward a port. ArcAid now carries the match's control messages between the host and the other
 players, so nobody forwards anything. Video and voice still go directly between the players.
 
-- **Added:** `match:host`, `match:join`, `match:relay`, `match:leave` on the existing socket.io server
+- **Added:** `match:host`, `match:join`, `match:relay`, `match:lock`, `match:leave` on the existing socket.io server
   (`src/api/matchRelay.ts`, ADR 0039). The room is the match's six-letter invite code. The host's frames go to the one
   player it names; a player's frames go to the host only; a player never receives another player's frames.
 - **Auth:** only a paired, unrevoked Witness device (`auth: { deviceId, deviceToken }` on the socket) gets past a
@@ -23,12 +23,17 @@ players, so nobody forwards anything. Video and voice still go directly between 
 - **Limits:** 8 sockets per match, 200 messages per 10 s per player socket (the host gets 200 per 10 s to each
   player), a match ends 30 s after its host drops (the same
   device can resume inside that) or 12 h after it was created. Host / join attempts are capped per device and per
-  address, and 8 wrong codes in 10 minutes lock both out for 15 minutes.
+  address, and 8 wrong codes in 10 minutes lock that device out for 15 minutes. An address is never locked out, so one
+  guesser cannot lock out a household or a venue.
+- **Locking:** the host locks the match when it starts (`match:lock`). After that a device that never held a seat in
+  it is refused (`locked`); a player who was in it can reconnect.
+- **Revoked devices:** a device unpaired during a match is checked again within a minute of its next message, loses
+  its seat, and the host is told it left. If it was the host, the match closes.
 - **Not yet:** the roster check of the original W8.4 (W8.2 / W8.3 are not built). `admitJoin` in `matchRelay.ts` is
   where it goes.
 
 Notes: backend only, no migration, no UI change. Matches live in the memory of the one ArcAid process, so a deploy
-ends the control channel of any match in progress (the companions re-host and re-join). 31 tests in
+ends the control channel of any match in progress (the companions re-host and re-join). 39 tests in
 `src/__tests__/match-relay.test.ts`.
 
 ## [2.241.1] - 2026-11-10 - Approval-required rooms: room pages load for members

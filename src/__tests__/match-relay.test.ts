@@ -13,6 +13,8 @@ import {
     MATCH_MISS_LIMIT,
     MATCH_LOCKOUT_MS,
     MATCH_ATTEMPTS_PER_DEVICE,
+    MATCH_ATTEMPTS_PER_IP,
+    MATCH_REVERIFY_MS,
     MATCH_ATTEMPT_WINDOW_MS,
 } from '../api/matchRelay.js';
 
@@ -29,7 +31,10 @@ import {
  *      (checked against the real `witness_devices` table).
  *   3. Another device cannot take a live code; the owner resumes inside 30 s;
  *      the room closes for everyone after 30 s without the host, or at 12 h.
- *   4. Size cap, message rate limit, room cap, and the code-guessing lockout.
+ *   4. Size cap, message rate limit, room cap, and the code-guessing lockout
+ *      (per device, never per address).
+ *   5. A revoked device leaves a match under way; a locked match takes no
+ *      new devices but lets a seated one back in.
  *
  * The relay is driven through the `RelaySocket` slice with in-process fake
  * sockets (the backend has no socket.io client dependency); each fake records
@@ -540,24 +545,39 @@ describe('match relay: attempt limits and the code-guessing lockout', () => {
         expect(host.got('match:peer')).toEqual([]);
     });
 
-    it('the lockout follows the IP across devices and sockets, and lifts after the lockout time', async () => {
+    it('the lockout is the device\'s alone: a shared address is never locked out, and it lifts after the lockout time', async () => {
         vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
         const host = await connect(undefined, '203.0.113.1');
         await host.request('match:host', { code: 'ABCDEF' });
 
-        // Each miss from a different paired device, all behind one address.
+        // One device guesses itself into a lockout behind a shared address.
+        const guesserAuth = await pairedAuth();
+        const guesser = await connect(guesserAuth, '203.0.113.3');
         for (let i = 0; i < MATCH_MISS_LIMIT; i++) {
+            expect((await guesser.request('match:join', { code: 'ZZZZZZ' })).error).toBe('no_such_match');
+        }
+        expect(await guesser.request('match:join', { code: 'ABCDEF' })).toEqual({ ok: false, error: 'rate_limited' });
+
+        // The lockout follows the device to a new socket and a new address.
+        const moved = await connect(guesserAuth, '203.0.113.77');
+        expect(await moved.request('match:join', { code: 'ABCDEF' })).toEqual({ ok: false, error: 'rate_limited' });
+
+        // Another device at the SAME address is untouched.
+        const neighbour = await connect(undefined, '203.0.113.3');
+        expect((await neighbour.request('match:join', { code: 'ABCDEF' })).ok).toBe(true);
+
+        vi.advanceTimersByTime(MATCH_LOCKOUT_MS + 1);
+        expect((await guesser.request('match:join', { code: 'ABCDEF' })).ok).toBe(true);
+    });
+
+    it('misses spread over many devices at one address lock nobody out', async () => {
+        const host = await connect(undefined, '203.0.113.1');
+        await host.request('match:host', { code: 'ABCDEF' });
+        for (let i = 0; i < MATCH_MISS_LIMIT + 2; i++) {
             const s = await connect(undefined, '203.0.113.3');
             expect((await s.request('match:join', { code: 'ZZZZZZ' })).error).toBe('no_such_match');
         }
         const fresh = await connect(undefined, '203.0.113.3');
-        expect(await fresh.request('match:join', { code: 'ABCDEF' })).toEqual({ ok: false, error: 'rate_limited' });
-
-        // Someone at another address is unaffected.
-        const elsewhere = await connect(undefined, '203.0.113.4');
-        expect((await elsewhere.request('match:join', { code: 'ABCDEF' })).ok).toBe(true);
-
-        vi.advanceTimersByTime(MATCH_LOCKOUT_MS + 1);
         expect((await fresh.request('match:join', { code: 'ABCDEF' })).ok).toBe(true);
     });
 
@@ -572,13 +592,182 @@ describe('match relay: attempt limits and the code-guessing lockout', () => {
         expect(await socket.request('match:host', { code: 'ABCDEF' })).toMatchObject({ ok: true });
     });
 
-    it('uses the last X-Forwarded-For hop (the proxy\'s), so a client-supplied prefix cannot dodge the lockout', async () => {
-        for (let i = 0; i < MATCH_MISS_LIMIT; i++) {
-            const s = await connect(undefined, `198.51.100.${i}, 203.0.113.9`);
-            await s.request('match:join', { code: 'ZZZZZZ' });
+    it('caps raw attempts per address before the token check, keyed on the last X-Forwarded-For hop (the proxy\'s)', async () => {
+        // Unverifiable sockets: the cap must bite without a single device read succeeding.
+        for (let i = 0; i < MATCH_ATTEMPTS_PER_IP; i++) {
+            const s = await connect({ deviceId: `guess-${i}`, deviceToken: 'x' }, `198.51.100.${i}, 203.0.113.9`);
+            expect(await s.request('match:join', { code: 'ZZZZZZ' })).toEqual({ ok: false, error: 'unauthorized' });
         }
-        const s = await connect(undefined, '198.51.100.200, 203.0.113.9');
+        // A client-supplied prefix does not make a new key.
+        const s = await connect({ deviceId: 'guess-x', deviceToken: 'x' }, '198.51.100.200, 203.0.113.9');
         expect(await s.request('match:join', { code: 'ZZZZZZ' })).toEqual({ ok: false, error: 'rate_limited' });
+        // A paired device there is capped too (raw cap, not a lockout), and another address is not.
+        const paired = await connect(undefined, '203.0.113.9');
+        expect(await paired.request('match:host', { code: 'ABCDEF' })).toEqual({ ok: false, error: 'rate_limited' });
+        const elsewhere = await connect(undefined, '203.0.113.10');
+        expect(await elsewhere.request('match:host', { code: 'ABCDEF' })).toMatchObject({ ok: true });
+    });
+});
+
+describe('match relay: a revoked device leaves a match under way', () => {
+    const USER_A = '400000000000000001';
+    const USER_H = '400000000000000002';
+
+    it('a revoked client is refused on its next frame after the 60 s verdict runs out, and the host is told it left', async () => {
+        const host = await connect();
+        const auth = await pairedAuth(USER_A);
+        const client = await connect(auth);
+        const other = await connect();
+        await host.request('match:host', { code: 'ABCDEF' });
+        const { peer } = await client.request('match:join', { code: 'ABCDEF' });
+        await other.request('match:join', { code: 'ABCDEF' });
+
+        vi.useFakeTimers({ toFake: ['Date'] });
+        expect(await WitnessService.revokeDevice(USER_A, auth.deviceId)).toBe(true);
+
+        // Inside the 60 s the cached verdict still stands.
+        vi.setSystemTime(Date.now() + MATCH_REVERIFY_MS - 1000);
+        client.send('match:relay', { data: 'still-cached' });
+        await new Promise((r) => setTimeout(r, 50));
+        expect(client.got('match:error')).toEqual([]);
+
+        vi.setSystemTime(Date.now() + 2000);
+        client.send('match:relay', { data: 'trigger' });
+        await vi.waitFor(() => expect(client.got('match:error')).toEqual([{ error: 'unauthorized' }]));
+        expect(host.got('match:peer').at(-1)).toEqual({ peer, state: 'left' });
+
+        // Its seat is gone: nothing more is carried either way, and the rest of the match goes on.
+        const before = host.got('match:relay').length;
+        client.send('match:relay', { data: 'after' });
+        host.send('match:relay', { to: peer, data: 'to-revoked' });
+        expect(host.got('match:relay')).toHaveLength(before);
+        expect(client.got('match:relay')).toEqual([]);
+        expect(other.got('match:closed')).toEqual([]);
+        other.send('match:relay', { data: 'fine' });
+        expect(host.got('match:relay').at(-1).data).toBe('fine');
+        // And it cannot come back.
+        expect(await client.request('match:join', { code: 'ABCDEF' })).toEqual({ ok: false, error: 'unauthorized' });
+    });
+
+    it('a revoked host closes the room for everyone with host_gone', async () => {
+        const auth = await pairedAuth(USER_H);
+        const host = await connect(auth);
+        const client = await connect();
+        await host.request('match:host', { code: 'ABCDEF' });
+        const { peer } = await client.request('match:join', { code: 'ABCDEF' });
+
+        vi.useFakeTimers({ toFake: ['Date'] });
+        expect(await WitnessService.revokeDevice(USER_H, auth.deviceId)).toBe(true);
+        vi.setSystemTime(Date.now() + MATCH_REVERIFY_MS + 1);
+        host.send('match:relay', { to: peer, data: 'x' });
+
+        await vi.waitFor(() => expect(client.got('match:closed')).toEqual([{ reason: 'host_gone' }]));
+        expect(host.got('match:error')).toEqual([{ error: 'unauthorized' }]);
+        expect(relay.roomCount()).toBe(0);
+    });
+
+    it('costs one device read per socket per minute, however many frames are sent', async () => {
+        let reads = 0;
+        relay = new MatchRelay({
+            authenticate: async (deviceId) => { reads++; return { deviceId, canonicalUserId: `user-of-${deviceId}` }; },
+        });
+        const host = await connect({ deviceId: 'h', deviceToken: 't' });
+        const client = await connect({ deviceId: 'c', deviceToken: 't' });
+        await host.request('match:host', { code: 'ABCDEF' });
+        await client.request('match:join', { code: 'ABCDEF' });
+        expect(reads).toBe(2);
+
+        vi.useFakeTimers({ toFake: ['Date'] });
+        for (let i = 0; i < 150; i++) client.send('match:relay', { data: 'x' });
+        expect(reads).toBe(2);
+
+        vi.setSystemTime(Date.now() + MATCH_REVERIFY_MS);
+        for (let i = 0; i < 150; i++) client.send('match:relay', { data: 'x' });
+        expect(reads).toBe(3);
+
+        vi.setSystemTime(Date.now() + MATCH_REVERIFY_MS);
+        for (let i = 0; i < 20; i++) client.send('match:relay', { data: 'x' });
+        expect(reads).toBe(4);
+        await new Promise((r) => setTimeout(r, 20));
+        expect(client.got('match:error')).toEqual([]);
+        expect(host.got('match:relay')).toHaveLength(320);
+    });
+});
+
+describe('match relay: match:lock', () => {
+    it('only the host may lock; a client, a socket in no match and an unpaired socket get unauthorized', async () => {
+        const host = await connect();
+        const client = await connect();
+        const idle = await connect();
+        const anon = await connect({});
+        await host.request('match:host', { code: 'ABCDEF' });
+        await client.request('match:join', { code: 'ABCDEF' });
+
+        for (const s of [client, idle, anon]) {
+            expect(await s.request('match:lock')).toEqual({ ok: false, error: 'unauthorized' });
+        }
+        // Not locked by any of those: a new device still gets in.
+        const late = await connect();
+        expect((await late.request('match:join', { code: 'ABCDEF' })).ok).toBe(true);
+
+        expect(await host.request('match:lock')).toEqual({ ok: true });
+        expect(await host.request('match:lock', {})).toEqual({ ok: true });
+    });
+
+    it('a locked match refuses a device that never held a seat, and that refusal is not a miss', async () => {
+        const host = await connect();
+        const client = await connect();
+        await host.request('match:host', { code: 'ABCDEF' });
+        await client.request('match:join', { code: 'ABCDEF' });
+        await host.request('match:lock');
+
+        const stranger = await connect();
+        for (let i = 0; i < MATCH_MISS_LIMIT + 2; i++) {
+            expect(await stranger.request('match:join', { code: 'ABCDEF' })).toEqual({ ok: false, error: 'locked' });
+        }
+        expect(host.got('match:peer')).toHaveLength(1);
+        // Still not locked out: a wrong code is answered as a wrong code.
+        expect(await stranger.request('match:join', { code: 'ZZZZZZ' })).toEqual({ ok: false, error: 'no_such_match' });
+        // The device ids the room remembers are never sent to anyone.
+        for (const s of [host, client, stranger]) expect(JSON.stringify(s.sent)).not.toContain('test-device-');
+    });
+
+    it('a device seated before the lock may re-join on a new socket; the lock survives a host resume', async () => {
+        const hostAuth = await pairedAuth();
+        const clientAuth = await pairedAuth();
+        const host = await connect(hostAuth);
+        const client = await connect(clientAuth);
+        await host.request('match:host', { code: 'ABCDEF' });
+        const first = await client.request('match:join', { code: 'ABCDEF' });
+        await host.request('match:lock');
+
+        client.disconnect();
+        const back = await connect(clientAuth);
+        const second = await back.request('match:join', { code: 'ABCDEF' });
+        expect(second.ok).toBe(true);
+        expect(second.peer).not.toBe(first.peer);
+        // Already seated and asking again: the same peer, as before the lock.
+        expect(await back.request('match:join', { code: 'ABCDEF' })).toEqual({ ok: true, peer: second.peer });
+
+        host.disconnect();
+        const host2 = await connect(hostAuth);
+        expect(await host2.request('match:host', { code: 'ABCDEF' })).toEqual({ ok: true, peers: [second.peer] });
+        const stranger = await connect();
+        expect(await stranger.request('match:join', { code: 'ABCDEF' })).toEqual({ ok: false, error: 'locked' });
+    });
+
+    it('a new room on the same code starts unlocked and remembers nobody', async () => {
+        const host = await connect();
+        const client = await connect();
+        await host.request('match:host', { code: 'ABCDEF' });
+        await client.request('match:join', { code: 'ABCDEF' });
+        await host.request('match:lock');
+        await host.request('match:leave');
+
+        const host2 = await connect();
+        await host2.request('match:host', { code: 'ABCDEF' });
+        const stranger = await connect();
+        expect((await stranger.request('match:join', { code: 'ABCDEF' })).ok).toBe(true);
     });
 });
 
@@ -592,6 +781,6 @@ describe('match relay: the existing socket events are untouched', () => {
             emit: () => true,
         };
         relay.register(probe);
-        expect(events.sort()).toEqual(['disconnect', 'match:host', 'match:join', 'match:leave', 'match:relay']);
+        expect(events.sort()).toEqual(['disconnect', 'match:host', 'match:join', 'match:leave', 'match:lock', 'match:relay']);
     });
 });
