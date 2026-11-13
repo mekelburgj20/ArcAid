@@ -6,6 +6,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.243.0] - 2026-11-12 - A Castcade join link you can click, and a cap on paired devices
+
+W96 and W97. Castcade's own join link is `castcade://join/<invite>`, which Discord and most chat apps show as plain
+text. `https://arcaid.app/castcade/join/<invite>` is the same link as a web address: it opens a small page with an
+"Open in Castcade" button and tries the link once by itself.
+
+- **Added:** `GET /castcade/join/<invite>` (`src/api/castcadeJoin.ts`), a public page rendered by the server, outside
+  the React app. `<invite>` is the URL-encoded invite: a six-letter upper-case match code, or an address invite
+  (`castcade:ws://<host>:<port>#<CODE>`). The page shows the button (href `castcade://join/<encoded invite>`), the code
+  or invite in plain text for typing or pasting, and one line on installing Castcade if nothing happens.
+- **Strict:** exactly one path segment, at most 300 characters once decoded, one of the two shapes character for
+  character. Anything else is one constant 404 page ("Not a Castcade invite") with nothing of the request in it.
+- **Private:** no login, no database, no log line. An address invite holds the host's public IP, so the module imports
+  no logger; the response is `no-store`, `noindex`, `Referrer-Policy: no-referrer`, and the service worker leaves
+  `/castcade/` alone instead of caching the navigation. The link preview is the same for every invite ("Join a
+  Castcade match") and never names the host.
+- **Locked down:** a per-response nonce CSP (`default-src 'none'`); the one script reads the link from the button, so
+  nothing of the request is ever inside a script. 60 requests a minute per address (`castcadeJoinLimiter`).
+- **Reserved:** `castcade` joins `RESERVED_ROOM_SLUGS`.
+- **Changed (W97):** an Arcaid account can hold 10 paired Witness devices and pair 5 device ids it has never held in
+  24 hours. Before, there was no cap, and the match relay's wrong-code lockout is per device (ADR 0039), so one account
+  could pair its way past it. New pairings only: a device already on the account re-pairs whatever the counts are, and
+  an account already above 10 keeps every device. The refusal is a 400 `DEVICE_LIMIT` from `GET /api/witness/pair`,
+  given before the pairing code is consumed. An unpaired device taken by another account now dates from that pairing.
+
+Notes: no migration. The only UI change is the service worker (`admin-ui/public/sw.js`). Tests:
+`src/__tests__/castcade-join.test.ts` (20), `src/__tests__/witness-pair-limit.test.ts` (6), one in
+`admin-ui/src/__tests__/sw.test.ts`.
+
 ## [2.242.0] - 2026-11-12 - Castcade matches without port forwarding: the match relay
 
 W8.4, re-scoped by the owner 2026-11-12. A Castcade match is hosted by one player's companion, and until now that

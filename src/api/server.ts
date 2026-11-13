@@ -11,6 +11,7 @@ import { logInfo, logError } from '../utils/logger.js';
 import { authLimiter, generalLimiter, ogPreviewLimiter } from './rateLimit.js';
 import { correlationId } from './correlationId.js';
 import { maybeBuildOgShell, isPreviewBot } from './ogMeta.js';
+import { mountCastcadeJoin } from './castcadeJoin.js';
 
 // Route modules
 import authRouter from './routes/auth.js';
@@ -268,6 +269,10 @@ export function startApiServer(port: number = 3001) {
         req.url = `/backups/${req.params.name}/restore`;
         adminRouter(req, res, next);
     });
+
+    // --- Castcade join page (W96): server-rendered, public, before the SPA so
+    // neither express.static nor the catch-all sees the path. ---
+    mountCastcadeJoin(app);
 
     // --- Serve React Frontend (Production) ---
     const frontendPath = path.join(process.cwd(), 'admin-ui', 'dist');

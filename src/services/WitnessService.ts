@@ -59,6 +59,15 @@ function targetLabel(t: { roomId: string | null; tournamentId: string | null; gl
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 const PAIRING_CODE_LEN = 6;
 const PAIRING_TTL_MS = 10 * 60 * 1000;
+/**
+ * Caps on pairing a device id this account has never held (W97, v2.243.0). The Castcade match relay gives every
+ * paired device its own budget of wrong match codes (ADR 0039), so the number of devices one account can hold
+ * is part of that protection. Both caps test NEW pairings only: a device already on the account re-pairs
+ * (token rotation) whatever the counts are, and existing rows are never touched, so an account that is already
+ * over a cap keeps every device it has.
+ */
+export const MAX_ACTIVE_DEVICES_PER_USER = 10;
+export const MAX_NEW_DEVICES_PER_DAY = 5;
 
 function makeCode(): string {
     const bytes = randomBytes(PAIRING_CODE_LEN);
@@ -149,7 +158,7 @@ export class WitnessTargetError extends Error {
 }
 
 export class WitnessPairError extends Error {
-    readonly code: 'CODE_INVALID' | 'CODE_EXPIRED' | 'CODE_USED' | 'DEVICE_CONFLICT' | 'DEVICE_TYPE_INVALID';
+    readonly code: 'CODE_INVALID' | 'CODE_EXPIRED' | 'CODE_USED' | 'DEVICE_CONFLICT' | 'DEVICE_TYPE_INVALID' | 'DEVICE_LIMIT';
     constructor(code: WitnessPairError['code'], message: string) {
         super(message);
         this.name = 'WitnessPairError';
@@ -247,6 +256,35 @@ export class WitnessService {
             throw new WitnessPairError('DEVICE_CONFLICT', 'This device is already linked to a different Arcaid account');
         }
 
+        // W97 - a device id this account has never held is a NEW pairing and is
+        // capped; a re-pair of one of the account's own devices (live or
+        // unpaired) is not. Refused before the code is consumed, so the player
+        // can unpair a device and use the same code.
+        const own = await db.get<{ n: number }>(
+            `SELECT COUNT(*) AS n FROM witness_devices WHERE atgames_unique_id = ? AND canonical_user_id = ?`,
+            deviceId, row.canonical_user_id,
+        );
+        if (!own || own.n === 0) {
+            const counts = await db.get<{ active: number; recent: number }>(
+                `SELECT COALESCE(SUM(revoked_at IS NULL), 0) AS active,
+                        COALESCE(SUM(paired_at > datetime('now', '-1 day')), 0) AS recent
+                   FROM witness_devices WHERE canonical_user_id = ?`,
+                row.canonical_user_id,
+            );
+            if ((counts?.active ?? 0) >= MAX_ACTIVE_DEVICES_PER_USER) {
+                throw new WitnessPairError(
+                    'DEVICE_LIMIT',
+                    `This Arcaid account already has ${MAX_ACTIVE_DEVICES_PER_USER} paired devices. Unpair one in Account Settings, then pair again.`,
+                );
+            }
+            if ((counts?.recent ?? 0) >= MAX_NEW_DEVICES_PER_DAY) {
+                throw new WitnessPairError(
+                    'DEVICE_LIMIT',
+                    `This Arcaid account has paired ${MAX_NEW_DEVICES_PER_DAY} new devices in the last 24 hours. Try again tomorrow.`,
+                );
+            }
+        }
+
         const token = randomBytes(32).toString('base64url');
         const tokenHash = hashToken(token);
 
@@ -260,6 +298,11 @@ export class WitnessService {
                     atgames_username = excluded.atgames_username,
                     device_type = excluded.device_type,
                     token_hash = excluded.token_hash,
+                    -- W97: an unpaired device taken by ANOTHER account is a new
+                    -- pairing for that account, so it dates from now; the same
+                    -- owner's re-pair keeps its date.
+                    paired_at = CASE WHEN witness_devices.canonical_user_id <> excluded.canonical_user_id
+                                     THEN datetime('now') ELSE witness_devices.paired_at END,
                     revoked_at = NULL`,
                 deviceId, row.canonical_user_id, atgamesUsername || null, deviceType, tokenHash,
             );
