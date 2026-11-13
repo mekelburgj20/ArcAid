@@ -55,6 +55,7 @@ export const SETTING_LABELS: Record<string, string> = {
     CHAT_RESPONSES_CATEGORIES: 'Chat response categories',
     CHAT_RESPONSES_CHANNEL_IDS: 'Chat response channels',
     CHAT_RESPONSES_COOLDOWN_SEC: 'Chat response cooldown (seconds)',
+    CHAT_RESPONSES_SELECTION: 'Chat responses chosen one by one',
     // iScored / AtGames
     ISCORED_ENABLED: 'iScored integration',
     ISCORED_ALLOW_DELETE: 'Allow Arcaid to delete games on iScored',

@@ -6,6 +6,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.244.0] - 2026-11-13 - Choose chat responses one at a time
+
+E22. Room Settings -> Discord -> Arcaid Chat Responses already let a room switch whole kinds of reply on or off
+(Helpful answers, Game callouts, Banter, Easter eggs). Under each kind there is now a "Choose responses" link that
+opens a checklist of every response in it, with its keywords, so a room can keep only "What's active now" and
+nothing else.
+
+- **Added:** a checklist per kind, with Select all, Select none and a keyword filter once a kind has more than eight
+  responses. A live answer shows its name and keywords; a fixed reply shows its keywords and the start of the reply.
+  Each tick saves at once, like the rest of the card. The choices can be made while a kind is off.
+- **Rule:** a kind the room never narrowed answers with everything in it, responses added later included (what every
+  room did before, so nothing changes on deploy). Once the room unticks anything, that kind answers with exactly what
+  is ticked, and a response added to the global list later stays off until ticked. Ticking everything again clears
+  the stored list.
+- **Stored:** `game_room_settings.CHAT_RESPONSES_SELECTION` (`{version:1, only:{kind:[key]}}`), read only through
+  `parseChatSelection`; the settings POST re-serializes it. A response is identified by `calloutEntryKey`
+  (`action:<action>`, or `trigger:<first keyword, lower-cased>`), never its row id: an upload of the global list
+  re-inserts every row, so ids change. Renaming a reply's first keyword makes it a new, unticked response to a room
+  that narrowed that kind.
+- **Gate:** `roomAllowsEntry` (kind on AND ticked) replaces the category filter in `src/discord/callouts.ts`, still
+  applied BEFORE matching, so an unticked response can never win first-match and silence a ticked one. In a server
+  linked to several rooms a reply speaks for the rooms that ticked it.
+- **Added:** `GET /api/rooms/:roomId/admin/chat-responses` (room admins): the globally enabled responses, read-only,
+  with key, kind, keywords and a preview. Responses the super admin switched off are not listed.
+- No migration.
+
 ## [2.243.0] - 2026-11-12 - A Castcade join link you can click, and a cap on paired devices
 
 W96 and W97. Castcade's own join link is `castcade://join/<invite>`, which Discord and most chat apps show as plain
