@@ -115,6 +115,25 @@ export function filterByCategories(
     return entries.filter(e => allowed.has(calloutCategoryOf(e)));
 }
 
+/**
+ * A response's STABLE identity, for a room's one-by-one choices
+ * (`CHAT_RESPONSES_SELECTION`).
+ *
+ * Never the row id: an upload (`CalloutService.replaceAll`) deletes and
+ * re-inserts the whole table, so every id changes and a room's choices would
+ * silently point at nothing. A live answer is its action (`action:time_left`);
+ * a static entry is its FIRST inclusion trigger, lower-cased
+ * (`trigger:medieval madness`). Two rows that share a key are one choice.
+ * Renaming an entry's first trigger makes it a new response to a room that
+ * chose one by one, which reads as not chosen (it fails closed).
+ */
+export function calloutEntryKey(entry: { triggers?: unknown; action?: unknown }): string {
+    if (isCalloutAction(entry.action)) return `action:${entry.action}`;
+    const first = (Array.isArray(entry.triggers) ? entry.triggers : [])
+        .find((t): t is string => typeof t === 'string' && !t.startsWith('!'));
+    return `trigger:${normalizeCalloutText(first ?? '').trim().toLowerCase()}`;
+}
+
 /** Shape of one callout as it appears in the uploaded/exported JSON. */
 export interface CalloutEntry {
     /** DB id — absent for entries that came straight off an upload. */

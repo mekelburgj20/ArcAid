@@ -3,10 +3,17 @@ import { GameRoomSettingsService } from './GameRoomSettingsService.js';
 import { logInfo, logError } from '../utils/logger.js';
 import {
     CALLOUT_CATEGORIES,
+    CalloutAction,
     CalloutCategory,
+    CalloutEntry,
     DEFAULT_ENABLED_CATEGORIES,
+    MAX_CALLOUT_ENTRIES,
+    calloutCategoryOf,
+    calloutEntryKey,
+    isCalloutAction,
     isCalloutCategory,
 } from '../utils/callouts.js';
+import { CalloutService } from './CalloutService.js';
 
 /**
  * Per-room configuration for Arcaid Chat Responses (v2.125.0).
@@ -24,6 +31,16 @@ export const CHAT_RESPONSES_CATEGORIES_KEY = 'CHAT_RESPONSES_CATEGORIES';
 export const CHAT_RESPONSES_CHANNELS_KEY = 'CHAT_RESPONSES_CHANNEL_IDS';
 /** Seconds between non-`help` replies in one channel. Absent = 30. */
 export const CHAT_RESPONSES_COOLDOWN_KEY = 'CHAT_RESPONSES_COOLDOWN_SEC';
+/**
+ * The room's one-by-one choices: `{"version":1,"only":{"help":["action:active_games"]}}`.
+ * A category ABSENT from `only` answers with everything in it, responses added
+ * later included (the behaviour before this key existed). A category PRESENT
+ * answers with exactly the listed `calloutEntryKey`s, so a response the super
+ * admin adds later stays off until the room ticks it. Read only through
+ * `parseChatSelection`; the settings POST re-serializes through
+ * `serializeChatSelection`.
+ */
+export const CHAT_RESPONSES_SELECTION_KEY = 'CHAT_RESPONSES_SELECTION';
 
 /** v2.123.0 keys. Read for ONE release, then deleted by the boot migration. */
 export const LEGACY_CALLOUTS_ENABLED_KEY = 'CALLOUTS_ENABLED';
@@ -37,9 +54,13 @@ export const CHAT_RESPONSE_SETTING_KEYS = [
     CHAT_RESPONSES_CATEGORIES_KEY,
     CHAT_RESPONSES_CHANNELS_KEY,
     CHAT_RESPONSES_COOLDOWN_KEY,
+    CHAT_RESPONSES_SELECTION_KEY,
     LEGACY_CALLOUTS_ENABLED_KEY,
     LEGACY_CALLOUTS_CHANNEL_KEY,
 ];
+
+/** Per category, the only response keys that answer. A missing category = all. */
+export type ChatSelection = Map<CalloutCategory, Set<string>>;
 
 /** One room's resolved configuration. */
 export interface RoomChatResponseConfig {
@@ -48,6 +69,8 @@ export interface RoomChatResponseConfig {
     /** Empty = unrestricted. Never null, so callers test `.length`, not null. */
     channelIds: string[];
     cooldownSec: number;
+    /** One-by-one choices inside an enabled category. Empty map = no narrowing. */
+    only: ChatSelection;
 }
 
 /**
@@ -78,6 +101,103 @@ export function parseCategories(raw: string | undefined): Set<CalloutCategory> {
     return new Set(values);
 }
 
+/** Longest key kept: `trigger:` plus a 200-char trigger, with headroom. */
+const MAX_SELECTION_KEY_LENGTH = 220;
+
+/**
+ * Parses `CHAT_RESPONSES_SELECTION`, tolerating anything: an absent or
+ * unreadable value narrows nothing, which is the behaviour before the key
+ * existed. A category whose list is present but EMPTY is a real answer
+ * ("none of these"), not a fallback.
+ */
+export function parseChatSelection(raw: string | undefined): ChatSelection {
+    const out: ChatSelection = new Map();
+    if (!raw) return out;
+    let parsed: unknown;
+    try { parsed = JSON.parse(raw); } catch { return out; }
+    const only = (parsed as { only?: unknown } | null)?.only;
+    if (typeof only !== 'object' || only === null || Array.isArray(only)) return out;
+    for (const [category, keys] of Object.entries(only as Record<string, unknown>)) {
+        if (!isCalloutCategory(category) || !Array.isArray(keys)) continue;
+        const clean = keys
+            .filter((k): k is string => typeof k === 'string')
+            .map(k => k.trim())
+            .filter(k => k.length > 0 && k.length <= MAX_SELECTION_KEY_LENGTH)
+            .slice(0, MAX_CALLOUT_ENTRIES);
+        out.set(category, new Set(clean));
+    }
+    return out;
+}
+
+/** The stored form. '' (which deletes the row) when nothing is narrowed. */
+export function serializeChatSelection(raw: string | undefined): string {
+    const selection = parseChatSelection(raw);
+    if (selection.size === 0) return '';
+    const only: Partial<Record<CalloutCategory, string[]>> = {};
+    for (const category of CALLOUT_CATEGORIES) {
+        const keys = selection.get(category);
+        if (keys) only[category] = [...keys];
+    }
+    return JSON.stringify({ version: 1, only });
+}
+
+/**
+ * THE one test of whether a room answers with an entry: its category is on,
+ * and the room either never narrowed that category or ticked this response.
+ * Applied BEFORE matching, like the category filter it extends, so a response
+ * a room switched off can never win first-match and silence one it kept.
+ */
+export function roomAllowsEntry(config: RoomChatResponseConfig, entry: CalloutEntry): boolean {
+    if (!config.enabled) return false;
+    const category = calloutCategoryOf(entry);
+    if (!config.categories.has(category)) return false;
+    const only = config.only.get(category);
+    return only === undefined || only.has(calloutEntryKey(entry));
+}
+
+/** One row of the room's checklist. */
+export interface ChatResponseOption {
+    key: string;
+    category: CalloutCategory;
+    /** The live answer it gives; null for a fixed reply. */
+    action: CalloutAction | null;
+    /** The words that set it off (exclusions left out). */
+    triggers: string[];
+    /** The first fixed reply, shortened; null for a live answer with none. */
+    preview: string | null;
+}
+
+const PREVIEW_MAX = 160;
+
+/**
+ * The responses a room can choose between: every globally ENABLED entry, in
+ * match order, rows that share a key folded into one. An entry the super admin
+ * switched off is not offered, since ticking it would do nothing.
+ */
+export async function listChatResponseOptions(): Promise<ChatResponseOption[]> {
+    const entries = await CalloutService.getEnabledCached();
+    const byId = new Map<string, ChatResponseOption>();
+    for (const entry of entries) {
+        const action = isCalloutAction(entry.action) ? entry.action : null;
+        const responses = entry.responses ?? [];
+        if (!action && responses.length === 0) continue;
+        const category = calloutCategoryOf(entry);
+        const key = calloutEntryKey(entry);
+        const triggers = entry.triggers.filter(t => !t.startsWith('!'));
+        const existing = byId.get(`${category}|${key}`);
+        if (existing) {
+            for (const t of triggers) if (!existing.triggers.includes(t)) existing.triggers.push(t);
+            continue;
+        }
+        const first = responses[0] ?? null;
+        byId.set(`${category}|${key}`, {
+            key, category, action, triggers: [...triggers],
+            preview: first && first.length > PREVIEW_MAX ? `${first.slice(0, PREVIEW_MAX)}…` : first,
+        });
+    }
+    return [...byId.values()];
+}
+
 export function parseCooldownSec(raw: string | undefined): number {
     const n = Number(raw);
     if (!Number.isFinite(n) || n < 0) return DEFAULT_COOLDOWN_SEC;
@@ -99,6 +219,7 @@ export function resolveRoomChatConfig(
 ): RoomChatResponseConfig {
     const off: RoomChatResponseConfig = {
         enabled: false, categories: new Set(), channelIds: [], cooldownSec: DEFAULT_COOLDOWN_SEC,
+        only: new Map(),
     };
     if (!bucket) return off;
 
@@ -110,6 +231,7 @@ export function resolveRoomChatConfig(
             categories: parseCategories(bucket[CHAT_RESPONSES_CATEGORIES_KEY]),
             channelIds: parseStringArray(bucket[CHAT_RESPONSES_CHANNELS_KEY]),
             cooldownSec: parseCooldownSec(bucket[CHAT_RESPONSES_COOLDOWN_KEY]),
+            only: parseChatSelection(bucket[CHAT_RESPONSES_SELECTION_KEY]),
         };
     }
 
@@ -120,6 +242,7 @@ export function resolveRoomChatConfig(
         categories: new Set(CALLOUT_CATEGORIES),
         channelIds: legacyChannel ? [legacyChannel] : [],
         cooldownSec: DEFAULT_COOLDOWN_SEC,
+        only: new Map(),
     };
 }
 

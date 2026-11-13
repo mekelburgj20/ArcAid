@@ -13,6 +13,9 @@ import { nextRotationIso } from '../../utils/cronUtils.js';
 import { roomTimezone, resolveTimezone, isValidTimeZone, ROOM_TIMEZONE_KEY } from '../../utils/roomTimezone.js';
 import { DISCORD_COMMAND_POLICY_KEY, serializeCommandPolicy } from '../../utils/discordCommandPolicy.js';
 import { DISCORD_ANNOUNCE_ROUTES_KEY, serializeAnnounceRoutes } from '../../utils/discordAnnounceRoutes.js';
+import {
+    CHAT_RESPONSES_SELECTION_KEY, serializeChatSelection, listChatResponseOptions,
+} from '../../services/ChatResponseSettingsService.js';
 import { DISCORD_SCORE_POSTS_TOP_N_KEY, serializeScorePostsTopN } from '../../utils/discordScorePosts.js';
 import {
     CreateTournamentSchema, UpdateTournamentSchema, ToggleTournamentActiveSchema,
@@ -5119,6 +5122,12 @@ router.post('/:roomId/settings', requireAuth, requireRoomAccess('roomId'), requi
             validationResult.data[DISCORD_ANNOUNCE_ROUTES_KEY] =
                 serializeAnnounceRoutes(validationResult.data[DISCORD_ANNOUNCE_ROUTES_KEY]);
         }
+        // The chat-response checklist, re-serialized through its parser ('' =
+        // nothing narrowed, which removes the row).
+        if (Object.prototype.hasOwnProperty.call(validationResult.data, CHAT_RESPONSES_SELECTION_KEY)) {
+            validationResult.data[CHAT_RESPONSES_SELECTION_KEY] =
+                serializeChatSelection(validationResult.data[CHAT_RESPONSES_SELECTION_KEY]);
+        }
         // v2.225.0 (E13): top-score posts' cutoff, clamped through its parser.
         if (Object.prototype.hasOwnProperty.call(validationResult.data, DISCORD_SCORE_POSTS_TOP_N_KEY)) {
             validationResult.data[DISCORD_SCORE_POSTS_TOP_N_KEY] =
@@ -8027,6 +8036,19 @@ router.get('/:roomId/admin/discord/roles', requireAuth, requireRoomAccess('roomI
         res.json({ roles: client.listGuildRoles(guildId) });
     } catch (error) {
         logError('API Error (GET rooms/:roomId/admin/discord/roles):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// The responses a room admin can tick one by one (Room Settings -> Discord ->
+// Arcaid Chat Responses). The LIST is global and super-admin owned; this is a
+// read-only view of it for room admins: keywords and a preview of the reply,
+// which is what the bot already says in their server.
+router.get('/:roomId/admin/chat-responses', requireAuth, requireRoomAccess('roomId'), async (_req, res) => {
+    try {
+        res.json({ entries: await listChatResponseOptions() });
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/admin/chat-responses):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

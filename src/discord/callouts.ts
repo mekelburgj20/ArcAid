@@ -7,7 +7,6 @@ import {
     CalloutCategory,
     applyCalloutPlaceholders,
     calloutCategoryOf,
-    filterByCategories,
     isCalloutAction,
     matchCallout,
 } from '../utils/callouts.js';
@@ -15,6 +14,7 @@ import {
     CHAT_RESPONSE_SETTING_KEYS,
     RoomChatResponseConfig,
     resolveRoomChatConfig,
+    roomAllowsEntry,
 } from '../services/ChatResponseSettingsService.js';
 import { loadCalloutRooms, renderCalloutAction, roomContextFor } from './calloutActions.js';
 
@@ -110,7 +110,7 @@ export function resetCalloutCooldowns(): void {
  *   5. If that room lists allowed channels, the message must be in one of
  *      them. An empty/absent list accepts any channel the bot can read.
  *
- * The CATEGORY and COOLDOWN checks are deliberately NOT here: they depend on
+ * The CATEGORY, one-by-one SELECTION and COOLDOWN checks are deliberately NOT here: they depend on
  * which entry matched, which isn't known until after the matcher runs.
  *
  * Returns null when nothing may reply.
@@ -248,10 +248,12 @@ export async function handleCalloutMessage(message: CalloutMessageLike): Promise
         const entries = await CalloutService.getEnabledCached();
         if (entries.length === 0) return false;
 
-        // Category filtering happens BEFORE matching, never after: an entry in
-        // a disabled category must not be able to win first-match and silence
-        // the enabled entry sitting behind it in the list.
-        const eligible = filterByCategories(entries, allowed.categories);
+        // Filtering happens BEFORE matching, never after: an entry in a
+        // disabled category, or one the room un-ticked, must not be able to
+        // win first-match and silence the enabled entry behind it in the list.
+        // Eligible = some permitting room answers with it (`roomAllowsEntry`).
+        const permitting = [...allowed.configs.values()];
+        const eligible = entries.filter(e => permitting.some(c => roomAllowsEntry(c, e)));
         if (eligible.length === 0) return false;
 
         const hit = matchCallout(message.content, eligible);
@@ -259,11 +261,13 @@ export async function handleCalloutMessage(message: CalloutMessageLike): Promise
 
         const category = calloutCategoryOf(hit.entry);
 
-        // Narrow to the rooms that enabled THIS category, so a two-room guild
-        // where only one room wants banter answers as that room.
-        const speakingFor = allowed.roomIds.filter(
-            id => allowed.configs.get(id)?.categories.has(category),
-        );
+        // Narrow to the rooms that answer with THIS entry, so a two-room guild
+        // where only one room wants banter (or this one response) answers as
+        // that room.
+        const speakingFor = allowed.roomIds.filter(id => {
+            const config = allowed.configs.get(id);
+            return config !== undefined && roomAllowsEntry(config, hit.entry);
+        });
         if (speakingFor.length === 0) return false;
 
         // Per-channel throttle, fun categories only. The window comes from the

@@ -1053,3 +1053,122 @@ describe('Settings page — Room default theme (v2.132.0)', () => {
     expect(fetchMock.mock.calls.some((c: FetchArgs) => String(c[0]).includes('/me/preferences'))).toBe(false);
   });
 });
+
+/**
+ * The checklist under each kind (CHAT_RESPONSES_SELECTION). Same contract as
+ * the rest of this card: every tick POSTs at once, with no Save press.
+ */
+describe('Settings page — Arcaid Chat Responses, one response at a time', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    localStorage.clear();
+    document.documentElement.className = '';
+    window.HTMLElement.prototype.scrollIntoView = vi.fn();
+  });
+
+  const ENTRIES = [
+    { key: 'action:active_games', category: 'help', action: 'active_games', triggers: ['what is active'], preview: null },
+    { key: 'action:time_left', category: 'help', action: 'time_left', triggers: ['how long left'], preview: null },
+    { key: 'trigger:medieval madness', category: 'callouts', action: null, triggers: ['medieval madness'], preview: 'Troll!' },
+  ];
+
+  function stubWithResponses(settingsResponse: Record<string, string>) {
+    const fetchMock = stubFetch(settingsResponse);
+    const base = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((...args: FetchArgs) => (
+      args[0].includes('/admin/chat-responses')
+        ? Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ entries: ENTRIES }) })
+        : base(...args)
+    ));
+    return fetchMock;
+  }
+
+  const ON = {
+    CHAT_RESPONSES_ENABLED: 'true',
+    CHAT_RESPONSES_CATEGORIES: JSON.stringify(['help', 'callouts']),
+  };
+  const selectionOf = (fetchMock: ReturnType<typeof stubFetch>) =>
+    lastSavePayload(fetchMock)!.CHAT_RESPONSES_SELECTION;
+
+  async function openHelp() {
+    const toggle = await screen.findByTestId('chat-choose-help');
+    fireEvent.click(toggle);
+    return within(screen.getByTestId('chat-responses-help'));
+  }
+
+  it('lists each response with its keywords, all ticked when nothing is stored', async () => {
+    stubWithResponses(ON);
+    renderSettings();
+    await waitForLoaded();
+
+    expect(await screen.findByTestId('chat-choose-help')).toHaveTextContent('all 2 chosen');
+    const list = await openHelp();
+    const boxes = list.getAllByRole('checkbox');
+    expect(boxes).toHaveLength(2);
+    for (const box of boxes) expect(box).toBeChecked();
+    expect(list.getByText('Keywords: what is active')).toBeInTheDocument();
+  });
+
+  it('unticking one response POSTs exactly what is left, with NO Save press', async () => {
+    const fetchMock = stubWithResponses(ON);
+    renderSettings();
+    await waitForLoaded();
+
+    const list = await openHelp();
+    fireEvent.click(list.getByRole('checkbox', { name: /Time left in the round/ }));
+
+    await waitFor(() => expect(lastSavePayload(fetchMock)).not.toBeNull());
+    expect(Object.keys(lastSavePayload(fetchMock)!)).toEqual(['CHAT_RESPONSES_SELECTION']);
+    expect(JSON.parse(selectionOf(fetchMock)))
+      .toEqual({ version: 1, only: { help: ['action:active_games'] } });
+    await waitFor(() => expect(screen.getByTestId('chat-choose-help')).toHaveTextContent('1 of 2 chosen'));
+  });
+
+  it('ticking the last one back clears the stored list', async () => {
+    const fetchMock = stubWithResponses({
+      ...ON,
+      CHAT_RESPONSES_SELECTION: JSON.stringify({ version: 1, only: { help: ['action:active_games'] } }),
+    });
+    renderSettings();
+    await waitForLoaded();
+
+    const list = await openHelp();
+    expect(list.getByRole('checkbox', { name: /Time left in the round/ })).not.toBeChecked();
+    fireEvent.click(list.getByRole('checkbox', { name: /Time left in the round/ }));
+
+    await waitFor(() => expect(lastSavePayload(fetchMock)).not.toBeNull());
+    expect(selectionOf(fetchMock)).toBe('');
+  });
+
+  it('Select none stores an empty list for that kind and leaves the others alone', async () => {
+    const fetchMock = stubWithResponses({
+      ...ON,
+      CHAT_RESPONSES_SELECTION: JSON.stringify({ version: 1, only: { callouts: [] } }),
+    });
+    renderSettings();
+    await waitForLoaded();
+
+    const list = await openHelp();
+    fireEvent.click(list.getByRole('button', { name: 'Select none' }));
+
+    await waitFor(() => expect(lastSavePayload(fetchMock)).not.toBeNull());
+    expect(JSON.parse(selectionOf(fetchMock)))
+      .toEqual({ version: 1, only: { help: [], callouts: [] } });
+  });
+
+  it('keeps a stored key that is not on the list right now', async () => {
+    const fetchMock = stubWithResponses({
+      ...ON,
+      CHAT_RESPONSES_SELECTION: JSON.stringify({ version: 1, only: { help: ['action:pick_status'] } }),
+    });
+    renderSettings();
+    await waitForLoaded();
+
+    const list = await openHelp();
+    fireEvent.click(list.getByRole('checkbox', { name: /What's active now/ }));
+
+    await waitFor(() => expect(lastSavePayload(fetchMock)).not.toBeNull());
+    expect(JSON.parse(selectionOf(fetchMock)))
+      .toEqual({ version: 1, only: { help: ['action:active_games', 'action:pick_status'] } });
+  });
+});

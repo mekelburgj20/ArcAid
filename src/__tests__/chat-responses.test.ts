@@ -22,15 +22,20 @@ import {
     CHAT_RESPONSES_CHANNELS_KEY,
     CHAT_RESPONSES_COOLDOWN_KEY,
     CHAT_RESPONSES_ENABLED_KEY,
+    CHAT_RESPONSES_SELECTION_KEY,
     LEGACY_CALLOUTS_CHANNEL_KEY,
     LEGACY_CALLOUTS_ENABLED_KEY,
     migrateLegacyCalloutSettings,
     parseCategories,
+    parseChatSelection,
     resolveRoomChatConfig,
+    roomAllowsEntry,
+    serializeChatSelection,
 } from '../services/ChatResponseSettingsService.js';
 import {
     CALLOUT_CATEGORIES,
     calloutCategoryOf,
+    calloutEntryKey,
     deriveCalloutCategory,
     filterByCategories,
     validateCalloutEntries,
@@ -974,5 +979,168 @@ describe('GET /:roomId/admin/discord/channels', () => {
         expect((await request(app)
             .get(`/api/rooms/${roomId}/admin/discord/channels`)
             .set('Authorization', `Bearer ${otherRoomToken(otherRoom)}`)).status).toBe(403);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// 8. One-by-one choices (CHAT_RESPONSES_SELECTION)
+// ---------------------------------------------------------------------------
+
+describe('one-by-one response choices', () => {
+    const TWO_CALLOUTS = [
+        { triggers: ['madness'], responses: ['Generic.'], category: 'callouts' as const },
+        { triggers: ['Medieval Madness', '!remake'], responses: ['Troll!'], category: 'callouts' as const },
+        { triggers: ['what is active'], action: 'active_games' as const },
+    ];
+    const only = (map: Record<string, string[]>) => JSON.stringify({ version: 1, only: map });
+
+    beforeEach(async () => {
+        CalloutService.invalidateCache();
+        resetCalloutCooldowns();
+        NotificationService.invalidateChatResponseCache();
+        delete process.env.ENABLE_CALLOUTS;
+        delete process.env.DISCORD_GUILD_ID;
+        await setupTestDb();
+        await CalloutService.replaceAll(TWO_CALLOUTS);
+    });
+
+    it('the key is the action, or the first inclusion trigger lower-cased; never an id', () => {
+        expect(calloutEntryKey({ triggers: ['x'], action: 'active_games' })).toBe('action:active_games');
+        expect(calloutEntryKey({ triggers: ['!remake', 'Medieval Madness'] })).toBe('trigger:medieval madness');
+        expect(calloutEntryKey({ triggers: ['What’s up'] })).toBe("trigger:what's up");
+    });
+
+    it('parse tolerates garbage; serialize drops it and keeps an explicit empty list', () => {
+        expect(parseChatSelection(undefined).size).toBe(0);
+        expect(parseChatSelection('not json').size).toBe(0);
+        expect(serializeChatSelection('not json')).toBe('');
+        expect(serializeChatSelection(JSON.stringify({ only: { nonsense: ['a'] } }))).toBe('');
+        expect(JSON.parse(serializeChatSelection(only({ help: [], callouts: ['trigger:a', 7 as any] }))))
+            .toEqual({ version: 1, only: { help: [], callouts: ['trigger:a'] } });
+    });
+
+    it('a kind that was never narrowed answers with everything in it', async () => {
+        await roomWith('not-narrowed', {
+            [CHAT_RESPONSES_ENABLED_KEY]: 'true',
+            [CHAT_RESPONSES_CATEGORIES_KEY]: JSON.stringify(['callouts']),
+            [CHAT_RESPONSES_SELECTION_KEY]: only({ help: [] }),
+        });
+        const replies: string[] = [];
+        expect(await handleCalloutMessage(message({ replies, content: 'madness' }))).toBe(true);
+        expect(replies).toEqual(['Generic.']);
+    });
+
+    it('an un-ticked response is silent and cannot shadow the ticked one behind it', async () => {
+        await roomWith('narrowed', {
+            [CHAT_RESPONSES_ENABLED_KEY]: 'true',
+            [CHAT_RESPONSES_CATEGORIES_KEY]: JSON.stringify(['callouts']),
+            [CHAT_RESPONSES_SELECTION_KEY]: only({ callouts: ['trigger:medieval madness'] }),
+        });
+
+        const silent: string[] = [];
+        expect(await handleCalloutMessage(message({ replies: silent, content: 'pure madness' }))).toBe(false);
+
+        // "madness" sits FIRST in the list and also matches this message.
+        const replies: string[] = [];
+        expect(await handleCalloutMessage(message({ replies, content: 'medieval madness tonight' }))).toBe(true);
+        expect(replies).toEqual(['Troll!']);
+    });
+
+    it('the choice survives a re-upload of the global list (ids change, keys do not)', async () => {
+        await roomWith('reupload', {
+            [CHAT_RESPONSES_ENABLED_KEY]: 'true',
+            [CHAT_RESPONSES_CATEGORIES_KEY]: JSON.stringify(['callouts']),
+            [CHAT_RESPONSES_SELECTION_KEY]: only({ callouts: ['trigger:medieval madness'] }),
+        });
+        await CalloutService.replaceAll(TWO_CALLOUTS);
+        const replies: string[] = [];
+        expect(await handleCalloutMessage(message({ replies, content: 'medieval madness' }))).toBe(true);
+        expect(await handleCalloutMessage(message({ replies: [], content: 'madness' }))).toBe(false);
+    });
+
+    it('an empty list means none of that kind; a kind that is off stays off whatever is ticked', async () => {
+        await roomWith('none', {
+            [CHAT_RESPONSES_ENABLED_KEY]: 'true',
+            [CHAT_RESPONSES_CATEGORIES_KEY]: JSON.stringify(['callouts']),
+            [CHAT_RESPONSES_SELECTION_KEY]: only({ callouts: [], help: ['action:active_games'] }),
+        });
+        expect(await handleCalloutMessage(message({ replies: [], content: 'medieval madness' }))).toBe(false);
+        expect(await handleCalloutMessage(message({ replies: [], content: 'what is active' }))).toBe(false);
+    });
+
+    it('in a two-room guild, the reply speaks only for the room that ticked it', async () => {
+        const a = await roomWith('pick-a', {
+            [CHAT_RESPONSES_ENABLED_KEY]: 'true',
+            [CHAT_RESPONSES_CATEGORIES_KEY]: JSON.stringify(['callouts']),
+            [CHAT_RESPONSES_SELECTION_KEY]: only({ callouts: ['trigger:madness'] }),
+        });
+        await roomWith('pick-b', {
+            [CHAT_RESPONSES_ENABLED_KEY]: 'true',
+            [CHAT_RESPONSES_CATEGORIES_KEY]: JSON.stringify(['callouts']),
+            [CHAT_RESPONSES_SELECTION_KEY]: only({ callouts: [] }),
+        });
+        const scope = await resolveCalloutScope('guild-1', 'channel-1');
+        const generic = (await CalloutService.getEnabledCached())[0]!;
+        expect(scope!.roomIds.filter(id => roomAllowsEntry(scope!.configs.get(id)!, generic))).toEqual([a]);
+    });
+
+    describe('the room API', () => {
+        const superToken = () => signToken({ userId: 'super', username: 'super', role: 'super_admin' } as any);
+        const otherRoomToken = (id: string) =>
+            signToken({ userId: 'ra', username: 'ra', role: 'room_admin', gameRoomIds: [id] } as any);
+        async function createApp() {
+            const roomsRouter = (await import('../api/routes/rooms.js')).default;
+            const app = express();
+            app.use(express.json());
+            app.use('/api/rooms', roomsRouter);
+            return app;
+        }
+
+        it('GET lists each enabled response once, with its key, keywords and a preview', async () => {
+            const roomId = await createTestRoom('options-room', 'Options');
+            const rows = await CalloutService.list();
+            await CalloutService.update(rows[0]!.id, { enabled: false });
+
+            const res = await request(await createApp())
+                .get(`/api/rooms/${roomId}/admin/chat-responses`)
+                .set('Authorization', `Bearer ${superToken()}`);
+            expect(res.status).toBe(200);
+            expect(res.body.entries).toEqual([
+                {
+                    key: 'trigger:medieval madness', category: 'callouts', action: null,
+                    triggers: ['Medieval Madness'], preview: 'Troll!',
+                },
+                {
+                    key: 'action:active_games', category: 'help', action: 'active_games',
+                    triggers: ['what is active'], preview: null,
+                },
+            ]);
+        });
+
+        it('GET is room-scoped: anonymous 401s, an admin of ANOTHER room 403s', async () => {
+            const roomId = await createTestRoom('options-scoped', 'Scoped');
+            const otherRoom = await createTestRoom('options-other', 'Other');
+            const app = await createApp();
+            expect((await request(app).get(`/api/rooms/${roomId}/admin/chat-responses`)).status).toBe(401);
+            expect((await request(app)
+                .get(`/api/rooms/${roomId}/admin/chat-responses`)
+                .set('Authorization', `Bearer ${otherRoomToken(otherRoom)}`)).status).toBe(403);
+        });
+
+        it('the settings POST stores the parsed form and deletes the row when nothing is narrowed', async () => {
+            const roomId = await createTestRoom('options-save', 'Save');
+            const app = await createApp();
+            const post = (value: string) => request(app)
+                .post(`/api/rooms/${roomId}/settings`)
+                .set('Authorization', `Bearer ${superToken()}`)
+                .send({ [CHAT_RESPONSES_SELECTION_KEY]: value });
+
+            expect((await post(JSON.stringify({ only: { help: ['action:active_games'], bogus: ['x'] } }))).status).toBe(200);
+            expect(JSON.parse((await GameRoomSettingsService.get(roomId, CHAT_RESPONSES_SELECTION_KEY))!))
+                .toEqual({ version: 1, only: { help: ['action:active_games'] } });
+
+            expect((await post('garbage')).status).toBe(200);
+            expect(await GameRoomSettingsService.get(roomId, CHAT_RESPONSES_SELECTION_KEY)).toBeFalsy();
+        });
     });
 });

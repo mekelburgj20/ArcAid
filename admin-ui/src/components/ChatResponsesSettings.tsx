@@ -2,8 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api';
 import { InfoTip } from './Tooltip';
 import {
+  CALLOUT_ACTION_LABELS,
   CALLOUT_CATEGORIES,
   CALLOUT_CATEGORY_LABELS,
+  isCalloutCategory,
+  type CalloutAction,
   type CalloutCategory,
 } from '../lib/callouts';
 
@@ -15,7 +18,15 @@ import {
  * four controls deep with a network fetch of its own, and `Settings.tsx` is a
  * CRLF file where a large inline addition is a large risky diff.
  *
- * The four keys it writes are the ones `ChatResponseSettingsService` reads.
+ * The five keys it writes are the ones `ChatResponseSettingsService` reads.
+ *
+ * Under each kind sits a checklist of its individual responses
+ * (`CHAT_RESPONSES_SELECTION`). A kind the admin never narrowed answers with
+ * everything in it, future additions included, and stores nothing. Once they
+ * untick something the kind stores exactly what is ticked, so a response the
+ * super admin adds later stays off until ticked. Ticking everything again
+ * clears the stored list. Responses are identified by a server-computed
+ * `key`, never a row id (ids change on every upload of the global list).
  *
  * EVERY CONTROL HERE COMMITS ON INTERACTION — it does NOT ride the page's Save
  * bar. That is the one thing about this component you must not "simplify": the
@@ -34,6 +45,10 @@ export const CHAT_RESPONSES_ENABLED_KEY = 'CHAT_RESPONSES_ENABLED';
 export const CHAT_RESPONSES_CATEGORIES_KEY = 'CHAT_RESPONSES_CATEGORIES';
 export const CHAT_RESPONSES_CHANNELS_KEY = 'CHAT_RESPONSES_CHANNEL_IDS';
 export const CHAT_RESPONSES_COOLDOWN_KEY = 'CHAT_RESPONSES_COOLDOWN_SEC';
+export const CHAT_RESPONSES_SELECTION_KEY = 'CHAT_RESPONSES_SELECTION';
+
+/** A checklist filter appears once a kind has more responses than this. */
+const FILTER_THRESHOLD = 8;
 
 /** Mirrors `DEFAULT_ENABLED_CATEGORIES` on the backend. */
 const DEFAULT_CATEGORIES: CalloutCategory[] = ['help', 'callouts'];
@@ -52,6 +67,44 @@ interface GuildChannel {
   id: string;
   name: string;
   parent: string | null;
+}
+
+/** One response, as `GET /rooms/:roomId/admin/chat-responses` returns it. */
+interface ResponseOption {
+  key: string;
+  category: CalloutCategory;
+  action: CalloutAction | null;
+  triggers: string[];
+  preview: string | null;
+}
+
+/** Per kind, the only response keys that answer. A missing kind = all of it. */
+type Selection = Partial<Record<CalloutCategory, string[]>>;
+
+/** Tolerant read of the stored selection; anything unreadable narrows nothing. */
+function parseSelection(raw: string | undefined): Selection {
+  if (!raw) return {};
+  try {
+    const only = (JSON.parse(raw) as { only?: unknown } | null)?.only;
+    if (typeof only !== 'object' || only === null || Array.isArray(only)) return {};
+    const out: Selection = {};
+    for (const [category, keys] of Object.entries(only as Record<string, unknown>)) {
+      if (!isCalloutCategory(category) || !Array.isArray(keys)) continue;
+      out[category] = keys.filter((k): k is string => typeof k === 'string');
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+function optionTitle(option: ResponseOption): string {
+  return option.action ? CALLOUT_ACTION_LABELS[option.action] : option.triggers.join(', ');
+}
+
+function optionDetail(option: ResponseOption): string {
+  if (option.action) return `Keywords: ${option.triggers.join(', ')}`;
+  return option.preview ? `Replies: ${option.preview}` : '';
 }
 
 interface Props {
@@ -104,6 +157,29 @@ export default function ChatResponsesSettings({ roomId, settings, onSaveNow, has
   const [channelsLoading, setChannelsLoading] = useState(false);
   const [manualId, setManualId] = useState('');
 
+  const selection = parseSelection(settings[CHAT_RESPONSES_SELECTION_KEY]);
+  const [options, setOptions] = useState<ResponseOption[]>([]);
+  const [optionsError, setOptionsError] = useState<string | null>(null);
+  const [openCategory, setOpenCategory] = useState<CalloutCategory | null>(null);
+  const [responseFilter, setResponseFilter] = useState('');
+
+  // The global list, for the per-kind checklists. Like the channel list, it is
+  // fetched only once the room is using the feature.
+  useEffect(() => {
+    if (!enabled) return;
+    let cancelled = false;
+    api.get<{ entries: ResponseOption[] }>(`/rooms/${roomId}/admin/chat-responses`)
+      .then(data => {
+        if (cancelled) return;
+        setOptions(data.entries ?? []);
+        setOptionsError(null);
+      })
+      .catch(err => {
+        if (!cancelled) setOptionsError((err as Error).message || 'Could not load the list of responses.');
+      });
+    return () => { cancelled = true; };
+  }, [roomId, enabled]);
+
   // Fetched only once the room is actually using the feature — an admin who
   // never turns it on should not pay for a gateway lookup on every page view.
   useEffect(() => {
@@ -144,6 +220,53 @@ export default function ChatResponsesSettings({ roomId, settings, onSaveNow, has
       ? categories.filter(c => c !== category)
       : [...CALLOUT_CATEGORIES].filter(c => categories.includes(c) || c === category);
     onSaveNow({ [CHAT_RESPONSES_CATEGORIES_KEY]: JSON.stringify(next) });
+  };
+
+  const optionsFor = (category: CalloutCategory) => options.filter(o => o.category === category);
+  const responseOn = (category: CalloutCategory, key: string) => {
+    const only = selection[category];
+    return only === undefined || only.includes(key);
+  };
+
+  const saveSelection = (next: Selection) => {
+    const narrowed = CALLOUT_CATEGORIES.filter(c => next[c] !== undefined);
+    // Nothing narrowed is the ABSENT state; empty string deletes the row.
+    onSaveNow({
+      [CHAT_RESPONSES_SELECTION_KEY]: narrowed.length > 0
+        ? JSON.stringify({ version: 1, only: Object.fromEntries(narrowed.map(c => [c, next[c]])) })
+        : '',
+    });
+  };
+
+  const toggleResponse = (category: CalloutCategory, key: string) => {
+    const known = optionsFor(category).map(o => o.key);
+    const current = selection[category] ?? known;
+    const chosen = current.includes(key) ? current.filter(k => k !== key) : [...current, key];
+    const next: Selection = { ...selection };
+    if (known.every(k => chosen.includes(k))) {
+      // Everything ticked is "all of this kind", which stores nothing.
+      delete next[category];
+    } else {
+      // List order first; a stored key that is not on the list right now (the
+      // super admin switched that response off) is kept, so it comes back
+      // ticked when they switch it on again.
+      next[category] = [
+        ...known.filter(k => chosen.includes(k)),
+        ...chosen.filter(k => !known.includes(k)),
+      ];
+    }
+    saveSelection(next);
+  };
+
+  const setWholeCategory = (category: CalloutCategory, on: boolean) => {
+    const next: Selection = { ...selection };
+    if (on) delete next[category]; else next[category] = [];
+    saveSelection(next);
+  };
+
+  const toggleOpen = (category: CalloutCategory) => {
+    setResponseFilter('');
+    setOpenCategory(prev => (prev === category ? null : category));
   };
 
   const setChannels_ = (next: string[]) => {
@@ -212,7 +335,8 @@ export default function ChatResponsesSettings({ roomId, settings, onSaveNow, has
             When on, the bot replies to ordinary chat in this room&rsquo;s Discord server &mdash;
             answering questions like &ldquo;how long left?&rdquo; and &ldquo;who&rsquo;s
             winning?&rdquo;, and calling out table names. The list of triggers and replies is global
-            and maintained by the super admin; you choose which kinds you want below.
+            and maintained by the super admin; you choose which kinds you want below, and which
+            individual responses inside each kind.
           </p>
         </div>
         <button
@@ -246,8 +370,17 @@ export default function ChatResponsesSettings({ roomId, settings, onSaveNow, has
         <div className="space-y-2">
           {CALLOUT_CATEGORIES.map(category => {
             const on = categories.includes(category);
+            const categoryOptions = optionsFor(category);
+            const chosenCount = categoryOptions.filter(o => responseOn(category, o.key)).length;
+            const open = openCategory === category;
+            const needle = responseFilter.trim().toLowerCase();
+            const visibleOptions = needle
+              ? categoryOptions.filter(o =>
+                  `${optionTitle(o)} ${o.triggers.join(' ')} ${o.preview ?? ''}`.toLowerCase().includes(needle))
+              : categoryOptions;
             return (
-              <div key={category} className="flex items-center justify-between gap-4">
+              <div key={category}>
+              <div className="flex items-center justify-between gap-4">
                 <div className="min-w-0">
                   <p className="text-sm text-primary">{CALLOUT_CATEGORY_LABELS[category]}</p>
                   <p className="text-xs text-muted">{CATEGORY_HELP[category]}</p>
@@ -274,9 +407,90 @@ export default function ChatResponsesSettings({ roomId, settings, onSaveNow, has
                   </span>
                 </button>
               </div>
+
+              {categoryOptions.length > 0 && (
+                <button
+                  onClick={() => toggleOpen(category)}
+                  aria-expanded={open}
+                  data-testid={`chat-choose-${category}`}
+                  className="min-h-[44px] px-0 text-xs text-neon-cyan cursor-pointer border-none bg-transparent text-left"
+                >
+                  {open ? 'Hide responses' : 'Choose responses'}
+                  {' · '}
+                  {chosenCount === categoryOptions.length
+                    ? `all ${categoryOptions.length} chosen`
+                    : `${chosenCount} of ${categoryOptions.length} chosen`}
+                </button>
+              )}
+
+              {open && categoryOptions.length > 0 && (
+                <div className="mb-3" data-testid={`chat-responses-${category}`}>
+                  {!on && (
+                    <p className="text-xs text-muted mb-2">
+                      This kind is off. Your choices are saved and apply once you turn it on.
+                    </p>
+                  )}
+                  {selection[category] !== undefined && (
+                    <p className="text-xs text-muted mb-2">
+                      Only the ticked responses answer. A response added to the list later stays off
+                      until you tick it.
+                    </p>
+                  )}
+                  <div className="flex flex-wrap items-center gap-2 mb-2">
+                    <button
+                      onClick={() => setWholeCategory(category, true)}
+                      className="px-3 min-h-[44px] rounded border border-border text-xs text-muted hover:text-primary cursor-pointer bg-transparent"
+                    >
+                      Select all
+                    </button>
+                    <button
+                      onClick={() => setWholeCategory(category, false)}
+                      className="px-3 min-h-[44px] rounded border border-border text-xs text-muted hover:text-primary cursor-pointer bg-transparent"
+                    >
+                      Select none
+                    </button>
+                    {categoryOptions.length > FILTER_THRESHOLD && (
+                      <input
+                        type="text"
+                        aria-label={`Filter ${CALLOUT_CATEGORY_LABELS[category]}`}
+                        placeholder="Filter by keyword"
+                        value={responseFilter}
+                        onChange={e => setResponseFilter(e.target.value)}
+                        className={`${inputClass} flex-1 min-w-40 min-h-[44px]`}
+                      />
+                    )}
+                  </div>
+                  <div className="max-h-80 overflow-y-auto border border-border rounded divide-y divide-border/40">
+                    {visibleOptions.map(option => (
+                      <label
+                        key={option.key}
+                        className="flex items-start gap-3 min-h-[44px] px-3 py-2 cursor-pointer"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={responseOn(category, option.key)}
+                          onChange={() => toggleResponse(category, option.key)}
+                          className="mt-1 h-4 w-4 shrink-0 accent-neon-cyan cursor-pointer"
+                        />
+                        <span className="min-w-0">
+                          <span className="block text-sm text-primary break-words">{optionTitle(option)}</span>
+                          {optionDetail(option) && (
+                            <span className="block text-xs text-muted break-words">{optionDetail(option)}</span>
+                          )}
+                        </span>
+                      </label>
+                    ))}
+                    {visibleOptions.length === 0 && (
+                      <p className="px-3 py-2 text-xs text-faint">Nothing matches that filter.</p>
+                    )}
+                  </div>
+                </div>
+              )}
+              </div>
             );
           })}
         </div>
+        {optionsError && <p className="text-xs text-neon-magenta mt-2">{optionsError}</p>}
 
         <div className="mt-4">
           <p className="text-xs font-display uppercase tracking-wider text-neon-cyan/70 mb-1 flex items-center">
