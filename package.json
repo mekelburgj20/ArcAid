@@ -13,6 +13,7 @@
     "generate-secrets-key": "tsx scripts/generate-secrets-key.ts",
     "generate-vapid-keys": "tsx scripts/generate-vapid-keys.ts",
     "witness-agent": "tsx scripts/witness-agent.ts",
+    "witness-release": "tsx scripts/witness-release.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "work:check": "node tools/work-board.mjs --check",

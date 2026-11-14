@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, type RequestHandler } from 'express';
 import fs from 'fs';
 import path from 'path';
 import { z } from 'zod';
@@ -2610,6 +2610,140 @@ router.post('/signing-keys/:id/retire', async (req, res) => {
         res.json({ key: { ...key, active: false } });
     } catch (error) {
         logError('API Error (POST /api/admin/signing-keys/:id/retire):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// ─── Arcaid Witness cabinet releases (W100, v2.245.0, ADR 0040) ─────────
+// A release is a cabinet ELF plus its Ed25519 signature, made on the owner's
+// PC (`npm run witness-release -- sign`). The server verifies the signature
+// with the baked public key before storing anything; a new release is a
+// `draft` (offered to nobody) until it is moved to `beta`, then `stable`.
+// Which device is offered what is `WitnessReleaseService.offeredRelease`.
+
+/** The ELF upload: memory storage, one file, 16 MiB. Errors in the route's own vocabulary. */
+const witnessReleaseUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 16 * 1024 * 1024, files: 1, fields: 10, fieldSize: 64 * 1024 },
+});
+const readWitnessReleaseUpload: RequestHandler = (req, res, next) => {
+    witnessReleaseUpload.single('file')(req, res, (err?: unknown) => {
+        if (!err) return next();
+        if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
+            res.status(400).json({ error: 'The build is larger than 16 MiB', code: 'TOO_LARGE' });
+            return;
+        }
+        logError(`API Error (POST /api/admin/witness/releases): upload rejected (${err instanceof multer.MulterError ? err.code : 'parse error'})`);
+        res.status(400).json({ error: 'Upload failed - send the build as the "file" field of a multipart form', code: 'UPLOAD_FAILED' });
+    });
+};
+
+function auditActor(req: { user?: { discordId?: string | null; username?: string | null; localAdminId?: string | null } }): string {
+    return req.user?.discordId || req.user?.username || req.user?.localAdminId || 'admin';
+}
+
+/** GET /api/admin/witness/releases */
+router.get('/witness/releases', async (_req, res) => {
+    try {
+        const { WitnessReleaseService } = await import('../../services/WitnessReleaseService.js');
+        res.json({
+            releases: await WitnessReleaseService.list(),
+            devicesByVersion: await WitnessReleaseService.devicesByVersion(),
+        });
+    } catch (error) {
+        logError('API Error (GET /api/admin/witness/releases):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/** POST /api/admin/witness/releases multipart { file, version, sig, notes? } -> 201 { release } (a draft) */
+router.post('/witness/releases', readWitnessReleaseUpload, async (req, res) => {
+    try {
+        const { WitnessReleaseService, WitnessReleaseError } = await import('../../services/WitnessReleaseService.js');
+        const file = req.file as Express.Multer.File | undefined;
+        if (!file) return res.status(400).json({ error: 'A build file is required', code: 'NOT_ELF' });
+        const body = (req.body ?? {}) as Record<string, unknown>;
+        const actor = auditActor(req);
+        let release;
+        try {
+            release = await WitnessReleaseService.store({
+                version: body.version, elf: file.buffer, sig: body.sig, notes: body.notes, uploadedBy: actor,
+            });
+        } catch (err) {
+            if (err instanceof WitnessReleaseError) return res.status(400).json({ error: err.message, code: err.code });
+            throw err;
+        }
+        try {
+            await AuditService.log({
+                actor, action: 'witness_release.upload', target_type: 'witness_release', target_id: release.version,
+                details: JSON.stringify({ size: release.size, sha256: release.sha256 }),
+                ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+                correlation_id: req.correlationId || '',
+            });
+        } catch {
+            logError(`Witness release ${release.version}: upload not audited`);
+        }
+        res.status(201).json({ release });
+    } catch (error) {
+        logError('API Error (POST /api/admin/witness/releases):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/** PATCH /api/admin/witness/releases/:version { channel?, notes? } -> { release } */
+router.patch('/witness/releases/:version', async (req, res) => {
+    try {
+        const { WitnessReleaseService, WitnessReleaseError } = await import('../../services/WitnessReleaseService.js');
+        const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
+        let result;
+        try {
+            result = await WitnessReleaseService.patch(req.params.version as string, { channel: body.channel, notes: body.notes });
+        } catch (err) {
+            if (err instanceof WitnessReleaseError) return res.status(400).json({ error: err.message, code: err.code });
+            throw err;
+        }
+        if (!result) return res.status(404).json({ error: 'No such release' });
+        if (result.previousChannel !== result.release.channel) {
+            try {
+                await AuditService.log({
+                    actor: auditActor(req), action: 'witness_release.channel', target_type: 'witness_release',
+                    target_id: result.release.version,
+                    details: JSON.stringify({ from: result.previousChannel, to: result.release.channel }),
+                    ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+                    correlation_id: req.correlationId || '',
+                });
+            } catch {
+                logError(`Witness release ${result.release.version}: channel change not audited`);
+            }
+            logInfo(`Witness release ${result.release.version}: ${result.previousChannel} -> ${result.release.channel}`);
+        }
+        res.json({ release: result.release });
+    } catch (error) {
+        logError('API Error (PATCH /api/admin/witness/releases/:version):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/** DELETE /api/admin/witness/releases/:version -> { success: true } (row + file) */
+router.delete('/witness/releases/:version', async (req, res) => {
+    try {
+        const { WitnessReleaseService } = await import('../../services/WitnessReleaseService.js');
+        const removed = await WitnessReleaseService.remove(req.params.version as string);
+        if (!removed) return res.status(404).json({ error: 'No such release' });
+        try {
+            await AuditService.log({
+                actor: auditActor(req), action: 'witness_release.delete', target_type: 'witness_release',
+                target_id: removed.version,
+                details: JSON.stringify({ channel: removed.channel, size: removed.size, sha256: removed.sha256 }),
+                ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+                correlation_id: req.correlationId || '',
+            });
+        } catch {
+            logError(`Witness release ${removed.version}: delete not audited`);
+        }
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (DELETE /api/admin/witness/releases/:version):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

@@ -3720,6 +3720,60 @@ async function doInitDatabase(): Promise<Database> {
                 );
             `);
         } },
+        // W99 + W100 (v2.246.0, ADR 0040) - cabinet log pull and signed self-update.
+        // `witness_log_requests`: one row per player request for a cabinet's logs
+        // (`id` = 32 lowercase hex, sent to the cabinet on its heartbeat).
+        // `status` pending -> ready (tar uploaded to data/witness-logs/<id>.tar) |
+        // failed (the cabinet said why) | expired (15 min, no answer; decided
+        // lazily on read). At most ONE pending row per device (partial unique
+        // index). No FKs: witness_devices rows are never deleted (unpair is a
+        // soft revoke), and an unpair purges the device's rows + files itself.
+        // `witness_app_releases`: one row per uploaded cabinet build; the ELF is
+        // data/witness-releases/<version>/arcaid-witness.elf. `channel` draft
+        // (offered to nobody) | beta (test_builds devices) | stable. `sig` is the
+        // Ed25519 signature (base64) the server verified at upload.
+        // witness_devices: `auto_update` (player switch, default on),
+        // `test_builds` (beta channel, default off), `staged_version` (a build the
+        // cabinet has installed on its stick but is not running yet; heartbeat
+        // `staged=`).
+        { name: '214_witness_logs_and_releases', handler: async (db) => {
+            await db.exec(`
+                CREATE TABLE IF NOT EXISTS witness_log_requests (
+                    id TEXT PRIMARY KEY,
+                    atgames_unique_id TEXT NOT NULL,
+                    canonical_user_id TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    requested_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    ready_at TEXT,
+                    size_bytes INTEGER,
+                    fail_reason TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_witness_log_requests_user ON witness_log_requests(canonical_user_id, requested_at);
+                CREATE INDEX IF NOT EXISTS idx_witness_log_requests_status ON witness_log_requests(status, requested_at);
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_witness_log_requests_one_pending
+                    ON witness_log_requests(atgames_unique_id) WHERE status = 'pending';
+                CREATE TABLE IF NOT EXISTS witness_app_releases (
+                    version TEXT PRIMARY KEY,
+                    channel TEXT NOT NULL DEFAULT 'draft',
+                    size INTEGER NOT NULL,
+                    sha256 TEXT NOT NULL,
+                    sig TEXT NOT NULL,
+                    notes TEXT,
+                    uploaded_by TEXT,
+                    uploaded_at TEXT NOT NULL DEFAULT (datetime('now'))
+                );
+            `);
+            const cols = (await db.all(`PRAGMA table_info(witness_devices)`)) as Array<{ name: string }>;
+            if (!cols.some(c => c.name === 'auto_update')) {
+                await db.exec(`ALTER TABLE witness_devices ADD COLUMN auto_update INTEGER NOT NULL DEFAULT 1`);
+            }
+            if (!cols.some(c => c.name === 'test_builds')) {
+                await db.exec(`ALTER TABLE witness_devices ADD COLUMN test_builds INTEGER NOT NULL DEFAULT 0`);
+            }
+            if (!cols.some(c => c.name === 'staged_version')) {
+                await db.exec(`ALTER TABLE witness_devices ADD COLUMN staged_version TEXT`);
+            }
+        } },
     ];
 
     for (const migration of migrations) {

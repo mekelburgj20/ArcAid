@@ -6,6 +6,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.246.0] - 2026-11-13 - Cabinet logs on request, and cabinets that update themselves
+
+W99, W100 (ADR 0040). Needs Arcaid Witness 1.1.0 on the cabinet; older cabinets ignore both and show a line saying
+what they need.
+
+- **Added, Get logs:** Account Settings -> Arcaid Witness devices -> Get logs. The cabinet sees the request on its
+  next heartbeat (within about 2 minutes, while it is on and the tile has been opened since power-on), packs its own
+  event log, the launcher journal and log and the per-table score files into one archive and uploads it. The player
+  then gets Download logs (a `.tar.gz`) to save and send on. Only that player can list, download or remove it.
+- **Rule:** the cabinet decides what is in the archive. The server sends a request id, never a path. A request
+  nobody answers reads "did not answer" after 15 minutes; a ready bundle is deleted after 7 days; unpairing a device
+  deletes its bundles.
+- **Added, automatic updates:** Super Admin -> Witness releases takes a signed cabinet build (`npm run
+  witness-release -- sign --elf <path> --version <x.y.z>`), which starts as Draft and is moved to Test builds or
+  Everyone. A cabinet is offered the newest build for its channel on its heartbeat, downloads it while no table is
+  running, checks the signature and puts it on the stick; it starts the next time the tile is opened.
+- **Added, per cabinet:** "Update this cabinet automatically" (on by default) and "Get test builds early", with a
+  line saying when a build is waiting or downloaded. A device paired to another account starts from the defaults.
+- **Rule:** a release is refused at upload unless its Ed25519 signature over the version and the file verifies with
+  the key compiled into the cabinet app. The signing key lives on the owner's PC only.
+- **Schema:** migration 214 (`witness_log_requests`, `witness_app_releases`, `witness_devices.auto_update` /
+  `test_builds` / `staged_version`). Files: `data/witness-logs/`, `data/witness-releases/`.
+- **Wire:** heartbeat takes `staged=` and may answer `logs` / `update`; `POST /api/witness/logs`,
+  `GET /api/witness/logs/fail`, `GET /api/witness/app/release`, `GET /api/witness/app/download`.
+
 ## [2.245.0] - 2026-11-13 - Engagement reminders
 
 E23 (Mox, 2026-11-13). Five new opt-in reminders that nudge a room member about a live table. They sit beside the

@@ -119,6 +119,16 @@ export interface WitnessDevice {
     /** W73 - cabinet model code (`HA9920`) and family name (`Legends Ultimate`); null = never said. */
     deviceModel: string | null;
     deviceModelName: string | null;
+    /** W100 - the player's switch: install offered builds automatically (default on). */
+    autoUpdate: boolean;
+    /** W100 - also take `beta` builds (default off). */
+    testBuilds: boolean;
+    /** W100 - a build the cabinet has installed on its stick but is not running yet (heartbeat `staged=`). */
+    stagedVersion: string | null;
+    /** W100 - the build the offer rule gives this device now (`WitnessReleaseService.offeredRelease`), or null. */
+    offeredVersion: string | null;
+    /** W99 - can it send its logs: a cabinet that last reported 1.1.0 or later. */
+    logsSupported: boolean;
 }
 
 /**
@@ -303,6 +313,12 @@ export class WitnessService {
                     -- owner's re-pair keeps its date.
                     paired_at = CASE WHEN witness_devices.canonical_user_id <> excluded.canonical_user_id
                                      THEN datetime('now') ELSE witness_devices.paired_at END,
+                    -- W100: the update switches are the PLAYER's choice, so a
+                    -- device taken by another account starts from the defaults.
+                    auto_update = CASE WHEN witness_devices.canonical_user_id <> excluded.canonical_user_id
+                                       THEN 1 ELSE witness_devices.auto_update END,
+                    test_builds = CASE WHEN witness_devices.canonical_user_id <> excluded.canonical_user_id
+                                       THEN 0 ELSE witness_devices.test_builds END,
                     revoked_at = NULL`,
                 deviceId, row.canonical_user_id, atgamesUsername || null, deviceType, tokenHash,
             );
@@ -880,15 +896,16 @@ export class WitnessService {
      * only "is this a paired, unrevoked device, and whose": the Castcade match
      * relay (W8.4, `src/api/matchRelay.ts`). Trims the id like every other
      * entry point; null for unknown / revoked / wrong token, undifferentiated.
-     * Read-only: it does not touch `last_seen_at`.
+     * Read-only: it does not touch `last_seen_at`. Also the auth of the W99 /
+     * W100 device routes (log upload, release fetch), which need the type.
      */
     static async verifyDevice(
         rawDeviceId: string, token: string,
-    ): Promise<{ deviceId: string; canonicalUserId: string } | null> {
+    ): Promise<{ deviceId: string; canonicalUserId: string; deviceType: WitnessDeviceType } | null> {
         const deviceId = (rawDeviceId || '').trim();
         if (!deviceId || !token) return null;
         const device = await WitnessService.authenticateDevice(deviceId, token);
-        return device ? { deviceId, canonicalUserId: device.canonical_user_id } : null;
+        return device ? { deviceId, canonicalUserId: device.canonical_user_id, deviceType: device.device_type } : null;
     }
 
     private static async touchDevice(deviceId: string): Promise<void> {
@@ -905,8 +922,15 @@ export class WitnessService {
      * is the event check-in lobby, which shows a cabinet that has gone quiet
      * since its check-in as "not responding" — and ONLY for cabinets that have
      * ever sent one, so a pre-1.0.4 cabinet is never read as offline.
+     *
+     * W100: `stagedVersion` is the heartbeat's `staged=` (a build the cabinet
+     * has installed on its stick and will run when the tile is next opened);
+     * see `stampStagedVersion`.
      */
-    static async recordHeartbeat(atgamesUniqueId: string, token: string, appVersion?: unknown, modelInput: DeviceModelInput = {}): Promise<{ canonicalUserId: string } | null> {
+    static async recordHeartbeat(
+        atgamesUniqueId: string, token: string, appVersion?: unknown, modelInput: DeviceModelInput = {},
+        stagedVersion?: unknown,
+    ): Promise<{ canonicalUserId: string } | null> {
         const deviceId = (atgamesUniqueId || '').trim();
         if (!deviceId || !token) return null;
         const device = await WitnessService.authenticateDevice(deviceId, token);
@@ -933,7 +957,62 @@ export class WitnessService {
         }
         await WitnessService.stampAppVersion(deviceId, appVersion);
         await WitnessService.stampDeviceModel(deviceId, modelInput);
+        await WitnessService.stampStagedVersion(deviceId, stagedVersion, appVersion);
         return { canonicalUserId: device.canonical_user_id };
+    }
+
+    /**
+     * W100 - remember the build the cabinet has staged (`staged=` on the
+     * heartbeat). The cabinet sends it only while the build it RUNS is older,
+     * so a heartbeat without it (or with one no newer than its own `v`) clears
+     * the column: the staged build is running now, or there never was one. The
+     * row is written only when the value changes. Best-effort: never fails the
+     * heartbeat.
+     */
+    private static async stampStagedVersion(deviceId: string, rawStaged: unknown, rawRunning: unknown): Promise<void> {
+        try {
+            const staged = parseAppVersion(rawStaged);
+            const running = parseAppVersion(rawRunning);
+            const { compareVersions } = await import('../utils/witnessVersion.js');
+            const value = staged && (!running || compareVersions(staged, running) > 0) ? staged : null;
+            const db = await getDatabase();
+            await db.run(
+                `UPDATE witness_devices SET staged_version = ?
+                  WHERE atgames_unique_id = ? AND staged_version IS NOT ?`,
+                value, deviceId, value,
+            );
+        } catch (err) {
+            logError('Witness: staged version stamp failed (the heartbeat itself succeeded)', err);
+        }
+    }
+
+    /**
+     * W100 - the player's update switches for one of their devices: automatic
+     * updates (`autoUpdate`) and the beta channel (`testBuilds`). An omitted
+     * field is left as it is. Null = not the caller's (unrevoked) device.
+     */
+    static async setUpdatePreferences(
+        canonicalUserId: string, deviceId: string, prefs: { autoUpdate?: boolean; testBuilds?: boolean },
+    ): Promise<WitnessDevice | null> {
+        const db = await getDatabase();
+        const device = await db.get<{ auto_update: number; test_builds: number }>(
+            `SELECT auto_update, test_builds FROM witness_devices
+              WHERE atgames_unique_id = ? AND canonical_user_id = ? AND revoked_at IS NULL`,
+            deviceId, canonicalUserId,
+        );
+        if (!device) return null;
+        const autoUpdate = prefs.autoUpdate === undefined ? (device.auto_update !== 0 ? 1 : 0) : (prefs.autoUpdate ? 1 : 0);
+        const testBuilds = prefs.testBuilds === undefined ? (device.test_builds === 1 ? 1 : 0) : (prefs.testBuilds ? 1 : 0);
+        await db.run(
+            `UPDATE witness_devices SET auto_update = ?, test_builds = ?
+              WHERE atgames_unique_id = ? AND canonical_user_id = ? AND revoked_at IS NULL`,
+            autoUpdate, testBuilds, deviceId, canonicalUserId,
+        );
+        if (autoUpdate !== (device.auto_update !== 0 ? 1 : 0) || testBuilds !== (device.test_builds === 1 ? 1 : 0)) {
+            logInfo(`Witness: update preferences for ${deviceId} set by ${canonicalUserId} (auto=${autoUpdate}, test=${testBuilds})`);
+        }
+        const devices = await WitnessService.listDevices(canonicalUserId);
+        return devices.find(d => d.atgamesUniqueId === deviceId) ?? null;
     }
 
     /**
@@ -1221,12 +1300,14 @@ export class WitnessService {
             target_tournament_id: string | null; tournament_name: string | null;
             global_only: number; global_fallback: number; app_version: string | null; app_version_at: string | null;
             device_model: string | null; device_model_name: string | null;
+            auto_update: number; test_builds: number; staged_version: string | null;
         }>>(
             `SELECT d.atgames_unique_id, d.atgames_username, d.device_type, d.paired_at, d.last_seen_at,
                     d.target_room_id, r.name AS room_name,
                     d.target_tournament_id, t.name AS tournament_name,
                     d.global_only, d.global_fallback, d.app_version, d.app_version_at,
-                    d.device_model, d.device_model_name
+                    d.device_model, d.device_model_name,
+                    d.auto_update, d.test_builds, d.staged_version
                FROM witness_devices d
                LEFT JOIN game_rooms r ON r.id = d.target_room_id
                LEFT JOIN tournaments t ON t.id = d.target_tournament_id
@@ -1234,6 +1315,14 @@ export class WitnessService {
               ORDER BY d.paired_at DESC`,
             canonicalUserId,
         );
+        // W99 / W100 - the offer rule and the logs gate, judged on the build
+        // each device last reported. The releases are read once, and only when
+        // a cabinet is in the list (a desktop is never offered a build).
+        const { offeredRelease, WitnessReleaseService } = await import('./WitnessReleaseService.js');
+        const { compareVersions, logsSupported } = await import('../utils/witnessVersion.js');
+        const releases = rows.some(r => r.device_type === 'atgames')
+            ? await WitnessReleaseService.offerableReleases()
+            : [];
         return rows.map(r => ({
             atgamesUniqueId: r.atgames_unique_id,
             atgamesUsername: r.atgames_username,
@@ -1250,6 +1339,18 @@ export class WitnessService {
             appVersionAt: r.app_version_at,
             deviceModel: r.device_model,
             deviceModelName: r.device_model_name,
+            autoUpdate: r.auto_update !== 0,
+            testBuilds: r.test_builds === 1,
+            // A staged build no newer than the one now running has started: not staged any more.
+            stagedVersion: r.staged_version && (!r.app_version || compareVersions(r.staged_version, r.app_version) > 0)
+                ? r.staged_version : null,
+            offeredVersion: offeredRelease({
+                deviceType: r.device_type,
+                autoUpdate: r.auto_update !== 0,
+                testBuilds: r.test_builds === 1,
+                reportedVersion: r.app_version,
+            }, releases),
+            logsSupported: logsSupported(r.device_type, r.app_version),
         }));
     }
 
@@ -1257,7 +1358,8 @@ export class WitnessService {
      * Unpair a cabinet (soft delete — revoke, so its token stops working and a
      * later re-pair is clean). Self-only: only the owner may revoke, enforced
      * by the WHERE clause. Observations are kept; they are the player's own
-     * history and harmless.
+     * history and harmless. Log bundles are NOT kept (W99, ADR 0040): unpairing
+     * deletes the device's log requests and their files.
      */
     static async revokeDevice(canonicalUserId: string, atgamesUniqueId: string): Promise<boolean> {
         const db = await getDatabase();
@@ -1271,6 +1373,8 @@ export class WitnessService {
         const changed = (res.changes ?? 0) > 0;
         if (changed) {
             logInfo(`Witness: device ${atgamesUniqueId} unpaired by ${canonicalUserId}`);
+            const { WitnessLogService } = await import('./WitnessLogService.js');
+            await WitnessLogService.purgeForDevice(atgamesUniqueId);
             for (const roomId of rooms.length > 0 ? rooms : [null]) {
                 void ActivityLogService.record({
                     roomId, category: 'device', eventType: 'device_unpaired',

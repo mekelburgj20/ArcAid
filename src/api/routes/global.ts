@@ -1,4 +1,6 @@
-import { Router } from 'express';
+import express, { Router, type Request, type RequestHandler } from 'express';
+import { pipeline } from 'stream';
+import zlib from 'zlib';
 import multer from 'multer';
 import { logError, logInfo } from '../../utils/logger.js';
 import { requireAuth, requireDiscordUser, requireSuperAdmin, requireNotBanned, requireNotBannedGlobal, optionalDiscordUser } from '../middleware.js';
@@ -8,6 +10,8 @@ import { parsePlayDevice } from '../../services/VpxScoreIngestService.js';
 import { parseBallPoints } from '../../utils/ballPoints.js';
 import { parseQuitEvidence } from '../../utils/quitEvidence.js';
 import { parseForwardedRecord } from '../../utils/luRecordSignature.js';
+import { isReleaseVersion } from '../../utils/witnessVersion.js';
+import { WITNESS_LOG_MAX_BYTES } from '../../services/WitnessLogService.js';
 import { raSearchHandler, raImportHandler } from '../raCatalogueHandlers.js';
 import { validate } from '../validate.js';
 import { isAllowedImage } from '../uploadValidation.js';
@@ -277,6 +281,116 @@ router.delete('/me/witness/devices/:deviceId', requireDiscordUser, async (req, r
     }
 });
 
+// W100 (v2.245.0, ADR 0040) - the player's update switches for one device:
+// `autoUpdate` (install offered builds, default on) and `testBuilds` (the beta
+// channel, default off). An omitted field is left as it is.
+router.patch('/me/witness/devices/:deviceId/updates', requireDiscordUser, async (req, res) => {
+    try {
+        const body = (req.body && typeof req.body === 'object' && !Array.isArray(req.body)) ? req.body as Record<string, unknown> : {};
+        const prefs: { autoUpdate?: boolean; testBuilds?: boolean } = {};
+        for (const key of ['autoUpdate', 'testBuilds'] as const) {
+            if (body[key] === undefined) continue;
+            if (typeof body[key] !== 'boolean') {
+                return res.status(400).json({ error: `${key} must be true or false`, code: 'INVALID_BODY' });
+            }
+            prefs[key] = body[key] as boolean;
+        }
+        const { WitnessService } = await import('../../services/WitnessService.js');
+        const device = await WitnessService.setUpdatePreferences(req.user!.discordId!, req.params.deviceId as string, prefs);
+        if (!device) return res.status(404).json({ error: 'No such device paired to your account' });
+        res.json({ success: true, device });
+    } catch (error) {
+        logError('API Error (PATCH /api/me/witness/devices/:deviceId/updates):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// ---------------------------------------------------------------------------
+// W99 (v2.245.0, ADR 0040) - cabinet log pull, the player's side. The player
+// asks a cabinet for its logs; the request id rides back on the cabinet's next
+// heartbeat and the cabinet answers with one upload (POST /witness/logs below).
+// The bundle is the player's private data: every route here is keyed on the
+// CALLER as well as the id, so a request id alone opens nothing.
+// ---------------------------------------------------------------------------
+
+router.post('/me/witness/devices/:deviceId/log-requests', writeLimiter, requireDiscordUser, async (req, res) => {
+    try {
+        const { WitnessLogService, WitnessLogError } = await import('../../services/WitnessLogService.js');
+        const userId = req.user!.discordId!;
+        const deviceId = req.params.deviceId as string;
+        try {
+            const { request, created } = await WitnessLogService.request(userId, deviceId);
+            if (created) {
+                // Who asked a cabinet for its logs, and when. Best-effort.
+                try {
+                    await AuditService.log({
+                        actor: userId,
+                        action: 'witness_log_request',
+                        target_type: 'witness_device',
+                        target_id: deviceId,
+                        details: JSON.stringify({ requestId: request.id }),
+                        ip_address: '',
+                        correlation_id: req.correlationId || '',
+                    });
+                } catch {
+                    logError('Witness logs: a log request was not audited');
+                }
+            }
+            res.status(created ? 201 : 200).json({ request });
+        } catch (err) {
+            if (err instanceof WitnessLogError) {
+                return res.status(err.code === 'NOT_FOUND' ? 404 : 409).json({ error: err.message, code: err.code });
+            }
+            throw err;
+        }
+    } catch (error) {
+        logError('API Error (POST /api/me/witness/devices/:deviceId/log-requests):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.get('/me/witness/log-requests', requireDiscordUser, async (req, res) => {
+    try {
+        const { WitnessLogService } = await import('../../services/WitnessLogService.js');
+        res.json({ requests: await WitnessLogService.list(req.user!.discordId!) });
+    } catch (error) {
+        logError('API Error (GET /api/me/witness/log-requests):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// The stored tar, streamed through gzip. 404 unless the caller's and `ready`.
+router.get('/me/witness/log-requests/:id/download', requireDiscordUser, async (req, res) => {
+    try {
+        const { WitnessLogService } = await import('../../services/WitnessLogService.js');
+        const file = await WitnessLogService.openDownload(req.user!.discordId!, req.params.id as string);
+        if (!file) return res.status(404).json({ error: 'No such log bundle' });
+        res.setHeader('Content-Type', 'application/gzip');
+        res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
+        res.setHeader('Cache-Control', 'private, no-store');
+        pipeline(file.stream, zlib.createGzip(), res, (err) => {
+            if (err && (err as NodeJS.ErrnoException).code !== 'ERR_STREAM_PREMATURE_CLOSE') {
+                logError(`API Error (GET /api/me/witness/log-requests/:id/download): stream ${(err as NodeJS.ErrnoException).code ?? 'failed'}`);
+            }
+        });
+    } catch (error) {
+        logError('API Error (GET /api/me/witness/log-requests/:id/download):', error);
+        if (!res.headersSent) res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.delete('/me/witness/log-requests/:id', requireDiscordUser, async (req, res) => {
+    try {
+        const { WitnessLogService } = await import('../../services/WitnessLogService.js');
+        const ok = await WitnessLogService.remove(req.user!.discordId!, req.params.id as string);
+        if (!ok) return res.status(404).json({ error: 'No such log request' });
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (DELETE /api/me/witness/log-requests/:id):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 // ---------------------------------------------------------------------------
 // C2 - My Tables: the viewer's own table inventory. Private to the player;
 // others only ever see a count (GET /global/games/:id/owners).
@@ -495,19 +609,191 @@ router.get('/witness/checkin', witnessIngestLimiter, async (req, res) => {
 // READ-ONLY — a heartbeat runs while tables are played and must never check
 // anyone in. Best-effort: a failure here still answers ok, with no line, and a
 // cabinet keeps the line it has (1.0.4 cabinets ignore the field).
+//
+// W99 / W100 (v2.245.0, ADR 0040): the heartbeat is the only moment the server
+// can speak to a cabinet, so it also carries `logs` (a pending log request id)
+// and `update` (the build the offer rule gives this device, newer than its
+// `v`), and takes `staged=<version>` (a build installed on the stick, not yet
+// running). Both fields are OMITTED when not applicable and best-effort: a
+// failure in either lookup never fails the heartbeat.
 router.get('/witness/heartbeat', witnessIngestLimiter, async (req, res) => {
     try {
         const { WitnessService } = await import('../../services/WitnessService.js');
         const device = typeof req.query.device === 'string' ? req.query.device : '';
         const token = (typeof req.query.token === 'string' && req.query.token)
             || (typeof req.headers['x-witness-token'] === 'string' ? req.headers['x-witness-token'] as string : '');
-        const beat = await WitnessService.recordHeartbeat(device, token, req.query.v, { model: req.query.model, modelName: req.query.model_name });
+        const beat = await WitnessService.recordHeartbeat(
+            device, token, req.query.v, { model: req.query.model, modelName: req.query.model_name }, req.query.staged,
+        );
         if (!beat) return res.status(401).json({ ok: false });
         const sendingTo = await witnessHeartbeatSendingTo(device, beat.canonicalUserId);
-        res.json({ ok: true, sendingTo });
+        const extras = await witnessHeartbeatExtras(device.trim(), req.query.v);
+        res.json({ ok: true, sendingTo, ...extras });
     } catch (error) {
         logError('API Error (GET /api/witness/heartbeat)');
         res.status(500).json({ ok: false });
+    }
+});
+
+/**
+ * W99 / W100 - the heartbeat's optional `logs` and `update` fields. Each
+ * lookup is on its own: a failure in one omits that field and nothing else.
+ * Values are only ever 32 lowercase hex (a request id) and a dotted-numeric
+ * version, so the cabinet's naive `"key":"value"` reader never meets a quote
+ * or a backslash.
+ */
+async function witnessHeartbeatExtras(deviceId: string, rawVersion: unknown): Promise<{ logs?: string; update?: string }> {
+    const out: { logs?: string; update?: string } = {};
+    try {
+        const { WitnessLogService, isLogRequestId } = await import('../../services/WitnessLogService.js');
+        const id = await WitnessLogService.pendingForDevice(deviceId);
+        if (isLogRequestId(id)) out.logs = id;
+    } catch (err) {
+        logError('Witness heartbeat: log request lookup failed (the heartbeat itself succeeded)', err);
+    }
+    try {
+        const { parseAppVersion } = await import('../../services/WitnessService.js');
+        const { WitnessReleaseService } = await import('../../services/WitnessReleaseService.js');
+        const version = await WitnessReleaseService.offeredFor(deviceId, parseAppVersion(rawVersion));
+        if (isReleaseVersion(version)) out.update = version;
+    } catch (err) {
+        logError('Witness heartbeat: update offer lookup failed (the heartbeat itself succeeded)', err);
+    }
+    return out;
+}
+
+/** The device token on a device route: `token` query param, else the `x-witness-token` header. */
+function witnessDeviceToken(req: Request): string {
+    return (typeof req.query.token === 'string' && req.query.token)
+        || (typeof req.headers['x-witness-token'] === 'string' ? req.headers['x-witness-token'] as string : '');
+}
+
+/**
+ * W99 / W100 - device-token auth as a middleware, for the device routes that
+ * must refuse BEFORE anything else happens (the log upload's body is up to
+ * 16 MiB and is not read for an unauthenticated caller). The check is
+ * `WitnessService.verifyDevice`, the one device-token check, and a refusal is
+ * the same bare 401 as on every device route. `label` is the route for the
+ * log line; the query (device id, token) is never logged.
+ */
+function requireWitnessDevice(label: string): RequestHandler {
+    return (req, res, next) => {
+        const device = typeof req.query.device === 'string' ? req.query.device : '';
+        const token = witnessDeviceToken(req);
+        import('../../services/WitnessService.js')
+            .then(({ WitnessService }) => WitnessService.verifyDevice(device, token))
+            .then((auth) => {
+                if (!auth) {
+                    res.status(401).json({ ok: false });
+                    return;
+                }
+                res.locals.witnessDevice = auth;
+                next();
+            })
+            .catch(() => {
+                logError(`API Error (${label})`);
+                if (!res.headersSent) res.status(500).json({ ok: false });
+            });
+    };
+}
+
+interface WitnessDeviceAuth { deviceId: string; canonicalUserId: string; deviceType: 'atgames' | 'desktop' }
+
+/**
+ * The log upload's body: any content type, read raw up to 16 MiB, on THIS
+ * route only (the app-wide `express.json()` only claims `application/json`, so
+ * an `application/x-tar` body reaches here untouched). Parser errors become
+ * the device's own vocabulary: 413 too large, 400 anything else.
+ */
+const witnessLogRawBody = express.raw({ type: () => true, limit: WITNESS_LOG_MAX_BYTES });
+const readWitnessLogBody: RequestHandler = (req, res, next) => {
+    witnessLogRawBody(req, res, (err?: unknown) => {
+        if (!err) return next();
+        const e = err as { status?: number; statusCode?: number; type?: string };
+        if (e.status === 413 || e.statusCode === 413 || e.type === 'entity.too.large') {
+            res.status(413).json({ ok: false, code: 'TOO_LARGE' });
+            return;
+        }
+        res.status(400).json({ ok: false, code: 'NOT_A_TAR' });
+    });
+};
+
+// Device: W99 - the cabinet's answer to a log request: ONE uncompressed POSIX
+// ustar archive of the files on its compiled-in allow-list (never a path the
+// server named), raw body, max 16 MiB.
+//   200 {ok:true} · bare 401 · 404 {code:NO_REQUEST} (unknown id, not pending,
+//   or another device's) · 413 too large · 400 empty or not a tar.
+router.post('/witness/logs', witnessIngestLimiter, requireWitnessDevice('POST /api/witness/logs'), readWitnessLogBody, async (req, res) => {
+    try {
+        const auth = res.locals.witnessDevice as WitnessDeviceAuth;
+        const { WitnessLogService } = await import('../../services/WitnessLogService.js');
+        const requestId = typeof req.query.request === 'string' ? req.query.request : '';
+        const result = await WitnessLogService.upload(
+            auth.deviceId, auth.canonicalUserId, requestId, Buffer.isBuffer(req.body) ? req.body : null,
+        );
+        if (result === 'no_request') return res.status(404).json({ ok: false, code: 'NO_REQUEST' });
+        if (result === 'empty') return res.status(400).json({ ok: false, code: 'EMPTY' });
+        if (result === 'not_a_tar') return res.status(400).json({ ok: false, code: 'NOT_A_TAR' });
+        res.json({ ok: true });
+    } catch (error) {
+        logError(`API Error (POST /api/witness/logs): ${(error as NodeJS.ErrnoException)?.code ?? 'error'}`);
+        res.status(500).json({ ok: false });
+    }
+});
+
+// Device: W99 - the cabinet could not build the archive at all. `reason` is a
+// short lowercase code (no_files, no_space, tar_error, upload_failed); anything
+// else is stored as `unknown`. 200 / bare 401 / 404 NO_REQUEST as above.
+router.get('/witness/logs/fail', witnessIngestLimiter, requireWitnessDevice('GET /api/witness/logs/fail'), async (req, res) => {
+    try {
+        const auth = res.locals.witnessDevice as WitnessDeviceAuth;
+        const { WitnessLogService } = await import('../../services/WitnessLogService.js');
+        const requestId = typeof req.query.request === 'string' ? req.query.request : '';
+        const ok = await WitnessLogService.fail(auth.deviceId, auth.canonicalUserId, requestId, req.query.reason);
+        if (!ok) return res.status(404).json({ ok: false, code: 'NO_REQUEST' });
+        res.json({ ok: true });
+    } catch (error) {
+        logError('API Error (GET /api/witness/logs/fail)');
+        res.status(500).json({ ok: false });
+    }
+});
+
+// Device: W100 - the release the heartbeat offered (`v` = that version), flat
+// strings for the cabinet's naive reader. 404 unless `v` is EXACTLY what the
+// offer rule gives this device now (judged on the build it last reported).
+router.get('/witness/app/release', witnessIngestLimiter, requireWitnessDevice('GET /api/witness/app/release'), async (req, res) => {
+    try {
+        const auth = res.locals.witnessDevice as WitnessDeviceAuth;
+        const { WitnessReleaseService } = await import('../../services/WitnessReleaseService.js');
+        const release = await WitnessReleaseService.releaseOfferedTo(auth.deviceId, req.query.v);
+        if (!release) return res.status(404).json({ ok: false });
+        res.json({ ok: true, version: release.version, size: String(release.size), sig: release.sig });
+    } catch (error) {
+        logError('API Error (GET /api/witness/app/release)');
+        res.status(500).json({ ok: false });
+    }
+});
+
+// Device: W100 - the offered release's ELF bytes. Same 404 rule as above.
+router.get('/witness/app/download', witnessIngestLimiter, requireWitnessDevice('GET /api/witness/app/download'), async (req, res) => {
+    try {
+        const auth = res.locals.witnessDevice as WitnessDeviceAuth;
+        const { WitnessReleaseService } = await import('../../services/WitnessReleaseService.js');
+        const release = await WitnessReleaseService.releaseOfferedTo(auth.deviceId, req.query.v);
+        const file = release ? await WitnessReleaseService.openElf(release) : null;
+        if (!file) return res.status(404).json({ ok: false });
+        res.status(200);
+        res.setHeader('Content-Type', 'application/octet-stream');
+        res.setHeader('Content-Length', String(file.size));
+        res.setHeader('Cache-Control', 'no-store');
+        pipeline(file.stream, res, (err) => {
+            if (err && (err as NodeJS.ErrnoException).code !== 'ERR_STREAM_PREMATURE_CLOSE') {
+                logError(`API Error (GET /api/witness/app/download): stream ${(err as NodeJS.ErrnoException).code ?? 'failed'}`);
+            }
+        });
+    } catch (error) {
+        logError('API Error (GET /api/witness/app/download)');
+        if (!res.headersSent) res.status(500).json({ ok: false });
     }
 });
 
