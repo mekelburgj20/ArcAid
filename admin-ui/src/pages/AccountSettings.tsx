@@ -14,6 +14,7 @@ import GlobalSharingSection from '../components/GlobalSharingSection';
 import WitnessRecentPlays from '../components/WitnessRecentPlays';
 import WitnessBuildChip from '../components/WitnessBuildChip';
 import WitnessModelLabel from '../components/WitnessModelLabel';
+import WitnessDeviceSupport from '../components/WitnessDeviceSupport';
 import { roomFetch } from '../lib/roomFetch';
 
 type AvatarProvider = 'discord' | 'google';
@@ -169,6 +170,12 @@ export default function AccountSettings() {
     appVersionAt?: string | null;
     deviceModel?: string | null;
     deviceModelName?: string | null;
+    /** W99/W100: log pull + self-update state; an older server omits them. */
+    autoUpdate?: boolean;
+    testBuilds?: boolean;
+    stagedVersion?: string | null;
+    offeredVersion?: string | null;
+    logsSupported?: boolean;
   }[]>([]);
   // v2.175.0 (W37) — the one-time "devices now send to all your rooms" notice.
   const [w37NoticeHidden, setW37NoticeHidden] = useState<boolean>(() => {
@@ -1500,6 +1507,7 @@ export default function AccountSettings() {
                           <WitnessBuildChip version={d.appVersion} />
                           <WitnessModelLabel model={d.deviceModel} modelName={d.deviceModelName} className="ml-2" />
                         </p>
+                        <WitnessDeviceSupport device={d} playerToken={playerToken} onChanged={() => void loadWitnessDevices()} />
 
                         {/* Where this device's scores go. v2.175.0 (W37, ADR 0033):
                             room membership is tournament entry, so "All my rooms" is

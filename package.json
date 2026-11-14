@@ -1,6 +1,6 @@
 {
   "name": "arcaid",
-  "version": "2.245.0",
+  "version": "2.246.0",
   "description": "**Arcaid** is a modern, platform-agnostic tournament management system, the successor to TableFlipper. Designed to be server-independent and highly customizable.",
   "main": "dist/index.js",
   "type": "commonjs",
@@ -13,6 +13,7 @@
     "generate-secrets-key": "tsx scripts/generate-secrets-key.ts",
     "generate-vapid-keys": "tsx scripts/generate-vapid-keys.ts",
     "witness-agent": "tsx scripts/witness-agent.ts",
+    "witness-release": "tsx scripts/witness-release.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "work:check": "node tools/work-board.mjs --check",

@@ -45,6 +45,7 @@ const Settings = lazy(() => import('./pages/Settings'));
 const Help = lazy(() => import('./pages/Help'));
 const ActivityLog = lazy(() => import('./pages/ActivityLog'));
 const SuperAdminActivity = lazy(() => import('./pages/SuperAdminActivity'));
+const SuperAdminWitnessReleases = lazy(() => import('./pages/SuperAdminWitnessReleases'));
 const GameStates = lazy(() => import('./pages/GameStates'));
 const Identity = lazy(() => import('./pages/Identity'));
 const JoinRequests = lazy(() => import('./pages/JoinRequests'));
@@ -178,6 +179,7 @@ function App() {
           <Route path="reports" element={<Reports />} />
           <Route path="backups" element={<Backups />} />
           <Route path="activity" element={<SuperAdminActivity />} />
+          <Route path="witness-releases" element={<SuperAdminWitnessReleases />} />
           <Route path="logs" element={<Logs />} />
           <Route path="settings" element={<GlobalSettings />} />
         </Route>
