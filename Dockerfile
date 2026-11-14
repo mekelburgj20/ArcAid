@@ -38,6 +38,10 @@ COPY --from=backend-build /app/dist ./dist
 # Copy built frontend
 COPY --from=frontend-build /app/admin-ui/dist ./admin-ui/dist
 
+# The Witness cabinet kit's static files (W102): WitnessKitService zips them
+# with the stable release ELF. Byte-exact (`-text` in .gitattributes).
+COPY witness-kit ./witness-kit
+
 # Ensure data and backups directories exist
 RUN mkdir -p data backups
 

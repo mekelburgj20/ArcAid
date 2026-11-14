@@ -196,6 +196,80 @@ router.post('/me/witness/pairing-code', requireDiscordUser, async (req, res) => 
     }
 });
 
+// W102 (v2.247.0, ADR 0040 addendum) - pair by phone, the player's side. The
+// cabinet shows a code (and a QR code for /pair/<code>); the player opens it,
+// sees what is being paired, and approves. The pairing itself happens on the
+// cabinet's next poll (GET /witness/pair/poll below). A request another player
+// approved, or that expired or was used, is a 404 like an unknown one.
+router.get('/me/witness/pair-requests/:code', writeLimiter, requireDiscordUser, async (req, res) => {
+    try {
+        const { WitnessService } = await import('../../services/WitnessService.js');
+        const request = await WitnessService.getPairRequest(req.user!.discordId!, req.params.code as string);
+        if (!request) return res.status(404).json({ error: 'PAIR_REQUEST_NOT_FOUND' });
+        res.json(request);
+    } catch (error) {
+        // No params in the line: the code is a pairing secret for ten minutes.
+        logError('API Error (GET /api/me/witness/pair-requests/:code)', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.post('/me/witness/pair-requests/:code/approve', writeLimiter, requireDiscordUser, async (req, res) => {
+    try {
+        const { WitnessService, WitnessPairError } = await import('../../services/WitnessService.js');
+        try {
+            const ok = await WitnessService.approvePairRequest(req.user!.discordId!, req.params.code as string);
+            if (!ok) return res.status(404).json({ error: 'PAIR_REQUEST_NOT_FOUND' });
+            res.json({ ok: true });
+        } catch (err) {
+            if (err instanceof WitnessPairError && (err.code === 'DEVICE_CONFLICT' || err.code === 'DEVICE_LIMIT')) {
+                return res.status(400).json({ error: err.message, code: err.code });
+            }
+            throw err;
+        }
+    } catch (error) {
+        logError('API Error (POST /api/me/witness/pair-requests/:code/approve)', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// W102 - the cabinet install kit: the highest STABLE release's ELF plus the
+// tile's three static files, as one zip (WitnessKitService). Never beta/draft.
+router.get('/me/witness/kit', requireDiscordUser, async (req, res) => {
+    try {
+        const { WitnessKitService } = await import('../../services/WitnessKitService.js');
+        const kit = await WitnessKitService.current();
+        if (!kit) return res.json({ available: false });
+        res.json({
+            available: true,
+            version: kit.release.version,
+            sizeBytes: kit.zip.length,
+            elfSha256: kit.release.sha256,
+            publishedAt: kit.release.uploadedAt,
+        });
+    } catch (error) {
+        logError('API Error (GET /api/me/witness/kit):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.get('/me/witness/kit/download', requireDiscordUser, async (req, res) => {
+    try {
+        const { WitnessKitService } = await import('../../services/WitnessKitService.js');
+        const kit = await WitnessKitService.current();
+        if (!kit) return res.status(404).json({ error: 'KIT_NOT_AVAILABLE' });
+        // The version passed isReleaseVersion (digits and dots only), so it is safe in the header.
+        res.setHeader('Content-Type', 'application/zip');
+        res.setHeader('Content-Disposition', `attachment; filename="arcaid-witness-kit-v${kit.release.version}.zip"`);
+        res.setHeader('Content-Length', String(kit.zip.length));
+        res.setHeader('Cache-Control', 'private, no-store');
+        res.end(kit.zip);
+    } catch (error) {
+        logError('API Error (GET /api/me/witness/kit/download):', error);
+        if (!res.headersSent) res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 router.get('/me/witness/devices', requireDiscordUser, async (req, res) => {
     try {
         const { WitnessService } = await import('../../services/WitnessService.js');
@@ -402,12 +476,43 @@ router.post('/me/witness/log-requests/:id/share', requireDiscordUser, async (req
         } catch {
             logError('Witness logs: a log share was not audited');
         }
+        await alertSupportOfSharedLog(userId, request.deviceId, body.note);
         res.json({ request });
     } catch (error) {
         logError('API Error (POST /api/me/witness/log-requests/:id/share):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
+
+/**
+ * W102 - tell the operator a player sent cabinet logs to Arcaid support
+ * (`OpsAlertService`, inert unless its settings are on). The player is named
+ * through `resolveUserLabels` (then the cabinet's AtGames name), never by a
+ * raw id. Best-effort: never fails the share, and the DM is not awaited.
+ */
+async function alertSupportOfSharedLog(userId: string, deviceId: string, rawNote: unknown): Promise<void> {
+    try {
+        const { resolveUserLabels } = await import('../../services/PlayerProfileResolver.js');
+        const { OpsAlertService } = await import('../../services/OpsAlertService.js');
+        const labels = await resolveUserLabels([userId]);
+        const db = await getDatabase();
+        const device = await db.get<{ device_model_name: string | null; atgames_username: string | null }>(
+            `SELECT device_model_name, atgames_username FROM witness_devices WHERE atgames_unique_id = ?`,
+            deviceId,
+        );
+        const player = labels[userId] || device?.atgames_username || 'A player';
+        const note = typeof rawNote === 'string' ? rawNote.trim().slice(0, 200) : '';
+        const lines = [
+            `Witness logs sent to Arcaid support by ${player}.`,
+            ...(device?.device_model_name ? [`Cabinet: ${device.device_model_name}`] : []),
+            ...(note ? [`Note: ${note}`] : []),
+            'Read it at Super Admin → Witness releases and logs.',
+        ];
+        void OpsAlertService.sendOperatorAlert(lines.join('\n'));
+    } catch {
+        logError('Witness logs: the support alert was not sent');
+    }
+}
 
 router.delete('/me/witness/log-requests/:id', requireDiscordUser, async (req, res) => {
     try {
@@ -497,6 +602,21 @@ router.get('/witness/roms', witnessIngestLimiter, async (req, res) => {
     }
 });
 
+// Public: the tester install-video address the super-admin set (or null).
+// Re-validated on read so a bad stored value never reaches a link.
+router.get('/witness/guide', witnessIngestLimiter, async (_req, res) => {
+    try {
+        const { SettingsService } = await import('../../services/SettingsService.js');
+        const { normalizeInstallVideoUrl, INSTALL_VIDEO_SETTING_KEY } = await import('../../utils/witnessInstallVideo.js');
+        const stored = await SettingsService.get(INSTALL_VIDEO_SETTING_KEY);
+        res.setHeader('Cache-Control', 'public, max-age=60');
+        res.json({ videoUrl: normalizeInstallVideoUrl(stored) ?? null });
+    } catch (error) {
+        logError('API Error (GET /api/witness/guide):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 // Device: redeem a pairing code, receive the device token (returned ONCE).
 // `token` accepted via query only here; the device stores what it gets back.
 // `type` is 'atgames' (default — every cabinet build omits it) or 'desktop'
@@ -520,6 +640,60 @@ router.get('/witness/pair', witnessIngestLimiter, async (req, res) => {
     } catch (error) {
         // Deliberately terse — no query echo, so a logged error never carries a code.
         logError('API Error (GET /api/witness/pair)');
+        res.status(500).json({ ok: false, error: 'Internal Server Error' });
+    }
+});
+
+// W102 (v2.247.0, ADR 0040 addendum) - pair by phone, the cabinet's side.
+// `start` answers a 6-character user code (shown as a QR code) and a poll
+// secret; the cabinet polls every 3 s until a player approved the code
+// (`approved` + the device token, returned ONCE: the pairing is performed at
+// that poll, so the token is never stored), it expired (410, one answer for
+// every unknown / expired / used / wrong-secret case) or the pairing rules
+// refused it (400 `refused`). Every value is a flat string the cabinet's
+// naive extractor can read. Never log the query string (the poll secret).
+router.get('/witness/pair/start', witnessIngestLimiter, async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    try {
+        const { WitnessService, WitnessPairError } = await import('../../services/WitnessService.js');
+        const device = typeof req.query.device === 'string' ? req.query.device : '';
+        const username = typeof req.query.username === 'string' ? req.query.username : null;
+        const type = typeof req.query.type === 'string' && req.query.type !== '' ? req.query.type : 'atgames';
+        try {
+            const { code, poll } = await WitnessService.startPairRequest(device, username, type, { model: req.query.model, modelName: req.query.model_name });
+            return res.json({ ok: true, code, poll });
+        } catch (err) {
+            if (err instanceof WitnessPairError) return res.status(400).json({ ok: false, code: err.code });
+            throw err;
+        }
+    } catch {
+        logError('API Error (GET /api/witness/pair/start)');
+        res.status(500).json({ ok: false, error: 'Internal Server Error' });
+    }
+});
+
+router.get('/witness/pair/poll', witnessIngestLimiter, async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    try {
+        const { WitnessService } = await import('../../services/WitnessService.js');
+        const device = typeof req.query.device === 'string' ? req.query.device : '';
+        const poll = typeof req.query.poll === 'string' ? req.query.poll : '';
+        const result = await WitnessService.pollPairRequest(device, poll);
+        switch (result.status) {
+            case 'pending':
+                return res.json({ ok: true, status: 'pending' });
+            case 'approved':
+                return res.json({
+                    ok: true, status: 'approved', token: result.token,
+                    ...(result.account ? { account: result.account } : {}),
+                });
+            case 'refused':
+                return res.status(400).json({ ok: false, status: 'refused', code: result.code });
+            default:
+                return res.status(410).json({ ok: false, status: 'expired' });
+        }
+    } catch {
+        logError('API Error (GET /api/witness/pair/poll)');
         res.status(500).json({ ok: false, error: 'Internal Server Error' });
     }
 });

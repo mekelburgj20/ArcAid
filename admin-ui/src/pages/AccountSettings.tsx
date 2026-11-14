@@ -15,6 +15,8 @@ import WitnessRecentPlays from '../components/WitnessRecentPlays';
 import WitnessBuildChip from '../components/WitnessBuildChip';
 import WitnessModelLabel from '../components/WitnessModelLabel';
 import WitnessDeviceSupport from '../components/WitnessDeviceSupport';
+import WitnessDeviceHealth from '../components/WitnessDeviceHealth';
+import WitnessKitDownload from '../components/WitnessKitDownload';
 import { roomFetch } from '../lib/roomFetch';
 
 type AvatarProvider = 'discord' | 'google';
@@ -176,6 +178,12 @@ export default function AccountSettings() {
     stagedVersion?: string | null;
     offeredVersion?: string | null;
     logsSupported?: boolean;
+    /** W102: device health; an older server omits them. */
+    heartbeatAt?: string | null;
+    watching?: 'yes' | 'no' | 'unknown';
+    updatePending?: boolean;
+    lastScoreAt?: string | null;
+    lastScoreTable?: string | null;
   }[]>([]);
   // v2.175.0 (W37) — the one-time "devices now send to all your rooms" notice.
   const [w37NoticeHidden, setW37NoticeHidden] = useState<boolean>(() => {
@@ -1415,6 +1423,7 @@ export default function AccountSettings() {
                   so your tournament scores are backed by when you actually started each table. Get a
                   code here, then enter it in Arcaid Witness on the cabinet or in Castcade on the PC.
                 </p>
+                <WitnessKitDownload playerToken={playerToken} />
                 {witnessCode ? (
                   <div className="mb-3 p-3 rounded border border-neon-cyan/40 bg-neon-cyan/10">
                     <p className="text-xs text-muted mb-1">Enter this code in Arcaid Witness on your cabinet, or in Castcade on your PC (expires in ~10 min):</p>
@@ -1444,6 +1453,9 @@ export default function AccountSettings() {
                 >
                   <Link2 size={14} /> {witnessBusy ? 'Working…' : witnessCode ? 'New code' : 'Pair a device'}
                 </button>
+                <p className="mb-3 text-xs text-muted">
+                  On Arcaid Witness 1.1.1 or newer, scan the code on the cabinet screen with your phone instead.
+                </p>
                 {witnessError && (
                   <p className="mb-2 text-xs text-rose-400 inline-flex items-center gap-1"><AlertCircle size={12} /> {witnessError}</p>
                 )}
@@ -1507,6 +1519,7 @@ export default function AccountSettings() {
                           <WitnessBuildChip version={d.appVersion} />
                           <WitnessModelLabel model={d.deviceModel} modelName={d.deviceModelName} className="ml-2" />
                         </p>
+                        <WitnessDeviceHealth device={d} />
                         <WitnessDeviceSupport device={d} playerToken={playerToken} onChanged={() => void loadWitnessDevices()} />
 
                         {/* Where this device's scores go. v2.175.0 (W37, ADR 0033):

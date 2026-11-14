@@ -11,7 +11,19 @@ export type Routing = {
     why: 'global_only' | 'other_room' | 'other_tournament' | 'not_member' | null;
     targetRoomName: string | null;
     targetTournamentName: string | null;
+    /** W102: is the Witness watching now; absent on an older server. */
+    watching?: 'yes' | 'no' | 'unknown';
 };
+
+/** W102 - the words appended to a line whose device is not watching now. */
+export const NOT_WATCHING = 'not watching now';
+export const NOT_WATCHING_CABINET = 'open the tile on the cabinet';
+
+export function withWatching(line: Line, row: { watching?: 'yes' | 'no' | 'unknown'; deviceType?: 'atgames' | 'desktop' }): Line {
+    if (row.watching !== 'no') return line;
+    const tail = row.deviceType === 'desktop' ? NOT_WATCHING : `${NOT_WATCHING}, ${NOT_WATCHING_CABINET}`;
+    return { ...line, text: `${line.text.replace(/\.$/, '')} · ${tail}.` };
+}
 
 export type Device = {
     atgamesUniqueId: string;
@@ -21,6 +33,7 @@ export type Device = {
     targetTournamentId: string | null;
     targetTournamentName: string | null;
     globalOnly?: boolean;
+    watching?: 'yes' | 'no' | 'unknown';
 };
 
 export const CHANGE_HREF = '/account/settings#witness-devices';
@@ -36,7 +49,11 @@ export function roomLines(rows: Routing[]): Line[] {
     const counts = new Map<string, number>();
     for (const r of rows) counts.set(r.deviceType, (counts.get(r.deviceType) ?? 0) + 1);
     const seen = new Map<string, number>();
-    return rows.map(r => {
+    return rows.map(r => withWatching(roomLine(r, seen, counts), r));
+}
+
+function roomLine(r: Routing, seen: Map<string, number>, counts: Map<string, number>): Line {
+    {
         const i = seen.get(r.deviceType) ?? 0;
         seen.set(r.deviceType, i + 1);
         const who = deviceName(r.deviceType, (counts.get(r.deviceType) ?? 0) > 1, i);
@@ -60,14 +77,18 @@ export function roomLines(rows: Routing[]): Line[] {
                         return { key: r.deviceId, ok: false, text: `${who}'s plays will count here once you join this room.`, change: false };
                 }
         }
-    });
+    }
 }
 
 export function homeLines(devices: Device[]): Line[] {
     const counts = new Map<string, number>();
     for (const d of devices) counts.set(d.deviceType ?? 'atgames', (counts.get(d.deviceType ?? 'atgames') ?? 0) + 1);
     const seen = new Map<string, number>();
-    return devices.map(d => {
+    return devices.map(d => withWatching(homeLine(d, seen, counts), d));
+}
+
+function homeLine(d: Device, seen: Map<string, number>, counts: Map<string, number>): Line {
+    {
         const type = d.deviceType ?? 'atgames';
         const i = seen.get(type) ?? 0;
         seen.set(type, i + 1);
@@ -83,7 +104,7 @@ export function homeLines(devices: Device[]): Line[] {
             return { key: d.atgamesUniqueId, ok: false, change: true, text: `${who} sends its scores to the Global Scoreboard only, not to your rooms.` };
         }
         return { key: d.atgamesUniqueId, ok: true, change: false, text: `${who} sends its scores to every room you belong to.` };
-    });
+    }
 }
 
 /**

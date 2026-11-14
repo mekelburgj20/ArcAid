@@ -159,7 +159,9 @@ Loads when you touch the Witness device ingest/verification, VPX score routing, 
 - **A release is refused unless its signature verifies** (`verifyReleaseSignature`: Ed25519 over `"AW1 <version>\n"` + the ELF bytes, public key in `src/utils/witnessReleaseSignature.ts` and compiled into the cabinet app — change both or no cabinet installs anything). The private key is `~/.arcaid-witness/release-signing-key.pem` on the owner's PC and nowhere else; `npm run witness-release -- sign` is its only reader.
 - **`:version` and request ids touch the filesystem** — validate through `isReleaseVersion` (strict triple) and `isLogRequestId` (32 hex) before building a path.
 - **The update switches are the player's:** `auto_update` / `test_builds` reset to the defaults when a device is paired to another account (the pairing upsert).
-- Log pull and updates are not score paths and write no activity row; release changes and log requests write `audit_log` (`witness_release.*`, `witness_log_request`).
+- Log pull and updates are not score paths and write no activity row; release changes and log requests write `audit_log` (`witness_release.*`, `witness_log_request`). A share DMs the operator (`OpsAlertService`; a label, never an id).
+- **Pair by phone (W102, v2.247.0):** `/witness/pair/start` gives a code + poll secret (stored as SHA-256); the player approves; the pairing HAPPENS at the cabinet's `/witness/pair/poll`, so the token is never stored. Both flows share `assertPairingAllowed` (at approve AND poll) and `writePairedDevice`: never copy them. Never log the code, secret or token.
+- **Kit** (`WitnessKitService`): ALWAYS the highest `stable` release + repo-root `witness-kit/`. **Health:** `listDevices` adds `watching` (`HEARTBEAT_STALE_SEC`; `unknown` = never heartbeats); the reminder's cabinet line keys on it.
 
 ## Castcade match relay (v2.242.0, W8.4, ADR 0039)
 

@@ -29,6 +29,12 @@ const RETENTION_MS = 120 * 24 * HOUR;
 const PODIUM_SIZE = 3;
 
 /**
+ * W102 - appended to a reminder DM when the player has a paired cabinet that
+ * sends to the reminder's room but no device sending there is watching now.
+ */
+export const CABINET_WITNESS_LINE = 'Playing on your cabinet? Open the Arcaid Witness tile first so your score posts by itself.';
+
+/**
  * Send priority, highest first.
  *
  * A table's close is taken as the tournament's NEXT rotation. On a tournament
@@ -432,7 +438,8 @@ export class EngagementReminderService {
                 }
             }
 
-            const { message, pushBody, link } = this.compose(kind, won, nowMs);
+            const cabinetLine = await this.cabinetLine(user.canonical, roomId);
+            const { message, pushBody, link } = this.compose(kind, won, nowMs, cabinetLine);
             await NotificationService.notify({
                 userId: user.memberId,
                 type: kind,
@@ -446,9 +453,29 @@ export class EngagementReminderService {
         }
     }
 
+    /**
+     * W102 - the cabinet line, or null. Added when the player has a paired
+     * cabinet that heartbeats (`watching` not `unknown`) and routes to this
+     * room (`routingForRoom`, verdict other than `no`), and none of the
+     * player's devices routing there is watching now. Best-effort: a failure
+     * adds nothing and never stops the DM.
+     */
+    private static async cabinetLine(canonicalUserId: string, roomId: string): Promise<string | null> {
+        try {
+            const { WitnessService } = await import('./WitnessService.js');
+            const routed = (await WitnessService.routingForRoom(canonicalUserId, roomId)).filter(d => d.sendsHere !== 'no');
+            const cabinet = routed.some(d => d.deviceType === 'atgames' && d.watching !== 'unknown');
+            if (!cabinet || routed.some(d => d.watching === 'yes')) return null;
+            return CABINET_WITNESS_LINE;
+        } catch (error) {
+            logError('EngagementReminderService cabinet line error (the reminder is sent without it):', error);
+            return null;
+        }
+    }
+
     // -- copy ---------------------------------------------------------------
 
-    private static compose(kind: NotificationType, items: Item[], nowMs: number): { message: string; pushBody: string; link: string } {
+    private static compose(kind: NotificationType, items: Item[], nowMs: number, extraLine: string | null = null): { message: string; pushBody: string; link: string } {
         const first = items[0]!;
         const link = first.slug ? NotificationService.buildLink(first.slug) : '';
         const tail = link ? `\n${link}` : '';
@@ -522,6 +549,6 @@ export class EngagementReminderService {
                 break;
             }
         }
-        return { message: message + tail, pushBody, link };
+        return { message: message + (extraLine ? `\n${extraLine}` : '') + tail, pushBody, link };
     }
 }

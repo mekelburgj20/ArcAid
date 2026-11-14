@@ -2689,6 +2689,45 @@ router.get('/witness/shared-logs/:id/download', async (req, res) => {
     }
 });
 
+/** GET /api/admin/witness/guide -> { videoUrl } */
+router.get('/witness/guide', async (_req, res) => {
+    try {
+        const { normalizeInstallVideoUrl, INSTALL_VIDEO_SETTING_KEY } = await import('../../utils/witnessInstallVideo.js');
+        res.json({ videoUrl: normalizeInstallVideoUrl(await SettingsService.get(INSTALL_VIDEO_SETTING_KEY)) ?? null });
+    } catch (error) {
+        logError('API Error (GET /api/admin/witness/guide):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/** PUT /api/admin/witness/guide { videoUrl: string | null } -> { videoUrl } | 400 VIDEO_URL_INVALID */
+router.put('/witness/guide', async (req, res) => {
+    try {
+        const { normalizeInstallVideoUrl, INSTALL_VIDEO_SETTING_KEY } = await import('../../utils/witnessInstallVideo.js');
+        const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
+        const videoUrl = normalizeInstallVideoUrl(body.videoUrl);
+        if (videoUrl === undefined) return res.status(400).json({ error: 'VIDEO_URL_INVALID' });
+        const before = normalizeInstallVideoUrl(await SettingsService.get(INSTALL_VIDEO_SETTING_KEY)) ?? null;
+        // saveMany: an empty string deletes the row and the env mirror (clear).
+        await SettingsService.saveMany({ [INSTALL_VIDEO_SETTING_KEY]: videoUrl ?? '' });
+        try {
+            await AuditService.log({
+                actor: auditActor(req), action: 'witness_guide.video_url', target_type: 'witness_guide',
+                target_id: INSTALL_VIDEO_SETTING_KEY,
+                details: JSON.stringify({ from: before, to: videoUrl }),
+                ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+                correlation_id: req.correlationId || '',
+            });
+        } catch {
+            logError('Witness install video: change not audited');
+        }
+        res.json({ videoUrl });
+    } catch (error) {
+        logError('API Error (PUT /api/admin/witness/guide):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 /** GET /api/admin/witness/releases */
 router.get('/witness/releases', async (_req, res) => {
     try {

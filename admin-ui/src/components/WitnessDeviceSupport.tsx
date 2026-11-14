@@ -17,6 +17,8 @@ export type WitnessSupportDevice = {
     stagedVersion?: string | null;
     offeredVersion?: string | null;
     logsSupported?: boolean;
+    /** W102: staged version is above the running one; an older server omits it. */
+    updatePending?: boolean;
 };
 
 type LogRequest = {
@@ -173,7 +175,8 @@ export default function WitnessDeviceSupport({ device, playerToken, onChanged }:
         }
     };
 
-    const staged = device.stagedVersion && device.stagedVersion !== device.appVersion ? device.stagedVersion : null;
+    // W102: the server's `updatePending` (staged is above the running version) wins; an older server omits it.
+    const staged = device.stagedVersion && (device.updatePending ?? device.stagedVersion !== device.appVersion) ? device.stagedVersion : null;
     const offered = !staged && device.offeredVersion ? device.offeredVersion : null;
 
     return (
@@ -279,7 +282,7 @@ export default function WitnessDeviceSupport({ device, playerToken, onChanged }:
                     </label>
                     {staged && (
                         <p className="text-xs text-muted">
-                            Version {staged} is downloaded. It starts the next time you open the Arcaid Witness tile.
+                            Version {staged} is on the stick. Open the tile on the cabinet to finish the update.
                         </p>
                     )}
                     {offered && (
