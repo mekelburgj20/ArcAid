@@ -36,14 +36,15 @@ Cabinets before 1.1.0 ignore them. Neither can fail the heartbeat.
 ### Log pull
 
 - **The player starts it** (Account Settings → Arcaid Witness devices → Get logs) and the player downloads the result.
-  Nobody else can list, download or delete a bundle; the request id alone authorizes nothing. The bundle is the
-  player's to forward.
+  Until the player sends a ready bundle to Arcaid support ("Send to Arcaid support", with an optional note), nobody
+  else can list, download or delete it; the request id alone authorizes nothing. A sent bundle (`shared_at`) can
+  also be listed and downloaded by the super-admin; only the player can remove it.
 - **The cabinet decides what is in it.** The server sends an id, never a path. The app packs a fixed allow-list (its
   own event log, the launcher journal and log, the per-table score files) into one uncompressed tar with a manifest,
   and uploads it with one POST (`/api/witness/logs`, device-token auth, 16 MiB cap). The token file and any
   licence/key/token file are never read.
 - **Lifecycle:** `pending` for 15 minutes, then `expired` (decided on read, no timer); `ready` bundles are deleted
-  after 7 days; unpairing a device deletes its bundles. Files live in `data/witness-logs/`.
+  after 7 days (30 days once sent to support); unpairing a device deletes its bundles. Files live in `data/witness-logs/`.
 - The download is the stored tar streamed through gzip.
 
 ### Self-update
@@ -74,8 +75,8 @@ Cabinets before 1.1.0 ignore them. Neither can fail the heartbeat.
 - **Losing the signing key ends automatic updates** for every installed cabinet until a build with a new public key is
   installed by hand. The key needs a backup outside the PC.
 - Log bundles are play data and may carry a device id and an account name. They are stored for at most 7 days,
-  readable only by their player. A support-side "send to Arcaid" that skips the player's re-send is a separate
-  consent decision and is not built.
+  readable only by their player, or for 30 days by the super-admin once the player chose to send one to Arcaid
+  support. There is no support-side pull that skips that choice.
 - Castcade (the desktop Witness) is out of scope: it has its own updater and log folder.
 - Only the ELF updates. The tile's name, art and controller file still change only by hand.
 

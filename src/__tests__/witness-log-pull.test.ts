@@ -3,6 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import zlib from 'zlib';
+import { randomBytes } from 'crypto';
 import express from 'express';
 import request from 'supertest';
 import { setupTestDb } from './helpers.js';
@@ -77,6 +78,8 @@ async function createApp() {
     const a = express();
     a.use(express.json());
     const { default: globalRouter } = await import('../api/routes/global.js');
+    const { default: adminRouter } = await import('../api/routes/admin.js');
+    a.use('/api/admin', adminRouter);
     a.use('/api', globalRouter);
     return a;
 }
@@ -356,6 +359,175 @@ describe('W99 log pull: which devices can be asked', () => {
     it('an unpaired device cannot be asked', async () => {
         await WitnessService.revokeDevice(USER, CABINET);
         expect((await ask()).status).toBe(404);
+    });
+});
+
+describe('W99 log pull: sending a bundle to Arcaid support', () => {
+    const superAuth = () => ({
+        Authorization: `Bearer ${signToken({ role: 'super_admin', gameRoomIds: [], discordId: 'super-1', username: 'admin' })}`,
+    });
+    const share = (id: string, body: Record<string, unknown> = {}, user = USER) =>
+        request(app).post(`/api/me/witness/log-requests/${id}/share`).set(auth(user)).send(body);
+    // Pending rows are inserted directly: the per-IP write limiter on the ask
+    // route (30/min) is a module-level counter shared by the whole file.
+    const pendingRow = async () => {
+        const id = randomBytes(16).toString('hex');
+        const db = await getDatabase();
+        await db.run(
+            `INSERT INTO witness_log_requests (id, atgames_unique_id, canonical_user_id, status)
+             VALUES (?, ?, ?, 'pending')`,
+            id, CABINET, USER,
+        );
+        return id;
+    };
+    const readyBundle = async () => {
+        const id = await pendingRow();
+        expect((await sendTar(id, TAR)).status).toBe(200);
+        return id;
+    };
+
+    it('share: own and ready only (pending, other player, malformed and unknown ids are 404)', async () => {
+        const pendingId = await pendingRow();
+        expect((await share(pendingId)).status).toBe(404);
+        await sendTar(pendingId, TAR);
+        await pair(OTHER, 'CAB-OTHER');
+        expect((await share(pendingId, {}, OTHER)).status).toBe(404);
+        expect((await request(app).post(`/api/me/witness/log-requests/${pendingId}/share`).send({})).status).toBe(401);
+        for (const bad of ['0'.repeat(32), 'x', pendingId.toUpperCase(), '..%2F..%2Fx']) {
+            expect((await share(bad)).status).toBe(404);
+        }
+        const db = await getDatabase();
+        expect((await db.get<{ shared_at: string | null }>(
+            `SELECT shared_at FROM witness_log_requests WHERE id = ?`, pendingId,
+        ))!.shared_at).toBeNull();
+        expect((await share(pendingId)).status).toBe(200);
+    });
+
+    it('share is idempotent, keeps the first sharedAt, trims and caps the note, audits, and keeps 30 days', async () => {
+        const id = await readyBundle();
+        let res = await request(app).get('/api/me/witness/log-requests').set(auth());
+        expect(res.body.requests[0].sharedAt).toBeNull();
+
+        res = await share(id, { note: '  scores stopped syncing  ' });
+        expect(res.status).toBe(200);
+        const first = res.body.request;
+        expect(first.sharedAt).toMatch(/Z$/);
+        expect(Date.parse(first.expiresAt) - Date.parse(first.sharedAt)).toBe(30 * 86_400_000);
+
+        const db = await getDatabase();
+        expect((await db.get<{ shared_note: string }>(`SELECT shared_note FROM witness_log_requests WHERE id = ?`, id))!.shared_note)
+            .toBe('scores stopped syncing');
+        // Pretend the first share was an hour ago, then share again with a long note.
+        await db.run(`UPDATE witness_log_requests SET shared_at = datetime('now', '-1 hour') WHERE id = ?`, id);
+        const before = (await db.get<{ shared_at: string }>(`SELECT shared_at FROM witness_log_requests WHERE id = ?`, id))!.shared_at;
+        res = await share(id, { note: 'n'.repeat(900) });
+        expect(res.status).toBe(200);
+        const row = (await db.get<{ shared_at: string; shared_note: string }>(
+            `SELECT shared_at, shared_note FROM witness_log_requests WHERE id = ?`, id,
+        ))!;
+        expect(row.shared_at).toBe(before);
+        expect(row.shared_note).toHaveLength(500);
+        expect((await db.get<{ n: number }>(
+            `SELECT COUNT(*) AS n FROM audit_log WHERE action = 'witness_log_share' AND target_id = ?`, CABINET,
+        ))!.n).toBe(2);
+
+        // 8 days after it arrived but only just sent: still kept. 31 days after sending: gone.
+        await db.run(`UPDATE witness_log_requests SET ready_at = datetime('now', '-8 days') WHERE id = ?`, id);
+        expect((await request(app).get('/api/me/witness/log-requests').set(auth())).body.requests).toHaveLength(1);
+        expect(fs.existsSync(fileFor(id))).toBe(true);
+        await db.run(`UPDATE witness_log_requests SET shared_at = datetime('now', '-31 days') WHERE id = ?`, id);
+        expect((await request(app).get('/api/me/witness/log-requests').set(auth())).body.requests).toEqual([]);
+        expect(fs.existsSync(fileFor(id))).toBe(false);
+    });
+
+    it('admin list shows a resolved label (never an id), newest sent first, and nothing unshared', async () => {
+        const db = await getDatabase();
+        await db.run(`INSERT INTO user_profiles (discord_user_id, display_name) VALUES (?, ?)`, USER, 'Pinball Pat');
+        await db.run(`UPDATE witness_devices SET device_model_name = 'HA9920' WHERE atgames_unique_id = ?`, CABINET);
+        const unshared = await readyBundle();
+        const first = await readyBundle();
+        await share(first, { note: 'hello' });
+        const second = await readyBundle();
+        await share(second);
+        await db.run(`UPDATE witness_log_requests SET shared_at = datetime('now', '-2 hours') WHERE id = ?`, first);
+
+        expect((await request(app).get('/api/admin/witness/shared-logs')).status).toBe(401);
+        expect((await request(app).get('/api/admin/witness/shared-logs').set(auth())).status).toBe(403);
+        const res = await request(app).get('/api/admin/witness/shared-logs').set(superAuth());
+        expect(res.status).toBe(200);
+        const logs = res.body.logs as Array<Record<string, unknown>>;
+        expect(logs.map(l => l.id)).toEqual([second, first]);
+        expect(logs.some(l => l.id === unshared)).toBe(false);
+        expect(logs[1]).toMatchObject({
+            playerName: 'Pinball Pat', deviceModelName: 'HA9920', appVersion: '1.1.0',
+            deviceTail: CABINET.slice(-6), sizeBytes: TAR.length, note: 'hello',
+        });
+        expect(logs[0]!.note).toBeNull();
+        expect(JSON.stringify(res.body)).not.toContain(USER);
+        expect(typeof logs[0]!.sharedAt).toBe('string');
+        expect(typeof logs[0]!.expiresAt).toBe('string');
+    });
+
+    it('with no profile the name falls back to the device username, else "Unknown player"', async () => {
+        const db = await getDatabase();
+        const id = await readyBundle();
+        await share(id);
+        await db.run(`UPDATE witness_devices SET atgames_username = 'cab_user' WHERE atgames_unique_id = ?`, CABINET);
+        let res = await request(app).get('/api/admin/witness/shared-logs').set(superAuth());
+        expect(res.body.logs[0].playerName).toBe('cab_user');
+        await db.run(`UPDATE witness_devices SET atgames_username = NULL WHERE atgames_unique_id = ?`, CABINET);
+        res = await request(app).get('/api/admin/witness/shared-logs').set(superAuth());
+        expect(res.body.logs[0].playerName).toBe('Unknown player');
+    });
+
+    it('admin download works for a shared bundle (audited) and is 404 for an unshared one', async () => {
+        const id = await readyBundle();
+        const url = `/api/admin/witness/shared-logs/${id}/download`;
+
+        let res = await request(app).get(url).set(superAuth());
+        expect(res.status).toBe(404);
+        expect(await request(app).get(url).set(auth()).then(r => r.status)).toBe(403);
+        expect((await request(app).get(url)).status).toBe(401);
+
+        await share(id);
+        res = await request(app).get(url).set(superAuth()).buffer(true).parse(binary);
+        expect(res.status).toBe(200);
+        expect(res.headers['content-type']).toBe('application/gzip');
+        expect(res.headers['content-disposition']).toMatch(/^attachment; filename="arcaid-witness-logs-\d{8}-\d{4}\.tar\.gz"$/);
+        expect(zlib.gunzipSync(res.body as Buffer).equals(TAR)).toBe(true);
+        const db = await getDatabase();
+        expect((await db.get<{ n: number }>(
+            `SELECT COUNT(*) AS n FROM audit_log WHERE action = 'witness_log_admin_download' AND target_id = ?`, id,
+        ))!.n).toBe(1);
+
+        for (const bad of ['x', '0'.repeat(32), '..%2F..%2Farcaid.db']) {
+            expect((await request(app).get(`/api/admin/witness/shared-logs/${bad}/download`).set(superAuth())).status).toBe(404);
+        }
+    });
+
+    it('a pending request is not shareable or admin-readable even if a share is forced', async () => {
+        const id = await pendingRow();
+        const db = await getDatabase();
+        await db.run(`UPDATE witness_log_requests SET shared_at = datetime('now') WHERE id = ?`, id);
+        expect((await request(app).get(`/api/admin/witness/shared-logs/${id}/download`).set(superAuth())).status).toBe(404);
+        expect((await request(app).get('/api/admin/witness/shared-logs').set(superAuth())).body.logs).toEqual([]);
+    });
+
+    it('the player\'s Remove deletes the shared copy (row and file) for the admin too', async () => {
+        const id = await readyBundle();
+        await share(id);
+        expect((await request(app).delete(`/api/me/witness/log-requests/${id}`).set(auth())).status).toBe(200);
+        expect(fs.existsSync(fileFor(id))).toBe(false);
+        expect((await request(app).get('/api/admin/witness/shared-logs').set(superAuth())).body.logs).toEqual([]);
+        expect((await request(app).get(`/api/admin/witness/shared-logs/${id}/download`).set(superAuth())).status).toBe(404);
+    });
+
+    it('unpairing the device purges a shared bundle', async () => {
+        const id = await readyBundle();
+        await share(id);
+        await WitnessService.revokeDevice(USER, CABINET);
+        expect(fs.existsSync(fileFor(id))).toBe(false);
+        expect((await request(app).get('/api/admin/witness/shared-logs').set(superAuth())).body.logs).toEqual([]);
     });
 });
 

@@ -61,7 +61,32 @@ describe('WitnessDeviceSupport', () => {
         renderIt(DEV);
         expect(await screen.findByRole('button', { name: /Download logs/ })).toBeTruthy();
         expect(screen.getByText(/2 KB/)).toBeTruthy();
-        expect(screen.getByText(/Save the file, then send it to Arcaid support/)).toBeTruthy();
+        expect(screen.getByRole('button', { name: /Send to Arcaid support/ })).toBeTruthy();
+        expect(screen.getByText(/Sends this cabinet's Witness log and VPX play records to the Arcaid team/)).toBeTruthy();
+    });
+
+    it('Send to Arcaid support POSTs the share and then shows the sent line without the button', async () => {
+        const ready = req('ready', { sizeBytes: 2048, readyAt: '2026-11-13T10:05:00Z' });
+        const fn = stubFetch([ready], (url, init) => {
+            if (url === '/api/me/witness/log-requests/r1/share' && init?.method === 'POST') {
+                return { ok: true, status: 200, json: () => Promise.resolve({ request: { ...ready, sharedAt: '2026-11-14T12:00:00Z' } }) };
+            }
+            return null;
+        });
+        renderIt(DEV);
+        fireEvent.click(await screen.findByRole('button', { name: /Send to Arcaid support/ }));
+        await screen.findByText(/Sent to Arcaid support on/);
+        expect(screen.queryByRole('button', { name: /Send to Arcaid support/ })).toBeNull();
+        expect(screen.getByRole('button', { name: /Download logs/ })).toBeTruthy();
+        expect(screen.getByRole('button', { name: /Remove logs/ })).toBeTruthy();
+        expect(fn.mock.calls.some(c => c[0] === '/api/me/witness/log-requests/r1/share')).toBe(true);
+    });
+
+    it('an already shared request loads with the sent line', async () => {
+        stubFetch([req('ready', { sizeBytes: 2048, sharedAt: '2026-11-14T12:00:00Z' })]);
+        renderIt(DEV);
+        expect(await screen.findByText(/Sent to Arcaid support on/)).toBeTruthy();
+        expect(screen.queryByRole('button', { name: /Send to Arcaid support/ })).toBeNull();
     });
 
     it('expired and failed requests explain themselves', async () => {

@@ -18,6 +18,10 @@ what they need.
 - **Rule:** the cabinet decides what is in the archive. The server sends a request id, never a path. A request
   nobody answers reads "did not answer" after 15 minutes; a ready bundle is deleted after 7 days; unpairing a device
   deletes its bundles.
+- **Added, Send to Arcaid support:** a ready bundle now has a Send to Arcaid support button (it still can be
+  downloaded or removed). Once sent, the super-admin finds it under Super Admin -> Witness releases and logs -> Logs
+  players sent (player, cabinet model, Witness version, note, Download) and it is kept 30 days from sending instead of
+  7. An unsent bundle stays unreadable to everyone but its player.
 - **Added, automatic updates:** Super Admin -> Witness releases takes a signed cabinet build (`npm run
   witness-release -- sign --elf <path> --version <x.y.z>`), which starts as Draft and is moved to Test builds or
   Everyone. A cabinet is offered the newest build for its channel on its heartbeat, downloads it while no table is

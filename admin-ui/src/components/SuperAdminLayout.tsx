@@ -76,7 +76,7 @@ export default function SuperAdminLayout() {
     { path: '/admin/reports', label: 'Reports', icon: <Flag size={18} />, badge: reportsPendingCount },
     { path: '/admin/backups', label: 'Backups', icon: <HardDrive size={18} /> },
     { path: '/admin/activity', label: 'Activity', icon: <ListChecks size={18} /> },
-    { path: '/admin/witness-releases', label: 'Witness releases', icon: <Cpu size={18} /> },
+    { path: '/admin/witness-releases', label: 'Witness releases and logs', icon: <Cpu size={18} /> },
     { path: '/admin/logs', label: 'Logs', icon: <Activity size={18} /> },
     { path: '/admin/settings', label: 'Global Settings', icon: <SettingsIcon size={18} /> },
   ];

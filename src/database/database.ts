@@ -3746,7 +3746,9 @@ async function doInitDatabase(): Promise<Database> {
                     requested_at TEXT NOT NULL DEFAULT (datetime('now')),
                     ready_at TEXT,
                     size_bytes INTEGER,
-                    fail_reason TEXT
+                    fail_reason TEXT,
+                    shared_at TEXT,
+                    shared_note TEXT
                 );
                 CREATE INDEX IF NOT EXISTS idx_witness_log_requests_user ON witness_log_requests(canonical_user_id, requested_at);
                 CREATE INDEX IF NOT EXISTS idx_witness_log_requests_status ON witness_log_requests(status, requested_at);

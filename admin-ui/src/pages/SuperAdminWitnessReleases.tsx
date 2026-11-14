@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api, ApiError } from '../lib/api';
+import { api, ApiError, getToken } from '../lib/api';
 
 /**
- * Super-admin -> Witness releases (W100): the signed Arcaid Witness cabinet
+ * Super-admin -> Witness releases and logs (W99/W100): the logs players chose
+ * to send to Arcaid support, then the signed Arcaid Witness cabinet
  * builds the server can offer, which channel each is on, and how many
  * cabinets run each version. A new release starts as Draft (offered to nobody).
  */
@@ -11,6 +12,10 @@ type Channel = 'draft' | 'beta' | 'stable';
 type Release = {
   version: string; channel: Channel; size: number; sha256: string;
   notes: string | null; uploadedAt: string;
+};
+type SharedLog = {
+  id: string; playerName: string; deviceModelName: string | null; appVersion: string | null;
+  deviceTail: string; sharedAt: string; readyAt: string; sizeBytes: number; note: string | null; expiresAt: string;
 };
 type ReleasesResponse = {
   releases: Release[];
@@ -50,6 +55,8 @@ export default function SuperAdminWitnessReleases() {
   const [notes, setNotes] = useState('');
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [logs, setLogs] = useState<SharedLog[] | null>(null);
+  const [logError, setLogError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -60,6 +67,41 @@ export default function SuperAdminWitnessReleases() {
     }
   }, []);
   useEffect(() => { void load(); }, [load]);
+
+  const loadLogs = useCallback(async () => {
+    try {
+      const body = await api.get<{ logs: SharedLog[] }>('/admin/witness/shared-logs');
+      setLogs(Array.isArray(body?.logs) ? body.logs : []);
+      setLogError(null);
+    } catch (err) {
+      setLogError((err as Error).message);
+    }
+  }, []);
+  useEffect(() => { void loadLogs(); }, [loadLogs]);
+
+  const downloadLog = async (l: SharedLog) => {
+    setLogError(null);
+    try {
+      const token = getToken();
+      const res = await fetch(`/api/admin/witness/shared-logs/${encodeURIComponent(l.id)}/download`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error('Could not download that log (it may have been removed)');
+      const blob = await res.blob();
+      const cd = res.headers?.get?.('Content-Disposition') ?? '';
+      const m = /filename="?([^";]+)"?/i.exec(cd);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = m?.[1] || 'arcaid-witness-logs.tar.gz';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setLogError((err as Error).message);
+    }
+  };
 
   const changeChannel = async (r: Release, channel: Channel) => {
     if (channel === r.channel) return;
@@ -111,11 +153,38 @@ export default function SuperAdminWitnessReleases() {
 
   return (
     <div>
-      <h1 className="font-display text-2xl font-bold text-primary mb-2">Witness releases</h1>
+      <h1 className="font-display text-2xl font-bold text-primary mb-2">Witness releases and logs</h1>
       <p className="text-sm text-muted mb-6">
-        Signed Arcaid Witness builds for AtGames cabinets, and who is offered each one.
+        Logs players sent to Arcaid support, and the signed Arcaid Witness builds for AtGames cabinets and who is offered each one.
       </p>
       {error && <p className="text-sm text-rose-400 mb-4">{error}</p>}
+
+      <h2 className="text-sm font-medium text-primary mb-2">Logs players sent</h2>
+      {logError && <p className="text-sm text-rose-400 mb-2">{logError}</p>}
+      <ul className="mb-8 space-y-2" data-testid="shared-logs">
+        {(logs ?? []).map(l => (
+          <li key={l.id} className="border border-border rounded p-3 text-sm flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0 space-y-0.5">
+              <div className="text-primary font-medium break-words">{l.playerName}</div>
+              <div className="text-xs text-muted break-words">
+                {l.deviceModelName || 'Unknown cabinet'} (…{l.deviceTail}) · Witness {l.appVersion || 'unknown version'} · sent {new Date(l.sharedAt).toLocaleDateString()} · {formatSize(l.sizeBytes)} · kept until {new Date(l.expiresAt).toLocaleDateString()}
+              </div>
+              {l.note && <div className="text-xs text-primary whitespace-pre-wrap break-words">{l.note}</div>}
+            </div>
+            <button
+              type="button"
+              aria-label={`Download log from ${l.playerName}`}
+              onClick={() => void downloadLog(l)}
+              className="px-2 py-1 rounded border border-border text-xs text-primary hover:border-neon-cyan/50 cursor-pointer"
+            >
+              Download
+            </button>
+          </li>
+        ))}
+        {logs && logs.length === 0 && <li className="text-sm text-muted">No logs sent yet.</li>}
+      </ul>
+
+      <h2 className="text-sm font-medium text-primary mb-2">Releases</h2>
 
       <div className="overflow-x-auto mb-8">
         <table className="w-full text-sm text-left">

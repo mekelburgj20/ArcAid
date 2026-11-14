@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Download, FileText, Trash2 } from 'lucide-react';
+import { Download, FileText, Send, Trash2 } from 'lucide-react';
 
 /**
  * W99 / W100 — per-device support controls under a paired cabinet on Account
@@ -28,6 +28,7 @@ type LogRequest = {
     sizeBytes: number | null;
     failReason: string | null;
     expiresAt: string;
+    sharedAt: string | null;
 };
 
 const POLL_MS = 5000;
@@ -122,6 +123,24 @@ export default function WitnessDeviceSupport({ device, playerToken, onChanged }:
         }
     };
 
+    const shareLogs = async (r: LogRequest) => {
+        setBusy(true); setError(null);
+        try {
+            const res = await fetch(`/api/me/witness/log-requests/${encodeURIComponent(r.id)}/share`, {
+                method: 'POST',
+                headers: { ...auth, 'Content-Type': 'application/json' },
+                body: JSON.stringify({}),
+            });
+            if (!res.ok) throw new Error('Could not send the logs to Arcaid support');
+            const body = await res.json();
+            setLatest(body.request ?? null);
+        } catch (err) {
+            setError((err as Error).message);
+        } finally {
+            setBusy(false);
+        }
+    };
+
     const removeLogs = async (r: LogRequest) => {
         setBusy(true); setError(null);
         try {
@@ -205,9 +224,25 @@ export default function WitnessDeviceSupport({ device, playerToken, onChanged }:
                                     <Trash2 size={12} /> Remove logs
                                 </button>
                             </div>
-                            <p className="text-xs text-faint">
-                                Save the file, then send it to Arcaid support. It holds this cabinet's Witness log and its VPX play records.
-                            </p>
+                            {latest.sharedAt ? (
+                                <p className="text-xs text-muted">
+                                    Sent to Arcaid support on {new Date(latest.sharedAt).toLocaleDateString()}.
+                                </p>
+                            ) : (
+                                <div className="space-y-1">
+                                    <button
+                                        type="button"
+                                        disabled={busy}
+                                        onClick={() => void shareLogs(latest)}
+                                        className="px-2 py-1 rounded border border-border text-xs text-primary hover:border-neon-cyan/50 cursor-pointer inline-flex items-center gap-1"
+                                    >
+                                        <Send size={12} /> Send to Arcaid support
+                                    </button>
+                                    <p className="text-xs text-faint">
+                                        Sends this cabinet's Witness log and VPX play records to the Arcaid team. You can still download or remove them.
+                                    </p>
+                                </div>
+                            )}
                         </div>
                     )}
                     {latest?.status !== 'ready' && (

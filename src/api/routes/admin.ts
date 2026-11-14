@@ -1,6 +1,8 @@
 import { Router, type RequestHandler } from 'express';
 import fs from 'fs';
 import path from 'path';
+import { pipeline } from 'stream';
+import zlib from 'zlib';
 import { z } from 'zod';
 import { logInfo, logError } from '../../utils/logger.js';
 import { getDatabase } from '../../database/database.js';
@@ -2641,6 +2643,51 @@ const readWitnessReleaseUpload: RequestHandler = (req, res, next) => {
 function auditActor(req: { user?: { discordId?: string | null; username?: string | null; localAdminId?: string | null } }): string {
     return req.user?.discordId || req.user?.username || req.user?.localAdminId || 'admin';
 }
+
+// Logs players chose to send to Arcaid support (W99, ADR 0040). Only a bundle
+// its player SENT is ever readable here (`shared_at` set); an unshared one is a 404.
+
+/** GET /api/admin/witness/shared-logs -> { logs: SharedLog[] } */
+router.get('/witness/shared-logs', async (_req, res) => {
+    try {
+        const { WitnessLogService } = await import('../../services/WitnessLogService.js');
+        res.json({ logs: await WitnessLogService.listShared() });
+    } catch (error) {
+        logError('API Error (GET /api/admin/witness/shared-logs):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/** GET /api/admin/witness/shared-logs/:id/download -> the tar through gzip */
+router.get('/witness/shared-logs/:id/download', async (req, res) => {
+    try {
+        const { WitnessLogService } = await import('../../services/WitnessLogService.js');
+        const file = await WitnessLogService.openSharedDownload(req.params.id as string);
+        if (!file) return res.status(404).json({ error: 'No such shared log bundle' });
+        try {
+            await AuditService.log({
+                actor: auditActor(req), action: 'witness_log_admin_download', target_type: 'witness_log',
+                target_id: req.params.id as string,
+                details: '{}',
+                ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+                correlation_id: req.correlationId || '',
+            });
+        } catch {
+            logError('Witness logs: an admin download was not audited');
+        }
+        res.setHeader('Content-Type', 'application/gzip');
+        res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
+        res.setHeader('Cache-Control', 'private, no-store');
+        pipeline(file.stream, zlib.createGzip(), res, (err) => {
+            if (err && (err as NodeJS.ErrnoException).code !== 'ERR_STREAM_PREMATURE_CLOSE') {
+                logError(`API Error (GET /api/admin/witness/shared-logs/:id/download): stream ${(err as NodeJS.ErrnoException).code ?? 'failed'}`);
+            }
+        });
+    } catch (error) {
+        logError('API Error (GET /api/admin/witness/shared-logs/:id/download):', error);
+        if (!res.headersSent) res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
 
 /** GET /api/admin/witness/releases */
 router.get('/witness/releases', async (_req, res) => {

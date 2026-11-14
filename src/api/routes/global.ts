@@ -379,6 +379,36 @@ router.get('/me/witness/log-requests/:id/download', requireDiscordUser, async (r
     }
 });
 
+// The player sends a ready bundle to Arcaid support (after this the super-admin
+// can read it). Idempotent; 404 unless the caller's and `ready`.
+router.post('/me/witness/log-requests/:id/share', requireDiscordUser, async (req, res) => {
+    try {
+        const { WitnessLogService } = await import('../../services/WitnessLogService.js');
+        const userId = req.user!.discordId!;
+        const id = req.params.id as string;
+        const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
+        const request = await WitnessLogService.share(userId, id, body.note);
+        if (!request) return res.status(404).json({ error: 'No such log bundle' });
+        try {
+            await AuditService.log({
+                actor: userId,
+                action: 'witness_log_share',
+                target_type: 'witness_device',
+                target_id: request.deviceId,
+                details: JSON.stringify({ requestId: request.id }),
+                ip_address: '',
+                correlation_id: req.correlationId || '',
+            });
+        } catch {
+            logError('Witness logs: a log share was not audited');
+        }
+        res.json({ request });
+    } catch (error) {
+        logError('API Error (POST /api/me/witness/log-requests/:id/share):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 router.delete('/me/witness/log-requests/:id', requireDiscordUser, async (req, res) => {
     try {
         const { WitnessLogService } = await import('../../services/WitnessLogService.js');
