@@ -6,6 +6,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.245.0] - 2026-11-13 - Engagement reminders
+
+E23 (Mox, 2026-11-13). Five new opt-in reminders that nudge a room member about a live table. They sit beside the
+seven existing notifications in Account Settings -> Notifications and in `/arcaid-notifications`, are off until a
+player turns them on, and reach Discord DMs and browser push.
+
+- **Added: Not Played Yet.** A table has been live for 24, 48 or 72 hours and the player has no score on it. Each
+  player picks the delay ("Remind me after", default 24 hours; `/arcaid-notifications` has the same three choices).
+- **Added: Halfway Point.** Half the table's time before its next rotation is gone and the player has no score on it.
+- **Added: 3 Days Left.** Three days before a table closes. A player with a score is told where they stand ("You're
+  #4 of 12 with 1,250,000"); a player without one is told so. Only on tables that run four days or longer.
+- **Added: 3 Days Without a Score.** Three days after the player's last score in the room (or after joining, for
+  someone who never played there), with the tables open now. Once per lapse, never repeated every three days.
+- **Added: Knocked Off the Podium.** About a day after a player drops out of a table's top three, if they are still
+  outside it and have not improved their score since.
+- **Rules:** at most one reminder DM per player every 20 hours, across all five; when two are due the more urgent one
+  goes first (3 Days Left, Knocked Off the Podium, Halfway Point, Not Played Yet, 3 Days Without a Score). A later
+  reminder for a table cancels the earlier ones for it. Several tables due together in one room go in one message. A
+  reminder that would arrive within a couple of hours of the table closing is skipped.
+- **Scope:** rotation tournaments only. A Live Event, a Throwdown, a paused tournament and a paused or finished season
+  send nothing. Recipients are members of the room; an invite-only tournament reminds only its roster, and a banned
+  player is skipped. "Closes" is the tournament's next rotation.
+- **Stored:** migration 213 adds `engagement_reminders` (what was sent to whom; also the 20-hour spacing) and
+  `podium_sightings` (when a player was last seen in a table's top three), neither with a foreign key. The delay is
+  `playReminderHours` in the player's `notification_prefs`. `EngagementReminderService.sweep` runs every 15 minutes.
+- **Not in this release:** a room-level switch. The reminders are per player; a room that turns Discord off still
+  silences the DMs, as for every other notification.
+
 ## [2.244.0] - 2026-11-13 - Choose chat responses one at a time
 
 E22. Room Settings -> Discord -> Arcaid Chat Responses already let a room switch whole kinds of reply on or off

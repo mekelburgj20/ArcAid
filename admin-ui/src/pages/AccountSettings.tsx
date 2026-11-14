@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Home, User as UserIcon, CheckCircle2, AlertCircle, AlertTriangle, Trash2, Link2, Unlink } from 'lucide-react';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
@@ -64,9 +64,12 @@ const REASON_COPY: Record<string, string> = {
  * showing five toggles that quietly do nothing.
  */
 interface NotificationSettings {
-  prefs: Record<string, boolean>;
+  // Booleans keyed by type, plus `playReminderHours` (24 | 48 | 72) when set.
+  prefs: Record<string, boolean | number>;
   types: string[];
   webPushTypes: string[];
+  // Older servers omit this; the page falls back to DEFAULT_REMINDER_HOURS.
+  playReminderHourOptions?: number[];
   discord: {
     available: boolean;
     reachable: boolean;
@@ -79,6 +82,8 @@ interface NotificationSettings {
   nudge: { failedAt: string; type?: string; reason: string } | null;
 }
 
+const DEFAULT_REMINDER_HOURS = [24, 48, 72];
+
 const NOTIF_TYPES: { key: string; label: string; helper: string }[] = [
   { key: 'tournamentWin', label: 'Tournament Win', helper: 'When you win a tournament.' },
   { key: 'turnToPick', label: 'Turn to Pick', helper: "When it's your turn to pick the next game." },
@@ -87,6 +92,11 @@ const NOTIF_TYPES: { key: string; label: string; helper: string }[] = [
   { key: 'friendScore', label: 'Friend Score', helper: 'When a player you follow posts a new score.' },
   { key: 'rotationReady', label: 'Rotation Ready', helper: "When you're in the running and the next rotation is about an hour away." },
   { key: 'queueLow', label: 'Queue Running Low', helper: 'When a rotation uses one of your queued picks and your queue is nearly empty.' },
+  { key: 'playReminder', label: 'Not Played Yet', helper: "When a table has been live for a while and you haven't posted a score on it. You choose how long to wait." },
+  { key: 'halfwayReminder', label: 'Halfway Point', helper: "When a table is halfway to its next rotation and you haven't posted a score on it." },
+  { key: 'endingSoon', label: '3 Days Left', helper: 'Three days before a table closes, with where you stand.' },
+  { key: 'inactiveReminder', label: '3 Days Without a Score', helper: "When you haven't posted a score in one of your rooms for three days." },
+  { key: 'podiumLost', label: 'Knocked Off the Podium', helper: "About a day after you drop out of a table's top three." },
 ];
 
 // PushManager.subscribe wants the VAPID public key as raw bytes, but the
@@ -273,8 +283,8 @@ export default function AccountSettings() {
   const [unlinking, setUnlinking] = useState(false);
 
   // Notification preferences (independent fetch from the profile load)
-  const [prefs, setPrefs] = useState<Record<string, boolean> | null>(null);
-  const [draftPrefs, setDraftPrefs] = useState<Record<string, boolean> | null>(null);
+  const [prefs, setPrefs] = useState<Record<string, boolean | number> | null>(null);
+  const [draftPrefs, setDraftPrefs] = useState<Record<string, boolean | number> | null>(null);
   // v2.72.0 (Discord HQ) — the deliverability verdict + community-server
   // config that rides along with the prefs.
   const [notifSettings, setNotifSettings] = useState<NotificationSettings | null>(null);
@@ -726,6 +736,12 @@ export default function AccountSettings() {
 
   const toggle = (key: string) => {
     setDraftPrefs(p => ({ ...(p ?? {}), [key]: !(p?.[key] === true) }));
+    setNotifSaveError(null);
+    setNotifSaved(false);
+  };
+
+  const setReminderHours = (hours: number) => {
+    setDraftPrefs(p => ({ ...(p ?? {}), playReminderHours: hours }));
     setNotifSaveError(null);
     setNotifSaved(false);
   };
@@ -1586,7 +1602,7 @@ export default function AccountSettings() {
                   <div>
                     {NOTIF_TYPES.map(({ key, label, helper }) => {
                       const checked = draftPrefs?.[key] === true;
-                      // v2.72.0 — the five opt-ins are ONE stored set shared by
+                      // v2.72.0 — the opt-ins are ONE stored set shared by
                       // both delivery channels (and by the
                       // /arcaid-notifications Discord command), so they render
                       // once here rather than being duplicated per channel.
@@ -1595,8 +1611,8 @@ export default function AccountSettings() {
                       // server reports in `webPushTypes`.
                       const pushable = notifSettings?.webPushTypes?.includes(key) ?? false;
                       return (
+                        <Fragment key={key}>
                         <label
-                          key={key}
                           className="flex items-start justify-between gap-3 py-2.5 border-b border-border last:border-b-0 cursor-pointer"
                         >
                           <span className="min-w-0">
@@ -1624,6 +1640,22 @@ export default function AccountSettings() {
                             />
                           </button>
                         </label>
+                        {key === 'playReminder' && checked && (
+                          <div className="flex items-center gap-2 pb-2.5 border-b border-border text-xs text-faint">
+                            <label htmlFor="play-reminder-hours">Remind me after</label>
+                            <select
+                              id="play-reminder-hours"
+                              value={typeof draftPrefs?.playReminderHours === 'number' ? draftPrefs.playReminderHours : 24}
+                              onChange={e => setReminderHours(Number(e.target.value))}
+                              className="bg-surface border border-border rounded px-2 py-1 text-sm text-primary"
+                            >
+                              {(notifSettings?.playReminderHourOptions ?? DEFAULT_REMINDER_HOURS).map(h => (
+                                <option key={h} value={h}>{h} hours</option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+                        </Fragment>
                       );
                     })}
                   </div>

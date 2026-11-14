@@ -2,7 +2,7 @@ import { ChatInputCommandInteraction, SlashCommandBuilder, EmbedBuilder } from '
 import { Command } from './index.js';
 import { logError } from '../../utils/logger.js';
 import { checkCooldown } from '../../utils/cooldown.js';
-import { NotificationService, NotificationType } from '../../services/NotificationService.js';
+import { NotificationService, NotificationType, PLAY_REMINDER_HOURS_KEY, playReminderHoursOf } from '../../services/NotificationService.js';
 
 const PREF_LABELS: Record<NotificationType, string> = {
     tournamentWin: 'Tournament Win',
@@ -12,6 +12,18 @@ const PREF_LABELS: Record<NotificationType, string> = {
     friendScore: 'Friend Score',
     rotationReady: 'Rotation Ready',
     queueLow: 'Queue Running Low',
+    playReminder: 'Not Played Yet',
+    halfwayReminder: 'Halfway Point',
+    endingSoon: '3 Days Left',
+    inactiveReminder: '3 Days Without a Score',
+    podiumLost: 'Knocked Off the Podium',
+};
+
+/** Choice value -> hours for the "Not Played Yet" delay choices. */
+const PLAY_DELAY_CHOICES: Record<string, number> = {
+    play_delay_24: 24,
+    play_delay_48: 48,
+    play_delay_72: 72,
 };
 
 export const notifications: Command = {
@@ -31,6 +43,14 @@ export const notifications: Command = {
                     { name: 'Toggle: Friend Score', value: 'friendScore' },
                     { name: 'Toggle: Rotation Ready', value: 'rotationReady' },
                     { name: 'Toggle: Queue Running Low', value: 'queueLow' },
+                    { name: 'Toggle: Not Played Yet', value: 'playReminder' },
+                    { name: 'Toggle: Halfway Point', value: 'halfwayReminder' },
+                    { name: 'Toggle: 3 Days Left', value: 'endingSoon' },
+                    { name: 'Toggle: 3 Days Without a Score', value: 'inactiveReminder' },
+                    { name: 'Toggle: Knocked Off the Podium', value: 'podiumLost' },
+                    { name: 'Not Played Yet delay: 24 hours', value: 'play_delay_24' },
+                    { name: 'Not Played Yet delay: 48 hours', value: 'play_delay_48' },
+                    { name: 'Not Played Yet delay: 72 hours', value: 'play_delay_72' },
                     { name: 'Enable all', value: 'enable_all' },
                     { name: 'Disable all', value: 'disable_all' },
                     // v2.125.0 — Arcaid Chat Responses. Two explicit choices
@@ -64,6 +84,13 @@ export const notifications: Command = {
                 return;
             }
 
+            if (action in PLAY_DELAY_CHOICES) {
+                const hours = PLAY_DELAY_CHOICES[action]!;
+                await NotificationService.mergePrefs(userId, { [PLAY_REMINDER_HOURS_KEY]: hours });
+                await interaction.editReply(`**Not Played Yet** reminders will now wait \`${hours} hours\` after a table goes live.`);
+                return;
+            }
+
             if (action === 'show') {
                 const embed = new EmbedBuilder()
                     .setTitle('Notification Preferences')
@@ -83,6 +110,11 @@ export const notifications: Command = {
                 // Not one of PREF_LABELS: it is an inbound reply defaulting to
                 // ON, not an outbound DM defaulting to OFF, so it is reported
                 // apart from them (and is untouched by Enable/Disable all).
+                embed.addFields({
+                    name: 'Not Played Yet delay',
+                    value: `${playReminderHoursOf(prefs)} hours`,
+                    inline: true,
+                });
                 const chatOn = await NotificationService.chatResponsesEnabled(userId);
                 embed.addFields({
                     name: 'Arcaid Chat Responses',

@@ -122,6 +122,10 @@ export class Scheduler {
         // Rotation-readiness nudge sweep (every 15 minutes)
         this.startRotationReadinessNudge();
 
+        // Opt-in engagement reminders: not played yet / halfway / 3 days left /
+        // knocked off the podium / quiet for a few days (every 15 minutes)
+        this.startEngagementReminderSweep();
+
         // S9: scheduled DB+assets backup (driven by global settings)
         await this.startBackupCron();
 
@@ -708,6 +712,33 @@ export class Scheduler {
 
         this.tasks.set('__rotation_readiness_nudge__', task);
         logInfo('Rotation readiness nudge sweep scheduled (every 15 minutes).');
+    }
+
+    /** True while an engagement-reminder sweep is running (reentrancy guard). */
+    private engagementSweepRunning = false;
+
+    /**
+     * Engagement reminders. Every 15 minutes `EngagementReminderService.sweep`
+     * looks at each live rotation table and sends the opt-in DMs that are due
+     * (dedupe + 20 h spacing live in `engagement_reminders`). A sweep that is
+     * still running when the next tick fires makes that tick a no-op.
+     */
+    private startEngagementReminderSweep(): void {
+        const task = cron.schedule('*/15 * * * *', async () => {
+            if (this.engagementSweepRunning) return;
+            this.engagementSweepRunning = true;
+            try {
+                const { EngagementReminderService } = await import('../services/EngagementReminderService.js');
+                await EngagementReminderService.sweep();
+            } catch (error) {
+                logError('Engagement reminder sweep error:', error);
+            } finally {
+                this.engagementSweepRunning = false;
+            }
+        });
+
+        this.tasks.set('__engagement_reminders__', task);
+        logInfo('Engagement reminder sweep scheduled (every 15 minutes).');
     }
 
     /**
