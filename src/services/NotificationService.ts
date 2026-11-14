@@ -24,11 +24,19 @@ export interface NotificationPrefs {
      *  reason rotationReady is: it is the only warning before a player
      *  silently stops getting the game they wanted. */
     queueLow: boolean;
+    /** Engagement reminders (opt-in, never default-on): the engine nudges a
+     *  member about a table that is live in a rotation they belong to. Sent by
+     *  EngagementReminderService, at most one DM per player per ~20 hours. */
+    playReminder: boolean;
+    halfwayReminder: boolean;
+    endingSoon: boolean;
+    inactiveReminder: boolean;
+    podiumLost: boolean;
 }
 
 export type NotificationType = keyof NotificationPrefs;
 
-/** The seven per-type opt-in keys — the ONLY keys external writers may set. */
+/** The twelve per-type opt-in keys — the ONLY keys external writers may set. */
 export const PREF_TYPE_KEYS: readonly NotificationType[] = [
     'tournamentWin',
     'turnToPick',
@@ -37,7 +45,31 @@ export const PREF_TYPE_KEYS: readonly NotificationType[] = [
     'friendScore',
     'rotationReady',
     'queueLow',
+    'playReminder',
+    'halfwayReminder',
+    'endingSoon',
+    'inactiveReminder',
+    'podiumLost',
 ];
+
+/**
+ * The `notification_prefs` key holding how long after a table goes live the
+ * "you haven't played it yet" reminder waits. NOT a NotificationType (it is a
+ * setting, not an opt-in), so it is not in PREF_TYPE_KEYS and Enable/Disable
+ * all never sweeps it.
+ */
+export const PLAY_REMINDER_HOURS_KEY = 'playReminderHours';
+export const PLAY_REMINDER_HOUR_OPTIONS = [24, 48, 72] as const;
+export type PlayReminderHours = (typeof PLAY_REMINDER_HOUR_OPTIONS)[number];
+
+/** The delay a player chose, from their parsed prefs blob; 24 when absent or invalid. */
+export function playReminderHoursOf(parsedPrefs: unknown): PlayReminderHours {
+    if (parsedPrefs && typeof parsedPrefs === 'object') {
+        const v = (parsedPrefs as Record<string, unknown>)[PLAY_REMINDER_HOURS_KEY];
+        if (v === 24 || v === 48 || v === 72) return v;
+    }
+    return 24;
+}
 
 /**
  * High-value retention types. These draw from an INDEPENDENT rate-limit budget
@@ -92,6 +124,13 @@ export const WEB_PUSH_TYPES: ReadonlySet<NotificationType> = new Set<Notificatio
     // v2.126.0 - the queue-low nudge is actionable in the same window:
     // top the queue up before the next rotation spends the last pick.
     'queueLow',
+    // Engagement reminders: all five are time-boxed ("closes in 3 days"), so a
+    // phone buzz is the point.
+    'playReminder',
+    'halfwayReminder',
+    'endingSoon',
+    'inactiveReminder',
+    'podiumLost',
 ]);
 
 /** Notification-tray titles per push-eligible type; body carries the detail. */
@@ -101,6 +140,11 @@ const PUSH_TITLES: Partial<Record<NotificationType, string>> = {
     turnToPick: '\u{1F3AE} Your turn to pick!',
     rotationReady: '\u{23F0} Rotation soon — get your pick ready!',
     queueLow: '\u{1F4CB} Your pick queue is running low',
+    playReminder: '\u{1F3AF} You haven\u2019t played this table yet',
+    halfwayReminder: '\u{23F3} Halfway point',
+    endingSoon: '\u{23F0} 3 days left',
+    inactiveReminder: '\u{1F44B} It\u2019s been a few days',
+    podiumLost: '\u{1F949} You\u2019ve been knocked off the podium',
 };
 
 /**
@@ -400,6 +444,11 @@ export class NotificationService {
             friendScore: false,
             rotationReady: false,
             queueLow: false,
+            playReminder: false,
+            halfwayReminder: false,
+            endingSoon: false,
+            inactiveReminder: false,
+            podiumLost: false,
         };
         try {
             const db = await getDatabase();
@@ -545,7 +594,20 @@ export class NotificationService {
     }
 
     /**
-     * Extract ONLY the five typed opt-in booleans from an untrusted body —
+     * Extract the play-reminder delay from an untrusted body, if present. Same
+     * reason as `chatResponsePrefUpdate`: it is not a typed opt-in, so it is
+     * kept out of `typedPrefUpdates`. Only 24 / 48 / 72 are accepted.
+     */
+    static playReminderHoursUpdate(body: unknown): { playReminderHours?: number } {
+        if (body && typeof body === 'object') {
+            const value = (body as Record<string, unknown>)[PLAY_REMINDER_HOURS_KEY];
+            if (value === 24 || value === 48 || value === 72) return { [PLAY_REMINDER_HOURS_KEY]: value };
+        }
+        return {};
+    }
+
+    /**
+     * Extract ONLY the typed opt-in booleans from an untrusted body —
      * unknown keys and non-boolean values are dropped, so a caller-supplied
      * object can never set (or clobber) channel flags or internal markers.
      */

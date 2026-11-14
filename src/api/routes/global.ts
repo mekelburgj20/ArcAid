@@ -29,7 +29,7 @@ import { getVersionInfo } from '../../utils/version.js';
 import { AuditService } from '../../services/AuditService.js';
 import { AccountDeletionService, LastSuperAdminError } from '../../services/AccountDeletionService.js';
 import { WebPushService } from '../../services/WebPushService.js';
-import { NotificationService, PREF_TYPE_KEYS, WEB_PUSH_TYPES } from '../../services/NotificationService.js';
+import { NotificationService, PREF_TYPE_KEYS, PLAY_REMINDER_HOUR_OPTIONS, WEB_PUSH_TYPES } from '../../services/NotificationService.js';
 import { DiscordReachabilityService } from '../../services/DiscordReachabilityService.js';
 import { DmNudgeService } from '../../services/DmNudgeService.js';
 import { isDiscordUserId } from '../../utils/identityProvider.js';
@@ -1284,7 +1284,10 @@ router.put('/me/notification-preferences', requireDiscordUser, async (req, res) 
         // therefore never clobber cross-feature keys living in the same blob
         // (S15 webPush channel flag, the one-time footer marker). Returns the
         // full merged object so the FE state reflects those keys too.
-        const updates = NotificationService.typedPrefUpdates(prefs);
+        const updates = {
+            ...NotificationService.typedPrefUpdates(prefs),
+            ...NotificationService.playReminderHoursUpdate(prefs),
+        };
         const merged = await NotificationService.mergePrefs(req.user!.discordId!, updates);
         res.json(merged);
     } catch (error) {
@@ -1329,6 +1332,8 @@ async function buildNotificationSettings(userId: string) {
         prefs,
         /** The five per-type opt-in keys, so the FE never hardcodes the list. */
         types: [...PREF_TYPE_KEYS],
+        /** Allowed "Not played yet" reminder delays (hours); the chosen one rides in `prefs.playReminderHours`. */
+        playReminderHourOptions: [...PLAY_REMINDER_HOUR_OPTIONS],
         /** Subset of `types` that the browser-push channel can also carry. */
         webPushTypes: [...WEB_PUSH_TYPES],
         discord: {
@@ -1379,6 +1384,9 @@ router.put('/me/notification-settings', requireDiscordUser, async (req, res) => 
             // "the typed DM opt-ins and nothing else" and widening it would let
             // a crafted body reach the keys it exists to exclude.
             ...NotificationService.chatResponsePrefUpdate(body),
+            // The "Not played yet" delay (24/48/72 h) — same reason: a setting,
+            // not a typed opt-in.
+            ...NotificationService.playReminderHoursUpdate(body),
         };
         await NotificationService.mergePrefs(req.user!.discordId!, updates);
         res.json(await buildNotificationSettings(req.user!.discordId!));

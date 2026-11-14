@@ -3687,6 +3687,39 @@ async function doInitDatabase(): Promise<Database> {
                  GROUP BY a.tournament_id, a.canonical_user_id;
             `);
         } },
+        // Engagement reminders (v2.245.0) - opt-in DMs that nudge a room member
+        // about a live rotation table (not played yet, halfway, 3 days left,
+        // knocked off the podium, a quiet few days). `engagement_reminders` is
+        // the dedupe AND the spacing ledger: one row per (player, kind, key),
+        // INSERTed before the DM goes out (the UNIQUE constraint is the dedupe,
+        // like `rotation_nudges`), and its newest `created_at` per player gates
+        // the ~20 h spacing between reminders. `podium_sightings` remembers when
+        // a player was last seen in the top 3 of a game, so "knocked off" can be
+        // told a day later. NO foreign keys on purpose: a reference to
+        // `games` / `tournaments` without a cascade would block their deletes;
+        // a dead row is harmless and the sweep prunes both tables.
+        { name: '213_engagement_reminders', handler: async (db) => {
+            await db.exec(`
+                CREATE TABLE IF NOT EXISTS engagement_reminders (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    dedupe_key TEXT NOT NULL,
+                    game_room_id TEXT,
+                    tournament_id TEXT,
+                    game_id TEXT,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    UNIQUE(user_id, kind, dedupe_key)
+                );
+                CREATE INDEX IF NOT EXISTS idx_engagement_reminders_user ON engagement_reminders(user_id, created_at);
+                CREATE TABLE IF NOT EXISTS podium_sightings (
+                    game_id TEXT NOT NULL,
+                    user_id TEXT NOT NULL,
+                    last_on_podium_at TEXT NOT NULL,
+                    PRIMARY KEY (game_id, user_id)
+                );
+            `);
+        } },
     ];
 
     for (const migration of migrations) {
