@@ -3,9 +3,10 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 const get = vi.fn();
 const patch = vi.fn();
+const put = vi.fn();
 vi.mock('../../lib/api', () => ({
-  api: { get: (...a: unknown[]) => get(...a), patch: (...a: unknown[]) => patch(...a), delete: vi.fn(), upload: vi.fn() },
-  ApiError: class extends Error {},
+  api: { get: (...a: unknown[]) => get(...a), patch: (...a: unknown[]) => patch(...a), put: (...a: unknown[]) => put(...a), delete: vi.fn(), upload: vi.fn() },
+  ApiError: class extends Error { status = 0; body: unknown = {}; },
   getToken: () => 'admin-tok',
 }));
 
@@ -18,9 +19,11 @@ const rel = (version: string, channel: string) => ({
 let sharedLogs: unknown[] = [];
 
 beforeEach(() => {
-  get.mockReset(); patch.mockReset();
+  get.mockReset(); patch.mockReset(); put.mockReset();
   sharedLogs = [];
-  get.mockImplementation((path: string) => path === '/admin/witness/shared-logs'
+  get.mockImplementation((path: string) => path === '/admin/witness/guide'
+    ? Promise.resolve({ videoUrl: 'https://example.com/v' })
+    : path === '/admin/witness/shared-logs'
     ? Promise.resolve({ logs: sharedLogs })
     : Promise.resolve({
       releases: [rel('1.1.0', 'draft'), rel('1.2.0', 'beta')],
@@ -69,6 +72,34 @@ describe('SuperAdminWitnessReleases', () => {
     expect(url).toBe(`/api/admin/witness/shared-logs/${'a'.repeat(32)}/download`);
     expect((init.headers as Record<string, string>).Authorization).toBe('Bearer admin-tok');
     vi.unstubAllGlobals();
+  });
+
+  it('prefills the install video link, saves a changed one and clears it', async () => {
+    put.mockImplementation((_p: string, body: { videoUrl: string | null }) => Promise.resolve({ videoUrl: body.videoUrl }));
+    render(<SuperAdminWitnessReleases />);
+    const input = await screen.findByLabelText('Install video link') as HTMLInputElement;
+    await waitFor(() => expect(input.value).toBe('https://example.com/v'));
+    expect(screen.getByText('Shown on the install guide and beside the Get Arcaid Witness button. Leave empty to hide it.')).toBeTruthy();
+    fireEvent.change(input, { target: { value: ' https://example.com/new ' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(put).toHaveBeenCalledWith('/admin/witness/guide', { videoUrl: 'https://example.com/new' }));
+    await waitFor(() => expect(input.value).toBe('https://example.com/new'));
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+    await waitFor(() => expect(put).toHaveBeenLastCalledWith('/admin/witness/guide', { videoUrl: null }));
+    await waitFor(() => expect(input.value).toBe(''));
+  });
+
+  it('a 400 on save shows the inline https error', async () => {
+    const { ApiError } = await import('../../lib/api');
+    const err = new ApiError('VIDEO_URL_INVALID', 400, { error: 'VIDEO_URL_INVALID' });
+    (err as unknown as { status: number }).status = 400;
+    (err as unknown as { body: unknown }).body = { error: 'VIDEO_URL_INVALID' };
+    put.mockRejectedValue(err);
+    render(<SuperAdminWitnessReleases />);
+    const input = await screen.findByLabelText('Install video link');
+    fireEvent.change(input, { target: { value: 'http://nope' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText('Enter a full https:// address.')).toBeTruthy();
   });
 
   it('moving to Everyone confirms, then PATCHes the channel', async () => {
