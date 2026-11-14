@@ -129,7 +129,23 @@ export interface WitnessDevice {
     offeredVersion: string | null;
     /** W99 - can it send its logs: a cabinet that last reported 1.1.0 or later. */
     logsSupported: boolean;
+    /** W102 - the last heartbeat (SQLite UTC text); null = a build that never heartbeats. */
+    heartbeatAt: string | null;
+    /**
+     * W102 - is the Witness running and watching right now: `yes` when the
+     * last heartbeat is within `HEARTBEAT_STALE_SEC` (the lobby's one rule),
+     * `no` when older, `unknown` when the device never heartbeated.
+     */
+    watching: WitnessWatching;
+    /** W102 - a staged build newer than the one running waits for the tile to be opened. */
+    updatePending: boolean;
+    /** W102 - the newest `witness_evidence` row of this device on this account (any outcome): when (SQLite UTC text) and which table. */
+    lastScoreAt: string | null;
+    lastScoreTable: string | null;
 }
+
+/** W102 - see `WitnessDevice.watching`. */
+export type WitnessWatching = 'yes' | 'no' | 'unknown';
 
 /**
  * W60 - the only shape of build string the check-in / heartbeat will store:
@@ -157,6 +173,71 @@ export function parseDeviceModel(raw: unknown, maxLen: number): string | null {
 }
 
 export interface DeviceModelInput { model?: unknown; modelName?: unknown }
+
+/** W102 - how long a pair-by-phone request lives (the cabinet polls every 3 s for this long). */
+export const PAIR_REQUEST_TTL_SEC = 600;
+/** The cabinet's poll secret: 32 lowercase hex. Only its SHA-256 is stored. */
+const POLL_SECRET_RE = /^[0-9a-f]{32}$/;
+/** The longest `account` the cabinet prints (`PAIRED TO <account>`). */
+const CABINET_ACCOUNT_MAX = 24;
+
+/** W102 - the cabinet's poll answer (the route maps it to the wire). */
+export type PairPollResult =
+    | { status: 'pending' }
+    | { status: 'approved'; token: string; account?: string }
+    | { status: 'expired' }
+    | { status: 'refused'; code: 'DEVICE_CONFLICT' | 'DEVICE_LIMIT' };
+
+/** W102 - what the player's confirm page shows (`GET /me/witness/pair-requests/:code`). */
+export interface PairRequestView {
+    code: string;
+    deviceType: WitnessDeviceType;
+    deviceModel: string | null;
+    deviceModelName: string | null;
+    /** The last 4 characters of the device id. */
+    deviceTail: string;
+    atgamesUsername: string | null;
+    /** ISO 8601 UTC. */
+    expiresAt: string;
+    status: 'pending' | 'approved';
+    /** This device id is already on the caller's account (live or unpaired). */
+    alreadyYours: boolean;
+}
+
+interface PairRequestRow {
+    user_code: string;
+    poll_hash: string;
+    device_id: string;
+    atgames_username: string | null;
+    device_type: string;
+    device_model: string | null;
+    device_model_name: string | null;
+    created_at: string;
+    expires_at: string;
+    approved_by: string | null;
+    approved_at: string | null;
+    consumed_at: string | null;
+}
+
+/**
+ * W102 - the approving player's label as the cabinet may print it. The cabinet
+ * reads answers with a naive `"key":"value"` extractor, so the label is reduced
+ * to `[A-Za-z0-9 _.-]` (quotes, backslashes, emoji and the rest removed),
+ * spaces collapsed, at most 24 characters. Null when nothing is left: the
+ * route then omits the field, and never sends a raw id instead.
+ */
+export function cabinetAccountLabel(label: string | null | undefined): string | null {
+    if (typeof label !== 'string') return null;
+    const v = label.replace(/[^A-Za-z0-9 _.-]/g, '').replace(/ {2,}/g, ' ').trim()
+        .slice(0, CABINET_ACCOUNT_MAX).trim();
+    return v || null;
+}
+
+/** SQLite UTC text (`YYYY-MM-DD HH:MM:SS`) as ISO 8601 UTC. */
+function sqliteUtcToIso(value: string): string {
+    const ms = Date.parse(`${value.replace(' ', 'T')}Z`);
+    return Number.isFinite(ms) ? new Date(ms).toISOString() : value;
+}
 
 export class WitnessTargetError extends Error {
     readonly code: 'NOT_FOUND' | 'NOT_A_MEMBER' | 'TOURNAMENT_NOT_IN_ROOM';
@@ -255,6 +336,30 @@ export class WitnessService {
         if (row.consumed_at) throw new WitnessPairError('CODE_USED', 'That pairing code has already been used');
         if (row.is_expired) throw new WitnessPairError('CODE_EXPIRED', 'That pairing code has expired');
 
+        // Refused before the code is consumed, so the player can unpair a
+        // device and use the same code.
+        await WitnessService.assertPairingAllowed(deviceId, row.canonical_user_id);
+
+        const token = await WitnessService.writePairedDevice({
+            deviceId, canonicalUserId: row.canonical_user_id, atgamesUsername, deviceType, modelInput,
+            inTransaction: async (tx) => {
+                await tx.run(
+                    `UPDATE witness_pairing_codes SET consumed_at = datetime('now'), consumed_device_id = ? WHERE code = ?`,
+                    deviceId, code,
+                );
+            },
+        });
+        return { token };
+    }
+
+    /**
+     * THE pairing rules, shared by the typed code (`redeemPairingCode`) and
+     * pair by phone (`approvePairRequest` and `pollPairRequest`, W102): the
+     * same checks, messages and caps for both. Throws `DEVICE_CONFLICT` or
+     * `DEVICE_LIMIT`; returns when this account may take this device id now.
+     */
+    private static async assertPairingAllowed(deviceId: string, canonicalUserId: string): Promise<void> {
+        const db = await getDatabase();
         // A device belongs to one Arcaid account. Re-pairing to the SAME owner
         // is a token rotation (fine); a DIFFERENT owner is refused, or one
         // player could hijack another's cabinet trail.
@@ -262,24 +367,23 @@ export class WitnessService {
             `SELECT canonical_user_id FROM witness_devices WHERE atgames_unique_id = ? AND revoked_at IS NULL`,
             deviceId,
         );
-        if (existing && existing.canonical_user_id !== row.canonical_user_id) {
+        if (existing && existing.canonical_user_id !== canonicalUserId) {
             throw new WitnessPairError('DEVICE_CONFLICT', 'This device is already linked to a different Arcaid account');
         }
 
         // W97 - a device id this account has never held is a NEW pairing and is
         // capped; a re-pair of one of the account's own devices (live or
-        // unpaired) is not. Refused before the code is consumed, so the player
-        // can unpair a device and use the same code.
+        // unpaired) is not.
         const own = await db.get<{ n: number }>(
             `SELECT COUNT(*) AS n FROM witness_devices WHERE atgames_unique_id = ? AND canonical_user_id = ?`,
-            deviceId, row.canonical_user_id,
+            deviceId, canonicalUserId,
         );
         if (!own || own.n === 0) {
             const counts = await db.get<{ active: number; recent: number }>(
                 `SELECT COALESCE(SUM(revoked_at IS NULL), 0) AS active,
                         COALESCE(SUM(paired_at > datetime('now', '-1 day')), 0) AS recent
                    FROM witness_devices WHERE canonical_user_id = ?`,
-                row.canonical_user_id,
+                canonicalUserId,
             );
             if ((counts?.active ?? 0) >= MAX_ACTIVE_DEVICES_PER_USER) {
                 throw new WitnessPairError(
@@ -294,7 +398,25 @@ export class WitnessService {
                 );
             }
         }
+    }
 
+    /**
+     * THE device-row write, shared by both pairing flows: mints the token
+     * (returned once; only its hash is stored), upserts the device row in one
+     * transaction with the caller's own consume step (`inTransaction`), then
+     * stamps the model and writes the pairing's log line and activity row.
+     * The caller has already run `assertPairingAllowed`.
+     */
+    private static async writePairedDevice(input: {
+        deviceId: string;
+        canonicalUserId: string;
+        atgamesUsername: string | null;
+        deviceType: WitnessDeviceType;
+        modelInput: DeviceModelInput;
+        inTransaction?: (db: Awaited<ReturnType<typeof getDatabase>>) => Promise<void>;
+    }): Promise<string> {
+        const { deviceId, canonicalUserId, deviceType } = input;
+        const db = await getDatabase();
         const token = randomBytes(32).toString('base64url');
         const tokenHash = hashToken(token);
 
@@ -320,25 +442,213 @@ export class WitnessService {
                     test_builds = CASE WHEN witness_devices.canonical_user_id <> excluded.canonical_user_id
                                        THEN 0 ELSE witness_devices.test_builds END,
                     revoked_at = NULL`,
-                deviceId, row.canonical_user_id, atgamesUsername || null, deviceType, tokenHash,
+                deviceId, canonicalUserId, input.atgamesUsername || null, deviceType, tokenHash,
             );
-            await db.run(
-                `UPDATE witness_pairing_codes SET consumed_at = datetime('now'), consumed_device_id = ? WHERE code = ?`,
-                deviceId, code,
-            );
+            if (input.inTransaction) await input.inTransaction(db);
             await db.exec('COMMIT');
         } catch (err) {
             await db.exec('ROLLBACK').catch(() => {});
             throw err;
         }
 
-        await WitnessService.stampDeviceModel(deviceId, modelInput);
-        logInfo(`Witness: ${deviceType} device ${deviceId} paired to ${row.canonical_user_id}`);
-        void ActivityLogService.recordForDevice(deviceId, row.canonical_user_id, {
+        await WitnessService.stampDeviceModel(deviceId, input.modelInput);
+        logInfo(`Witness: ${deviceType} device ${deviceId} paired to ${canonicalUserId}`);
+        void ActivityLogService.recordForDevice(deviceId, canonicalUserId, {
             category: 'device', eventType: 'device_paired',
             summary: `${deviceType === 'desktop' ? 'Castcade PC' : 'Witness cabinet'} paired`,
         });
-        return { token };
+        return token;
+    }
+
+    /**
+     * W102 (v2.247.0, ADR 0040 addendum) - pair by phone, step 1. The cabinet
+     * asks for a short user code (shown as a QR code for
+     * `https://arcaid.app/pair/<code>`) and a poll secret it keeps. Only the
+     * secret's SHA-256 is stored. A new start for the same device id expires
+     * that device's earlier unconsumed requests. Same input rules as the typed
+     * flow: a trimmed non-empty device id (`CODE_INVALID`), a known type
+     * (`DEVICE_TYPE_INVALID`).
+     */
+    static async startPairRequest(
+        rawDeviceId: string, atgamesUsername: string | null,
+        deviceType: string = 'atgames',
+        modelInput: DeviceModelInput = {},
+    ): Promise<{ code: string; poll: string }> {
+        const deviceId = (rawDeviceId || '').trim();
+        if (!deviceId) throw new WitnessPairError('CODE_INVALID', 'A device id is required');
+        if (!isWitnessDeviceType(deviceType)) {
+            throw new WitnessPairError('DEVICE_TYPE_INVALID', `Unknown device type; expected one of ${WITNESS_DEVICE_TYPES.join(', ')}`);
+        }
+        await WitnessService.pruneExpiredCodes();
+
+        const db = await getDatabase();
+        await db.run(
+            `UPDATE witness_pair_requests SET expires_at = datetime('now')
+              WHERE device_id = ? AND consumed_at IS NULL AND expires_at > datetime('now')`,
+            deviceId,
+        );
+
+        const poll = randomBytes(16).toString('hex');
+        const pollHash = hashToken(poll);
+        const model = parseDeviceModel(modelInput.model, 32);
+        const modelName = parseDeviceModel(modelInput.modelName, 64);
+        // Expiry in SQLite's own datetime text, like `createPairingCode`.
+        for (let attempt = 0; attempt < 6; attempt++) {
+            const code = makeCode();
+            try {
+                await db.run(
+                    `INSERT INTO witness_pair_requests
+                        (user_code, poll_hash, device_id, atgames_username, device_type, device_model, device_model_name, expires_at)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', ?))`,
+                    code, pollHash, deviceId, atgamesUsername || null, deviceType, model, modelName,
+                    `+${PAIR_REQUEST_TTL_SEC} seconds`,
+                );
+                logInfo(`Witness: ${deviceType} device ${deviceId} started a phone pairing`);
+                return { code, poll };
+            } catch {
+                // PK clash - try another code.
+            }
+        }
+        throw new Error('Witness: could not mint a unique pair request code');
+    }
+
+    /**
+     * W102 - pair by phone, the cabinet's poll. The pairing is PERFORMED here,
+     * once a player approved: the request is claimed (consumed), the pairing
+     * rules run again, and the device row is written through the same core as
+     * the typed flow, so the plaintext token is returned once and never
+     * stored. Unknown / expired / consumed / wrong device or secret all answer
+     * `expired`; a refusal by the pairing rules consumes the request.
+     */
+    static async pollPairRequest(rawDeviceId: string, rawPoll: string): Promise<PairPollResult> {
+        const deviceId = (rawDeviceId || '').trim();
+        const poll = (rawPoll || '').trim().toLowerCase();
+        if (!deviceId || !POLL_SECRET_RE.test(poll)) return { status: 'expired' };
+
+        const db = await getDatabase();
+        const row = await db.get<PairRequestRow & { is_expired: number }>(
+            `SELECT *, (expires_at <= datetime('now')) AS is_expired
+               FROM witness_pair_requests WHERE device_id = ? AND poll_hash = ?`,
+            deviceId, hashToken(poll),
+        );
+        if (!row || row.consumed_at || row.is_expired) return { status: 'expired' };
+        if (!row.approved_by) return { status: 'pending' };
+
+        // Claim first, so two polls in flight can never both pair.
+        const claim = await db.run(
+            `UPDATE witness_pair_requests SET consumed_at = datetime('now')
+              WHERE user_code = ? AND consumed_at IS NULL AND approved_by IS NOT NULL AND expires_at > datetime('now')`,
+            row.user_code,
+        );
+        if ((claim.changes ?? 0) !== 1) return { status: 'expired' };
+        const canonicalUserId = row.approved_by;
+        const unclaim = () => db.run(
+            `UPDATE witness_pair_requests SET consumed_at = NULL WHERE user_code = ?`, row.user_code,
+        ).catch(() => {});
+
+        try {
+            await WitnessService.assertPairingAllowed(deviceId, canonicalUserId);
+        } catch (err) {
+            if (err instanceof WitnessPairError && (err.code === 'DEVICE_CONFLICT' || err.code === 'DEVICE_LIMIT')) {
+                logInfo(`Witness: phone pairing of device ${deviceId} refused at poll (${err.code})`);
+                return { status: 'refused', code: err.code };
+            }
+            await unclaim();
+            throw err;
+        }
+
+        let token: string;
+        try {
+            token = await WitnessService.writePairedDevice({
+                deviceId, canonicalUserId,
+                atgamesUsername: row.atgames_username,
+                deviceType: row.device_type === 'desktop' ? 'desktop' : 'atgames',
+                modelInput: { model: row.device_model ?? undefined, modelName: row.device_model_name ?? undefined },
+            });
+        } catch (err) {
+            // Nothing was written; let the cabinet's next poll try again.
+            await unclaim();
+            throw err;
+        }
+
+        let account: string | null = null;
+        try {
+            const { resolveUserLabels } = await import('./PlayerProfileResolver.js');
+            account = cabinetAccountLabel((await resolveUserLabels([canonicalUserId]))[canonicalUserId]);
+        } catch {
+            account = null;
+        }
+        return account ? { status: 'approved', token, account } : { status: 'approved', token };
+    }
+
+    /**
+     * W102 - what the player's confirm page shows for a code. Null for
+     * unknown / expired / consumed, and for a request another player already
+     * approved. `status` is `approved` only when the CALLER approved it.
+     */
+    static async getPairRequest(canonicalUserId: string, rawCode: string): Promise<PairRequestView | null> {
+        const row = await WitnessService.livePairRequest(rawCode);
+        if (!row) return null;
+        if (row.approved_by && row.approved_by !== canonicalUserId) return null;
+        const db = await getDatabase();
+        const mine = await db.get(
+            `SELECT 1 FROM witness_devices WHERE atgames_unique_id = ? AND canonical_user_id = ?`,
+            row.device_id, canonicalUserId,
+        );
+        return {
+            code: row.user_code,
+            deviceType: row.device_type === 'desktop' ? 'desktop' : 'atgames',
+            deviceModel: row.device_model,
+            deviceModelName: row.device_model_name,
+            deviceTail: row.device_id.slice(-4),
+            atgamesUsername: row.atgames_username,
+            expiresAt: sqliteUtcToIso(row.expires_at),
+            status: row.approved_by === canonicalUserId ? 'approved' : 'pending',
+            alreadyYours: !!mine,
+        };
+    }
+
+    /**
+     * W102 - the player approves a code. True = approved by the caller (a
+     * repeat is fine); false = unknown / expired / consumed / approved by
+     * someone else. The pairing rules run here too (`DEVICE_CONFLICT` /
+     * `DEVICE_LIMIT` thrown, the request left pending) and again when the
+     * cabinet polls, which is when the pairing happens.
+     */
+    static async approvePairRequest(canonicalUserId: string, rawCode: string): Promise<boolean> {
+        const row = await WitnessService.livePairRequest(rawCode);
+        if (!row) return false;
+        if (row.approved_by) return row.approved_by === canonicalUserId;
+
+        await WitnessService.assertPairingAllowed(row.device_id, canonicalUserId);
+
+        const db = await getDatabase();
+        const res = await db.run(
+            `UPDATE witness_pair_requests SET approved_by = ?, approved_at = datetime('now')
+              WHERE user_code = ? AND approved_by IS NULL AND consumed_at IS NULL AND expires_at > datetime('now')`,
+            canonicalUserId, row.user_code,
+        );
+        if ((res.changes ?? 0) === 1) {
+            logInfo(`Witness: phone pairing of device ${row.device_id} approved by ${canonicalUserId}`);
+            return true;
+        }
+        const now = await db.get<{ approved_by: string | null }>(
+            `SELECT approved_by FROM witness_pair_requests WHERE user_code = ? AND consumed_at IS NULL`, row.user_code,
+        );
+        return now?.approved_by === canonicalUserId;
+    }
+
+    /** An unconsumed, unexpired pair request by its user code (upper-cased, trimmed), or null. */
+    private static async livePairRequest(rawCode: string): Promise<PairRequestRow | null> {
+        const code = (rawCode || '').trim().toUpperCase();
+        if (!code || code.length > 16) return null;
+        const db = await getDatabase();
+        const row = await db.get<PairRequestRow>(
+            `SELECT * FROM witness_pair_requests
+              WHERE user_code = ? AND consumed_at IS NULL AND expires_at > datetime('now')`,
+            code,
+        );
+        return row ?? null;
     }
 
     /**
@@ -1219,6 +1529,8 @@ export class WitnessService {
         sendsHere: 'yes' | 'one_tournament' | 'entered_only' | 'no';
         why: 'global_only' | 'other_room' | 'other_tournament' | 'not_member' | null;
         targetRoomName: string | null; targetTournamentName: string | null;
+        /** W102 - the device's `watching` (see `WitnessDevice`). */
+        watching: WitnessWatching;
     }>> {
         const db = await getDatabase();
         const devices = await WitnessService.listDevices(canonicalUserId);
@@ -1254,6 +1566,7 @@ export class WitnessService {
                 deviceId: d.atgamesUniqueId, deviceType: d.deviceType, sendsHere, why,
                 targetRoomName: d.targetRoomName,
                 targetTournamentName: target.tournamentId ? d.targetTournamentName : null,
+                watching: d.watching,
             });
         }
         return out;
@@ -1301,20 +1614,36 @@ export class WitnessService {
             global_only: number; global_fallback: number; app_version: string | null; app_version_at: string | null;
             device_model: string | null; device_model_name: string | null;
             auto_update: number; test_builds: number; staged_version: string | null;
+            heartbeat_at: string | null; heartbeat_fresh: number | null;
         }>>(
             `SELECT d.atgames_unique_id, d.atgames_username, d.device_type, d.paired_at, d.last_seen_at,
                     d.target_room_id, r.name AS room_name,
                     d.target_tournament_id, t.name AS tournament_name,
                     d.global_only, d.global_fallback, d.app_version, d.app_version_at,
                     d.device_model, d.device_model_name,
-                    d.auto_update, d.test_builds, d.staged_version
+                    d.auto_update, d.test_builds, d.staged_version,
+                    d.heartbeat_at,
+                    -- W102: the lobby's one staleness rule (HEARTBEAT_STALE_SEC).
+                    CASE WHEN d.heartbeat_at IS NULL THEN NULL
+                         ELSE (strftime('%s', 'now') - strftime('%s', d.heartbeat_at)) <= ? END AS heartbeat_fresh
                FROM witness_devices d
                LEFT JOIN game_rooms r ON r.id = d.target_room_id
                LEFT JOIN tournaments t ON t.id = d.target_tournament_id
               WHERE d.canonical_user_id = ? AND d.revoked_at IS NULL
               ORDER BY d.paired_at DESC`,
-            canonicalUserId,
+            HEARTBEAT_STALE_SEC, canonicalUserId,
         );
+        // W102 - each device's newest witness score on this account (any
+        // outcome). SQLite's bare-column rule gives the row holding the MAX.
+        const lastScores = new Map<string, { created_at: string; table_name: string | null }>();
+        if (rows.length > 0) {
+            const latest = await db.all<Array<{ device_id: string; created_at: string; table_name: string | null }>>(
+                `SELECT device_id, MAX(created_at) AS created_at, table_name
+                   FROM witness_evidence WHERE canonical_user_id = ? GROUP BY device_id`,
+                canonicalUserId,
+            );
+            for (const l of latest) lastScores.set(l.device_id, l);
+        }
         // W99 / W100 - the offer rule and the logs gate, judged on the build
         // each device last reported. The releases are read once, and only when
         // a cabinet is in the list (a desktop is never offered a build).
@@ -1323,6 +1652,10 @@ export class WitnessService {
         const releases = rows.some(r => r.device_type === 'atgames')
             ? await WitnessReleaseService.offerableReleases()
             : [];
+        // A staged build no newer than the running one has started, so it is not staged any more.
+        const stagedOf = (r: (typeof rows)[number]): string | null =>
+            r.staged_version && (!r.app_version || compareVersions(r.staged_version, r.app_version) > 0)
+                ? r.staged_version : null;
         return rows.map(r => ({
             atgamesUniqueId: r.atgames_unique_id,
             atgamesUsername: r.atgames_username,
@@ -1341,9 +1674,7 @@ export class WitnessService {
             deviceModelName: r.device_model_name,
             autoUpdate: r.auto_update !== 0,
             testBuilds: r.test_builds === 1,
-            // A staged build no newer than the one now running has started: not staged any more.
-            stagedVersion: r.staged_version && (!r.app_version || compareVersions(r.staged_version, r.app_version) > 0)
-                ? r.staged_version : null,
+            stagedVersion: stagedOf(r),
             offeredVersion: offeredRelease({
                 deviceType: r.device_type,
                 autoUpdate: r.auto_update !== 0,
@@ -1351,6 +1682,11 @@ export class WitnessService {
                 reportedVersion: r.app_version,
             }, releases),
             logsSupported: logsSupported(r.device_type, r.app_version),
+            heartbeatAt: r.heartbeat_at,
+            watching: r.heartbeat_at == null ? 'unknown' : r.heartbeat_fresh === 1 ? 'yes' : 'no',
+            updatePending: stagedOf(r) !== null,
+            lastScoreAt: lastScores.get(r.atgames_unique_id)?.created_at ?? null,
+            lastScoreTable: lastScores.get(r.atgames_unique_id)?.table_name ?? null,
         }));
     }
 
@@ -1386,12 +1722,19 @@ export class WitnessService {
         return changed;
     }
 
-    /** Best-effort sweep of expired, unconsumed codes. Cheap; call opportunistically. */
+    /**
+     * Best-effort sweep of expired, unconsumed codes. Cheap; call opportunistically.
+     * W102: also drops pair-by-phone requests older than a day (their life is
+     * 10 minutes, so any such row is dead). Run at every phone-pairing start.
+     */
     static async pruneExpiredCodes(): Promise<void> {
         try {
             const db = await getDatabase();
             await db.run(
                 `DELETE FROM witness_pairing_codes WHERE consumed_at IS NULL AND expires_at <= datetime('now', '-1 day')`,
+            );
+            await db.run(
+                `DELETE FROM witness_pair_requests WHERE created_at <= datetime('now', '-1 day')`,
             );
         } catch (err) {
             logWarn('Witness: pruneExpiredCodes failed', err);

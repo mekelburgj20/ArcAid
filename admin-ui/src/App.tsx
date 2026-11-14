@@ -102,6 +102,9 @@ import DiscordCallback from './pages/DiscordCallback';
 import GoogleCallback from './pages/GoogleCallback';
 import InviteAccept from './pages/InviteAccept';
 import TournamentInvite from './pages/TournamentInvite';
+import WitnessInstall from './pages/WitnessInstall';
+import WitnessPair from './pages/WitnessPair';
+import WitnessPairEntry from './pages/WitnessPairEntry';
 
 function NavigateToRoomLogin() {
   const { slug } = useParams();
@@ -160,6 +163,11 @@ function App() {
         <Route path="/invite/:token" element={<InviteAccept />} />
         {/* Tournament invite link (v2.179.0, W39) — a PLAYER joins an invite-only tournament */}
         <Route path="/tournament-invite/:code" element={<ViewerAuthProvider><TournamentInvite /></ViewerAuthProvider>} />
+
+        {/* W102 — Arcaid Witness install guide and pair-by-phone (global pages, before /:slug) */}
+        <Route path="/witness/install" element={<ViewerAuthProvider><WitnessInstall /></ViewerAuthProvider>} />
+        <Route path="/pair" element={<WitnessPairEntry />} />
+        <Route path="/pair/:code" element={<ViewerAuthProvider><WitnessPair /></ViewerAuthProvider>} />
 
         {/* Legal pages (static, public — must precede the /:slug dynamic route) */}
         <Route path="/privacy" element={<Privacy />} />

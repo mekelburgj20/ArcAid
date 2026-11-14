@@ -3776,6 +3776,33 @@ async function doInitDatabase(): Promise<Database> {
                 await db.exec(`ALTER TABLE witness_devices ADD COLUMN staged_version TEXT`);
             }
         } },
+        // W102 (v2.247.0, ADR 0040 addendum) - pair by phone. One row per
+        // cabinet "PAIR THIS CABINET" press: `user_code` is the 6-character code
+        // the player scans or types, `poll_hash` the SHA-256 of the cabinet's
+        // poll secret (the secret is never stored). A player approves
+        // (`approved_by`); the pairing itself happens on the cabinet's next poll,
+        // which consumes the row, so the device token is never stored here.
+        // `expires_at` is SQLite datetime text (600 s). No FKs; rows older than
+        // a day are pruned by `WitnessService.pruneExpiredCodes`.
+        { name: '215_witness_pair_requests', handler: async (db) => {
+            await db.exec(`
+                CREATE TABLE IF NOT EXISTS witness_pair_requests (
+                    user_code TEXT PRIMARY KEY,
+                    poll_hash TEXT NOT NULL,
+                    device_id TEXT NOT NULL,
+                    atgames_username TEXT,
+                    device_type TEXT NOT NULL DEFAULT 'atgames',
+                    device_model TEXT,
+                    device_model_name TEXT,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    expires_at TEXT NOT NULL,
+                    approved_by TEXT,
+                    approved_at TEXT,
+                    consumed_at TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_witness_pair_requests_device ON witness_pair_requests(device_id);
+            `);
+        } },
     ];
 
     for (const migration of migrations) {

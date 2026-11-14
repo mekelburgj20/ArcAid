@@ -122,10 +122,19 @@ describe('WitnessDeviceSupport', () => {
         expect(JSON.parse((patch[1] as RequestInit).body as string)).toEqual({ testBuilds: true });
     });
 
+    it('updatePending from the server decides whether the on-the-stick line shows', () => {
+        stubFetch();
+        const a = renderIt({ ...DEV, stagedVersion: '1.1.1', updatePending: true });
+        expect(screen.getByText(/Version 1.1.1 is on the stick/)).toBeTruthy();
+        a.unmount();
+        renderIt({ ...DEV, stagedVersion: '1.1.0', updatePending: false });
+        expect(screen.queryByText(/is on the stick/)).toBeNull();
+    });
+
     it('shows staged before offered', () => {
         stubFetch();
         const a = renderIt({ ...DEV, stagedVersion: '1.2.0', offeredVersion: '1.2.0' });
-        expect(screen.getByText(/Version 1.2.0 is downloaded/)).toBeTruthy();
+        expect(screen.getByText('Version 1.2.0 is on the stick. Open the tile on the cabinet to finish the update.')).toBeTruthy();
         expect(screen.queryByText(/is available/)).toBeNull();
         a.unmount();
         renderIt({ ...DEV, offeredVersion: '1.3.0' });

@@ -6,6 +6,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.247.0] - 2026-11-14 - Arcaid Witness is easier to get, pair and keep running
+
+W102 (ADR 0040 addendum). Pair by phone needs Arcaid Witness 1.1.1 on the cabinet; everything else works with any
+build that sends heartbeats.
+
+- **Added, Get Arcaid Witness:** Account Settings -> Arcaid Witness devices has a download button for the cabinet
+  kit (a zip with the `arcaid-witness` folder). It is always the release set to Everyone at Super Admin -> Witness
+  releases and logs; with no such release the button is not shown.
+- **Added, install guide:** `/witness/install`, readable without logging in: what you need, the eight steps, what
+  to do after every power-on, updates, which tables post scores, and where to get help.
+- **Added, install video link:** Super Admin -> Witness releases and logs -> Install video link. When set, the
+  install guide and the download button show "Watch the install video".
+- **Added, pair by phone:** on cabinet 1.1.1 "Pair this cabinet" shows a QR code. Scan it (or open
+  `arcaid.app/pair` and type the code), check what is being paired, and approve. Typing a code from Account
+  Settings on the cabinet still works.
+- **Rule:** the pairing happens when the cabinet collects the approval, so the device token is never stored in the
+  clear. The confirm page shows the cabinet model and the end of its id and says to approve only at the cabinet.
+- **Added, device health:** each paired device shows Watching now or Not watching (with when it was last heard from
+  and what to do), a line when an update is on the stick waiting for the tile to be opened, and the last score sent.
+  "Your scores go to" says when a device is not watching.
+- **Changed, reminders:** the opt-in "come play" messages add one line (open the Arcaid Witness tile first) when the
+  player has a cabinet that sends to that room and none of their devices is watching.
+- **Added, operator alert:** Send to Arcaid support raises the existing operator alert (off unless it is switched on
+  in settings) with the player's name, the cabinet model and the note.
+- **Schema:** migration 215 (`witness_pair_requests`). Setting: `WITNESS_INSTALL_VIDEO_URL`. Image: the kit's three
+  static files are copied from `witness-kit/`.
+- **Wire:** `GET /api/witness/pair/start`, `GET /api/witness/pair/poll`, `GET /api/witness/guide`;
+  `GET /api/me/witness/pair-requests/:code`, `POST .../approve`, `GET /api/me/witness/kit`, `.../kit/download`;
+  devices rows gain `heartbeatAt`, `watching`, `updatePending`, `lastScoreAt`, `lastScoreTable`.
+
 ## [2.246.0] - 2026-11-13 - Cabinet logs on request, and cabinets that update themselves
 
 W99, W100 (ADR 0040). Needs Arcaid Witness 1.1.0 on the cabinet; older cabinets ignore both and show a line saying

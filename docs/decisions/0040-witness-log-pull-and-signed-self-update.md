@@ -90,3 +90,27 @@ Cabinets before 1.1.0 ignore them. Neither can fail the heartbeat.
   every cabinet.
 - **Re-exec the beacon after download.** Activates sooner, but loses in-memory deferred scores and the open-session
   marker, and cannot be tested without hardware. Deferred until a cabinet proves the plain path.
+
+## Pair by phone and the kit download (v2.247.0, cabinet 1.1.1)
+
+Typing a six-character code on a cabinet with a joystick was the slowest step of a first install, and collecting the
+four install files by hand was the other. Both are replaced, and the typed code stays as the fallback.
+
+- **Pair by phone.** "PAIR THIS CABINET" asks the server for a short code and a poll secret
+  (`GET /api/witness/pair/start`), shows the code as a QR code for `arcaid.app/pair/<code>`, and polls every 3 seconds
+  for up to 10 minutes. The player opens the page on their phone, sees what is being paired (cabinet model, the end
+  of the device id, the AtGames name), and approves it.
+- **The pairing is performed at poll time, not at approval.** Approval only records who approved. The cabinet's next
+  poll claims the request, runs the same pairing rules as the typed code again (`DEVICE_CONFLICT`, `DEVICE_LIMIT`),
+  writes the device row through the same code, and returns the token in that one answer. So the plaintext token is
+  never stored anywhere, not even for the seconds between approval and the poll, and a second poll gets nothing.
+  The poll secret is stored only as its SHA-256; an unknown, expired, used or wrong-secret poll gets one `410`.
+- **The known risk.** A player who approves a code someone else sent them pairs that person's cabinet to their own
+  account (the device-flow phishing pattern). Nothing on the server can tell the two apart, so the page must show
+  what is being paired and tell the player to approve only a code on the cabinet in front of them. The damage is
+  bounded: the cabinet's scores go to the wrong account, the real owner sees "PAIRED TO <account>" on the cabinet
+  screen, unpairing ends it, and the W97 caps still apply.
+- **The kit download.** Account Settings offers one zip with the app ELF and the tile's three static files (art,
+  description XML, controller map), committed at `witness-kit/`. The ELF is only ever the highest `stable` release,
+  whatever the player's "Get test builds early" switch says: a manual install is the recovery path, so it gets the
+  build that every cabinet already runs, never a beta or a draft.
