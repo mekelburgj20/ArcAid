@@ -212,9 +212,9 @@ export class WitnessLogService {
     }
 
     /**
-     * A player asks for a cabinet's logs. The device must be the caller's and
-     * unpaired-not (`NOT_FOUND`), a cabinet on 1.1.0 or later
-     * (`LOGS_UNSUPPORTED`). A pending request for the device is returned as it
+     * A player asks for a device's logs. The device must be the caller's and
+     * unpaired-not (`NOT_FOUND`), and a cabinet on 1.1.0 or later or a
+     * Castcade desktop (W102), else `LOGS_UNSUPPORTED`. A pending request for the device is returned as it
      * is (`created: false`), so a double click is one request.
      */
     static async request(canonicalUserId: string, deviceId: string): Promise<{ request: LogRequest; created: boolean }> {
@@ -226,7 +226,7 @@ export class WitnessLogService {
         );
         if (!device) throw new WitnessLogError('NOT_FOUND', 'No such device paired to your account');
         if (!logsSupported(device.device_type, device.app_version)) {
-            throw new WitnessLogError('LOGS_UNSUPPORTED', 'This device cannot send its logs (a cabinet running Arcaid Witness 1.1.0 or later can)');
+            throw new WitnessLogError('LOGS_UNSUPPORTED', 'This device cannot send its logs (a cabinet running Arcaid Witness 1.1.0 or later, or a PC running Castcade, can)');
         }
         await WitnessLogService.sweep();
 

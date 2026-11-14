@@ -4,8 +4,8 @@
  * A cabinet reports its build as `v=` on the check-in and the heartbeat
  * (`parseAppVersion` in WitnessService decides what is stored: `1.0.8`,
  * `1.0.8.2`, `1.0.8-rc2`). Two features read that string as a NUMBER rather
- * than as a label: the log pull (only a cabinet on 1.1.0 or later can answer
- * a log request) and the self-update offer (a release is offered only when it
+ * than as a label: the log pull (a cabinet must be on 1.1.0 or later to answer
+ * a log request; a Castcade desktop reports no build and is always asked) and the self-update offer (a release is offered only when it
  * is numerically newer than what the cabinet runs). This module is the ONE
  * comparison both use, so `1.0.10` is newer than `1.0.9` everywhere.
  *
@@ -56,11 +56,16 @@ export function compareVersions(a: string, b: string): number {
 
 /**
  * W99 - can this device answer a log request? A CABINET (`device_type`
- * `atgames`, never the Castcade desktop, which has its own log folder) that
- * last reported a build of at least `WITNESS_LOGS_MIN_VERSION`. A device that
- * never reported a build cannot.
+ * `atgames`) that last reported a build of at least
+ * `WITNESS_LOGS_MIN_VERSION`; a cabinet that never reported a build cannot.
+ *
+ * W102 - a Castcade DESKTOP always can be asked. Castcade sends no `v` on its
+ * heartbeat (a version there would meet the cabinet update offer), so there
+ * is nothing to compare: Castcade 0.2.41 and later answer, an older one
+ * leaves the request to expire after 15 minutes like a cabinet that is off.
  */
 export function logsSupported(deviceType: string | null | undefined, appVersion: string | null | undefined): boolean {
+    if (deviceType === 'desktop') return true;
     if (deviceType !== 'atgames') return false;
     if (!appVersion || !appVersion.trim()) return false;
     return compareVersions(appVersion, WITNESS_LOGS_MIN_VERSION) >= 0;

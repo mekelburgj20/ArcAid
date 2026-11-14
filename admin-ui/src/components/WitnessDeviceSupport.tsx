@@ -2,10 +2,11 @@ import { useCallback, useEffect, useState } from 'react';
 import { Download, FileText, Send, Trash2 } from 'lucide-react';
 
 /**
- * W99 / W100 — per-device support controls under a paired cabinet on Account
- * Settings: pull the cabinet's logs, and choose how it updates itself.
- * Renders nothing for a desktop (Castcade) device. Authenticates with the
- * player token, like the rest of the Witness block.
+ * W99 / W100 — per-device support controls under a paired device on Account
+ * Settings: pull the device's logs, and (a cabinet only) choose how it
+ * updates itself. W102: a desktop (Castcade) device gets the log controls
+ * with its own wording and no update switches; Castcade updates itself.
+ * Authenticates with the player token, like the rest of the Witness block.
  */
 
 export type WitnessSupportDevice = {
@@ -69,7 +70,7 @@ export default function WitnessDeviceSupport({ device, playerToken, onChanged }:
         } catch { /* the controls simply show no request */ }
     }, [id, playerToken]);
 
-    const active = isCabinet && logsSupported;
+    const active = logsSupported;
     useEffect(() => { if (active && playerToken) void load(); }, [active, playerToken, load]);
 
     const pending = latest?.status === 'pending';
@@ -79,7 +80,7 @@ export default function WitnessDeviceSupport({ device, playerToken, onChanged }:
         return () => clearInterval(t);
     }, [pending, load]);
 
-    if (!isCabinet) return null;
+    if (!isCabinet && !logsSupported) return null;
 
     const requestLogs = async () => {
         setBusy(true); setError(null);
@@ -186,19 +187,23 @@ export default function WitnessDeviceSupport({ device, playerToken, onChanged }:
                         <>
                             {latest?.status === 'expired' && (
                                 <p className="text-xs text-amber-400">
-                                    Your cabinet did not answer. Check it is on and online, open the Arcaid Witness tile once, then try again.
+                                    {isCabinet
+                                        ? 'Your cabinet did not answer. Check it is on and online, open the Arcaid Witness tile once, then try again.'
+                                        : 'Castcade did not answer. Check Castcade 0.2.41 or newer is running on that PC, then try again.'}
                                 </p>
                             )}
                             {latest?.status === 'failed' && (
                                 <p className="text-xs text-rose-400">
-                                    Your cabinet could not send its logs ({latest.failReason || 'unknown reason'}). Try again.
+                                    {isCabinet ? 'Your cabinet' : 'Castcade'} could not send its logs ({latest.failReason || 'unknown reason'}). Try again.
                                 </p>
                             )}
                         </>
                     )}
                     {pending && (
                         <p className="text-xs text-muted">
-                            Asked your cabinet for its logs. It answers within about 2 minutes while it is switched on and the Witness has been opened since it was last powered on.
+                            {isCabinet
+                                ? 'Asked your cabinet for its logs. It answers within about 2 minutes while it is switched on and the Witness has been opened since it was last powered on.'
+                                : 'Asked Castcade on that PC for its logs. It answers within about 2 minutes while Castcade 0.2.41 or newer is running.'}
                         </p>
                     )}
                     {latest?.status === 'ready' && (
@@ -239,7 +244,9 @@ export default function WitnessDeviceSupport({ device, playerToken, onChanged }:
                                         <Send size={12} /> Send to Arcaid support
                                     </button>
                                     <p className="text-xs text-faint">
-                                        Sends this cabinet's Witness log and VPX play records to the Arcaid team. You can still download or remove them.
+                                        {isCabinet
+                                            ? "Sends this cabinet's Witness log and VPX play records to the Arcaid team. You can still download or remove them."
+                                            : "Sends Castcade's logs, its VR layer log and recent table journals from that PC to the Arcaid team. You can still download or remove them."}
                                     </p>
                                 </div>
                             )}
@@ -258,7 +265,7 @@ export default function WitnessDeviceSupport({ device, playerToken, onChanged }:
                 </div>
             )}
 
-            {logsSupported && (
+            {isCabinet && logsSupported && (
                 <div className="space-y-1">
                     <label className="flex items-center gap-2 text-xs text-primary cursor-pointer">
                         <input

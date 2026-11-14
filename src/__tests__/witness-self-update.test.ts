@@ -238,7 +238,7 @@ describe('heartbeat `update` and `staged` (W100)', () => {
         });
         expect(desk).toMatchObject({
             deviceType: 'desktop', autoUpdate: true, testBuilds: false, stagedVersion: null,
-            offeredVersion: null, logsSupported: false,
+            offeredVersion: null, logsSupported: true, // W102: a Castcade desktop can be asked for its logs
         });
     });
 });

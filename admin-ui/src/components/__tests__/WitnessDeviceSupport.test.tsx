@@ -33,10 +33,29 @@ const renderIt = (d: WitnessSupportDevice, onChanged = vi.fn()) =>
 afterEach(() => { vi.unstubAllGlobals(); });
 
 describe('WitnessDeviceSupport', () => {
-    it('renders nothing for a desktop device', () => {
+    it('renders nothing for a desktop device the server says cannot be asked', () => {
         stubFetch();
-        const { container } = renderIt({ ...DEV, deviceType: 'desktop' });
+        const { container } = renderIt({ ...DEV, deviceType: 'desktop', appVersion: null, logsSupported: false });
         expect(container.innerHTML).toBe('');
+    });
+
+    it('W102: a desktop (Castcade) device gets Get logs with its own wording and no update switches', async () => {
+        const fn = stubFetch([]);
+        renderIt({ ...DEV, deviceType: 'desktop', appVersion: null });
+        expect(screen.queryByRole('checkbox')).toBeNull();
+        fireEvent.click(await screen.findByRole('button', { name: /Get logs/ }));
+        await screen.findByText(/Asked Castcade on that PC for its logs/);
+        expect(screen.queryByText(/your cabinet/i)).toBeNull();
+        const post = fn.mock.calls.find(c => (c[1] as RequestInit | undefined)?.method === 'POST');
+        expect(post![0]).toBe('/api/me/witness/devices/dev1/log-requests');
+    });
+
+    it('W102: a ready desktop bundle says what Castcade sends', async () => {
+        stubFetch([req('ready', { sizeBytes: 2048 })]);
+        renderIt({ ...DEV, deviceType: 'desktop', appVersion: null });
+        expect(await screen.findByRole('button', { name: /Send to Arcaid support/ })).toBeTruthy();
+        expect(screen.getByText(/Sends Castcade's logs, its VR layer log and recent table journals/)).toBeTruthy();
+        expect(screen.queryByRole('checkbox')).toBeNull();
     });
 
     it('an unsupported cabinet gets the needs-1.1.0 line and no button or checkbox', () => {
