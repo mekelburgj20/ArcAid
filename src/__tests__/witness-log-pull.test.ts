@@ -13,7 +13,7 @@ import { WitnessLogService, looksLikeTar } from '../services/WitnessLogService.j
 import { WitnessService } from '../services/WitnessService.js';
 
 /**
- * W99 (v2.245.0, ADR 0040) - a cabinet sends its logs when its player asks.
+ * W99 (v2.246.0, ADR 0040) - a cabinet sends its logs when its player asks.
  *
  * Pinned, worst-bug-first:
  *   1. The bundle is the player's: nobody else can list, download or delete

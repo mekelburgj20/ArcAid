@@ -281,7 +281,7 @@ router.delete('/me/witness/devices/:deviceId', requireDiscordUser, async (req, r
     }
 });
 
-// W100 (v2.245.0, ADR 0040) - the player's update switches for one device:
+// W100 (v2.246.0, ADR 0040) - the player's update switches for one device:
 // `autoUpdate` (install offered builds, default on) and `testBuilds` (the beta
 // channel, default off). An omitted field is left as it is.
 router.patch('/me/witness/devices/:deviceId/updates', requireDiscordUser, async (req, res) => {
@@ -306,7 +306,7 @@ router.patch('/me/witness/devices/:deviceId/updates', requireDiscordUser, async 
 });
 
 // ---------------------------------------------------------------------------
-// W99 (v2.245.0, ADR 0040) - cabinet log pull, the player's side. The player
+// W99 (v2.246.0, ADR 0040) - cabinet log pull, the player's side. The player
 // asks a cabinet for its logs; the request id rides back on the cabinet's next
 // heartbeat and the cabinet answers with one upload (POST /witness/logs below).
 // The bundle is the player's private data: every route here is keyed on the
@@ -640,7 +640,7 @@ router.get('/witness/checkin', witnessIngestLimiter, async (req, res) => {
 // anyone in. Best-effort: a failure here still answers ok, with no line, and a
 // cabinet keeps the line it has (1.0.4 cabinets ignore the field).
 //
-// W99 / W100 (v2.245.0, ADR 0040): the heartbeat is the only moment the server
+// W99 / W100 (v2.246.0, ADR 0040): the heartbeat is the only moment the server
 // can speak to a cabinet, so it also carries `logs` (a pending log request id)
 // and `update` (the build the offer rule gives this device, newer than its
 // `v`), and takes `staged=<version>` (a build installed on the stick, not yet

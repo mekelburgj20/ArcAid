@@ -12,7 +12,7 @@ import { offeredRelease, WitnessReleaseService } from '../services/WitnessReleas
 import { releaseSignedMessage } from '../utils/witnessReleaseSignature.js';
 
 /**
- * W100 (v2.245.0, ADR 0040) - signed self-update for Witness cabinets.
+ * W100 (v2.246.0, ADR 0040) - signed self-update for Witness cabinets.
  *
  * Pinned, worst-bug-first:
  *   1. THE OFFER RULE: draft is offered to nobody; beta only with test builds;

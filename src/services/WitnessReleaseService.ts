@@ -7,7 +7,7 @@ import { compareVersions, isReleaseVersion } from '../utils/witnessVersion.js';
 import { isElf, verifyReleaseSignature, WITNESS_RELEASE_PUBLIC_KEY_HEX } from '../utils/witnessReleaseSignature.js';
 
 /**
- * W100 (v2.245.0, ADR 0040) - signed self-update for Arcaid Witness cabinets.
+ * W100 (v2.246.0, ADR 0040) - signed self-update for Arcaid Witness cabinets.
  *
  * A super-admin uploads a cabinet build (the ELF and its Ed25519 signature,
  * made on the owner's PC by `npm run witness-release -- sign`). The server

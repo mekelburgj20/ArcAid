@@ -2616,7 +2616,7 @@ router.post('/signing-keys/:id/retire', async (req, res) => {
     }
 });
 
-// ─── Arcaid Witness cabinet releases (W100, v2.245.0, ADR 0040) ─────────
+// ─── Arcaid Witness cabinet releases (W100, v2.246.0, ADR 0040) ─────────
 // A release is a cabinet ELF plus its Ed25519 signature, made on the owner's
 // PC (`npm run witness-release -- sign`). The server verifies the signature
 // with the baked public key before storing anything; a new release is a

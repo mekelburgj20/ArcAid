@@ -7,7 +7,7 @@ import { logsSupported } from '../utils/witnessVersion.js';
 import { resolveUserLabels } from './PlayerProfileResolver.js';
 
 /**
- * W99 (v2.245.0, ADR 0040) - a cabinet sends its logs when its player asks.
+ * W99 (v2.246.0, ADR 0040) - a cabinet sends its logs when its player asks.
  *
  * The server can never reach a cabinet; it can only answer one. So a player's
  * request is a row (`witness_log_requests`), its id rides back on the
