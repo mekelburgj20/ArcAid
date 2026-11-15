@@ -8,7 +8,7 @@ import request from 'supertest';
 import { setupTestDb } from './helpers.js';
 import { getDatabase, _resetForTesting } from '../database/database.js';
 import { signToken } from '../api/auth.js';
-import { WitnessLogService } from '../services/WitnessLogService.js';
+import { WitnessLogService, CABINET_LOG_REQUEST_WINDOW_MINUTES } from '../services/WitnessLogService.js';
 import { WitnessService } from '../services/WitnessService.js';
 import { OpsAlertService } from '../services/OpsAlertService.js';
 
@@ -21,7 +21,9 @@ import { OpsAlertService } from '../services/OpsAlertService.js';
  *      and audit row), made for the device's paired player; bare 401 like
  *      every device route, a service refusal keeps its code (400).
  *   2. `requested` for a new request, `pending` (same id, now marked) when one
- *      is already waiting; the heartbeat still carries `logs` unchanged.
+ *      is already waiting; the heartbeat still carries `logs` unchanged. With
+ *      nothing pending, a second cabinet press inside 10 minutes of the last
+ *      one is `429 LIMITED` and creates nothing; the web button is unlimited.
  *   3. SHARE ON RECEIPT: when the bundle arrives it is sent to Arcaid support
  *      through the player's own path (share + audit + operator alert), ONCE;
  *      a request the player started from Account Settings is not.
@@ -266,6 +268,78 @@ describe('share on receipt', () => {
         expect(res.status).toBe(200);
         expect(res.body).toEqual({ ok: true });
         expect((await rowOf(body.id))!.shared_at).toBeTruthy();
+    });
+});
+
+describe('the cabinet limit: one cabinet-started request per device per window (owner, 2026-11-15)', () => {
+    const ask = () => request(app).post(`/api/me/witness/devices/${CABINET}/log-requests`).set(auth()).send({});
+    const ago = async (id: string, minutes: number) => (await getDatabase()).run(
+        `UPDATE witness_log_requests SET requested_at = datetime('now', ?) WHERE id = ?`, `-${minutes} minutes`, id,
+    );
+    const rowCount = async () => (await (await getDatabase()).get<{ n: number }>(
+        `SELECT COUNT(*) AS n FROM witness_log_requests WHERE atgames_unique_id = ?`, CABINET,
+    ))!.n;
+
+    it('is one named 10-minute window', () => {
+        expect(CABINET_LOG_REQUEST_WINDOW_MINUTES).toBe(10);
+    });
+
+    it('first press requested; again while pending = pending; after the bundle arrived inside the window = 429 LIMITED, nothing created, no alert', async () => {
+        const alert = vi.spyOn(OpsAlertService, 'sendOperatorAlert').mockResolvedValue();
+        const first = await press();
+        expect(first.body).toEqual({ ok: true, status: 'requested', id: first.body.id });
+        const second = await press();
+        expect(second.body).toEqual({ ok: true, status: 'pending', id: first.body.id });
+
+        expect((await sendTar(first.body.id)).status).toBe(200);
+        expect(alert).toHaveBeenCalledTimes(1);
+
+        const third = await press();
+        expect(third.status).toBe(429);
+        expect(third.body).toEqual({ ok: false, code: 'LIMITED' });
+        expect(await rowCount()).toBe(1);
+        expect(alert).toHaveBeenCalledTimes(1);
+        expect((await beat()).body.logs).toBeUndefined();
+
+        // Still inside the window a minute before it ends.
+        await ago(first.body.id, CABINET_LOG_REQUEST_WINDOW_MINUTES - 1);
+        expect((await press()).status).toBe(429);
+        expect(await rowCount()).toBe(1);
+    });
+
+    it('a press after the window is a new request', async () => {
+        const first = await press();
+        expect((await sendTar(first.body.id)).status).toBe(200);
+        await ago(first.body.id, CABINET_LOG_REQUEST_WINDOW_MINUTES + 1);
+        const next = await press();
+        expect(next.status).toBe(200);
+        expect(next.body.status).toBe('requested');
+        expect(next.body.id).not.toBe(first.body.id);
+    });
+
+    it('the web button is never limited and its requests do not count toward the window', async () => {
+        vi.spyOn(OpsAlertService, 'sendOperatorAlert').mockResolvedValue();
+        const cab = await press();
+        expect((await sendTar(cab.body.id)).status).toBe(200);
+        // Inside the cabinet's window the web button still works.
+        const web = await ask();
+        expect(web.status).toBe(201);
+        expect((await sendTar(web.body.request.id)).status).toBe(200);
+        // The cabinet's window ends; the newer web request does not restart it.
+        await ago(cab.body.id, CABINET_LOG_REQUEST_WINDOW_MINUTES + 1);
+        const next = await press();
+        expect(next.body).toMatchObject({ ok: true, status: 'requested' });
+    });
+
+    it('a web request still pending inside the window is answered as pending (and marked), not refused', async () => {
+        vi.spyOn(OpsAlertService, 'sendOperatorAlert').mockResolvedValue();
+        const cab = await press();
+        expect((await sendTar(cab.body.id)).status).toBe(200);
+        const web = await ask();
+        const res = await press();
+        expect(res.status).toBe(200);
+        expect(res.body).toEqual({ ok: true, status: 'pending', id: web.body.request.id });
+        expect((await rowOf(web.body.request.id))!.share_on_receipt).toBe(1);
     });
 });
 

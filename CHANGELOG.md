@@ -23,6 +23,9 @@ routes and sees no change.
   Account Settings, for the cabinet's player, marked to go to Arcaid support when it arrives. When the cabinet
   uploads the bundle the server does what Send to Arcaid support does (sent in Account Settings, readable at Super
   Admin -> Witness releases and logs, the operator alert). The request shows in Account Settings like any other.
+- **Rule:** a cabinet may start one request every 10 minutes. With nothing waiting, a second press inside that
+  window answers `429 LIMITED` and creates nothing; a press while its request still waits answers `pending`. The
+  Get logs button in Account Settings is not limited and does not count.
 - **Added, fresh logs:** Account Settings -> Arcaid Witness devices keeps Download logs (with the date and time the
   bundle arrived) beside a new Get fresh logs button, so a newer bundle no longer means removing the old one first.
   While the new request waits the old bundle can still be downloaded; when the new one arrives it replaces the
@@ -31,7 +34,7 @@ routes and sees no change.
 - **Changed:** Send to Arcaid support (share, audit row, operator alert) is one service function,
   `WitnessLogService.sendToSupport`, and the Get logs audit row is written by `WitnessLogService.request`. Same rows.
 - **Schema:** migration 216 (`witness_log_requests.share_on_receipt`).
-- **Wire:** `GET /api/witness/tile`, `GET /api/witness/logs/request` (device token, bare 401).
+- **Wire:** `GET /api/witness/tile`, `GET /api/witness/logs/request` (device token, bare 401; `429 LIMITED`).
 
 ## [2.248.0] - 2026-11-14 - Arcaid Witness is easier to get, pair and keep running
 

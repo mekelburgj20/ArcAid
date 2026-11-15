@@ -48,6 +48,13 @@ export const LOG_SHARE_NOTE_MAX = 500;
 export const WITNESS_LOG_MAX_BYTES = 16 * 1024 * 1024;
 /** How many requests the player's list shows. */
 export const LOG_REQUESTS_LIST_LIMIT = 10;
+/**
+ * W105 (owner, 2026-11-15) - a CABINET-started request (the tile's Send logs,
+ * `share_on_receipt` rows) is accepted at most once per device per this many
+ * minutes, counted from that device's newest such row's creation, whatever its
+ * state. The player's own Get logs button is not limited and does not count.
+ */
+export const CABINET_LOG_REQUEST_WINDOW_MINUTES = 10;
 
 export type LogRequestStatus = 'pending' | 'ready' | 'failed' | 'expired';
 
@@ -96,7 +103,8 @@ interface LogRequestRow {
 }
 
 export class WitnessLogError extends Error {
-    readonly code: 'NOT_FOUND' | 'LOGS_UNSUPPORTED';
+    /** `LIMITED` only ever answers a cabinet-started request (`CABINET_LOG_REQUEST_WINDOW_MINUTES`). */
+    readonly code: 'NOT_FOUND' | 'LOGS_UNSUPPORTED' | 'LIMITED';
     constructor(code: WitnessLogError['code'], message: string) {
         super(message);
         this.name = 'WitnessLogError';
@@ -255,7 +263,9 @@ export class WitnessLogService {
      * W105: `shareOnReceipt` is the cabinet tile's press (`GET /witness/logs/request`,
      * on behalf of the device's player): the request, new or the pending one,
      * is marked so the bundle goes to Arcaid support the moment it arrives
-     * (`upload` -> `sendToSupport`).
+     * (`upload` -> `sendToSupport`). With nothing pending, a cabinet press
+     * inside `CABINET_LOG_REQUEST_WINDOW_MINUTES` of the device's newest
+     * cabinet-started request throws `LIMITED` and creates nothing.
      */
     static async request(
         canonicalUserId: string, deviceId: string,
@@ -289,6 +299,20 @@ export class WitnessLogService {
         };
         const existing = await pendingRow();
         if (existing) return answerPending(existing);
+
+        // W105 - the cabinet's limit: nothing pending, and this device made a
+        // cabinet-started request inside the window -> refused, nothing created.
+        if (shareOnReceipt) {
+            const recent = await db.get<{ id: string }>(
+                `SELECT id FROM witness_log_requests
+                  WHERE atgames_unique_id = ? AND share_on_receipt = 1 AND requested_at > datetime('now', ?)
+                  LIMIT 1`,
+                deviceId, `-${CABINET_LOG_REQUEST_WINDOW_MINUTES} minutes`,
+            );
+            if (recent) {
+                throw new WitnessLogError('LIMITED', `This cabinet already sent its logs in the last ${CABINET_LOG_REQUEST_WINDOW_MINUTES} minutes`);
+            }
+        }
 
         const id = randomBytes(16).toString('hex');
         try {

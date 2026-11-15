@@ -144,6 +144,11 @@ of every device route.
   bundle arrives, the server runs the player's own Send to Arcaid support path (`WitnessLogService.sendToSupport`:
   shared, audited, the operator alerted), once, because only the upload that claims the request gets there. The
   bundle still travels the existing way: the request id rides the next heartbeat and the beacon uploads it.
+- **A cabinet asks at most once per 10 minutes** (`CABINET_LOG_REQUEST_WINDOW_MINUTES`, owner 2026-11-15), counted
+  from the creation of the device's newest cabinet-started request whatever its state. Inside the window a request
+  still waiting is answered `pending`; otherwise the answer is `429 LIMITED` and nothing is created, so a player
+  pressing Send logs repeatedly cannot pile up bundles or operator alerts. The player's own Get logs button is
+  not limited and does not count.
 - **Consequence:** pressing Send logs on the cabinet is the player's choice to send that bundle to Arcaid support;
   the tile asks for confirmation first. The bundle stays the player's in every other respect (they can still
   download or remove it).

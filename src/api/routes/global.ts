@@ -914,7 +914,10 @@ router.get('/witness/logs/fail', witnessIngestLimiter, requireWitnessDevice('GET
 // delivers the bundle at its next heartbeat (`logs`), unchanged.
 //   200 {status:'requested', id} a new request · 200 {status:'pending', id}
 //   this device already had one, now also marked · bare 401 · 400 {code} any
-//   refusal of the request service (its own code, e.g. LOGS_UNSUPPORTED).
+//   refusal of the request service (its own code, e.g. LOGS_UNSUPPORTED) ·
+//   429 {code:'LIMITED'} nothing pending and this device already made a
+//   cabinet-started request in the last CABINET_LOG_REQUEST_WINDOW_MINUTES
+//   (10); nothing is created. The player's web button is never limited.
 router.get('/witness/logs/request', witnessIngestLimiter, requireWitnessDevice('GET /api/witness/logs/request'), async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     try {
@@ -926,7 +929,9 @@ router.get('/witness/logs/request', witnessIngestLimiter, requireWitnessDevice('
             );
             res.json({ ok: true, status: created ? 'requested' : 'pending', id: request.id });
         } catch (err) {
-            if (err instanceof WitnessLogError) return res.status(400).json({ ok: false, code: err.code });
+            if (err instanceof WitnessLogError) {
+                return res.status(err.code === 'LIMITED' ? 429 : 400).json({ ok: false, code: err.code });
+            }
             throw err;
         }
     } catch {
