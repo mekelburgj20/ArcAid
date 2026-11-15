@@ -317,7 +317,7 @@ export class WitnessService {
         rawCode: string, atgamesUniqueId: string, atgamesUsername: string | null,
         deviceType: string = 'atgames',
         modelInput: DeviceModelInput = {},
-    ): Promise<{ token: string }> {
+    ): Promise<{ token: string; account?: string }> {
         const code = (rawCode || '').trim().toUpperCase();
         const deviceId = (atgamesUniqueId || '').trim();
         if (!code || !deviceId) throw new WitnessPairError('CODE_INVALID', 'A pairing code and device id are required');
@@ -349,7 +349,25 @@ export class WitnessService {
                 );
             },
         });
-        return { token };
+        // W105 E4 (v2.250.0): the cabinet's welcome line, as the pair-by-phone poll sends it.
+        const account = await WitnessService.cabinetAccountFor(row.canonical_user_id);
+        return account ? { token, account } : { token };
+    }
+
+    /**
+     * The paired player's label as a cabinet may print it (`cabinetAccountLabel`
+     * over `resolveUserLabels`), or null when there is none or the lookup
+     * failed. The ONE source of `account` on the typed pairing, the
+     * pair-by-phone poll and `/witness/tile`; never a raw id.
+     */
+    static async cabinetAccountFor(canonicalUserId: string): Promise<string | null> {
+        try {
+            const { resolveUserLabels } = await import('./PlayerProfileResolver.js');
+            return cabinetAccountLabel((await resolveUserLabels([canonicalUserId]))[canonicalUserId]);
+        } catch (err) {
+            logWarn(`Witness: the cabinet account label lookup failed (${err instanceof Error ? err.message : String(err)})`);
+            return null;
+        }
     }
 
     /**
@@ -571,13 +589,7 @@ export class WitnessService {
             throw err;
         }
 
-        let account: string | null = null;
-        try {
-            const { resolveUserLabels } = await import('./PlayerProfileResolver.js');
-            account = cabinetAccountLabel((await resolveUserLabels([canonicalUserId]))[canonicalUserId]);
-        } catch {
-            account = null;
-        }
+        const account = await WitnessService.cabinetAccountFor(canonicalUserId);
         return account ? { status: 'approved', token, account } : { status: 'approved', token };
     }
 

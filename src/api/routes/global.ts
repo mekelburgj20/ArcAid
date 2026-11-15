@@ -572,8 +572,9 @@ router.get('/witness/pair', witnessIngestLimiter, async (req, res) => {
         const username = typeof req.query.username === 'string' ? req.query.username : null;
         const type = typeof req.query.type === 'string' && req.query.type !== '' ? req.query.type : 'atgames';
         try {
-            const { token } = await WitnessService.redeemPairingCode(code, device, username, type, { model: req.query.model, modelName: req.query.model_name });
-            return res.json({ ok: true, token });
+            const { token, account } = await WitnessService.redeemPairingCode(code, device, username, type, { model: req.query.model, modelName: req.query.model_name });
+            // W105 E4 (v2.250.0): `account` as on the pair-by-phone poll; omitted when unknown.
+            return res.json({ ok: true, token, ...(account ? { account } : {}) });
         } catch (err) {
             if (err instanceof WitnessPairError) {
                 return res.status(400).json({ ok: false, error: err.message, code: err.code });
@@ -943,11 +944,15 @@ router.get('/witness/logs/request', witnessIngestLimiter, requireWitnessDevice('
 // Device: W100 - the release the heartbeat offered (`v` = that version), flat
 // strings for the cabinet's naive reader. 404 unless `v` is EXACTLY what the
 // offer rule gives this device now (judged on the build it last reported).
+// W105 E2 (v2.250.0): `manual=1` (the tile's CHECK FOR UPDATE) judges the rule
+// as if automatic updates were on; nothing else changes. Same on /download.
 router.get('/witness/app/release', witnessIngestLimiter, requireWitnessDevice('GET /api/witness/app/release'), async (req, res) => {
     try {
         const auth = res.locals.witnessDevice as WitnessDeviceAuth;
         const { WitnessReleaseService } = await import('../../services/WitnessReleaseService.js');
-        const release = await WitnessReleaseService.releaseOfferedTo(auth.deviceId, req.query.v);
+        const release = await WitnessReleaseService.releaseOfferedTo(
+            auth.deviceId, req.query.v, { manual: WitnessReleaseService.isManualCheck(req.query.manual) },
+        );
         if (!release) return res.status(404).json({ ok: false });
         res.json({ ok: true, version: release.version, size: String(release.size), sig: release.sig });
     } catch (error) {
@@ -961,7 +966,9 @@ router.get('/witness/app/download', witnessIngestLimiter, requireWitnessDevice('
     try {
         const auth = res.locals.witnessDevice as WitnessDeviceAuth;
         const { WitnessReleaseService } = await import('../../services/WitnessReleaseService.js');
-        const release = await WitnessReleaseService.releaseOfferedTo(auth.deviceId, req.query.v);
+        const release = await WitnessReleaseService.releaseOfferedTo(
+            auth.deviceId, req.query.v, { manual: WitnessReleaseService.isManualCheck(req.query.manual) },
+        );
         const file = release ? await WitnessReleaseService.openElf(release) : null;
         if (!file) return res.status(404).json({ ok: false });
         res.status(200);
@@ -1209,7 +1216,7 @@ router.get('/witness/tile', witnessIngestLimiter, requireWitnessDevice('GET /api
     try {
         const auth = res.locals.witnessDevice as WitnessDeviceAuth;
         const { WitnessTileService } = await import('../../services/WitnessTileService.js');
-        res.json({ ok: true, ...(await WitnessTileService.build(auth, req.query.v)) });
+        res.json({ ok: true, ...(await WitnessTileService.build(auth, req.query.v, { manual: req.query.manual })) });
     } catch {
         logError('API Error (GET /api/witness/tile)');
         res.status(500).json({ ok: false });

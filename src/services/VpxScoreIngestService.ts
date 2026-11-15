@@ -8,6 +8,8 @@ import { logInfo, logWarn } from '../utils/logger.js';
 import type { WitnessDeviceType } from './WitnessService.js';
 import { tournamentFinishedSql } from '../utils/openCard.js';
 import { deviceRoutesTo } from '../utils/witnessRouting.js';
+import { nextRotationIso } from '../utils/cronUtils.js';
+import { roomTimezonesFor } from '../utils/roomTimezone.js';
 import { entryAllowed, entryRefusal, normalizeEntryMode } from '../utils/tournamentEntry.js';
 import { LU_SCORESERVER_SOURCE, crossCheckLuRecord, verifyLuRecord } from '../utils/luRecordSignature.js';
 
@@ -292,6 +294,8 @@ export type OpenDeviceGame = {
     roundNo: number | null;
     /** An event round's scheduled end, epoch seconds, no grace; null for a rotation game. */
     endsTs: number | null;
+    /** v2.250.0 - a rotation game's next scheduled rotation (`nextRotationIso`), epoch seconds; null when paused / unscheduled / a round. */
+    nextRotationTs: number | null;
     /** The tournament's attempt limit; null = unlimited. */
     limit: number | null;
     requireStart: boolean;
@@ -333,6 +337,9 @@ type CandidateRow = {
     /** W27 — names for the "why it didn't count" reason. */
     tournament_name: string | null;
     room_name: string | null;
+    /** v2.250.0 (W105 D2) — the rotation schedule (JSON) and the pause switch, read only by `openGamesForDevice`. */
+    cadence: string | null;
+    is_active: number | null;
 };
 
 /** What `VpxScoreIngestService.match` decided. Shared by the score and the attempt calls. */
@@ -1637,20 +1644,39 @@ export class VpxScoreIngestService {
      * scheduled end in epoch seconds, WITHOUT the end grace (a round inside
      * its grace is still listed, ending in the past); null for a rotation
      * game, which stores no end.
+     *
+     * v2.250.0 (W105 D2): `nextRotationTs` is a rotation game's tournament's
+     * next scheduled rotation, from `nextRotationIso` (the room page's
+     * "rotates <when>", `src/utils/cronUtils.ts`) on the one timezone chain
+     * (cadence zone -> ROOM_TIMEZONE -> server). Null for a round, a PAUSED
+     * rotation (`is_active = 0`: a pause runs no maintenance cron), a cadence
+     * with no cron, or a next instant that cannot be computed.
      */
     static async openGamesForDevice(input: OpenGamesInput): Promise<OpenDeviceGame[]> {
-        return (await VpxScoreIngestService.openCandidates(input)).map(row => ({
-            gameId: row.id,
-            gameName: row.name,
-            tournamentId: row.tournament_id,
-            tournamentName: row.tournament_name ?? null,
-            roomId: row.game_room_id,
-            roomName: row.room_name ?? null,
-            roundNo: row.round_no ?? null,
-            endsTs: row.round_no != null ? epochOf(row.scheduled_end_at) : null,
-            limit: VpxScoreIngestService.isLimited(row) ? row.max_attempts : null,
-            requireStart: row.require_attempt_start === 1,
-        }));
+        const rows = await VpxScoreIngestService.openCandidates(input);
+        const rotates = (row: CandidateRow) => row.round_no == null && row.is_active === 1;
+        const roomTz = await roomTimezonesFor(
+            rows.filter(rotates).map(r => r.game_room_id).filter((id): id is string => !!id),
+        );
+        const from = new Date(input.nowTs * 1000);
+        return rows.map(row => {
+            const next = rotates(row)
+                ? nextRotationIso(row.cadence, from, row.game_room_id ? roomTz.get(row.game_room_id) : null)
+                : null;
+            return {
+                gameId: row.id,
+                gameName: row.name,
+                tournamentId: row.tournament_id,
+                tournamentName: row.tournament_name ?? null,
+                roomId: row.game_room_id,
+                roomName: row.room_name ?? null,
+                roundNo: row.round_no ?? null,
+                endsTs: row.round_no != null ? epochOf(row.scheduled_end_at) : null,
+                nextRotationTs: epochOf(next),
+                limit: VpxScoreIngestService.isLimited(row) ? row.max_attempts : null,
+                requireStart: row.require_attempt_start === 1,
+            };
+        });
     }
 
     /**
@@ -1727,6 +1753,7 @@ export class VpxScoreIngestService {
                     t.format, t.end_grace_sec, t.platform_rules, t.integrity_mode, t.sanctioned_rules,
                     t.max_attempts, t.checkin_required, t.require_attempt_start, t.entry_mode,
                     t.name AS tournament_name, gr.name AS room_name,
+                    t.cadence, t.is_active,
                     EXISTS (
                         SELECT 1 FROM tournament_participants tp
                          WHERE tp.tournament_id = g.tournament_id AND tp.user_id = ?

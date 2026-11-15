@@ -92,10 +92,17 @@ export interface OfferDevice {
  * device runs, or null. Eligible = `stable`, plus `beta` when the device takes
  * test builds; never `draft`. Only a cabinet with automatic updates on that
  * reported a version is offered anything.
+ *
+ * W105 E2 (v2.250.0): `manual` = the player pressed CHECK FOR UPDATE on the
+ * tile (`manual=1`): the rule is judged as if automatic updates were on, and
+ * nothing else changes (cabinet only, channel, test builds, newer than reported).
  */
-export function offeredRelease(device: OfferDevice, releases: ReadonlyArray<{ version: string; channel: string }>): string | null {
+export function offeredRelease(
+    device: OfferDevice, releases: ReadonlyArray<{ version: string; channel: string }>,
+    opts: { manual?: boolean } = {},
+): string | null {
     if (device.deviceType !== 'atgames') return null;
-    if (!device.autoUpdate) return null;
+    if (!device.autoUpdate && opts.manual !== true) return null;
     const reported = (device.reportedVersion ?? '').trim();
     if (!reported) return null;
     let best: string | null = null;
@@ -294,9 +301,11 @@ export class WitnessReleaseService {
      * The offer rule for one paired device, by id. `reportedVersion` is the
      * build the device says it runs (the heartbeat's own `v`); pass
      * `undefined` to use the build it last reported (`app_version`). Null for
-     * an unknown or unpaired device.
+     * an unknown or unpaired device. `manual` is the rule's own option (E2).
      */
-    static async offeredFor(deviceId: string, reportedVersion: string | null | undefined): Promise<string | null> {
+    static async offeredFor(
+        deviceId: string, reportedVersion: string | null | undefined, opts: { manual?: boolean } = {},
+    ): Promise<string | null> {
         const db = await getDatabase();
         const device = await db.get<{ device_type: string | null; auto_update: number; test_builds: number; app_version: string | null }>(
             `SELECT device_type, auto_update, test_builds, app_version FROM witness_devices
@@ -309,18 +318,23 @@ export class WitnessReleaseService {
             autoUpdate: device.auto_update !== 0,
             testBuilds: device.test_builds === 1,
             reportedVersion: reportedVersion === undefined ? device.app_version : reportedVersion,
-        }, await WitnessReleaseService.offerableReleases());
+        }, await WitnessReleaseService.offerableReleases(), opts);
+    }
+
+    /** W105 E2 - a device route's `manual=1` (the tile's CHECK FOR UPDATE); anything else is the automatic path. */
+    static isManualCheck(raw: unknown): boolean {
+        return raw === '1';
     }
 
     /**
      * The device routes: the release `version` when it is EXACTLY what the
      * offer rule gives this device right now (judged on the build it last
      * reported), else null. Demoting a release to `draft` therefore stops its
-     * downloads at once.
+     * downloads at once. `manual` as in `offeredRelease` (E2).
      */
-    static async releaseOfferedTo(deviceId: string, version: unknown): Promise<OfferedRelease | null> {
+    static async releaseOfferedTo(deviceId: string, version: unknown, opts: { manual?: boolean } = {}): Promise<OfferedRelease | null> {
         if (!isReleaseVersion(version)) return null;
-        const offered = await WitnessReleaseService.offeredFor(deviceId, undefined);
+        const offered = await WitnessReleaseService.offeredFor(deviceId, undefined, opts);
         if (offered !== version) return null;
         const db = await getDatabase();
         const row = await db.get<ReleaseRow>(`SELECT * FROM witness_app_releases WHERE version = ?`, version);
