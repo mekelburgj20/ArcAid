@@ -203,7 +203,7 @@ export default function WitnessDeviceSupport({ device, playerToken, onChanged }:
                     {(latest?.status === 'failed' || latest?.status === 'expired') && (
                         <>
                             {latest?.status === 'expired' && (
-                                <p className="text-xs text-amber-400">
+                                <p className="text-xs text-rose-400">
                                     {isCabinet
                                         ? 'Your cabinet did not answer. Check it is on and online, open the Arcaid Witness tile once, then try again.'
                                         : 'Castcade did not answer. Check Castcade 0.2.41 or newer is running on that PC, then try again.'}
@@ -248,7 +248,7 @@ export default function WitnessDeviceSupport({ device, playerToken, onChanged }:
                                 </button>
                             </div>
                             {bundle.sharedAt ? (
-                                <p className="text-xs text-muted">
+                                <p className="text-xs text-neon-cyan">
                                     Sent to Arcaid support on {new Date(bundle.sharedAt).toLocaleDateString()}.
                                 </p>
                             ) : (
@@ -282,6 +282,7 @@ export default function WitnessDeviceSupport({ device, playerToken, onChanged }:
                 </div>
             )}
 
+            {/* W105 (v2.251.0) status words in the kit roles: cyan done, pink attention (a build on the stick waiting for the tile), red a problem. */}
             {isCabinet && logsSupported && (
                 <div className="space-y-1">
                     <label className="flex items-center gap-2 text-xs text-primary cursor-pointer">
@@ -302,7 +303,7 @@ export default function WitnessDeviceSupport({ device, playerToken, onChanged }:
                         Get test builds early
                     </label>
                     {staged && (
-                        <p className="text-xs text-muted">
+                        <p className="text-xs text-neon-magenta">
                             Version {staged} is on the stick. Open the tile on the cabinet to finish the update.
                         </p>
                     )}

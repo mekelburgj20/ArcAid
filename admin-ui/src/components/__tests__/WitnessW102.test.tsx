@@ -71,10 +71,16 @@ describe('WitnessDeviceHealth', () => {
     it('watching yes', () => {
         render(<WitnessDeviceHealth device={{ deviceType: 'atgames', watching: 'yes' }} />);
         expect(screen.getByText('Watching now')).toBeTruthy();
+        // W105 (v2.251.0): OK is the cyan role, never green.
+        expect(screen.getByText('Watching now').className).toContain('text-neon-cyan');
+        expect(screen.getByText('Watching now').className).not.toContain('green');
     });
     it('not watching: cabinet and desktop advice', () => {
         const a = render(<WitnessDeviceHealth device={{ deviceType: 'atgames', watching: 'no', heartbeatAt: ago(3 * 3600_000) }} />);
         expect(screen.getByText(/Not watching\. Last heard from 3h ago\./)).toBeTruthy();
+        // W105: a problem is the red role, never amber.
+        expect(screen.getByText(/Not watching\./).className).toContain('text-rose-400');
+        expect(screen.getByText(/Not watching\./).className).not.toContain('amber');
         expect(screen.getByText(/Open the \[Arcaid Witness\] tile on the cabinet after it powers on\./)).toBeTruthy();
         a.unmount();
         render(<WitnessDeviceHealth device={{ deviceType: 'desktop', watching: 'no', heartbeatAt: ago(3 * 3600_000) }} />);
