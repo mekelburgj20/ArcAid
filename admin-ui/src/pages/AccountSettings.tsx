@@ -17,6 +17,7 @@ import WitnessModelLabel from '../components/WitnessModelLabel';
 import WitnessDeviceSupport from '../components/WitnessDeviceSupport';
 import WitnessDeviceHealth from '../components/WitnessDeviceHealth';
 import WitnessKitDownload from '../components/WitnessKitDownload';
+import { AW_BADGE_SRC, AW_BADGE_SRCSET, AwThemeStyles } from '../lib/awTheme';
 import { roomFetch } from '../lib/roomFetch';
 
 type AvatarProvider = 'discord' | 'google';
@@ -1416,8 +1417,17 @@ export default function AccountSettings() {
                   on-device Witness app so it can report table LAUNCH times
                   (the anti-gear-up signal). Player mints a code here, types it
                   into the app on the cabinet. */}
-              <div id="witness-devices" ref={witnessBlockRef} className="mt-6 pt-4 border-t border-border scroll-mt-4">
-                <h3 className="text-sm font-medium mb-1">Arcaid Witness devices</h3>
+              {/* W105 (v2.251.0) - the section carries the Arcaid Witness identity
+                  (badge, kit panel, kit status colours) on any site theme:
+                  `sb-theme-scope` restates the dark defaults inside it and
+                  `aw-island` (public/aw-theme/aw-web.css) points the site's colour
+                  tokens at the kit. The kit stylesheet loads only while it is here. */}
+              <div id="witness-devices" ref={witnessBlockRef} className="mt-6 scroll-mt-4 aw-panel sb-theme-scope aw-island" data-testid="witness-section">
+                <AwThemeStyles />
+                <h3 className="aw-label flex items-center gap-2">
+                  <img src={AW_BADGE_SRC} srcSet={AW_BADGE_SRCSET} alt="" aria-hidden="true" className="h-8 w-8 shrink-0" />
+                  Arcaid Witness devices
+                </h3>
                 <p className="text-xs text-muted mb-3">
                   Pair Arcaid Witness on your cabinet, or the Castcade companion on your Windows VPX PC,
                   so your tournament scores are backed by when you actually started each table. Get a

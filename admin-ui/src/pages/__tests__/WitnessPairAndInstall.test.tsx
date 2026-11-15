@@ -62,8 +62,13 @@ describe('Pair by phone', () => {
     expect(screen.getByText('Legends Ultimate · HA9920')).toBeTruthy();
     expect(screen.getByText('Only approve if you are standing at this cabinet and this code is on its screen.')).toBeTruthy();
     expect(fn.mock.calls[0][0]).toBe('/api/me/witness/pair-requests/ABC123');
+    // W105 (v2.251.0): the warning is a pink attention chip.
+    expect(screen.getByText('Only approve if you are standing at this cabinet and this code is on its screen.').className)
+      .toContain('aw-chip--attention');
     fireEvent.click(screen.getByRole('button', { name: 'Pair this cabinet' }));
-    await screen.findByText('Approved. The cabinet finishes pairing in a few seconds.');
+    // W105: the approved state is a cyan success chip plus the sentence.
+    expect((await screen.findByText('Approved')).className).toContain('aw-chip--success');
+    expect(screen.getByText('The cabinet finishes pairing in a few seconds.')).toBeTruthy();
     const post = fn.mock.calls.find(c => c[0] === '/api/me/witness/pair-requests/ABC123/approve') as unknown[];
     expect((post[1] as RequestInit).method).toBe('POST');
     expect(screen.getByRole('link', { name: /Account Settings/ }).getAttribute('href')).toBe('/account/settings#witness-devices');
@@ -72,14 +77,17 @@ describe('Pair by phone', () => {
   it('404 on read shows the not-valid copy', async () => {
     stub({ infoStatus: 404, info: { error: 'PAIR_REQUEST_NOT_FOUND' } });
     renderPair();
-    await screen.findByText('That code is not valid or has expired. Start again on the cabinet.');
+    const problem = await screen.findByText('That code is not valid or has expired. Start again on the cabinet.');
+    // W105: a problem is a RED danger chip, announced.
+    expect(problem.className).toContain('aw-chip--danger');
+    expect(problem.getAttribute('role')).toBe('alert');
   });
 
   it('a 400 on approve shows the server message', async () => {
     stub({ approveStatus: 400, approveBody: { error: 'You have too many devices', code: 'DEVICE_LIMIT' } });
     renderPair();
     fireEvent.click(await screen.findByRole('button', { name: 'Pair this cabinet' }));
-    await screen.findByText('You have too many devices');
+    expect((await screen.findByText('You have too many devices')).className).toContain('aw-chip--danger');
   });
 
   it('a 404 on approve shows the not-valid copy', async () => {
@@ -111,6 +119,47 @@ describe('Pair by phone', () => {
     expect((screen.getByLabelText('Pairing code') as HTMLInputElement).value).toBe('ABC123');
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     await screen.findByText('Device ending in 40F0');
+  });
+});
+
+describe('Arcaid Witness theme (W105, v2.251.0)', () => {
+  const themeLinks = () => Array.from(document.head.querySelectorAll('link[data-aw-theme]')).map(l => l.getAttribute('href'));
+
+  it.each([
+    ['/witness/install', 'INSTALL GUIDE'],
+    ['/pair', 'PAIR A CABINET'],
+    ['/pair/abc123', 'PAIR A CABINET'],
+  ])('%s wears the kit: screen, header badge, brand and sub, panels, footer', async (path, sub) => {
+    stub();
+    const { container, unmount } = render(
+      <MemoryRouter initialEntries={[path]}>
+        <Routes>
+          <Route path="/witness/install" element={<WitnessInstall />} />
+          <Route path="/pair/:code" element={<WitnessPair />} />
+          <Route path="/pair" element={<WitnessPairEntry />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(container.querySelector('.aw-screen > .aw-layout.sb-theme-scope.aw-island')).toBeTruthy();
+    const logo = container.querySelector('img.aw-header__logo') as HTMLImageElement;
+    expect(logo.getAttribute('src')).toBe('/aw-theme/assets/logo/arcaid-witness-badge-256.png');
+    expect(logo.getAttribute('alt')).toBe('Arcaid Witness');
+    expect(container.querySelector('.aw-brand')?.textContent).toBe(`ARCAID WITNESS${sub}`);
+    expect(container.querySelectorAll('.aw-panel').length).toBeGreaterThan(0);
+    expect(container.querySelector('footer.aw-footer')).toBeTruthy();
+    // The kit, the Arcaid extension and the site layer load while the page is up, and only then.
+    expect(themeLinks()).toEqual([
+      '/aw-theme/aw-theme.css?v=1', '/aw-theme/aw-theme-ext.css?v=1', '/aw-theme/aw-web.css?v=1',
+    ]);
+    unmount();
+    expect(themeLinks()).toEqual([]);
+  });
+
+  it('no hex colour in the Witness pages\' markup (tokens and .aw-* classes only)', async () => {
+    stub();
+    const { container } = render(<MemoryRouter><WitnessInstall /></MemoryRouter>);
+    await screen.findByRole('button', { name: /Get Arcaid Witness/ });
+    expect(container.innerHTML).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
   });
 });
 

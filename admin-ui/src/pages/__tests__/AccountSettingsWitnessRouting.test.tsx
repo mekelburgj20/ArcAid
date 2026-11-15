@@ -173,4 +173,25 @@ describe('AccountSettings — Witness cabinet score routing', () => {
         expect(screen.getByRole('option', { name: 'TWR Tournament #1 (ended)' })).toHaveValue('twr');
         expect(screen.getByText(/TWR Tournament #1 has ended, so any open tournament there/)).toBeInTheDocument();
     });
+
+    it('W105: the section wears the Arcaid Witness identity on any site theme, and loads the kit only while it is here', async () => {
+        stubFetch({ device: { watching: 'no', deviceType: 'atgames' } });
+        const { unmount } = renderPage();
+        const section = await screen.findByTestId('witness-section');
+        // A kit panel whose inside restates the dark defaults (sb-theme-scope) and maps the
+        // site colour tokens onto the kit (aw-island), so a light site theme cannot wash it out.
+        expect(section.className).toContain('aw-panel');
+        expect(section.className).toContain('sb-theme-scope');
+        expect(section.className).toContain('aw-island');
+        const heading = screen.getByRole('heading', { name: 'Arcaid Witness devices' });
+        expect(heading.className).toContain('aw-label');
+        expect(heading.querySelector('img')?.getAttribute('src')).toBe('/aw-theme/assets/logo/arcaid-witness-badge-256.png');
+        expect(Array.from(document.head.querySelectorAll('link[data-aw-theme]')).map(l => l.getAttribute('href'))).toEqual([
+            '/aw-theme/aw-theme.css?v=1', '/aw-theme/aw-theme-ext.css?v=1', '/aw-theme/aw-web.css?v=1',
+        ]);
+        // Status words carry the kit roles: a device that is not watching is a red problem.
+        expect((await screen.findByText(/Not watching./)).className).toContain('text-rose-400');
+        unmount();
+        expect(document.head.querySelectorAll('link[data-aw-theme]').length).toBe(0);
+    });
 });

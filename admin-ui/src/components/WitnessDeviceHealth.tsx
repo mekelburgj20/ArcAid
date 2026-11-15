@@ -22,9 +22,10 @@ export default function WitnessDeviceHealth({ device }: { device: WitnessHealthD
     const heard = relativeTimeFrom(device.heartbeatAt);
     return (
         <div className="mt-1 space-y-0.5" data-testid="witness-device-health">
-            {watching === 'yes' && <p className="text-xs text-neon-green">Watching now</p>}
+            {/* W105 (v2.251.0): kit roles - OK is cyan, a problem is red (in the Witness section these resolve to the kit's colours). */}
+            {watching === 'yes' && <p className="text-xs text-neon-cyan">Watching now</p>}
             {watching === 'no' && (
-                <p className="text-xs text-neon-amber">
+                <p className="text-xs text-rose-400">
                     Not watching.{heard ? ` Last heard from ${heard}.` : ''}{' '}
                     {device.deviceType === 'desktop'
                         ? 'Start Castcade on the PC.'

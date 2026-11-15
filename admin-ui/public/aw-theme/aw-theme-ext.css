@@ -1,0 +1,12 @@
+/* ==========================================================================
+   ArcAid Witness theme - Arcaid extension (owner decision 2026-11-15)
+   The design kit has no problem colour. Problems must stand out and must NOT
+   blend in with pink "attention", so they are RED. Load after aw-theme.css.
+   Keep this file identical in the ArcAid repo and the arcaid-witness repo.
+   ========================================================================== */
+:root {
+  --aw-red:      #FF4B4B;  /* problems only: not paired, no network, not watching, failures, refusals */
+  --aw-glow-red: 0 0 22px rgba(255, 75, 75, 0.55);
+}
+.aw-chip--danger { color: var(--aw-red); background: rgba(255, 75, 75, .12); border-color: rgba(255, 75, 75, .7); }
+.aw-danger       { color: var(--aw-red); }
