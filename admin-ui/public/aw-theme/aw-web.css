@@ -1,0 +1,63 @@
+/* ==========================================================================
+   Arcaid Witness theme - ArcAid WEBSITE layer (W105, v2.251.0)
+   Not part of the design kit. Loaded AFTER aw-theme.css and aw-theme-ext.css
+   by admin-ui/src/lib/awTheme.ts, and only while a Witness page (or the
+   Account Settings Witness section) is on screen. It defines no colour, font
+   family or type size of its own: every value below is a --aw-* token, the
+   kit's own scale switch, or plain layout.
+   ========================================================================== */
+
+/* The kit is sized for a 2160-wide 40" screen. On a phone or a desktop browser
+   0.32 puts body text (--aw-fs-body, 54) at about 17 px. */
+:root { --aw-scale: 0.32; }
+
+/* The web ships the 1080x1920 background only (the 2160x3840 one is too heavy). */
+.aw-screen { background-image: url("assets/backgrounds/arcaid-witness-background-1080x1920.png"); }
+
+/* A readable column on a desktop; a 16 px gutter on a phone. */
+.aw-web { max-width: 52rem; margin-left: auto; margin-right: auto; }
+.aw-web__main { display: flex; flex-direction: column; gap: var(--aw-gap); }
+@media (max-width: 600px) {
+  .aw-web { padding-left: 16px; padding-right: 16px; }
+}
+
+/* A Witness surface hosted by the site's own components. Used together with
+   the site's `sb-theme-scope` (which restates the dark defaults whatever theme
+   the page wears), it points the site's colour tokens at the kit, so links,
+   buttons and status words keep their markup and show the kit's roles:
+   cyan = OK / success, pink = attention, red = problem. No green, no yellow. */
+.aw-island {
+  color: var(--aw-ice);
+  font-family: var(--aw-font-ui);
+  --color-primary: var(--aw-ice);
+  --color-muted: var(--aw-chrome);
+  --color-neon-cyan: var(--aw-cyan);
+  --color-neon-blue: var(--aw-cyan);
+  --color-neon-green: var(--aw-cyan);
+  --color-neon-magenta: var(--aw-pink);
+  --color-neon-amber: var(--aw-red);
+  --color-neon-coral: var(--aw-red);
+  --color-amber-400: var(--aw-red);
+  --color-rose-400: var(--aw-red);
+  --color-rose-500: var(--aw-red);
+}
+
+/* Some site themes style form fields by element (`.theme-retro select` is
+   green); inside a Witness surface the fields keep the island's tokens. */
+.aw-island input, .aw-island select, .aw-island textarea {
+  color: var(--color-primary);
+  border-color: var(--color-border);
+}
+.aw-island input:focus, .aw-island select:focus, .aw-island textarea:focus {
+  border-color: var(--aw-cyan);
+  box-shadow: none;
+}
+
+/* The Account Settings section is a kit panel hosted inside a site page, not
+   on the kit background: the glass is laid over the kit canvas so the host
+   page cannot show through it (a light or yellow site theme turned it grey or
+   olive), and there is no outer glow (a grey halo on a light theme). */
+.aw-panel.aw-island {
+  background: linear-gradient(var(--aw-panel), var(--aw-panel)), var(--aw-canvas);
+  box-shadow: none;
+}
