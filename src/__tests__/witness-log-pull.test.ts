@@ -22,7 +22,7 @@ import { WitnessService } from '../services/WitnessService.js';
  *      failed (the cabinet said why), expired (15 minutes, decided lazily).
  *   3. The heartbeat carries `logs` only while a request is pending; the
  *      upload's refusals are the contract's (401 / 404 / 413 / 400).
- *   4. Only a cabinet on 1.1.0+ can be asked (409 LOGS_UNSUPPORTED);
+ *   4. Only a cabinet on 1.1.0+ or a Castcade desktop (W102) can be asked (409 LOGS_UNSUPPORTED);
  *      unpairing deletes the device's requests and files.
  */
 
@@ -329,13 +329,31 @@ describe('W99 log pull: request -> heartbeat -> upload -> download', () => {
 });
 
 describe('W99 log pull: which devices can be asked', () => {
-    it('a desktop, a pre-1.1.0 cabinet and a cabinet that never reported are 409 LOGS_UNSUPPORTED', async () => {
-        await pair(USER, 'DESK-1', 'desktop');
-        const db = await getDatabase();
-        await db.run(`UPDATE witness_devices SET app_version = '1.2.0' WHERE atgames_unique_id = 'DESK-1'`);
+    it('W102: a Castcade desktop, which reports no build, is asked, sees the id on its heartbeat and uploads', async () => {
+        const deskToken = await pair(USER, 'DESK-1', 'desktop');
         let res = await ask(USER, 'DESK-1');
-        expect(res.status).toBe(409);
-        expect(res.body.code).toBe('LOGS_UNSUPPORTED');
+        expect(res.status).toBe(201);
+        const id = res.body.request.id as string;
+
+        // Castcade's heartbeat carries no `v`; the answer names the request and offers no update.
+        res = await request(app).get('/api/witness/heartbeat').query({ device: 'DESK-1' }).set('x-witness-token', deskToken);
+        expect(res.status).toBe(200);
+        expect(res.body.logs).toBe(id);
+        expect('update' in res.body).toBe(false);
+
+        res = await request(app).post('/api/witness/logs').query({ device: 'DESK-1', request: id })
+            .set('x-witness-token', deskToken).set('Content-Type', 'application/x-tar').send(TAR);
+        expect(res.status).toBe(200);
+        res = await request(app).get('/api/me/witness/log-requests').set(auth());
+        expect(res.body.requests[0]).toMatchObject({ id, deviceId: 'DESK-1', status: 'ready', sizeBytes: TAR.length });
+
+        // Another player's desktop is still not theirs to ask.
+        expect((await ask(OTHER, 'DESK-1')).status).toBe(404);
+    });
+
+    it('a pre-1.1.0 cabinet and a cabinet that never reported are 409 LOGS_UNSUPPORTED', async () => {
+        await pair(USER, 'DESK-1', 'desktop');
+        let res;
 
         const oldToken = await pair(USER, 'CAB-OLD');
         await beat({ v: '1.0.9' }, 'CAB-OLD', oldToken);
@@ -353,7 +371,7 @@ describe('W99 log pull: which devices can be asked', () => {
         res = await request(app).get('/api/me/witness/devices').set(auth());
         const byId = Object.fromEntries((res.body as Array<{ atgamesUniqueId: string; logsSupported: boolean }>)
             .map(d => [d.atgamesUniqueId, d.logsSupported]));
-        expect(byId).toMatchObject({ 'DESK-1': false, 'CAB-SILENT': false, 'CAB-OLD': true, [CABINET]: true });
+        expect(byId).toMatchObject({ 'DESK-1': true, 'CAB-SILENT': false, 'CAB-OLD': true, [CABINET]: true });
     });
 
     it('an unpaired device cannot be asked', async () => {

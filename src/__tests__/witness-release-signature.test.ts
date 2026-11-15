@@ -114,7 +114,9 @@ describe('Witness versions (W99 / W100)', () => {
         expect(logsSupported('atgames', '2.0.0')).toBe(true);
         expect(logsSupported('atgames', null)).toBe(false);
         expect(logsSupported('atgames', '')).toBe(false);
-        expect(logsSupported('desktop', '1.2.0')).toBe(false);
+        // W102: a Castcade desktop reports no build and can always be asked.
+        expect(logsSupported('desktop', null)).toBe(true);
+        expect(logsSupported('desktop', '1.2.0')).toBe(true);
         expect(logsSupported(null, '1.2.0')).toBe(false);
     });
 });

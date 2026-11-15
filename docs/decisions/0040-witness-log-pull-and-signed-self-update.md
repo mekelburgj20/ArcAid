@@ -77,7 +77,11 @@ Cabinets before 1.1.0 ignore them. Neither can fail the heartbeat.
 - Log bundles are play data and may carry a device id and an account name. They are stored for at most 7 days,
   readable only by their player, or for 30 days by the super-admin once the player chose to send one to Arcaid
   support. There is no support-side pull that skips that choice.
-- Castcade (the desktop Witness) is out of scope: it has its own updater and log folder.
+- Castcade (the desktop Witness) keeps its own updater. **Amended 2026-11-13 (W102, v2.247.0, owner):** the log pull
+  takes a Castcade desktop too. Castcade 0.2.41 reads `logs` on the heartbeat answer and uploads its own allow-list
+  (its log, the VR layer log, the newest VR report and table journals) as one tar to the same route; the player's
+  choice to send it to Arcaid support is unchanged. It reports no build, so it is always asked and an older Castcade
+  lets the request expire.
 - Only the ELF updates. The tile's name, art and controller file still change only by hand.
 
 ## Alternatives rejected

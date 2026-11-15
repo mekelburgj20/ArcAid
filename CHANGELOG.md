@@ -6,6 +6,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.247.0] - 2026-11-13 - Get logs for a Castcade PC
+
+W102 (ADR 0040 amended). Needs Castcade 0.2.41 on the PC; an older Castcade never answers and the request reads
+"did not answer" after 15 minutes.
+
+- **Added:** Account Settings -> Arcaid Witness devices shows Get logs under a paired Castcade PC, as it does under
+  a cabinet. Castcade sees the request on its next heartbeat (within about 2 minutes while it is running) and
+  uploads its own log, the VR layer log, the newest VR report and its most recent table journals as one archive.
+  The player then has Download logs, Remove logs and Send to Arcaid support, with the same rules as a cabinet's
+  bundle: only that player can read it until they send it; sent bundles appear under Super Admin -> Witness releases
+  and logs.
+- **Unchanged:** the update switches stay cabinet-only (Castcade updates itself), and Castcade is still never
+  offered a cabinet build.
+
+---
+
 ## [2.246.0] - 2026-11-13 - Cabinet logs on request, and cabinets that update themselves
 
 W99, W100 (ADR 0040). Needs Arcaid Witness 1.1.0 on the cabinet; older cabinets ignore both and show a line saying
