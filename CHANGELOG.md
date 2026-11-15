@@ -6,6 +6,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.251.0] - 2026-11-15 - The Arcaid Witness pages wear the Witness look
+
+W105. The website side of the designer's Arcaid Witness theme; the cabinet side is Arcaid Witness 1.1.1.
+
+- **Changed, Witness pages:** the install guide (`/witness/install`) and the two pairing pages (`/pair`,
+  `/pair/<code>`) use the Arcaid Witness look: the kit background, the badge and "ARCAID WITNESS" header, dark
+  glass panels, the kit fonts (served by Arcaid itself) and the status colours: cyan for done (Approved), pink for
+  attention (approve only at the cabinet), red for a problem (a code that is not valid, a refused pairing). The words, buttons, links and sign-in are unchanged. Body text is about 17 px on a
+  phone and a desktop.
+- **Changed, Account Settings -> Arcaid Witness devices:** the section is a dark Witness panel with the badge beside
+  its heading, whatever site theme you use. Watching now and other OK words are cyan, a build waiting on the stick
+  is pink, and Not watching, a log request that failed or got no answer, and plays that did not count are red.
+  Nothing green or yellow.
+- **Changed, the kit download:** the tile picture in the cabinet kit (`arcaid-witness.png`) is the new Witness
+  badge.
+- **Files:** `admin-ui/public/aw-theme/` holds the kit's `aw-theme.css` and `aw-theme-ext.css` unchanged, its fonts
+  with their licences, the 1080x1920 background and the badge, plus `aw-web.css`, the site's own layer. They load
+  only on these pages and that section.
+
 ## [2.250.0] - 2026-11-15 - The Witness tile groups its cards, shows closing times, your rank and updates on request
 
 W105 (ADR 0040 addendum). The consumer is Arcaid Witness 1.1.1 build 3 on the cabinet. Everything is additive: a
