@@ -248,7 +248,9 @@ export class WitnessLogService {
      * unpaired-not (`NOT_FOUND`), and a cabinet on 1.1.0 or later or a
      * Castcade desktop (W102), else `LOGS_UNSUPPORTED`. A pending request for the device is returned as it
      * is (`created: false`), so a double click is one request. A new request
-     * is audited (`witness_log_request`; best-effort).
+     * is audited (`witness_log_request`; best-effort). A bundle already
+     * received never blocks a new request, from either side ("Get fresh
+     * logs", W105): the new bundle replaces it on arrival (`upload`).
      *
      * W105: `shareOnReceipt` is the cabinet tile's press (`GET /witness/logs/request`,
      * on behalf of the device's player): the request, new or the pending one,
@@ -321,14 +323,25 @@ export class WitnessLogService {
         return { request: toWire(row!), created: true };
     }
 
-    /** The caller's latest requests, newest first. */
+    /**
+     * The caller's latest requests, newest first. W105 (fresh logs): every
+     * `ready` bundle of theirs is listed too, even past the newest
+     * `LOG_REQUESTS_LIST_LIMIT`, so a device's received bundle stays
+     * downloadable while newer requests (pending, failed, expired) pile up in
+     * front of it. Ready rows are bounded: a new bundle replaces the device's
+     * older unsent ones (`upload`), and the sweep ends the rest.
+     */
     static async list(canonicalUserId: string): Promise<LogRequest[]> {
         await WitnessLogService.sweep();
         const db = await getDatabase();
-        const rows = await db.all<LogRequestRow[]>(
-            `SELECT * FROM witness_log_requests WHERE canonical_user_id = ?
-              ORDER BY requested_at DESC, rowid DESC LIMIT ?`,
-            canonicalUserId, LOG_REQUESTS_LIST_LIMIT,
+        const rows = await db.all<Array<LogRequestRow & { rid: number }>>(
+            `SELECT *, rowid AS rid FROM witness_log_requests
+              WHERE canonical_user_id = ?
+                AND (status = 'ready' OR id IN (
+                        SELECT id FROM witness_log_requests WHERE canonical_user_id = ?
+                         ORDER BY requested_at DESC, rowid DESC LIMIT ?))
+              ORDER BY requested_at DESC, rid DESC`,
+            canonicalUserId, canonicalUserId, LOG_REQUESTS_LIST_LIMIT,
         );
         return rows.map(toWire);
     }
@@ -414,6 +427,27 @@ export class WitnessLogService {
             throw err;
         }
         logInfo(`Witness logs: bundle ${requestId} received from device ${deviceId} (${body.length} bytes)`);
+        // W105 (fresh logs, owner 2026-11-15) - the new bundle REPLACES this
+        // device's older ones on this account (row and file), so asking again
+        // never builds a pile and the player never has to delete first. A
+        // bundle already sent to Arcaid support is not touched: support may be
+        // reading it, and it keeps its own 30 days. Best-effort.
+        try {
+            const older = await db.all<Array<{ id: string }>>(
+                `SELECT id FROM witness_log_requests
+                  WHERE atgames_unique_id = ? AND canonical_user_id = ? AND status = 'ready'
+                    AND shared_at IS NULL AND id <> ?`,
+                deviceId, canonicalUserId, requestId,
+            );
+            for (const { id } of older) {
+                // Row first, still unsent: a bundle shared this instant keeps its file.
+                const gone = await db.run(`DELETE FROM witness_log_requests WHERE id = ? AND status = 'ready' AND shared_at IS NULL`, id);
+                if ((gone.changes ?? 0) === 1 && isLogRequestId(id)) await WitnessLogService.unlinkQuiet(id);
+            }
+            if (older.length > 0) logInfo(`Witness logs: bundle ${requestId} replaced ${older.length} older bundle(s) of device ${deviceId}`);
+        } catch (err) {
+            logError(`Witness logs: older bundles of device ${deviceId} were not replaced`, err);
+        }
         // W105 - a request the cabinet's tile started goes to Arcaid support
         // now, exactly as the player's Send to Arcaid support would send it.
         // Once: only the upload that won the claim above gets here.

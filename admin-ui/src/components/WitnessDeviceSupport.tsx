@@ -6,6 +6,8 @@ import { Download, FileText, Send, Trash2 } from 'lucide-react';
  * Settings: pull the device's logs, and (a cabinet only) choose how it
  * updates itself. W102: a desktop (Castcade) device gets the log controls
  * with its own wording and no update switches; Castcade updates itself.
+ * W105: a received bundle keeps Download logs (with when it arrived) next to
+ * "Get fresh logs"; the fresh bundle replaces it on the server when it lands.
  * Authenticates with the player token, like the rest of the Witness block.
  */
 
@@ -42,6 +44,11 @@ function formatSize(bytes: number | null): string {
     return `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
 
+/** W105 - when a bundle arrived, date AND time, so its age is obvious next to Download. */
+function formatReceived(iso: string): string {
+    return new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
 export default function WitnessDeviceSupport({ device, playerToken, onChanged }: {
     device: WitnessSupportDevice;
     playerToken: string | null;
@@ -52,7 +59,12 @@ export default function WitnessDeviceSupport({ device, playerToken, onChanged }:
     const logsSupported = device.logsSupported === true;
     const auth = { Authorization: `Bearer ${playerToken}` };
 
-    const [latest, setLatest] = useState<LogRequest | null>(null);
+    // W105 (fresh logs): this device's requests, newest first. The newest says
+    // what is happening now (waiting, failed, expired); the newest READY one is
+    // the bundle to download, kept on screen while a fresh request waits.
+    const [mine, setMine] = useState<LogRequest[]>([]);
+    const latest = mine[0] ?? null;
+    const bundle = mine.find(r => r.status === 'ready') ?? null;
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [autoUpdate, setAutoUpdate] = useState(device.autoUpdate !== false);
@@ -68,7 +80,7 @@ export default function WitnessDeviceSupport({ device, playerToken, onChanged }:
             if (!res.ok) return;
             const body = await res.json();
             const list: LogRequest[] = Array.isArray(body?.requests) ? body.requests : [];
-            setLatest(list.find(r => r.deviceId === id) ?? null);
+            setMine(list.filter(r => r.deviceId === id));
         } catch { /* the controls simply show no request */ }
     }, [id, playerToken]);
 
@@ -95,7 +107,8 @@ export default function WitnessDeviceSupport({ device, playerToken, onChanged }:
                 throw new Error(body.error || 'Could not ask your cabinet for its logs');
             }
             const body = await res.json();
-            setLatest(body.request ?? null);
+            const made: LogRequest | null = body.request ?? null;
+            if (made) setMine(prev => [made, ...prev.filter(r => r.id !== made.id)]);
         } catch (err) {
             setError((err as Error).message);
         } finally {
@@ -136,7 +149,8 @@ export default function WitnessDeviceSupport({ device, playerToken, onChanged }:
             });
             if (!res.ok) throw new Error('Could not send the logs to Arcaid support');
             const body = await res.json();
-            setLatest(body.request ?? null);
+            const sent: LogRequest | null = body.request ?? null;
+            if (sent) setMine(prev => prev.map(x => (x.id === sent.id ? sent : x)));
         } catch (err) {
             setError((err as Error).message);
         } finally {
@@ -151,7 +165,7 @@ export default function WitnessDeviceSupport({ device, playerToken, onChanged }:
                 method: 'DELETE', headers: auth,
             });
             if (!res.ok) throw new Error('Could not remove the logs');
-            setLatest(null);
+            setMine(prev => prev.filter(x => x.id !== r.id));
         } catch (err) {
             setError((err as Error).message);
         } finally {
@@ -186,7 +200,7 @@ export default function WitnessDeviceSupport({ device, playerToken, onChanged }:
                 <p className="text-xs text-muted">Log download needs Arcaid Witness 1.1.0 or newer on this cabinet.</p>
             ) : (
                 <div className="space-y-1">
-                    {(!latest || latest.status === 'failed' || latest.status === 'expired') && (
+                    {(latest?.status === 'failed' || latest?.status === 'expired') && (
                         <>
                             {latest?.status === 'expired' && (
                                 <p className="text-xs text-amber-400">
@@ -207,41 +221,42 @@ export default function WitnessDeviceSupport({ device, playerToken, onChanged }:
                             {isCabinet
                                 ? 'Asked your cabinet for its logs. It answers within about 2 minutes while it is switched on and the Witness has been opened since it was last powered on.'
                                 : 'Asked Castcade on that PC for its logs. It answers within about 2 minutes while Castcade 0.2.41 or newer is running.'}
+                            {bundle && ' The logs below stay until the new ones arrive and replace them.'}
                         </p>
                     )}
-                    {latest?.status === 'ready' && (
+                    {bundle && (
                         <div className="space-y-1">
                             <div className="flex flex-wrap items-center gap-2">
                                 <button
                                     type="button"
                                     disabled={busy}
-                                    onClick={() => void download(latest)}
+                                    onClick={() => void download(bundle)}
                                     className="px-2 py-1 rounded border border-border text-xs text-primary hover:border-neon-cyan/50 cursor-pointer inline-flex items-center gap-1"
                                 >
                                     <Download size={12} /> Download logs
                                 </button>
-                                <span className="text-xs text-muted">
-                                    {formatSize(latest.sizeBytes)} · kept until {new Date(latest.expiresAt).toLocaleDateString()}
+                                <span className="text-xs text-muted" data-testid="witness-logs-received">
+                                    received {formatReceived(bundle.readyAt ?? bundle.requestedAt)} · {formatSize(bundle.sizeBytes)} · kept until {new Date(bundle.expiresAt).toLocaleDateString()}
                                 </span>
                                 <button
                                     type="button"
                                     disabled={busy}
-                                    onClick={() => void removeLogs(latest)}
+                                    onClick={() => void removeLogs(bundle)}
                                     className="px-2 py-1 rounded border border-border text-xs text-muted hover:text-rose-400 hover:border-rose-500/40 cursor-pointer inline-flex items-center gap-1"
                                 >
                                     <Trash2 size={12} /> Remove logs
                                 </button>
                             </div>
-                            {latest.sharedAt ? (
+                            {bundle.sharedAt ? (
                                 <p className="text-xs text-muted">
-                                    Sent to Arcaid support on {new Date(latest.sharedAt).toLocaleDateString()}.
+                                    Sent to Arcaid support on {new Date(bundle.sharedAt).toLocaleDateString()}.
                                 </p>
                             ) : (
                                 <div className="space-y-1">
                                     <button
                                         type="button"
                                         disabled={busy}
-                                        onClick={() => void shareLogs(latest)}
+                                        onClick={() => void shareLogs(bundle)}
                                         className="px-2 py-1 rounded border border-border text-xs text-primary hover:border-neon-cyan/50 cursor-pointer inline-flex items-center gap-1"
                                     >
                                         <Send size={12} /> Send to Arcaid support
@@ -255,16 +270,15 @@ export default function WitnessDeviceSupport({ device, playerToken, onChanged }:
                             )}
                         </div>
                     )}
-                    {latest?.status !== 'ready' && (
-                        <button
-                            type="button"
-                            disabled={busy || pending}
-                            onClick={() => void requestLogs()}
-                            className="px-2 py-1 rounded border border-border text-xs text-muted hover:text-primary hover:border-neon-cyan/50 cursor-pointer inline-flex items-center gap-1"
-                        >
-                            <FileText size={12} /> Get logs
-                        </button>
-                    )}
+                    {/* W105: always offered (waiting disables it); with a bundle here it asks for fresh logs, which replace it on arrival. */}
+                    <button
+                        type="button"
+                        disabled={busy || pending}
+                        onClick={() => void requestLogs()}
+                        className="px-2 py-1 rounded border border-border text-xs text-muted hover:text-primary hover:border-neon-cyan/50 cursor-pointer inline-flex items-center gap-1"
+                    >
+                        <FileText size={12} /> {bundle ? 'Get fresh logs' : 'Get logs'}
+                    </button>
                 </div>
             )}
 

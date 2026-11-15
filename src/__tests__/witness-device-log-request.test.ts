@@ -269,6 +269,89 @@ describe('share on receipt', () => {
     });
 });
 
+describe('fresh logs while an older bundle is there (owner, 2026-11-15)', () => {
+    const ask = () => request(app).post(`/api/me/witness/devices/${CABINET}/log-requests`).set(auth()).send({});
+    const download = (id: string) => request(app).get(`/api/me/witness/log-requests/${id}/download`).set(auth());
+    const fileFor = (id: string) => path.join(tmpRoot, `${id}.tar`);
+    const readyBundle = async () => {
+        const res = await ask();
+        expect(res.status).toBe(201);
+        expect((await sendTar(res.body.request.id)).status).toBe(200);
+        return res.body.request.id as string;
+    };
+
+    it('the player asks again with a bundle there; the old one stays downloadable until the new one replaces it', async () => {
+        const old = await readyBundle();
+        const fresh = await ask();
+        expect(fresh.status).toBe(201);
+        expect(fresh.body.request.status).toBe('pending');
+        expect(fresh.body.request.id).not.toBe(old);
+
+        // While the fresh request waits: both listed, the old bundle still downloads.
+        let list = await playerList();
+        expect(list.map(r => [r.id, r.status])).toEqual([[fresh.body.request.id, 'pending'], [old, 'ready']]);
+        expect((await download(old)).status).toBe(200);
+
+        // The fresh bundle lands and replaces the old one, row and file.
+        expect((await sendTar(fresh.body.request.id)).status).toBe(200);
+        list = await playerList();
+        expect(list.map(r => [r.id, r.status])).toEqual([[fresh.body.request.id, 'ready']]);
+        expect(await rowOf(old)).toBeUndefined();
+        expect(fs.existsSync(fileFor(old))).toBe(false);
+        expect(fs.existsSync(fileFor(fresh.body.request.id))).toBe(true);
+        expect((await download(old)).status).toBe(404);
+        expect((await download(fresh.body.request.id)).status).toBe(200);
+    });
+
+    it('a cabinet press is never refused because an older bundle is there, and its bundle replaces it too', async () => {
+        vi.spyOn(OpsAlertService, 'sendOperatorAlert').mockResolvedValue();
+        const old = await readyBundle();
+        const res = await press();
+        expect(res.body).toMatchObject({ ok: true, status: 'requested' });
+        expect((await sendTar(res.body.id)).status).toBe(200);
+        expect(await rowOf(old)).toBeUndefined();
+        expect((await rowOf(res.body.id))!.shared_at).toBeTruthy();
+    });
+
+    it('an older bundle already sent to Arcaid support is kept; only unsent ones are replaced', async () => {
+        vi.spyOn(OpsAlertService, 'sendOperatorAlert').mockResolvedValue();
+        const sent = await readyBundle();
+        expect((await request(app).post(`/api/me/witness/log-requests/${sent}/share`).set(auth()).send({})).status).toBe(200);
+        const fresh = await readyBundle();
+        expect((await rowOf(sent))!.shared_at).toBeTruthy();
+        expect(fs.existsSync(fileFor(sent))).toBe(true);
+        expect((await rowOf(fresh))!.status).toBe('ready');
+    });
+
+    it('another device\'s bundle is not replaced', async () => {
+        const otherDevice = `${CABINET}-B`;
+        const otherToken = await pair(USER, otherDevice);
+        expect((await request(app).get('/api/witness/heartbeat').query({ device: otherDevice, token: otherToken, v: '1.1.1' })).status).toBe(200);
+        const theirs = await request(app).post(`/api/me/witness/devices/${otherDevice}/log-requests`).set(auth()).send({});
+        expect((await request(app).post('/api/witness/logs')
+            .query({ device: otherDevice, token: otherToken, request: theirs.body.request.id, v: '1.1.1' })
+            .set('Content-Type', 'application/x-tar').send(TAR)).status).toBe(200);
+        await readyBundle();
+        expect((await rowOf(theirs.body.request.id))!.status).toBe('ready');
+    });
+
+    it('a received bundle stays in the list behind more than ten newer requests', async () => {
+        const old = await readyBundle();
+        const db = await getDatabase();
+        for (let i = 0; i < 12; i++) {
+            await db.run(
+                `INSERT INTO witness_log_requests (id, atgames_unique_id, canonical_user_id, status, fail_reason, requested_at)
+                 VALUES (?, ?, ?, 'expired', 'no_answer', datetime('now', ?))`,
+                randomBytes(16).toString('hex'), CABINET, USER, `+${i + 1} seconds`,
+            );
+        }
+        const list = await playerList();
+        expect(list).toHaveLength(11);
+        expect(list[list.length - 1]).toMatchObject({ id: old, status: 'ready' });
+        expect(list.slice(0, 10).every(r => r.status === 'expired')).toBe(true);
+    });
+});
+
 describe('migration 216', () => {
     it('adds share_on_receipt (default 0) and re-running it changes nothing', async () => {
         const tmpPath = path.join(os.tmpdir(), `arcaid-216-${Date.now()}-${randomBytes(4).toString('hex')}.db`);
