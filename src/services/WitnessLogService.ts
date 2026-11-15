@@ -91,6 +91,8 @@ interface LogRequestRow {
     fail_reason: string | null;
     shared_at: string | null;
     shared_note: string | null;
+    /** W105 (migration 216) - 1 = send the bundle to Arcaid support the moment it arrives. */
+    share_on_receipt?: number | null;
 }
 
 export class WitnessLogError extends Error {
@@ -160,6 +162,36 @@ export function looksLikeTar(body: Buffer): boolean {
     return sum === stored;
 }
 
+/**
+ * W103 - tell the operator a player sent cabinet logs to Arcaid support
+ * (`OpsAlertService`, inert unless its settings are on). The player is named
+ * through `resolveUserLabels` (then the cabinet's AtGames name), never by a
+ * raw id. Best-effort: never fails the share, and the DM is not awaited.
+ * (Moved here from the share route in W105 so `sendToSupport` owns it.)
+ */
+async function alertSupportOfSharedLog(userId: string, deviceId: string, rawNote: unknown): Promise<void> {
+    try {
+        const { OpsAlertService } = await import('./OpsAlertService.js');
+        const labels = await resolveUserLabels([userId]);
+        const db = await getDatabase();
+        const device = await db.get<{ device_model_name: string | null; atgames_username: string | null }>(
+            `SELECT device_model_name, atgames_username FROM witness_devices WHERE atgames_unique_id = ?`,
+            deviceId,
+        );
+        const player = labels[userId] || device?.atgames_username || 'A player';
+        const note = typeof rawNote === 'string' ? rawNote.trim().slice(0, 200) : '';
+        const lines = [
+            `Witness logs sent to Arcaid support by ${player}.`,
+            ...(device?.device_model_name ? [`Cabinet: ${device.device_model_name}`] : []),
+            ...(note ? [`Note: ${note}`] : []),
+            'Read it at Super Admin → Witness releases and logs.',
+        ];
+        void OpsAlertService.sendOperatorAlert(lines.join('\n'));
+    } catch {
+        logError('Witness logs: the support alert was not sent');
+    }
+}
+
 export class WitnessLogService {
     private static root = path.join(process.cwd(), 'data', 'witness-logs');
 
@@ -215,9 +247,18 @@ export class WitnessLogService {
      * A player asks for a device's logs. The device must be the caller's and
      * unpaired-not (`NOT_FOUND`), and a cabinet on 1.1.0 or later or a
      * Castcade desktop (W102), else `LOGS_UNSUPPORTED`. A pending request for the device is returned as it
-     * is (`created: false`), so a double click is one request.
+     * is (`created: false`), so a double click is one request. A new request
+     * is audited (`witness_log_request`; best-effort).
+     *
+     * W105: `shareOnReceipt` is the cabinet tile's press (`GET /witness/logs/request`,
+     * on behalf of the device's player): the request, new or the pending one,
+     * is marked so the bundle goes to Arcaid support the moment it arrives
+     * (`upload` -> `sendToSupport`).
      */
-    static async request(canonicalUserId: string, deviceId: string): Promise<{ request: LogRequest; created: boolean }> {
+    static async request(
+        canonicalUserId: string, deviceId: string,
+        opts: { shareOnReceipt?: boolean; correlationId?: string } = {},
+    ): Promise<{ request: LogRequest; created: boolean }> {
         const db = await getDatabase();
         const device = await db.get<{ device_type: string | null; app_version: string | null }>(
             `SELECT device_type, app_version FROM witness_devices
@@ -233,24 +274,50 @@ export class WitnessLogService {
         const pendingRow = () => db.get<LogRequestRow>(
             `SELECT * FROM witness_log_requests WHERE atgames_unique_id = ? AND status = 'pending'`, deviceId,
         );
+        const shareOnReceipt = opts.shareOnReceipt === true;
+        // The pending request this device already has: answered as it is, and
+        // (from the cabinet) also marked share on receipt.
+        const answerPending = async (row: LogRequestRow) => {
+            if (shareOnReceipt) {
+                await db.run(
+                    `UPDATE witness_log_requests SET share_on_receipt = 1 WHERE id = ? AND status = 'pending'`, row.id,
+                );
+            }
+            return { request: toWire(row), created: false };
+        };
         const existing = await pendingRow();
-        if (existing) return { request: toWire(existing), created: false };
+        if (existing) return answerPending(existing);
 
         const id = randomBytes(16).toString('hex');
         try {
             await db.run(
-                `INSERT INTO witness_log_requests (id, atgames_unique_id, canonical_user_id, status)
-                 VALUES (?, ?, ?, 'pending')`,
-                id, deviceId, canonicalUserId,
+                `INSERT INTO witness_log_requests (id, atgames_unique_id, canonical_user_id, status, share_on_receipt)
+                 VALUES (?, ?, ?, 'pending', ?)`,
+                id, deviceId, canonicalUserId, shareOnReceipt ? 1 : 0,
             );
         } catch (err) {
             // A concurrent request won the one-pending-per-device index: answer with it.
             const raced = await pendingRow();
-            if (raced) return { request: toWire(raced), created: false };
+            if (raced) return answerPending(raced);
             throw err;
         }
         const row = await db.get<LogRequestRow>(`SELECT * FROM witness_log_requests WHERE id = ?`, id);
-        logInfo(`Witness logs: request ${id} for device ${deviceId} by ${canonicalUserId}`);
+        logInfo(`Witness logs: request ${id} for device ${deviceId} by ${canonicalUserId}${shareOnReceipt ? ' (from the cabinet, share on receipt)' : ''}`);
+        // Who asked a cabinet for its logs, and when. Best-effort.
+        try {
+            const { AuditService } = await import('./AuditService.js');
+            await AuditService.log({
+                actor: canonicalUserId,
+                action: 'witness_log_request',
+                target_type: 'witness_device',
+                target_id: deviceId,
+                details: JSON.stringify({ requestId: id, ...(shareOnReceipt ? { shareOnReceipt: true } : {}) }),
+                ip_address: '',
+                correlation_id: opts.correlationId ?? '',
+            });
+        } catch {
+            logError('Witness logs: a log request was not audited');
+        }
         return { request: toWire(row!), created: true };
     }
 
@@ -347,6 +414,20 @@ export class WitnessLogService {
             throw err;
         }
         logInfo(`Witness logs: bundle ${requestId} received from device ${deviceId} (${body.length} bytes)`);
+        // W105 - a request the cabinet's tile started goes to Arcaid support
+        // now, exactly as the player's Send to Arcaid support would send it.
+        // Once: only the upload that won the claim above gets here.
+        // Best-effort: the cabinet's upload already succeeded.
+        try {
+            const mark = await db.get<{ share_on_receipt: number | null }>(
+                `SELECT share_on_receipt FROM witness_log_requests WHERE id = ?`, requestId,
+            );
+            if (mark?.share_on_receipt === 1) {
+                await WitnessLogService.sendToSupport(canonicalUserId, requestId, null, { onReceipt: true });
+            }
+        } catch (err) {
+            logError(`Witness logs: bundle ${requestId} was not sent to Arcaid support on receipt`, err);
+        }
         return 'ok';
     }
 
@@ -419,6 +500,37 @@ export class WitnessLogService {
         if ((res.changes ?? 0) !== 1) return null;
         const row = await db.get<LogRequestRow>(`SELECT * FROM witness_log_requests WHERE id = ?`, requestId);
         return row ? toWire(row) : null;
+    }
+
+    /**
+     * "Send to Arcaid support": `share`, the `witness_log_share` audit row and
+     * the operator alert. The ONE path for the player's button
+     * (`POST /me/witness/log-requests/:id/share`) and for a bundle the cabinet's
+     * tile asked for, sent on receipt (W105, `onReceipt`). Null = not the
+     * caller's / not ready, and then nothing is audited or alerted.
+     */
+    static async sendToSupport(
+        canonicalUserId: string, requestId: string, rawNote: unknown,
+        opts: { correlationId?: string; onReceipt?: boolean } = {},
+    ): Promise<LogRequest | null> {
+        const request = await WitnessLogService.share(canonicalUserId, requestId, rawNote);
+        if (!request) return null;
+        try {
+            const { AuditService } = await import('./AuditService.js');
+            await AuditService.log({
+                actor: canonicalUserId,
+                action: 'witness_log_share',
+                target_type: 'witness_device',
+                target_id: request.deviceId,
+                details: JSON.stringify({ requestId: request.id, ...(opts.onReceipt ? { onReceipt: true } : {}) }),
+                ip_address: '',
+                correlation_id: opts.correlationId ?? '',
+            });
+        } catch {
+            logError('Witness logs: a log share was not audited');
+        }
+        await alertSupportOfSharedLog(canonicalUserId, request.deviceId, rawNote);
+        return request;
     }
 
     /** The super-admin's list: bundles players sent, newest sent first. */
