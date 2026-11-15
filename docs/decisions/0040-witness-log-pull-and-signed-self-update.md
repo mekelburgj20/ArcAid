@@ -118,3 +118,37 @@ four install files by hand was the other. Both are replaced, and the typed code 
   description XML, controller map), committed at `witness-kit/`. The ELF is only ever the highest `stable` release,
   whatever the player's "Get test builds early" switch says: a manual install is the recovery path, so it gets the
   build that every cabinet already runs, never a beta or a draft.
+
+## The tile read and device-started log requests (v2.249.0, cabinet 1.1.1)
+
+The tile's screen showed device counters a player cannot act on. Cabinet 1.1.1 turns it into a player screen (whose
+cabinet this is, did my last score go through, what can I play now) and lets the player start attempts, update and
+send logs to support from the cabinet. Two device routes serve it; both take the device token and give the bare 401
+of every device route.
+
+- **`GET /api/witness/tile` is a read.** It checks nobody in, stamps no last-seen and stores no build, so the tile can
+  call it every 60 seconds. Every field is a flat string the cabinet's naive `"key":"value"` reader can take: free
+  text goes through one sanitizer (`cabinetText`: printable ASCII minus `"` and `\`, cut at a stated length, no
+  ellipsis), a field that does not apply is omitted, and each block (account, update, last score, open cards) fails
+  on its own without failing the answer.
+- **Nothing on the tile is a second rule.** The account is the pair answer's label rule, `update` is the one offer
+  rule, and the open cards are the score ingest's own filters (device routing, entry, the round window with its end
+  grace, device exclusion), shared with the attempts line as `VpxScoreIngestService.openGamesForDevice`. A round's
+  close time is its scheduled end without the grace, so a round inside its grace is listed as closing; a rotation
+  game stores no end and shows none. At most six cards are sent, soonest close first; `openCount` is the true total.
+  The last score is the newest row of the device's own trail that was kept (on a board, or on the Global
+  Scoreboard).
+- **`GET /api/witness/logs/request` is the player's Get logs, pressed at the cabinet.** It makes the same request for
+  the device's player (same rules, expiry and audit row) and marks it share on receipt
+  (`witness_log_requests.share_on_receipt`, migration 216); a request already pending is marked instead. When the
+  bundle arrives, the server runs the player's own Send to Arcaid support path (`WitnessLogService.sendToSupport`:
+  shared, audited, the operator alerted), once, because only the upload that claims the request gets there. The
+  bundle still travels the existing way: the request id rides the next heartbeat and the beacon uploads it.
+- **Consequence:** pressing Send logs on the cabinet is the player's choice to send that bundle to Arcaid support;
+  the tile asks for confirmation first. The bundle stays the player's in every other respect (they can still
+  download or remove it).
+- **Fresh logs (owner, 2026-11-15).** A received bundle never blocks a new request, from Account Settings or the
+  tile. While the new request waits, the old bundle stays listed and downloadable (Account Settings shows when it
+  arrived next to Download logs, and offers Get fresh logs). When the new bundle arrives it replaces the device's
+  older ones (row and file), so asking again builds no pile and the player never deletes first. A bundle already
+  sent to Arcaid support is not replaced: support may be reading it, and it keeps its own 30 days.
