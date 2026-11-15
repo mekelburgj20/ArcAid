@@ -57,6 +57,9 @@ export default function SuperAdminWitnessReleases() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [logs, setLogs] = useState<SharedLog[] | null>(null);
   const [logError, setLogError] = useState<string | null>(null);
+  const [videoUrl, setVideoUrl] = useState('');
+  const [videoError, setVideoError] = useState<string | null>(null);
+  const [videoBusy, setVideoBusy] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -78,6 +81,29 @@ export default function SuperAdminWitnessReleases() {
     }
   }, []);
   useEffect(() => { void loadLogs(); }, [loadLogs]);
+
+  useEffect(() => {
+    let live = true;
+    api.get<{ videoUrl: string | null }>('/admin/witness/guide')
+      .then(body => { if (live && typeof body?.videoUrl === 'string') setVideoUrl(body.videoUrl); })
+      .catch(err => { if (live) setVideoError((err as Error).message); });
+    return () => { live = false; };
+  }, []);
+
+  const saveVideo = async (value: string) => {
+    setVideoBusy(true); setVideoError(null);
+    try {
+      const body = await api.put<{ videoUrl: string | null }>('/admin/witness/guide', { videoUrl: value.trim() === '' ? null : value.trim() });
+      setVideoUrl(body?.videoUrl ?? '');
+    } catch (err) {
+      const code = err instanceof ApiError ? String((err.body as { error?: string } | undefined)?.error ?? '') : '';
+      setVideoError(code === 'VIDEO_URL_INVALID' || (err instanceof ApiError && err.status === 400)
+        ? 'Enter a full https:// address.'
+        : (err as Error).message);
+    } finally {
+      setVideoBusy(false);
+    }
+  };
 
   const downloadLog = async (l: SharedLog) => {
     setLogError(null);
@@ -183,6 +209,39 @@ export default function SuperAdminWitnessReleases() {
         ))}
         {logs && logs.length === 0 && <li className="text-sm text-muted">No logs sent yet.</li>}
       </ul>
+
+      <h2 className="text-sm font-medium text-primary mb-2">Install video link</h2>
+      <div className="mb-8 max-w-lg space-y-2">
+        <input
+          aria-label="Install video link"
+          value={videoUrl}
+          onChange={e => setVideoUrl(e.target.value)}
+          placeholder="https://"
+          className={inputCls}
+        />
+        <p className="text-xs text-faint">
+          Shown on the install guide and beside the Get Arcaid Witness button. Leave empty to hide it.
+        </p>
+        {videoError && <p className="text-sm text-rose-400" role="alert">{videoError}</p>}
+        <div className="flex gap-2">
+          <button
+            type="button"
+            disabled={videoBusy}
+            onClick={() => void saveVideo(videoUrl)}
+            className="px-3 py-1.5 rounded border border-border text-sm text-primary hover:border-neon-cyan/50 cursor-pointer disabled:opacity-50"
+          >
+            Save
+          </button>
+          <button
+            type="button"
+            disabled={videoBusy}
+            onClick={() => void saveVideo('')}
+            className="px-3 py-1.5 rounded border border-border text-sm text-muted hover:text-primary cursor-pointer disabled:opacity-50"
+          >
+            Clear
+          </button>
+        </div>
+      </div>
 
       <h2 className="text-sm font-medium text-primary mb-2">Releases</h2>
 

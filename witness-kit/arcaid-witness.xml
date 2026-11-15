@@ -1,0 +1,9 @@
+<root>
+    <name>[Arcaid Witness]</name>
+    <developer>Arcaid</developer>
+    <category>Utility</category>
+    <year>2026</year>
+    <copyright>Copyright 2026 Arcaid</copyright>
+    <description>Verifies tournament play for arcaid.app events. Pair once with a code from your Arcaid account, then leave it running while you compete.</description>
+    <logging>true</logging>
+</root>
