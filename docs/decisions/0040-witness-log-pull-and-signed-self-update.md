@@ -157,3 +157,19 @@ of every device route.
   arrived next to Download logs, and offers Get fresh logs). When the new bundle arrives it replaces the device's
   older ones (row and file), so asking again builds no pile and the player never deletes first. A bundle already
   sent to Arcaid support is not replaced: support may be reading it, and it keeps its own 30 days.
+- **Grouped cards (v2.250.0, cabinet 1.1.1 build 3).** The tile lists up to 12 open cards (was 6), and the cards
+  of one tournament are adjacent: tournaments by their soonest close (none last, ties by name), inside one by
+  close then table. The cabinet draws consecutive rows with the same name as one group. The change is additive,
+  so a build 2 tile still reads its first six rows.
+- **A rotation card closes at its next rotation (v2.250.0).** The time is the room page's own "next rotation"
+  (`nextRotationIso`, on the one timezone chain), not a second cron evaluator. A paused rotation (`is_active = 0`)
+  runs no maintenance cron, so it shows no time; neither does one with no schedule. The time is the next
+  scheduled rotation, which is when this card is replaced unless the tournament keeps more than one table up.
+- **Update on request (v2.250.0).** The tile's CHECK FOR UPDATE sends `manual=1` on the tile read and both
+  release routes; the ONE offer rule takes it as an option that treats automatic updates as on and changes
+  nothing else (cabinet only, channel, test builds, newer than reported). The beacon never sends it, so turning
+  automatic updates off still stops every unasked install.
+- **Rank and welcome (v2.250.0).** `lastScoreRank` is the player's position now on the board their last score
+  landed on, read from that board's own ranking (`LeaderboardService.getForGame`), never a new ranking query. A
+  successful typed pairing answers `account` like pair by phone; both come from one helper
+  (`WitnessService.cabinetAccountFor`), which the tile read uses too.

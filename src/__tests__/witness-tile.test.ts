@@ -1,14 +1,19 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import crypto from 'crypto';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import express from 'express';
 import request from 'supertest';
-import { setupTestDb, createTestRoom } from './helpers.js';
+import { setupTestDb, createTestRoom, createTestSubmission } from './helpers.js';
 import { getDatabase } from '../database/database.js';
 import { WitnessService, cabinetAccountLabel } from '../services/WitnessService.js';
 import { WitnessReleaseService } from '../services/WitnessReleaseService.js';
 import { VpxScoreIngestService } from '../services/VpxScoreIngestService.js';
 import { cabinetText } from '../utils/witnessCabinetText.js';
-import { compareTileCards, scoreWithCommas, boardLabel } from '../services/WitnessTileService.js';
+import { orderTileCards, scoreWithCommas, boardLabel, TILE_MAX_OPEN_CARDS } from '../services/WitnessTileService.js';
+import { GameRoomSettingsService } from '../services/GameRoomSettingsService.js';
+import { nextRotationIso } from '../utils/cronUtils.js';
 
 /**
  * W105 (v2.249.0, ADR 0040 addendum) - `GET /api/witness/tile`, the cabinet
@@ -50,21 +55,39 @@ async function member(roomId: string, user = USER) {
     await db.run(`INSERT OR IGNORE INTO room_members (user_id, room_id, source) VALUES (?, ?, 'claim')`, user, roomId);
 }
 
-/** A rotation tournament with one ACTIVE game that went up an hour ago. */
-async function rotation(roomId: string, name: string, table: string, opts: { maxAttempts?: number; requireStart?: boolean } = {}) {
+/** A rotation tournament with one ACTIVE game that went up an hour ago (no schedule unless `cadence`). */
+async function rotation(
+    roomId: string, name: string, table: string,
+    opts: { maxAttempts?: number; requireStart?: boolean; cadence?: string; isActive?: 0 | 1 } = {},
+) {
     const db = await getDatabase();
     const tournamentId = crypto.randomUUID();
     await db.run(
         `INSERT INTO tournaments (id, name, type, mode, cadence, is_active, game_room_id, format, max_attempts, require_attempt_start)
-         VALUES (?, ?, 'DG', 'pinball', '{}', 1, ?, 'rotation', ?, ?)`,
-        tournamentId, name, roomId, opts.maxAttempts ?? null, opts.requireStart ? 1 : 0,
+         VALUES (?, ?, 'DG', 'pinball', ?, ?, ?, 'rotation', ?, ?)`,
+        tournamentId, name, opts.cadence ?? '{}', opts.isActive ?? 1, roomId, opts.maxAttempts ?? null, opts.requireStart ? 1 : 0,
     );
-    const gameId = crypto.randomUUID();
-    await db.run(
-        `INSERT INTO games (id, tournament_id, name, status, game_room_id, start_date) VALUES (?, ?, ?, 'ACTIVE', ?, ?)`,
-        gameId, tournamentId, table, roomId, iso(nowSec() - 60 * MINUTE),
-    );
+    const gameId = await activeGame(tournamentId, roomId, table);
     return { tournamentId, gameId };
+}
+
+/** Another ACTIVE game (or, with `round`, an event round) in an existing tournament. */
+async function activeGame(tournamentId: string, roomId: string, table: string, round?: { no: number; startSec: number; endSec: number }) {
+    const db = await getDatabase();
+    const gameId = crypto.randomUUID();
+    if (round) {
+        await db.run(
+            `INSERT INTO games (id, tournament_id, name, status, game_room_id, round_no, scheduled_start_at, scheduled_end_at)
+             VALUES (?, ?, ?, 'ACTIVE', ?, ?, ?, ?)`,
+            gameId, tournamentId, table, roomId, round.no, iso(round.startSec), iso(round.endSec),
+        );
+    } else {
+        await db.run(
+            `INSERT INTO games (id, tournament_id, name, status, game_room_id, start_date) VALUES (?, ?, ?, 'ACTIVE', ?, ?)`,
+            gameId, tournamentId, table, roomId, iso(nowSec() - 60 * MINUTE),
+        );
+    }
+    return gameId;
 }
 
 /** An event (no check-in) with one round from `startOffset` to `endOffset` seconds from now. */
@@ -250,6 +273,34 @@ describe('account', () => {
     });
 });
 
+describe('typed pairing answers (E1 confirmed, E4 account)', () => {
+    const typedPair = async (device: string) => {
+        const { code } = await WitnessService.createPairingCode(USER);
+        return request(app).get('/api/witness/pair').query({ code, device });
+    };
+
+    it('a successful typed pairing carries `account`, the same value as the pair-by-phone poll', async () => {
+        const db = await getDatabase();
+        await db.run(`INSERT INTO user_profiles (discord_user_id, display_name) VALUES (?, ?)`, USER, 'Krobs "the" Great 🎯');
+        const res = await typedPair('CAB-E4-0001');
+        expect(res.status).toBe(200);
+        expect(res.body).toEqual({ ok: true, token: res.body.token, account: 'Krobs the Great' });
+        expect(res.body.account).toBe(await WitnessService.cabinetAccountFor(USER));
+    });
+
+    it('`account` is omitted when the player has no label (never the raw id)', async () => {
+        const res = await typedPair('CAB-E4-0002');
+        expect(res.status).toBe(200);
+        expect(Object.keys(res.body).sort()).toEqual(['ok', 'token']);
+    });
+
+    it('a refusal is 400 {ok:false, error, code} with the service code (unchanged)', async () => {
+        const res = await request(app).get('/api/witness/pair').query({ code: 'ZZZZZZ', device: 'CAB-E4-0003' });
+        expect(res.status).toBe(400);
+        expect(res.body).toEqual({ ok: false, error: 'That pairing code is not valid', code: 'CODE_INVALID' });
+    });
+});
+
 describe('update follows the one offer rule', () => {
     async function release(version: string, channel: 'draft' | 'beta' | 'stable') {
         const db = await getDatabase();
@@ -281,6 +332,79 @@ describe('update follows the one offer rule', () => {
         expect(res.body.update).toBe(await WitnessReleaseService.offeredFor(CABINET, '1.1.0'));
         const desk = await pair(USER, 'desk-uuid-105', 'desktop');
         expect((await tile({ v: '1.1.0' }, 'desk-uuid-105', desk)).body.update).toBeUndefined();
+    });
+});
+
+describe('manual=1: CHECK FOR UPDATE with automatic updates off (E2)', () => {
+    let tmpRoot: string;
+    const ELF = Buffer.from('\x7fELF fake build for the download route');
+
+    async function release(version: string, channel: 'draft' | 'beta' | 'stable') {
+        const db = await getDatabase();
+        await db.run(
+            `INSERT INTO witness_app_releases (version, channel, size, sha256, sig) VALUES (?, ?, ?, 'x', 'sig-x')`,
+            version, channel, ELF.length,
+        );
+        fs.mkdirSync(path.join(tmpRoot, version), { recursive: true });
+        fs.writeFileSync(path.join(tmpRoot, version, 'arcaid-witness.elf'), ELF);
+    }
+    const relQ = (v: string, extra: Record<string, string> = {}) => ({ device: CABINET, token, v, ...extra });
+
+    beforeEach(async () => {
+        tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-rel-'));
+        WitnessReleaseService.setRootForTests(tmpRoot);
+        await release('1.1.3', 'stable');
+        await release('1.1.4', 'beta');
+        await release('1.2.0', 'draft');
+        const db = await getDatabase();
+        // Automatic updates OFF; the build the cabinet last reported (what /app/* judge on).
+        await db.run(`UPDATE witness_devices SET auto_update = 0, app_version = '1.1.1' WHERE atgames_unique_id = ?`, CABINET);
+    });
+    afterEach(() => {
+        WitnessReleaseService.setRootForTests(null);
+        fs.rmSync(tmpRoot, { recursive: true, force: true });
+    });
+
+    it('the tile offers the build only with manual=1; channel, draft, newer-than and test builds still apply', async () => {
+        expect((await tile({ v: '1.1.1' })).body.update).toBeUndefined();
+        expect((await tile({ v: '1.1.1', manual: '1' })).body.update).toBe('1.1.3');
+        expect((await tile({ v: '1.1.1', manual: 'true' })).body.update).toBeUndefined(); // only the literal 1
+        expect((await tile({ v: '1.1.3', manual: '1' })).body.update).toBeUndefined(); // nothing newer but a beta and a draft
+        const db = await getDatabase();
+        await db.run(`UPDATE witness_devices SET test_builds = 1 WHERE atgames_unique_id = ?`, CABINET);
+        expect((await tile({ v: '1.1.1', manual: '1' })).body.update).toBe('1.1.4'); // beta with test builds, never the draft
+        expect((await tile({ v: '1.1.4', manual: '1' })).body.update).toBeUndefined();
+    });
+
+    it('/app/release and /app/download serve the build with manual=1 only', async () => {
+        let res = await request(app).get('/api/witness/app/release').query(relQ('1.1.3'));
+        expect(res.status).toBe(404);
+        expect(res.body).toEqual({ ok: false });
+        expect((await request(app).get('/api/witness/app/download').query(relQ('1.1.3'))).status).toBe(404);
+
+        res = await request(app).get('/api/witness/app/release').query(relQ('1.1.3', { manual: '1' }));
+        expect(res.status).toBe(200);
+        expect(res.body).toEqual({ ok: true, version: '1.1.3', size: String(ELF.length), sig: 'sig-x' });
+        res = await request(app).get('/api/witness/app/download').query(relQ('1.1.3', { manual: '1' }))
+            .buffer(true).parse((r, cb) => { const c: Buffer[] = []; r.on('data', (d: Buffer) => c.push(d)); r.on('end', () => cb(null, Buffer.concat(c))); });
+        expect(res.status).toBe(200);
+        expect((res.body as Buffer).equals(ELF)).toBe(true);
+
+        // Still never the draft or a beta without test builds, even manually.
+        for (const v of ['1.2.0', '1.1.4']) {
+            expect((await request(app).get('/api/witness/app/release').query(relQ(v, { manual: '1' }))).status).toBe(404);
+            expect((await request(app).get('/api/witness/app/download').query(relQ(v, { manual: '1' }))).status).toBe(404);
+        }
+    });
+
+    it('a desktop is never offered a build, manual or not; automatic updates on behave exactly as before', async () => {
+        const desk = await pair(USER, 'desk-uuid-e2', 'desktop');
+        expect((await tile({ v: '1.1.1', manual: '1' }, 'desk-uuid-e2', desk)).body.update).toBeUndefined();
+        const db = await getDatabase();
+        await db.run(`UPDATE witness_devices SET auto_update = 1 WHERE atgames_unique_id = ?`, CABINET);
+        expect((await tile({ v: '1.1.1' })).body.update).toBe('1.1.3');
+        expect((await tile({ v: '1.1.1', manual: '1' })).body.update).toBe('1.1.3');
+        expect((await request(app).get('/api/witness/app/release').query(relQ('1.1.3'))).status).toBe(200);
     });
 });
 
@@ -332,6 +456,50 @@ describe('lastScore*', () => {
         expect((await tile()).body.lastScoreBoard).toBe('Multi Room / Weekly');
     });
 
+    it('lastScoreRank (E3): the player\'s position NOW on the board the last score landed on, from that board\'s ranking', async () => {
+        const roomId = await createTestRoom('rank-room', 'Rank Room');
+        await member(roomId);
+        const { gameId } = await rotation(roomId, 'Weekly Grind', 'Bad Cats');
+        await createTestSubmission(gameId, { username: 'Alice', score: 200000 });
+        await createTestSubmission(gameId, { username: 'Bob', score: 100000 });
+        const ended = nowSec() - 60;
+        const score = await request(app).get('/api/witness/score').query({
+            device: CABINET, token, table: 'Bad Cats', score: 135930, started: ended - 300, ended, dur: 300, reason: 'game_over',
+        });
+        expect(score.body.status).toBe('ingested');
+
+        let res = await tile();
+        expect(res.body).toMatchObject({
+            lastScoreTable: 'Bad Cats', lastScoreValue: '135,930', lastScoreBoard: 'Rank Room / Weekly Grind', lastScoreRank: '2 of 3',
+        });
+        // Standing NOW: a better score elsewhere on the board moves it.
+        await createTestSubmission(gameId, { username: 'Carol', score: 150000 });
+        const db = await getDatabase();
+        await db.run(`DELETE FROM leaderboard_cache WHERE game_id = ?`, gameId);
+        res = await tile();
+        expect(res.body.lastScoreRank).toBe('3 of 4');
+        expectFlatStrings(res.body);
+    });
+
+    it('no lastScoreRank for a Global landing, or when the board is gone; the other four fields still go out', async () => {
+        await evidence({ outcome: 'global', table: 'Bad Cats', createdAt: '2026-11-14 10:00:00' });
+        let res = await tile();
+        expect(res.body.lastScoreBoard).toBe('Global Scoreboard');
+        expect(res.body.lastScoreRank).toBeUndefined();
+
+        const roomId = await createTestRoom('gone-room', 'Gone Room');
+        const { tournamentId } = await rotation(roomId, 'Weekly', 'Funhouse');
+        const db = await getDatabase();
+        await db.run(
+            `INSERT INTO witness_evidence (device_id, canonical_user_id, outcome, game_id, tournament_id, game_room_id, table_name, score, played_at, created_at)
+             VALUES (?, ?, 'ingested', 'no-such-game', ?, ?, 'Funhouse', 500, '2026-11-14 11:00:00', '2026-11-14 11:00:00')`,
+            CABINET, USER, tournamentId, roomId,
+        );
+        res = await tile();
+        expect(res.body).toMatchObject({ lastScoreTable: 'Funhouse', lastScoreBoard: 'Gone Room / Weekly' });
+        expect(res.body.lastScoreRank).toBeUndefined();
+    });
+
     it('all four or none: a table name with nothing printable sends none of them', async () => {
         await evidence({ outcome: 'global', table: '🎯🎯', createdAt: '2026-11-14 10:00:00' });
         expect(lastKeys((await tile()).body)).toEqual([]);
@@ -379,14 +547,98 @@ describe('the open cards', () => {
         expect(Number(res.body.open1Closes)).toBeLessThan(Number(res.body.now));
     });
 
-    it('at most 6 cards, openCount is the true total', async () => {
-        for (let i = 1; i <= 8; i++) await rotation(roomId, `Rotation ${i}`, `Table ${i}`);
+    it('at most 12 cards (v2.250.0), openCount is the true total', async () => {
+        for (let i = 1; i <= 14; i++) await rotation(roomId, `Rotation ${String(i).padStart(2, '0')}`, `Table ${i}`);
         const res = await tile();
-        expect(res.body.openCount).toBe('8');
-        expect(res.body.open6Name).toBe('Open Room / Rotation 6');
-        expect(res.body.open7Name).toBeUndefined();
-        expect(res.body.open7Table).toBeUndefined();
-        expect(Object.keys(res.body).filter(k => OPEN_KEYS.test(k))).toHaveLength(12); // 6 x Name + Table
+        expect(TILE_MAX_OPEN_CARDS).toBe(12);
+        expect(res.body.openCount).toBe('14');
+        expect(res.body.open12Name).toBe('Open Room / Rotation 12');
+        expect(res.body.open13Name).toBeUndefined();
+        expect(res.body.open13Table).toBeUndefined();
+        expect(Object.keys(res.body).filter(k => OPEN_KEYS.test(k))).toHaveLength(24); // 12 x Name + Table
+    });
+
+    it('cards of one tournament are adjacent: tournaments by soonest close, inside by close then table (D1)', async () => {
+        // Event A has rounds closing in 10 and 60 minutes, event B one closing in 30: by close alone
+        // they would interleave A, B, A. A rotation with two tables and no schedule goes last.
+        const a = await eventRound(roomId, 'Event A', 'Funhouse', -30 * MINUTE, 10 * MINUTE);
+        const a2End = nowSec() + 60 * MINUTE;
+        await activeGame(a.tournamentId, roomId, 'Attack from Mars', { no: 2, startSec: nowSec() - 30 * MINUTE, endSec: a2End });
+        const b = await eventRound(roomId, 'Event B', 'Fish Tales', -30 * MINUTE, 30 * MINUTE);
+        const weekly = await rotation(roomId, 'Weekly', 'Twilight Zone');
+        await activeGame(weekly.tournamentId, roomId, 'Medieval Madness');
+
+        const res = await tile();
+        expect(res.body.openCount).toBe('5');
+        const rows = [1, 2, 3, 4, 5].map(n => [res.body[`open${n}Name`], res.body[`open${n}Table`], res.body[`open${n}Closes`]]);
+        expect(rows).toEqual([
+            ['Open Room / Event A', 'Funhouse', String(a.endSec)],
+            ['Open Room / Event A', 'Attack from Mars', String(a2End)],
+            ['Open Room / Event B', 'Fish Tales', String(b.endSec)],
+            ['Open Room / Weekly', 'Medieval Madness', undefined],
+            ['Open Room / Weekly', 'Twilight Zone', undefined],
+        ]);
+    });
+
+    describe('a rotation card closes at its next scheduled rotation (D2)', () => {
+        const DAILY_UTC = JSON.stringify({ cron: '0 22 * * *', timezone: 'UTC' });
+
+        it('a scheduled rotation gets Closes from nextRotationIso (the room page\'s "rotates <when>")', async () => {
+            await rotation(roomId, 'Daily Grind', 'Attack from Mars', { cadence: DAILY_UTC });
+            const res = await tile();
+            const now = Number(res.body.now);
+            const expected = Math.floor(Date.parse(nextRotationIso(DAILY_UTC, new Date(now * 1000))!) / 1000);
+            expect(res.body.open1Closes).toBe(String(expected));
+            expect(expected).toBeGreaterThan(now);
+            expect(expected - now).toBeLessThanOrEqual(24 * 3600);
+            expect(new Date(expected * 1000).getUTCHours()).toBe(22);
+            expect(new Date(expected * 1000).getUTCMinutes()).toBe(0);
+        });
+
+        it('a cadence with no zone runs on the room\'s ROOM_TIMEZONE (the one chain)', async () => {
+            await GameRoomSettingsService.set(roomId, 'ROOM_TIMEZONE', 'America/New_York');
+            await rotation(roomId, 'Daily Grind', 'Attack from Mars', { cadence: JSON.stringify({ cron: '0 22 * * *' }) });
+            const res = await tile();
+            const hour = new Date(Number(res.body.open1Closes) * 1000)
+                .toLocaleString('en-US', { timeZone: 'America/New_York', hour: 'numeric', hour12: false });
+            expect(hour).toBe('22');
+        });
+
+        it('a paused rotation (is_active = 0) is still a card but has no Closes', async () => {
+            await rotation(roomId, 'Paused Grind', 'Attack from Mars', { cadence: DAILY_UTC, isActive: 0 });
+            const res = await tile();
+            expect(res.body.openCount).toBe('1');
+            expect(res.body.open1Table).toBe('Attack from Mars');
+            expect(res.body.open1Closes).toBeUndefined();
+        });
+
+        it('no schedule, or one that cannot be read, sends no Closes', async () => {
+            await rotation(roomId, 'A No Cron', 'Funhouse', { cadence: JSON.stringify({ timezone: 'UTC' }) });
+            await rotation(roomId, 'B Broken', 'Fish Tales', { cadence: 'not json' });
+            await rotation(roomId, 'C Bad Cron', 'Taxi', { cadence: JSON.stringify({ cron: 'not a cron', timezone: 'UTC' }) });
+            const res = await tile();
+            expect(res.body.openCount).toBe('3');
+            expect(Object.keys(res.body).filter(k => /^open\d+Closes$/.test(k))).toEqual([]);
+        });
+
+        it('a scheduled rotation sorts with the rounds by its close; an event round still closes at its end', async () => {
+            const round = await eventRound(roomId, 'Tonight', 'Funhouse', -10 * MINUTE, 5 * MINUTE);
+            await rotation(roomId, 'Daily Grind', 'Attack from Mars', { cadence: DAILY_UTC });
+            await rotation(roomId, 'Unscheduled', 'Taxi');
+            const res = await tile();
+            const at = (name: string) => {
+                const n = [1, 2, 3].find(i => res.body[`open${i}Name`] === `Open Room / ${name}`)!;
+                return { n, closes: res.body[`open${n}Closes`] as string | undefined };
+            };
+            const tonight = at('Tonight');
+            const daily = at('Daily Grind');
+            const unscheduled = at('Unscheduled');
+            expect(tonight.closes).toBe(String(round.endSec)); // the round's end, no grace
+            expect(daily.closes).toMatch(/^\d+$/);
+            // The next 22:00 UTC may come before the round's end, so the order follows the two times, never the kind.
+            expect(tonight.n < daily.n).toBe(round.endSec < Number(daily.closes));
+            expect(unscheduled).toEqual({ n: 3, closes: undefined });
+        });
     });
 
     it('a Global-only device, a room it is not pointed at, and a room the player is not in send openCount 0', async () => {
@@ -464,15 +716,29 @@ describe('the open cards', () => {
     });
 });
 
-describe('compareTileCards', () => {
-    it('orders by close, then no-end last, then name', () => {
+describe('orderTileCards (D1)', () => {
+    it('one tournament per group; groups by soonest close (none last), ties by name; inside by close then table', () => {
         const cards = [
-            { name: 'B', table: 'x', closes: null, gameId: '1' },
-            { name: 'Z', table: 'x', closes: 200, gameId: '2' },
-            { name: 'A', table: 'x', closes: null, gameId: '3' },
-            { name: 'C', table: 'x', closes: 100, gameId: '4' },
-            { name: 'A', table: 'x', closes: 200, gameId: '5' },
+            { tournamentId: 'tB', name: 'B', table: 'b1', closes: 300, gameId: '1' },
+            { tournamentId: 'tA', name: 'A', table: 'a2', closes: 500, gameId: '2' },
+            { tournamentId: 'tC', name: 'C', table: 'c1', closes: null, gameId: '3' },
+            { tournamentId: 'tA', name: 'A', table: 'a1', closes: 100, gameId: '4' },
+            { tournamentId: 'tD', name: 'D', table: 'd2', closes: 300, gameId: '5' },
+            { tournamentId: 'tD', name: 'D', table: 'd1', closes: 300, gameId: '6' },
+            { tournamentId: 'tA', name: 'A', table: 'a0', closes: null, gameId: '7' },
+            { tournamentId: 'tE', name: 'Aa', table: 'e1', closes: null, gameId: '8' },
         ];
-        expect([...cards].sort(compareTileCards).map(c => c.gameId)).toEqual(['4', '5', '2', '3', '1']);
+        // tA (soonest 100): a1 100, a2 500, a0 none · tB (300, name B) · tD (300, name D): d1, d2 (same close, by table)
+        // · then the groups with no close by name: tE ("Aa") before tC ("C").
+        expect(orderTileCards(cards).map(c => c.gameId)).toEqual(['4', '2', '7', '1', '6', '5', '8', '3']);
+    });
+
+    it('never splits a tournament even when another tournament closes in between', () => {
+        const cards = [
+            { tournamentId: 'tA', name: 'A', table: 'x', closes: 10, gameId: 'a1' },
+            { tournamentId: 'tB', name: 'B', table: 'x', closes: 30, gameId: 'b1' },
+            { tournamentId: 'tA', name: 'A', table: 'y', closes: 60, gameId: 'a2' },
+        ];
+        expect(orderTileCards(cards).map(c => c.gameId)).toEqual(['a1', 'a2', 'b1']);
     });
 });

@@ -6,6 +6,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.250.0] - 2026-11-15 - The Witness tile groups its cards, shows closing times, your rank and updates on request
+
+W105 (ADR 0040 addendum). The consumer is Arcaid Witness 1.1.1 build 3 on the cabinet. Everything is additive: a
+build 2 tile keeps working (no field is renamed or removed) and simply reads the first six rows.
+
+- **Changed, open cards:** `GET /api/witness/tile` sends up to 12 `open<N>` rows (was 6); `openCount` is still the
+  true total. Rows of the same tournament are now next to each other: tournaments go by their soonest closing time
+  (those with none last, ties by name), and inside a tournament by closing time, then table. The cabinet draws one
+  heading per tournament.
+- **Added, rotation closing time:** a rotation tournament's card now carries `Closes` too: its next scheduled
+  rotation, from the same calculation the room page uses for "rotates <when>" (`nextRotationIso`, cadence zone,
+  then the room's time zone, then the server's). Left out when the tournament has no schedule, is paused, or the
+  time cannot be worked out. An event round still closes at its end, without the grace.
+- **Added, update on request:** `manual=1` on `/witness/tile`, `/witness/app/release` and `/witness/app/download`
+  (the tile's CHECK FOR UPDATE) judges the offer as if automatic updates were on. Nothing else changes: cabinets
+  only, the channel and test-build rules, and only a build newer than the cabinet's. Without it nothing changes,
+  and the beacon never sends it.
+- **Added, rank:** `lastScoreRank` (`<rank> of <total>`) is the player's position now on the board their last
+  score landed on, read from that board's own ranking. Left out for a Global Scoreboard landing or a board that
+  is gone.
+- **Added, welcome line:** a successful typed pairing (`GET /api/witness/pair`) answers `account`, the same name
+  pair by phone sends; left out when there is none. Refusals are unchanged (`400 {ok:false, error, code}`).
+- **Wire:** additive only (`open7..12*`, `open<N>Closes` on rotation rows, `manual=1`, `lastScoreRank`, `account`
+  on `/witness/pair`).
+
 ## [2.249.0] - 2026-11-15 - The Arcaid Witness tile becomes a player screen
 
 W105 (ADR 0040 addendum). The consumer is Arcaid Witness 1.1.1 on the cabinet; an older cabinet never calls the new

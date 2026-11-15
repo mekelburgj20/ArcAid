@@ -26,8 +26,8 @@ import type { WitnessDeviceType } from './WitnessService.js';
  * `AttemptService.deviceAttemptsLeft` (what `/witness/attempt-start` would press).
  */
 
-/** The most open cards one answer lists; `openCount` is always the true total. */
-export const TILE_MAX_OPEN_CARDS = 6;
+/** The most open cards one answer lists (12 since v2.250.0, W105 D1; was 6); `openCount` is always the true total. */
+export const TILE_MAX_OPEN_CARDS = 12;
 /** Field lengths (characters) the cabinet lays out for. */
 export const TILE_NAME_MAX = 60;
 export const TILE_TABLE_MAX = 48;
@@ -69,42 +69,67 @@ interface TileCard {
     closes: number | null;
     attempts: string | null;
     gameId: string;
+    tournamentId: string | null;
+}
+
+type OrderableCard = Pick<TileCard, 'name' | 'table' | 'closes' | 'gameId' | 'tournamentId'>;
+
+/** Sooner first, no time last. */
+function byCloses(a: number | null, b: number | null): number {
+    if (a != null && b != null) return a - b;
+    if (a != null) return -1;
+    if (b != null) return 1;
+    return 0;
+}
+
+/** Plain code-unit order (the values are printable ASCII after `cabinetText`), so it never depends on a locale. */
+function byText(x: string | null, y: string | null): number {
+    const p = x ?? '';
+    const q = y ?? '';
+    return p < q ? -1 : p > q ? 1 : 0;
 }
 
 /**
- * Soonest `Closes` first, cards with no end last, then by name (then table and
- * id, so the order never depends on the database's).
+ * v2.250.0 (W105 D1) - the tile's card order. Cards of ONE tournament are
+ * adjacent (the cabinet draws consecutive rows with the same name as one
+ * group). Tournaments go by their soonest `Closes`, those with none last,
+ * ties by name; inside a tournament by `Closes` (none last), then table. The
+ * id tie-breaks keep the order independent of the database's.
  */
-export function compareTileCards(a: Pick<TileCard, 'name' | 'table' | 'closes' | 'gameId'>, b: Pick<TileCard, 'name' | 'table' | 'closes' | 'gameId'>): number {
-    if (a.closes != null && b.closes != null && a.closes !== b.closes) return a.closes - b.closes;
-    if (a.closes != null && b.closes == null) return -1;
-    if (a.closes == null && b.closes != null) return 1;
-    const byText = (x: string | null, y: string | null) => {
-        const p = x ?? '';
-        const q = y ?? '';
-        return p < q ? -1 : p > q ? 1 : 0;
-    };
-    return byText(a.name, b.name) || byText(a.table, b.table) || byText(a.gameId, b.gameId);
+export function orderTileCards<T extends OrderableCard>(cards: readonly T[]): T[] {
+    const groups = new Map<string, T[]>();
+    for (const card of cards) {
+        const key = card.tournamentId ?? `game:${card.gameId}`;
+        groups.set(key, [...(groups.get(key) ?? []), card]);
+    }
+    const ordered = [...groups.entries()].map(([key, group]) => {
+        const rows = [...group].sort((a, b) =>
+            byCloses(a.closes, b.closes) || byText(a.table, b.table) || byText(a.gameId, b.gameId));
+        return { key, rows, soonest: rows[0]!.closes, name: rows[0]!.name };
+    });
+    ordered.sort((a, b) => byCloses(a.soonest, b.soonest) || byText(a.name, b.name) || byText(a.key, b.key));
+    return ordered.flatMap(g => g.rows);
 }
 
 export class WitnessTileService {
     /** The whole answer minus `ok`: `now` always, every other field only when it applies. */
-    static async build(device: TileDevice, rawVersion: unknown, nowSec: number = Math.floor(Date.now() / 1000)): Promise<Record<string, string>> {
+    static async build(
+        device: TileDevice, rawVersion: unknown,
+        opts: { manual?: unknown } = {}, nowSec: number = Math.floor(Date.now() / 1000),
+    ): Promise<Record<string, string>> {
         const out: Record<string, string> = { now: String(Math.floor(nowSec)) };
         Object.assign(out, await WitnessTileService.accountBlock(device));
-        Object.assign(out, await WitnessTileService.updateBlock(device, rawVersion));
+        Object.assign(out, await WitnessTileService.updateBlock(device, rawVersion, opts.manual));
         Object.assign(out, await WitnessTileService.lastScoreBlock(device));
         Object.assign(out, await WitnessTileService.openBlock(device, Math.floor(nowSec)));
         return out;
     }
 
-    /** `account`: the paired player's label, the pair answer's own rule (`cabinetAccountLabel`, max 24). */
+    /** `account`: the paired player's label, the pair answers' own value (`WitnessService.cabinetAccountFor`, max 24). */
     private static async accountBlock(device: TileDevice): Promise<Record<string, string>> {
         try {
-            const { resolveUserLabels } = await import('./PlayerProfileResolver.js');
-            const { cabinetAccountLabel } = await import('./WitnessService.js');
-            const label = (await resolveUserLabels([device.canonicalUserId]))[device.canonicalUserId];
-            const account = cabinetAccountLabel(label);
+            const { WitnessService } = await import('./WitnessService.js');
+            const account = await WitnessService.cabinetAccountFor(device.canonicalUserId);
             return account ? { account } : {};
         } catch (err) {
             logError('Witness tile: account step failed (the answer still went out)', err);
@@ -112,12 +137,18 @@ export class WitnessTileService {
         }
     }
 
-    /** `update`: the ONE offer rule, judged on the build the tile says it is (`v`). */
-    private static async updateBlock(device: TileDevice, rawVersion: unknown): Promise<Record<string, string>> {
+    /**
+     * `update`: the ONE offer rule, judged on the build the tile says it is
+     * (`v`). `manual` (E2, `manual=1`, the player's CHECK FOR UPDATE) judges it
+     * as if automatic updates were on, through the rule's own option.
+     */
+    private static async updateBlock(device: TileDevice, rawVersion: unknown, rawManual: unknown): Promise<Record<string, string>> {
         try {
             const { parseAppVersion } = await import('./WitnessService.js');
             const { WitnessReleaseService } = await import('./WitnessReleaseService.js');
-            const version = await WitnessReleaseService.offeredFor(device.deviceId, parseAppVersion(rawVersion));
+            const version = await WitnessReleaseService.offeredFor(
+                device.deviceId, parseAppVersion(rawVersion), { manual: WitnessReleaseService.isManualCheck(rawManual) },
+            );
             return isReleaseVersion(version) ? { update: version } : {};
         } catch (err) {
             logError('Witness tile: update offer step failed (the answer still went out)', err);
@@ -140,10 +171,10 @@ export class WitnessTileService {
             const db = await getDatabase();
             const rows = await db.all<Array<{
                 outcome: string; table_name: string; score: number; played_at: string; created_at: string;
-                tournament_name: string | null; room_name: string | null;
+                tournament_name: string | null; room_name: string | null; game_id: string | null;
             }>>(
                 `SELECT e.outcome, e.table_name, e.score, e.played_at, e.created_at,
-                        t.name AS tournament_name, gr.name AS room_name
+                        t.name AS tournament_name, gr.name AS room_name, e.game_id
                    FROM witness_evidence e
                    LEFT JOIN tournaments t ON t.id = e.tournament_id
                    LEFT JOIN game_rooms gr ON gr.id = e.game_room_id
@@ -166,10 +197,39 @@ export class WitnessTileService {
             const value = scoreWithCommas(row.score);
             const at = sqliteUtcToSec(row.created_at);
             if (!board || !table || !value || at == null) return {};
-            return { lastScoreTable: table, lastScoreValue: value, lastScoreAt: String(at), lastScoreBoard: board };
+            const out: Record<string, string> = {
+                lastScoreTable: table, lastScoreValue: value, lastScoreAt: String(at), lastScoreBoard: board,
+            };
+            if (row.outcome === 'ingested' && row.game_id) {
+                const rank = await WitnessTileService.boardRank(row.game_id, device.canonicalUserId);
+                if (rank) out.lastScoreRank = rank;
+            }
+            return out;
         } catch (err) {
             logError('Witness tile: last score step failed (the answer still went out)', err);
             return {};
+        }
+    }
+
+    /**
+     * W105 E3 (v2.250.0) - `lastScoreRank`: the player's position NOW on the
+     * board their last score landed on, `<rank> of <total>`, read off that
+     * game's own board (`LeaderboardService.getForGame`, the card's ranking,
+     * which already ranks an event round as its standings do). Null when the
+     * board is gone or empty, the player is not on it, or the read fails (the
+     * other last-score fields still go out).
+     */
+    private static async boardRank(gameId: string, canonicalUserId: string): Promise<string | null> {
+        try {
+            const { LeaderboardService } = await import('./LeaderboardService.js');
+            const board = await LeaderboardService.getForGame(gameId);
+            const mine = board.find(r => r.submitted_by_user_id === canonicalUserId)
+                ?? board.find(r => r.discord_user_id === canonicalUserId);
+            if (!mine || !Number.isInteger(mine.rank) || mine.rank < 1) return null;
+            return `${mine.rank} of ${board.length}`;
+        } catch (err) {
+            logError('Witness tile: last score rank step failed (the other fields still went out)', err);
+            return null;
         }
     }
 
@@ -180,6 +240,8 @@ export class WitnessTileService {
      * that needs Start attempts and has none reads `press start`; an
      * unlimited one has no `Attempts`. `needsStart` = a table
      * `/witness/attempt-start` would start now (one not pressed yet).
+     * v2.250.0: up to 12 rows, grouped by tournament (`orderTileCards`), and a
+     * scheduled rotation's card carries its next rotation as `Closes`.
      */
     private static async openBlock(device: TileDevice, nowSec: number): Promise<Record<string, string>> {
         try {
@@ -196,16 +258,18 @@ export class WitnessTileService {
             });
             const attemptsOf = new Map(attempts.map(a => [a.gameId, a]));
 
-            const cards: TileCard[] = games.map((g) => {
+            const cards = orderTileCards<TileCard>(games.map((g) => {
                 const a = attemptsOf.get(g.gameId);
                 return {
                     name: cabinetText(boardLabel(g.roomName, g.tournamentName), TILE_NAME_MAX),
                     table: cabinetText(g.gameName, TILE_TABLE_MAX),
-                    closes: g.endsTs,
+                    // A round closes at its end (no grace); a scheduled, unpaused rotation at its next rotation (D2).
+                    closes: g.endsTs ?? g.nextRotationTs,
                     attempts: a ? (a.notStarted ? 'press start' : `${a.left} of ${a.limit} left`) : null,
                     gameId: g.gameId,
+                    tournamentId: g.tournamentId,
                 };
-            }).sort(compareTileCards);
+            }));
 
             const out: Record<string, string> = { openCount: String(cards.length) };
             cards.slice(0, TILE_MAX_OPEN_CARDS).forEach((card, i) => {
