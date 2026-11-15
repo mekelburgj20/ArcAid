@@ -118,6 +118,63 @@ describe('WitnessDeviceSupport', () => {
         expect(await screen.findByText(/could not send its logs \(no_space\)/)).toBeTruthy();
     });
 
+    describe('W105: fresh logs while a bundle is there', () => {
+        const old = req('ready', { id: 'old', sizeBytes: 2048, readyAt: '2026-11-13T10:05:00Z' });
+        const received = new Date('2026-11-13T10:05:00Z')
+            .toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+
+        it('a received bundle shows Download logs with its date and time, and Get fresh logs', async () => {
+            stubFetch([old]);
+            renderIt(DEV);
+            expect(await screen.findByRole('button', { name: /Download logs/ })).toBeTruthy();
+            expect(screen.getByTestId('witness-logs-received').textContent).toContain(`received ${received}`);
+            const fresh = screen.getByRole('button', { name: /Get fresh logs/ }) as HTMLButtonElement;
+            expect(fresh.disabled).toBe(false);
+            expect(screen.queryByRole('button', { name: /^Get logs$/ })).toBeNull();
+        });
+
+        it('Get fresh logs POSTs without deleting anything, shows the waiting copy and keeps Download for the old bundle', async () => {
+            const fn = stubFetch([old], (url, init) => {
+                if (url === '/api/me/witness/devices/dev1/log-requests' && init?.method === 'POST') {
+                    return { ok: true, status: 201, json: () => Promise.resolve({ request: req('pending', { id: 'new', requestedAt: '2026-11-15T09:00:00Z' }) }) };
+                }
+                return null;
+            });
+            renderIt(DEV);
+            fireEvent.click(await screen.findByRole('button', { name: /Get fresh logs/ }));
+            await screen.findByText(/Asked your cabinet for its logs/);
+            expect(screen.getByText(/The logs below stay until the new ones arrive/)).toBeTruthy();
+            expect(screen.getByRole('button', { name: /Download logs/ })).toBeTruthy();
+            expect((screen.getByRole('button', { name: /Get fresh logs/ }) as HTMLButtonElement).disabled).toBe(true);
+            expect(fn.mock.calls.some(c => (c[1] as RequestInit | undefined)?.method === 'DELETE')).toBe(false);
+        });
+
+        it('loading with a pending request in front of a received bundle shows both', async () => {
+            stubFetch([req('pending', { id: 'new', requestedAt: '2026-11-15T09:00:00Z' }), old]);
+            renderIt(DEV);
+            expect(await screen.findByText(/Asked your cabinet for its logs/)).toBeTruthy();
+            expect(screen.getByRole('button', { name: /Download logs/ })).toBeTruthy();
+            expect(screen.getByTestId('witness-logs-received').textContent).toContain(received);
+        });
+
+        it('a fresh request that expired explains itself and the old bundle stays downloadable', async () => {
+            stubFetch([req('expired', { id: 'new', failReason: 'no_answer', requestedAt: '2026-11-15T09:00:00Z' }), old]);
+            renderIt(DEV);
+            expect(await screen.findByText(/Your cabinet did not answer/)).toBeTruthy();
+            expect(screen.getByRole('button', { name: /Download logs/ })).toBeTruthy();
+            expect((screen.getByRole('button', { name: /Get fresh logs/ }) as HTMLButtonElement).disabled).toBe(false);
+        });
+
+        it('another device\'s bundle is not shown here', async () => {
+            const fn = stubFetch([{ ...old, deviceId: 'dev2' }]);
+            renderIt(DEV);
+            await waitFor(() => expect(fn).toHaveBeenCalledWith('/api/me/witness/log-requests', expect.anything()));
+            await new Promise(r => setTimeout(r, 0));
+            expect(screen.getByRole('button', { name: /Get logs/ })).toBeTruthy();
+            expect(screen.queryByRole('button', { name: /Download logs/ })).toBeNull();
+        });
+    });
+
     it('toggling auto update PATCHes the body', async () => {
         const fn = stubFetch([]);
         const onChanged = vi.fn();

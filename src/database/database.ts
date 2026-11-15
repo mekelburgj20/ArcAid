@@ -3803,6 +3803,17 @@ async function doInitDatabase(): Promise<Database> {
                 CREATE INDEX IF NOT EXISTS idx_witness_pair_requests_device ON witness_pair_requests(device_id);
             `);
         } },
+        // W105 (v2.249.0, ADR 0040 addendum) - `witness_log_requests.share_on_receipt`:
+        // 1 = the cabinet's own tile asked for the logs (`GET /witness/logs/request`,
+        // on behalf of its player), so the bundle is sent to Arcaid support the
+        // moment it arrives (`WitnessLogService.upload` -> `sendToSupport`, the
+        // player's Send to Arcaid support path). 0 = the player's Get logs button.
+        { name: '216_witness_log_share_on_receipt', handler: async (db) => {
+            const cols = (await db.all(`PRAGMA table_info(witness_log_requests)`)) as Array<{ name: string }>;
+            if (!cols.some(c => c.name === 'share_on_receipt')) {
+                await db.exec(`ALTER TABLE witness_log_requests ADD COLUMN share_on_receipt INTEGER NOT NULL DEFAULT 0`);
+            }
+        } },
     ];
 
     for (const migration of migrations) {

@@ -48,6 +48,13 @@ export const LOG_SHARE_NOTE_MAX = 500;
 export const WITNESS_LOG_MAX_BYTES = 16 * 1024 * 1024;
 /** How many requests the player's list shows. */
 export const LOG_REQUESTS_LIST_LIMIT = 10;
+/**
+ * W105 (owner, 2026-11-15) - a CABINET-started request (the tile's Send logs,
+ * `share_on_receipt` rows) is accepted at most once per device per this many
+ * minutes, counted from that device's newest such row's creation, whatever its
+ * state. The player's own Get logs button is not limited and does not count.
+ */
+export const CABINET_LOG_REQUEST_WINDOW_MINUTES = 10;
 
 export type LogRequestStatus = 'pending' | 'ready' | 'failed' | 'expired';
 
@@ -91,10 +98,13 @@ interface LogRequestRow {
     fail_reason: string | null;
     shared_at: string | null;
     shared_note: string | null;
+    /** W105 (migration 216) - 1 = send the bundle to Arcaid support the moment it arrives. */
+    share_on_receipt?: number | null;
 }
 
 export class WitnessLogError extends Error {
-    readonly code: 'NOT_FOUND' | 'LOGS_UNSUPPORTED';
+    /** `LIMITED` only ever answers a cabinet-started request (`CABINET_LOG_REQUEST_WINDOW_MINUTES`). */
+    readonly code: 'NOT_FOUND' | 'LOGS_UNSUPPORTED' | 'LIMITED';
     constructor(code: WitnessLogError['code'], message: string) {
         super(message);
         this.name = 'WitnessLogError';
@@ -160,6 +170,36 @@ export function looksLikeTar(body: Buffer): boolean {
     return sum === stored;
 }
 
+/**
+ * W103 - tell the operator a player sent cabinet logs to Arcaid support
+ * (`OpsAlertService`, inert unless its settings are on). The player is named
+ * through `resolveUserLabels` (then the cabinet's AtGames name), never by a
+ * raw id. Best-effort: never fails the share, and the DM is not awaited.
+ * (Moved here from the share route in W105 so `sendToSupport` owns it.)
+ */
+async function alertSupportOfSharedLog(userId: string, deviceId: string, rawNote: unknown): Promise<void> {
+    try {
+        const { OpsAlertService } = await import('./OpsAlertService.js');
+        const labels = await resolveUserLabels([userId]);
+        const db = await getDatabase();
+        const device = await db.get<{ device_model_name: string | null; atgames_username: string | null }>(
+            `SELECT device_model_name, atgames_username FROM witness_devices WHERE atgames_unique_id = ?`,
+            deviceId,
+        );
+        const player = labels[userId] || device?.atgames_username || 'A player';
+        const note = typeof rawNote === 'string' ? rawNote.trim().slice(0, 200) : '';
+        const lines = [
+            `Witness logs sent to Arcaid support by ${player}.`,
+            ...(device?.device_model_name ? [`Cabinet: ${device.device_model_name}`] : []),
+            ...(note ? [`Note: ${note}`] : []),
+            'Read it at Super Admin → Witness releases and logs.',
+        ];
+        void OpsAlertService.sendOperatorAlert(lines.join('\n'));
+    } catch {
+        logError('Witness logs: the support alert was not sent');
+    }
+}
+
 export class WitnessLogService {
     private static root = path.join(process.cwd(), 'data', 'witness-logs');
 
@@ -215,9 +255,22 @@ export class WitnessLogService {
      * A player asks for a device's logs. The device must be the caller's and
      * unpaired-not (`NOT_FOUND`), and a cabinet on 1.1.0 or later or a
      * Castcade desktop (W102), else `LOGS_UNSUPPORTED`. A pending request for the device is returned as it
-     * is (`created: false`), so a double click is one request.
+     * is (`created: false`), so a double click is one request. A new request
+     * is audited (`witness_log_request`; best-effort). A bundle already
+     * received never blocks a new request, from either side ("Get fresh
+     * logs", W105): the new bundle replaces it on arrival (`upload`).
+     *
+     * W105: `shareOnReceipt` is the cabinet tile's press (`GET /witness/logs/request`,
+     * on behalf of the device's player): the request, new or the pending one,
+     * is marked so the bundle goes to Arcaid support the moment it arrives
+     * (`upload` -> `sendToSupport`). With nothing pending, a cabinet press
+     * inside `CABINET_LOG_REQUEST_WINDOW_MINUTES` of the device's newest
+     * cabinet-started request throws `LIMITED` and creates nothing.
      */
-    static async request(canonicalUserId: string, deviceId: string): Promise<{ request: LogRequest; created: boolean }> {
+    static async request(
+        canonicalUserId: string, deviceId: string,
+        opts: { shareOnReceipt?: boolean; correlationId?: string } = {},
+    ): Promise<{ request: LogRequest; created: boolean }> {
         const db = await getDatabase();
         const device = await db.get<{ device_type: string | null; app_version: string | null }>(
             `SELECT device_type, app_version FROM witness_devices
@@ -233,35 +286,86 @@ export class WitnessLogService {
         const pendingRow = () => db.get<LogRequestRow>(
             `SELECT * FROM witness_log_requests WHERE atgames_unique_id = ? AND status = 'pending'`, deviceId,
         );
+        const shareOnReceipt = opts.shareOnReceipt === true;
+        // The pending request this device already has: answered as it is, and
+        // (from the cabinet) also marked share on receipt.
+        const answerPending = async (row: LogRequestRow) => {
+            if (shareOnReceipt) {
+                await db.run(
+                    `UPDATE witness_log_requests SET share_on_receipt = 1 WHERE id = ? AND status = 'pending'`, row.id,
+                );
+            }
+            return { request: toWire(row), created: false };
+        };
         const existing = await pendingRow();
-        if (existing) return { request: toWire(existing), created: false };
+        if (existing) return answerPending(existing);
+
+        // W105 - the cabinet's limit: nothing pending, and this device made a
+        // cabinet-started request inside the window -> refused, nothing created.
+        if (shareOnReceipt) {
+            const recent = await db.get<{ id: string }>(
+                `SELECT id FROM witness_log_requests
+                  WHERE atgames_unique_id = ? AND share_on_receipt = 1 AND requested_at > datetime('now', ?)
+                  LIMIT 1`,
+                deviceId, `-${CABINET_LOG_REQUEST_WINDOW_MINUTES} minutes`,
+            );
+            if (recent) {
+                throw new WitnessLogError('LIMITED', `This cabinet already sent its logs in the last ${CABINET_LOG_REQUEST_WINDOW_MINUTES} minutes`);
+            }
+        }
 
         const id = randomBytes(16).toString('hex');
         try {
             await db.run(
-                `INSERT INTO witness_log_requests (id, atgames_unique_id, canonical_user_id, status)
-                 VALUES (?, ?, ?, 'pending')`,
-                id, deviceId, canonicalUserId,
+                `INSERT INTO witness_log_requests (id, atgames_unique_id, canonical_user_id, status, share_on_receipt)
+                 VALUES (?, ?, ?, 'pending', ?)`,
+                id, deviceId, canonicalUserId, shareOnReceipt ? 1 : 0,
             );
         } catch (err) {
             // A concurrent request won the one-pending-per-device index: answer with it.
             const raced = await pendingRow();
-            if (raced) return { request: toWire(raced), created: false };
+            if (raced) return answerPending(raced);
             throw err;
         }
         const row = await db.get<LogRequestRow>(`SELECT * FROM witness_log_requests WHERE id = ?`, id);
-        logInfo(`Witness logs: request ${id} for device ${deviceId} by ${canonicalUserId}`);
+        logInfo(`Witness logs: request ${id} for device ${deviceId} by ${canonicalUserId}${shareOnReceipt ? ' (from the cabinet, share on receipt)' : ''}`);
+        // Who asked a cabinet for its logs, and when. Best-effort.
+        try {
+            const { AuditService } = await import('./AuditService.js');
+            await AuditService.log({
+                actor: canonicalUserId,
+                action: 'witness_log_request',
+                target_type: 'witness_device',
+                target_id: deviceId,
+                details: JSON.stringify({ requestId: id, ...(shareOnReceipt ? { shareOnReceipt: true } : {}) }),
+                ip_address: '',
+                correlation_id: opts.correlationId ?? '',
+            });
+        } catch {
+            logError('Witness logs: a log request was not audited');
+        }
         return { request: toWire(row!), created: true };
     }
 
-    /** The caller's latest requests, newest first. */
+    /**
+     * The caller's latest requests, newest first. W105 (fresh logs): every
+     * `ready` bundle of theirs is listed too, even past the newest
+     * `LOG_REQUESTS_LIST_LIMIT`, so a device's received bundle stays
+     * downloadable while newer requests (pending, failed, expired) pile up in
+     * front of it. Ready rows are bounded: a new bundle replaces the device's
+     * older unsent ones (`upload`), and the sweep ends the rest.
+     */
     static async list(canonicalUserId: string): Promise<LogRequest[]> {
         await WitnessLogService.sweep();
         const db = await getDatabase();
-        const rows = await db.all<LogRequestRow[]>(
-            `SELECT * FROM witness_log_requests WHERE canonical_user_id = ?
-              ORDER BY requested_at DESC, rowid DESC LIMIT ?`,
-            canonicalUserId, LOG_REQUESTS_LIST_LIMIT,
+        const rows = await db.all<Array<LogRequestRow & { rid: number }>>(
+            `SELECT *, rowid AS rid FROM witness_log_requests
+              WHERE canonical_user_id = ?
+                AND (status = 'ready' OR id IN (
+                        SELECT id FROM witness_log_requests WHERE canonical_user_id = ?
+                         ORDER BY requested_at DESC, rowid DESC LIMIT ?))
+              ORDER BY requested_at DESC, rid DESC`,
+            canonicalUserId, canonicalUserId, LOG_REQUESTS_LIST_LIMIT,
         );
         return rows.map(toWire);
     }
@@ -347,6 +451,41 @@ export class WitnessLogService {
             throw err;
         }
         logInfo(`Witness logs: bundle ${requestId} received from device ${deviceId} (${body.length} bytes)`);
+        // W105 (fresh logs, owner 2026-11-15) - the new bundle REPLACES this
+        // device's older ones on this account (row and file), so asking again
+        // never builds a pile and the player never has to delete first. A
+        // bundle already sent to Arcaid support is not touched: support may be
+        // reading it, and it keeps its own 30 days. Best-effort.
+        try {
+            const older = await db.all<Array<{ id: string }>>(
+                `SELECT id FROM witness_log_requests
+                  WHERE atgames_unique_id = ? AND canonical_user_id = ? AND status = 'ready'
+                    AND shared_at IS NULL AND id <> ?`,
+                deviceId, canonicalUserId, requestId,
+            );
+            for (const { id } of older) {
+                // Row first, still unsent: a bundle shared this instant keeps its file.
+                const gone = await db.run(`DELETE FROM witness_log_requests WHERE id = ? AND status = 'ready' AND shared_at IS NULL`, id);
+                if ((gone.changes ?? 0) === 1 && isLogRequestId(id)) await WitnessLogService.unlinkQuiet(id);
+            }
+            if (older.length > 0) logInfo(`Witness logs: bundle ${requestId} replaced ${older.length} older bundle(s) of device ${deviceId}`);
+        } catch (err) {
+            logError(`Witness logs: older bundles of device ${deviceId} were not replaced`, err);
+        }
+        // W105 - a request the cabinet's tile started goes to Arcaid support
+        // now, exactly as the player's Send to Arcaid support would send it.
+        // Once: only the upload that won the claim above gets here.
+        // Best-effort: the cabinet's upload already succeeded.
+        try {
+            const mark = await db.get<{ share_on_receipt: number | null }>(
+                `SELECT share_on_receipt FROM witness_log_requests WHERE id = ?`, requestId,
+            );
+            if (mark?.share_on_receipt === 1) {
+                await WitnessLogService.sendToSupport(canonicalUserId, requestId, null, { onReceipt: true });
+            }
+        } catch (err) {
+            logError(`Witness logs: bundle ${requestId} was not sent to Arcaid support on receipt`, err);
+        }
         return 'ok';
     }
 
@@ -419,6 +558,37 @@ export class WitnessLogService {
         if ((res.changes ?? 0) !== 1) return null;
         const row = await db.get<LogRequestRow>(`SELECT * FROM witness_log_requests WHERE id = ?`, requestId);
         return row ? toWire(row) : null;
+    }
+
+    /**
+     * "Send to Arcaid support": `share`, the `witness_log_share` audit row and
+     * the operator alert. The ONE path for the player's button
+     * (`POST /me/witness/log-requests/:id/share`) and for a bundle the cabinet's
+     * tile asked for, sent on receipt (W105, `onReceipt`). Null = not the
+     * caller's / not ready, and then nothing is audited or alerted.
+     */
+    static async sendToSupport(
+        canonicalUserId: string, requestId: string, rawNote: unknown,
+        opts: { correlationId?: string; onReceipt?: boolean } = {},
+    ): Promise<LogRequest | null> {
+        const request = await WitnessLogService.share(canonicalUserId, requestId, rawNote);
+        if (!request) return null;
+        try {
+            const { AuditService } = await import('./AuditService.js');
+            await AuditService.log({
+                actor: canonicalUserId,
+                action: 'witness_log_share',
+                target_type: 'witness_device',
+                target_id: request.deviceId,
+                details: JSON.stringify({ requestId: request.id, ...(opts.onReceipt ? { onReceipt: true } : {}) }),
+                ip_address: '',
+                correlation_id: opts.correlationId ?? '',
+            });
+        } catch {
+            logError('Witness logs: a log share was not audited');
+        }
+        await alertSupportOfSharedLog(canonicalUserId, request.deviceId, rawNote);
+        return request;
     }
 
     /** The super-admin's list: bundles players sent, newest sent first. */

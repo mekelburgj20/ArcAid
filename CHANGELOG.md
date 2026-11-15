@@ -6,6 +6,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.249.0] - 2026-11-15 - The Arcaid Witness tile becomes a player screen
+
+W105 (ADR 0040 addendum). The consumer is Arcaid Witness 1.1.1 on the cabinet; an older cabinet never calls the new
+routes and sees no change.
+
+- **Added, the tile's player screen:** `GET /api/witness/tile` tells the cabinet tile whose cabinet it is, the newer
+  build the update rule offers it (if any), the last score it sent that was kept (table, score, when it arrived, and
+  the board it landed on or the Global Scoreboard), and up to six open cards its plays can land on right now (name,
+  table, when an event round closes, attempts left or "press start") with the true count, plus whether a Start
+  attempts press would start a table now. Read-only: it checks nobody in.
+- **Rule:** the open cards are the score ingest's own filters (device routing, entry, the round window, device
+  exclusion), shared with the attempts line as `VpxScoreIngestService.openGamesForDevice`, so the tile can never list
+  a card a play would not land on. Every value is a flat string through one sanitizer (`cabinetText`).
+- **Added, send logs from the cabinet:** `GET /api/witness/logs/request` makes the same request as Get logs in
+  Account Settings, for the cabinet's player, marked to go to Arcaid support when it arrives. When the cabinet
+  uploads the bundle the server does what Send to Arcaid support does (sent in Account Settings, readable at Super
+  Admin -> Witness releases and logs, the operator alert). The request shows in Account Settings like any other.
+- **Rule:** a cabinet may start one request every 10 minutes. With nothing waiting, a second press inside that
+  window answers `429 LIMITED` and creates nothing; a press while its request still waits answers `pending`. The
+  Get logs button in Account Settings is not limited and does not count.
+- **Added, fresh logs:** Account Settings -> Arcaid Witness devices keeps Download logs (with the date and time the
+  bundle arrived) beside a new Get fresh logs button, so a newer bundle no longer means removing the old one first.
+  While the new request waits the old bundle can still be downloaded; when the new one arrives it replaces the
+  device's older bundles (one already sent to Arcaid support keeps its 30 days). A request from the cabinet tile
+  follows the same rule, and a received bundle is always listed even behind ten newer requests.
+- **Changed:** Send to Arcaid support (share, audit row, operator alert) is one service function,
+  `WitnessLogService.sendToSupport`, and the Get logs audit row is written by `WitnessLogService.request`. Same rows.
+- **Schema:** migration 216 (`witness_log_requests.share_on_receipt`).
+- **Wire:** `GET /api/witness/tile`, `GET /api/witness/logs/request` (device token, bare 401; `429 LIMITED`).
+
 ## [2.248.0] - 2026-11-14 - Arcaid Witness is easier to get, pair and keep running
 
 W103 (ADR 0040 addendum). Pair by phone needs Arcaid Witness 1.1.1 on the cabinet; everything else works with any

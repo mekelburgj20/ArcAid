@@ -270,6 +270,33 @@ export type VpxIngestResult = {
     }>;
 };
 
+/** What `openLimitedGames` / `openGamesForDevice` take: the device's routing, kind and the moment. */
+export type OpenGamesInput = {
+    canonicalUserId: string;
+    target: { roomId: string | null; tournamentId: string | null; globalOnly?: boolean };
+    deviceType: WitnessDeviceType | null | undefined;
+    // v2.191.0 (W51): same device axis as `match`, so a VR play is not promised a table that excludes vr_headset.
+    playDevice?: PlayDevice | null;
+    nowTs: number;
+};
+
+/** W105 - one open card a play from this device would count on now (`openGamesForDevice`). */
+export type OpenDeviceGame = {
+    gameId: string;
+    gameName: string;
+    tournamentId: string | null;
+    tournamentName: string | null;
+    /** NULL for a Throwdown round (room-less). */
+    roomId: string | null;
+    roomName: string | null;
+    roundNo: number | null;
+    /** An event round's scheduled end, epoch seconds, no grace; null for a rotation game. */
+    endsTs: number | null;
+    /** The tournament's attempt limit; null = unlimited. */
+    limit: number | null;
+    requireStart: boolean;
+};
+
 type CandidateRow = {
     id: string;
     name: string;
@@ -1590,25 +1617,61 @@ export class VpxScoreIngestService {
      * now (2026-10-25, for the cabinet's "Sending to" line). Built from the
      * same filters `match` applies — candidates, routing, entry, the window
      * at `nowTs`, the device-exclusion rule — minus the table-name match, so
-     * the line can never name a game a score would not land on.
+     * the line can never name a game a score would not land on. W105: those
+     * filters are `openCandidates`, shared with `openGamesForDevice`.
      */
-    static async openLimitedGames(input: {
-        canonicalUserId: string;
-        target: { roomId: string | null; tournamentId: string | null; globalOnly?: boolean };
-        deviceType: WitnessDeviceType | null | undefined;
-        // v2.191.0 (W51): same device axis as `match`, so a VR play is not promised a table that excludes vr_headset.
-        playDevice?: PlayDevice | null;
-        nowTs: number;
-    }): Promise<Array<{ gameId: string; gameName: string; tournamentId: string; limit: number; requireStart: boolean }>> {
-        const provenance = VpxScoreIngestService.provenanceFor(input.deviceType ?? 'atgames', input.playDevice);
-        return (await VpxScoreIngestService.enteredLimitedCandidates(input.canonicalUserId))
-            .filter(row => VpxScoreIngestService.inScope(row, input.target))
-            .filter(row => VpxScoreIngestService.inWindow(row, input.nowTs))
-            .filter(row => !VpxScoreIngestService.engineExcluded(row, provenance.device))
+    static async openLimitedGames(input: OpenGamesInput): Promise<Array<{ gameId: string; gameName: string; tournamentId: string; limit: number; requireStart: boolean }>> {
+        return (await VpxScoreIngestService.openCandidates(input))
+            .filter(row => VpxScoreIngestService.isLimited(row))
             .map(row => ({
                 gameId: row.id, gameName: row.name, tournamentId: row.tournament_id!, limit: row.max_attempts!,
                 requireStart: row.require_attempt_start === 1,
             }));
+    }
+
+    /**
+     * W105 (v2.249.0) - EVERY open card a play from this device would count
+     * on right now, limited or not: the cabinet tile's "OPEN NOW" block. The
+     * same `openCandidates` as `openLimitedGames` (so the two lists cannot
+     * disagree), with what the tile prints. `endsTs` is an event round's
+     * scheduled end in epoch seconds, WITHOUT the end grace (a round inside
+     * its grace is still listed, ending in the past); null for a rotation
+     * game, which stores no end.
+     */
+    static async openGamesForDevice(input: OpenGamesInput): Promise<OpenDeviceGame[]> {
+        return (await VpxScoreIngestService.openCandidates(input)).map(row => ({
+            gameId: row.id,
+            gameName: row.name,
+            tournamentId: row.tournament_id,
+            tournamentName: row.tournament_name ?? null,
+            roomId: row.game_room_id,
+            roomName: row.room_name ?? null,
+            roundNo: row.round_no ?? null,
+            endsTs: row.round_no != null ? epochOf(row.scheduled_end_at) : null,
+            limit: VpxScoreIngestService.isLimited(row) ? row.max_attempts : null,
+            requireStart: row.require_attempt_start === 1,
+        }));
+    }
+
+    /**
+     * The open-card filters for a device, minus any table name: the
+     * candidates the player is ALLOWED IN (`entryAllowed`), inside the
+     * device's routing (`deviceRoutesTo`), open at `nowTs` (the ingest's own
+     * window, end grace included) and not excluding this device. The shared
+     * base of `openLimitedGames` and `openGamesForDevice` (W105).
+     */
+    private static async openCandidates(input: OpenGamesInput): Promise<CandidateRow[]> {
+        const provenance = VpxScoreIngestService.provenanceFor(input.deviceType ?? 'atgames', input.playDevice);
+        return (await VpxScoreIngestService.loadCandidates(input.canonicalUserId))
+            .filter(row => VpxScoreIngestService.allowedIn(row))
+            .filter(row => VpxScoreIngestService.inScope(row, input.target))
+            .filter(row => VpxScoreIngestService.inWindow(row, input.nowTs))
+            .filter(row => !VpxScoreIngestService.engineExcluded(row, provenance.device));
+    }
+
+    /** The candidate's tournament limits attempts (ADR 0029). */
+    private static isLimited(row: CandidateRow): boolean {
+        return row.max_attempts != null && row.max_attempts >= 1 && row.tournament_id != null;
     }
 
     /**
@@ -1636,13 +1699,14 @@ export class VpxScoreIngestService {
 
     /**
      * The candidates in a tournament with an attempt limit that the player is
-     * ALLOWED IN (`entryAllowed`) — the shared base of `openLimitedGames`
-     * (a device's view) and `roomLimitedGames` (a room page's view), so the
-     * two can never disagree about which limited tables a player is in.
+     * ALLOWED IN (`entryAllowed`) — a room page's view (`roomLimitedGames`).
+     * A device's view (`openLimitedGames`) applies the same two tests
+     * (`isLimited`, `allowedIn`) inside `openCandidates`, so the two can never
+     * disagree about which limited tables a player is in.
      */
     private static async enteredLimitedCandidates(canonicalUserId: string): Promise<CandidateRow[]> {
         return (await VpxScoreIngestService.loadCandidates(canonicalUserId))
-            .filter(row => row.max_attempts != null && row.max_attempts >= 1 && row.tournament_id != null)
+            .filter(row => VpxScoreIngestService.isLimited(row))
             .filter(row => VpxScoreIngestService.allowedIn(row));
     }
 

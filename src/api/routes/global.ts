@@ -393,23 +393,8 @@ router.post('/me/witness/devices/:deviceId/log-requests', writeLimiter, requireD
         const userId = req.user!.discordId!;
         const deviceId = req.params.deviceId as string;
         try {
-            const { request, created } = await WitnessLogService.request(userId, deviceId);
-            if (created) {
-                // Who asked a cabinet for its logs, and when. Best-effort.
-                try {
-                    await AuditService.log({
-                        actor: userId,
-                        action: 'witness_log_request',
-                        target_type: 'witness_device',
-                        target_id: deviceId,
-                        details: JSON.stringify({ requestId: request.id }),
-                        ip_address: '',
-                        correlation_id: req.correlationId || '',
-                    });
-                } catch {
-                    logError('Witness logs: a log request was not audited');
-                }
-            }
+            // A new request is audited inside the service (shared with the tile's press, W105).
+            const { request, created } = await WitnessLogService.request(userId, deviceId, { correlationId: req.correlationId || '' });
             res.status(created ? 201 : 200).json({ request });
         } catch (err) {
             if (err instanceof WitnessLogError) {
@@ -454,65 +439,23 @@ router.get('/me/witness/log-requests/:id/download', requireDiscordUser, async (r
 });
 
 // The player sends a ready bundle to Arcaid support (after this the super-admin
-// can read it). Idempotent; 404 unless the caller's and `ready`.
+// can read it). Idempotent; 404 unless the caller's and `ready`. The share,
+// its audit row and the operator alert are `WitnessLogService.sendToSupport`,
+// shared with a bundle the cabinet's tile asked for (W105, sent on receipt).
 router.post('/me/witness/log-requests/:id/share', requireDiscordUser, async (req, res) => {
     try {
         const { WitnessLogService } = await import('../../services/WitnessLogService.js');
         const userId = req.user!.discordId!;
         const id = req.params.id as string;
         const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
-        const request = await WitnessLogService.share(userId, id, body.note);
+        const request = await WitnessLogService.sendToSupport(userId, id, body.note, { correlationId: req.correlationId || '' });
         if (!request) return res.status(404).json({ error: 'No such log bundle' });
-        try {
-            await AuditService.log({
-                actor: userId,
-                action: 'witness_log_share',
-                target_type: 'witness_device',
-                target_id: request.deviceId,
-                details: JSON.stringify({ requestId: request.id }),
-                ip_address: '',
-                correlation_id: req.correlationId || '',
-            });
-        } catch {
-            logError('Witness logs: a log share was not audited');
-        }
-        await alertSupportOfSharedLog(userId, request.deviceId, body.note);
         res.json({ request });
     } catch (error) {
         logError('API Error (POST /api/me/witness/log-requests/:id/share):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
-
-/**
- * W103 - tell the operator a player sent cabinet logs to Arcaid support
- * (`OpsAlertService`, inert unless its settings are on). The player is named
- * through `resolveUserLabels` (then the cabinet's AtGames name), never by a
- * raw id. Best-effort: never fails the share, and the DM is not awaited.
- */
-async function alertSupportOfSharedLog(userId: string, deviceId: string, rawNote: unknown): Promise<void> {
-    try {
-        const { resolveUserLabels } = await import('../../services/PlayerProfileResolver.js');
-        const { OpsAlertService } = await import('../../services/OpsAlertService.js');
-        const labels = await resolveUserLabels([userId]);
-        const db = await getDatabase();
-        const device = await db.get<{ device_model_name: string | null; atgames_username: string | null }>(
-            `SELECT device_model_name, atgames_username FROM witness_devices WHERE atgames_unique_id = ?`,
-            deviceId,
-        );
-        const player = labels[userId] || device?.atgames_username || 'A player';
-        const note = typeof rawNote === 'string' ? rawNote.trim().slice(0, 200) : '';
-        const lines = [
-            `Witness logs sent to Arcaid support by ${player}.`,
-            ...(device?.device_model_name ? [`Cabinet: ${device.device_model_name}`] : []),
-            ...(note ? [`Note: ${note}`] : []),
-            'Read it at Super Admin → Witness releases and logs.',
-        ];
-        void OpsAlertService.sendOperatorAlert(lines.join('\n'));
-    } catch {
-        logError('Witness logs: the support alert was not sent');
-    }
-}
 
 router.delete('/me/witness/log-requests/:id', requireDiscordUser, async (req, res) => {
     try {
@@ -962,6 +905,41 @@ router.get('/witness/logs/fail', witnessIngestLimiter, requireWitnessDevice('GET
     }
 });
 
+// Device: W105 (v2.249.0, ADR 0040 addendum) - the tile's SEND LOGS TO ARCAID
+// SUPPORT. The player's own "Get logs" request (`WitnessLogService.request`:
+// same rules, expiry and audit row), made on behalf of the device's paired
+// player and marked SHARE ON RECEIPT: when the bundle arrives on
+// POST /witness/logs it goes to Arcaid support through `sendToSupport`, the
+// player's button's own path (operator alert included). The beacon still
+// delivers the bundle at its next heartbeat (`logs`), unchanged.
+//   200 {status:'requested', id} a new request · 200 {status:'pending', id}
+//   this device already had one, now also marked · bare 401 · 400 {code} any
+//   refusal of the request service (its own code, e.g. LOGS_UNSUPPORTED) ·
+//   429 {code:'LIMITED'} nothing pending and this device already made a
+//   cabinet-started request in the last CABINET_LOG_REQUEST_WINDOW_MINUTES
+//   (10); nothing is created. The player's web button is never limited.
+router.get('/witness/logs/request', witnessIngestLimiter, requireWitnessDevice('GET /api/witness/logs/request'), async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    try {
+        const auth = res.locals.witnessDevice as WitnessDeviceAuth;
+        const { WitnessLogService, WitnessLogError } = await import('../../services/WitnessLogService.js');
+        try {
+            const { request, created } = await WitnessLogService.request(
+                auth.canonicalUserId, auth.deviceId, { shareOnReceipt: true, correlationId: req.correlationId || '' },
+            );
+            res.json({ ok: true, status: created ? 'requested' : 'pending', id: request.id });
+        } catch (err) {
+            if (err instanceof WitnessLogError) {
+                return res.status(err.code === 'LIMITED' ? 429 : 400).json({ ok: false, code: err.code });
+            }
+            throw err;
+        }
+    } catch {
+        logError('API Error (GET /api/witness/logs/request)');
+        res.status(500).json({ ok: false });
+    }
+});
+
 // Device: W100 - the release the heartbeat offered (`v` = that version), flat
 // strings for the cabinet's naive reader. 404 unless `v` is EXACTLY what the
 // offer rule gives this device now (judged on the build it last reported).
@@ -1216,6 +1194,24 @@ router.get('/witness/attempt-start', witnessIngestLimiter, async (req, res) => {
         });
     } catch (error) {
         logError('API Error (GET /api/witness/attempt-start)');
+        res.status(500).json({ ok: false });
+    }
+});
+
+// Device: W105 (v2.249.0, ADR 0040 addendum) - the cabinet tile's player
+// screen: who the cabinet is paired to, an offered build, the last score kept
+// and the open cards its plays can land on now. READ-ONLY: it checks nobody
+// in, stamps no last-seen and stores no `v`. Every value is a flat string for
+// the cabinet's naive reader; each block is best-effort (a failure omits its
+// fields, the answer is still 200). Assembly: `WitnessTileService.build`.
+router.get('/witness/tile', witnessIngestLimiter, requireWitnessDevice('GET /api/witness/tile'), async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    try {
+        const auth = res.locals.witnessDevice as WitnessDeviceAuth;
+        const { WitnessTileService } = await import('../../services/WitnessTileService.js');
+        res.json({ ok: true, ...(await WitnessTileService.build(auth, req.query.v)) });
+    } catch {
+        logError('API Error (GET /api/witness/tile)');
         res.status(500).json({ ok: false });
     }
 });
