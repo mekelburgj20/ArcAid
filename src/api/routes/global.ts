@@ -1220,6 +1220,24 @@ router.get('/witness/attempt-start', witnessIngestLimiter, async (req, res) => {
     }
 });
 
+// Device: W105 (v2.249.0, ADR 0040 addendum) - the cabinet tile's player
+// screen: who the cabinet is paired to, an offered build, the last score kept
+// and the open cards its plays can land on now. READ-ONLY: it checks nobody
+// in, stamps no last-seen and stores no `v`. Every value is a flat string for
+// the cabinet's naive reader; each block is best-effort (a failure omits its
+// fields, the answer is still 200). Assembly: `WitnessTileService.build`.
+router.get('/witness/tile', witnessIngestLimiter, requireWitnessDevice('GET /api/witness/tile'), async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    try {
+        const auth = res.locals.witnessDevice as WitnessDeviceAuth;
+        const { WitnessTileService } = await import('../../services/WitnessTileService.js');
+        res.json({ ok: true, ...(await WitnessTileService.build(auth, req.query.v)) });
+    } catch {
+        logError('API Error (GET /api/witness/tile)');
+        res.status(500).json({ ok: false });
+    }
+});
+
 // Per-room theme overrides ("Theme for this room only", v2.132.0).
 // Keyed by game_rooms.id and NOT per device — see PreferencesService.RoomThemes.
 //

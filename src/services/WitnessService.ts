@@ -2,6 +2,7 @@ import { randomBytes, createHash } from 'crypto';
 import { getDatabase } from '../database/database.js';
 import { logInfo, logWarn, logError } from '../utils/logger.js';
 import { tournamentFinishedSql } from '../utils/openCard.js';
+import { cabinetText } from '../utils/witnessCabinetText.js';
 import { ActivityLogService } from './ActivityLogService.js';
 import { HEARTBEAT_STALE_SEC } from './EventLobbyService.js';
 
@@ -224,13 +225,12 @@ interface PairRequestRow {
  * reads answers with a naive `"key":"value"` extractor, so the label is reduced
  * to `[A-Za-z0-9 _.-]` (quotes, backslashes, emoji and the rest removed),
  * spaces collapsed, at most 24 characters. Null when nothing is left: the
- * route then omits the field, and never sends a raw id instead.
+ * route then omits the field, and never sends a raw id instead. W105: the
+ * collapse / trim / cut is the one cabinet sanitizer, `cabinetText`.
  */
 export function cabinetAccountLabel(label: string | null | undefined): string | null {
     if (typeof label !== 'string') return null;
-    const v = label.replace(/[^A-Za-z0-9 _.-]/g, '').replace(/ {2,}/g, ' ').trim()
-        .slice(0, CABINET_ACCOUNT_MAX).trim();
-    return v || null;
+    return cabinetText(label.replace(/[^A-Za-z0-9 _.-]/g, ''), CABINET_ACCOUNT_MAX);
 }
 
 /** SQLite UTC text (`YYYY-MM-DD HH:MM:SS`) as ISO 8601 UTC. */
