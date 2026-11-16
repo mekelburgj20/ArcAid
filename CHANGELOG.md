@@ -6,6 +6,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.252.0] - 2026-11-16 - Post a kept-private score to the Global Scoreboard afterwards
+
+B27. A score submitted with "Don't post this score to the global Arcaid scoreboard" ticked could never be posted
+later: the box is per score, and nothing could change it once the score was in. A player who ticked it by
+mistake needed a hand edit of the database.
+
+- **Added, Account Settings -> Global Scoreboard:** "Scores you kept off the Global Scoreboard" lists every score
+  of yours that was submitted with the box ticked, with its table, score, room and date. **Post to Global
+  Scoreboard** puts it on the Global board at once; **Undo** takes it back off. The list is not shown when you
+  have none.
+- **Added, the submit sheet:** when you submit with the box ticked, the "Score submitted!" card says "Kept off
+  the Global Scoreboard" and links to that list, so a mis-tap shows at the moment it happens.
+- **Added, API:** `GET /api/me/global-scores/private` and `PATCH /api/me/global-scores/:scoreId`
+  (`{ share_to_global: boolean }`), for the player's own scores only. Posting is refused for a banned account
+  (403) and when the score's room has turned the Global Scoreboard off (409 `ROOM_GLOBAL_OFF`); taking a score
+  off is never refused. A real change clears that table's cached Global board, tells open Global pages when a
+  score is posted, and writes a `score_global_sharing` row to Room Admin -> Activity.
+- Unchanged: the account switch "Share my scores to the Global Scoreboard", and scores from Discord or a
+  cabinet, which follow that switch and have no per-score box.
+
 ## [2.251.0] - 2026-11-15 - The Arcaid Witness pages wear the Witness look
 
 W105. The website side of the designer's Arcaid Witness theme; the cabinet side is Arcaid Witness 1.1.1.

@@ -5,6 +5,7 @@ import { getDatabase } from '../database/database.js';
 import { GlobalLeaderboardService } from './GlobalLeaderboardService.js';
 import { normalizeSubmitterUserId } from './SubmissionContextService.js';
 import { BanService } from './BanService.js';
+import { ActivityLogService, fmtScore } from './ActivityLogService.js';
 import { logInfo, logError, logWarn } from '../utils/logger.js';
 import { UNKNOWN } from '../utils/scoreProvenance.js';
 
@@ -609,4 +610,139 @@ export class GlobalScoreService {
             return null;
         }
     }
+
+    /**
+     * The viewer's own scores they kept off the Global Scoreboard
+     * (`exclude_from_global = 1`), newest first. No player names: it is the
+     * viewer's own list.
+     */
+    static async listPrivateForPlayer(playerId: string, limit = 100): Promise<PrivateGlobalScoreRow[]> {
+        const db = await getDatabase();
+        return db.all(
+            `SELECT gs.id, gs.global_game_id,
+                    COALESCE(NULLIF(gg.display_name, ''), gg.name) AS game_name,
+                    gs.score, gs.submitted_at, gs.platform, gs.engine, gs.device, gs.source,
+                    gs.origin_type,
+                    gr.name AS origin_room_name, gr.slug AS origin_room_slug
+             FROM global_scores gs
+             JOIN global_games gg ON gg.id = gs.global_game_id
+             LEFT JOIN game_rooms gr ON gr.id = gs.origin_game_room_id
+             WHERE gs.player_id = ? AND gs.exclude_from_global = 1
+               AND gs.deleted_at IS NULL AND gs.orphaned_at IS NULL
+             ORDER BY gs.submitted_at DESC
+             LIMIT ?`,
+            playerId, limit
+        );
+    }
+
+    /**
+     * A player posts one of their kept-private scores to the Global Scoreboard
+     * afterwards (or takes it off again). Ownership is the raw `player_id`, the
+     * same rule the per-score delete uses. Making a score public is a
+     * publication, so it must pass the gates a fan-out passes today (ban, the
+     * origin room's GLOBAL_SCOREBOARD_ENABLED); hiding is never refused.
+     * Idempotent: a row already in the requested state changes nothing.
+     */
+    static async setShareToGlobal(opts: { scoreId: string; viewerId: string; share: boolean }): Promise<SetShareToGlobalResult> {
+        const { scoreId, viewerId, share } = opts;
+        const db = await getDatabase();
+        const row = await db.get(
+            `SELECT gs.*, COALESCE(NULLIF(gg.display_name, ''), gg.name) AS game_name,
+                    gr.name AS origin_room_name, gr.slug AS origin_room_slug
+             FROM global_scores gs
+             LEFT JOIN global_games gg ON gg.id = gs.global_game_id
+             LEFT JOIN game_rooms gr ON gr.id = gs.origin_game_room_id
+             WHERE gs.id = ?`,
+            scoreId
+        );
+        if (!row || row.deleted_at) return { ok: false, code: 'NOT_FOUND' };
+        if (row.player_id !== viewerId) return { ok: false, code: 'NOT_OWNER' };
+
+        if (share) {
+            const ban = await BanService.isIdentityBanned(viewerId);
+            if (ban.banned) return { ok: false, code: 'BANNED' };
+            if (row.origin_game_room_id) {
+                const enabledRow = await db.get(
+                    `SELECT value FROM game_room_settings WHERE game_room_id = ? AND key = 'GLOBAL_SCOREBOARD_ENABLED'`,
+                    row.origin_game_room_id
+                );
+                if (enabledRow && enabledRow.value === 'false') return { ok: false, code: 'ROOM_GLOBAL_OFF' };
+            }
+        }
+
+        const newValue = share ? 0 : 1;
+        const result = await db.run(
+            `UPDATE global_scores SET exclude_from_global = ?
+             WHERE id = ? AND deleted_at IS NULL AND exclude_from_global = ?`,
+            newValue, scoreId, share ? 1 : 0
+        );
+        const changed = result.changes === 1;
+        const gameName: string = row.game_name ?? '';
+
+        if (changed) {
+            await GlobalLeaderboardService.invalidate(row.global_game_id);
+            void ActivityLogService.record({
+                roomId: row.origin_game_room_id ?? null,
+                category: 'score',
+                eventType: 'score_global_sharing',
+                userId: viewerId,
+                playerAlias: row.iscored_username,
+                gameName,
+                source: row.source ?? null,
+                score: row.score,
+                summary: share
+                    ? `Score ${fmtScore(row.score)} on ${gameName} posted to the Global Scoreboard by its player`
+                    : `Score ${fmtScore(row.score)} on ${gameName} taken off the Global Scoreboard by its player`,
+                details: { globalScoreId: row.id, shareToGlobal: share },
+            });
+            logInfo(`Global score ${row.id} ${share ? 'posted to' : 'taken off'} the Global Scoreboard by its player ${viewerId}`);
+        }
+
+        return {
+            ok: true,
+            changed,
+            shareToGlobal: share,
+            score: {
+                globalGameId: row.global_game_id,
+                gameName,
+                iscoredUsername: row.iscored_username,
+                score: row.score,
+                engine: row.engine ?? null,
+                originRoomSlug: row.origin_room_slug ?? null,
+                originRoomName: row.origin_room_name ?? null,
+            },
+        };
+    }
 }
+
+export interface PrivateGlobalScoreRow {
+    id: string;
+    global_game_id: string;
+    game_name: string;
+    score: number;
+    submitted_at: string;
+    platform: string | null;
+    engine: string | null;
+    device: string | null;
+    source: string | null;
+    origin_type: string;
+    origin_room_name: string | null;
+    origin_room_slug: string | null;
+}
+
+export type SetShareToGlobalResult =
+    | { ok: false; code: 'NOT_FOUND' | 'NOT_OWNER' | 'BANNED' | 'ROOM_GLOBAL_OFF' }
+    | {
+        ok: true;
+        changed: boolean;
+        shareToGlobal: boolean;
+        score: {
+            globalGameId: string;
+            gameName: string;
+            iscoredUsername: string | null;
+            score: number;
+            engine: string | null;
+            originRoomSlug: string | null;
+            originRoomName: string | null;
+        };
+    };

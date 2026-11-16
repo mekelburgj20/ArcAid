@@ -519,3 +519,34 @@ describe('SubmissionSheet — gameId threading (v2.155.1)', () => {
         expect(url.searchParams.has('gameId')).toBe(false);
     });
 });
+
+describe('SubmissionSheet — kept-off-Global note (B27)', () => {
+    beforeEach(() => {
+        vi.restoreAllMocks();
+        localStorage.clear();
+    });
+
+    async function submit(tick: boolean) {
+        signIn();
+        renderSheet({
+            platformsResponse: platformsPayload({ submittable: ['real'] }),
+            submitResponse: { displayName: 'Tester' },
+        });
+        await screen.findByText('Real Cabinet');
+        fireEvent.change(screen.getByPlaceholderText('0'), { target: { value: '4200' } });
+        if (tick) fireEvent.click(screen.getByLabelText(/Don't post this score to the global Arcaid scoreboard/));
+        fireEvent.click(screen.getByRole('button', { name: 'Submit Score' }));
+        await screen.findByText('Score submitted!');
+    }
+
+    it('shows the note, linked to Account settings, after a submit with the box ticked', async () => {
+        await submit(true);
+        expect(screen.getByTestId('kept-off-global-note')).toHaveTextContent('Kept off the Global Scoreboard.');
+        expect(screen.getByRole('link', { name: 'Account settings' })).toHaveAttribute('href', '/account/settings#global-sharing');
+    });
+
+    it('shows no note when the box was not ticked', async () => {
+        await submit(false);
+        expect(screen.queryByTestId('kept-off-global-note')).not.toBeInTheDocument();
+    });
+});
