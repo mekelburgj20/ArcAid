@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { playerApi } from '../lib/playerApi';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
+import GlobalPrivateScores from './GlobalPrivateScores';
 
 /**
  * "Share my scores to the Global Scoreboard" (v2.137.0).
@@ -53,10 +54,20 @@ export default function GlobalSharingSection() {
         }
     };
 
+    // This section renders only after the preference loads, so the browser's own
+    // anchor jump (`#global-sharing`, linked from the submit sheet) has nothing
+    // to land on at first paint.
+    const rendered = share !== null;
+    useEffect(() => {
+        if (rendered && window.location.hash === '#global-sharing') {
+            document.getElementById('global-sharing')?.scrollIntoView({ block: 'start' });
+        }
+    }, [rendered]);
+
     if (share === null) return null;
 
     return (
-        <section>
+        <section id="global-sharing" className="scroll-mt-4">
             <h2 className="text-sm font-medium mb-2">Global Scoreboard</h2>
             <label className="flex items-center gap-2 text-sm cursor-pointer">
                 <input
@@ -77,6 +88,7 @@ export default function GlobalSharingSection() {
                 Discord and from a cabinet, neither of which has a per-score option. You can still
                 share one particular score by ticking the box when you submit it by hand.
             </p>
+            <GlobalPrivateScores />
             {error && <p className="text-xs text-neon-magenta mt-2">{error}</p>}
         </section>
     );

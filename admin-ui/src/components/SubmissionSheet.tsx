@@ -1173,6 +1173,13 @@ export default function SubmissionSheet({
                             </div>
                         )}
 
+                        {excludeFromGlobal && !commitDraftState && (
+                            <p className="text-xs text-muted" data-testid="kept-off-global-note">
+                                Kept off the Global Scoreboard. Changed your mind? Post it from{' '}
+                                <Link to="/account/settings#global-sharing" className="text-neon-cyan underline">Account settings</Link>.
+                            </p>
+                        )}
+
                         {/* Identity P2 — the name this score landed under already
                             carries unclaimed iScored-synced scores in this room.
                             Offering the link here is the one moment the player

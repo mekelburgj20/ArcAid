@@ -356,6 +356,13 @@ export const UpdatePreferencesSchema = z.object({
     { message: 'Provide ui_theme, appearance and/or share_to_global' },
 );
 
+// PATCH /api/me/global-scores/:scoreId — a player posts a score they kept private
+// to the Global Scoreboard afterwards (or takes it off again). Strict boolean;
+// the same word as the account preference above on purpose.
+export const UpdateGlobalScoreSharingSchema = z.object({
+    share_to_global: z.boolean(),
+});
+
 // v2.132.0 — PUT /api/me/room-themes/:roomId. `theme: null` clears the
 // override for that room; the field is REQUIRED (unlike the two above), since
 // this endpoint has exactly one thing to say and an absent field would be an

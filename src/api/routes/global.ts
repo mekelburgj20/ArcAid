@@ -16,7 +16,7 @@ import { raSearchHandler, raImportHandler } from '../raCatalogueHandlers.js';
 import { validate } from '../validate.js';
 import { isAllowedImage } from '../uploadValidation.js';
 import { withUploadErrors } from '../uploadMiddleware.js';
-import { UpdatePreferencesSchema, SetRoomThemeSchema, SetPilePinnedSchema, PushSubscriptionSchema, PushUnsubscribeSchema, MAX_SCORE, PublicCreateRoomSchema, GlobalScoreSubmissionSchema, CreateThrowdownSchema, ThrowdownScoreSchema } from '../schemas.js';
+import { UpdatePreferencesSchema, UpdateGlobalScoreSharingSchema, SetRoomThemeSchema, SetPilePinnedSchema, PushSubscriptionSchema, PushUnsubscribeSchema, MAX_SCORE, PublicCreateRoomSchema, GlobalScoreSubmissionSchema, CreateThrowdownSchema, ThrowdownScoreSchema } from '../schemas.js';
 import { SettingsService } from '../../services/SettingsService.js';
 import { GameRoomService } from '../../services/GameRoomService.js';
 import { GlobalGameService } from '../../services/GlobalGameService.js';
@@ -3936,6 +3936,72 @@ router.delete('/me/global-scores/:scoreId', requireDiscordUser, async (req, res)
         res.json({ success: true });
     } catch (error) {
         logError('API Error (DELETE /api/me/global-scores/:scoreId):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
+ * GET /api/me/global-scores/private — the viewer's own scores they kept off
+ * the Global Scoreboard (per-score "Don't post" box).
+ */
+router.get('/me/global-scores/private', requireDiscordUser, async (req, res) => {
+    try {
+        const scores = await GlobalScoreService.listPrivateForPlayer(req.user!.discordId!);
+        res.json({ scores });
+    } catch (error) {
+        logError('API Error (GET /api/me/global-scores/private):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
+ * PATCH /api/me/global-scores/:scoreId — post a kept-private score to the
+ * Global Scoreboard afterwards, or take it off again. Body `{ share_to_global }`.
+ */
+router.patch('/me/global-scores/:scoreId', requireDiscordUser, async (req, res) => {
+    try {
+        const validationResult = validate(UpdateGlobalScoreSharingSchema, req.body);
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+        const share = validationResult.data.share_to_global;
+
+        const result = await GlobalScoreService.setShareToGlobal({
+            scoreId: req.params.scoreId as string,
+            viewerId: req.user!.discordId!,
+            share,
+        });
+        if (!result.ok) {
+            switch (result.code) {
+                case 'NOT_FOUND':
+                    return res.status(404).json({ error: 'Score not found' });
+                case 'NOT_OWNER':
+                    return res.status(403).json({ error: 'You can only change your own scores' });
+                case 'BANNED':
+                    return res.status(403).json({ error: 'This account is banned.' });
+                case 'ROOM_GLOBAL_OFF':
+                    return res.status(409).json({
+                        error: 'This room keeps its scores off the Global Scoreboard.',
+                        code: 'ROOM_GLOBAL_OFF',
+                    });
+            }
+        }
+        if (result.ok) {
+            // Only a real publication tells open Global pages; hiding emits
+            // nothing, like the delete route.
+            if (result.changed && result.shareToGlobal) {
+                emitScoreNewGlobal({
+                    globalGameId: result.score.globalGameId,
+                    gameName: result.score.gameName,
+                    playerName: result.score.iscoredUsername ?? '',
+                    score: result.score.score,
+                    engine: result.score.engine,
+                    originRoomSlug: result.score.originRoomSlug,
+                    originRoomName: result.score.originRoomName,
+                });
+            }
+            return res.json({ success: true, share_to_global: result.shareToGlobal, changed: result.changed });
+        }
+    } catch (error) {
+        logError('API Error (PATCH /api/me/global-scores/:scoreId):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
