@@ -6,6 +6,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.252.1] - 2026-11-17 - One Arcaid Witness play, one Global Scoreboard row
+
+W106. A play sent by a cabinet or Castcade could appear twice on the Global Scoreboard. It happened when the
+table was open in two tournaments at once and one of them refused the play (no attempts left, or not sanctioned)
+while the other took it: the refusal sent the play to the Global Scoreboard on its own, and then the tournament
+that took it posted it to the Global Scoreboard again. Seen on prod 2026-11-16 on Beastie Boys, open in a
+10-attempt event and in a weekly rotation.
+
+- **Fixed:** a tournament that refuses a play now waits until the play's other tournaments have had their turn. If
+  one of them takes the play, that is its one Global Scoreboard row. If none does, the play still goes to the
+  Global Scoreboard as before.
+- **Fixed:** a player who turned off "Share my scores to the Global Scoreboard" no longer gets a public Global row
+  from the refusal when another tournament took the play.
+- **Fixed, existing rows:** a one-time cleanup (migration 217) removes the extra row of every such pair already
+  stored. It only touches an exact pair: same player, table and score, both from the Witness, written within a
+  minute of each other, one with no room and one from a room. The row that belongs to the room is kept, because
+  that is the one a delete or a correction on the room board follows. Rows a player deleted or hid, and rows
+  somebody reported, are left alone. Each removed row is written to the log.
+- Ranks were never affected (a board counts a player once). Score lists and score counts on the Global
+  Scoreboard showed the play twice, and deleting the score from the room board left the second copy on Global.
+- Unchanged: a play that counts in tournaments in two different rooms still has one Global row per room.
+- "Where your plays went" lists the tournament that refused the play after the one that took it, and no longer
+  adds a Global Scoreboard line for a play that counted on a board.
+
 ## [2.252.0] - 2026-11-16 - Post a kept-private score to the Global Scoreboard afterwards
 
 B27. A score submitted with "Don't post this score to the global Arcaid scoreboard" ticked could never be posted
