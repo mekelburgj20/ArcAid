@@ -447,7 +447,9 @@ describe('room_events retirement (migrations 209 -> 210)', () => {
             process.env.DB_PATH = before;
             try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* Windows may hold the WAL briefly */ }
         }
-    });
+    // X7: two full on-disk `initDatabase` runs (every migration, twice). ~8 s
+    // alone on Windows, over the 10 s default inside a loaded full run (2026-11-17).
+    }, 30_000);
 });
 
 describe('backfill (migration 209)', () => {

@@ -72,5 +72,8 @@ export default defineConfig({
     globals: true,
     setupFiles: './src/setupTests.ts',
     css: false,
+    // Above the 5 s `asyncUtilTimeout` in setupTests.ts (X14), so a wait that
+    // fails says what it was waiting for instead of "test timed out".
+    testTimeout: 15000,
   },
 })

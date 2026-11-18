@@ -109,7 +109,9 @@ afterEach(() => {
 describe('SeasonPanel', () => {
   it('renders progress and the queue the server returned', async () => {
     renderPanel();
-    expect(await screen.findByTestId('season-progress')).toHaveTextContent('Week 6 of 12');
+    // X18: the element is there on the first render ("Week 1 of 12"); the
+    // fetched progress lands after it, so wait for the TEXT, not the element.
+    await waitFor(() => expect(screen.getByTestId('season-progress')).toHaveTextContent('Week 6 of 12'));
 
     const resolved = screen.getByTestId('poll-p-res');
     expect(within(resolved).getByText('Resolved')).toBeTruthy();
@@ -258,7 +260,7 @@ describe('SeasonPanel', () => {
         ? Promise.resolve({ ...QUEUE, poll_picks: false, polls: [] })
         : Promise.reject(new Error(path)));
     renderPanel({ ...tournament, poll_picks: 0 });
-    expect(await screen.findByTestId('season-progress')).toHaveTextContent('Week 6 of 12');
+    await waitFor(() => expect(screen.getByTestId('season-progress')).toHaveTextContent('Week 6 of 12')); // X18
     await waitFor(() => expect(screen.getByText(/Pick by poll is off for this season/)).toBeTruthy());
     expect(screen.getByRole('button', { name: 'Pause season' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'New poll' })).toBeNull();
