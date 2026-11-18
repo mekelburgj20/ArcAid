@@ -188,16 +188,20 @@ describe('RoomAdminWitness', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Refresh/ }));
     await waitFor(() => expect(calls()).toBe(2));
+    // X14: the button is disabled until that reload has FINISHED, and the call
+    // count rises when it starts. A click in between does nothing, so no third
+    // load ran and the alert never came (10 s waited, PR #495 run 44205124135;
+    // also the 2026-11-02 deploy failure). Wait for the button, then click.
+    await waitFor(() => expect(screen.getByRole('button', { name: /Refresh/ })).toBeEnabled());
 
     mockedGet.mockImplementation((async (path: string) => {
       if (path === '/rooms/room-1/settings') return {};
       throw new Error('Server exploded');
     }) as never);
     fireEvent.click(screen.getByRole('button', { name: /Refresh/ }));
-    // 5 s, not the 1 s default: on a loaded CI runner the refresh + rerender took 1.2 s (run 40741233426, 2026-10-28).
-    expect(await screen.findByRole('alert', {}, { timeout: 10000 })).toHaveTextContent('Server exploded');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Server exploded');
     expect(screen.getAllByTestId('witness-admin-device')).toHaveLength(3);
-  }, 15000);
+  });
 
   it('polls every 20 seconds while visible and skips the tick while the tab is hidden', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });

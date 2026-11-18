@@ -96,7 +96,8 @@ describe('settings:updated live refresh', () => {
     );
 
     await waitFor(() => expect(screen.getByText('Title v1')).toBeInTheDocument());
-    expect(socketHandlers['settings:updated']?.length).toBeGreaterThan(0);
+    // X14: the handler is attached in an effect, which can land after the title paints.
+    await waitFor(() => expect(socketHandlers['settings:updated']?.length).toBeGreaterThan(0));
 
     socketHandlers['settings:updated'].forEach(fn => fn());
 
@@ -115,7 +116,8 @@ describe('settings:updated live refresh', () => {
     );
 
     await waitFor(() => expect(screen.getByText('Title v1')).toBeInTheDocument());
-    expect(socketHandlers['settings:updated']?.length).toBeGreaterThan(0);
+    // X14: the handler is attached in an effect, which can land after the title paints.
+    await waitFor(() => expect(socketHandlers['settings:updated']?.length).toBeGreaterThan(0));
 
     socketHandlers['settings:updated'].forEach(fn => fn());
 
