@@ -98,7 +98,7 @@ interface GuildMemberSuggestion {
  * but searches the room's ENTIRE linked Discord guild via the admin-gated
  * `GET /:roomId/admin/guild-members/search` route, rather than just the
  * room roster `<MemberAdminPicker>` reads — so an admin can promote a guild
- * member who hasn't joined the room in ArcAid yet. Only rendered when the
+ * member who hasn't joined the room in Arcaid yet. Only rendered when the
  * room has a linked guild (`DISCORD_GUILD_ID` set); rooms without one keep
  * the existing roster-based `<MemberAdminPicker>` unchanged.
  */

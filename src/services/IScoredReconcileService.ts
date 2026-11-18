@@ -4,9 +4,9 @@ import { getDatabase } from '../database/database.js';
  * iScored "Reconcile" — find games that exist on iScored but should no longer
  * be there, and let an admin delete them. This is the cleanup tool for the
  * orphan bug (a delete that silently no-op'd left the game on iScored while
- * ArcAid archived the row) plus any other drift.
+ * Arcaid archived the row) plus any other drift.
  *
- * Categorization matches each iScored game against ArcAid's local `games` rows
+ * Categorization matches each iScored game against Arcaid's local `games` rows
  * BY `iscored_id`. iScored game IDs are globally unique, so matching across all
  * local rows (any room) is safe even when several rooms share one iScored
  * account — a game that is ACTIVE in another room still lands in `keep`.
@@ -28,15 +28,15 @@ export interface ReconcileEntry extends IScoredGameSummary {
 }
 
 export interface ReconcilePlan {
-    /** A local ACTIVE/COMPLETED/QUEUED row exists → ArcAid wants it on iScored. Never delete. */
+    /** A local ACTIVE/COMPLETED/QUEUED row exists → Arcaid wants it on iScored. Never delete. */
     keep: ReconcileEntry[];
-    /** Only ARCHIVED local rows → ArcAid archived it but iScored kept it. Safe to delete. */
+    /** Only ARCHIVED local rows → Arcaid archived it but iScored kept it. Safe to delete. */
     orphans: ReconcileEntry[];
     /** No local row at all → could be a hand-made iScored game. Admin opt-in only. */
     unmanaged: ReconcileEntry[];
 }
 
-// Statuses that mean "ArcAid is (or will be) actively using this on iScored".
+// Statuses that mean "Arcaid is (or will be) actively using this on iScored".
 // COMPLETED is included because cleanup owns it — it's pending deletion by the
 // normal cleanup path, not an orphan.
 const KEEP_STATUSES = new Set(['ACTIVE', 'COMPLETED', 'QUEUED']);

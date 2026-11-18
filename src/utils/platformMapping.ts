@@ -1,6 +1,6 @@
 /**
- * Canonical platform mapping for ArcAid global catalogue.
- * All data sources (VPS, OPDB, IGDB, Wizard, existing ArcAid) normalize
+ * Canonical platform mapping for Arcaid global catalogue.
+ * All data sources (VPS, OPDB, IGDB, Wizard, existing Arcaid) normalize
  * to these canonical IDs before storage.
  */
 
@@ -75,7 +75,7 @@ export const CANONICAL_PLATFORMS: Record<string, PlatformInfo> = {
 
 /** Alias map: known non-canonical names → canonical IDs (case-insensitive lookup) */
 const PLATFORM_ALIASES: Record<string, string> = {
-    // Current ArcAid values
+    // Current Arcaid values
     'atgames': 'atgames',
     'vpxs': 'vpxs',
     'vpxs_manual': 'vpxs_manual',

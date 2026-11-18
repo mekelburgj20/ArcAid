@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-# ArcAid — Hetzner VPS Provisioning Script
+# Arcaid — Hetzner VPS Provisioning Script
 # Run this as root on a fresh Ubuntu 24.04 (or 22.04) Hetzner CPX11
 # Usage: ssh -i ~/.ssh/id_arcaid root@YOUR_IP 'bash -s' < scripts/provision-server.sh
 # =============================================================================
@@ -8,7 +8,7 @@
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
-echo "=== ArcAid Server Provisioning ==="
+echo "=== Arcaid Server Provisioning ==="
 
 # --- 1. System updates ---
 echo ">> Updating system packages..."

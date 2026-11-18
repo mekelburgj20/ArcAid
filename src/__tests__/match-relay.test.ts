@@ -19,7 +19,7 @@ import {
 } from '../api/matchRelay.js';
 
 /**
- * W8.4 - the Castcade match relay (ADR 0039). ArcAid forwards opaque control
+ * W8.4 - the Castcade match relay (ADR 0039). Arcaid forwards opaque control
  * frames between a match's host and its clients so the host needs no forwarded
  * port. The Castcade companion is built against this wire contract, so the
  * event names, ack shapes and error words below are pinned.

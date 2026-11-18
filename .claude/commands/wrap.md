@@ -72,7 +72,7 @@ worse than a few minutes behind.
 One commit for the tracker + doc fixes, separate from code: `work: wrap <date> — <IDs>` with one line
 per item whose status changed. Push. Doc-only pushes skip deploys in both repos.
 
-## This repo (ArcAid)
+## This repo (Arcaid)
 
 - Every PR ships a version (`package.json`), so `/release-docs <version>` runs per release, after the
   deploy is verified healthy; it writes the CHANGELOG entry, bumps the version and flips items to
@@ -83,5 +83,5 @@ per item whose status changed. Push. Doc-only pushes skip deploys in both repos.
 - `ROADMAP.md`, `LAUNCH.md` and `SPRINT_STATUS.md` are frozen archives: items point into them with
   `spec:`; never append to them. Standing facts go in the domain's `.claude/rules/<domain>.md`
   (cross-cutting ones in `CLAUDE.md`); a session narrative goes nowhere but the commit message.
-- The ArcAid Witness / Castcade work is section W here and section F in
+- The Arcaid Witness / Castcade work is section W here and section F in
   `C:\code\repos\castcade\WORK.md`; when one side ships, flip the mirror line on the other side.

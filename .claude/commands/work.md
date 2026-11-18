@@ -50,7 +50,7 @@ another lane's paths says so with `touches:` and its owner checks that lane's cl
    `branch:` when you work on a branch. `<who>` is `owner` for the human, otherwise
    `<model>@<worktree-or-branch>` (for example `fable@main`, `opus@wt-b3`).
 3. Commit that one-line change **to main immediately**, message `work: claim B3.2`, and push when the
-   repo has a remote. A claim nobody can see is not a claim. (In ArcAid, doc-only commits skip the deploy.)
+   repo has a remote. A claim nobody can see is not a claim. (In Arcaid, doc-only commits skip the deploy.)
 4. Edit only the lines of items you have claimed, plus new items you append. Two agents editing the
    same item line is the only way `WORK.md` conflicts; appending to the same section conflicts
    trivially (keep both, renumber yours if the number collided).

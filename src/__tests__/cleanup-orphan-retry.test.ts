@@ -9,7 +9,7 @@ import type { IScoredClient } from '../engine/IScoredClient.js';
 // runCleanup used to mark games ARCHIVED unconditionally, even when the iScored
 // delete silently no-op'd. Because cleanup only ever re-scans COMPLETED rows, an
 // ARCHIVED orphan was never retried, so iScored accumulated weeks of stale games
-// while ArcAid showed them archived. Fix: archive ONLY games whose delete was
+// while Arcaid showed them archived. Fix: archive ONLY games whose delete was
 // confirmed; failures stay COMPLETED to retry next cycle.
 
 async function addCompletedGame(

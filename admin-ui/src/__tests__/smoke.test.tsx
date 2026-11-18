@@ -7,7 +7,7 @@ import { render, screen } from '@testing-library/react';
 // tests land with the frontend sprints.
 describe('admin-ui test runner', () => {
     it('renders into jsdom and exposes jest-dom matchers', () => {
-        render(<div>ArcAid admin-ui harness</div>);
-        expect(screen.getByText('ArcAid admin-ui harness')).toBeInTheDocument();
+        render(<div>Arcaid admin-ui harness</div>);
+        expect(screen.getByText('Arcaid admin-ui harness')).toBeInTheDocument();
     });
 });

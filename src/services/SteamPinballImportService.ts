@@ -152,7 +152,7 @@ function fetchAppDetails(appId: number): Promise<SteamFetchResult> {
             headers: {
                 'Accept': 'application/json',
                 'Accept-Encoding': 'identity',
-                'User-Agent': 'ArcAid-SteamPinballImporter/1.0',
+                'User-Agent': 'Arcaid-SteamPinballImporter/1.0',
             },
         };
         https.get(`${STEAM_API_BASE}?appids=${appId}`, opts, (res) => {

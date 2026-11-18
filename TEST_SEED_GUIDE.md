@@ -1,6 +1,6 @@
-# ArcAid Test Run — Game Seeding Guide
+# Arcaid Test Run — Game Seeding Guide
 
-Thanks so much for jumping on this. You're going to set up the test environment's tournament games to mirror what the real RTX community picks this week. After you're done seeding tonight, ArcAid takes over and runs the tournament on its own; the mod side is yours to dig into from there (see `MODERATOR_QUICKSTART.md` for what that looks like).
+Thanks so much for jumping on this. You're going to set up the test environment's tournament games to mirror what the real RTX community picks this week. After you're done seeding tonight, Arcaid takes over and runs the tournament on its own; the mod side is yours to dig into from there (see `MODERATOR_QUICKSTART.md` for what that looks like).
 
 This takes about 5 to 10 minutes total, and you'll only use your web browser and Discord. No command line, no technical stuff.
 
@@ -8,9 +8,9 @@ This takes about 5 to 10 minutes total, and you'll only use your web browser and
 
 ## What you're doing
 
-ArcAid runs **tournaments**. Each tournament needs one **active game** for players to compete on. Tonight we're setting the active game for each tournament to match what RTX picked.
+Arcaid runs **tournaments**. Each tournament needs one **active game** for players to compete on. Tonight we're setting the active game for each tournament to match what RTX picked.
 
-You'll do this through the **ArcAid admin portal** in your browser.
+You'll do this through the **Arcaid admin portal** in your browser.
 
 ---
 
@@ -56,7 +56,7 @@ For each tournament + game pair Justin gave you, do this:
 2. **Click the "Activate" button** on that game's row (right-most column).
 3. A small dialog opens: **"Activate [game name] for which tournament?"**
 4. **Click the button for your assigned tournament.** If you see multiple tournaments and aren't sure which, double-check Justin's list before clicking.
-5. The button shows **"Activating…"** for a few seconds while ArcAid creates the game on iScored.
+5. The button shows **"Activating…"** for a few seconds while Arcaid creates the game on iScored.
 6. When the dialog closes, you're done with that one. Move on to the next.
 
 Repeat for every tournament on your list.

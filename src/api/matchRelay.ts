@@ -7,19 +7,19 @@ import { WitnessService } from '../services/WitnessService.js';
  *
  * A Castcade match is peer-hosted: the host player's companion arbitrates and
  * the other companions talk to it. Without this relay the host needs a
- * forwarded port. Here ArcAid carries the match CONTROL messages (small signed
+ * forwarded port. Here Arcaid carries the match CONTROL messages (small signed
  * JSON and WebRTC signalling) between the host and each client over the
  * existing socket.io server. Media stays peer to peer.
  *
  * What this module holds to:
  *   - `data` is OPAQUE. It is a string that is size-checked and forwarded. It
  *     is never parsed, logged or stored. Keep it that way: the messages are
- *     signed end to end by the companions and ArcAid is not a party to them.
+ *     signed end to end by the companions and Arcaid is not a party to them.
  *   - Star topology. A client's frame goes to the host only; a host's frame
  *     goes to the one peer it names. A client never sees another client's
  *     frames, and never learns another client's peer id from the server.
  *   - Nothing in the database. Rooms live in this process's memory, so the
- *     relay is correct only while ArcAid is ONE Node process (it is: one
+ *     relay is correct only while Arcaid is ONE Node process (it is: one
  *     `arcaid` container behind Caddy, no cluster, no socket.io adapter). A
  *     second process needs sticky sessions plus a shared room registry first.
  *   - Only `match:*` events need a paired Witness device (`auth: { deviceId,
