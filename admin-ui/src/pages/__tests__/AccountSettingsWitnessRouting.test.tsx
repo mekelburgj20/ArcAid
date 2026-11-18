@@ -187,7 +187,7 @@ describe('AccountSettings — Witness cabinet score routing', () => {
         expect(heading.className).toContain('aw-label');
         expect(heading.querySelector('img')?.getAttribute('src')).toBe('/aw-theme/assets/logo/arcaid-witness-badge-256.png');
         expect(Array.from(document.head.querySelectorAll('link[data-aw-theme]')).map(l => l.getAttribute('href'))).toEqual([
-            '/aw-theme/aw-theme.css?v=1', '/aw-theme/aw-theme-ext.css?v=1', '/aw-theme/aw-web.css?v=1',
+            '/aw-theme/aw-theme.css?v=2', '/aw-theme/aw-theme-ext.css?v=2', '/aw-theme/aw-web.css?v=2',
         ]);
         // Status words carry the kit roles: a device that is not watching is a red problem.
         expect((await screen.findByText(/Not watching./)).className).toContain('text-rose-400');
