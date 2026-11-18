@@ -113,6 +113,16 @@ Two things matter here:
 Keep the existing `Verify deployed version` step exactly as it is — it is what caught the
 2026-08-28 stale-container deploy.
 
+> **As built (X1, 2026-11-17) — the same guarantee by a different route.** The snapshot is taken
+> from the RUNNING container, just before `up --force-recreate`, by `tools/pre-deploy-snapshot.cjs`
+> (`VACUUM INTO` as the app's own user, into `data/pre-deploy/`, newest 20 kept, `quick_check` on
+> the copy). Why not stop-then-`cp`: the deploy logs in as `deploy`, whose access to the Docker
+> volume path on the host was never verified; a plain `cp` of `arcaid.db` is only complete if the
+> app checkpointed its WAL on the way down; and a failure after `stop` would leave prod down. This
+> way a failed snapshot stops the deploy with prod untouched and adds no downtime. The cost is a
+> few seconds of writes between the snapshot and the container stop, which a schema rollback
+> loses anyway. `deploy.yml` also gained `set -eu` and a `skip_snapshot` dispatch input.
+
 ### 3.3 Rollback runbook
 
 Put this in `docs/runbooks/rollback.md` alongside `docs/runbooks/restore.md`:
@@ -366,9 +376,9 @@ CI suite that already exists.
 
 ## 10. Progress
 
-- [ ] **T0.1** Parameterize `ARCAID_TAG` in `/opt/arcaid/docker-compose.yml`
-- [ ] **T0.2** Pre-deploy DB snapshot + 20-file retention in `deploy.yml`
-- [ ] **T0.3** `docs/runbooks/rollback.md`
+- [ ] **T0.1** Parameterize `ARCAID_TAG` in `/opt/arcaid/docker-compose.yml` (owner, on the server; the exact line is in `docs/runbooks/rollback.md`, which also has the no-`ARCAID_TAG` rollback)
+- [x] **T0.2** Pre-deploy DB snapshot + 20-file retention in `deploy.yml` (2026-11-17, see "As built" in §3.2)
+- [x] **T0.3** `docs/runbooks/rollback.md` (2026-11-17)
 - [ ] **T1.1** UAT VPS provisioned, DNS, Caddy (basic auth + noindex)
 - [ ] **T1.2** Separate Discord Application; fresh `JWT_SECRET` / `SECRETS_KEY` / VAPID; Google redirect URI
 - [ ] **T1.3** `scripts/sanitize-uat-db.sql` + nightly clone cron on the UAT host
