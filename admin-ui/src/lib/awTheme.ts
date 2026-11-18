@@ -14,7 +14,7 @@ import { useEffect } from 'react';
  * browser caches public statics for a day, and the query string is what makes a
  * changed stylesheet load at once (rename a changed font or image instead).
  */
-export const AW_THEME_VERSION = '1';
+export const AW_THEME_VERSION = '2';
 
 export const AW_THEME_STYLESHEETS = [
     '/aw-theme/aw-theme.css',

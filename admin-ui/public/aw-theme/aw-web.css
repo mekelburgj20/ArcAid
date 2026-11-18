@@ -11,8 +11,12 @@
    0.32 puts body text (--aw-fs-body, 54) at about 17 px. */
 :root { --aw-scale: 0.32; }
 
-/* The web ships the 1080x1920 background only (the 2160x3840 one is too heavy). */
-.aw-screen { background-image: url("assets/backgrounds/arcaid-witness-background-1080x1920.png"); }
+/* The web ships the 1080x1920 background only (the 2160x3840 one is too heavy).
+   The file is the kit's arcaid-witness-background-1080x1920.png under a
+   versioned name: a changed picture gets a new name here, never the old one
+   overwritten (public statics are cached for a day). -v2 = aw-theme-kit_2,
+   the triangles moved off the shield. */
+.aw-screen { background-image: url("assets/backgrounds/arcaid-witness-background-1080x1920-v2.png"); }
 
 /* A readable column on a desktop; a 16 px gutter on a phone. */
 .aw-web { max-width: 52rem; margin-left: auto; margin-right: auto; }

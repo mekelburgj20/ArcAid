@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.252.2] - 2026-11-17 - The Arcaid Witness pages use the new background
+
+W105 follow-up. The Witness pages on the website (the install guide, pair by phone and its code page) still
+showed the first background picture, where the triangles run across the shield. They now show the picture from
+the designer's second kit (aw-theme-kit_2), where the triangles sit clear of it.
+
+- **Changed:** the Witness page background is the kit's new 1080 x 1920 picture. It is the only file in the
+  second kit that differs from what the site already had: the stylesheet, the fonts and the badge are the same.
+- The picture has a new filename, so every browser loads it at once instead of showing a saved copy of the old
+  one for up to a day.
+- Not in this release: the cabinet app carries its own copy of the old picture. That changes with the next
+  cabinet build.
+
 ## [2.252.1] - 2026-11-17 - One Arcaid Witness play, one Global Scoreboard row
 
 W106. A play sent by a cabinet or Castcade could appear twice on the Global Scoreboard. It happened when the
