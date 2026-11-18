@@ -342,6 +342,13 @@ type CandidateRow = {
     is_active: number | null;
 };
 
+/**
+ * W106 — a board's refusal whose Global fall-through is not decided yet.
+ * `onABoard` says whether another board of the same play took it (or already
+ * holds it); finishing writes the refusal's trail row and builds its answer.
+ */
+type HeldRefusal = { finishRefusal: (onABoard: boolean) => Promise<VpxIngestResult> };
+
 /** What `VpxScoreIngestService.match` decided. Shared by the score and the attempt calls. */
 export type VpxMatchResult = {
     needles: Set<string>;
@@ -609,11 +616,41 @@ export class VpxScoreIngestService {
         // v2.175.0 (W37, ADR 0033): every tournament the play matches gets it,
         // each through the full per-board path below (repeat, attempts,
         // suppression, Sanctioned gate, write, fan-out, trail).
-        const results: VpxIngestResult[] = [];
+        //
+        // W106 — a board that REFUSES the play (attempts used up, not
+        // sanctioned) does not decide on the Global fall-through there and
+        // then: it waits until every other board has had its turn. On
+        // 2026-11-16 one table was open in a Limited-attempts round and in a
+        // rotation; the round refused first and wrote a Global-origin row,
+        // then the rotation landed the same play and fanned out a second
+        // `global_scores` row for it (the fan-out dedups per origin room, so it
+        // could not see the first). A play that is on a board is on Global
+        // through that board's fan-out, or not at all.
+        const outcomes: Array<VpxIngestResult | HeldRefusal> = [];
         for (const target of matched.targets) {
-            results.push(await VpxScoreIngestService.landOn(input, score, playedAt, deviceNames, matched, target));
+            outcomes.push(await VpxScoreIngestService.landOn(input, score, playedAt, deviceNames, matched, target));
+        }
+        const onABoard = outcomes.some(o => !('finishRefusal' in o) && (o.status === 'ingested' || o.status === 'duplicate'));
+        const results: VpxIngestResult[] = [];
+        for (const outcome of outcomes) {
+            results.push('finishRefusal' in outcome ? await outcome.finishRefusal(onABoard) : outcome);
         }
         return VpxScoreIngestService.combine(results);
+    }
+
+    /**
+     * W106 — what a refused play falls through to. Nothing when another board
+     * took it (or already holds it): that board's fan-out is the play's one
+     * Global row, and it honours the player's and the room's sharing choices,
+     * which this path does not consult. Otherwise the Global Scoreboard, when
+     * the device allows it.
+     */
+    private static async refusalFallback(
+        input: VpxScoreInput, score: number, needles: Set<string>,
+        routing: VpxMatchResult['routing'], onABoard: boolean,
+    ): Promise<VpxIngestResult | null> {
+        if (onABoard || !routing.globalFallback) return null;
+        return VpxScoreIngestService.recordGlobal(input, score, needles, { trail: false });
     }
 
     /**
@@ -635,11 +672,15 @@ export class VpxScoreIngestService {
         };
     }
 
-    /** Land one play on ONE matched tournament game (the pre-v2.175.0 single-target path). */
+    /**
+     * Land one play on ONE matched tournament game (the pre-v2.175.0
+     * single-target path). A refusal comes back HELD (W106): `ingestNow`
+     * finishes it once it knows whether another board took the play.
+     */
     private static async landOn(
         input: VpxScoreInput, score: number, playedAt: string, deviceNames: string[],
         matched: VpxMatchResult & { kind: 'target' }, target: CandidateRow,
-    ): Promise<VpxIngestResult> {
+    ): Promise<VpxIngestResult | HeldRefusal> {
         const { needles: matchNeedles, routing, provenance } = matched;
         const where = {
             gameId: target.id, gameName: target.name,
@@ -722,20 +763,23 @@ export class VpxScoreIngestService {
                     `VPX ingest: attempt refused (${bound.reason}) — ${input.canonicalUserId} ${score} on ` +
                     `"${target.name}" (tournament ${target.tournament_id}, ${target.max_attempts} attempts)`,
                 );
-                const fallback = routing.globalFallback
-                    ? await VpxScoreIngestService.recordGlobal(input, score, matchNeedles, { trail: false })
-                    : null;
-                await VpxScoreIngestService.trail(input, score, playedAt, {
-                    outcome: 'attempt_refused', ...where,
-                    integrityMode: normalizeIntegrityMode(target.integrity_mode),
-                    reasons: [bound.reason],
-                    globalScoreId: fallback?.globalScoreId ?? null,
-                });
+                const refusal = { reason: bound.reason, text: bound.text };
                 return {
-                    status: 'attempt_refused', reason: bound.reason, ...where,
-                    reasons: [bound.text],
-                    fallback: fallback ? (fallback.status as VpxIngestResult['fallback']) : null,
-                    globalScoreId: fallback?.globalScoreId ?? null,
+                    finishRefusal: async onABoard => {
+                        const fallback = await VpxScoreIngestService.refusalFallback(input, score, matchNeedles, routing, onABoard);
+                        await VpxScoreIngestService.trail(input, score, playedAt, {
+                            outcome: 'attempt_refused', ...where,
+                            integrityMode: normalizeIntegrityMode(target.integrity_mode),
+                            reasons: [refusal.reason],
+                            globalScoreId: fallback?.globalScoreId ?? null,
+                        });
+                        return {
+                            status: 'attempt_refused', reason: refusal.reason, ...where,
+                            reasons: [refusal.text],
+                            fallback: fallback ? (fallback.status as VpxIngestResult['fallback']) : null,
+                            globalScoreId: fallback?.globalScoreId ?? null,
+                        };
+                    },
                 };
             }
             attemptAccepted = { attemptId: bound.attemptId, attempt: bound.attempt };
@@ -777,18 +821,20 @@ export class VpxScoreIngestService {
             // player's own record when the device allows it — the same path an
             // unmatched score takes — and the refusal is recorded against the
             // tournament so the runner sees what was held out and why.
-            const fallback = routing.globalFallback
-                ? await VpxScoreIngestService.recordGlobal(input, score, needles, { trail: false })
-                : null;
-            await VpxScoreIngestService.trail(input, score, playedAt, {
-                outcome: 'not_sanctioned', ...where, integrityMode: mode, verdict,
-                globalScoreId: fallback?.globalScoreId ?? null,
-            });
             return {
-                status: 'not_sanctioned', reason: verdict.reasons.join('; '), ...where,
-                verdict: 'flagged', reasons: verdict.reasons,
-                fallback: fallback ? (fallback.status as VpxIngestResult['fallback']) : null,
-                globalScoreId: fallback?.globalScoreId ?? null,
+                finishRefusal: async onABoard => {
+                    const fallback = await VpxScoreIngestService.refusalFallback(input, score, needles, routing, onABoard);
+                    await VpxScoreIngestService.trail(input, score, playedAt, {
+                        outcome: 'not_sanctioned', ...where, integrityMode: mode, verdict,
+                        globalScoreId: fallback?.globalScoreId ?? null,
+                    });
+                    return {
+                        status: 'not_sanctioned', reason: verdict.reasons.join('; '), ...where,
+                        verdict: 'flagged', reasons: verdict.reasons,
+                        fallback: fallback ? (fallback.status as VpxIngestResult['fallback']) : null,
+                        globalScoreId: fallback?.globalScoreId ?? null,
+                    };
+                },
             };
         }
 

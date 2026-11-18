@@ -3814,6 +3814,15 @@ async function doInitDatabase(): Promise<Database> {
                 await db.exec(`ALTER TABLE witness_log_requests ADD COLUMN share_on_receipt INTEGER NOT NULL DEFAULT 0`);
             }
         } },
+        // W106: a Witness play one tournament refused and another took got
+        // two `global_scores` rows (the refusal's Global fall-through, then
+        // the landing's fan-out). The ingest holds the fall-through now; this
+        // removes the fall-through twin of every such pair already stored.
+        { name: '217_witness_global_twins', handler: async (db) => {
+            const { removeWitnessGlobalTwins } = await import('./migrations/witnessGlobalTwins.js');
+            const n = await removeWitnessGlobalTwins(db);
+            console.log(`[migration 217] duplicate Witness rows removed from the Global Scoreboard: ${n}`);
+        } },
     ];
 
     for (const migration of migrations) {
