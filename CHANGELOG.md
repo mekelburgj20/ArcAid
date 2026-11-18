@@ -6,6 +6,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.253.0] - 2026-11-17 - Rename a catalogue game, and a refusal that names the games it matched
+
+W109, C17. A cabinet play of "TRON Classic Neon (Original 2024)" was refused with `"TRON Classic Neon (Original
+2024)" matches 2 catalogue games`. The catalogue has one table with Neon in its name, and it is called "TRON
+Neon". The two games were "TRON Classic" (2018) and "Tron Classic" (2022): the table's folder on the cabinet is
+`vpx-tronclassic`, and the folder name is one of the names a play is matched by. The message did not say which
+two games, and the Global Catalogue page had no way to rename a game.
+
+- **Added, Super Admin -> Global Catalogue:** **Rename** on an opened game, beside Merge into. It changes the
+  name and nothing else. A name that would make the game a second copy of another one (same name, type,
+  manufacturer and year) is refused and points to Merge.
+- **Changed:** a rename survives the next import. An import that finds the game by its VPS, OPDB, IGDB,
+  RetroAchievements or AtGames id never changed a name. An import that finds games by name now finds the renamed
+  game under its old name (the old name is kept as an alias, as a merge already does); before, it would have
+  added the old name back as a second game.
+- **Changed, cabinet plays:** the refusal names the games, up to three and then "and N more":
+  `"Scooby-Doo! (Original 2022)" matches 2 catalogue games: Scooby-Doo (Original 2022), Scooby-Doo! (Original 2022)`.
+- **Changed, cabinet plays:** when every one of those games was matched only by the folder name or the ROM, and
+  each one's year differs from the year the cabinet sent, the refusal reads `"TRON Classic Neon (Original 2024)"
+  is not in the Arcaid catalogue`. Which plays count is unchanged: this is only the wording for a play that was
+  refused anyway.
+- **API:** `PUT /api/admin/catalogue/games/:id` trims `name`, answers 400 for a blank one and 409 for a name that
+  duplicates another game (it was a 500).
+- Not changed: room games and past scores saved under the old name keep it (Super Admin -> Game Names moves
+  them). A play that was refused before a rename is not sent again by the cabinet.
+
 ## [2.252.2] - 2026-11-17 - The Arcaid Witness pages use the new background
 
 W105 follow-up. The Witness pages on the website (the install guide, pair by phone and its code page) still

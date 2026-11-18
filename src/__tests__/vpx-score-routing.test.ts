@@ -429,6 +429,66 @@ describe('VPXS score routing', () => {
             ...scoreQuery({ table: 'Scooby-Doo! (Original 2022)', rom: 'Scooby Doo, 2022', slug: 'vpx-scoobydoo' }),
         });
         expect(res.body).toMatchObject({ status: 'no_match' });
+        // The reason names the rows it tied between, so the fix (a catalogue
+        // merge) is readable off the player's own "Where your plays went".
+        expect(res.body.notCounted).toBe(
+            '"Scooby-Doo! (Original 2022)" matches 2 catalogue games: Scooby-Doo (Original 2022), Scooby-Doo! (Original 2022)',
+        );
+    });
+
+    it('says "not in the catalogue" when only the folder slug matched and the launcher year contradicts every row (TRON Classic Neon, 11-17)', async () => {
+        // The table sits in `vpx-tronclassic`, so the slug matched both
+        // "TRON Classic" rows; the display name matched nothing ("TRON Neon"
+        // is another name). Neither row is the 2024 table.
+        await seedCatalogue('TRON Classic', 'Original', 2018);
+        await seedCatalogue('Tron Classic', 'Original', 2022);
+        await seedCatalogue('TRON Neon', 'Original', 2024);
+
+        const res = await request(app).get('/api/witness/score').query({
+            device: DEVICE, token,
+            ...scoreQuery({ table: 'TRON Classic Neon (Original 2024)', rom: 'panther7', slug: 'vpx-tronclassic', score: 115810 }),
+        });
+
+        expect(res.body).toMatchObject({ status: 'no_match' });
+        expect(res.body.notCounted).toBe('"TRON Classic Neon (Original 2024)" is not in the Arcaid catalogue');
+        const db = await getDatabase();
+        const count = await db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM global_scores`);
+        expect(count!.n).toBe(0);
+    });
+
+    it('keeps the tie, and names it, when one slug-matched row does not contradict the launcher year', async () => {
+        // A row with no year is not contradicted, so this is still a real
+        // tie: refused as before, never resolved by elimination.
+        await seedCatalogue('TRON Classic', 'Original', 2018);
+        await seedCatalogue('Tron Classic', null, null);
+
+        const res = await request(app).get('/api/witness/score').query({
+            device: DEVICE, token,
+            ...scoreQuery({ table: 'TRON Classic Neon (Original 2024)', rom: 'panther7', slug: 'vpx-tronclassic', score: 115810 }),
+        });
+
+        expect(res.body).toMatchObject({ status: 'no_match' });
+        expect(res.body.notCounted).toBe(
+            '"TRON Classic Neon (Original 2024)" matches 2 catalogue games: TRON Classic (Original 2018), Tron Classic',
+        );
+    });
+
+    it('still lands a single slug-matched row whose year differs from the launcher name', async () => {
+        // The contradiction rule only relabels a refusal; one candidate is
+        // one candidate, exactly as before.
+        const only = await seedCatalogue('TRON Classic', 'Original', 2018);
+
+        const res = await request(app).get('/api/witness/score').query({
+            device: DEVICE, token,
+            ...scoreQuery({ table: 'TRON Classic Neon (Original 2024)', rom: 'panther7', slug: 'vpx-tronclassic', score: 115810 }),
+        });
+
+        expect(res.body).toMatchObject({ status: 'global' });
+        const db = await getDatabase();
+        const row = await db.get<{ global_game_id: string }>(
+            `SELECT global_game_id FROM global_scores ORDER BY rowid DESC LIMIT 1`,
+        );
+        expect(row!.global_game_id).toBe(only);
     });
 
     it('refuses a designation for a room the player is not in', async () => {

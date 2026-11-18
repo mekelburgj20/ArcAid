@@ -1357,10 +1357,26 @@ router.get('/catalogue/games/:id', async (req, res) => {
 
 router.put('/catalogue/games/:id', async (req, res) => {
     try {
-        const updated = await GlobalGameService.update(req.params.id as string, req.body);
+        const fields = { ...(req.body ?? {}) };
+        // A rename is trimmed and never blank: the name is the row's identity
+        // and its dedup key.
+        if ('name' in fields) {
+            if (typeof fields.name !== 'string' || !fields.name.trim()) {
+                return res.status(400).json({ error: 'A game needs a name' });
+            }
+            fields.name = fields.name.trim();
+        }
+        const updated = await GlobalGameService.update(req.params.id as string, fields);
         if (!updated) return res.status(404).json({ error: 'Game not found' });
         res.json({ success: true });
     } catch (error) {
+        // The identity index (name, type, manufacturer, year): the edit would
+        // make this row a second copy of one that exists. That is a merge.
+        if ((error as { code?: string })?.code === 'SQLITE_CONSTRAINT') {
+            return res.status(409).json({
+                error: 'Another catalogue game already has that name, type, manufacturer and year. Use Merge instead.',
+            });
+        }
         logError('API Error (PUT /api/admin/catalogue/games/:id):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }

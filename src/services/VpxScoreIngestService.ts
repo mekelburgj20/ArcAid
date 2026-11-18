@@ -399,6 +399,25 @@ function nameKeys(names: string[]): Set<string> {
     return keys;
 }
 
+/** How many catalogue rows an ambiguous-match reason names before "and N more". */
+const TIE_NAMES_MAX = 3;
+
+/**
+ * The catalogue rows a play tied between, named the way the launcher names a
+ * table ("TRON Classic (Original 2018)"), so the reason says WHICH games — the
+ * quoted device name alone hides a tie the folder slug or the rom caused.
+ */
+function describeTie(rows: Array<{ name: string; manufacturer: string | null; year: number | null }>): string {
+    const labels = rows.map(row => {
+        // A name that already carries its year parenthetical is its own label.
+        if (/\([^)]*\d{4}[^)]*\)/.test(row.name)) return row.name;
+        const tag = [row.manufacturer, row.year].filter(part => part != null && part !== '').join(' ');
+        return tag ? `${row.name} (${tag})` : row.name;
+    }).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)); // code-point order: the same on every host
+    const shown = labels.slice(0, TIE_NAMES_MAX).join(', ');
+    return labels.length > TIE_NAMES_MAX ? `${shown} and ${labels.length - TIE_NAMES_MAX} more` : shown;
+}
+
 function epochOf(value: string | null | undefined): number | null {
     if (!value) return null;
     const ms = Date.parse(value);
@@ -1515,7 +1534,7 @@ export class VpxScoreIngestService {
                     ? result.status : 'no_match',
                 gameName: result.gameName,
                 globalScoreId: result.globalScoreId ?? null,
-                // W29 — why it did not land ("not in the Arcaid catalogue", "matches 2 catalogue games", …);
+                // W29 — why it did not land ("not in the Arcaid catalogue", "matches 2 catalogue games: A, B", …);
                 // W27 — why it did not count in the tournament it matched, first.
                 ...((result.notCounted || result.reason)
                     ? { reasons: [result.notCounted, result.reason].filter((r): r is string => !!r) }
@@ -1534,11 +1553,11 @@ export class VpxScoreIngestService {
         );
         let candidates = rows.filter(row => [...nameKeys([row.name])].some(key => needles.has(key)));
 
+        // The session journal's name carries the manufacturer and year in a
+        // parenthetical ("Bad Cats (Williams 1989)") — exactly what tells
+        // two same-named machines apart. Use it when it is there.
+        const hint = /\(([^)]*?)(\d{4})\)/.exec(input.tableName || '');
         if (candidates.length > 1) {
-            // The session journal's name carries the manufacturer and year in a
-            // parenthetical ("Bad Cats (Williams 1989)") — exactly what tells
-            // two same-named machines apart. Use it when it is there.
-            const hint = /\(([^)]*?)(\d{4})\)/.exec(input.tableName || '');
             if (hint) {
                 const maker = hint[1]!.trim().toLowerCase();
                 const year = Number(hint[2]);
@@ -1567,12 +1586,39 @@ export class VpxScoreIngestService {
                 if (exact.length === 1) candidates = exact;
             }
         }
+        const hintYear = hint ? Number(hint[2]) : 0;
+        if (candidates.length > 1 && hintYear) {
+            // A tie the display name had no part in is not a tie. "TRON Classic
+            // Neon (Original 2024)" lives in a folder called `vpx-tronclassic`,
+            // so the SLUG matched "TRON Classic" (2018) and "Tron Classic"
+            // (2022) and the play was refused as "matches 2 catalogue games" —
+            // neither of them the table, which the catalogue held under another
+            // name (2026-11-17). When EVERY row still standing was reached only
+            // through a fallback name (slug, rom, the ROM map) and carries a
+            // year other than the one the launcher printed, none of them is
+            // this table: say it is not in the catalogue.
+            //
+            // Deliberately narrow. It only relabels a refusal, never turns a
+            // landing into a miss or a tie into a landing: a single candidate
+            // never reaches here, a row with no year is not contradicted, and
+            // the row a desktop's `vps_game` named is never contradicted (its
+            // identity did not come from a name at all).
+            const displayKeys = nameKeys([input.tableName]);
+            const named = input.evidence?.vpsGame
+                ? await VpxScoreIngestService.catalogueGame(input.evidence.vpsGame)
+                : null;
+            const contradicted = (row: { id: string; name: string; year: number | null }) =>
+                row.id !== named?.id
+                && row.year != null && row.year !== hintYear
+                && ![...nameKeys([row.name])].some(key => displayKeys.has(key));
+            if (candidates.every(contradicted)) candidates = [];
+        }
         if (candidates.length !== 1) {
             return {
                 status: 'no_match',
                 reason: candidates.length === 0
                     ? `"${input.tableName}" is not in the Arcaid catalogue`
-                    : `"${input.tableName}" matches ${candidates.length} catalogue games`,
+                    : `"${input.tableName}" matches ${candidates.length} catalogue games: ${describeTie(candidates)}`,
             };
         }
         const game = candidates[0]!;
