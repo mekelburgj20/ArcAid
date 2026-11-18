@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { getDatabase } from '../database/database.js';
@@ -109,6 +109,12 @@ describe('catalogue rename: the next import does not undo it', () => {
 });
 
 describe('PUT /api/admin/catalogue/games/:id', () => {
+    // The admin router is a heavy first import (2 s warm, far more on a cold,
+    // busy runner). Load it once here so no test pays for it out of its own 10 s.
+    beforeAll(async () => {
+        await import('../api/routes/admin.js');
+    }, 60_000);
+
     it('renames, trimming the name', async () => {
         const app = await createApp();
         const { id } = await GlobalGameService.upsert({
