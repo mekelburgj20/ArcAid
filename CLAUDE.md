@@ -125,7 +125,7 @@ SQLite at `data/arcaid.db` (git-ignored). Schema auto-creates on first run. Migr
 
 ## Deployment
 
-Production is always Docker (`docker compose up -d --build`); admin UI assets build inside the image and are served by Express. `deploy.yml` builds the image and deploys to Hetzner on push to `main`; `GET /api/version` → `{version, commit, builtAt}` from `package.json` + `APP_GIT_SHA`/`APP_BUILT_AT` build-args. After deploy: `docker logs arcaid --tail 50` and verify no restart loop. `JWT_SECRET` must be set or auth breaks on first login. `ngrok http 3001` for ad-hoc public exposure during dev.
+Production is always Docker (`docker compose up -d --build`); admin UI assets build inside the image and are served by Express. `deploy.yml` builds the image and deploys to Hetzner on push to `main`; `GET /api/version` → `{version, commit, builtAt}` from `package.json` + `APP_GIT_SHA`/`APP_BUILT_AT` build-args. **Every deploy snapshots the DB first** (`tools/pre-deploy-snapshot.cjs`, piped into the running container; `data/pre-deploy/pre-deploy-<UTC>.db`, newest 20) and stops, prod untouched, if that fails; rolling back code or a migration is `docs/runbooks/rollback.md` (X1). After deploy: `docker logs arcaid --tail 50` and verify no restart loop. `JWT_SECRET` must be set or auth breaks on first login. `ngrok http 3001` for ad-hoc public exposure during dev.
 
 ## Cross-references
 

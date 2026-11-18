@@ -25,6 +25,10 @@ on:
         description: 'Skip the test job and go straight to build + deploy (hotfix; the Docker build still compiles both halves)'
         type: boolean
         default: false
+      skip_snapshot:
+        description: 'Deploy WITHOUT the pre-deploy database snapshot (only when the snapshot itself is what fails; there is then no file to roll a migration back to)'
+        type: boolean
+        default: false
 
 # A newer push to the same PR cancels that PR's older test run (it tests code
 # that is no longer the PR head). Pushes to main and manual runs each get their
@@ -140,15 +144,46 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # X1 (docs/infrastructure-improvement-plan.md §3.2): the snapshot script
+      # travels with the deploy as text, so it runs inside whatever image is
+      # LIVE (the one about to be replaced) and needs no file there.
+      - name: Encode the pre-deploy snapshot script
+        run: echo "SNAPSHOT_JS_B64=$(base64 -w0 tools/pre-deploy-snapshot.cjs)" >> "$GITHUB_ENV"
+
       - name: Deploy to Hetzner
         uses: appleboy/ssh-action@v1
+        env:
+          SNAPSHOT_JS_B64: ${{ env.SNAPSHOT_JS_B64 }}
+          SKIP_SNAPSHOT: ${{ inputs.skip_snapshot || false }}
         with:
           host: ${{ secrets.HETZNER_HOST }}
           username: deploy
           key: ${{ secrets.HETZNER_SSH_KEY }}
+          envs: SNAPSHOT_JS_B64,SKIP_SNAPSHOT
           script: |
+            # Stop at the first failure (POSIX flags only: the login shell
+            # may be sh). Before X1 a failed pull still ran `up`.
+            set -eu
             cd /opt/arcaid
             docker compose pull
+            # X1 — a copy of the database from just BEFORE the new container
+            # boots and runs its migrations (forward-only: this file is the
+            # only way back from a bad one; docs/runbooks/rollback.md). Taken
+            # from the running container with VACUUM INTO, as the app's own
+            # user, into data/pre-deploy/ (newest 20 kept). If it fails the
+            # deploy stops HERE, with prod still on the old build. A container
+            # that is not running has nothing writing to copy from, so a
+            # deploy that repairs a dead prod is not blocked.
+            if [ "${SKIP_SNAPSHOT:-false}" = "true" ]; then
+              echo "pre-deploy snapshot SKIPPED (skip_snapshot input)"
+            elif [ "$(docker inspect -f '{{.State.Status}}' arcaid 2>/dev/null || true)" = "running" ]; then
+              SNAP_JS="$(mktemp)"
+              echo "$SNAPSHOT_JS_B64" | base64 -d > "$SNAP_JS"
+              docker exec -i -u arcaid -w /app arcaid node - < "$SNAP_JS"
+              rm -f "$SNAP_JS"
+            else
+              echo "arcaid is not running: no pre-deploy snapshot taken"
+            fi
             # --force-recreate: without it compose can keep the OLD container
             # running after pulling a new :latest (exactly the 2026-08-28
             # incident — the 08:33 v2.144.1 deploy reported success while prod

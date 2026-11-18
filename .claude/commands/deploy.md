@@ -30,6 +30,8 @@ Production deployment checklist for ArcAid.
      ssh arcaid "docker exec arcaid node -e \"const http=require('http');http.get('http://localhost:3001/api/status',r=>{let d='';r.on('data',c=>d+=c);r.on('end',()=>console.log(d))})\""
      ```
 
+Every deploy takes a database snapshot first (`data/pre-deploy/`, newest 20) and stops with prod untouched if that fails (`pre-deploy snapshot FAILED: ...` in the Deploy to Hetzner step). To go back to the previous build, or to the database as it was before a bad migration: `docs/runbooks/rollback.md`.
+
 If the deploy fails or you need to troubleshoot on the server:
 ```
 ssh arcaid
