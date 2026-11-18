@@ -28,7 +28,7 @@ Relevant Documentation:
 - `CHANGELOG.md` — **Single source of truth** for release history. Per-version entry in Keep-a-Changelog format with full detail (problem, fix, files touched, migration notes, SW cache bumps). Bumped with every release.
 - `WORK.md` — **The only live tracker** (ADR 0028): one line per item with a stable ID, sections as lanes, claims, a `## Now` block; grammar in `.claude/commands/work.md`; board link on its first line.
 - `ROADMAP.md`, `LAUNCH.md`, `SPRINT_STATUS.md` — Frozen archives (2026-10-21); `WORK.md` items point into them. Never appended to.
-- `CLAUDE.md` (ArcAid root) — Architecture tables, key patterns, database schema, session checklist
+- `CLAUDE.md` (Arcaid root) — Architecture tables, key patterns, database schema, session checklist
 - `../CLAUDE.md` (parent repo root) — Repository overview, architecture tables shared across projects
 - `docs/decisions/` — Architecture Decision Records (ADRs). One file per load-bearing decision. Index in `docs/decisions/README.md`; template in `0000-template.md`.
 - `docs/step-2-cleanup-plan.md` — Active multi-step plan documents kept in `docs/` once they outgrow `tmp/` and need to survive in git for the next agent.

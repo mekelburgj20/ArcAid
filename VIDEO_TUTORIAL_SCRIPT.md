@@ -19,7 +19,7 @@ Companion to `MODERATOR_QUICKSTART.md` and `ADMIN_PORTAL_TOUR.md`. This is a bea
 
 **Tone:** casual, talking to a friend.
 
-**Key line:** "Hey, if you're watching this, you're helping me run the ArcAid test next week, and honestly thank you. I know you're busy, so I really appreciate you putting time into this. This video is the on-ramp."
+**Key line:** "Hey, if you're watching this, you're helping me run the Arcaid test next week, and honestly thank you. I know you're busy, so I really appreciate you putting time into this. This video is the on-ramp."
 
 **Beats:**
 - Frame the test: the most useful thing you can do is use the tool, try things, and let me know what felt off. The point of this week is finding the rough edges before more people show up.
@@ -122,7 +122,7 @@ Companion to `MODERATOR_QUICKSTART.md` and `ADMIN_PORTAL_TOUR.md`. This is a bea
 
 **On screen:** Game States page. Filter to ACTIVE.
 
-**Key line:** "Third common scenario. Someone won, the bot DM'd them to pick the next game, they ghosted. Most of the time ArcAid handles this on its own; it gives the runner-up a window, then auto-picks. But if you want to nudge it, here's how."
+**Key line:** "Third common scenario. Someone won, the bot DM'd them to pick the next game, they ghosted. Most of the time Arcaid handles this on its own; it gives the runner-up a window, then auto-picks. But if you want to nudge it, here's how."
 
 **Beats:**
 - Open Game States.

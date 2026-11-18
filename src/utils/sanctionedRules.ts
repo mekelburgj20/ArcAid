@@ -220,7 +220,7 @@ export type WitnessEvidence = {
      */
     engine: EngineEvidence | null;
     /**
-     * v2.170.0 (castcade B6.1 / ArcAid W41, companion ≥ 0.2.13): how player 1's score moved during
+     * v2.170.0 (castcade B6.1 / Arcaid W41, companion ≥ 0.2.13): how player 1's score moved during
      * the game. FLAG ONLY, NEVER A GATE (owner ruling 2026-10-25): `evaluateSanctioned` never reads
      * it, it is stored on the trail and shown to the runner, nothing else. Null when not sent.
      */

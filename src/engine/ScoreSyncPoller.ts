@@ -51,7 +51,7 @@ export interface PollerStatus {
 }
 
 /**
- * Polls the iScored API on a configurable interval to keep ArcAid leaderboards
+ * Polls the iScored API on a configurable interval to keep Arcaid leaderboards
  * in sync with scores submitted directly on iScored.
  *
  * - Uses getAllScores (one HTTP GET per poll cycle)

@@ -9,7 +9,7 @@
 
 ## 1. Why this exists
 
-ArcAid ships fast, straight from `main` to production, with a growing real user base. The
+Arcaid ships fast, straight from `main` to production, with a growing real user base. The
 question this plan answers is not "how do we get a staging environment" — it is **"what
 actually threatens players, and what is the cheapest thing that stops it."** Those turn out to
 be different questions, and the answer is not primarily a UAT box.
@@ -54,7 +54,7 @@ These three facts determine the shape of everything below.
 
 | # | Finding | Anchor |
 |---|---|---|
-| **F1** | **No Discord bot token ⇒ the scheduler never starts.** `Scheduler.getInstance().start()` sits *inside* `if (canStartBot)`. That call registers every tournament maintenance cron, the per-minute picker-timeout checker, **`EventScheduler.tick`** (the Live Event *and* Throwdown clock), the nightly backup cron, the iScored snapshot cron, and profile hydration. A local or UAT instance without a token executes **none** of the time-driven half of ArcAid. | `src/index.ts:121`, `:137`; `src/engine/Scheduler.ts:79-113` |
+| **F1** | **No Discord bot token ⇒ the scheduler never starts.** `Scheduler.getInstance().start()` sits *inside* `if (canStartBot)`. That call registers every tournament maintenance cron, the per-minute picker-timeout checker, **`EventScheduler.tick`** (the Live Event *and* Throwdown clock), the nightly backup cron, the iScored snapshot cron, and profile hydration. A local or UAT instance without a token executes **none** of the time-driven half of Arcaid. | `src/index.ts:121`, `:137`; `src/engine/Scheduler.ts:79-113` |
 | **F2** | **A second instance on the prod bot token is an incident, not a test.** `deployCommands()` is called with no `guildId`, so it hits `Routes.applicationCommands` — **global** registration on every boot. A shared token means the second instance overwrites prod's global command set each time it restarts, and both bots race every interaction (`DiscordAPIError[40060]`). Lived on 2026-08-21 with the local `arcaid-bot` container. **Staging needs a separate Discord *Application*, not just a separate guild.** | `src/index.ts:131`; `src/discord/DiscordClient.ts:186-195`; memory `gotcha_local_container_duplicate_bot` |
 | **F3** | **The prod box cannot host staging.** 1.9 Gi RAM with 1.2 Gi available, and both instances can launch Chromium for iScored Playwright ops. Staging OOM-killing prod is the exact inversion of the goal. | §1.2 |
 

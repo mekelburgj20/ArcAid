@@ -85,10 +85,10 @@ VPX 10.8.0, 134 tables, VPinMAME 3.7.0.222) on 2026-08-30.
 > watch, basic-mode decode, live-mode journal tailing, pairing, heartbeat, check-in and score
 > reporting — is the `witness` module of the Castcade companion
 > (https://github.com/mekelburgj20/castcade, GPLv3). The AtGames cabinet app and the server
-> contract (pairing, `/api/witness/*`, verification, routing, `witness_devices`) stay in ArcAid.
+> contract (pairing, `/api/witness/*`, verification, routing, `witness_devices`) stay in Arcaid.
 > What is shared is the wire contract, the event vocabulary and the maps corpus — never code — so
 > §2's "reuses `scripts/witness-agent.ts`" consequence no longer holds: the companion is
-> TypeScript but shares no source with ArcAid. ArcAid's share of the work is listed in castcade
+> TypeScript but shares no source with Arcaid. Arcaid's share of the work is listed in castcade
 > `docs/arcaid-side-changes.md`.
 
 ### Two modes, and the second is optional
@@ -186,7 +186,7 @@ the web button.
 
 ### Wire contract: the ROM -> VPS game map (v2.193.0, W12)
 
-Castcade hand-off section 11 (castcade B8/F8): ArcAid serves the ROM -> VPS game map so the
+Castcade hand-off section 11 (castcade B8/F8): Arcaid serves the ROM -> VPS game map so the
 companion can stop shipping its own seed. Seeded from VPS `romFiles[].version` (the PinMAME ROM id,
 the same field `companion/scripts/fetch-vps.mjs` reads) by the VPS import into `global_game_roms`.
 
@@ -203,7 +203,7 @@ the same field `companion/scripts/fetch-vps.mjs` reads) by the VPS import into `
   with a matching `If-None-Match` gets `304`.
 - **Differences from the companion's `VpsIndexFile`:** it is keyed by ROM, not a list of games;
   there are no `tables`, `type` or `generatedAt`; `version` is a content hash, not a vps-db commit;
-  ArcAid's `globalGameId` is added. A thin adapter builds `gamesForRom` from it. There is NO family
+  Arcaid's `globalGameId` is added. A thin adapter builds `gamesForRom` from it. There is NO family
   fallback (`mm_109x` -> `mm`) on the server: exact ROM ids only; the companion keeps that rule.
 - **Server side:** when a `/witness/score` (or attempt) report carries a `rom` and no usable
   `vps_game`, `VpxScoreIngestService.match` resolves the ROM through the same map; exactly one game
@@ -254,7 +254,7 @@ Code signing (§8) must be resolved before P3 ships to anyone outside the test g
 > installer and signing (P2, P3 and P5's server half); Phase 3 is live mode through *Import a table*
 > and the opt-in bulk patch (P4). **P6 (originals) is covered by the per-table recipes** of
 > `docs/design/table-import-and-patching.md` rather than a separate phase — the Phase 0 Iron Maiden
-> run already reported an original's scores through the same hook. The ArcAid-side server items that
+> run already reported an original's scores through the same hook. The Arcaid-side server items that
 > remain are in castcade `docs/arcaid-side-changes.md`.
 
 ## 7. Tests the owner needs to run

@@ -6,6 +6,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.253.1] - 2026-11-18 - The product is spelled Arcaid in code comments and the working docs
+
+Spelling only. Code comments and the working docs (CLAUDE.md, WORK.md, the rule and command files, two design
+plans, the test-run guide and video script) spelled the product "ArcAid" in 61 places. They now say "Arcaid", as
+the release notes already do.
+
+- **Changed:** the Steam Pinball importer names itself `Arcaid-SteamPinballImporter/1.0` when it asks Steam for
+  the table list.
+- Not changed: paths and links that name the `ArcAid` repository folder or the GitHub repo, this release history,
+  and the decision records. Nothing a player or an admin sees on the site or in Discord changes.
+
 ## [2.253.0] - 2026-11-17 - Rename a catalogue game, and a refusal that names the games it matched
 
 W109, C17. A cabinet play of "TRON Classic Neon (Original 2024)" was refused with `"TRON Classic Neon (Original

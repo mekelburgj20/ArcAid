@@ -1290,7 +1290,7 @@ async function doInitDatabase(): Promise<Database> {
             -- Tombstone table consulted by ScoreSyncPoller to keep deleted
             -- scores from being re-imported on the next iScored sync. iScored
             -- has no per-score delete API, so when an admin or player deletes
-            -- a score in ArcAid the iScored side keeps the entry — without
+            -- a score in Arcaid the iScored side keeps the entry — without
             -- this, the next ~30s poll cycle re-creates the score_history
             -- row and the deletion is undone. The poller skips inserting a
             -- score whose value <= the suppressed value for the same
@@ -1320,7 +1320,7 @@ async function doInitDatabase(): Promise<Database> {
 
         // v2.10.2: rename status enum value HIDDEN -> ARCHIVED. The pre-rename
         // name conflicted with iScored's own "Hidden" concept (game still in
-        // lineup, soft-hidden from scoreboard) — ArcAid's value actually means
+        // lineup, soft-hidden from scoreboard) — Arcaid's value actually means
         // "post-cleanup, kept locally as a historical anchor for score
         // attribution." ARCHIVED captures that intent. No CHECK constraint to
         // update; the schema column is plain TEXT. Idempotent re-run is a

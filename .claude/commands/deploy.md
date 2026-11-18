@@ -1,4 +1,4 @@
-Production deployment checklist for ArcAid.
+Production deployment checklist for Arcaid.
 
 > **Note:** `/wrap` at the end of the session keeps `WORK.md` and the docs in sync; `/release-docs <version>` after the deploy is verified writes the CHANGELOG entry. Neither is a pre-deploy step.
 

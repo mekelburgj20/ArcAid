@@ -57,7 +57,7 @@ import type { Database } from 'sqlite';
  * an explicit `'unknown'`. Counted and reported separately so a real deploy
  * says whether any existed.
  *
- * Authorised by the product owner 2026-07-31: ArcAid is pre-GA and has no
+ * Authorised by the product owner 2026-07-31: Arcaid is pre-GA and has no
  * scores worth preserving. **That licence covers score DATA only** — the delete
  * discipline in `database.ts` still applies. Checked before writing this:
  *

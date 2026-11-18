@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Guidance for Claude Code working in this ArcAid repository. This file is the always-on spine: the working agreement, the architecture map, the cross-cutting invariants and the owner rulings. **Domain detail lives in `.claude/rules/*.md`** (path-scoped: a rule file loads itself when you read or edit a matching file; read it explicitly when you are planning work in that domain before opening its files). History is `CHANGELOG.md`; reasoning is `docs/decisions/`; live work is `WORK.md`.
+Guidance for Claude Code working in this Arcaid repository. This file is the always-on spine: the working agreement, the architecture map, the cross-cutting invariants and the owner rulings. **Domain detail lives in `.claude/rules/*.md`** (path-scoped: a rule file loads itself when you read or edit a matching file; read it explicitly when you are planning work in that domain before opening its files). History is `CHANGELOG.md`; reasoning is `docs/decisions/`; live work is `WORK.md`.
 
 ## Working agreement
 

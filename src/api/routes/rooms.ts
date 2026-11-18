@@ -3402,7 +3402,7 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, requireDiscordUser,
 
         // v2.2.2: iScored sync extracted to a shared helper so all three web
         // submission paths sync identically. Pass the resolved displayName so the
-        // name on iScored matches the name on ArcAid's scoreboard.
+        // name on iScored matches the name on Arcaid's scoreboard.
         const { syncScoreToIScored } = await import('../../services/IScoredSubmitSync.js');
         // trackBackground (v2.99.2) — see the community-scores site's comment.
         trackBackground(syncScoreToIScored({
@@ -9844,7 +9844,7 @@ router.get('/:roomId/admin/game-states/iscored-link-check', requireAuth, require
 
 // GET — iScored reconcile DRY-RUN. Categorize the games currently on iScored
 // (by iscored_id) against the local DB into keep / orphans / unmanaged so an
-// admin can clean up entries ArcAid archived but iScored never deleted.
+// admin can clean up entries Arcaid archived but iScored never deleted.
 router.get('/:roomId/admin/game-states/iscored-reconcile', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
     try {
         const roomId = req.params.roomId as string;
