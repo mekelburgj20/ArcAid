@@ -376,7 +376,7 @@ CI suite that already exists.
 
 ## 10. Progress
 
-- [ ] **T0.1** Parameterize `ARCAID_TAG` in `/opt/arcaid/docker-compose.yml` (owner, on the server; the exact line is in `docs/runbooks/rollback.md`, which also has the no-`ARCAID_TAG` rollback)
+- [x] **T0.1** Parameterize `ARCAID_TAG` in `/opt/arcaid/docker-compose.yml` (done on the server 2026-11-18, X1.1; `docs/runbooks/rollback.md` also has the no-`ARCAID_TAG` rollback)
 - [x] **T0.2** Pre-deploy DB snapshot + 20-file retention in `deploy.yml` (2026-11-17, see "As built" in §3.2)
 - [x] **T0.3** `docs/runbooks/rollback.md` (2026-11-17)
 - [ ] **T1.1** UAT VPS provisioned, DNS, Caddy (basic auth + noindex)

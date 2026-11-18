@@ -40,13 +40,13 @@ is a few seconds before that deploy's container start.
 
 ## 1. Code only
 
-With `ARCAID_TAG` in the server's compose file (see "One-time server step" below):
+With `ARCAID_TAG` in the server's compose file (in place since 2026-11-18, see the last section):
 
 ```bash
 ARCAID_TAG=sha-<previous full commit> docker compose up -d --force-recreate
 ```
 
-Without it (the compose file still says `:latest`), point `latest` at the old image locally:
+Without it (a compose file whose image line says a bare `:latest`), point `latest` at the old image locally:
 
 ```bash
 docker pull ghcr.io/mekelburgj20/arcaid:sha-<previous full commit>
@@ -91,13 +91,15 @@ migration back to.
 A container that is not running (prod is already down) is deployed without a snapshot, so a repair
 is never blocked.
 
-## One-time server step (owner)
+## The `ARCAID_TAG` line on the server (done 2026-11-18, X1.1)
 
-`/opt/arcaid/docker-compose.yml` is hand-maintained on the server. Change its image line to:
+`/opt/arcaid/docker-compose.yml` is hand-maintained on the server. Its image line (line 10) is:
 
 ```yaml
 image: ghcr.io/mekelburgj20/arcaid:${ARCAID_TAG:-latest}
 ```
 
 Nothing changes for a normal deploy (`ARCAID_TAG` is unset, so it is `latest`). It only makes the
-one-line rollback in step 1 possible.
+one-line rollback in step 1 possible. Check it with `docker compose config | grep image:` (run in
+`/opt/arcaid`). The file as it was before the change is beside it:
+`docker-compose.yml.bak-x1.1-20261118T034142Z`.
