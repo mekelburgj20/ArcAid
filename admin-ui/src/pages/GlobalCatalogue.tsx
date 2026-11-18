@@ -5,7 +5,8 @@ import NeonButton from '../components/NeonButton';
 import LoadingState from '../components/LoadingState';
 import DataTable from '../components/DataTable';
 import RAGameSearch from '../components/RAGameSearch';
-import { Search, RefreshCw, ChevronDown, ChevronUp, Check, X, Trash2, ExternalLink, GitMerge, AlertTriangle, Layers, Flag } from 'lucide-react';
+import RenameCatalogueGameModal from '../components/RenameCatalogueGameModal';
+import { Search, RefreshCw, ChevronDown, ChevronUp, Check, X, Trash2, ExternalLink, GitMerge, AlertTriangle, Layers, Flag, Pencil } from 'lucide-react';
 import { parseServerDate } from '../lib/format';
 
 interface GlobalGame {
@@ -253,6 +254,7 @@ export default function GlobalCatalogue() {
   const [syncResult, setSyncResult] = useState<{ source: string; message: string } | null>(null);
   const [mergeSource, setMergeSource] = useState<GlobalGame | null>(null);
   const [mergeRestrictIds, setMergeRestrictIds] = useState<string[] | null>(null);
+  const [renameGame, setRenameGame] = useState<GlobalGame | null>(null);
 
   // v2.25.0 report-a-problem review queue
   const [feedbackItems, setFeedbackItems] = useState<GameFeedbackItem[] | null>(null);
@@ -1080,6 +1082,7 @@ export default function GlobalCatalogue() {
               onStatusChange={handleStatusChange}
               onDelete={handleDelete}
               onMerge={handleMergeOpen}
+              onRename={setRenameGame}
             />
           ))}
           {games.length === 0 && !loadError && (
@@ -1115,6 +1118,17 @@ export default function GlobalCatalogue() {
           }}
         />
       )}
+
+      {renameGame && (
+        <RenameCatalogueGameModal
+          game={renameGame}
+          onClose={() => setRenameGame(null)}
+          onRenamed={async () => {
+            setRenameGame(null);
+            await loadData();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -1142,6 +1156,7 @@ function GameRow({
   onStatusChange,
   onDelete,
   onMerge,
+  onRename,
 }: {
   game: GlobalGame;
   expanded: boolean;
@@ -1149,6 +1164,7 @@ function GameRow({
   onStatusChange: (id: string, status: string) => void;
   onDelete: (id: string) => void;
   onMerge: (game: GlobalGame) => void;
+  onRename: (game: GlobalGame) => void;
 }) {
   const platforms: string[] = JSON.parse(game.platforms || '[]');
   const sources = deriveSources(game);
@@ -1296,6 +1312,9 @@ function GameRow({
                 <X size={12} /> Reject
               </NeonButton>
             )}
+            <NeonButton variant="secondary" onClick={() => onRename(game)} className="text-xs py-1 px-3 flex items-center gap-1">
+              <Pencil size={12} /> Rename
+            </NeonButton>
             <NeonButton variant="secondary" onClick={() => onMerge(game)} className="text-xs py-1 px-3 flex items-center gap-1">
               <GitMerge size={12} /> Merge into…
             </NeonButton>

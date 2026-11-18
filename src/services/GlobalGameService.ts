@@ -441,8 +441,9 @@ export class GlobalGameService {
      * separately. Reading that column here would have routed imports onto
      * unrelated machines — the exact failure this change exists to prevent.
      *
-     * `dedup_aliases` is written only by `merge`, so every entry carries a
-     * provenance: an admin decided those two rows were the same game.
+     * `dedup_aliases` is written only by `merge` and by an admin rename
+     * (`update`), so every entry carries a provenance: an admin decided that
+     * name is this game.
      */
     static async findByAlias(name: string): Promise<GlobalGame[]> {
         const db = await getDatabase();
@@ -1473,10 +1474,33 @@ export class GlobalGameService {
         const current = await db.get<Record<string, unknown> & { field_sources: string | null }>(
             `SELECT field_sources, name, display_name, manufacturer, year, subtype, players,
                     description, platforms, themes, designers,
-                    image_url, local_image_path, wheel_image_path
+                    image_url, local_image_path, wheel_image_path, dedup_aliases
                FROM global_games WHERE id = ?`,
             id,
         );
+        // A rename keeps the OLD name as a dedup alias, for the reason `merge`
+        // records one: an importer that matches by name (no external id on the
+        // row) would otherwise find nothing under the old spelling and INSERT
+        // the game straight back as a duplicate. A row matched by external id
+        // needs no alias (the upsert UPDATE never writes `name`), and gets one
+        // anyway: the alias lookup is only a fallback for a name that matched
+        // nothing. An alias that now normalizes to the row's own name is dropped.
+        if (current && 'name' in fields) {
+            const oldName = typeof current.name === 'string' ? current.name : '';
+            const oldKey = normalizeGameName(oldName);
+            const newKey = normalizeGameName(fields.name || '');
+            if (oldKey && newKey && oldKey !== newKey) {
+                let aliases: string[] = [];
+                try {
+                    const parsed = JSON.parse((current.dedup_aliases as string | null) || '[]');
+                    if (Array.isArray(parsed)) aliases = parsed.filter((a): a is string => typeof a === 'string');
+                } catch { /* unreadable aliases are replaced */ }
+                const kept = aliases.filter(a => normalizeGameName(a) !== newKey);
+                if (!kept.some(a => normalizeGameName(a) === oldKey)) kept.push(oldName);
+                sets.push('dedup_aliases = ?');
+                params.push(JSON.stringify(kept));
+            }
+        }
         const changed: Partial<GlobalGameInput> = {};
         if (current) {
             const scalarKeys = ['name', 'display_name', 'manufacturer', 'year', 'subtype', 'players', 'description',
