@@ -3,6 +3,7 @@ import { ScoreHistoryService } from './ScoreHistoryService.js';
 import { ActivityLogService } from './ActivityLogService.js';
 import { eventEndGraceSec } from './EventSubmissionGate.js';
 import { normalizeGameName } from '../utils/catalogueUtils.js';
+import { frontFormOf } from '../utils/sortFormName.js';
 import { parseTournamentRules } from '../utils/platformRules.js';
 import { logInfo, logWarn } from '../utils/logger.js';
 import type { WitnessDeviceType } from './WitnessService.js';
@@ -399,6 +400,22 @@ function nameKeys(names: string[]): Set<string> {
     return keys;
 }
 
+/**
+ * W114 — the match key of the launcher's DISPLAY name turned from library sort
+ * form to the front ("Spider-Man, JP's (Original 2018)" → "jps spider-man",
+ * "Champion Pub, The (Bally 1998)" → "champion pub"), or '' when the name is
+ * not in sort form. See `frontFormOf`.
+ *
+ * The NORMAL form only, never the squashed one: the squashed form exists for
+ * folder slugs, and squashing the display name's front form made "Amazing
+ * Spider-Man Sinister Six Edition, The" meet a second catalogue row ("Amazing
+ * Spiderman - Sinister Six Edition") and tie a play that lands today.
+ */
+function displayFrontKey(displayName: string | null | undefined): string {
+    const front = frontFormOf(displayName);
+    return front ? normalizeGameName(front) : '';
+}
+
 /** How many catalogue rows an ambiguous-match reason names before "and N more". */
 const TIE_NAMES_MAX = 3;
 
@@ -441,6 +458,19 @@ export class VpxScoreIngestService {
             input.rom ?? '',
             (input.slug ?? '').replace(/^vpx-/, '').replace(/[-_]+/g, ' '),
         ];
+    }
+
+    /**
+     * The match keys of those names (`nameKeys`), plus (W114) the display
+     * name's key in front form when the launcher wrote it in library sort form
+     * ("Spider-Man, JP's" for the catalogue's "JP's Spider-Man"). `match` and
+     * `missReason` both build their needles here, so they cannot disagree.
+     */
+    private static deviceKeys(input: VpxScoreInput): Set<string> {
+        const keys = nameKeys(VpxScoreIngestService.deviceNames(input));
+        const front = displayFrontKey(input.tableName);
+        if (front) keys.add(front);
+        return keys;
     }
 
     /** Was this exact play deleted by its owner? (ADR 0024 — the ONE predicate.) */
@@ -1140,7 +1170,7 @@ export class VpxScoreIngestService {
      * what the Global fall-through and the suppression check key on.
      */
     static async match(input: VpxScoreInput): Promise<VpxMatchResult> {
-        const needles = nameKeys(VpxScoreIngestService.deviceNames(input));
+        const needles = VpxScoreIngestService.deviceKeys(input);
         const routing = input.target ?? { roomId: null, tournamentId: null, globalFallback: true };
         const provenance = VpxScoreIngestService.provenanceFor(input.deviceType, input.playDevice);
         const loaded = await VpxScoreIngestService.loadCandidates(input.canonicalUserId);
@@ -1231,7 +1261,7 @@ export class VpxScoreIngestService {
         routing: VpxMatchResult['routing'], provenance: WitnessProvenance,
         catalogue: { id: string; keys: Set<string> } | null,
     ): string | null {
-        const needles = nameKeys(VpxScoreIngestService.deviceNames(input));
+        const needles = VpxScoreIngestService.deviceKeys(input);
         const byVps = catalogue
             ? loaded.filter(row =>
                 (row.global_game_id != null && row.global_game_id === catalogue.id)
@@ -1582,7 +1612,16 @@ export class VpxScoreIngestService {
             // guess here.
             const journal = normalizeGameName(input.tableName || '');
             if (journal) {
-                const exact = candidates.filter(row => normalizeGameName(row.name) === journal);
+                let exact = candidates.filter(row => normalizeGameName(row.name) === journal);
+                // W114 — a display name in library sort form ("Spider-Man,
+                // JP's") names no row as written; its front form ("JP's
+                // Spider-Man") is the same name. Tried only when the name as
+                // written equals no row, so every tie this tier broke before
+                // breaks the same way.
+                const front = displayFrontKey(input.tableName);
+                if (exact.length === 0 && front) {
+                    exact = candidates.filter(row => normalizeGameName(row.name) === front);
+                }
                 if (exact.length === 1) candidates = exact;
             }
         }
@@ -1604,6 +1643,10 @@ export class VpxScoreIngestService {
             // the row a desktop's `vps_game` named is never contradicted (its
             // identity did not come from a name at all).
             const displayKeys = nameKeys([input.tableName]);
+            // W114 — a row the display name reached through its front form
+            // was reached by the display name, not a fallback.
+            const front = displayFrontKey(input.tableName);
+            if (front) displayKeys.add(front);
             const named = input.evidence?.vpsGame
                 ? await VpxScoreIngestService.catalogueGame(input.evidence.vpsGame)
                 : null;

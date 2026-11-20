@@ -517,6 +517,94 @@ describe('VPXS score routing', () => {
         expect(row!.global_game_id).toBe(only);
     });
 
+    it('W114: reads a launcher name in library sort form ("Spider-Man, JP\'s") as the catalogue\'s "JP\'s Spider-Man"', async () => {
+        // ChalataLove, 2026-11-18: the folder slug matched only the stock
+        // Spider-Man rows, whose years contradict 2018, so the play was refused
+        // as "not in the Arcaid catalogue" although "JP's Spider-Man" is there.
+        const jps = await seedCatalogue("JP's Spider-Man", 'Original', 2018);
+        await seedCatalogue('Spider-Man', 'Stern', 2007);
+        await seedCatalogue('Spider-Man', 'Zen Studios', 2010);
+
+        const res = await request(app).get('/api/witness/score').query({
+            device: DEVICE, token,
+            ...scoreQuery({ table: "Spider-Man, JP's (Original 2018)", rom: 'smanve_101', slug: 'vpx-spiderman', score: 41675530 }),
+        });
+
+        expect(res.body).toMatchObject({ status: 'global' });
+        const db = await getDatabase();
+        const row = await db.get<{ global_game_id: string }>(
+            `SELECT global_game_id FROM global_scores ORDER BY rowid DESC LIMIT 1`,
+        );
+        expect(row!.global_game_id).toBe(jps);
+    });
+
+    it('W114: the display-name tier compares the front form of a ", The" name when maker and year leave two', async () => {
+        // Both rows are Bally 1998: "Champ Pub" through the folder slug
+        // (`champpub`), "The Champion Pub" through the display name's front
+        // form. Only the front form equals a row's name, so it breaks the tie.
+        const pub = await seedCatalogue('The Champion Pub', 'Bally', 1998);
+        await seedCatalogue('Champ Pub', 'Bally', 1998);
+
+        const res = await request(app).get('/api/witness/score').query({
+            device: DEVICE, token,
+            ...scoreQuery({ table: 'Champion Pub, The (Bally 1998)', rom: 'cp_16', slug: 'vpx-champpub', score: 12345670 }),
+        });
+
+        expect(res.body).toMatchObject({ status: 'global' });
+        const db = await getDatabase();
+        const row = await db.get<{ global_game_id: string }>(
+            `SELECT global_game_id FROM global_scores ORDER BY rowid DESC LIMIT 1`,
+        );
+        expect(row!.global_game_id).toBe(pub);
+    });
+
+    it('W114: a row named exactly as the launcher writes it still wins over the front form', async () => {
+        // The catalogue keeps older Wizard rows under LU's own sort-form
+        // names. A play of one landed there before W114 and must land there
+        // still: the name as written is tried before its front form.
+        const asWritten = await seedCatalogue('Addams Family, The (Bally 1992)', 'Bally', 1992);
+        await seedCatalogue('The Addams Family', 'Bally', 1992);
+
+        const res = await request(app).get('/api/witness/score').query({
+            device: DEVICE, token,
+            ...scoreQuery({ table: 'Addams Family, The (Bally 1992)', rom: 'taf_l7', slug: 'vpx-taf', score: 98765430 }),
+        });
+
+        expect(res.body).toMatchObject({ status: 'global' });
+        const db = await getDatabase();
+        const row = await db.get<{ global_game_id: string }>(
+            `SELECT global_game_id FROM global_scores ORDER BY rowid DESC LIMIT 1`,
+        );
+        expect(row!.global_game_id).toBe(asWritten);
+    });
+
+    it('W114: a comma tail that is not just an article is left as written ("X Files, The Hannibal Mod")', async () => {
+        // No rom: the real record's `xfiles` squashes to the row's own name and
+        // would land it on its own, which is not what this case is about.
+        await seedCatalogue('The X Files', 'Sega', 1997);
+
+        const res = await request(app).get('/api/witness/score').query({
+            device: DEVICE, token,
+            ...scoreQuery({ table: 'X Files, The Hannibal Mod (Sega 1997)', rom: '', slug: 'vpx-xfileshanibal', score: 5550000 }),
+        });
+
+        expect(res.body).toMatchObject({ status: 'no_match' });
+        expect(res.body.notCounted).toBe('"X Files, The Hannibal Mod (Sega 1997)" is not in the Arcaid catalogue');
+    });
+
+    it('W114: a room game named in front form takes a launcher play named in sort form', async () => {
+        const { gameId } = await createRotationGame(roomId, "JP's Spider-Man");
+
+        const res = await request(app).get('/api/witness/score').query({
+            device: DEVICE, token,
+            ...scoreQuery({ table: "Spider-Man, JP's (Original 2018)", rom: 'smanve_101', slug: 'vpx-spiderman', score: 41675530 }),
+        });
+
+        expect(res.body).toMatchObject({ status: 'ingested' });
+        const db = await getDatabase();
+        expect(await db.get(`SELECT id FROM score_history WHERE game_id = ?`, gameId)).toBeTruthy();
+    });
+
     it('refuses a designation for a room the player is not in', async () => {
         const strangers = await createTestRoom('strangers-2', 'Strangers');
         const res = await request(app)
