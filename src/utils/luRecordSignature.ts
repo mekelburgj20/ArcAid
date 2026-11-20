@@ -187,7 +187,8 @@ function playerOne(record: LuRecord): { score?: unknown; timestamp?: unknown } |
  * forwards the same record with each of them, so only the final game can
  * match. Player 1's `score` (a decimal string on the record) must equal the
  * reported score exactly, and the record's end (`timestamp`, else player 1's
- * `timestamp`) must be within `LU_RECORD_TIME_TOLERANCE_SEC` of the reported
+ * `timestamp`) or player 1's LAST ball (W116: a `shutdown` record is stamped
+ * at table exit) must be within `LU_RECORD_TIME_TOLERANCE_SEC` of the reported
  * `ended`. `started` is deliberately NOT compared: the sitting's start is not
  * the game's.
  *
@@ -211,9 +212,23 @@ export function crossCheckLuRecord(
         return { ok: false, reason: `the signed record's score (${rawScore.trim()}) is not the reported score (${reported.score})` };
     }
     const ended = isoToEpochSec(record.timestamp) ?? isoToEpochSec(p1.timestamp);
-    if (ended == null || !Number.isFinite(reported.endedTs)
-        || Math.abs(ended - reported.endedTs) > LU_RECORD_TIME_TOLERANCE_SEC) {
+    // W116 (v2.254.1) — a sitting the launcher closed at TABLE EXIT (`shutdown`)
+    // is stamped with the exit, while the cabinet reports the game's end as its
+    // last ball. The record's own last player-1 ball is that same instant, so it
+    // counts as the record's end too. Nine plays lost the badge before this
+    // (ChalataLove's Diablo Pinball and Friday the 13th among them, 2026-11-16..20).
+    const lastBall = lastBallEpochSec(p1);
+    const near = (t: number | null) => t != null && Math.abs(t - reported.endedTs) <= LU_RECORD_TIME_TOLERANCE_SEC;
+    if (!Number.isFinite(reported.endedTs) || (!near(ended) && !near(lastBall))) {
         return { ok: false, reason: 'the signed record\'s end is not the reported end' };
     }
     return { ok: true };
+}
+
+/** The timestamp of player 1's last recorded ball, or null when the record lists none. */
+function lastBallEpochSec(p1: Record<string, unknown>): number | null {
+    const balls = p1.balls;
+    if (!Array.isArray(balls) || balls.length === 0) return null;
+    const last = balls[balls.length - 1];
+    return last && typeof last === 'object' ? isoToEpochSec((last as Record<string, unknown>).timestamp) : null;
 }

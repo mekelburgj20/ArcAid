@@ -161,6 +161,34 @@ describe('luRecordSignature — the pure verifier', () => {
         const huge = record({ score: '90071992547409931', startedSec: 1000, endedSec: 1300 });
         expect(crossCheckLuRecord(huge, { score: 90071992547409931, endedTs: 1300 }).ok).toBe(false);
     });
+
+    it('W116: a sitting closed at table exit matches on its last ball, not only on the exit stamp', () => {
+        // Friday the 13th, JP's, 2026-11-20: the record is stamped at the exit
+        // (1400) while the cabinet reports the game's end as its last ball (1300).
+        const base = record({ score: '45343260', startedSec: 1000, endedSec: 1400 });
+        const iso = (s: number) => new Date(s * 1000).toISOString();
+        const rec = {
+            ...base,
+            scores: [{
+                player: 'Player 1', score: '45343260', timestamp: iso(1400),
+                balls: [
+                    { ball: 1, points: '30000000', timestamp: iso(1200) },
+                    { ball: 2, points: '10000000', timestamp: iso(1250) },
+                    { ball: 3, points: '5343260', timestamp: iso(1300.4) },
+                ],
+            }],
+        };
+        expect(crossCheckLuRecord(rec, { score: 45_343_260, endedTs: 1300 })).toEqual({ ok: true });
+        // The exit stamp still matches as before.
+        expect(crossCheckLuRecord(rec, { score: 45_343_260, endedTs: 1400 })).toEqual({ ok: true });
+        // An end that is neither the last ball nor the exit is still another game.
+        expect(crossCheckLuRecord(rec, { score: 45_343_260, endedTs: 1250 }).ok).toBe(false);
+        // And the score must still be exact.
+        expect(crossCheckLuRecord(rec, { score: 8_862_640, endedTs: 1300 }).ok).toBe(false);
+        // A record whose balls carry no timestamps falls back to the exit stamp alone.
+        const noBallTimes = { ...rec, scores: [{ player: 'Player 1', score: '45343260', timestamp: iso(1400), balls: [{ ball: 1, points: '45343260' }] }] };
+        expect(crossCheckLuRecord(noBallTimes, { score: 45_343_260, endedTs: 1300 }).ok).toBe(false);
+    });
 });
 
 describe('SigningKeyService + /api/admin/signing-keys', () => {

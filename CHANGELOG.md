@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.254.1] - 2026-11-20 - A cabinet game that ended at table exit keeps its Launcher-signed badge
+
+W116. When the launcher closes a sitting because the player left the table, it stamps the signed record with the exit
+time, while the cabinet reports the game as ending at its last ball. The two are minutes apart, so Arcaid decided the
+signature belonged to another game: the score counted, but it lost its "Launcher-signed" badge and "Where your plays
+went" said "Signed record covers a different game of this sitting". Nine plays from four players did this between
+2026-11-16 and 2026-11-20, among them ChalataLove's Diablo Pinball and Friday the 13th.
+
+- **Fixed, cabinet plays:** the signed record's last ball now counts as its end, beside the exit time, so the last
+  game of such a sitting is badged. The score must still match exactly, and an earlier game of the same sitting
+  still shows no badge.
+- Plays already recorded keep the answer they got.
+
 ## [2.254.0] - 2026-11-20 - Witness scores are announced like typed ones; the full standings are one click from the rankings card; tied totals share a place
 
 W115, B29, B30, all from GamerDad89 in Mox's Game Room (2026-11-20).
