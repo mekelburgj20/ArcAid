@@ -6,6 +6,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.253.3] - 2026-11-20 - Cabinet plays of "Spider-Man, JP's" and other "X, The" names find their game
+
+W114. Legends Unchained names some tables the way a library shelves them, with "The" or "JP's" moved to the end:
+"Spider-Man, JP's (Original 2018)", "Champion Pub, The (Bally 1998)", "Avengers, JP's The (Original 2019)". The
+catalogue and most rooms write "JP's Spider-Man", "The Champion Pub", "JP's The Avengers". The server compared
+the names word for word, so the two never met: ChalataLove's two plays of "Spider-Man, JP's" were refused as not
+in the Arcaid catalogue (2026-11-18), although "JP's Spider-Man" is in it. 44 of the 377 tables on the Wizard
+list are named this way.
+
+- **Fixed, cabinet plays:** when a table's name ends in ", The", ", A", ", An", ", JP's" or ", JP's The", the
+  server also tries the name with that word moved back to the front, for a room's tournament games and for the
+  Global Scoreboard. A room game called "JP's Spider-Man" now takes a play of "Spider-Man, JP's".
+- Checked against all 377 tables on the Wizard list and the current catalogue: 10 tables that went to the wrong
+  catalogue game, or to none, now find their own (among them JP's The Avengers, JP's Street Fighter II, JP's The
+  Lord of the Rings, The Getaway - High Speed II, The X Files and JP's Foo Fighters). No table moves to a wrong
+  game, and none newly matches two.
+- Not changed: a catalogue game named exactly the way the cabinet writes it (older Wizard entries such as
+  "Addams Family, The") still takes the play first. A name with more than the word after the comma, such as
+  "X Files, The Hannibal Mod", is left as it is. No cabinet update is needed; a play refused before this release
+  stays refused unless the cabinet sends it again.
+
 ## [2.253.2] - 2026-11-20 - Cabinet plays of tables with "&" in their name land again
 
 W113. Legends Unchained's session journal writes "&" in a table name as `\u0026`, and the cabinet passed the
