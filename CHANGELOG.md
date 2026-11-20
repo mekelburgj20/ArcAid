@@ -6,6 +6,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.254.0] - 2026-11-20 - Witness scores are announced like typed ones; the full standings are one click from the rankings card; tied totals share a place
+
+W115, B29, B30, all from GamerDad89 in Mox's Game Room (2026-11-20).
+
+- **Fixed, Arcaid Witness scores:** a score sent by a cabinet or by Castcade landed on the board and nothing else
+  happened: no post in the room's Discord score channel, no pop-up on the live scoreboard, no lobby feed line, no
+  "you've been dethroned" message. A typed score does all of these; the Witness path skipped the step that starts
+  them. It now takes it, so a Witness score is posted to Discord exactly when a typed score of the same rank would
+  be. One play that lands in two tournaments of the same room on the same table is announced once. A play the
+  cabinet sends again (it replays recent plays after a restart or a re-pair) is not announced again, and a host
+  reinstating an over-the-limit play does not announce it.
+- **New, Overall Rankings card:** the card lists the top 10. Its footer now has "Full standings →", which opens the
+  full standings for that ranking: every player, their points and games played. The page already existed, but only
+  the ticker style linked to it. Every card style has the link.
+- **Changed, ties in the overall standings:** players with the same total now share the place, and the next place
+  is skipped: two players on 92 points are both 3rd, and the next player is 5th. Each table's own ranking has worked
+  this way since the Season format. It applies wherever the overall standings show: the cards, the ticker, the full
+  standings page and the season's final Discord post, where a shared first place gives both players gold and a tie
+  for third lists everyone tied. Standings that were already saved, finished seasons included, show the shared places
+  straight away.
+- Not changed: the points each table gives, which tables count, and the order players are listed in.
+
 ## [2.253.3] - 2026-11-20 - Cabinet plays of "Spider-Man, JP's" and other "X, The" names find their game
 
 W114. Legends Unchained names some tables the way a library shelves them, with "The" or "JP's" moved to the end:

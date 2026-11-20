@@ -84,6 +84,9 @@ describe('season end', () => {
         expect(body.embeds[0].title).toBe(`Season Final Standings — ${season.name}`);
         // Alice 50+49 = 99, Bob 49+50 = 99 — both appear, both pinged.
         expect(body.embeds[0].description).toContain('**99** pts');
+        // B30: tied totals share 1st, so both get gold and nobody silver.
+        expect(body.embeds[0].description.match(/🥇/gu)).toHaveLength(2);
+        expect(body.embeds[0].description).not.toContain('🥈');
         expect(body.allowed_mentions.users.sort()).toEqual([ALICE, BOB].sort());
         expect((await lastRun(tournamentId))).toMatchObject({ outcome: 'success', summary: expect.stringContaining('season finished') });
 

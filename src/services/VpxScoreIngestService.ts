@@ -6,6 +6,7 @@ import { normalizeGameName } from '../utils/catalogueUtils.js';
 import { frontFormOf } from '../utils/sortFormName.js';
 import { parseTournamentRules } from '../utils/platformRules.js';
 import { logInfo, logWarn } from '../utils/logger.js';
+import { trackBackground } from '../utils/backgroundTasks.js';
 import type { WitnessDeviceType } from './WitnessService.js';
 import { tournamentFinishedSql } from '../utils/openCard.js';
 import { deviceRoutesTo } from '../utils/witnessRouting.js';
@@ -676,8 +677,11 @@ export class VpxScoreIngestService {
         // could not see the first). A play that is on a board is on Global
         // through that board's fan-out, or not at all.
         const outcomes: Array<VpxIngestResult | HeldRefusal> = [];
+        // W115 — the (room, table) pairs this play has already been announced
+        // for, so two tournaments of one room running the table post once.
+        const announced = new Set<string>();
         for (const target of matched.targets) {
-            outcomes.push(await VpxScoreIngestService.landOn(input, score, playedAt, deviceNames, matched, target));
+            outcomes.push(await VpxScoreIngestService.landOn(input, score, playedAt, deviceNames, matched, target, announced));
         }
         const onABoard = outcomes.some(o => !('finishRefusal' in o) && (o.status === 'ingested' || o.status === 'duplicate'));
         const results: VpxIngestResult[] = [];
@@ -729,6 +733,7 @@ export class VpxScoreIngestService {
     private static async landOn(
         input: VpxScoreInput, score: number, playedAt: string, deviceNames: string[],
         matched: VpxMatchResult & { kind: 'target' }, target: CandidateRow,
+        announced: Set<string>,
     ): Promise<VpxIngestResult | HeldRefusal> {
         const { needles: matchNeedles, routing, provenance } = matched;
         const where = {
@@ -930,6 +935,34 @@ export class VpxScoreIngestService {
             outcome: 'ingested', ...where, integrityMode: mode, verdict: badge,
             scoreHistoryId: id, globalScoreId: fanned?.globalScoreId ?? null,
         });
+
+        // W115 — the ONE score hook every typed path calls: live toast, lobby
+        // feed, dethrone DM, the top-N Discord post (E13), milestones, friends.
+        // This path never called it, so a Witness score was on the board but
+        // silent everywhere else (GamerDad89, Mox 2026-11-20). Only a NEW row
+        // reaches here (a repeat or replay returned above), and the hook ranks
+        // room-wide by table name, so one play announces once per (room,
+        // table) however many of that room's tournaments it landed in. A
+        // Throwdown has no room and no feed. A host's reinstate
+        // (`landReinstated`) is a correction, not a new play, and stays quiet.
+        const roomId = target.game_room_id;
+        const announceKey = roomId ? `${roomId}|${target.name.toLowerCase()}` : null;
+        if (roomId && announceKey && !announced.has(announceKey)) {
+            announced.add(announceKey);
+            trackBackground(
+                import('./LobbyFeedGenerator.js')
+                    .then(({ LobbyFeedGenerator }) => LobbyFeedGenerator.onScoreSubmitted({
+                        gameRoomId: roomId,
+                        gameName: target.name,
+                        username,
+                        score,
+                        discordUserId: input.canonicalUserId,
+                        source: 'vpx',
+                        tournamentId: target.tournament_id ?? null,
+                    }))
+                    .catch(() => {}),
+            );
+        }
 
         logInfo(
             `VPX ingest: ${username} ${score} on "${target.name}" ` +
