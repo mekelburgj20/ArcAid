@@ -436,6 +436,32 @@ describe('VPXS score routing', () => {
         );
     });
 
+    it('decodes a \\u0026 the launcher left in the table name before matching (Attack & Revenge from Mars, W113)', async () => {
+        // LU's journal is Go JSON, which writes "&" as &; the cabinet
+        // passed it on undecoded and every play missed the catalogue row.
+        const game = await seedCatalogue('Attack & Revenge from Mars', 'Original', 2015);
+
+        const res = await request(app).get('/api/witness/score').query({
+            device: DEVICE, token,
+            ...scoreQuery({
+                table: 'Attack \\u0026 Revenge from Mars (Original 2015)',
+                rom: 'afm_113b', slug: 'vpx-attackandrevengefrommars', score: 1746620930,
+            }),
+        });
+
+        expect(res.body).toMatchObject({ status: 'global' });
+        const db = await getDatabase();
+        const row = await db.get<{ global_game_id: string }>(
+            `SELECT global_game_id FROM global_scores ORDER BY rowid DESC LIMIT 1`,
+        );
+        expect(row!.global_game_id).toBe(game);
+        // The trail keeps the name the player would recognise, not the escape.
+        const trail = await db.get<{ table_name: string }>(
+            `SELECT table_name FROM witness_evidence ORDER BY id DESC LIMIT 1`,
+        );
+        expect(trail!.table_name).toBe('Attack & Revenge from Mars (Original 2015)');
+    });
+
     it('says "not in the catalogue" when only the folder slug matched and the launcher year contradicts every row (TRON Classic Neon, 11-17)', async () => {
         // The table sits in `vpx-tronclassic`, so the slug matched both
         // "TRON Classic" rows; the display name matched nothing ("TRON Neon"

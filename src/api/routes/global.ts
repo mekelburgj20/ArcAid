@@ -9,6 +9,7 @@ import { parseWitnessEvidence } from '../../utils/sanctionedRules.js';
 import { parsePlayDevice } from '../../services/VpxScoreIngestService.js';
 import { parseBallPoints } from '../../utils/ballPoints.js';
 import { parseQuitEvidence } from '../../utils/quitEvidence.js';
+import { deviceNameParam, optionalDeviceNameParam } from '../../utils/deviceText.js';
 import { parseForwardedRecord } from '../../utils/luRecordSignature.js';
 import { isReleaseVersion } from '../../utils/witnessVersion.js';
 import { WITNESS_LOG_MAX_BYTES } from '../../services/WitnessLogService.js';
@@ -650,7 +651,7 @@ router.get('/witness/report', witnessIngestLimiter, async (req, res) => {
         const device = typeof req.query.device === 'string' ? req.query.device : '';
         const token = (typeof req.query.token === 'string' && req.query.token)
             || (typeof req.headers['x-witness-token'] === 'string' ? req.headers['x-witness-token'] as string : '');
-        const table = typeof req.query.table === 'string' ? req.query.table : '';
+        const table = deviceNameParam(req.query.table);
         const launchTs = Number(req.query.launch);
         const exitTs = req.query.exit !== undefined ? Number(req.query.exit) : null;
         const durationSec = req.query.dur !== undefined ? Number(req.query.dur) : null;
@@ -1004,8 +1005,8 @@ router.get('/witness/score', witnessIngestLimiter, async (req, res) => {
         const result = await WitnessService.recordVpxScore({
             atgamesUniqueId: device,
             token,
-            tableName: typeof req.query.table === 'string' ? req.query.table : '',
-            rom: typeof req.query.rom === 'string' ? req.query.rom : null,
+            tableName: deviceNameParam(req.query.table),
+            rom: optionalDeviceNameParam(req.query.rom),
             slug: typeof req.query.slug === 'string' ? req.query.slug : null,
             score: Number(req.query.score),
             startedTs: Number(req.query.started),
@@ -1134,8 +1135,8 @@ router.get('/witness/attempt', witnessIngestLimiter, async (req, res) => {
         const result = await WitnessService.recordAttempt({
             atgamesUniqueId: device,
             token,
-            tableName: typeof req.query.table === 'string' ? req.query.table : '',
-            rom: typeof req.query.rom === 'string' ? req.query.rom : null,
+            tableName: deviceNameParam(req.query.table),
+            rom: optionalDeviceNameParam(req.query.rom),
             slug: typeof req.query.slug === 'string' ? req.query.slug : null,
             startedTs: Number(req.query.started),
             key: typeof req.query.key === 'string' ? req.query.key : '',
@@ -1184,8 +1185,8 @@ router.get('/witness/attempt-start', witnessIngestLimiter, async (req, res) => {
         const result = await WitnessService.startAttemptsFromDevice({
             atgamesUniqueId: device,
             token,
-            tableName: typeof req.query.table === 'string' ? req.query.table : '',
-            rom: typeof req.query.rom === 'string' ? req.query.rom : null,
+            tableName: deviceNameParam(req.query.table),
+            rom: optionalDeviceNameParam(req.query.rom),
             slug: typeof req.query.slug === 'string' ? req.query.slug : null,
             // Only `vps_game` matters (matching prefers it), read the way the
             // score and attempt calls read it.

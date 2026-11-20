@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.253.2] - 2026-11-20 - Cabinet plays of tables with "&" in their name land again
+
+W113. Legends Unchained's session journal writes "&" in a table name as `\u0026`, and the cabinet passed the
+name on as it was. Every play of "Attack & Revenge from Mars (Original 2015)" reached the server as
+`Attack \u0026 Revenge from Mars (Original 2015)`, did not match the catalogue's "Attack & Revenge from Mars",
+and was refused as not in the Arcaid catalogue (ChalataLove, 2026-11-18).
+
+- **Fixed, cabinet plays:** the server turns `\u0026` and every other `\uXXXX` escape back into its character in
+  the table name and ROM a device sends, on the score, attempt, Start attempts and session report calls, before
+  matching. The play lands, and "Where your plays went" and the activity log show "&".
+- No cabinet update is needed. A play refused before this release stays refused unless the cabinet sends it
+  again.
+
 ## [2.253.1] - 2026-11-18 - The product is spelled Arcaid in code comments and the working docs
 
 Spelling only. Code comments and the working docs (CLAUDE.md, WORK.md, the rule and command files, two design
