@@ -71,6 +71,21 @@ export const RANK_METHOD_INFO: Record<RankMethod, { label: string; description: 
     },
 };
 
+/**
+ * B30 (v2.254.0) — overall places are COMPETITION ranks: equal totals share
+ * the place and the next distinct total skips past them (1, 2, 3, 3, 5), the
+ * rule the per-game placement has followed since migration 181. Takes rows
+ * already sorted best-first (either direction: only equality matters) and
+ * rewrites `rank` in place; the row order is kept. Returns the same array.
+ */
+export function assignCompetitionRanks<T extends { rank: number; total_points: number }>(rows: T[]): T[] {
+    rows.forEach((row, i) => {
+        const prev = rows[i - 1];
+        row.rank = prev && Number(prev.total_points) === Number(row.total_points) ? prev.rank : i + 1;
+    });
+    return rows;
+}
+
 export class RankingService {
     /**
      * In-flight ranking computations, keyed by group id — v2.74.0 (S24.3).
@@ -570,8 +585,7 @@ export class RankingService {
             results.sort((a, b) => b.total_points - a.total_points);
         }
 
-        // Assign ranks
-        results.forEach((r, i) => { r.rank = i + 1; });
+        assignCompetitionRanks(results);
 
         // Cache results with a snapshot of the data watermark. Subsequent
         // reads compare the live watermark to this snapshot and invalidate
@@ -611,7 +625,10 @@ export class RankingService {
             if (group) {
                 const currentWatermark = await this.computeDataWatermark(group);
                 if (currentWatermark === cached.data_watermark) {
-                    return JSON.parse(cached.rankings);
+                    // B30 — re-ranked on read: a cache written before 2.254.0
+                    // holds row-position ranks, and a finished season's data
+                    // never changes, so its cache would never be rewritten.
+                    return assignCompetitionRanks(JSON.parse(cached.rankings));
                 }
                 // Watermark mismatch — reuse the just-computed watermark so the
                 // recompute below doesn't compute it a second time (S1).

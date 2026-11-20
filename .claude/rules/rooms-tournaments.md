@@ -76,6 +76,7 @@ Loads when you touch room membership/join policy, the tournament rotation engine
 ## Rankings
 - **Ranking-group cache watermark** (v2.10.1, ADR 0013): `ranking_groups_cache` self-invalidates via a fingerprint over indexed columns — `(eligible_games_count, score_count, score_sum, MAX(end_date), MAX(start_date))` for the group's tournaments. `RankingService.getRankings` recomputes the watermark on every read; a mismatch with the stored snapshot triggers silent recompute.
 - **No mutation code path needs to call `RankingService.invalidate*()`** for score / game-status changes — the data tells us when it's stale. The manual "Recompute" admin button is a diagnostic escape hatch, not load-bearing. `RankingService.update()` (config changes, not data changes) is the one path that still calls `invalidate()` directly.
+- **Overall places are competition ranks (B30, v2.254.0):** equal totals share the place and the next total skips (1, 2, 3, 3, 5), like the per-game placement since migration 181. `assignCompetitionRanks` runs in `computeRankings` AND on the cached read in `getRankings` (a pre-2.254.0 cache, and a finished season's that is never rewritten, hold row-position ranks). Anything that hands out places reads `rank`, never the array index: the season final post takes `rank <= 3` and `medals[rank - 1]`.
 
 ## Room-admin observability and ops
 - **`GET /:roomId/admin/health` aggregates four things:**

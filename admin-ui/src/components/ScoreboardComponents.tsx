@@ -1047,7 +1047,7 @@ function TournamentChips({ tournaments, compact = false, justify = 'center' }: {
   );
 }
 
-export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle, showcaseThemeName, qrTopPad = 0, rankingsStyle = 'match' }: {
+export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle, showcaseThemeName, qrTopPad = 0, rankingsStyle = 'match', slug }: {
   group: RankingGroupData['group'];
   rankings: RankingGroupData['rankings'];
   cardOpacity?: number;
@@ -1059,8 +1059,24 @@ export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle
    *  Other values pick a structurally distinct layout that still borrows the
    *  active showcase theme tokens (colors, fonts) for cohesion. */
   rankingsStyle?: RankingsCardStyle;
+  /** B29 (v2.254.0) — room slug for the footer's "Full standings" link to
+   *  `/:slug/rankings/:groupId`. Omitted → no link (previews with no room). */
+  slug?: string;
 }) {
   const methodInfo = METHOD_LABELS[group.rank_method] || { label: group.rank_method, scoreLabel: 'Score' };
+  // B29 — the card shows the top RANKINGS_TOP_N; the full list (every player,
+  // games played, player links) is `RankingsFullStandings`. Before this only
+  // the ticker style linked there, so a card-style board had no way in
+  // (GamerDad89, Mox 2026-11-20). Same words + arrow as a game card's
+  // "Full Leaderboard" link, in every card style's footer.
+  const fullStandingsLink = slug && rankings.length > 0 ? (
+    <Link
+      to={`/${slug}/rankings/${group.id}`}
+      className="text-neon-cyan/70 hover:text-neon-cyan no-underline transition-colors whitespace-nowrap"
+    >
+      Full standings &rarr;
+    </Link>
+  ) : null;
   const showcaseTheme = scoreboardStyle === 'showcase'
     ? SHOWCASE_THEMES[showcaseThemeName || DEFAULT_SHOWCASE_THEME] ?? SHOWCASE_THEMES[DEFAULT_SHOWCASE_THEME]
     : undefined;
@@ -1258,6 +1274,7 @@ export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle
               position: 'relative',
             }}>
               {group.name}
+              {fullStandingsLink && <div style={{ marginTop: 3, letterSpacing: '0.12em' }}>{fullStandingsLink}</div>}
             </div>
           </div>
       );
@@ -1339,8 +1356,13 @@ export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle
               letterSpacing: '0.12em',
               textTransform: 'uppercase',
               color: 'var(--color-faint)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: '2px 8px',
             }}>
-              {rankings.length} player{rankings.length !== 1 ? 's' : ''} · {methodInfo.label}
+              {fullStandingsLink}
+              <span>{rankings.length} player{rankings.length !== 1 ? 's' : ''} · {methodInfo.label}</span>
             </div>
           </div>
       );
@@ -1452,8 +1474,13 @@ export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle
               textTransform: 'uppercase',
               color: 'var(--color-faint)',
               position: 'relative',
+              display: 'flex',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: '2px 8px',
             }}>
-              {methodInfo.label} · {rankings.length}p
+              {fullStandingsLink}
+              <span>{methodInfo.label} · {rankings.length}p</span>
             </div>
           </div>
       );
@@ -1510,8 +1537,9 @@ export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle
             <TournamentChips tournaments={group.tournaments} />
           </div>
           <div className="flex-1">{rankingRows(`1px solid ${border}22`)}</div>
-          <div className="px-3 py-2 text-center relative" style={{ borderTop: `1px solid ${border}33`, fontSize: 10, color: 'var(--color-faint)' }}>
-            {rankings.length} player{rankings.length !== 1 ? 's' : ''} &middot; {methodInfo.label}
+          <div className={`px-3 py-2 relative flex flex-wrap gap-x-2 ${fullStandingsLink ? 'justify-between' : 'justify-center'}`} style={{ borderTop: `1px solid ${border}33`, fontSize: 10, color: 'var(--color-faint)' }}>
+            {fullStandingsLink}
+            <span>{rankings.length} player{rankings.length !== 1 ? 's' : ''} &middot; {methodInfo.label}</span>
           </div>
         </div>
       </div>
@@ -1555,8 +1583,9 @@ export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle
             <TournamentChips tournaments={group.tournaments} justify="flex-start" />
           </div>
           <div className="flex-1">{rankingRows('1px solid rgba(var(--border-rgb, 128,128,128), 0.1)')}</div>
-          <div className="px-3 py-2 text-center text-[10px] text-faint relative" style={{ borderTop: '1px solid rgba(var(--border-rgb, 128,128,128), 0.1)' }}>
-            {rankings.length} player{rankings.length !== 1 ? 's' : ''} &middot; {methodInfo.label}
+          <div className={`px-3 py-2 text-[10px] text-faint relative flex flex-wrap gap-x-2 ${fullStandingsLink ? 'justify-between' : 'justify-center'}`} style={{ borderTop: '1px solid rgba(var(--border-rgb, 128,128,128), 0.1)' }}>
+            {fullStandingsLink}
+            <span>{rankings.length} player{rankings.length !== 1 ? 's' : ''} &middot; {methodInfo.label}</span>
           </div>
         </div>
       </div>
@@ -1585,8 +1614,9 @@ export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle
           <TournamentChips tournaments={group.tournaments} />
         </div>
         <div className="flex-1 relative">{rankingRows('1px solid rgba(var(--border-rgb, 128,128,128), 0.1)')}</div>
-        <div className="border-t border-border/30 px-3 py-2 text-center text-[10px] text-faint relative">
-          {rankings.length} player{rankings.length !== 1 ? 's' : ''} &middot; {methodInfo.label}
+        <div className={`border-t border-border/30 px-3 py-2 text-[10px] text-faint relative flex flex-wrap gap-x-2 ${fullStandingsLink ? 'justify-between' : 'justify-center'}`}>
+          {fullStandingsLink}
+          <span>{rankings.length} player{rankings.length !== 1 ? 's' : ''} &middot; {methodInfo.label}</span>
         </div>
       </div>
     </div>
@@ -1607,9 +1637,11 @@ interface RankingsProps {
    *  ScoreboardSurface's `renderUnderCard` for game cards. Undefined on the
    *  public page (no admin chrome); the admin Leaderboard page supplies it. */
   renderUnderCard?: (group: RankingGroupData['group']) => ReactNode;
+  /** B29 — forwarded to each card for its "Full standings" link. */
+  slug?: string;
 }
 
-export function RankingsColumn({ rankingGroups, cardOpacity, scoreboardStyle, showcaseThemeName, sticky, rankingsStyle, renderUnderCard }: RankingsProps) {
+export function RankingsColumn({ rankingGroups, cardOpacity, scoreboardStyle, showcaseThemeName, sticky, rankingsStyle, renderUnderCard, slug }: RankingsProps) {
   // Match Showcase card paddingTop so Rankings aligns with card frames, not identifier images
   const topPad = scoreboardStyle === 'showcase' ? 42 : 0;
   // Match width to the current card style (same for all rankings styles — they fill the slot)
@@ -1620,7 +1652,7 @@ export function RankingsColumn({ rankingGroups, cardOpacity, scoreboardStyle, sh
       <div className="flex flex-col gap-5">
         {rankingGroups.map(({ group, rankings }) => (
           <div key={group.id} className={renderUnderCard ? 'flex flex-col min-w-0' : undefined}>
-            <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={scoreboardStyle} showcaseThemeName={showcaseThemeName} rankingsStyle={rankingsStyle} />
+            <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={scoreboardStyle} showcaseThemeName={showcaseThemeName} rankingsStyle={rankingsStyle} slug={slug} />
             {renderUnderCard?.(group)}
           </div>
         ))}
@@ -1629,7 +1661,7 @@ export function RankingsColumn({ rankingGroups, cardOpacity, scoreboardStyle, sh
   );
 }
 
-export function RankingsRow({ rankingGroups, cardOpacity, scoreboardStyle, showcaseThemeName, rankingsStyle, renderUnderCard }: RankingsProps) {
+export function RankingsRow({ rankingGroups, cardOpacity, scoreboardStyle, showcaseThemeName, rankingsStyle, renderUnderCard, slug }: RankingsProps) {
   const cardW = scoreboardStyle === 'showcase' || scoreboardStyle === 'minimal' ? 380
     : scoreboardStyle === 'banner' ? 280 : 320;
   return (
@@ -1637,7 +1669,7 @@ export function RankingsRow({ rankingGroups, cardOpacity, scoreboardStyle, showc
       <div className="flex gap-5 overflow-x-auto pb-2">
         {rankingGroups.map(({ group, rankings }) => (
           <div key={group.id} className="flex-shrink-0" style={{ width: cardW }}>
-            <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={scoreboardStyle} showcaseThemeName={showcaseThemeName} rankingsStyle={rankingsStyle} />
+            <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={scoreboardStyle} showcaseThemeName={showcaseThemeName} rankingsStyle={rankingsStyle} slug={slug} />
             {renderUnderCard?.(group)}
           </div>
         ))}

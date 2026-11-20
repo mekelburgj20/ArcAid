@@ -460,11 +460,14 @@ export class TournamentEngine {
         logInfo(`Season finished: ${tournamentRow.name} (${tournamentRow.season_table_count} tables).`);
         if (!channelId) return;
 
-        let top: Array<{ discord_user_id: string; iscored_username: string; display_name?: string | null; total_points: number }> = [];
+        let top: Array<{ rank: number; discord_user_id: string; iscored_username: string; display_name?: string | null; total_points: number }> = [];
         if (tournamentRow.season_ranking_group_id) {
             try {
                 const { RankingService } = await import('../services/RankingService.js');
-                top = (await RankingService.getRankings(tournamentRow.season_ranking_group_id)).slice(0, 3);
+                // B30 — the podium is every player PLACED 1st-3rd, so a tie for
+                // 3rd names both and a tie for 1st gives two golds, never a
+                // silver for whoever sorted second.
+                top = (await RankingService.getRankings(tournamentRow.season_ranking_group_id)).filter(r => r.rank <= 3);
             } catch (err) {
                 logError(`Season '${tournamentRow.name}': could not load final standings`, err);
             }
@@ -472,12 +475,11 @@ export class TournamentEngine {
         const medals = ['🥇', '🥈', '🥉'];
         const pingUserIds: string[] = [];
         const lines: string[] = [];
-        for (let i = 0; i < top.length; i++) {
-            const entry = top[i]!;
+        for (const entry of top) {
             const label = entry.display_name || entry.iscored_username || 'Unknown';
             const mention = await resolveUserMention(entry.discord_user_id, label, tournamentRow.game_room_id);
             pingUserIds.push(...mention.pingIds);
-            lines.push(`${medals[i]} ${mention.text} — **${entry.total_points.toLocaleString()}** pts`);
+            lines.push(`${medals[entry.rank - 1]} ${mention.text} — **${entry.total_points.toLocaleString()}** pts`);
         }
         const desc = `**${tournamentRow.name}** is complete after ${tournamentRow.season_table_count} table${tournamentRow.season_table_count === 1 ? '' : 's'}.`
             + (lines.length ? `\n\n${lines.join('\n')}` : '\n\nNo scores were recorded this season.')

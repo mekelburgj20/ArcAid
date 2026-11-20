@@ -14,7 +14,8 @@ interface ScoreSubmittedParams {
     username: string;
     score: number;
     discordUserId?: string;
-    source: 'community' | 'tournament' | 'sync';
+    /** `'vpx'` = an Arcaid Witness play (cabinet or Castcade), W115. */
+    source: 'community' | 'tournament' | 'sync' | 'vpx';
     /**
      * v2.155.2 — the tournament this score was ACTUALLY written to, when the
      * caller already resolved one (`CommunityScoreService.submitScore` passes

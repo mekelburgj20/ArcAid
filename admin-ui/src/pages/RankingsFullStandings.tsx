@@ -6,8 +6,9 @@ import { PlayerAvatar, playerName, METHOD_LABELS } from '../components/Scoreboar
 import { roomFetch } from '../lib/roomFetch';
 
 /**
- * `/:slug/rankings/:groupId` — the full-standings destination page for the
- * "ticker" SCOREBOARD_RANKINGS_STYLE treatment (RTX demo request). The
+ * `/:slug/rankings/:groupId` — the full-standings destination page, linked
+ * from every ranking card's "Full standings" footer (B29, v2.254.0) and from
+ * the "ticker" SCOREBOARD_RANKINGS_STYLE segments (RTX demo request). The
  * ticker/card treatments on the Scoreboard only ever show the top N
  * standings (RANKINGS_TOP_N=10 on cards, fewer on the ticker); this page is
  * the click-through target that shows every ranked player, no truncation.
