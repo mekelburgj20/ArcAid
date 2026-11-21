@@ -99,6 +99,7 @@ Each line is the rule; the named rule file has the detail and the why.
 | 2026-11-01 | "Skip the CI tests" = `[skip tests]` direct to main | working agreement |
 | 2026-11-09 | No "unwitnessed" word: public integrity marks are ✓ and ⚠ only | ADR 0038, `witness.md` |
 | 2026-11-10 | Round timing is the runner's (Room Admin → Activity), never on public boards or Discord | ADR 0038, `events.md` |
+| 2026-11-19 | No map workaround on players' cabinets: map fixes go upstream (tomlogic → LU package); a table not fixed in time is swapped | ADR 0041, `witness.md` |
 | ADR 0018 | Personal rooms were REJECTED; Throwdowns are room-less | `events.md` |
 | ADR 0034 | The room owner decides whether a room is listed | `rooms-tournaments.md` |
 
