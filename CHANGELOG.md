@@ -6,6 +6,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.256.0] - 2026-11-20 - Account Settings is wide on a desktop, grouped by colour, in the Arcaid Witness look
+
+G20. On a full-screen desktop browser Account Settings was a phone-width column down the middle of the
+screen. Owner request: make it wide, give the whole page the look of the Arcaid Witness panel, and organise it.
+
+- **Changed, five groups, each in its own colour:** Personal (cyan: Appearance, Profile), Scores and tables
+  (pink: Global Scoreboard, Linked iScored aliases, My Tables, My Throwdowns), Accounts and devices (violet:
+  Connected accounts, AtGames cabinet account, Arcaid Witness devices), Notifications (white: What to tell me
+  about, Browser push, Discord DMs) and Danger zone (red: Delete my account). A group has a title, one line
+  saying what is in it, and its colour on the label, edge and top bar of each of its panels.
+- **New, a jump list:** five buttons, one per group in its colour, that scroll to the group. Beside the settings
+  and always in view on a wide screen; a row of buttons at the top on a laptop or a phone.
+- **Changed, layout:** up to 1600 px wide (the same cap as the results pages). Panels sit two to a row, and the
+  two in a row are the same height. Arcaid Witness devices is full width with the devices on the left and
+  "Where your plays went" on the right. The notification switches run in columns.
+- **Changed, look:** dark Arcaid Witness panels and fonts on a dark background with the Arcaid logo behind it
+  (not the Arcaid Witness picture). Saved and Available are cyan; a name that is not available and other
+  problems are red. Nothing green or yellow.
+- **Changed:** the page always wears this look, whatever theme you use. Appearance and My theme still change the
+  rest of Arcaid, and a line under them says so.
+- **Changed, order:** Appearance and Profile first, then scores, then accounts and devices, then notifications.
+  My Tables moved up beside the iScored aliases; My Throwdowns moved below it. Browser push and Discord DMs are
+  their own panels. No setting was added or removed, and every control does what it did before.
+- Back and Home are at the top right of the header.
+
 ## [2.255.0] - 2026-11-20 - A cabinet play is recognised by the Wizard folder its table is installed in
 
 W110. Arcaid matched a cabinet play to a table by name: the name the launcher shows, then the ROM, then the name of

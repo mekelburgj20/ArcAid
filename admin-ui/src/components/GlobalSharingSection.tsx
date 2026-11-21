@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { playerApi } from '../lib/playerApi';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import GlobalPrivateScores from './GlobalPrivateScores';
+import SettingsPanel from './SettingsPanel';
 
 /**
  * "Share my scores to the Global Scoreboard" (v2.137.0).
@@ -67,8 +68,7 @@ export default function GlobalSharingSection() {
     if (share === null) return null;
 
     return (
-        <section id="global-sharing" className="scroll-mt-4">
-            <h2 className="text-sm font-medium mb-2">Global Scoreboard</h2>
+        <SettingsPanel id="global-sharing" title="Global Scoreboard">
             <label className="flex items-center gap-2 text-sm cursor-pointer">
                 <input
                     type="checkbox" checked={share} disabled={saving}
@@ -90,6 +90,6 @@ export default function GlobalSharingSection() {
             </p>
             <GlobalPrivateScores />
             {error && <p className="text-xs text-neon-magenta mt-2">{error}</p>}
-        </section>
+        </SettingsPanel>
     );
 }

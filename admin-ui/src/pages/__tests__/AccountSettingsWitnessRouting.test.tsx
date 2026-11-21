@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import AccountSettings from '../AccountSettings';
 import { ViewerAuthProvider } from '../../contexts/ViewerAuthContext';
@@ -178,16 +178,26 @@ describe('AccountSettings — Witness cabinet score routing', () => {
         stubFetch({ device: { watching: 'no', deviceType: 'atgames' } });
         const { unmount } = renderPage();
         const section = await screen.findByTestId('witness-section');
-        // A kit panel whose inside restates the dark defaults (sb-theme-scope) and maps the
-        // site colour tokens onto the kit (aw-island), so a light site theme cannot wash it out.
+        // A kit panel on a page whose root restates the dark defaults (sb-theme-scope) and maps
+        // the site colour tokens onto the kit (aw-island), so a light site theme cannot wash it
+        // out. G20: the whole page wears the kit, so the two classes sit on the page root.
         expect(section.className).toContain('aw-panel');
-        expect(section.className).toContain('sb-theme-scope');
-        expect(section.className).toContain('aw-island');
+        expect(section.closest('.aw-screen.sb-theme-scope.aw-island')).toBeTruthy();
+        expect(section.closest('.aw-layout.aw-web--wide')).toBeTruthy();
+        // The page is the ARCAID logo's, not the Witness picture's, and the panel sits in the
+        // "Accounts and devices" group, whose chip in the jump list wears the same colour class.
+        expect(section.closest('.aw-screen--arcaid')).toBeTruthy();
+        const group = section.closest('section.aw-group')!;
+        expect(group.id).toBe('group-devices');
+        expect(group.className).toContain('aw-group--violet');
+        expect(within(group).getByRole('heading', { level: 2, name: 'Accounts and devices' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Accounts and devices' }).className).toContain('aw-group--violet');
+        expect(screen.getAllByRole('button', { name: /^(Personal|Scores and tables|Accounts and devices|Notifications|Danger zone)$/ })).toHaveLength(5);
         const heading = screen.getByRole('heading', { name: 'Arcaid Witness devices' });
         expect(heading.className).toContain('aw-label');
         expect(heading.querySelector('img')?.getAttribute('src')).toBe('/aw-theme/assets/logo/arcaid-witness-badge-256.png');
         expect(Array.from(document.head.querySelectorAll('link[data-aw-theme]')).map(l => l.getAttribute('href'))).toEqual([
-            '/aw-theme/aw-theme.css?v=2', '/aw-theme/aw-theme-ext.css?v=2', '/aw-theme/aw-web.css?v=2',
+            '/aw-theme/aw-theme.css?v=3', '/aw-theme/aw-theme-ext.css?v=3', '/aw-theme/aw-web.css?v=3',
         ]);
         // Status words carry the kit roles: a device that is not watching is a red problem.
         expect((await screen.findByText(/Not watching./)).className).toContain('text-rose-400');
