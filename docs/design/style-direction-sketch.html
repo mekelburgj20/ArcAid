@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arcaid direction board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:ital,wght@1,600;1,700&family=Doto:wght@900&family=Orbitron:wght@900&display=swap" rel="stylesheet">
+<style>
+/* Brand constants: lifted from the live logo and the Global Scoreboard title. They do not
+   change with the theme. */
+:root {
+  --slant: -11deg;
+  --plate: linear-gradient(180deg, #4A1D82 0%, #2A0C52 46%, #1B0638 62%, #3A1468 100%);
+  --chrome: linear-gradient(180deg, #F6FCFF 0%, #CBE7F8 36%, #7FB2D9 47%, #142E4B 51%, #9FCBEA 55%, #FFFFFF 64%, #6FA5CF 100%);
+  --pink: #FF2E63;
+  --dmd: #FF9B21;
+  --dmd-glass: #0B0508;
+}
+/* Theme tokens: these are what a room theme supplies. */
+:root {
+  --ground: #0E0718; --surface: #1A0E2E; --raised: #25153F; --line: #3D2A63;
+  --ink: #F3EEFF; --muted: #B6AAD0;
+  --g-cyan: #5BC8F5; --g-pink: #FF4F7E; --g-violet: #B08CFF; --g-gold: #FFC53D; --g-red: #FF6247;
+  --on-pink: #1B0638; --mark-opacity: .10;
+}
+:root.light {
+  --ground: #ECE8F3; --surface: #FFFFFF; --raised: #F4F0FA; --line: #CDC3E0;
+  --ink: #1B1030; --muted: #584C70;
+  --g-cyan: #0B7F95; --g-pink: #D0124A; --g-violet: #6B3FD4; --g-gold: #946200; --g-red: #C2331C;
+  --on-pink: #FFFFFF; --mark-opacity: .07;
+}
+* { box-sizing: border-box; }
+html { background: var(--ground); }
+body {
+  margin: 0; color: var(--ink); background: var(--ground);
+  font: 400 16px/1.5 "Barlow", system-ui, sans-serif;
+}
+body::before {
+  content: ""; position: fixed; inset: 0; pointer-events: none;
+  background: url("../../admin-ui/public/arcaid-logo-v2.png") 78% 46% / min(70vmin, 760px) no-repeat;
+  opacity: var(--mark-opacity);
+}
+.wrap { position: relative; max-width: 1600px; margin: 0 auto; padding: 28px 40px 80px; }
+
+/* ── header: the one loud thing on a page ── */
+.top { display: flex; align-items: center; gap: 28px; margin-bottom: 44px; }
+.top img { height: 96px; width: auto; margin: -14px -8px -14px -14px; }
+.plate { position: relative; isolation: isolate; padding: 10px 40px 12px; margin: 0; }
+.plate::before {
+  content: ""; position: absolute; inset: 0; z-index: -1; transform: skewX(var(--slant));
+  background: var(--plate); border-radius: 8px;
+  box-shadow: 0 10px 28px rgba(42, 12, 82, .45), inset 0 1px 0 rgba(214, 164, 255, .28);
+}
+.plate span {
+  display: block; font: italic 900 34px/1.14 "Orbitron", sans-serif; white-space: nowrap;
+  background: var(--chrome); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 2px 2px rgba(10, 16, 25, .5));
+  padding-right: .08em;
+}
+.top nav { margin-left: auto; display: flex; gap: 12px; }
+
+/* ── the slant, used as a shape: ticks, buttons, lamps ── */
+.tick { display: inline-block; flex: none; width: .42em; height: .95em; background: var(--g); transform: skewX(var(--slant)); border-radius: 1px; }
+.btn {
+  position: relative; isolation: isolate; border: 0; background: none; cursor: pointer;
+  padding: 9px 24px; color: var(--ink); font: 600 15px/1.3 "Barlow", sans-serif;
+}
+.btn::before {
+  content: ""; position: absolute; inset: 0; z-index: -1; transform: skewX(var(--slant));
+  background: var(--raised); border: 1px solid var(--line); border-radius: 3px;
+}
+.btn--primary { color: var(--on-pink); }
+.btn--primary::before { background: var(--pink); border-color: var(--pink); }
+:root.light .btn--primary::before { background: #D0124A; border-color: #D0124A; }
+.btn--quiet::before { background: transparent; }
+.lamp { display: inline-flex; align-items: center; gap: 10px; font-weight: 500; }
+.lamp i { width: 9px; height: 15px; transform: skewX(var(--slant)); border-radius: 1px; border: 1.5px solid var(--muted); }
+.lamp--on i { background: var(--g-cyan); border-color: var(--g-cyan); box-shadow: 0 0 10px var(--g-cyan); }
+.lamp--bad i { background: var(--g-red); border-color: var(--g-red); box-shadow: 0 0 10px var(--g-red); }
+:root.light .lamp i { box-shadow: none; }
+
+/* ── layout ── */
+.page { display: grid; grid-template-columns: 220px minmax(0, 1fr); column-gap: 56px; align-items: start; }
+.jump { position: sticky; top: 28px; display: flex; flex-direction: column; gap: 2px; }
+.jump a {
+  position: relative; isolation: isolate; display: flex; align-items: center; gap: 12px;
+  padding: 9px 14px; color: var(--muted); text-decoration: none; font: 600 16px/1.3 "Barlow", sans-serif;
+}
+.jump a[aria-current] { color: var(--ink); }
+.jump a[aria-current]::before { content: ""; position: absolute; inset: 0; z-index: -1; transform: skewX(var(--slant)); background: var(--raised); border-radius: 3px; }
+.groups { display: flex; flex-direction: column; gap: 52px; min-width: 0; }
+.group > header { margin-bottom: 18px; }
+.group h2 {
+  display: flex; align-items: center; gap: 14px; margin: 0;
+  font: italic 700 34px/1.1 "Barlow Condensed", sans-serif; letter-spacing: .005em;
+}
+.group h2::after { content: ""; flex: 1; height: 2px; background: var(--g); transform: skewX(-45deg); transform-origin: right; }
+.group header p { margin: 4px 0 0 28px; color: var(--muted); }
+.cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 22px 24px 24px; min-width: 0; }
+.panel--wide { grid-column: 1 / -1; }
+.panel h3 { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; font: 600 19px/1.25 "Barlow", sans-serif; }
+.panel p { margin: 0 0 12px; color: var(--muted); font-size: 15px; max-width: 68ch; }
+.panel label { display: block; margin: 14px 0 6px; font-weight: 600; font-size: 15px; }
+.field {
+  width: 100%; padding: 10px 12px; color: var(--ink); background: var(--ground);
+  border: 1px solid var(--line); border-radius: 3px; font: 400 16px/1.3 "Barlow", sans-serif;
+}
+.seg { display: inline-flex; gap: 4px; padding-left: 4px; }
+.row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.avatar { flex: none; width: 60px; height: 60px; border-radius: 50%; display: grid; place-items: center; background: var(--raised); border: 1px solid var(--line); font: 600 22px "Barlow", sans-serif; }
+
+/* ── scores: a pinball display, because that is what a score looks like on the machine ── */
+.dmd {
+  display: inline-block; padding: 3px 12px 4px; background: var(--dmd-glass); color: var(--dmd);
+  font: 900 26px/1.15 "Doto", "Courier New", monospace; letter-spacing: .03em;
+  border-radius: 2px; text-shadow: 0 0 9px rgba(255, 155, 33, .6);
+  font-variant-numeric: tabular-nums;
+}
+.dmd--lead { font-size: 40px; padding: 6px 16px 7px; }
+.board { display: grid; gap: 0; }
+.board > div { display: grid; grid-template-columns: 2.4rem minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.board > div:last-child { border-bottom: 0; }
+.board b { font: italic 700 22px "Barlow Condensed", sans-serif; color: var(--muted); }
+.board > div:first-child b { color: var(--g-pink); }
+.panel .table-name { font: italic 700 32px/1.1 "Barlow Condensed", sans-serif; margin: 4px 0 2px; color: var(--ink); }
+.device { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 20px; padding: 14px 0; border-bottom: 1px solid var(--line); }
+.device:last-child { border-bottom: 0; padding-bottom: 0; }
+.device strong { font-weight: 600; font-size: 17px; }
+.device small { color: var(--muted); font-size: 14px; grid-column: 1 / -1; }
+.hazard { background: repeating-linear-gradient(calc(90deg + var(--slant) * -1 - 90deg + 101deg), var(--g-red) 0 10px, transparent 10px 22px); height: 8px; margin: -22px -24px 18px; border-radius: 3px 3px 0 0; opacity: .85; }
+.parts-note { margin: 70px 0 18px; padding-top: 22px; border-top: 1px solid var(--line); color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <img src="../../admin-ui/public/arcaid-logo-v2.png" alt="Arcaid">
+    <h1 class="plate"><span>Account Settings</span></h1>
+    <nav><button class="btn btn--quiet">Back</button><button class="btn btn--quiet">Home</button></nav>
+  </div>
+
+  <div class="page">
+    <nav class="jump" aria-label="Sections">
+      <a href="#" aria-current="true" style="--g: var(--g-cyan)"><span class="tick"></span>Personal</a>
+      <a href="#" style="--g: var(--g-pink)"><span class="tick"></span>Scores and tables</a>
+      <a href="#" style="--g: var(--g-violet)"><span class="tick"></span>Accounts and devices</a>
+      <a href="#" style="--g: var(--g-gold)"><span class="tick"></span>Notifications</a>
+      <a href="#" style="--g: var(--g-red)"><span class="tick"></span>Danger zone</a>
+    </nav>
+
+    <div class="groups">
+      <section class="group" style="--g: var(--g-cyan)">
+        <header><h2><span class="tick"></span>Personal</h2><p>Your name and picture, and how Arcaid looks to you.</p></header>
+        <div class="cols">
+          <div class="panel">
+            <h3>Appearance</h3>
+            <div class="seg"><button class="btn btn--primary">Dark</button><button class="btn">Light</button><button class="btn">Auto</button></div>
+            <p style="margin-top: 12px">Auto follows each room's theme and your device setting on global pages.</p>
+            <label>My theme</label>
+            <select class="field"><option>Use each room's default</option></select>
+          </div>
+          <div class="panel">
+            <h3>Profile</h3>
+            <p>Your display name appears on every leaderboard, announcement and notification across Arcaid.</p>
+            <div class="row"><div class="avatar">P</div><div><strong>Pinball Pat</strong><br><span style="color: var(--muted); font-size: 15px">Your picture comes from the account you signed in with.</span></div></div>
+            <label>Display name</label>
+            <input class="field" value="Pinball Pat">
+            <div class="row" style="margin-top: 16px; padding-left: 4px"><button class="btn btn--primary">Save name</button><button class="btn">Clear</button></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="group" style="--g: var(--g-violet)">
+        <header><h2><span class="tick"></span>Accounts and devices</h2><p>The logins and the machines that are tied to this account.</p></header>
+        <div class="cols">
+          <div class="panel">
+            <h3>Arcaid Witness devices</h3>
+            <div class="device">
+              <strong>Legends Pinball &middot; ending 4C7E</strong>
+              <span class="lamp lamp--bad"><i></i>Not watching</span>
+              <small>Last score 8 hours ago on Beastie Boys. Witness 1.1.1.</small>
+            </div>
+            <div class="device">
+              <strong>Game room PC</strong>
+              <span class="lamp lamp--on"><i></i>Watching</span>
+              <small>Sends scores to all my rooms. Castcade 0.9.4.</small>
+            </div>
+            <div class="device">
+              <strong>Garage 4KP</strong>
+              <span class="lamp"><i></i>Never connected</span>
+              <small>Paired Aug 29. Turn the cabinet on to finish.</small>
+            </div>
+          </div>
+          <div class="panel">
+            <h3>Recent plays from your devices</h3>
+            <p class="table-name" style="color: var(--ink)">Beastie Boys</p>
+            <p>Original 2025 &middot; your best three</p>
+            <div class="board">
+              <div><b>1</b><span>Nov 16, on Legends Pinball</span><span class="dmd dmd--lead">2,709,350</span></div>
+              <div><b>2</b><span>Nov 12, on Legends Pinball</span><span class="dmd">1,446,600</span></div>
+              <div><b>3</b><span>Nov 9, on Game room PC</span><span class="dmd">984,120</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="group" style="--g: var(--g-red)">
+        <header><h2><span class="tick"></span>Danger zone</h2><p>This cannot be undone.</p></header>
+        <div class="cols">
+          <div class="panel panel--wide">
+            <div class="hazard"></div>
+            <h3>Delete my account</h3>
+            <p>Removes your profile, your linked logins and your paired devices. Scores you posted stay on their boards under a retired name.</p>
+            <div style="padding-left: 4px"><button class="btn">Delete my account</button></div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+<script>
+  if (location.search.includes('light')) document.documentElement.classList.add('light');
+</script>
+</body>
+</html>
