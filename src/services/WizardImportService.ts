@@ -5,6 +5,7 @@ import { GlobalGameService, GlobalGameInput } from './GlobalGameService.js';
 import { SyncLogService } from './SyncLogService.js';
 import { GlobalGameSlugService } from './GlobalGameSlugService.js';
 import { logInfo, logWarn, logError } from '../utils/logger.js';
+import { isWizardFileFeature } from '../utils/wizardLegacy.js';
 
 /**
  * Legends Unchained publishes the Table Manager's catalogue as ONE JSON file on
@@ -131,13 +132,23 @@ export interface WizardTable {
  * old README's ~700-row manual list has no successor upstream, so there is
  * nothing to reconcile them against.
  *
- * Everything else on both columns (`vpx`, `fp`, `has_puppack`, `fps_*`, the
- * AtGames cabinet variants) is left alone.
+ * C14 (v2.257.0): when the caller passes `fileFeatures` (the manifest import
+ * does, for every row it touched), the manifest is the ONLY source of the
+ * Wizard FILE facts on that row (`isWizardFileFeature`: `fps_*`,
+ * `has_backglass` / `has_puppack` / `requires_rom`, `wizard_auto` /
+ * `wizard_manual`; never `has_dmd`): every stored one is dropped and the
+ * manifest's are written back. Before this the upsert only ever ADDED them, so
+ * an fps change upstream, or a README-era row merged onto a manifest row (the
+ * owner's Getaway merge, 2026-10-30), left stale `fps_N` / `wizard_manual`
+ * beside the real ones forever.
+ *
+ * Everything else on both columns (`vpx`, `fp`, the AtGames cabinet variants)
+ * is left alone.
  */
 const WIZARD_FEATURES = ['vpxs', 'vpxs_manual'];
 
 export async function reconcileWizardPlatformTags(
-    flagsById: Map<string, { auto: boolean; manual: boolean }>,
+    flagsById: Map<string, { auto: boolean; manual: boolean; fileFeatures?: string[] }>,
 ): Promise<void> {
     if (flagsById.size === 0) return;
     const { getDatabase } = await import('../database/database.js');
@@ -164,9 +175,12 @@ export async function reconcileWizardPlatformTags(
         const platforms = parseArray(row.platforms)
             .filter(p => !WIZARD_FEATURES.includes(p.trim().toLowerCase()));
 
-        // Features: reconcile the pair, preserve the rest in place.
+        // Features: reconcile the pair, preserve the rest in place. With the
+        // manifest's file facts in hand, those are replaced too.
         const features = parseArray(row.features)
-            .filter(fv => !WIZARD_FEATURES.includes(fv.trim().toLowerCase()));
+            .filter(fv => !WIZARD_FEATURES.includes(fv.trim().toLowerCase()))
+            .filter(fv => !flags.fileFeatures || !isWizardFileFeature(fv));
+        if (flags.fileFeatures) features.push(...flags.fileFeatures.filter(fv => !WIZARD_FEATURES.includes(fv)));
         if (flags.auto) features.push('vpxs');
         if (flags.manual) features.push('vpxs_manual');
 
@@ -525,7 +539,7 @@ export class WizardImportService {
             let inserted = 0;
             let updated = 0;
             let skipped = 0;
-            const touchedIds = new Map<string, { auto: boolean; manual: boolean }>();
+            const touchedIds = new Map<string, { auto: boolean; manual: boolean; fileFeatures: string[] }>();
 
             for (const table of tables) {
                 try {
@@ -558,7 +572,14 @@ export class WizardImportService {
                     if (result.action === 'inserted') inserted++;
                     else if (result.action === 'updated') updated++;
                     else skipped++;
-                    touchedIds.set(result.id, { auto: true, manual: false });
+                    // One VPS game can ship as several folders (stock + mod):
+                    // the row carries the union of their file facts.
+                    const prior = touchedIds.get(result.id)?.fileFeatures ?? [];
+                    touchedIds.set(result.id, {
+                        auto: true,
+                        manual: false,
+                        fileFeatures: [...new Set([...prior, ...buildFeatures(table)])],
+                    });
                 } catch (err) {
                     const msg = `Failed to import Wizard table "${table.name}" (${table.slug}): ${err}`;
                     logError(msg);

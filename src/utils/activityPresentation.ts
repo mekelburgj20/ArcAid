@@ -132,6 +132,7 @@ const AUDIT_ACTION_PHRASE: Record<string, string> = {
     'backup.delete': 'deleted a backup',
     'backup.restore': 'restored a backup',
     'catalogue.merge': 'merged catalogue games',
+    'catalogue.merge_old_wizard_rows': 'merged old Wizard catalogue rows into their VPS games',
     'catalogue.delete': 'deleted a catalogue game',
     'global_score.restore': 'restored a Global score',
     'global_score.hard_delete': 'deleted a Global score',

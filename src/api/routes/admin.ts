@@ -1551,6 +1551,58 @@ router.post('/catalogue/merge-ipdb-duplicates', async (req, res) => {
     }
 });
 
+// --- C14 (v2.257.0): fold the README-era Wizard rows into their VPS rows ---
+//
+// Preview proposes a survivor per old row (changes nothing); the owner ticks
+// pairs and the merge runs each through GlobalGameService.merge. The rules
+// live in WizardLegacyMergeService.
+
+router.get('/catalogue/old-wizard-rows', async (_req, res) => {
+    try {
+        const { WizardLegacyMergeService } = await import('../../services/WizardLegacyMergeService.js');
+        res.json(await WizardLegacyMergeService.preview());
+    } catch (error) {
+        logError('API Error (GET /api/admin/catalogue/old-wizard-rows):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.get('/catalogue/old-wizard-rows/targets', async (req, res) => {
+    try {
+        const { WizardLegacyMergeService } = await import('../../services/WizardLegacyMergeService.js');
+        res.json({ games: await WizardLegacyMergeService.searchTargets(String(req.query.q ?? '')) });
+    } catch (error) {
+        logError('API Error (GET /api/admin/catalogue/old-wizard-rows/targets):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.post('/catalogue/old-wizard-rows/merge', async (req, res) => {
+    try {
+        const { WizardLegacyMergeService, OldWizardMergeError } = await import('../../services/WizardLegacyMergeService.js');
+        try {
+            const result = await WizardLegacyMergeService.merge(req.body?.pairs);
+            // Explicit audit write: auditMiddleware does NOT fire on router routes.
+            await AuditService.log({
+                actor: req.user!.discordId || req.user!.username || req.user!.localAdminId || 'admin',
+                action: 'catalogue.merge_old_wizard_rows',
+                target_type: 'global_game',
+                target_id: 'bulk',
+                details: JSON.stringify(result),
+                ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+                correlation_id: req.correlationId || '',
+            });
+            res.json({ success: true, ...result });
+        } catch (err) {
+            if (err instanceof OldWizardMergeError) return res.status(400).json({ error: err.message });
+            throw err;
+        }
+    } catch (error) {
+        logError('API Error (POST /api/admin/catalogue/old-wizard-rows/merge):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 /**
  * Extracts the numeric IPDB machine ID from an IPDB URL. Mirrors
  * GlobalGameService's private `extractIpdbMachineId` exactly (not exported,
