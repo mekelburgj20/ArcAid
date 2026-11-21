@@ -138,6 +138,24 @@ describe('WizardImportService.importFromWizard — summary, source_version and t
         expect(log.summary).toBe('Unchanged since Table Manager v2.0.18 — release-meta probe, manifest not fetched');
     });
 
+    it('W110: the nightly pass still fetches the manifest while the slug map is empty (the first night after migration 218)', async () => {
+        await WizardImportService.importFromWizard();
+        const db = await getDatabase();
+        await db.run(`DELETE FROM wizard_table_slugs`);
+        fetched.length = 0;
+        releaseMeta = { status: 200, body: { version: 'v2.0.18', tableCount: 1, manifestChecksum: md5(MANIFEST_V1) } };
+
+        const result = await WizardImportService.importFromWizard({ skipIfUnchanged: true });
+        expect(result.unchanged).toBeUndefined();
+        expect(fetched).toContain(WizardImportService.MANIFEST_URL);
+        expect(await db.all(`SELECT slug, vps_id FROM wizard_table_slugs`)).toEqual([{ slug: 'vpx-cactuscanyon', vps_id: 'vZDUDUii' }]);
+
+        // Filled, the same probe skips again.
+        fetched.length = 0;
+        expect((await WizardImportService.importFromWizard({ skipIfUnchanged: true })).unchanged).toBe(true);
+        expect(fetched).toEqual([WizardImportService.RELEASE_META_URL]);
+    });
+
     it('does the full sync when the checksum moved, when the probe fails, and always for the admin button', async () => {
         await WizardImportService.importFromWizard();
         await backdateLatestRun('2026-10-01T04:30:00Z');

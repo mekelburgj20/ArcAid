@@ -209,6 +209,61 @@ describe('WizardImportService.importFromWizard', () => {
         expect(log.status).toBe('error');
     });
 
+    it('W110: stores each install folder\'s VPS game id, and the folder resolves to that catalogue row', async () => {
+        await WizardImportService.importFromWizard();
+
+        const db = await getDatabase();
+        // Every enabled entry WITH a VPS id; the disabled and the id-less ones are not in the map.
+        expect(await db.all(`SELECT slug, vps_id, name FROM wizard_table_slugs ORDER BY slug`)).toEqual([
+            { slug: 'vpx-cactuscanyon', vps_id: 'vZDUDUii', name: 'Cactus Canyon' },
+            { slug: 'vpx-spacecadet', vps_id: 'spacecad', name: 'Space Cadet' },
+        ]);
+        const { GlobalGameSlugService } = await import('../services/GlobalGameSlugService.js');
+        const cc = await readByVps('vZDUDUii');
+        expect(await GlobalGameSlugService.gameForSlug('vpx-cactuscanyon')).toMatchObject({ id: cc!.id, name: 'Cactus Canyon' });
+        // The cabinet sends the folder as it is on disk; compared trimmed and case-insensitively.
+        expect(await GlobalGameSlugService.gameForSlug(' VPX-CactusCanyon ')).toMatchObject({ id: cc!.id });
+        // A hand-installed folder the manifest never listed resolves nothing.
+        expect(await GlobalGameSlugService.gameForSlug('vpx-tronclassic')).toBeNull();
+        expect(await GlobalGameSlugService.gameForSlug('vpx-noid')).toBeNull();
+    });
+
+    it('W110: a re-sync follows a changed VPS id, drops a listed folder that lost its id, and keeps a folder no longer listed', async () => {
+        await WizardImportService.importFromWizard();
+        manifestBody = {
+            // Same folder, corrected upstream to another VPS game.
+            'vpx-cactuscanyon': { ...MANIFEST['vpx-cactuscanyon'], vpsdbId: 'ccFixed1' },
+            // Still listed, but without a VPS id now.
+            'vpx-spacecadet': { ...MANIFEST['vpx-spacecadet'], vpsdbId: '' },
+            // vpx-noid gone; nothing else listed.
+        };
+        await WizardImportService.importFromWizard();
+
+        const db = await getDatabase();
+        expect(await db.all(`SELECT slug, vps_id FROM wizard_table_slugs ORDER BY slug`)).toEqual([
+            { slug: 'vpx-cactuscanyon', vps_id: 'ccFixed1' },
+        ]);
+
+        // A folder the manifest stops listing is still installed on the cabinets that have it.
+        manifestBody = { 'vpx-spacecadet': MANIFEST['vpx-spacecadet'] };
+        await WizardImportService.importFromWizard();
+        expect(await db.all(`SELECT slug, vps_id FROM wizard_table_slugs ORDER BY slug`)).toEqual([
+            { slug: 'vpx-cactuscanyon', vps_id: 'ccFixed1' },
+            { slug: 'vpx-spacecadet', vps_id: 'spacecad' },
+        ]);
+    });
+
+    it('W110: a folder whose VPS id two approved rows share resolves nothing (never a guess)', async () => {
+        await WizardImportService.importFromWizard();
+        await GlobalGameService.upsert({
+            name: 'Cactus Canyon Twin', manufacturer: 'Williams', year: 1977, type: 'pinball', platforms: ['vpx'],
+        });
+        const db = await getDatabase();
+        await db.run(`UPDATE global_games SET vps_id = 'vZDUDUii' WHERE name = 'Cactus Canyon Twin'`);
+        const { GlobalGameSlugService } = await import('../services/GlobalGameSlugService.js');
+        expect(await GlobalGameSlugService.gameForSlug('vpx-cactuscanyon')).toBeNull();
+    });
+
     it('reads the manifest branch, not the README, and never calls the GitHub REST API', async () => {
         await WizardImportService.importFromWizard();
         expect(fetched[0]).toBe('https://raw.githubusercontent.com/LegendsUnchained/vpx-standalone-alp4k/refs/heads/manifest/manifest.json');

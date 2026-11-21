@@ -6,6 +6,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.255.0] - 2026-11-20 - A cabinet play is recognised by the Wizard folder its table is installed in
+
+W110. Arcaid matched a cabinet play to a table by name: the name the launcher shows, then the ROM, then the name of
+the folder the table is installed in. Names kept failing: two machines with one name ("James Bond 007", "Ali"),
+the launcher's "Title, JP's" spelling, a renamed catalogue game, an older duplicate catalogue entry taking the play
+instead of the real one. The Wizard (Legends Unchained's Table Manager) lists every table it installs by its folder
+name, together with the Virtual Pinball Spreadsheet game it is, and the cabinet already sends that folder name with
+every play.
+
+- **New, cabinet plays:** every Wizard catalogue sync now also keeps the Wizard's folder-to-game list. A play from a
+  Wizard-installed table is recognised by its folder first: it lands on that game on the Global Scoreboard, and a
+  room tournament running that game takes it, whatever the launcher calls the table. The names are still the
+  fallback.
+- A table installed by hand (its folder is not on the Wizard's list) is matched by name exactly as before, and so is
+  every Castcade desktop play.
+- The folder only decides which game a play is. It is not integrity evidence: a cabinet score still gets no
+  Sanctioned-play verdict or badge, and a Sanctioned tournament still holds cabinet plays out.
+- Measured over the Wizard's 377 tables against the live catalogue, as a cabinet reports them: on the Global
+  Scoreboard 331 landed on their own game before (36 on the wrong one, 5 tied, 5 found nothing); all 377 do now. A
+  room game named the way the catalogue names the table took 365 of them before and takes all 377 now.
+- The Wizard files a few mods under their original's game (JP's Attack from Mars and its LE, Playboy Definitive
+  Edition, Dracula Blood Edition, Sexy Girl Nude Mod, the Transformers Marcade mod), so a play of one of those now
+  counts on a room board running the original.
+- **Owner step:** the list fills at the next Wizard sync, tonight's or Super Admin → Global Catalogue → Sync Wizard
+  at once. Until then nothing changes.
+
 ## [2.254.1] - 2026-11-20 - A cabinet game that ended at table exit keeps its Launcher-signed badge
 
 W116. When the launcher closes a sitting because the player left the table, it stamps the signed record with the exit
