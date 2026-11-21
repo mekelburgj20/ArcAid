@@ -4,6 +4,7 @@ import { normalizeGameName } from '../utils/catalogueUtils.js';
 import { catalogueMatchTokens } from '../utils/platformRules.js';
 import { foldCataloguePlatforms } from '../utils/scoreProvenance.js';
 import { nameRankSqlCase, nameRankSqlParams } from '../utils/searchRank.js';
+import { isReadmeEraWizardRow, isRetiredWizardExternalUrl, readmeEraFeatureCarry } from '../utils/wizardLegacy.js';
 
 /**
  * Fold an inbound catalogue payload so `platforms` is an ENGINE list and
@@ -1644,10 +1645,13 @@ export class GlobalGameService {
             );
             scoresMoved = scoreResult.changes ?? 0;
 
-            // global_leaderboard_cache: drop source's entry (rebuilds on next read).
+            // global_leaderboard_cache: drop both entries (rebuilds on next
+            // read). The TARGET's too (C14): the cache has no watermark, so
+            // the moved scores stayed off the survivor's board until its next
+            // new score.
             await db.run(
-                `DELETE FROM global_leaderboard_cache WHERE global_game_id = ?`,
-                sourceId
+                `DELETE FROM global_leaderboard_cache WHERE global_game_id IN (?, ?)`,
+                sourceId, targetId
             );
 
             // game_room_game_library / games: simple FK updates.
@@ -1702,6 +1706,43 @@ export class GlobalGameService {
                 sourceId
             );
 
+            // C14 (v2.257.0): players' own rows. `player_tables` (My Tables)
+            // and `global_game_pins` are declared ON DELETE CASCADE, so before
+            // this they were DELETED with the source row instead of moving.
+            // Both are unique per player per game: OR IGNORE moves what does
+            // not collide, the sweep drops the duplicates (the player already
+            // has the target).
+            await db.run(
+                `UPDATE OR IGNORE player_tables SET global_game_id = ? WHERE global_game_id = ?`,
+                targetId, sourceId
+            );
+            await db.run(`DELETE FROM player_tables WHERE global_game_id = ?`, sourceId);
+            // A game is owned generically ('') OR on a set of engines, never
+            // both (`PlayerTablesService.setOwnership`): a generic row that met
+            // the player's engine rows on the target goes.
+            await db.run(
+                `DELETE FROM player_tables
+                  WHERE global_game_id = ? AND platform = ''
+                    AND user_id IN (SELECT user_id FROM player_tables WHERE global_game_id = ? AND platform <> '')`,
+                targetId, targetId
+            );
+            await db.run(
+                `UPDATE OR IGNORE global_game_pins SET global_game_id = ? WHERE global_game_id = ?`,
+                targetId, sourceId
+            );
+            await db.run(`DELETE FROM global_game_pins WHERE global_game_id = ?`, sourceId);
+            // No FK on these two: they kept pointing at a deleted id.
+            // `global_game_tables` is keyed on the VPS table id, so a plain
+            // move cannot collide.
+            await db.run(
+                `UPDATE game_feedback SET global_game_id = ? WHERE global_game_id = ?`,
+                targetId, sourceId
+            );
+            await db.run(
+                `UPDATE global_game_tables SET global_game_id = ? WHERE global_game_id = ?`,
+                targetId, sourceId
+            );
+
             // --- Data union onto target ---
 
             const source = await db.get('SELECT * FROM global_games WHERE id = ?', sourceId) as GlobalGame;
@@ -1716,7 +1757,11 @@ export class GlobalGameService {
                     if (!target.vps_id && source.vps_id) { updates.push('vps_id = ?'); updateParams.push(source.vps_id); }
                     if (!target.igdb_id && source.igdb_id) { updates.push('igdb_id = ?'); updateParams.push(source.igdb_id); }
                     if (!target.ipdb_url && source.ipdb_url) { updates.push('ipdb_url = ?'); updateParams.push(source.ipdb_url); }
-                    if (!target.external_url && source.external_url) { updates.push('external_url = ?'); updateParams.push(source.external_url); }
+                    // C14: a link into the Wizard repo's deleted `external/`
+                    // folder is dead; it is never carried onto the survivor.
+                    if (!target.external_url && source.external_url && !isRetiredWizardExternalUrl(source.external_url)) {
+                        updates.push('external_url = ?'); updateParams.push(source.external_url);
+                    }
 
                     // `atgames_id` must survive the merge or the next AtGames
                     // sync re-INSERTS the row it just absorbed: the id would no
@@ -1744,7 +1789,26 @@ export class GlobalGameService {
                     updates.push('themes = ?');       updateParams.push(unionStrings(target.themes, source.themes));
                     updates.push('designers = ?');    updateParams.push(unionStrings(target.designers, source.designers));
                     updates.push('table_authors = ?'); updateParams.push(unionStrings(target.table_authors, source.table_authors));
-                    updates.push('features = ?');     updateParams.push(unionStrings(target.features, source.features));
+                    // C14: a README-era Wizard row's file facts (install
+                    // method, fps, what ships with it) described a README file
+                    // nobody distributes any more; they stay behind, except
+                    // that tournament eligibility is kept (`readmeEraFeatureCarry`).
+                    if (isReadmeEraWizardRow(source)) {
+                        const parse = (raw: string | null | undefined): string[] => {
+                            try {
+                                const parsed: unknown = JSON.parse(raw || '[]');
+                                return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : [];
+                            } catch {
+                                return [];
+                            }
+                        };
+                        const targetFeatures = parse(target.features);
+                        const carried = readmeEraFeatureCarry(parse(source.features), targetFeatures);
+                        updates.push('features = ?');
+                        updateParams.push(JSON.stringify([...new Set([...targetFeatures, ...carried])]));
+                    } else {
+                        updates.push('features = ?');     updateParams.push(unionStrings(target.features, source.features));
+                    }
 
                     // The source's NAME becomes an alias on the survivor.
                     //
@@ -1787,11 +1851,14 @@ export class GlobalGameService {
                     // VPS database URL.
                     const labelForSource = (s: GlobalGame): string => s.imported_from || 'merged';
                     const sourceDownloads: Array<{ format?: string; url: string; version?: string }> =
-                        source.table_download_urls ? JSON.parse(source.table_download_urls) : [];
+                        (source.table_download_urls ? JSON.parse(source.table_download_urls) as Array<{ format?: string; url: string; version?: string }> : [])
+                            // C14: dead `external/` repo links stay behind.
+                            .filter(d => !isRetiredWizardExternalUrl(d?.url));
                     if (
                         source.external_url &&
                         target.external_url &&
                         source.external_url !== target.external_url &&
+                        !isRetiredWizardExternalUrl(source.external_url) &&
                         !sourceDownloads.some(d => d.url === source.external_url)
                     ) {
                         sourceDownloads.push({ format: labelForSource(source), url: source.external_url });
@@ -1835,7 +1902,7 @@ export class GlobalGameService {
                     // display_name, manufacturer, year, subtype, players)
                     // intentionally excluded; target keeps its identity.
                     if (!target.description && source.description) { updates.push('description = ?'); updateParams.push(source.description); }
-                    if (!target.image_url && source.image_url) { updates.push('image_url = ?'); updateParams.push(source.image_url); }
+                    if (!target.image_url && source.image_url && !isRetiredWizardExternalUrl(source.image_url)) { updates.push('image_url = ?'); updateParams.push(source.image_url); }
                     if (!target.local_image_path && source.local_image_path) { updates.push('local_image_path = ?'); updateParams.push(source.local_image_path); }
                     if (!target.wheel_image_path && source.wheel_image_path) { updates.push('wheel_image_path = ?'); updateParams.push(source.wheel_image_path); }
                     if (target.source_rating == null && source.source_rating != null) { updates.push('source_rating = ?'); updateParams.push(source.source_rating); }

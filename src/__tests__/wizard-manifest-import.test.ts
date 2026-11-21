@@ -193,6 +193,8 @@ describe('WizardImportService.importFromWizard', () => {
         const row = await readByVps('vZDUDUii');
         expect(row!.features).toContain('vpxs');
         expect(row!.features).not.toContain('vpxs_manual');
+        // C14: the manifest owns the install tags on a row it lists.
+        expect(row!.features).not.toContain('wizard_manual');
         // Unrelated tags are left alone (has_dmd has no manifest source any more).
         expect(row!.features).toContain('has_dmd');
     });

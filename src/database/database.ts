@@ -3838,6 +3838,15 @@ async function doInitDatabase(): Promise<Database> {
                 seen_at TEXT NOT NULL DEFAULT (datetime('now'))
             );
         ` },
+        // C14 (v2.257.0): links into the Wizard repo's deleted `external/`
+        // folder are 404s. Earlier merges copied them onto VPS rows; this
+        // removes them there. README-era rows keep theirs (the C14 merge tool
+        // pairs them by it, and the merge drops it).
+        { name: '219_strip_retired_wizard_links', handler: async (db) => {
+            const { stripRetiredWizardLinks } = await import('./migrations/retiredWizardLinks.js');
+            const n = await stripRetiredWizardLinks(db);
+            console.log(`[migration 219] catalogue rows cleared of dead Wizard external/ links: ${n}`);
+        } },
     ];
 
     for (const migration of migrations) {

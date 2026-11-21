@@ -6,6 +6,7 @@ import LoadingState from '../components/LoadingState';
 import DataTable from '../components/DataTable';
 import RAGameSearch from '../components/RAGameSearch';
 import RenameCatalogueGameModal from '../components/RenameCatalogueGameModal';
+import OldWizardRowsCard from '../components/OldWizardRowsCard';
 import { Search, RefreshCw, ChevronDown, ChevronUp, Check, X, Trash2, ExternalLink, GitMerge, AlertTriangle, Layers, Flag, Pencil } from 'lucide-react';
 import { parseServerDate } from '../lib/format';
 
@@ -839,6 +840,9 @@ export default function GlobalCatalogue() {
           </div>
         )}
       </NeonCard>
+
+      {/* C14 (v2.257.0) — fold the README-era Wizard rows into their VPS games */}
+      <OldWizardRowsCard />
 
       {/* v2.25.0 — report-a-problem review queue */}
       <NeonCard className="mb-6" title="Game Info Reports">

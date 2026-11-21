@@ -6,6 +6,39 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.257.0] - 2026-11-21 - Old Wizard catalogue rows merge into their games, and a merge no longer loses My Tables
+
+C14. Until 2026-10-28 the Wizard catalogue sync read the Legends Unchained README, whose two table lists linked each
+table to a folder in their repository. About 250 of those rows never matched a Virtual Pinball Spreadsheet game by
+name and are still in the catalogue: a second copy of a game under the README's spelling ("Addams Family, The",
+"Medusa - JP", "Skate Ball", "Evil Dead 2 - Version A"). Legends Unchained has since deleted both lists and the
+manual-install folder, so every one of those rows links to a page that no longer exists.
+
+- **New, Super Admin -> Global Catalogue -> Old Wizard Rows:** lists every such row with what it holds (Global
+  scores and players, ratings, comments, My Tables entries, pins, room games) and the game it most likely copies:
+  the same Wizard folder (the Wizard's own list says which game a folder is), else the same name ("X, The" read as
+  "The X"), else a similar name with the same maker and year. Rows nothing argues against are pre-ticked; a maker
+  or year that differs, or a fan original paired with a real machine (ADR 0014), is shown and never pre-ticked.
+  Any row can be pointed at another game by search. **Merge N ticked** merges each pair on its own.
+- A merge moves the old row's scores, ratings, comments, room links and players' My Tables and pins onto the game
+  shown, and keeps the old name as a search alias. The old row's Wizard tags (install method, frame rate, what
+  ships with it) and its dead download link are not copied. Tournament eligibility does not change: an old row
+  that counted as AtGames-playable makes its game count too (as "install by hand") when the game did not already.
+- Room games still named the old way show up under Game Names afterwards, which renames them room by room.
+- **Fixed, every catalogue merge:** players' My Tables entries and Global Scoreboard pins of the absorbed game were
+  deleted with it instead of moving to the game kept. Game info reports and VPS table files are moved too (they
+  pointed at a row that no longer existed), and the kept game's Global board is rebuilt at once instead of missing
+  the moved scores until its next new score.
+- **Fixed, Wizard sync:** on every table the Wizard lists, its frame rate, backglass / PuP / ROM tags and install
+  tags now come from the Wizard alone. Before, the sync only ever added them, so an old frame rate or an old
+  "manual install" tag stayed beside the new one forever (the 2026-10-30 Getaway merge left both). The next sync
+  cleans them.
+- Migration 219 removes links into the deleted Wizard folder from the ~48 games earlier merges copied them onto.
+  The old rows keep theirs until merged (the tool reads the folder from it).
+
+Whether "install by hand" (`vpxs_manual`, on 553 catalogue games) should stay a tag at all is a separate decision
+(C18).
+
 ## [2.256.0] - 2026-11-20 - Account Settings is wide on a desktop, grouped by colour, in the Arcaid Witness look
 
 G20. On a full-screen desktop browser Account Settings was a phone-width column down the middle of the
