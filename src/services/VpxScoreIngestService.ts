@@ -98,6 +98,9 @@ import {
  *   it) are tried BEFORE the device's own names, so a room that called the
  *   game by a different spelling still matches. The name match stays as the
  *   fallback, so every pre-0.2.4 companion and every cabinet keeps working.
+ *   A cabinet has its own stand-in (W110): the Wizard install folder it sends
+ *   as `slug`, which LU's manifest maps to a VPS game (`identityFor`). It is
+ *   matching only; it is never evidence.
  * - **The Sanctioned rules are evaluated and the verdict stored** with the
  *   score (`witness_evidence`). In an OPEN tournament the verdict is a badge
  *   for the runner and nothing else. In a SANCTIONED tournament a `flagged`
@@ -1216,9 +1219,9 @@ export class VpxScoreIngestService {
         // does not know)? A `rom` the ROM map gives to exactly ONE catalogue
         // game stands in for it, the same way: that game's names are tried
         // before the device's. An ambiguous or unknown ROM changes nothing.
-        const catalogue = (input.evidence?.vpsGame
-            ? await VpxScoreIngestService.catalogueGame(input.evidence.vpsGame)
-            : null) ?? await VpxScoreIngestService.catalogueGameForRom(input.rom);
+        // W110 - between the two, a cabinet's Wizard install folder the
+        // manifest maps to a VPS game (`identityFor`).
+        const catalogue = await VpxScoreIngestService.identityFor(input);
         const byVps = catalogue
             ? candidates.filter(row =>
                 (row.global_game_id != null && row.global_game_id === catalogue.id)
@@ -1562,6 +1565,45 @@ export class VpxScoreIngestService {
     }
 
     /**
+     * W110 (v2.255.0) - the catalogue game a CABINET's install folder names
+     * through the Wizard manifest (`wizard_table_slugs`: `vpx-jamesbond007` ->
+     * VPS game `bwggWE8UrF` -> its approved row), in the SAME shape as
+     * `catalogueGame`. Null for a desktop (Castcade sends the ROM's catalogue
+     * name as its `slug`, never a Wizard folder), for a folder the manifest
+     * never listed (a hand-installed table), before the first Wizard sync
+     * fills the map, and when two approved rows share the VPS id.
+     */
+    private static async catalogueGameForSlug(input: VpxScoreInput): Promise<{ id: string; keys: Set<string> } | null> {
+        if (input.deviceType === 'desktop') return null;
+        const { GlobalGameSlugService } = await import('./GlobalGameSlugService.js');
+        const row = await GlobalGameSlugService.gameForSlug(input.slug);
+        if (!row) return null;
+        return { id: row.id, keys: nameKeys([row.name, row.display_name ?? '']) };
+    }
+
+    /**
+     * The catalogue game a play IS, before any name is read, strongest
+     * evidence first: a desktop's `vps_game` (the companion resolved the
+     * table), then (W110) a cabinet's Wizard install folder (LU's manifest
+     * names its VPS game), then a `rom` the ROM map gives to exactly one game.
+     * Null when none of them resolves, and the names decide as before.
+     *
+     * `match` / `missReason` try this game's names (and any
+     * `games.global_game_id` pointing at it) before the device's. On the
+     * Global path a folder's game is the landing itself (`recordGlobalInner`).
+     * It is MATCHING only: none of it is evidence, so `evaluateSanctioned`,
+     * the Sanctioned gate and `badgeVerdict` never see it.
+     */
+    private static async identityFor(input: VpxScoreInput): Promise<{ id: string; keys: Set<string>; via: 'vps_game' | 'wizard_slug' | 'rom' } | null> {
+        const vps = input.evidence?.vpsGame ? await VpxScoreIngestService.catalogueGame(input.evidence.vpsGame) : null;
+        if (vps) return { ...vps, via: 'vps_game' };
+        const folder = await VpxScoreIngestService.catalogueGameForSlug(input);
+        if (folder) return { ...folder, via: 'wizard_slug' };
+        const rom = await VpxScoreIngestService.catalogueGameForRom(input.rom);
+        return rom ? { ...rom, via: 'rom' } : null;
+    }
+
+    /**
      * The fallback destination: the player's own Global Scoreboard record.
      *
      * ## Why this is allowed to exist at all
@@ -1614,7 +1656,17 @@ export class VpxScoreIngestService {
         const rows = await db.all<Array<{ id: string; name: string; manufacturer: string | null; year: number | null }>>(
             `SELECT id, name, manufacturer, year FROM global_games WHERE status = 'approved'`,
         );
-        let candidates = rows.filter(row => [...nameKeys([row.name])].some(key => needles.has(key)));
+        // W110 - a cabinet's Wizard install folder that LU's manifest maps to
+        // a VPS game the catalogue holds IS the table: that row is the one
+        // candidate, whatever the names would tie with or land on ("James
+        // Bond 007 (Original 2022)" against the 1980 Gottlieb, "Ali" against
+        // "Ali (JP's)"). Only when it outranks every other identity, exactly
+        // as in `match`: a desktop's own `vps_game` keeps today's path.
+        const identity = await VpxScoreIngestService.identityFor(input);
+        const folder = identity?.via === 'wizard_slug' ? identity : null;
+        let candidates = folder
+            ? rows.filter(row => row.id === folder.id)
+            : rows.filter(row => [...nameKeys([row.name])].some(key => needles.has(key)));
 
         // The session journal's name carries the manufacturer and year in a
         // parenthetical ("Bad Cats (Williams 1989)") — exactly what tells
@@ -1782,7 +1834,8 @@ export class VpxScoreIngestService {
 
         logInfo(
             `VPX ingest -> Global Scoreboard: ${username} ${score} on "${game.name}" ` +
-            `(undesignated cabinet, reason=${input.reason ?? 'unknown'})`,
+            `(undesignated cabinet, reason=${input.reason ?? 'unknown'}` +
+            `${folder ? `, by Wizard folder ${input.slug}` : ''})`,
         );
         return { status: 'global', gameName: game.name, globalScoreId };
     }

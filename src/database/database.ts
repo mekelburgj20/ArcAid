@@ -3823,6 +3823,21 @@ async function doInitDatabase(): Promise<Database> {
             const n = await removeWitnessGlobalTwins(db);
             console.log(`[migration 217] duplicate Witness rows removed from the Global Scoreboard: ${n}`);
         } },
+        // W110 (v2.255.0): the Legends Unchained Wizard manifest's install
+        // folder -> VPS game id, filled by every Wizard sync
+        // (`GlobalGameSlugService.storeFromManifest`). A cabinet play's `slug`
+        // is that folder, so the witness ingest resolves it to the catalogue
+        // row (`global_games.vps_id`, joined at read time) before any name.
+        // Keyed on the slug: one VPS game ships as several folders (stock +
+        // mod). Empty until the first sync = the ingest as before.
+        { name: '218_wizard_table_slugs', sql: `
+            CREATE TABLE IF NOT EXISTS wizard_table_slugs (
+                slug TEXT PRIMARY KEY COLLATE NOCASE,
+                vps_id TEXT NOT NULL,
+                name TEXT,
+                seen_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+        ` },
     ];
 
     for (const migration of migrations) {

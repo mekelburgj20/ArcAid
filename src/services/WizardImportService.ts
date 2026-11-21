@@ -3,6 +3,7 @@ import path from 'path';
 import { createHash } from 'crypto';
 import { GlobalGameService, GlobalGameInput } from './GlobalGameService.js';
 import { SyncLogService } from './SyncLogService.js';
+import { GlobalGameSlugService } from './GlobalGameSlugService.js';
 import { logInfo, logWarn, logError } from '../utils/logger.js';
 
 /**
@@ -469,7 +470,12 @@ export class WizardImportService {
             if (options.skipIfUnchanged) {
                 meta = await fetchReleaseMeta();
                 const checksum = nonEmptyString(meta?.manifestChecksum);
-                if (checksum && previous?.source_version && checksum === previous.source_version) {
+                // W110 — an EMPTY slug map is never "unchanged": the first
+                // nightly after migration 218 must fetch the manifest and
+                // fill it, or cabinet slugs would resolve nothing until LU
+                // next shipped a release.
+                if (checksum && previous?.source_version && checksum === previous.source_version
+                    && await GlobalGameSlugService.count() > 0) {
                     const version = nonEmptyString(meta?.version);
                     const summary = `Unchanged since Table Manager ${version ?? 'release'} — release-meta probe, manifest not fetched`;
                     logInfo(`Wizard Import: ${summary}`);
@@ -559,6 +565,22 @@ export class WizardImportService {
                     errors.push(msg);
                     skipped++;
                 }
+            }
+
+            // W110 — the install folder -> VPS game map the witness ingest
+            // resolves a cabinet play's `slug` through. Its own step: a
+            // failure here is reported (partial) but never undoes the
+            // catalogue pass above.
+            try {
+                const slugs = await GlobalGameSlugService.storeFromManifest(tables);
+                logInfo(
+                    `Wizard Import: slug map — ${slugs.stored} folder(s) stored` +
+                    (slugs.removed > 0 ? `, ${slugs.removed} removed (no VPS id)` : ''),
+                );
+            } catch (err) {
+                const msg = `Failed to store the Wizard slug map: ${err}`;
+                logError(msg);
+                errors.push(msg);
             }
 
             // Reconcile wizard tags: strip stale `vpxs` / `vpxs_manual` from

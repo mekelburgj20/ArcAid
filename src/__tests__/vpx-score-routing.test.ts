@@ -117,15 +117,27 @@ async function createEventRound(roomId: string, name: string, startMs: number, e
 }
 
 /** A catalogue row is required before anything can land on the Global board. */
-async function seedCatalogue(name: string, manufacturer: string | null = null, year: number | null = null) {
+async function seedCatalogue(name: string, manufacturer: string | null = null, year: number | null = null, vpsId: string | null = null) {
     const db = await getDatabase();
     const id = crypto.randomUUID();
     await db.run(
-        `INSERT INTO global_games (id, name, type, manufacturer, year, status)
-         VALUES (?, ?, 'pinball', ?, ?, 'approved')`,
-        id, name, manufacturer, year,
+        `INSERT INTO global_games (id, name, type, manufacturer, year, status, vps_id)
+         VALUES (?, ?, 'pinball', ?, ?, 'approved', ?)`,
+        id, name, manufacturer, year, vpsId,
     );
     return id;
+}
+
+/** W110 — what a Wizard sync stores: the manifest's install folder -> VPS game id. */
+async function mapWizardFolder(slug: string, vpsId: string) {
+    const { GlobalGameSlugService } = await import('../services/GlobalGameSlugService.js');
+    await GlobalGameSlugService.storeFromManifest([{ slug, vpsId, name: null }]);
+}
+
+async function latestGlobalGameId() {
+    const db = await getDatabase();
+    const row = await db.get<{ global_game_id: string }>(`SELECT global_game_id FROM global_scores ORDER BY rowid DESC LIMIT 1`);
+    return row?.global_game_id ?? null;
 }
 
 async function addParticipant(tournamentId: string, userId = USER) {
@@ -603,6 +615,135 @@ describe('VPXS score routing', () => {
         expect(res.body).toMatchObject({ status: 'ingested' });
         const db = await getDatabase();
         expect(await db.get(`SELECT id FROM score_history WHERE game_id = ?`, gameId)).toBeTruthy();
+    });
+
+    describe('W110: the Wizard install folder resolves before any name', () => {
+        /** The catalogue the James Bond plays met on 2026-11-19: two rows of the name, the table under another. */
+        async function seedBond() {
+            await seedCatalogue('James Bond 007', 'Gottlieb', 1980, 'jb1980vp');
+            await seedCatalogue('James Bond 007 (Stern 2022)', 'Stern', 2022);
+            return seedCatalogue('Bond 60th', 'Original', 2022, 'bwggWE8UrF');
+        }
+        const bondPlay = (over: Record<string, unknown> = {}) => scoreQuery({
+            table: 'James Bond 007 (Original 2022)', rom: '', slug: 'vpx-jamesbond007', score: 174368670, ...over,
+        });
+
+        it('lands on the VPS row the manifest names although the names tie (James Bond 007, vpx-jamesbond007)', async () => {
+            const bond = await seedBond();
+
+            // An empty map (before the first Wizard sync) is exactly the name match: a tie.
+            const before = await request(app).get('/api/witness/score').query({ device: DEVICE, token, ...bondPlay() });
+            expect(before.body).toMatchObject({ status: 'no_match' });
+            expect(before.body.notCounted).toMatch(/matches 2 catalogue games: James Bond 007 \(Gottlieb 1980\), James Bond 007 \(Stern 2022\)/);
+
+            await mapWizardFolder('vpx-jamesbond007', 'bwggWE8UrF');
+            const after = await request(app).get('/api/witness/score').query({ device: DEVICE, token, ...bondPlay({ score: 174368680 }) });
+            expect(after.body).toMatchObject({ status: 'global', game: 'Bond 60th' });
+            expect(await latestGlobalGameId()).toBe(bond);
+        });
+
+        it('an unknown folder behaves exactly as before: a hand-installed vpx-alijp still ties, the manifest\'s vpx-jpali lands', async () => {
+            const ali = await seedCatalogue('Ali', 'Stern', 1980, 'z9BMLCAY');
+            await seedCatalogue("Ali (JP's, Stern 1980)", 'Stern', 1980);
+            await mapWizardFolder('vpx-jpali', 'z9BMLCAY');
+
+            const handInstalled = await request(app).get('/api/witness/score').query({
+                device: DEVICE, token, ...scoreQuery({ table: 'Ali (Stern 1980)', rom: 'ali', slug: 'vpx-alijp', score: 400000 }),
+            });
+            expect(handInstalled.body).toMatchObject({ status: 'no_match' });
+            expect(handInstalled.body.notCounted).toMatch(/matches 2 catalogue games/);
+            const db = await getDatabase();
+            expect(await db.get(`SELECT id FROM global_scores`)).toBeUndefined();
+
+            const wizard = await request(app).get('/api/witness/score').query({
+                device: DEVICE, token, ...scoreQuery({ table: 'Ali (Stern 1980)', rom: 'ali', slug: 'vpx-jpali', score: 400010 }),
+            });
+            expect(wizard.body).toMatchObject({ status: 'global', game: 'Ali' });
+            expect(await latestGlobalGameId()).toBe(ali);
+        });
+
+        it('a room game named the VPS way takes the play, on the score call and the attempt call (Getaway: Baby Driver Edition)', async () => {
+            await seedCatalogue('The Getaway - High Speed II', 'Williams', 1992, 'cCV4A6uc');
+            const { gameId } = await createRotationGame(roomId, 'The Getaway - High Speed II');
+            const play = (score: number) => scoreQuery({
+                table: 'Getaway: Baby Driver Edition (Williams 1992)', rom: 'gw_l5', slug: 'vpx-getawaypup', score,
+            });
+
+            // No name the cabinet sends is the room's: without the map the play misses the room.
+            const before = await request(app).get('/api/witness/score').query({ device: DEVICE, token, ...play(5123450) });
+            expect(before.body.status).not.toBe('ingested');
+            const db = await getDatabase();
+            expect(await db.get(`SELECT id FROM score_history WHERE game_id = ?`, gameId)).toBeUndefined();
+
+            await mapWizardFolder('vpx-getawaypup', 'cCV4A6uc');
+            const after = await request(app).get('/api/witness/score').query({ device: DEVICE, token, ...play(5123460) });
+            expect(after.body).toMatchObject({ status: 'ingested', game: 'The Getaway - High Speed II' });
+            expect(await db.get(`SELECT id FROM score_history WHERE game_id = ?`, gameId)).toBeTruthy();
+
+            // The attempt call shares `match`, so a start resolves through the folder too.
+            const started = Math.floor(Date.now() / 1000) - 60;
+            const attempt = await request(app).get('/api/witness/attempt').query({
+                device: DEVICE, token, table: 'Getaway: Baby Driver Edition (Williams 1992)', slug: 'vpx-getawaypup',
+                started, key: `cab:${started}`,
+            });
+            expect(attempt.body).toMatchObject({ ok: true, status: 'unlimited', game: 'The Getaway - High Speed II' });
+        });
+
+        it('is matching only: a cabinet landing by its folder gets no verdict and stores no VPS id as evidence', async () => {
+            await seedBond();
+            await mapWizardFolder('vpx-jamesbond007', 'bwggWE8UrF');
+            const { gameId } = await createRotationGame(roomId, 'Bond 60th');
+
+            const res = await request(app).get('/api/witness/score').query({ device: DEVICE, token, ...bondPlay() });
+            expect(res.body).toMatchObject({ status: 'ingested', game: 'Bond 60th' });
+            const db = await getDatabase();
+            expect(await db.get(`SELECT outcome, verdict, vps_game, integrity_mode FROM witness_evidence WHERE game_id = ?`, gameId))
+                .toEqual({ outcome: 'ingested', verdict: null, vps_game: null, integrity_mode: 'open' });
+        });
+
+        it('is matching only: a Sanctioned tournament still holds a cabinet out, folder or not', async () => {
+            await seedBond();
+            await mapWizardFolder('vpx-jamesbond007', 'bwggWE8UrF');
+            const db = await getDatabase();
+            const tournamentId = crypto.randomUUID();
+            await db.run(
+                `INSERT INTO tournaments (id, name, type, mode, cadence, is_active, game_room_id, format, integrity_mode)
+                 VALUES (?, 'Sanctioned VPXS', 'WG', 'pinball', '{}', 1, ?, 'rotation', 'sanctioned')`,
+                tournamentId, roomId,
+            );
+            const gameId = crypto.randomUUID();
+            await db.run(
+                `INSERT INTO games (id, tournament_id, name, status, game_room_id, start_date)
+                 VALUES (?, ?, 'Bond 60th', 'ACTIVE', ?, ?)`,
+                gameId, tournamentId, roomId, new Date(Date.now() - 60 * MINUTE).toISOString(),
+            );
+
+            const res = await request(app).get('/api/witness/score').query({ device: DEVICE, token, ...bondPlay() });
+            // The cabinet's own vocabulary for "accepted, not placed"; the play still reaches Global.
+            expect(res.body).toMatchObject({ ok: true, status: 'no_match', game: 'Bond 60th' });
+            expect(await db.get(`SELECT id FROM score_history WHERE game_id = ?`, gameId)).toBeUndefined();
+            const trail = await db.get<{ outcome: string; reasons: string; vps_game: string | null }>(
+                `SELECT outcome, reasons, vps_game FROM witness_evidence WHERE tournament_id = ?`, tournamentId,
+            );
+            expect(trail!.outcome).toBe('not_sanctioned');
+            expect(JSON.parse(trail!.reasons)[0]).toMatch(/no evidence/);
+            expect(trail!.vps_game).toBeNull();
+        });
+
+        it('a desktop\'s slug is never read as a Wizard folder (Castcade sends the ROM\'s catalogue name there)', async () => {
+            await seedBond();
+            await mapWizardFolder('vpx-jamesbond007', 'bwggWE8UrF');
+            const desktop = 'f1d2e3c4-0000-4000-8000-00000000d35c';
+            const codeRes = await request(app)
+                .post('/api/me/witness/pairing-code')
+                .set('Authorization', `Bearer ${playerToken(USER)}`).send({});
+            const desktopToken = (await request(app).get('/api/witness/pair')
+                .query({ code: codeRes.body.code, device: desktop, username: 'Desk', type: 'desktop' })).body.token as string;
+
+            const res = await request(app).get('/api/witness/score').query({ device: desktop, token: desktopToken, ...bondPlay() });
+            expect(res.body).toMatchObject({ status: 'no_match' });
+            expect(res.body.notCounted).toMatch(/matches 2 catalogue games/);
+        });
     });
 
     it('refuses a designation for a room the player is not in', async () => {
