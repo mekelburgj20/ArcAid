@@ -1,8 +1,8 @@
 /* ==========================================================================
    Arcaid Witness theme - ArcAid WEBSITE layer (W105, v2.251.0)
    Not part of the design kit. Loaded AFTER aw-theme.css and aw-theme-ext.css
-   by admin-ui/src/lib/awTheme.ts, and only while a Witness page (or the
-   Account Settings Witness section) is on screen. It defines no colour, font
+   by admin-ui/src/lib/awTheme.ts, and only while a Witness page or Account
+   Settings (the whole page since G20) is on screen. It defines no colour, font
    family or type size of its own: every value below is a --aw-* token, the
    kit's own scale switch, or plain layout.
    ========================================================================== */
@@ -25,6 +25,88 @@
   .aw-web { padding-left: 16px; padding-right: 16px; }
 }
 
+/* ==========================================================================
+   Account Settings (G20): a wide page of grouped panels. It wears the kit's
+   panels, fonts and colours, but it is not a Witness screen, so it does not
+   show the Witness picture.
+   ========================================================================== */
+
+/* As wide as the results pages (1600 px), so a desktop is not shown a
+   phone-width column. */
+.aw-web.aw-web--wide { width: 100%; max-width: 100rem; }
+
+/* The background: the kit canvas, a faint grid, a soft cyan and pink glow, and
+   the ARCAID logo (the site's own, one folder up) as a dim watermark that stays
+   in the middle of the window while the page scrolls. */
+.aw-screen.aw-screen--arcaid {
+  background-image:
+    radial-gradient(ellipse 60% 900px at 12% 0%, color-mix(in srgb, var(--aw-cyan) 10%, transparent), transparent),
+    radial-gradient(ellipse 60% 900px at 88% 100%, color-mix(in srgb, var(--aw-pink) 10%, transparent), transparent),
+    repeating-linear-gradient(0deg, color-mix(in srgb, var(--aw-cyan) 4%, transparent) 0 1px, transparent 1px 72px),
+    repeating-linear-gradient(90deg, color-mix(in srgb, var(--aw-cyan) 4%, transparent) 0 1px, transparent 1px 72px);
+  background-size: auto;
+  background-position: 0 0;
+  background-repeat: no-repeat, no-repeat, repeat, repeat;
+}
+.aw-screen.aw-screen--arcaid::before {
+  content: ""; position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background: url("../arcaid-logo-v2.png") center / min(86vmin, 900px) no-repeat;
+  opacity: .13;
+}
+.aw-screen--arcaid > .aw-layout { position: relative; z-index: 1; }
+
+/* The jump list beside the groups: a row of chips on a phone or a laptop, a
+   column that stays in view on a wide screen. */
+.aw-settings { display: flex; flex-direction: column; gap: calc(110 * var(--u)); }
+.aw-settings__groups { display: flex; flex-direction: column; gap: calc(140 * var(--u)); min-width: 0; }
+.aw-jump { display: flex; flex-wrap: wrap; gap: calc(26 * var(--u)); }
+@media (min-width: 1280px) {
+  .aw-settings { display: grid; grid-template-columns: 15rem minmax(0, 1fr); column-gap: calc(110 * var(--u)); align-items: start; }
+  .aw-jump { flex-direction: column; flex-wrap: nowrap; position: sticky; top: calc(80 * var(--u)); }
+}
+
+/* A group of related panels has ONE colour: its title, its jump chip, and the
+   label, border and top light bar of every panel in it. The colours are the
+   kit's own (violet is its pink and cyan mixed); red stays for the one group
+   that can do harm. */
+.aw-group, .aw-jump__item { --aw-group: var(--aw-cyan); }
+.aw-group--pink   { --aw-group: var(--aw-pink); }
+.aw-group--violet { --aw-group: color-mix(in oklch, var(--aw-pink) 50%, var(--aw-cyan)); }
+.aw-group--ice    { --aw-group: var(--aw-ice); }
+.aw-group--red    { --aw-group: var(--aw-red); }
+
+.aw-jump__item {
+  display: inline-flex; align-items: center; gap: calc(26 * var(--u));
+  font-family: var(--aw-font-ui); font-weight: 600; font-size: calc(40 * var(--u)); line-height: 1.2;
+  letter-spacing: .16em; text-transform: uppercase; text-align: left;
+  color: var(--aw-chrome); background: color-mix(in srgb, var(--aw-canvas) 55%, transparent); cursor: pointer;
+  border: calc(2 * var(--u)) solid color-mix(in srgb, var(--aw-group) 32%, transparent);
+  border-radius: calc(16 * var(--u)); padding: calc(22 * var(--u)) calc(34 * var(--u));
+}
+.aw-jump__item::before {
+  content: ""; flex: none; width: calc(24 * var(--u)); height: calc(24 * var(--u)); border-radius: 50%;
+  background: var(--aw-group); box-shadow: 0 0 10px var(--aw-group);
+}
+.aw-jump__item:hover, .aw-jump__item:focus-visible { color: var(--aw-ice); border-color: var(--aw-group); outline: none; }
+
+.aw-group { display: flex; flex-direction: column; gap: calc(54 * var(--u)); min-width: 0; }
+.aw-group__title {
+  display: flex; align-items: center; gap: calc(44 * var(--u)); margin: 0;
+  font-family: var(--aw-font-display); font-weight: 700; font-size: var(--aw-fs-row);
+  letter-spacing: .08em; line-height: 1.15; text-transform: uppercase; color: var(--aw-group);
+}
+.aw-group__title::after { /* the group's rule, fading out to the right */
+  content: ""; flex: 1; min-width: calc(60 * var(--u)); height: calc(3 * var(--u)); border-radius: 4px;
+  background: linear-gradient(90deg, var(--aw-group), transparent); opacity: .6;
+}
+.aw-group__sub { margin: calc(14 * var(--u)) 0 0; font-weight: 500; font-size: calc(44 * var(--u)); color: var(--aw-chrome); }
+.aw-group .aw-panel { border-color: color-mix(in srgb, var(--aw-group) 30%, transparent); }
+.aw-group .aw-panel::before {
+  background: linear-gradient(90deg, var(--aw-group), color-mix(in srgb, var(--aw-group) 10%, transparent));
+  box-shadow: 0 0 18px color-mix(in srgb, var(--aw-group) 55%, transparent);
+}
+.aw-group .aw-label { color: var(--aw-group); }
+
 /* A Witness surface hosted by the site's own components. Used together with
    the site's `sb-theme-scope` (which restates the dark defaults whatever theme
    the page wears), it points the site's colour tokens at the kit, so links,
@@ -41,6 +123,7 @@
   --color-neon-magenta: var(--aw-pink);
   --color-neon-amber: var(--aw-red);
   --color-neon-coral: var(--aw-red);
+  --color-emerald-400: var(--aw-cyan);
   --color-amber-400: var(--aw-red);
   --color-rose-400: var(--aw-red);
   --color-rose-500: var(--aw-red);
@@ -54,14 +137,5 @@
 }
 .aw-island input:focus, .aw-island select:focus, .aw-island textarea:focus {
   border-color: var(--aw-cyan);
-  box-shadow: none;
-}
-
-/* The Account Settings section is a kit panel hosted inside a site page, not
-   on the kit background: the glass is laid over the kit canvas so the host
-   page cannot show through it (a light or yellow site theme turned it grey or
-   olive), and there is no outer glow (a grey halo on a light theme). */
-.aw-panel.aw-island {
-  background: linear-gradient(var(--aw-panel), var(--aw-panel)), var(--aw-canvas);
   box-shadow: none;
 }

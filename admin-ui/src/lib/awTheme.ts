@@ -6,15 +6,15 @@ import { useEffect } from 'react';
  * The designer's kit lives verbatim in `public/aw-theme/` (`aw-theme.css`, the
  * Arcaid extension `aw-theme-ext.css`, `fonts/`, `assets/`) with the site's own
  * small layer `aw-web.css` after it. It is NOT a site theme id (`lib/themeIds.ts`):
- * it is loaded only while a Witness page or the Account Settings Witness section
- * is mounted, through `useAwTheme`, and removed again when the last one unmounts,
- * so no other page ever carries it.
+ * it is loaded only while a Witness page or Account Settings (the whole page
+ * since G20) is mounted, through `useAwTheme`, and removed again when the last
+ * one unmounts, so no other page ever carries it.
  *
  * Bump `AW_THEME_VERSION` whenever a file under `public/aw-theme/` changes: the
  * browser caches public statics for a day, and the query string is what makes a
  * changed stylesheet load at once (rename a changed font or image instead).
  */
-export const AW_THEME_VERSION = '2';
+export const AW_THEME_VERSION = '3';
 
 export const AW_THEME_STYLESHEETS = [
     '/aw-theme/aw-theme.css',

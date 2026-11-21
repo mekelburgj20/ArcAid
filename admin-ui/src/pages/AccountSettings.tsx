@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Home, User as UserIcon, CheckCircle2, AlertCircle, AlertTriangle, Trash2, Link2, Unlink } from 'lucide-react';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
@@ -17,7 +17,8 @@ import WitnessModelLabel from '../components/WitnessModelLabel';
 import WitnessDeviceSupport from '../components/WitnessDeviceSupport';
 import WitnessDeviceHealth from '../components/WitnessDeviceHealth';
 import WitnessKitDownload from '../components/WitnessKitDownload';
-import { AW_BADGE_SRC, AW_BADGE_SRCSET, AwThemeStyles } from '../lib/awTheme';
+import SettingsPanel, { SettingsGroup, type SettingsGroupTone } from '../components/SettingsPanel';
+import { AW_BADGE_SRC, AW_BADGE_SRCSET, useAwTheme } from '../lib/awTheme';
 import { roomFetch } from '../lib/roomFetch';
 
 type AvatarProvider = 'discord' | 'google';
@@ -88,6 +89,21 @@ interface NotificationSettings {
 
 const DEFAULT_REMINDER_HOURS = [24, 48, 72];
 
+/**
+ * G20 - the page's five groups, in page order. One entry drives the group's
+ * heading, its colour, and its chip in the jump list, so the three cannot
+ * disagree. A new settings panel goes INSIDE the group it belongs to; a new
+ * group is a new entry here.
+ */
+const SETTINGS_GROUPS: Record<'personal' | 'scores' | 'devices' | 'notifications' | 'danger',
+  { id: string; tone: SettingsGroupTone; title: string; sub: string }> = {
+  personal: { id: 'group-personal', tone: 'cyan', title: 'Personal', sub: 'Your name and picture, and how Arcaid looks to you.' },
+  scores: { id: 'group-scores', tone: 'pink', title: 'Scores and tables', sub: 'Where your scores are shown, the names they count under, and the tables you own.' },
+  devices: { id: 'group-devices', tone: 'violet', title: 'Accounts and devices', sub: 'The logins and the machines that are tied to this account.' },
+  notifications: { id: 'group-notifications', tone: 'ice', title: 'Notifications', sub: 'What Arcaid tells you about, and how it reaches you.' },
+  danger: { id: 'group-danger', tone: 'red', title: 'Danger zone', sub: 'This cannot be undone.' },
+};
+
 const NOTIF_TYPES: { key: string; label: string; helper: string }[] = [
   { key: 'tournamentWin', label: 'Tournament Win', helper: 'When you win a tournament.' },
   { key: 'turnToPick', label: 'Turn to Pick', helper: "When it's your turn to pick the next game." },
@@ -118,6 +134,9 @@ export default function AccountSettings() {
   const { discordUser, playerToken, loginWithDiscord, loginWithGoogle, logoutPlayer, setViewerAvatar } = useViewerAuth();
   const { personalTheme, setPersonalTheme } = useTheme();
   const navigate = useNavigate();
+  // G20 - the whole page wears the Arcaid Witness look (it was only the Witness
+  // devices section, W105): the kit stylesheets load while this page is mounted.
+  useAwTheme();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [draft, setDraft] = useState('');
   const [availability, setAvailability] = useState<AvailabilityState>({ status: 'idle' });
@@ -195,7 +214,7 @@ export default function AccountSettings() {
   // W27.3 — the room and home pages' "Change" link lands on the device picker
   // (`#witness-devices`). The block renders after the devices load, so the
   // browser's own anchor jump has nothing to land on at first paint.
-  const witnessBlockRef = useRef<HTMLDivElement | null>(null);
+  const witnessBlockRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
     if (witnessDevices.length > 0 && window.location.hash === '#witness-devices') {
       witnessBlockRef.current?.scrollIntoView({ block: 'start' });
@@ -901,7 +920,7 @@ export default function AccountSettings() {
 
   if (!discordUser) {
     return (
-      <div className="min-h-screen bg-deep flex items-center justify-center">
+      <div className="aw-screen sb-theme-scope aw-island min-h-screen bg-deep text-primary flex items-center justify-center">
         <div className="text-center px-6">
           <UserIcon size={40} className="text-muted/30 mx-auto mb-3" />
           <p className="text-muted mb-4">Log in to manage your account.</p>
@@ -924,78 +943,108 @@ export default function AccountSettings() {
   const canSubmit = !saving && !isUnchanged && (draftTrimmed === '' || availability.status === 'available');
 
   return (
-    <div className="min-h-screen bg-deep text-primary">
-      <nav className="border-b border-border bg-surface/80 backdrop-blur-sm">
-        <div
-          className="max-w-xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between"
-          style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}
-        >
-          <button
-            onClick={() => window.history.back()}
-            className="flex items-center gap-1.5 text-sm text-muted hover:text-neon-cyan transition-colors cursor-pointer bg-transparent border-0 p-0"
-          >
-            <ArrowLeft size={16} />
-            Back
-          </button>
-          <Link to="/" className="flex items-center gap-1.5 text-sm text-muted hover:text-neon-cyan transition-colors no-underline">
-            <Home size={16} />
-            Home
-          </Link>
-        </div>
-      </nav>
+    // G20 - the page is a Witness-look page, like `components/AwPageShell.tsx`
+    // but wide: `sb-theme-scope aw-island` on the root puts every site
+    // component inside (the delete dialog too) on the dark defaults with its
+    // colour tokens pointed at the kit, whatever site theme the visitor wears.
+    // `bg-deep text-primary` are what shows for the moment before the kit
+    // stylesheets arrive. The settings are five GROUPS (`SETTINGS_GROUPS`),
+    // each in its own colour, with a jump list beside them on a wide screen
+    // (`aw-web--wide`, capped at 1600 px like the results pages). The
+    // background is the ARCAID logo, not the Witness picture (`aw-screen--arcaid`).
+    <div className="aw-screen aw-screen--arcaid sb-theme-scope aw-island min-h-screen bg-deep text-primary">
+      <div
+        className="aw-layout aw-web aw-web--wide px-4 sm:px-6"
+        style={{ paddingTop: 'max(1.5rem, env(safe-area-inset-top))' }}
+      >
+        <header className="aw-header flex-wrap">
+          <img className="aw-header__logo" src="/arcaid-logo-v2.png" alt="" aria-hidden="true" />
+          <h1 className="aw-brand m-0">
+            ARCAID
+            <span className="aw-brand__sub">ACCOUNT SETTINGS</span>
+          </h1>
+          <nav className="ml-auto flex items-center gap-5" aria-label="Page">
+            <button
+              onClick={() => window.history.back()}
+              className="flex items-center gap-1.5 text-sm text-muted hover:text-neon-cyan transition-colors cursor-pointer bg-transparent border-0 p-0"
+            >
+              <ArrowLeft size={16} />
+              Back
+            </button>
+            <Link to="/" className="flex items-center gap-1.5 text-sm text-muted hover:text-neon-cyan transition-colors no-underline">
+              <Home size={16} />
+              Home
+            </Link>
+          </nav>
+        </header>
 
-      <main className="max-w-xl mx-auto px-4 sm:px-6 py-6">
-        <h1 className="text-xl font-semibold mb-1">Account settings</h1>
-        <p className="text-sm text-muted mb-6">
-          Your display name appears on every leaderboard, announcement, and notification across Arcaid.
-        </p>
+        <main className="aw-settings">
+          {/* Buttons, not `#` links: a link would add a history entry per jump,
+              and Back (above) would then step through them. */}
+          <nav className="aw-jump" aria-label="Sections">
+            {Object.values(SETTINGS_GROUPS).map(g => (
+              <button
+                key={g.id}
+                type="button"
+                className={`aw-jump__item aw-group--${g.tone}`}
+                onClick={() => document.getElementById(g.id)?.scrollIntoView({
+                  block: 'start',
+                  behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+                })}
+              >
+                {g.title}
+              </button>
+            ))}
+          </nav>
 
-        {/* v2.130.0 — Appearance is deliberately the FIRST section and sits
-            OUTSIDE the `loading` gate: it is a local preference that applies
-            instantly, so it must not wait on the profile fetch. */}
-        <section className="mb-8">
-          <h2 className="text-sm font-medium mb-2">Appearance</h2>
-          <AppearanceControl />
-          <p className="text-xs text-faint mt-2">
-            Auto follows each room&rsquo;s theme and your device setting on global pages.
-          </p>
-        </section>
+          <div className="aw-settings__groups">
+            <SettingsGroup {...SETTINGS_GROUPS.personal}>
+              {/* v2.130.0 — Appearance is deliberately the FIRST panel and sits
+                  OUTSIDE the `loading` gate: it is a local preference that applies
+                  instantly, so it must not wait on the profile fetch.
+                  v2.132.0 — the personal theme, reachable without being inside a
+                  game room. Same component and same write as the Display settings
+                  sheet's "My theme"; deliberately SECOND, because Appearance above
+                  still has the last word on light vs dark. */}
+              <SettingsPanel title="Appearance">
+                <AppearanceControl />
+                <p className="text-xs text-faint mt-2">
+                  Auto follows each room&rsquo;s theme and your device setting on global pages.
+                </p>
+                <h4 className="text-sm font-medium mt-5 mb-2">My theme</h4>
+                <ThemePicker
+                  value={personalTheme}
+                  onChange={setPersonalTheme}
+                  nullLabel={"Use each room's default"}
+                  aria-label="My theme"
+                  data-testid="personal-theme-picker"
+                  className="w-full max-w-sm px-3 py-2 bg-raised border border-border rounded text-primary text-sm"
+                />
+                <p className="text-xs text-faint mt-2">
+                  Applies to every game room and your admin pages. Appearance (above) still wins on
+                  light/dark.
+                </p>
+                <p className="text-xs text-faint mt-2">
+                  This page keeps its own look, so a change here shows on the rest of Arcaid.
+                </p>
+              </SettingsPanel>
 
-        {/* v2.132.0 — the personal theme, reachable without being inside a
-            game room. Same component and same write as the Display settings
-            sheet's "My theme"; deliberately SECOND, because Appearance above
-            still has the last word on light vs dark. Outside the `loading`
-            gate for the same reason Appearance is: it applies instantly and
-            must not wait on the profile fetch. */}
-        <section className="mb-8">
-          <h2 className="text-sm font-medium mb-2">My theme</h2>
-          <ThemePicker
-            value={personalTheme}
-            onChange={setPersonalTheme}
-            nullLabel={"Use each room's default"}
-            aria-label="My theme"
-            data-testid="personal-theme-picker"
-            className="w-full max-w-sm px-3 py-2 bg-raised border border-border rounded text-primary text-sm"
-          />
-          <p className="text-xs text-faint mt-2">
-            Applies to every game room and your admin pages. Appearance (above) still wins on
-            light/dark.
-          </p>
-        </section>
-
-        {loading ? (
-          <p className="text-sm text-muted">Loading…</p>
-        ) : (
-          <>
-            <section className="mb-8 flex items-center gap-4">
+              {loading ? (
+                <p className="text-sm text-muted">Loading…</p>
+              ) : (
+            <SettingsPanel title="Profile">
+              <p className="text-xs text-muted mb-4">
+                Your display name appears on every leaderboard, announcement, and notification across Arcaid.
+              </p>
+              <div className="flex items-center gap-4">
               {avatarUrl ? (
                 <img
                   src={avatarUrl}
                   alt=""
-                  className="w-16 h-16 rounded-full border border-border"
+                  className="w-16 h-16 shrink-0 rounded-full border border-border"
                 />
               ) : (
-                <div className="w-16 h-16 rounded-full bg-neon-cyan/20 border border-border flex items-center justify-center text-xl font-bold text-neon-cyan">
+                <div className="w-16 h-16 shrink-0 rounded-full bg-neon-cyan/20 border border-border flex items-center justify-center text-xl font-bold text-neon-cyan">
                   {(profile?.display_name ?? discordUser.username).charAt(0).toUpperCase()}
                 </div>
               )}
@@ -1007,14 +1056,14 @@ export default function AccountSettings() {
                     : 'Your picture comes from the account you signed in with.'}
                 </p>
               </div>
-            </section>
+              </div>
 
             {/* Avatar source picker — only worth showing when the user actually
                 has more than one to choose from. Before this existed, a user
                 linked to both providers always got their Google picture and had
                 no way to get their Discord avatar back. */}
             {hasAvatarChoice && (
-              <section className="mb-8">
+              <div className="mt-5">
                 <p className="block text-sm font-medium mb-1.5">Profile picture</p>
                 <div className="flex flex-wrap gap-3">
                   {([
@@ -1046,10 +1095,10 @@ export default function AccountSettings() {
                 {!avatarSaved && !avatarError && (
                   <p className="mt-2 text-xs text-faint">Applies as soon as you pick one — there's nothing to save.</p>
                 )}
-              </section>
+              </div>
             )}
 
-            <section className="mb-8">
+            <div className="mt-5">
               <label htmlFor="display-name" className="block text-sm font-medium mb-1.5">
                 Display name
               </label>
@@ -1105,27 +1154,17 @@ export default function AccountSettings() {
                   </button>
                 )}
               </div>
-            </section>
+            </div>
+            </SettingsPanel>
+              )}
+            </SettingsGroup>
 
-            {/* C2 - My Tables. Count only; managing the inventory is its own page. */}
-            <section className="mb-8" data-testid="my-tables-summary">
-              <h2 className="text-sm font-medium mb-2">My Tables</h2>
-              <p className="text-xs text-muted mb-2">
-                {ownedTableCount === null
-                  ? 'Mark the tables you own. Only a count is ever shown to others.'
-                  : `${ownedTableCount} table${ownedTableCount === 1 ? '' : 's'} in your inventory`}
-              </p>
-              <Link to="/account/tables" className="text-sm text-neon-cyan hover:underline">
-                Manage my tables -&gt;
-              </Link>
-            </section>
-
+            {!loading && (
+              <>
+            <SettingsGroup {...SETTINGS_GROUPS.scores}>
             <GlobalSharingSection />
 
-            <ThrowdownsSection />
-
-            <section>
-              <h2 className="text-sm font-medium mb-2">Linked iScored aliases</h2>
+            <SettingsPanel title="Linked iScored aliases">
               <p className="text-xs text-muted mb-3">
                 Scores submitted under any of these names count for you on every leaderboard.
                 You can hold up to {claims?.maxAliases ?? 3}.
@@ -1204,10 +1243,26 @@ export default function AccountSettings() {
                   </p>
                 </div>
               )}
-            </section>
+            </SettingsPanel>
 
-            <section className="mt-8 pt-8 border-t border-border">
-              <h2 className="text-sm font-medium mb-2">Connected accounts</h2>
+            {/* C2 - My Tables. Count only; managing the inventory is its own page. */}
+            <SettingsPanel title="My Tables" testId="my-tables-summary">
+              <p className="text-xs text-muted mb-2">
+                {ownedTableCount === null
+                  ? 'Mark the tables you own. Only a count is ever shown to others.'
+                  : `${ownedTableCount} table${ownedTableCount === 1 ? '' : 's'} in your inventory`}
+              </p>
+              <Link to="/account/tables" className="text-sm text-neon-cyan hover:underline">
+                Manage my tables -&gt;
+              </Link>
+            </SettingsPanel>
+
+            {/* Last, because it renders nothing for a player who never started one. */}
+            <ThrowdownsSection />
+            </SettingsGroup>
+
+            <SettingsGroup {...SETTINGS_GROUPS.devices}>
+            <SettingsPanel title="Connected accounts">
               {isGoogleIdentity ? (
                 <>
                   <p className="text-xs text-muted mb-3">
@@ -1300,13 +1355,13 @@ export default function AccountSettings() {
                   )}
                 </>
               )}
+            </SettingsPanel>
 
               {/* v2.141.0 — AtGames cabinet account. Unlike Google/Discord this
                   is not a login method: it exists so scores Arcaid pulls off an
                   AtGames tournament land on YOUR account instead of an
                   anonymous AtGames handle. */}
-              <div className="mt-6 pt-4 border-t border-border">
-                <h3 className="text-sm font-medium mb-1">AtGames cabinet account</h3>
+              <SettingsPanel title="AtGames cabinet account">
                 {(() => {
                   const atgamesLinks = (links ?? []).filter(l => l.provider_user_id.startsWith('atgames:'));
                   if (atgamesLinks.length > 0) {
@@ -1410,24 +1465,31 @@ export default function AccountSettings() {
                     </>
                   );
                 })()}
-              </div>
+              </SettingsPanel>
 
+              {/* Full width - your devices on the left, where their plays went
+                  on the right (stacked on a phone). */}
               {/* v2.142.0 (P8) — Arcaid Witness cabinet pairing. Not a login
                   and not the AtGames account link above: this pairs the
                   on-device Witness app so it can report table LAUNCH times
                   (the anti-gear-up signal). Player mints a code here, types it
                   into the app on the cabinet. */}
-              {/* W105 (v2.251.0) - the section carries the Arcaid Witness identity
-                  (badge, kit panel, kit status colours) on any site theme:
-                  `sb-theme-scope` restates the dark defaults inside it and
-                  `aw-island` (public/aw-theme/aw-web.css) points the site's colour
-                  tokens at the kit. The kit stylesheet loads only while it is here. */}
-              <div id="witness-devices" ref={witnessBlockRef} className="mt-6 scroll-mt-4 aw-panel sb-theme-scope aw-island" data-testid="witness-section">
-                <AwThemeStyles />
-                <h3 className="aw-label flex items-center gap-2">
+              {/* W105 (v2.251.0) - the panel carries the Arcaid Witness identity
+                  (badge, kit panel, kit status colours). G20: the whole page
+                  now wears the kit, so the dark defaults and the token mapping
+                  (`sb-theme-scope aw-island`) come from the page root. */}
+              <SettingsPanel
+                wide
+                id="witness-devices"
+                panelRef={witnessBlockRef}
+                testId="witness-section"
+                title={<>
                   <img src={AW_BADGE_SRC} srcSet={AW_BADGE_SRCSET} alt="" aria-hidden="true" className="h-8 w-8 shrink-0" />
                   Arcaid Witness devices
-                </h3>
+                </>}
+              >
+                <div className={witnessDevices.length > 0 ? 'lg:grid lg:grid-cols-2 lg:gap-x-10 lg:items-start' : 'max-w-3xl'}>
+                <div className="min-w-0">
                 <p className="text-xs text-muted mb-3">
                   Pair Arcaid Witness on your cabinet, or the Castcade companion on your Windows VPX PC,
                   so your tournament scores are backed by when you actually started each table. Get a
@@ -1615,13 +1677,19 @@ export default function AccountSettings() {
                 ) : (
                   <p className="text-xs text-muted">No devices paired yet.</p>
                 )}
-                {/* W27.2 (ADR 0033 §5) — where each reported play went, or why it didn't count. */}
-                {witnessDevices.length > 0 && <WitnessRecentPlays playerToken={playerToken} />}
-              </div>
-            </section>
+                </div>
+                {/* W27.2 (ADR 0033 §5) — where each reported play went, or why it didn't count.
+                    `lg:-mt-6` lifts the list's own top margin so it starts level with the left column. */}
+                {witnessDevices.length > 0 && (
+                  <div className="min-w-0 lg:-mt-6"><WitnessRecentPlays playerToken={playerToken} /></div>
+                )}
+                </div>
+              </SettingsPanel>
+            </SettingsGroup>
 
-            <section className="mt-8 pt-8 border-t border-border">
-              <h2 className="text-sm font-medium mb-2">Notifications</h2>
+            <SettingsGroup {...SETTINGS_GROUPS.notifications}>
+            {/* Full width: the list of events runs in columns on a desktop. */}
+            <SettingsPanel wide title="What to tell me about">
               <p className="text-xs text-muted mb-4">
                 Pick the events you want to hear about, then choose how they reach you. Everything
                 is off until you turn it on.
@@ -1630,7 +1698,7 @@ export default function AccountSettings() {
                 <p className="text-sm text-muted">Loading…</p>
               ) : (
                 <>
-                  <div>
+                  <div className="grid gap-x-10 lg:grid-cols-2 2xl:grid-cols-3">
                     {NOTIF_TYPES.map(({ key, label, helper }) => {
                       const checked = draftPrefs?.[key] === true;
                       // v2.72.0 — the opt-ins are ONE stored set shared by
@@ -1642,9 +1710,9 @@ export default function AccountSettings() {
                       // server reports in `webPushTypes`.
                       const pushable = notifSettings?.webPushTypes?.includes(key) ?? false;
                       return (
-                        <Fragment key={key}>
+                        <div key={key} className="border-b border-border">
                         <label
-                          className="flex items-start justify-between gap-3 py-2.5 border-b border-border last:border-b-0 cursor-pointer"
+                          className="flex items-start justify-between gap-3 py-2.5 cursor-pointer"
                         >
                           <span className="min-w-0">
                             <span className="block text-sm text-primary">
@@ -1672,7 +1740,7 @@ export default function AccountSettings() {
                           </button>
                         </label>
                         {key === 'playReminder' && checked && (
-                          <div className="flex items-center gap-2 pb-2.5 border-b border-border text-xs text-faint">
+                          <div className="flex items-center gap-2 pb-2.5 text-xs text-faint">
                             <label htmlFor="play-reminder-hours">Remind me after</label>
                             <select
                               id="play-reminder-hours"
@@ -1686,7 +1754,7 @@ export default function AccountSettings() {
                             </select>
                           </div>
                         )}
-                        </Fragment>
+                        </div>
                       );
                     })}
                   </div>
@@ -1699,7 +1767,7 @@ export default function AccountSettings() {
                       it isn't delivered anywhere, it's a reply in the channel
                       the person is already typing in. */}
                   <label
-                    className="flex items-start justify-between gap-3 py-2.5 mt-3 pt-3 border-t border-border cursor-pointer"
+                    className="flex items-start justify-between gap-3 py-2.5 max-w-3xl cursor-pointer"
                     data-testid="chat-responses-pref"
                   >
                     <span className="min-w-0">
@@ -1756,16 +1824,19 @@ export default function AccountSettings() {
                       {notifSaving ? 'Saving…' : 'Save'}
                     </button>
                   </div>
+                </>
+              )}
+            </SettingsPanel>
+
                   {/* v2.72.0 (Discord HQ) — the two delivery channels, side by
                       side, each owning its own status. Browser push is a
                       per-device switch; Discord DMs depend on something the
                       user can't see (whether they share a server with the bot),
                       so that block states the verdict plainly instead of
-                      implying the toggles above are enough. */}
-                  <div className="mt-6 pt-4 border-t border-border grid gap-4 sm:grid-cols-2">
-                    {vapidKey && (
-                      <div className="rounded border border-border p-3">
-                        <h3 className="text-sm font-medium mb-1">Browser push</h3>
+                      implying the toggles above are enough. G20: each is its
+                      own panel in the Notifications group. */}
+                    {!notifLoading && vapidKey && (
+                      <SettingsPanel title="Browser push">
                         {pushSupported ? (
                           <>
                             <label className="flex items-start justify-between gap-3 py-2 cursor-pointer">
@@ -1802,11 +1873,11 @@ export default function AccountSettings() {
                             first, then enable push from the installed app.
                           </p>
                         )}
-                      </div>
+                      </SettingsPanel>
                     )}
 
-                    <div className="rounded border border-border p-3">
-                      <h3 className="text-sm font-medium mb-1">Discord DMs</h3>
+                    {!notifLoading && (
+                    <SettingsPanel title="Discord DMs">
                       {!notifSettings?.discord.available ? (
                         <p className="text-xs text-faint">
                           You're signed in with Google. Link a Discord account above if you'd like DMs —
@@ -1875,16 +1946,12 @@ export default function AccountSettings() {
                           {connectNotice.text}
                         </p>
                       )}
-                    </div>
-                  </div>
-                </>
-              )}
-            </section>
+                    </SettingsPanel>
+                    )}
+            </SettingsGroup>
 
-            <section className="mt-8 pt-8 border-t border-border">
-              <h2 className="text-sm font-medium mb-2 inline-flex items-center gap-1.5 text-rose-400">
-                <AlertTriangle size={14} /> Danger zone
-              </h2>
+            <SettingsGroup {...SETTINGS_GROUPS.danger}>
+            <SettingsPanel wide title={<><AlertTriangle size={14} /> Delete my account</>}>
               <p className="text-xs text-muted mb-1.5">
                 Deleting your account removes your profile, avatar, chosen display name,
                 proof photos, comments, ratings, and friends, and unlinks your Discord login.
@@ -1900,10 +1967,17 @@ export default function AccountSettings() {
               >
                 <Trash2 size={14} /> Delete my account
               </button>
-            </section>
-          </>
-        )}
-      </main>
+            </SettingsPanel>
+            </SettingsGroup>
+              </>
+            )}
+          </div>
+        </main>
+
+        <footer className="aw-footer">
+          <Link to="/">ARCAID.APP</Link>
+        </footer>
+      </div>
 
       {showDeleteModal && (
         <div
