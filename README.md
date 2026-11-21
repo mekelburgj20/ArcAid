@@ -39,7 +39,7 @@
 - **Progressive Web App (PWA)** — Installable on Android/iOS with standalone display, offline caching, and home screen icon
 - **Global card style overrides** — Room-wide color customization for game card titles, scores, borders, and backgrounds via color pickers
 - **3 scoreboard card styles** — Banner (280px, iScored-compatible), Showcase (380px, art-forward with podium top-3), Minimal (typography-only). Style+Theme 2-level selection with two Showcase themes (Glass Deck, Neon Circuit)
-- **Style-matched rankings cards** — Overall rankings cards automatically match the active card style (Banner/Showcase/Minimal) with theme-appropriate colors and layout
+- **Style-matched rankings cards** — Overall rankings cards automatically match the active card style (Banner/Showcase/Minimal) with theme-appropriate colors and layout; every card links to the full standings, and tied totals share a place
 - **Inline rankings** — Rankings cards render inline with game cards (default) or as sticky side columns. Configurable position (top/bottom/left/right)
 - **12 game title styles** — Default, Glow, Neon Magenta (animated flicker), Chrome, Fire (animated shifting gradient), Plasma, Backglass, Marquee, Retro, Pixel, Shadow, Outlined
 - **QR code score submission** — Configurable QR codes on game cards (disabled/kiosk-only/all) with size and position options (top-right/bottom-right)
