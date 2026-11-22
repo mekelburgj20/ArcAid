@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.258.0] - 2026-11-21 - The Wizard sync keeps each game's maker and year; Old Wizard Rows marks games on the Wizard
+
+C19. Legends Unchained's Wizard offers some games as several install folders, each with its own label. JP's Attack
+from Mars is two folders on the one Attack from Mars (Bally 1995) game: the standard one, and an "LE" folder
+labelled Chicago Gaming Company 2017. The nightly Wizard sync runs after the VPS sync, and the last label written
+won, so the catalogue showed Attack from Mars as a 2017 Chicago Gaming Company game.
+
+- **Fixed:** the Wizard sync now only fills a maker or year the game is missing; it never replaces one. The VPS
+  sync still sets them, so the next nightly run (or Global Catalogue -> Sync VPS) restores Attack from Mars to
+  Bally 1995 and a Teenage Mutant Ninja Turtles remix to VPS's 2021. Both Wizard folders still lead to the game.
+- **New, Global Catalogue -> Old Wizard Rows:** every suggested game, candidate and search result the Wizard installs
+  today is marked **On the Wizard**, and **same folder** when one of its Wizard folders is the old row's own.
+
 ## [2.257.0] - 2026-11-21 - Old Wizard catalogue rows merge into their games, and a merge no longer loses My Tables
 
 C14. Until 2026-10-28 the Wizard catalogue sync read the Legends Unchained README, whose two table lists linked each

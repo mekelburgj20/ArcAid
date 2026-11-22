@@ -290,6 +290,16 @@ export interface GlobalGameInput {
     global_leaderboard?: boolean;
     imported_from?: string | null;
     source_updated_at?: string | null;
+    /**
+     * C19 (v2.258.0) — this source's `manufacturer` / `year` only fill a blank
+     * on an existing row; they never replace a value. The Wizard sets it: its
+     * maker and year label one install FOLDER, and LU ships some VPS games as
+     * several folders labelled differently (JP's Attack from Mars and its "LE"
+     * folder, Chicago Gaming Company 2017, both on the Bally 1995 VPS game).
+     * Supplied-wins let the last folder relabel the game every night. The
+     * values still drive the dedup walk and an INSERT.
+     */
+    maker_year_fill_only?: boolean;
 }
 
 /**
@@ -910,6 +920,15 @@ export class GlobalGameService {
         const { existing } = await this.resolveDedupCandidates(input);
 
         if (existing) {
+            // C19 (v2.258.0): a fill-only source (the Wizard) writes a maker
+            // or year only where the row has none. Locals, not a rewritten
+            // `input`: the identity-collision retry below re-runs the dedup
+            // walk with the caller's values.
+            const writeManufacturer = input.maker_year_fill_only && existing.manufacturer?.trim()
+                ? null : (input.manufacturer ?? null);
+            const writeYear = input.maker_year_fill_only && existing.year != null
+                ? null : (input.year ?? null);
+
             // Update: merge platforms, fill missing fields
             const existingPlatforms: string[] = JSON.parse(existing.platforms || '[]');
             const newPlatforms = input.platforms || [];
@@ -978,7 +997,7 @@ export class GlobalGameService {
             const fsRow = await db.get<{ field_sources: string | null }>(
                 'SELECT field_sources FROM global_games WHERE id = ?', existing.id,
             );
-            const stampedFieldSources = stampFieldSources(fsRow?.field_sources, input, {
+            const stampedFieldSources = stampFieldSources(fsRow?.field_sources, { ...input, manufacturer: writeManufacturer, year: writeYear }, {
                 sourceLabel: input.imported_from,
             });
 
@@ -1031,8 +1050,8 @@ export class GlobalGameService {
                 WHERE id = ?`;
             const updateParams = [
                 input.display_name ?? null,
-                input.manufacturer ?? null,
-                input.year ?? null,
+                writeManufacturer,
+                writeYear,
                 input.subtype ?? null,
                 JSON.stringify(mergedPlatforms),
                 JSON.stringify(mergedThemes),
@@ -1083,8 +1102,8 @@ export class GlobalGameService {
                 // primitive unions data and cascades FK refs), then retry
                 // the upsert against the consolidated target.
                 const newName = input.name || existing.name;
-                const newMfg = input.manufacturer ?? existing.manufacturer ?? '';
-                const newYear = input.year ?? existing.year ?? 0;
+                const newMfg = writeManufacturer ?? existing.manufacturer ?? '';
+                const newYear = writeYear ?? existing.year ?? 0;
                 const colliding = await db.get(
                     `SELECT id FROM global_games
                      WHERE LOWER(name) = LOWER(?)

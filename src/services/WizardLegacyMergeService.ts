@@ -40,6 +40,12 @@ export interface OldWizardTarget {
     manufacturer: string | null;
     year: number | null;
     vps_id: string | null;
+    /**
+     * C19 (v2.258.0) — the Table Manager folders LU's Wizard installs for this
+     * game today (`wizard_table_slugs` on its VPS id); empty when the Wizard
+     * does not offer it. The page shows it as "On the Wizard".
+     */
+    wizardFolders: string[];
 }
 
 export type OldWizardTier = 'folder' | 'name' | 'maker_year';
@@ -140,8 +146,28 @@ export function nameKey(name: string): string {
     return normalizeGameName(frontFormOf(name) ?? name);
 }
 
-function toTarget(r: CatalogueRow): OldWizardTarget {
-    return { id: r.id, name: r.name, manufacturer: r.manufacturer, year: r.year, vps_id: r.vps_id };
+type FoldersByVps = Map<string, string[]>;
+
+function toTarget(r: CatalogueRow, foldersByVps: FoldersByVps): OldWizardTarget {
+    return {
+        id: r.id, name: r.name, manufacturer: r.manufacturer, year: r.year, vps_id: r.vps_id,
+        wizardFolders: (r.vps_id && foldersByVps.get(r.vps_id)) || [],
+    };
+}
+
+/** `wizard_table_slugs` grouped by VPS game: which games the Wizard installs. */
+function groupFolders(slugRows: Array<{ slug: string; vps_id: string }>): FoldersByVps {
+    const out: FoldersByVps = new Map();
+    for (const s of slugRows) (out.get(s.vps_id) ?? out.set(s.vps_id, []).get(s.vps_id)!).push(s.slug);
+    for (const list of out.values()) list.sort();
+    return out;
+}
+
+async function readSlugRows(): Promise<Array<{ slug: string; vps_id: string }>> {
+    const db = await getDatabase();
+    return db.all<Array<{ slug: string; vps_id: string }>>(
+        `SELECT slug, vps_id FROM wizard_table_slugs`,
+    ).catch(() => [] as Array<{ slug: string; vps_id: string }>);
 }
 
 /** Maker / year disagreement between an old row and a proposed survivor. */
@@ -201,10 +227,10 @@ export class WizardLegacyMergeService {
             if (k) (byKey.get(k) ?? byKey.set(k, []).get(k)!).push(r);
         }
 
-        const slugRows = await db.all<Array<{ slug: string; vps_id: string }>>(
-            `SELECT slug, vps_id FROM wizard_table_slugs`,
-        ).catch(() => [] as Array<{ slug: string; vps_id: string }>);
+        const slugRows = await readSlugRows();
         const slugToVps = new Map(slugRows.map(s => [s.slug.toLowerCase(), s.vps_id]));
+        const foldersByVps = groupFolders(slugRows);
+        const target = (r: CatalogueRow) => toTarget(r, foldersByVps);
 
         const counts = await WizardLegacyMergeService.countsFor(old);
 
@@ -229,11 +255,11 @@ export class WizardLegacyMergeService {
                 const agreeing = unique.filter(c => disagreementsOf(row, c).length === 0);
                 const chosen = unique.length === 1 ? unique[0] : agreeing.length === 1 ? agreeing[0] : null;
                 if (!chosen) {
-                    plan.alternatives = unique.map(toTarget);
+                    plan.alternatives = unique.map(target);
                     return true;
                 }
                 plan.suggestion = {
-                    target: toTarget(chosen),
+                    target: target(chosen),
                     tier,
                     disagreements: disagreementsOf(row, chosen),
                     conflict: adr0014Conflict(row, chosen),
@@ -295,7 +321,8 @@ export class WizardLegacyMergeService {
               LIMIT ?`,
             `%${term}%`, limit * 3,
         );
-        return rows.filter(r => !isReadmeEraWizardRow(r)).slice(0, limit).map(toTarget);
+        const foldersByVps = groupFolders(await readSlugRows());
+        return rows.filter(r => !isReadmeEraWizardRow(r)).slice(0, limit).map(r => toTarget(r, foldersByVps));
     }
 
     /**
