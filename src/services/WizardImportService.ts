@@ -566,6 +566,10 @@ export class WizardImportService {
                         // importer writes, so the two append onto one list by URL.
                         tutorial_urls: table.tutorial ? [table.tutorial] : undefined,
                         imported_from: 'wizard',
+                        // C19: the maker and year label this FOLDER ("Attack
+                        // from Mars LE, JP's" says Chicago Gaming Company 2017
+                        // on the Bally 1995 VPS game), so they only fill blanks.
+                        maker_year_fill_only: true,
                     };
 
                     const result = await GlobalGameService.upsert(input);

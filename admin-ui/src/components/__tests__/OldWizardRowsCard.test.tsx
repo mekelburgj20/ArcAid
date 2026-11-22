@@ -5,7 +5,8 @@ import OldWizardRowsCard, { type OldWizardRowPlan } from '../OldWizardRowsCard';
 /**
  * C14 (v2.257.0) — Global Catalogue -> Old Wizard Rows. The server proposes a
  * survivor per README-era row; only the pre-ticked pairs and the owner's own
- * ticks are sent to the merge.
+ * ticks are sent to the merge. C19 (v2.258.0): candidates LU's Wizard installs
+ * are marked "On the Wizard".
  */
 
 vi.mock('../../lib/api', () => ({
@@ -32,21 +33,21 @@ const ROWS: OldWizardRowPlan[] = [
   plan({
     id: 'old-getaway', name: 'Getaway - High Speed II, The', manufacturer: 'Williams', year: 1992, folder: 'vpx-getaway',
     counts: { ...zero, globalScores: 3, globalPlayers: 2, roomGames: 1, activeRoomGames: 1 },
-    suggestion: { target: { id: 'vps-getaway', name: 'The Getaway: High Speed II', manufacturer: 'Williams', year: 1992, vps_id: 'abc' }, tier: 'folder', disagreements: [], conflict: null },
+    suggestion: { target: { id: 'vps-getaway', name: 'The Getaway: High Speed II', manufacturer: 'Williams', year: 1992, vps_id: 'abc', wizardFolders: ['vpx-getaway', 'vpx-getawaypup'] }, tier: 'folder', disagreements: [], conflict: null },
     preselect: true,
   }),
   plan({
     id: 'old-metro', name: 'Metropolis', manufacturer: 'Original', year: 2022,
     suggestion: {
-      target: { id: 'vps-metro', name: 'Metropolis', manufacturer: 'Maresa', year: 1982, vps_id: 'm1' }, tier: 'name',
+      target: { id: 'vps-metro', name: 'Metropolis', manufacturer: 'Maresa', year: 1982, vps_id: 'm1', wizardFolders: [] }, tier: 'name',
       disagreements: ['maker', 'year'], conflict: 'A fan original (Original) and a real machine (Maresa) are different games (ADR 0014)',
     },
   }),
   plan({
     id: 'old-godzilla', name: 'Godzilla',
     alternatives: [
-      { id: 'g1', name: 'Godzilla', manufacturer: 'Sega', year: 1998, vps_id: 'g1' },
-      { id: 'g2', name: 'Godzilla', manufacturer: 'Stern', year: 2021, vps_id: 'g2' },
+      { id: 'g1', name: 'Godzilla', manufacturer: 'Sega', year: 1998, vps_id: 'g1', wizardFolders: ['vpx-godzilla'] },
+      { id: 'g2', name: 'Godzilla', manufacturer: 'Stern', year: 2021, vps_id: 'g2', wizardFolders: [] },
     ],
   }),
   plan({ id: 'old-nothing', name: 'Nothing Like It', manufacturer: 'Nobody', year: 1999 }),
@@ -58,7 +59,7 @@ function routeGets() {
       return Promise.resolve({ rows: ROWS, summary: { total: 4, suggested: 2, preselected: 1, ambiguous: 1, none: 1 } });
     }
     if (url.startsWith('/admin/catalogue/old-wizard-rows/targets')) {
-      return Promise.resolve({ games: [{ id: 'vps-nothing', name: 'Nothing Like It Pinball', manufacturer: 'Nobody', year: 1999, vps_id: 'n1' }] });
+      return Promise.resolve({ games: [{ id: 'vps-nothing', name: 'Nothing Like It Pinball', manufacturer: 'Nobody', year: 1999, vps_id: 'n1', wizardFolders: ['vpx-nothing'] }] });
     }
     return Promise.resolve({});
   });
@@ -120,6 +121,23 @@ describe('OldWizardRowsCard', () => {
 
     expect(within(row).getByText('Chosen by you')).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: 'Merge Nothing Like It' })).toBeChecked();
+  });
+
+  it("marks the games the Wizard installs, and the old row's own folder", async () => {
+    await loadCard();
+    const getaway = screen.getByText('Getaway - High Speed II, The').closest('li')!;
+    expect(within(getaway).getByText('On the Wizard · same folder')).toBeInTheDocument();
+    expect(within(getaway).getByText('vpx-getaway, vpx-getawaypup')).toBeInTheDocument();
+    // A game the Wizard does not install carries no mark.
+    const metro = screen.getByRole('checkbox', { name: 'Merge Metropolis' }).closest('li')!;
+    expect(within(metro).queryByText(/On the Wizard/)).not.toBeInTheDocument();
+    // Among several candidates, the one on the Wizard says so.
+    expect(screen.getByRole('button', { name: 'Godzilla (Sega 1998) On the Wizard' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Godzilla (Stern 2021)' })).toBeInTheDocument();
+    // Search results too.
+    const nothing = screen.getByText('Nothing Like It').closest('li')!;
+    fireEvent.click(within(nothing).getByRole('button', { name: /choose another game/i }));
+    expect(await within(nothing).findByRole('button', { name: /Nothing Like It Pinball.*On the Wizard/ })).toBeInTheDocument();
   });
 
   it('does nothing when the owner cancels the confirmation', async () => {

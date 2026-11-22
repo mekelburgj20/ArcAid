@@ -13,6 +13,10 @@ import { AlertTriangle, ArrowRight, GitMerge, RefreshCw, Search } from 'lucide-r
  * and pre-ticks only the pairs nothing argues against; the owner ticks the
  * rest, can point any row at another catalogue game, and merges. Every merge
  * is `GlobalGameService.merge`: scores, ratings, My Tables and room links move.
+ *
+ * C19 (v2.258.0): every candidate game says whether LU's Wizard installs it
+ * today ("On the Wizard", its folders from `wizard_table_slugs`), and when one
+ * of those folders is the old row's own.
  */
 
 export interface OldWizardTarget {
@@ -21,6 +25,8 @@ export interface OldWizardTarget {
   manufacturer: string | null;
   year: number | null;
   vps_id: string | null;
+  /** Table Manager folders the Wizard installs for this game today; empty = not on the Wizard. */
+  wizardFolders: string[];
 }
 
 export interface OldWizardRowPlan {
@@ -71,6 +77,29 @@ const TIER_LABEL: Record<string, string> = {
 function makerYear(g: { manufacturer: string | null; year: number | null }): string {
   const parts = [g.manufacturer, g.year ? String(g.year) : null].filter(Boolean);
   return parts.length ? parts.join(' ') : 'maker and year unknown';
+}
+
+/**
+ * "On the Wizard": LU's Table Manager installs this game today. "Same folder"
+ * when one of its folders is the old row's own, the strongest sign the two are
+ * one table.
+ */
+function WizardMark({ target, oldFolder, showFolders = false }: {
+  target: OldWizardTarget;
+  oldFolder: string | null;
+  showFolders?: boolean;
+}) {
+  const folders = target.wizardFolders ?? [];
+  if (folders.length === 0) return null;
+  const sameFolder = !!oldFolder && folders.some(f => f.toLowerCase() === oldFolder.toLowerCase());
+  return (
+    <span className="inline-flex flex-wrap items-baseline gap-x-1.5" title={`Wizard folders: ${folders.join(', ')}`}>
+      <span className="text-[11px] px-1.5 rounded border border-neon-green text-neon-green whitespace-nowrap">
+        On the Wizard{sameFolder ? ' · same folder' : ''}
+      </span>
+      {showFolders && <span className="text-xs text-muted break-all">{folders.join(', ')}</span>}
+    </span>
+  );
 }
 
 function holdings(c: OldWizardRowPlan['counts']): string {
@@ -158,6 +187,7 @@ export default function OldWizardRowsCard() {
         under the README's spelling. Merging moves each row's scores, ratings, My Tables entries and room links
         onto the game shown and keeps the old name as a search alias. The old row's Wizard tags and dead
         download link are not copied. Pre-ticked: the same Wizard folder, or the same name with the same maker and year.
+        "On the Wizard" marks a game Legends Unchained's Wizard installs today.
       </p>
       <div className="flex items-center gap-3 flex-wrap mb-3">
         <NeonButton variant="secondary" onClick={load} disabled={loading || merging} className="flex items-center gap-2">
@@ -291,6 +321,7 @@ function OldRow({ row, target, chosenByYou, ticked, onToggle, onChoose }: {
               <div className="text-xs text-muted">
                 {makerYear(target)}{target.vps_id ? ` · VPS ${target.vps_id}` : ' · no VPS id'}
               </div>
+              <WizardMark target={target} oldFolder={row.folder} showFolders />
               <div className="text-xs text-neon-cyan">{chosenByYou ? 'Chosen by you' : s ? TIER_LABEL[s.tier] : ''}</div>
             </>
           ) : row.alternatives.length > 0 ? (
@@ -304,7 +335,7 @@ function OldRow({ row, target, chosenByYou, ticked, onToggle, onChoose }: {
                     onClick={() => onChoose(a)}
                     className="px-2 py-0.5 rounded border border-border hover:border-neon-cyan text-primary text-left"
                   >
-                    {a.name} ({makerYear(a)})
+                    {a.name} ({makerYear(a)}) <WizardMark target={a} oldFolder={row.folder} />
                   </button>
                 ))}
               </div>
@@ -332,6 +363,7 @@ function OldRow({ row, target, chosenByYou, ticked, onToggle, onChoose }: {
           {searching && (
             <TargetSearch
               initial={row.name}
+              oldFolder={row.folder}
               onPick={t => { onChoose(t); setSearching(false); }}
             />
           )}
@@ -341,7 +373,11 @@ function OldRow({ row, target, chosenByYou, ticked, onToggle, onChoose }: {
   );
 }
 
-function TargetSearch({ initial, onPick }: { initial: string; onPick: (t: OldWizardTarget) => void }) {
+function TargetSearch({ initial, oldFolder, onPick }: {
+  initial: string;
+  oldFolder: string | null;
+  onPick: (t: OldWizardTarget) => void;
+}) {
   const [q, setQ] = useState(initial.replace(/\s*[-,(].*$/, ''));
   const [found, setFound] = useState<OldWizardTarget[] | null>(null);
   // A term too short to search shows no list (the last answer is kept, unshown).
@@ -381,6 +417,7 @@ function TargetSearch({ initial, onPick }: { initial: string; onPick: (t: OldWiz
               >
                 <span className="text-primary break-words">{h.name}</span>
                 <span className="text-muted"> · {makerYear(h)}{h.vps_id ? ` · VPS ${h.vps_id}` : ' · no VPS id'}</span>
+                {' '}<WizardMark target={h} oldFolder={oldFolder} />
               </button>
             </li>
           ))}
