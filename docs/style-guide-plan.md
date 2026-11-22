@@ -85,6 +85,11 @@ the kit does.
 4. **Impeccable** (an outside design checker for Claude: a rule list, a scored review command, and a
    check that runs after every UI edit): not decided. Revisit once G21's rules exist (G25). Do not
    install it while agents are mid-task: its hook changes every session's edits.
+5. **The page background is an arcade carpet** (owner, from the G23 mockup): "Arcaid colours" on
+   "Faint" strength, in place of the faint grid and the dim ARCAID logo. The kit's pink, cyan, violet
+   and chrome only; the 90s yellow/orange/lime variant was not chosen. Shipped in v2.259.0 on
+   `aw-screen--arcaid`, so every page G22 moves onto the shared page shell gets it; room pages keep
+   their themes. Tiles: `admin-ui/scripts/arcadeCarpet.mjs`.
 
 ## The guide (G21)
 

@@ -6,6 +6,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.259.0] - 2026-11-22 - An arcade carpet under the Arcaid-look pages
+
+The owner picked it from the G23 pop-ups-and-toasts mockup: "Arcaid colours on Faint strength".
+
+### Changed
+- **Account Settings stands on an arcade carpet.** The faint grid and the dim ARCAID logo behind the page are
+  replaced by a 90s arcade-floor pattern made only of the kit's own shapes and colours: the logo's skewed
+  double-line neon triangle, chrome pinballs like the ball over the "i", gradient triangles, rings, zigzags,
+  squiggles, spirals, striped and dotted shapes, and paint-chip flecks, in the kit's pink, cyan, violet and
+  chrome. It is faded to 16% and stays put while the page scrolls over it; the cyan and pink glows stay. Every
+  page that later moves onto the same page shell (`aw-screen--arcaid`, G22) gets the same floor; room pages keep
+  their themes and the Witness pages keep the Witness picture.
+- **How it is built.** Four seamless SVG tiles in `admin-ui/public/carpet/` (293, 1013, 1279 and 1597 px; the
+  sizes share no factor, so the stacked layers never visibly repeat; 80% size on a phone), about 74 KB together
+  before compression, fetched once. `admin-ui/scripts/arcadeCarpet.mjs` generates them, seeded so every run gives
+  the same carpet, and reads the colours from the kit's `aw-theme.css`, so the tiles carry no colour of their own.
+  A changed tile gets a new `-vN` name (public statics are cached for a day).
+- **Readability, measured** on the built page with its content hidden: every pixel of the floor and glows keeps
+  chrome text (#B9C3D3, the faintest text that sits straight on the floor) at 6.7:1 or better on a desktop and
+  6.9:1 on a phone, above the 4.5:1 bar. Inside the panels the floor barely shows.
+- `AW_THEME_VERSION` 3 → 4, so the changed `aw-web.css` loads at once; the two tests that pin the query string
+  follow it.
+
 ## [2.258.1] - 2026-11-21 - Admin-UI bug sweep from the UX investigation (Phase 0)
 
 The 2026-10-19 UX investigation (kept on branch `claude/arcaid-ux-analysis-rirvkc`, not merged) turned up a handful of

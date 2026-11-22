@@ -149,7 +149,7 @@ describe('Arcaid Witness theme (W105, v2.251.0)', () => {
     expect(container.querySelector('footer.aw-footer')).toBeTruthy();
     // The kit, the Arcaid extension and the site layer load while the page is up, and only then.
     expect(themeLinks()).toEqual([
-      '/aw-theme/aw-theme.css?v=3', '/aw-theme/aw-theme-ext.css?v=3', '/aw-theme/aw-web.css?v=3',
+      '/aw-theme/aw-theme.css?v=4', '/aw-theme/aw-theme-ext.css?v=4', '/aw-theme/aw-web.css?v=4',
     ]);
     unmount();
     expect(themeLinks()).toEqual([]);

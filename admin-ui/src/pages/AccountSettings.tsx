@@ -951,7 +951,7 @@ export default function AccountSettings() {
     // stylesheets arrive. The settings are five GROUPS (`SETTINGS_GROUPS`),
     // each in its own colour, with a jump list beside them on a wide screen
     // (`aw-web--wide`, capped at 1600 px like the results pages). The
-    // background is the ARCAID logo, not the Witness picture (`aw-screen--arcaid`).
+    // background is the arcade carpet, not the Witness picture (`aw-screen--arcaid`).
     <div className="aw-screen aw-screen--arcaid sb-theme-scope aw-island min-h-screen bg-deep text-primary">
       <div
         className="aw-layout aw-web aw-web--wide px-4 sm:px-6"
