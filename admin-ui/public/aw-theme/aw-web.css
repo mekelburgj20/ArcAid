@@ -35,23 +35,34 @@
    phone-width column. */
 .aw-web.aw-web--wide { width: 100%; max-width: 100rem; }
 
-/* The background: the kit canvas, a faint grid, a soft cyan and pink glow, and
-   the ARCAID logo (the site's own, one folder up) as a dim watermark that stays
-   in the middle of the window while the page scrolls. */
+/* The background (owner 2026-11-22: "Arcaid colours", "Faint"): the kit canvas,
+   a soft cyan and pink glow, and an arcade carpet that stays put while the page
+   scrolls over it. The carpet is the kit's own shapes and colours (the logo's
+   double-line triangle, chrome pinballs, 90s carpet confetti) in four seamless
+   tiles from admin-ui/scripts/arcadeCarpet.mjs, in the site's own folder one up.
+   Their sizes share no factor, so the floor never visibly repeats; a phone gets
+   them at 80%. At 16% every pixel of the floor keeps chrome text above 4.5:1
+   (measured 2026-11-22: worst pixel 6.7:1). A changed tile gets a new -vN name. */
 .aw-screen.aw-screen--arcaid {
   background-image:
     radial-gradient(ellipse 60% 900px at 12% 0%, color-mix(in srgb, var(--aw-cyan) 10%, transparent), transparent),
-    radial-gradient(ellipse 60% 900px at 88% 100%, color-mix(in srgb, var(--aw-pink) 10%, transparent), transparent),
-    repeating-linear-gradient(0deg, color-mix(in srgb, var(--aw-cyan) 4%, transparent) 0 1px, transparent 1px 72px),
-    repeating-linear-gradient(90deg, color-mix(in srgb, var(--aw-cyan) 4%, transparent) 0 1px, transparent 1px 72px);
+    radial-gradient(ellipse 60% 900px at 88% 100%, color-mix(in srgb, var(--aw-pink) 10%, transparent), transparent);
   background-size: auto;
   background-position: 0 0;
-  background-repeat: no-repeat, no-repeat, repeat, repeat;
+  background-repeat: no-repeat;
 }
 .aw-screen.aw-screen--arcaid::before {
   content: ""; position: fixed; inset: 0; z-index: 0; pointer-events: none;
-  background: url("../arcaid-logo-v2.png") center / min(86vmin, 900px) no-repeat;
-  opacity: .13;
+  background-image:
+    url("../carpet/arcaid-carpet-specks-v1.svg"),
+    url("../carpet/arcaid-carpet-motifs-a-v1.svg"),
+    url("../carpet/arcaid-carpet-motifs-b-v1.svg"),
+    url("../carpet/arcaid-carpet-marks-v1.svg");
+  background-size: 293px, 1013px, 1279px, 1597px;
+  opacity: .16;
+}
+@media (max-width: 640px) {
+  .aw-screen.aw-screen--arcaid::before { background-size: 234px, 810px, 1023px, 1278px; }
 }
 .aw-screen--arcaid > .aw-layout { position: relative; z-index: 1; }
 
