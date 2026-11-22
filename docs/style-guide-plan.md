@@ -90,6 +90,13 @@ the kit does.
    and chrome only; the 90s yellow/orange/lime variant was not chosen. Shipped in v2.259.0 on
    `aw-screen--arcaid`, so every page G22 moves onto the shared page shell gets it; room pages keep
    their themes. Tiles: `admin-ui/scripts/arcadeCarpet.mjs`.
+6. **Toasts wear the Arcaid look** (owner, from the G23 mockup: "Arcaid look toasts are amazing"; asked for
+   because library-default toasts "look pretty similar to a lot of other current AI generated website
+   artifacts"): the double-line neon triangle as the status mark (chaser lights while working), the score on
+   spinning reels, a chrome pinball on a neon rail as the clock (stops on hover, the rail's end dismisses),
+   a flicker-on double-line neon edge with the G20 top light bar, three at most in a plain column (no
+   folding deck); errors pink, no clock, Dismiss. The same rule for every shared part: never ship a
+   library's default look. Which library carries the behaviour (decision 3) is still open.
 
 ## The guide (G21)
 
