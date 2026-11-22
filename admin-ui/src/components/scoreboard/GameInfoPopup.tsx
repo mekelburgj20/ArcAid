@@ -77,7 +77,7 @@ function supportsHover(): boolean {
 /** Small pill listing one engine or one device. */
 function AllowedChip({ label }: { label: string }) {
   return (
-    <span className="inline-flex items-center rounded-full border border-border/70 bg-raised/60 px-1.5 py-px text-[9px] leading-[14px] text-secondary whitespace-nowrap">
+    <span className="inline-flex items-center rounded-full border border-border/70 bg-raised/60 px-1.5 py-px text-[9px] leading-[14px] text-muted whitespace-nowrap">
       {label}
     </span>
   );
@@ -322,7 +322,7 @@ export default function GameInfoPopup({
         className={`relative inline-flex flex-shrink-0 items-center justify-center rounded-full border align-middle transition-colors cursor-pointer ${
           open
             ? 'border-neon-cyan/70 bg-neon-cyan/15 text-neon-cyan'
-            : 'border-border/70 bg-surface/70 text-secondary hover:border-neon-cyan/70 hover:bg-neon-cyan/10 hover:text-neon-cyan'
+            : 'border-border/70 bg-surface/70 text-muted hover:border-neon-cyan/70 hover:bg-neon-cyan/10 hover:text-neon-cyan'
         }`}
         style={{ width: buttonPx, height: buttonPx }}
         aria-label="Game info"
