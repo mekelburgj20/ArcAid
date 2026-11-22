@@ -1,7 +1,9 @@
-# Style guide plan (G21, G22)
+# Style guide plan (G21 to G25)
 
 Handoff for the style work that follows G20 (Account Settings, v2.256.0). Read this before starting
-G21. Items live in `WORK.md` section G.
+G21. Items live in `WORK.md` section G. Since 2026-11-22 this is also the UX plan: the 2026-10-19 UX
+investigation is merged in (see "Merged with the UX plan" below), and the owner decisions are made
+(see "Decisions").
 
 ## The brief (owner, 2026-11-17 to 2026-11-21)
 
@@ -51,7 +53,7 @@ Present on the live site, absent from Table Manager:
    `#4A1D82 -> #1B0638` plate.
 3. **Pink leads, cyan second** (`#FF2E63` neon on the trophy). Table Manager leads with cyan.
 
-## The sketch (not built into the app)
+## The sketch (rejected by the owner 2026-11-22; kept for the record)
 
 `docs/design/style-direction-sketch.html` (open in a browser; `?light` for the light version). It keeps
 G20's layout (wide, five colour groups, jump list) and changes the skin:
@@ -67,27 +69,67 @@ Open risks seen in the sketch: Doto legibility at small sizes is untested; the 4
 out on a light ground. Fonts in the sketch load from Google Fonts; the app would self-host them like
 the kit does.
 
-## Decisions waiting on the owner
+## Decisions (owner, 2026-11-22)
 
-1. **Where the fixed dark look applies.** Recommended: personal and global pages only (Account
-   Settings, My Rooms, My Tables, My Stats, Friends, Create Room). Room pages (scoreboards, lobby,
-   results) keep their 16 themes and get the width fix and the shared parts, not the dark skin.
-2. **Which swaps from the sketch, if any.** Recommended: slanted buttons and status lamps, the chrome
-   title plate, sentence-case headings; drop the dot chips, grid and uppercase tracked labels.
-   The owner likes the shipped G20 page, so any swap is applied to it and screenshot-approved first.
+1. **Where the fixed dark look applies:** personal and global pages only (Account Settings, My Rooms,
+   My Tables, My Stats, Friends, Create Room). Room pages (scoreboards, lobby, results) keep their 16
+   themes and get the width fix and the shared parts, not the dark skin. This is also the UX plan's
+   "protected surfaces" question: the room Scoreboard cards, Global Scoreboard, kiosk and title styles
+   are the product's signature; fix their contrast and text size, never quiet or flatten them.
+2. **The sketch is rejected in full** ("I'm not a big fan"; "I'm more a fan of the G20 styles"): no
+   purple title plate, no violet-black ground, and none of its smaller swaps (slanted buttons and
+   lamps, sentence-case headings, Doto scores). The shipped G20 page is the look; G21 extracts it as
+   it is.
+3. **base-ui (pop-ups, menus, selects) and Sonner (toasts), or hand-built:** the owner reviews
+   mockups first. Blocks G23 only.
+4. **Impeccable** (an outside design checker for Claude: a rule list, a scored review command, and a
+   check that runs after every UI edit): not decided. Revisit once G21's rules exist (G25). Do not
+   install it while agents are mid-task: its hook changes every session's edits.
 
-## The guide (G21), once those are answered
+## The guide (G21)
 
 Three parts, so it cannot drift the way a document alone does:
 
-1. **Shared parts in code:** page shell with the desktop widths, panel, group, button, status lamp,
-   title plate. G20's `components/SettingsPanel.tsx` (`SettingsGroup`, `SettingsPanel`) is the start.
+1. **Shared parts in code**, taken from the shipped G20 page: page shell with the desktop widths,
+   panel, group, button, page title, jump list. G20's `components/SettingsPanel.tsx`
+   (`SettingsGroup`, `SettingsPanel`) and `public/aw-theme/aw-web.css` (`.aw-settings`, `.aw-group`,
+   `.aw-jump`) are the start.
 2. **A live page in the app** showing every part in every theme (super-admin only).
-3. **A rule section** in `.claude/rules/admin-ui.md`: what to use, what is banned (uppercase tracked
-   labels, dot chips, glow outlines, a new hex outside the tokens). `admin-ui.md` has room; check
+3. **A rule section** in `.claude/rules/admin-ui.md`: who the pages are for (players on a phone at a
+   cabinet, often one-handed and in low light; room admins and mods, also on phones; unattended kiosk
+   TVs), what to use, and what is banned. Write the banned list from G20 as shipped: its labels, chips
+   and outlines are the standard on the dark pages, so the sketch-era bans on them do not apply. Add
+   the UX plan's mechanics: no functional text under 12 px, no `transition-all`, no
+   `focus:outline-none` without a visible ring, loading as skeletons not spinners, empty states that
+   say what to do next, no new hex outside the tokens. `admin-ui.md` has room; check
    `npm run docs:check`.
 
 ## The rollout (G22)
 
 One PR per page family, screenshots with mock data before each merge (owner preference):
-personal/global pages first, then the narrow room pages (width only), then admin.
+personal/global pages first (the G20 look), then the narrow room pages (width, plus the scoreboard
+contrast and text-size fixes only), then admin. Each page PR also takes that page's UX fixes from the
+2026-10-19 analysis, recounted first: text sizes, boxes nested inside boxes, loading and empty states,
+and (once G23 exists) its pop-ups and toasts on the shared parts. Player pages also get the phone
+basics (tap highlight, `100dvh`, `theme-color`) and a worst-case-data check (32-character names,
+13-digit scores).
+
+## Merged with the UX plan (2026-11-22)
+
+The 2026-10-19 UX investigation is `docs/design/ux-skills-analysis-2026-10-19.md` (findings, counts
+from v2.163.0) and `docs/design/ux-skills-playbook.md` (its phased plan, now superseded by this file).
+Its verdict: the colours and themes are strong; what reads as generic is the component layer
+(bordered boxes everywhere, tiny tracked labels, 10 to 14 px type, hand-made pop-ups with no motion or
+keyboard handling, copied spinners, bare empty states).
+
+| UX plan phase | Where it went |
+|---|---|
+| 0. Broken animations, phantom colour classes, dev placeholders | Done: v2.258.1 (#432) |
+| 1. `PRODUCT.md` / `DESIGN.md` from an interview; protected surfaces | One rulebook: G21's section in `admin-ui.md`. Protected surfaces = decision 1 |
+| 2. Scored review of Scoreboard, Picks, Room Settings | G24, before G22 starts changing pages, and again at the end |
+| 3. Primitives: dialog/sheet, toast, field, loading/empty, focus ring | G23, after G21's look parts; library choice is decision 3. Covers G5's dialog and toast half |
+| 4-5. Admin and player page passes | G22: the same PR as the page's width and look change |
+| 6. Scoreboard contrast and text size only | G22, room pages |
+| 7. Edge cases, polish, re-review | End of G22; G24's second run |
+| Docker sandbox on port 3002 | Dropped: the existing mock-data screenshot loop (local build + Playwright, live prod data for public pages) already covers pre-merge screenshots |
+| Installing Impeccable and Emil Kowalski's skills | G25, decision 4 |
