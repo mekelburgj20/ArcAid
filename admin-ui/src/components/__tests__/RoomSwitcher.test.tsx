@@ -7,7 +7,9 @@ import type { MemberRoom } from '../../lib/landingRooms';
 /**
  * G26 - the room switcher: the room name in the nav opens the Arcaid menu of
  * the viewer's rooms (base-ui Menu underneath; the popup is portalled to
- * document.body).
+ * document.body). The menu is a lazy chunk, so every open is awaited
+ * (`findByRole('menu')`); a press on the hand-drawn button before it arrives
+ * is replayed (RoomSwitcher.lazy / .handoff / .fallback tests).
  */
 
 const CURRENT: SwitcherCurrentRoom = { slug: 'rtx_pinball', name: 'RTX Pinball', title: 'RTX PINBALL', logoUrl: null, roomId: 'r1' };
