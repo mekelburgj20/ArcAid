@@ -6,6 +6,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.262.0] - 2026-11-23 - Room switcher
+
+The owner asked for an easier way to move between the game rooms you belong to, and picked the design from a
+mockup ("Arcaid standard" name, "Arcaid look" menu, the triangle in the logo's pink).
+
+### Added
+- **Click the room name in the nav bar to switch rooms.** A menu lists the rooms you belong to, the one you
+  used most recently first, with the room you are in at the top ("You are here"). Pick one to go there.
+  "All game rooms" and "Manage my rooms" sit at the bottom. Signed out, or with only one room, it says so and
+  points at the room list. It works from the keyboard (arrows, Enter, Escape).
+- **The menu wears the Arcaid look**, the same family as the toasts: dark glass, a double neon edge, a chrome
+  pinball that rolls to the row you point at, and the logo's pink triangle on the current room. It is the
+  same on every room theme. It is the first pop-up built on base-ui (`components/parts/Menu.tsx`), which
+  loads only when needed, so the pages do not get heavier for visitors who never open it.
+
+### Changed
+- **The room name in the nav bar is one standard Arcaid button**: the room's logo and its title, on a desktop
+  and on a phone. It replaces the small pixel-font name on a desktop and the Title Style version on a phone.
+  The room's own Title Style stays where it is big, on the scoreboard.
+- Nav icons keep their size when the bar is tight; a long room name is cut to one line in the bar and shown in
+  full in the menu.
+
 ## [2.261.0] - 2026-11-23 - The style kit
 
 The shipped Account Settings look (G20) is now the standard every other page will be moved onto (G22), kept in

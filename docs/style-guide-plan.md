@@ -84,7 +84,9 @@ the kit does.
    with both"): the libraries carry behaviour only (focus traps, Escape, stacking, timers, screen-reader
    announcements); every part wears Arcaid's own look (decision 6). Visitors download them with the site
    (about 9.5 KB gzip for Sonner, 38 KB for the dialog and sheet); the full installs live only in
-   `node_modules` and the Docker build stage. G23 still waits on G21.
+   `node_modules` and the Docker build stage. First part shipped in v2.262.0 (G26, the room switcher's
+   menu): measured, base-ui's Menu alone adds about 47 kB gzip to whatever chunk imports it, more than the
+   estimate above, so a pop-up part is loaded on demand (`React.lazy`) and never from the main bundle.
 4. **Impeccable** (an outside design checker for Claude: a rule list, a scored review command, and a
    check that runs after every UI edit): not decided. Revisit once G21's rules exist (G25). Do not
    install it while agents are mid-task: its hook changes every session's edits.
