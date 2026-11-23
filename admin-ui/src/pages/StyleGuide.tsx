@@ -1,0 +1,308 @@
+import { useState, type ReactNode } from 'react';
+import ArcaidPage from '../components/parts/ArcaidPage';
+import PageShell from '../components/parts/PageShell';
+import PageTitle from '../components/parts/PageTitle';
+import Panel, { PanelGroup } from '../components/parts/Panel';
+import JumpList, { type JumpItem } from '../components/parts/JumpList';
+import Button from '../components/parts/Button';
+import type { PartTone } from '../components/parts/skin';
+import { THEMES } from '../components/ThemeProvider';
+import { THEME_IDS, type ThemeId } from '../lib/themeIds';
+
+/**
+ * G21 - the live style guide (super admin). Every shared part, shown in the
+ * fixed dark Arcaid look and in each room theme, so the look cannot drift.
+ * It is built from the parts, and it iterates THEME_IDS so a new theme shows
+ * up here without an edit. Nothing on it does anything: no network calls.
+ */
+
+const PAGE_JUMP: JumpItem[] = [
+    { id: 'sg-looks', title: 'The two looks', tone: 'cyan' },
+    { id: 'sg-arcaid', title: 'Arcaid look', tone: 'pink' },
+    { id: 'sg-theme', title: "Room's theme", tone: 'violet' },
+    { id: 'sg-widths', title: 'Page widths', tone: 'ice' },
+    { id: 'sg-rules', title: 'Rules', tone: 'cyan' },
+];
+
+const SAMPLE_TONES: Array<{ key: string; tone: PartTone; title: string; sub: string }> = [
+    { key: 'cyan', tone: 'cyan', title: 'Cyan', sub: 'The default tone.' },
+    { key: 'pink', tone: 'pink', title: 'Pink', sub: 'Scores and attention.' },
+    { key: 'violet', tone: 'violet', title: 'Violet', sub: 'Accounts and devices.' },
+    { key: 'ice', tone: 'ice', title: 'Ice', sub: 'Quiet groups such as notifications.' },
+    { key: 'red', tone: 'red', title: 'Red', sub: 'Only for what can do harm.' },
+];
+
+const THEME_TILE_TONES: PartTone[] = ['cyan', 'pink', 'violet', 'ice'];
+
+/** The no-class dark default is `dark`; every other id is a `.theme-<id>` class (as in Leaderboard.tsx). */
+function themeScopeClass(id: ThemeId): string {
+    return `sb-theme-scope${id !== 'dark' ? ` theme-${id}` : ''}`;
+}
+
+function sampleJump(idPrefix: string): JumpItem[] {
+    return SAMPLE_TONES.map(t => ({ id: `${idPrefix}-${t.key}`, title: t.title, tone: t.tone }));
+}
+
+function Row({ label, children }: { label: string; children: ReactNode }) {
+    return (
+        <div className="mb-3 last:mb-0">
+            <p className="text-xs text-muted mb-1.5">{label}</p>
+            <div className="flex flex-wrap items-center gap-2">{children}</div>
+        </div>
+    );
+}
+
+function ButtonRow({ label, size, disabled }: { label: string; size: 'md' | 'sm' | 'xs'; disabled?: boolean }) {
+    return (
+        <Row label={label}>
+            <Button variant="primary" size={size} disabled={disabled}>Primary</Button>
+            <Button variant="secondary" size={size} disabled={disabled}>Secondary</Button>
+            <Button variant="danger" size={size} disabled={disabled}>Danger</Button>
+        </Row>
+    );
+}
+
+function StatusWord({ dot, text, label }: { dot: string; text: string; label: string }) {
+    return (
+        <li className={`flex items-center gap-2 text-sm ${text}`}>
+            <span className={`inline-block w-2 h-2 rounded-full ${dot}`} aria-hidden="true" />
+            {label}
+        </li>
+    );
+}
+
+/** One component shown in both looks, so the two previews show the same thing. */
+function SampleGroups({ idPrefix }: { idPrefix: string }) {
+    const id = (k: string) => `${idPrefix}-${k}`;
+    const t = (k: string) => SAMPLE_TONES.find(x => x.key === k)!;
+    return (
+        <>
+            <PanelGroup id={id('cyan')} tone="cyan" title={t('cyan').title} sub={t('cyan').sub}>
+                <Panel title="Panel">
+                    <p className="text-sm text-primary mb-2">Primary text says what this panel is for.</p>
+                    <p className="text-xs text-muted">Muted helper text explains the detail under it.</p>
+                </Panel>
+                <Panel title="Buttons">
+                    <ButtonRow label="Medium" size="md" />
+                    <ButtonRow label="Small" size="sm" />
+                    <ButtonRow label="Extra small" size="xs" />
+                    <ButtonRow label="Disabled" size="md" disabled />
+                </Panel>
+            </PanelGroup>
+
+            <PanelGroup id={id('pink')} tone="pink" title={t('pink').title} sub={t('pink').sub}>
+                <Panel title="Form fields">
+                    <label htmlFor={id('name')} className="block text-sm font-medium mb-1.5">Display name</label>
+                    <input
+                        id={id('name')}
+                        type="text"
+                        defaultValue="Sample player"
+                        className="w-full bg-surface border border-border rounded px-3 py-2 text-sm text-primary placeholder-faint focus:border-neon-cyan focus:outline-none mb-3"
+                    />
+                    <label htmlFor={id('hours')} className="block text-xs text-muted mb-1">Remind me after</label>
+                    <select
+                        id={id('hours')}
+                        defaultValue="24"
+                        className="bg-surface border border-border rounded px-2 py-1 text-sm text-primary mb-3"
+                    >
+                        <option value="12">12 hours</option>
+                        <option value="24">24 hours</option>
+                        <option value="48">48 hours</option>
+                    </select>
+                    <label htmlFor={id('check')} className="flex items-center gap-2 text-sm text-primary">
+                        <input id={id('check')} type="checkbox" defaultChecked />
+                        Share my scores to the Global Scoreboard
+                    </label>
+                </Panel>
+                <Panel title="Status">
+                    <ul className="m-0 p-0 list-none space-y-2">
+                        <StatusWord dot="bg-neon-green" text="text-neon-green" label="Fine" />
+                        <StatusWord dot="bg-neon-magenta" text="text-neon-magenta" label="Attention" />
+                        <StatusWord dot="bg-neon-coral" text="text-neon-coral" label="Problem" />
+                    </ul>
+                </Panel>
+            </PanelGroup>
+
+            <PanelGroup id={id('violet')} tone="violet" title={t('violet').title} sub={t('violet').sub}>
+                <Panel title="A long value">
+                    <p className="min-w-0 break-words text-sm text-primary mb-1">WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW</p>
+                    <p className="min-w-0 break-words text-sm font-mono text-muted">9,876,543,210,123</p>
+                </Panel>
+            </PanelGroup>
+
+            <PanelGroup id={id('ice')} tone="ice" title={t('ice').title} sub={t('ice').sub}>
+                <Panel title="A wide panel" wide>
+                    <p className="text-sm text-primary">A wide panel spans both columns of its group.</p>
+                </Panel>
+            </PanelGroup>
+
+            <PanelGroup id={id('red')} tone="red" title={t('red').title} sub={t('red').sub}>
+                <Panel title="Danger zone">
+                    <p className="text-sm text-muted mb-3">This removes something and cannot be undone.</p>
+                    <Button variant="danger">Delete something</Button>
+                </Panel>
+            </PanelGroup>
+        </>
+    );
+}
+
+function BulletList({ items }: { items: string[] }) {
+    return (
+        <ul className="m-0 pl-5 list-disc space-y-1.5 text-sm text-primary">
+            {items.map(i => <li key={i}>{i}</li>)}
+        </ul>
+    );
+}
+
+const NEVER = [
+    "A library's default look on any part",
+    "The rejected sketch's pieces (purple title plate, slanted buttons, dot-matrix scores)",
+    'Raw colour values instead of tokens',
+    'Green or yellow status colours on the Arcaid look',
+    'A box inside a box inside a panel',
+    'Cutting a game title off with "…" (wrap it)',
+];
+
+const ALWAYS = [
+    'Text 12 px or larger',
+    'Name the property in a transition (never "all")',
+    'A visible focus ring',
+    'A skeleton while loading',
+    'An empty state that says what to do next',
+    '16 px inputs on touch screens',
+];
+
+export default function StyleGuide() {
+    const [selected, setSelected] = useState<ThemeId>(THEME_IDS[0]);
+
+    return (
+        <PageShell width="wide" jump={PAGE_JUMP}>
+            {/* Inside the shell, so the title lines up with the groups beside the jump list. */}
+            <PageTitle title="Style Guide" sub="Every shared part, in the Arcaid look and in each room theme." />
+
+            <PanelGroup id="sg-looks" tone="cyan" title="The two looks" sub="Which pages wear which look, and why.">
+                <Panel title="Who the pages are for">
+                    <p className="text-sm text-primary">
+                        Players on a phone at a cabinet, often one-handed and in low light. Room admins and mods,
+                        also mostly on phones. Unattended kiosk TVs. A desktop gets the width.
+                    </p>
+                </Panel>
+                <Panel title="Which look goes where">
+                    <p className="text-sm text-primary mb-2">
+                        The Arcaid look (fixed dark, arcade carpet) is for personal and global pages: Account Settings,
+                        My Rooms, My Tables, My Stats, Friends, Create Room.
+                    </p>
+                    <p className="text-sm text-primary mb-2">
+                        Room pages and admin pages keep the room&apos;s theme (16 themes) and get the same parts in
+                        that theme&apos;s colours.
+                    </p>
+                    <p className="text-xs text-muted">
+                        Protected, never re-skinned: the room Scoreboard cards, the Global Scoreboard, the kiosk and the title styles.
+                    </p>
+                </Panel>
+            </PanelGroup>
+
+            <PanelGroup id="sg-arcaid" tone="pink" title="Arcaid look" sub="Fixed dark kit on the arcade carpet.">
+                <Panel title="Personal and global pages" wide>
+                    <div className="rounded-lg overflow-hidden border border-border" data-testid="arcaid-preview">
+                        <ArcaidPage
+                            embedded
+                            title="Sample page"
+                            jump={sampleJump('sg-a')}
+                            actions={null}
+                            footer={<span>ARCAID.APP</span>}
+                        >
+                            <SampleGroups idPrefix="sg-a" />
+                        </ArcaidPage>
+                    </div>
+                </Panel>
+            </PanelGroup>
+
+            <PanelGroup id="sg-theme" tone="violet" title="Room's theme" sub="The same parts, drawn in each theme's colours.">
+                <Panel title="Pick a theme" wide>
+                    <div className="flex flex-wrap gap-2 mb-4" role="group" aria-label="Theme">
+                        {THEME_IDS.map(id => (
+                            <Button
+                                key={id}
+                                size="xs"
+                                variant={id === selected ? 'primary' : 'secondary'}
+                                aria-pressed={id === selected}
+                                onClick={() => setSelected(id)}
+                            >
+                                {THEMES[id].label}
+                            </Button>
+                        ))}
+                    </div>
+                    <div
+                        className={`${themeScopeClass(selected)} bg-deep text-primary rounded-lg border border-border p-4 sm:p-6`}
+                        data-testid="theme-preview"
+                        data-theme={selected}
+                    >
+                        <PageTitle
+                            title="Weekly Rotation"
+                            sub="A sample room page in this theme."
+                            actions={<Button variant="secondary">Action</Button>}
+                        />
+                        <div className="part-jumplayout mt-6">
+                            <JumpList items={sampleJump('sg-t')} />
+                            <div className="part-jumplayout__body">
+                                <SampleGroups idPrefix="sg-t" />
+                            </div>
+                        </div>
+                    </div>
+                </Panel>
+                <Panel title="Every theme at a glance" wide>
+                    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                        {THEME_IDS.map((id, i) => (
+                            <div
+                                key={id}
+                                className={`${themeScopeClass(id)} bg-deep text-primary rounded-lg border border-border p-3 min-w-0`}
+                                data-testid="theme-tile"
+                                data-theme={id}
+                            >
+                                <h4 className="text-sm font-semibold mb-2">{THEMES[id].label}</h4>
+                                <PanelGroup id={`sg-tile-${id}`} tone={THEME_TILE_TONES[i % THEME_TILE_TONES.length]!} title="Group">
+                                    <Panel title="Panel" wide>
+                                        <p className="text-sm text-primary">Primary text</p>
+                                        <p className="text-xs text-muted mb-2">Muted text</p>
+                                        <div className="flex flex-wrap gap-2">
+                                            <Button variant="primary" size="sm">Primary</Button>
+                                            <Button variant="secondary" size="sm">Secondary</Button>
+                                            <Button variant="danger" size="sm">Danger</Button>
+                                        </div>
+                                    </Panel>
+                                </PanelGroup>
+                            </div>
+                        ))}
+                    </div>
+                </Panel>
+            </PanelGroup>
+
+            <PanelGroup id="sg-widths" tone="ice" title="Page widths" sub="A page's outer width is one of two.">
+                <Panel title="The two widths" wide>
+                    <div className="space-y-4 mb-4">
+                        <div>
+                            <p className="text-xs text-muted mb-1.5">wide: 1600 px (lists, boards, settings)</p>
+                            <div className="h-4 rounded bg-neon-cyan/30 border border-neon-cyan/50" style={{ maxWidth: '1600px', width: '100%' }} />
+                        </div>
+                        <div>
+                            <p className="text-xs text-muted mb-1.5">column: 52rem (one form, a page of prose)</p>
+                            <div className="h-4 rounded bg-neon-magenta/30 border border-neon-magenta/50" style={{ maxWidth: '52rem' }} />
+                        </div>
+                    </div>
+                    <p className="text-sm text-primary">
+                        A page&apos;s outer width is one of these two, set on ArcaidPage or PageShell.
+                    </p>
+                </Panel>
+            </PanelGroup>
+
+            <PanelGroup id="sg-rules" tone="cyan" title="Rules" sub="What to avoid and what to keep.">
+                <Panel title="Never"><BulletList items={NEVER} /></Panel>
+                <Panel title="Always"><BulletList items={ALWAYS} /></Panel>
+                <p className="lg:col-span-2 m-0 text-xs text-muted">
+                    The full rules are in .claude/rules/admin-ui.md; change them together with this page.
+                </p>
+            </PanelGroup>
+        </PageShell>
+    );
+}
