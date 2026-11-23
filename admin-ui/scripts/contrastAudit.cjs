@@ -1,15 +1,26 @@
 #!/usr/bin/env node
 /*
- * Theme contrast audit (v2.131.2).
+ * Theme contrast audit (v2.131.2; the accent text bar since v2.263.0, G29).
  *
- * Parses every theme block in src/index.css — the `@theme` dark
- * default plus all 16 `.theme-*` classes — and computes the WCAG 2.x contrast
- * ratio of the text/accent tokens against the three background tokens.
+ * Parses every theme block in src/index.css (the `@theme` default plus every
+ * `.theme-*` class that sets `--color-deep`) and computes the WCAG 2.x
+ * contrast ratio of the text and accent tokens against the background tokens.
+ *
+ * The bar, in every theme:
+ *   - primary and muted clear 4.5:1 on deep, surface and raised;
+ *   - faint clears 4.5:1 on deep and surface (it carries real content);
+ *   - every accent that is used as TEXT (the seven neon tokens, lead and
+ *     second) clears 4.5:1 on deep and surface. A `var()` value is resolved
+ *     inside its theme, so `--color-lead: var(--color-neon-magenta)` is judged
+ *     as that theme's magenta.
+ * The script exits 1 when anything misses. `src/__tests__/themeContrast.test.ts`
+ * runs the same `auditCss` and fails on the same misses.
  *
  * No dependencies: oklch -> Oklab -> linear sRGB -> sRGB is done inline.
  *
  * Usage:  node admin-ui/scripts/contrastAudit.cjs [--all]
- *   (default prints the text tokens only; --all adds the neon accents)
+ *   (default prints the text tokens; --all adds the accent rows. Either way
+ *   every token is checked and counted.)
  */
 
 const fs = require('fs');
@@ -85,10 +96,8 @@ function contrast(fg, bg) {
 
 // ── CSS parsing ────────────────────────────────────────────────────────────
 
-const src = fs.readFileSync(CSS, 'utf8');
-
 /** Pull `--token: value;` declarations out of the block that starts at `idx`. */
-function readBlock(idx) {
+function readBlock(src, idx) {
   const open = src.indexOf('{', idx);
   if (open < 0) return {};
   let depth = 0;
@@ -103,7 +112,7 @@ function readBlock(idx) {
       }
     }
   }
-  const body = src.slice(open + 1, end);
+  const body = src.slice(open + 1, end).replace(/\/\*[\s\S]*?\*\//g, '');
   const out = {};
   const re = /(--[a-z0-9-]+)\s*:\s*([^;]+);/gi;
   let m;
@@ -111,36 +120,48 @@ function readBlock(idx) {
   return out;
 }
 
-const themes = [];
+/**
+ * The default (`@theme`) plus every `.theme-x {` block that is a bare
+ * single-class selector at line start and sets `--color-deep`. `own` is what
+ * the block itself declares; `tokens` adds what it inherits from the default.
+ */
+function parseThemes(src) {
+  const themes = [];
+  const themeIdx = src.search(/^@theme\s*\{/m);
+  if (themeIdx < 0) throw new Error('no @theme block found');
+  const defaults = readBlock(src, themeIdx);
+  themes.push({ name: 'dark (default)', own: defaults, tokens: defaults });
 
-// Dark default: @theme, with .sb-theme-scope restating it (they must agree —
-// themeScopeParity.test.ts locks that). We read @theme as the source of truth.
-const themeIdx = src.search(/^@theme\s*\{/m);
-if (themeIdx < 0) throw new Error('no @theme block found');
-themes.push({ name: '(default dark)', tokens: readBlock(themeIdx) });
-
-const scopeIdx = src.search(/^\.sb-theme-scope\s*\{/m);
-const scopeTokens = scopeIdx >= 0 ? readBlock(scopeIdx) : {};
-
-// Every `.theme-x {` block that is a bare single-class selector at line start.
-const classRe = /^\.(theme-[a-z-]+)\s*\{/gm;
-let cm;
-const seen = new Set();
-while ((cm = classRe.exec(src))) {
-  const name = cm[1];
-  const tokens = readBlock(cm.index);
-  if (!tokens['--color-deep']) continue; // helper blocks (scanlines, inputs…)
-  if (seen.has(name)) continue;
-  seen.add(name);
-  // themes inherit anything they don't override from the @theme default
-  themes.push({ name, tokens: { ...themes[0].tokens, ...tokens } });
+  const classRe = /^\.(theme-[a-z-]+)\s*\{/gm;
+  let cm;
+  const seen = new Set();
+  while ((cm = classRe.exec(src))) {
+    const name = cm[1];
+    const own = readBlock(src, cm.index);
+    if (!own['--color-deep']) continue; // helper blocks (scanlines, inputs, glows)
+    if (seen.has(name)) continue;
+    seen.add(name);
+    themes.push({ name, own, tokens: { ...defaults, ...own } });
+  }
+  return themes;
 }
 
-// ── report ─────────────────────────────────────────────────────────────────
+/** Follow `var(--x)` inside one theme's tokens to a literal value. */
+function resolveValue(tokens, value, depth = 0) {
+  if (typeof value !== 'string') return undefined;
+  const m = /^var\(\s*(--[a-z0-9-]+)\s*\)$/i.exec(value.trim());
+  if (!m) return value;
+  if (depth > 8) return undefined;
+  return resolveValue(tokens, tokens[m[1]], depth + 1);
+}
 
+// ── the audit ──────────────────────────────────────────────────────────────
+
+const AA = 4.5;
 const BGS = ['--color-deep', '--color-surface', '--color-raised'];
 const TEXT = ['--color-primary', '--color-muted', '--color-faint'];
-const NEON = [
+/** Every accent that appears as text somewhere: a status word, a tag, a rank. */
+const ACCENTS = [
   '--color-neon-cyan',
   '--color-neon-magenta',
   '--color-neon-green',
@@ -148,71 +169,95 @@ const NEON = [
   '--color-neon-purple',
   '--color-neon-coral',
   '--color-neon-blue',
+  '--color-lead',
+  '--color-second',
 ];
 
-const showAll = process.argv.includes('--all');
-const FG = showAll ? [...TEXT, ...NEON] : TEXT;
+/** The backgrounds a token is judged on (v2.131.2 for the text tokens). */
+function judgedOn(token) {
+  return token === '--color-primary' || token === '--color-muted' ? BGS : BGS.slice(0, 2);
+}
 
-const AA = 4.5;
-const AA_LARGE = 3.0;
+/**
+ * Audit a stylesheet's text. Returns every theme's rows and the list of
+ * failures (a ratio under 4.5:1 on a background the token is judged on, or a
+ * value that does not parse).
+ */
+function auditCss(src) {
+  const themes = parseThemes(src).map((theme) => {
+    const bg = {};
+    for (const b of BGS) bg[b] = parseColor(resolveValue(theme.tokens, theme.tokens[b]) || '');
+    const rows = [...TEXT, ...ACCENTS].map((token) => {
+      const raw = theme.tokens[token];
+      const value = resolveValue(theme.tokens, raw);
+      const rgb = parseColor(value || '');
+      const ratios = {};
+      for (const b of BGS) ratios[b] = rgb && bg[b] ? contrast(rgb, bg[b]) : NaN;
+      const on = judgedOn(token);
+      const fail = !rgb || on.some((b) => !(ratios[b] >= AA));
+      return { token, raw, value, ratios, judgedOn: on, kind: TEXT.includes(token) ? 'text' : 'accent', fail };
+    });
+    return { name: theme.name, own: theme.own, rows };
+  });
+  const failures = [];
+  for (const theme of themes) {
+    for (const row of theme.rows) if (row.fail) failures.push({ theme: theme.name, ...row });
+  }
+  return { themes, failures };
+}
+
+// ── report ─────────────────────────────────────────────────────────────────
 
 function fmt(n) {
-  return n.toFixed(2).padStart(5);
+  return Number.isNaN(n) ? '  n/a' : n.toFixed(2).padStart(5);
 }
 
-let fails = 0;
-let neonFails = 0;
-const lines = [];
+function main() {
+  const src = fs.readFileSync(CSS, 'utf8');
+  const { themes, failures } = auditCss(src);
+  const showAll = process.argv.includes('--all');
+  const lines = [];
 
-for (const theme of themes) {
-  const bgRgb = {};
-  for (const b of BGS) {
-    const c = parseColor(theme.tokens[b] || '');
-    if (c) bgRgb[b] = c;
-  }
-  lines.push('');
-  lines.push(`### ${theme.name}`);
-  lines.push(
-    `${'token'.padEnd(22)}  ${'value'.padEnd(28)}  ${'deep'.padStart(5)}  ${'surface'.padStart(7)}  ${'raised'.padStart(6)}`
-  );
-  for (const f of FG) {
-    const val = theme.tokens[f];
-    const c = parseColor(val || '');
-    if (!c) {
-      lines.push(`${f.replace('--color-', '').padEnd(22)}  ${(val || '(unset)').padEnd(28)}  (unparsed)`);
-      continue;
-    }
-    const ratios = BGS.map((b) => (bgRgb[b] ? contrast(c, bgRgb[b]) : NaN));
-    const isText = TEXT.includes(f);
-    // faint/muted are real content -> AA. deep+surface are the bar for faint.
-    const bar = isText ? AA : AA_LARGE;
-    const relevant = f === '--color-faint' ? ratios.slice(0, 2) : ratios;
-    const bad = relevant.some((r) => r < bar);
-    if (bad) {
-      if (isText) fails++;
-      else neonFails++;
-    }
+  for (const theme of themes) {
+    lines.push('');
+    lines.push(`### ${theme.name}`);
     lines.push(
-      `${f.replace('--color-', '').padEnd(22)}  ${(val || '').padEnd(28)}  ${ratios
-        .map(fmt)
-        .join('  ')}${bad ? '   <-- FAIL' : ''}`
+      `${'token'.padEnd(16)}  ${'value'.padEnd(28)}  ${'deep'.padStart(5)}  ${'surface'.padStart(7)}  ${'raised'.padStart(6)}`
     );
+    for (const row of theme.rows) {
+      if (row.kind === 'accent' && !showAll && !row.fail) continue;
+      const shown = row.raw === row.value ? row.value || '(unset)' : `${row.raw} = ${row.value}`;
+      lines.push(
+        `${row.token.replace('--color-', '').padEnd(16)}  ${String(shown).padEnd(28)}  ${BGS.map((b) => fmt(row.ratios[b])).join('  ')}${row.fail ? '   <-- FAIL' : ''}`
+      );
+    }
   }
+
+  const textFails = failures.filter((f) => f.kind === 'text').length;
+  const accentFails = failures.filter((f) => f.kind === 'accent').length;
+  console.log(`WCAG contrast audit: ${themes.length} themes`);
+  console.log(`Bar: primary and muted >= ${AA}:1 on deep, surface and raised; faint and every accent used as text`);
+  console.log(`(the seven neon tokens, lead and second) >= ${AA}:1 on deep and surface.`);
+  console.log(lines.join('\n'));
+  console.log('');
+  console.log(`TEXT-TOKEN FAILURES: ${textFails}   ACCENT FAILURES: ${accentFails}`);
+
+  // Parity sanity: @theme vs .sb-theme-scope for the tokens checked here.
+  const scopeIdx = src.search(/^\.sb-theme-scope\s*\{/m);
+  const scopeTokens = scopeIdx >= 0 ? readBlock(src, scopeIdx) : {};
+  const defaults = parseThemes(src)[0].tokens;
+  const drift = [...TEXT, ...ACCENTS, ...BGS].filter(
+    (t) => scopeTokens[t] !== undefined && scopeTokens[t] !== defaults[t]
+  );
+  if (drift.length) {
+    console.log(`\n!! .sb-theme-scope drifts from @theme for: ${drift.join(', ')}`);
+  } else {
+    console.log('\n.sb-theme-scope matches @theme for every token checked here.');
+  }
+
+  if (failures.length) process.exitCode = 1;
 }
 
-console.log(`WCAG contrast audit — ${themes.length} themes`);
-console.log(`Bar: text tokens (primary/muted/faint) >= ${AA}:1; neon accents >= ${AA_LARGE}:1 (large/UI).`);
-console.log('faint is judged on deep+surface only (per v2.131.2 spec); muted on all three.');
-console.log(lines.join('\n'));
-console.log('');
-console.log(`TEXT-TOKEN FAILURES: ${fails}` + (showAll ? `   NEON FAILURES: ${neonFails}` : ''));
+if (require.main === module) main();
 
-// Parity sanity: @theme vs .sb-theme-scope for the tokens we touch.
-const drift = [...TEXT, ...BGS].filter(
-  (t) => scopeTokens[t] !== undefined && scopeTokens[t] !== themes[0].tokens[t]
-);
-if (drift.length) {
-  console.log(`\n!! .sb-theme-scope drifts from @theme for: ${drift.join(', ')}`);
-} else {
-  console.log('\n.sb-theme-scope matches @theme for all text/background tokens.');
-}
+module.exports = { auditCss, parseThemes, parseColor, contrast, resolveValue, AA, BGS, TEXT, ACCENTS };

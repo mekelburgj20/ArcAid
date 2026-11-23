@@ -20,7 +20,7 @@ investigation is merged in (see "Merged with the UX plan" below), and the owner 
 
 - 4 of 65 pages wear the Witness kit (`/witness/install`, `/pair`, `/pair/:code`, Account
   Settings). Everything else uses `src/index.css` tokens: Inter body, JetBrains Mono for small data,
-  Orbitron display, 16 themes (`lib/themeIds.ts`), 6 px corners.
+  Orbitron display, 11 themes (`lib/themeIds.ts`; 16 until G29, v2.263.0), 6 px corners.
 - The kit (`admin-ui/public/aw-theme/aw-theme.css`, verbatim, never edit) is one fixed dark look:
   Audiowide brand, Orbitron display, Chakra Petch UI, tokens `--aw-ice/cyan/pink/chrome/gunmetal/red`.
   It cannot follow a light theme, so rolling it out everywhere would end room and personal themes.
@@ -72,8 +72,8 @@ the kit does.
 ## Decisions (owner, 2026-11-22)
 
 1. **Where the fixed dark look applies:** personal and global pages only (Account Settings, My Rooms,
-   My Tables, My Stats, Friends, Create Room). Room pages (scoreboards, lobby, results) keep their 16
-   themes and get the width fix and the shared parts, not the dark skin. This is also the UX plan's
+   My Tables, My Stats, Friends, Create Room). Room pages (scoreboards, lobby, results) keep their
+   themes (16 then, 11 since G29) and get the width fix and the shared parts, not the dark skin. This is also the UX plan's
    "protected surfaces" question: the room Scoreboard cards, Global Scoreboard, kiosk and title styles
    are the product's signature; fix their contrast and text size, never quiet or flatten them.
 2. **The sketch is rejected in full** ("I'm not a big fan"; "I'm more a fan of the G20 styles"): no

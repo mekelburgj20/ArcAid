@@ -122,7 +122,10 @@
    the site's `sb-theme-scope` (which restates the dark defaults whatever theme
    the page wears), it points the site's colour tokens at the kit, so links,
    buttons and status words keep their markup and show the kit's roles:
-   cyan = OK / success, pink = attention, red = problem. No green, no yellow. */
+   cyan = OK / success, pink = attention, red = problem. No green, no yellow.
+   The site's lead and second (v2.263.0) are pinned to the kit's cyan and pink,
+   so the primary button stays the kit's cyan here whatever the site's default
+   theme leads with. */
 .aw-island {
   color: var(--aw-ice);
   font-family: var(--aw-font-ui);
@@ -132,6 +135,8 @@
   --color-neon-blue: var(--aw-cyan);
   --color-neon-green: var(--aw-cyan);
   --color-neon-magenta: var(--aw-pink);
+  --color-lead: var(--aw-cyan);
+  --color-second: var(--aw-pink);
   --color-neon-amber: var(--aw-red);
   --color-neon-coral: var(--aw-red);
   --color-emerald-400: var(--aw-cyan);

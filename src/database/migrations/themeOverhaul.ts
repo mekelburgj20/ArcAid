@@ -22,6 +22,12 @@ import { LEGACY_THEME_MAP, isThemeId } from '../../utils/themeIds.js';
  * Idempotent: a second run finds no retired ids and writes nothing.
  * localStorage mirrors are NOT migratable, which is the other half of why the
  * runtime `normalizeThemeId` shim exists.
+ *
+ * Migration 220 (v2.263.0, G29) is the same rewrite for the theme sweep from
+ * sixteen themes to eleven, which retired `midnight`, `silverball`, `plasma`,
+ * `ember` and `arctic` and re-pointed `ocean`, `wizard` and `sunset`. Both
+ * migrations call `remapRetiredThemeIds`, which is driven by the whole of
+ * `LEGACY_THEME_MAP`, so either one folds every retired id there is.
  */
 
 type Db = {
@@ -34,7 +40,16 @@ interface PrefsRow {
     scoreboard_prefs: string | null;
 }
 
+/** Migration 162. Kept under its own name so the history reads as it ran. */
 export async function themeOverhaul(db: Db): Promise<void> {
+    await remapRetiredThemeIds(db, 'migration 162');
+}
+
+/**
+ * Rewrites every stored retired theme id through `LEGACY_THEME_MAP`, at all
+ * three storage sites. `label` names the migration in the log line.
+ */
+export async function remapRetiredThemeIds(db: Db, label: string): Promise<void> {
     const counts = { roomDefaults: 0, personal: 0, roomOverrides: 0, devicePrefs: 0 };
 
     for (const [legacy, replacement] of Object.entries(LEGACY_THEME_MAP)) {
@@ -105,7 +120,7 @@ export async function themeOverhaul(db: Db): Promise<void> {
     }
 
     logInfo(
-        `[migration 162] theme overhaul: ${counts.roomDefaults} room default(s), ` +
+        `[${label}] retired theme ids: ${counts.roomDefaults} room default(s), ` +
         `${counts.personal} personal theme(s), ${counts.roomOverrides} per-room override(s), ` +
         `${counts.devicePrefs} legacy device pref(s) remapped`,
     );

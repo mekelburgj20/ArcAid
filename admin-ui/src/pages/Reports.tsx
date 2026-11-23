@@ -504,7 +504,7 @@ export default function Reports() {
               key={t.key}
               onClick={() => setTab(t.key)}
               className={`px-4 py-1.5 rounded text-sm font-medium transition-colors cursor-pointer border-0 ${
-                tab === t.key ? 'bg-neon-cyan/20 text-neon-cyan' : 'bg-transparent text-muted hover:text-primary'
+                tab === t.key ? 'bg-lead/20 text-lead' : 'bg-transparent text-muted hover:text-primary'
               }`}
             >
               {t.label}

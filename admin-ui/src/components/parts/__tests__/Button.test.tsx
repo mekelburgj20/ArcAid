@@ -16,7 +16,8 @@ describe('Button', () => {
         expect(button.className).toBe(
             'inline-flex items-center justify-center gap-1.5 rounded border font-medium cursor-pointer transition-colors '
             + 'disabled:opacity-50 disabled:cursor-not-allowed px-4 py-1.5 text-sm '
-            + 'border-neon-cyan/40 bg-neon-cyan/10 text-neon-cyan hover:bg-neon-cyan/20',
+            // The theme's lead (v2.263.0, G29), never a fixed accent.
+            + 'border-lead/40 bg-lead/10 text-lead hover:bg-lead/20',
         );
         fireEvent.click(button);
         expect(onSubmit).not.toHaveBeenCalled();
@@ -31,7 +32,7 @@ describe('Button', () => {
         render(<><Button variant="secondary">Cancel</Button><Button variant="danger">Delete</Button></>);
         const secondary = screen.getByRole('button', { name: 'Cancel' }).className;
         expect(secondary).toContain('border-border bg-transparent text-muted hover:text-primary hover:border-muted');
-        expect(secondary).not.toContain('neon-cyan');
+        expect(secondary).not.toContain('lead');
         const danger = screen.getByRole('button', { name: 'Delete' }).className;
         expect(danger).toContain('border-neon-coral/40 bg-neon-coral/10 text-neon-coral hover:bg-neon-coral/20');
         // The theme-aware token, never Tailwind's fixed rose.

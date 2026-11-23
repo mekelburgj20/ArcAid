@@ -38,7 +38,7 @@ describe('UpdatePreferencesSchema', () => {
     });
 
     it('accepts { ui_theme } alone', () => {
-        const parsed = UpdatePreferencesSchema.safeParse({ ui_theme: 'midnight' });
+        const parsed = UpdatePreferencesSchema.safeParse({ ui_theme: 'graphite' });
         expect(parsed.success).toBe(true);
     });
 
@@ -96,9 +96,9 @@ describe('PreferencesService appearance', () => {
     });
 
     it('appearance and ui_theme are independent on the same row', async () => {
-        await PreferencesService.setTheme('discord-app-4', 'midnight');
+        await PreferencesService.setTheme('discord-app-4', 'graphite');
         await PreferencesService.setAppearance('discord-app-4', 'light');
-        expect(await PreferencesService.getAll('discord-app-4')).toMatchObject({ ui_theme: 'midnight', appearance: 'light' });
+        expect(await PreferencesService.getAll('discord-app-4')).toMatchObject({ ui_theme: 'graphite', appearance: 'light' });
 
         // Changing the theme must not disturb the appearance...
         await PreferencesService.setTheme('discord-app-4', 'paper');
@@ -160,10 +160,10 @@ describe('GET/POST /api/me/preferences — appearance', () => {
         const token = playerToken('discord-ep-app-2');
 
         await request(app).post('/api/me/preferences').set('Authorization', `Bearer ${token}`).send({ appearance: 'dark' });
-        await request(app).post('/api/me/preferences').set('Authorization', `Bearer ${token}`).send({ ui_theme: 'midnight' });
+        await request(app).post('/api/me/preferences').set('Authorization', `Bearer ${token}`).send({ ui_theme: 'graphite' });
 
         const after = await request(app).get('/api/me/preferences').set('Authorization', `Bearer ${token}`);
-        expect(after.body).toMatchObject({ ui_theme: 'midnight', appearance: 'dark' });
+        expect(after.body).toMatchObject({ ui_theme: 'graphite', appearance: 'dark' });
     });
 
     it('rejects a bad appearance value with 400', async () => {

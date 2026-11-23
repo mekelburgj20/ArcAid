@@ -339,7 +339,7 @@ export const UpdateRankingGroupSchema = CreateRankingGroupSchema.omit({ id: true
  * place silently 400'd (or silently accepted a dead id) in the other. A RETIRED
  * id is deliberately rejected rather than folded — writes always store a live
  * id, and the read-time `normalizeThemeId` shim covers everything already in
- * the database (migration 162 rewrote the stored rows).
+ * the database (migrations 162 and 220 rewrote the stored rows).
  */
 const themeIdSchema = z.enum(THEME_IDS);
 

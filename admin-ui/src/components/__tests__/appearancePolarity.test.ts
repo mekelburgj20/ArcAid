@@ -22,19 +22,18 @@ describe('THEME_POLARITY', () => {
         expect(Object.keys(THEME_POLARITY).sort()).toEqual([...themeIds].sort());
     });
 
-    it('marks exactly the four `color-scheme: light` themes as light', () => {
+    it('marks exactly the three `color-scheme: light` themes as light', () => {
         const light = (Object.keys(THEME_POLARITY) as ThemeId[])
             .filter(id => THEME_POLARITY[id] === 'light')
             .sort();
-        expect(light).toEqual(['arctic', 'light', 'paper', 'speegle']);
+        expect(light).toEqual(['light', 'paper', 'speegle']);
     });
 
     it('keeps the pale-SOUNDING dark themes dark', () => {
-        // graphite is a neutral CHARCOAL (--color-deep oklch(18%)), silverball
-        // is gunmetal, contrast is pure black. All three read "bright" or
-        // "neutral" in the name and are dark-surfaced in the stylesheet.
+        // graphite is a neutral CHARCOAL (--color-deep oklch(18%)), contrast
+        // is pure black. Both read "bright" or "neutral" in the name and are
+        // dark-surfaced in the stylesheet.
         expect(THEME_POLARITY.graphite).toBe('dark');
-        expect(THEME_POLARITY.silverball).toBe('dark');
         expect(THEME_POLARITY.contrast).toBe('dark');
     });
 });
@@ -64,27 +63,27 @@ describe('the theme set is one set', () => {
 
 describe('resolveAppearance', () => {
     it('auto never changes the resolved theme', () => {
-        expect(resolveAppearance('midnight', 'auto')).toBe('midnight');
+        expect(resolveAppearance('forest', 'auto')).toBe('forest');
         expect(resolveAppearance('paper', 'auto')).toBe('paper');
         expect(resolveAppearance('dark', 'auto')).toBe('dark');
     });
 
     it('swaps a dark theme for `light` under appearance=light', () => {
-        expect(resolveAppearance('midnight', 'light')).toBe('light');
+        expect(resolveAppearance('forest', 'light')).toBe('light');
         expect(resolveAppearance('dark', 'light')).toBe('light');
     });
 
     it('leaves a theme that already matches the requested polarity alone', () => {
         // A room on Paper keeps ITS light theme rather than being flattened.
         expect(resolveAppearance('paper', 'light')).toBe('paper');
-        expect(resolveAppearance('arctic', 'light')).toBe('arctic');
+        expect(resolveAppearance('speegle', 'light')).toBe('speegle');
         expect(resolveAppearance('light', 'light')).toBe('light');
-        expect(resolveAppearance('midnight', 'dark')).toBe('midnight');
+        expect(resolveAppearance('forest', 'dark')).toBe('forest');
     });
 
     it('swaps a light theme for `dark` under appearance=dark', () => {
         expect(resolveAppearance('paper', 'dark')).toBe('dark');
-        expect(resolveAppearance('arctic', 'dark')).toBe('dark');
+        expect(resolveAppearance('speegle', 'dark')).toBe('dark');
         expect(resolveAppearance('light', 'dark')).toBe('dark');
     });
 });

@@ -14,7 +14,7 @@ import { formatScore, parseServerDate } from '../lib/format';
  *
  * Colour comes ONLY from the theme tokens (`--color-neon-cyan`, `--color-neon-
  * amber`, `--color-border`, and the inherited text colour for labels), so it
- * reads correctly in all 16 themes, light ones included.
+ * reads correctly in all 11 themes, light ones included.
  *
  * The SVG's coordinate width tracks the element's real pixel width (a
  * ResizeObserver) rather than scaling a fixed viewBox: scaling a 600-unit

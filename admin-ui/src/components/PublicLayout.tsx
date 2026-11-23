@@ -401,7 +401,7 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
                 data-tour={item.tour}
                 className={
                   `flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-2 min-h-11 min-w-11 px-1.5 sm:px-3 py-1 sm:py-2 rounded transition-colors no-underline [&>svg]:shrink-0 ${
-                    isActive ? 'text-neon-cyan bg-neon-cyan/10' : 'text-muted hover:text-neon-cyan'
+                    isActive ? 'text-lead bg-lead/10' : 'text-muted hover:text-lead'
                   }`
                 }
               >

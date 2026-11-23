@@ -53,7 +53,7 @@ function stubPortalFetch() {
 }
 
 /** Stubbed portal that DOES return a server-side theme override (e.g. a room
- *  configured for 'midnight'), used by the M1 regression test below. */
+ *  configured for 'graphite'), used by the M1 regression test below. */
 function stubPortalFetchWithServerTheme(theme: string) {
   const fetchMock = vi.fn((url: string) => {
     if (url.startsWith('/api/portal')) {
@@ -111,7 +111,7 @@ describe('ThemeProvider', () => {
   // own theme and a viewer who has none.
   it('re-themes on navigation: admin -> public swaps the documentElement class', async () => {
     stubPortalFetch();
-    localStorage.setItem('arcaid-theme-public-rooma', 'midnight');
+    localStorage.setItem('arcaid-theme-public-rooma', 'graphite');
 
     renderHarness('/admin/dashboard');
 
@@ -120,36 +120,36 @@ describe('ThemeProvider', () => {
 
     fireEvent.click(screen.getByText('go-rooma'));
 
-    await waitFor(() => expect(document.documentElement.classList.contains('theme-midnight')).toBe(true));
+    await waitFor(() => expect(document.documentElement.classList.contains('theme-graphite')).toBe(true));
   });
 
   it('carries the personal theme from an admin page onto a room page (v2.132.0)', async () => {
     stubPortalFetch();
     localStorage.setItem('arcaid-theme-personal', 'retro');
-    localStorage.setItem('arcaid-theme-public-rooma', 'midnight');
+    localStorage.setItem('arcaid-theme-public-rooma', 'graphite');
 
     renderHarness('/admin/dashboard');
     await waitFor(() => expect(document.documentElement.classList.contains('theme-retro')).toBe(true));
 
     fireEvent.click(screen.getByText('go-rooma'));
 
-    // The room's own 'midnight' loses to the viewer's own theme.
+    // The room's own 'graphite' loses to the viewer's own theme.
     await new Promise(resolve => setTimeout(resolve, 0));
     expect(document.documentElement.classList.contains('theme-retro')).toBe(true);
-    expect(document.documentElement.classList.contains('theme-midnight')).toBe(false);
+    expect(document.documentElement.classList.contains('theme-graphite')).toBe(false);
   });
 
   it('per-slug isolation: room A keeps its saved theme, room B (no saved theme) does not inherit it', async () => {
     stubPortalFetch();
-    localStorage.setItem('arcaid-theme-public-rooma', 'midnight');
+    localStorage.setItem('arcaid-theme-public-rooma', 'graphite');
 
     renderHarness('/rooma');
 
-    await waitFor(() => expect(document.documentElement.classList.contains('theme-midnight')).toBe(true));
+    await waitFor(() => expect(document.documentElement.classList.contains('theme-graphite')).toBe(true));
 
     fireEvent.click(screen.getByText('go-roomb'));
 
-    await waitFor(() => expect(document.documentElement.classList.contains('theme-midnight')).toBe(false));
+    await waitFor(() => expect(document.documentElement.classList.contains('theme-graphite')).toBe(false));
   });
 
   it('reads the per-slug key at entry (no navigation needed)', async () => {
@@ -166,21 +166,21 @@ describe('ThemeProvider', () => {
   // test fails — the hydrate effect re-fires on the scoreboard -> lobby
   // navigation (same room, different pathname), refetches the portal, and
   // `setPublicThemeState(serverPublicTheme)` reverts the viewer's just-set
-  // 'synthwave' personal theme back to the room's configured 'midnight' theme.
+  // 'synthwave' personal theme back to the room's configured 'graphite' theme.
   it('does not revert a viewer-set personal theme on same-room navigation (M1)', async () => {
-    stubPortalFetchWithServerTheme('midnight');
+    stubPortalFetchWithServerTheme('graphite');
 
     renderSameRoomHarness('/roomx/scoreboard');
 
     // Hydrate resolves the room's configured server theme first.
-    await waitFor(() => expect(document.documentElement.classList.contains('theme-midnight')).toBe(true));
+    await waitFor(() => expect(document.documentElement.classList.contains('theme-graphite')).toBe(true));
 
     // Viewer picks a personal theme via Scoreboard prefs (setPublicTheme).
     fireEvent.click(screen.getByText('set-synthwave'));
     await waitFor(() => expect(document.documentElement.classList.contains('theme-synthwave')).toBe(true));
 
     // Navigate within the SAME room (scoreboard -> lobby) — must NOT
-    // re-hydrate and clobber the viewer's chosen theme back to 'midnight'.
+    // re-hydrate and clobber the viewer's chosen theme back to 'graphite'.
     fireEvent.click(screen.getByText('go-lobby'));
     await screen.findByText('lobby-page');
 
@@ -188,7 +188,7 @@ describe('ThemeProvider', () => {
     await new Promise(resolve => setTimeout(resolve, 0));
 
     expect(document.documentElement.classList.contains('theme-synthwave')).toBe(true);
-    expect(document.documentElement.classList.contains('theme-midnight')).toBe(false);
+    expect(document.documentElement.classList.contains('theme-graphite')).toBe(false);
   });
 });
 
@@ -237,13 +237,13 @@ describe('ThemeProvider — appearance override (v2.130.0)', () => {
 
   it('room route + dark room theme + appearance=light -> theme-light', async () => {
     stubPortalFetch();
-    localStorage.setItem('arcaid-theme-public-rooma', 'midnight');
+    localStorage.setItem('arcaid-theme-public-rooma', 'graphite');
     localStorage.setItem(STORAGE_APPEARANCE_KEY, 'light');
 
     renderAppearance('/rooma');
 
     await waitFor(() => expect(hasClass('theme-light')).toBe(true));
-    expect(hasClass('theme-midnight')).toBe(false);
+    expect(hasClass('theme-graphite')).toBe(false);
   });
 
   it('room route + LIGHT room theme + appearance=light keeps the room theme', async () => {
@@ -273,12 +273,12 @@ describe('ThemeProvider — appearance override (v2.130.0)', () => {
 
   it('appearance=auto leaves the room theme exactly as it was', async () => {
     stubPortalFetch();
-    localStorage.setItem('arcaid-theme-public-rooma', 'midnight');
+    localStorage.setItem('arcaid-theme-public-rooma', 'graphite');
     localStorage.setItem(STORAGE_APPEARANCE_KEY, 'auto');
 
     renderAppearance('/rooma');
 
-    await waitFor(() => expect(hasClass('theme-midnight')).toBe(true));
+    await waitFor(() => expect(hasClass('theme-graphite')).toBe(true));
     expect(hasClass('theme-light')).toBe(false);
   });
 
@@ -312,7 +312,7 @@ describe('ThemeProvider — appearance override (v2.130.0)', () => {
     // A visitor who used the v2.50.0 global-page toggle, now on a ROOM page:
     // the old key was global-pages-only, the migrated preference is not.
     localStorage.setItem('arcaid-global-theme', 'light');
-    localStorage.setItem('arcaid-theme-public-rooma', 'midnight');
+    localStorage.setItem('arcaid-theme-public-rooma', 'graphite');
 
     renderAppearance('/rooma');
 
@@ -325,20 +325,20 @@ describe('ThemeProvider — appearance override (v2.130.0)', () => {
     stubPortalFetch();
     localStorage.setItem('arcaid-global-theme', 'light');
     localStorage.setItem(STORAGE_APPEARANCE_KEY, 'auto');
-    localStorage.setItem('arcaid-theme-public-rooma', 'midnight');
+    localStorage.setItem('arcaid-theme-public-rooma', 'graphite');
 
     renderAppearance('/rooma');
 
-    await waitFor(() => expect(hasClass('theme-midnight')).toBe(true));
+    await waitFor(() => expect(hasClass('theme-graphite')).toBe(true));
     expect(screen.getByTestId('appearance').textContent).toBe('auto');
   });
 
   it('setAppearance persists to localStorage and re-themes immediately', async () => {
     stubPortalFetch();
-    localStorage.setItem('arcaid-theme-public-rooma', 'midnight');
+    localStorage.setItem('arcaid-theme-public-rooma', 'graphite');
 
     renderAppearance('/rooma');
-    await waitFor(() => expect(hasClass('theme-midnight')).toBe(true));
+    await waitFor(() => expect(hasClass('theme-graphite')).toBe(true));
 
     fireEvent.click(screen.getByText('set-light'));
 
@@ -347,7 +347,7 @@ describe('ThemeProvider — appearance override (v2.130.0)', () => {
 
     // ...and going back to Auto restores the room's own theme.
     fireEvent.click(screen.getByText('set-auto'));
-    await waitFor(() => expect(hasClass('theme-midnight')).toBe(true));
+    await waitFor(() => expect(hasClass('theme-graphite')).toBe(true));
     expect(localStorage.getItem(STORAGE_APPEARANCE_KEY)).toBe('auto');
   });
 
@@ -355,7 +355,7 @@ describe('ThemeProvider — appearance override (v2.130.0)', () => {
     // Player tokens live in their own localStorage key and are never sent by
     // lib/api.ts — the provider must fetch /me/preferences with them directly.
     localStorage.setItem('arcaid_player_token', 'player.jwt.token');
-    localStorage.setItem('arcaid-theme-public-rooma', 'midnight');
+    localStorage.setItem('arcaid-theme-public-rooma', 'graphite');
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url.startsWith('/api/me/preferences')) {
         expect((init?.headers as Record<string, string>)?.Authorization).toBe('Bearer player.jwt.token');
@@ -417,7 +417,7 @@ describe('ThemeProvider — resolution order (v2.132.0)', () => {
   });
 
   it('room page: the this-room override beats the personal theme', async () => {
-    stubPortalFetchWithServerTheme('midnight');
+    stubPortalFetchWithServerTheme('graphite');
     localStorage.setItem('arcaid-theme-personal', 'retro');
     localStorage.setItem('arcaid-theme-room-res1', 'synthwave');
 
@@ -425,30 +425,30 @@ describe('ThemeProvider — resolution order (v2.132.0)', () => {
 
     await waitFor(() => expect(hasClass('theme-synthwave')).toBe(true));
     expect(hasClass('theme-retro')).toBe(false);
-    expect(hasClass('theme-midnight')).toBe(false);
+    expect(hasClass('theme-graphite')).toBe(false);
   });
 
   it('room page: the personal theme beats the room default', async () => {
-    stubPortalFetchWithServerTheme('midnight');
+    stubPortalFetchWithServerTheme('graphite');
     localStorage.setItem('arcaid-theme-personal', 'retro');
 
     renderResolution('/res2');
 
     await waitFor(() => expect(hasClass('theme-retro')).toBe(true));
-    expect(hasClass('theme-midnight')).toBe(false);
+    expect(hasClass('theme-graphite')).toBe(false);
   });
 
   it('room page: a NULL personal theme falls through to the room default', async () => {
-    stubPortalFetchWithServerTheme('midnight');
+    stubPortalFetchWithServerTheme('graphite');
 
     renderResolution('/res3');
 
-    await waitFor(() => expect(hasClass('theme-midnight')).toBe(true));
+    await waitFor(() => expect(hasClass('theme-graphite')).toBe(true));
     expect(screen.getByTestId('personal').textContent).toBe('none');
   });
 
   it('clearing the override live falls back to the personal theme, then the room default', async () => {
-    stubPortalFetchWithServerTheme('midnight');
+    stubPortalFetchWithServerTheme('graphite');
     localStorage.setItem('arcaid-theme-personal', 'retro');
     localStorage.setItem('arcaid-theme-room-res4', 'synthwave');
 
@@ -460,7 +460,7 @@ describe('ThemeProvider — resolution order (v2.132.0)', () => {
     expect(localStorage.getItem('arcaid-theme-room-res4')).toBeNull();
 
     fireEvent.click(screen.getByText('clear-personal'));
-    await waitFor(() => expect(hasClass('theme-midnight')).toBe(true));
+    await waitFor(() => expect(hasClass('theme-graphite')).toBe(true));
     expect(localStorage.getItem('arcaid-theme-personal')).toBeNull();
     // The legacy mirror is cleared with it — a stale value there would
     // resurrect the theme on the next boot.
@@ -468,17 +468,17 @@ describe('ThemeProvider — resolution order (v2.132.0)', () => {
   });
 
   it('admin page: the personal theme applies, and nothing else does', async () => {
-    stubPortalFetchWithServerTheme('midnight');
+    stubPortalFetchWithServerTheme('graphite');
     localStorage.setItem('arcaid-theme-personal', 'retro');
     // Neither of these may reach an admin page.
     localStorage.setItem('arcaid-theme-room-res5', 'synthwave');
-    localStorage.setItem('arcaid-theme-public-res5', 'plasma');
+    localStorage.setItem('arcaid-theme-public-res5', 'forest');
 
     renderResolution('/admin/dashboard');
 
     await waitFor(() => expect(hasClass('theme-retro')).toBe(true));
     expect(hasClass('theme-synthwave')).toBe(false);
-    expect(hasClass('theme-plasma')).toBe(false);
+    expect(hasClass('theme-forest')).toBe(false);
   });
 
   it('admin page: no personal theme -> the no-class dark default', async () => {
@@ -491,7 +491,7 @@ describe('ThemeProvider — resolution order (v2.132.0)', () => {
   });
 
   it('appearance is still the LAST step, over the personal theme', async () => {
-    stubPortalFetchWithServerTheme('midnight');
+    stubPortalFetchWithServerTheme('graphite');
     localStorage.setItem('arcaid-theme-personal', 'retro');
     localStorage.setItem(STORAGE_APPEARANCE_KEY, 'light');
 
@@ -530,7 +530,7 @@ describe('ThemeProvider — resolution order (v2.132.0)', () => {
   it('the this-room override is PER ROOM: room A\'s does not apply in room B', async () => {
     // The bug this pins: pre-v2.132 the override lived in the per-DEVICE
     // scoreboard prefs, so one "this room only" choice painted every room.
-    stubPortalFetchWithServerTheme('midnight');
+    stubPortalFetchWithServerTheme('graphite');
     localStorage.setItem('arcaid-theme-room-roomone', 'synthwave');
 
     const { unmount } = renderResolution('/roomone');
@@ -539,21 +539,21 @@ describe('ThemeProvider — resolution order (v2.132.0)', () => {
     document.documentElement.className = '';
 
     renderResolution('/roomtwo');
-    await waitFor(() => expect(hasClass('theme-midnight')).toBe(true));
+    await waitFor(() => expect(hasClass('theme-graphite')).toBe(true));
     expect(hasClass('theme-synthwave')).toBe(false);
   });
 
   it('navigating room A -> room B drops A\'s override immediately', async () => {
     stubPortalFetch();
     localStorage.setItem('arcaid-theme-room-rooma', 'synthwave');
-    localStorage.setItem('arcaid-theme-public-roomb', 'midnight');
+    localStorage.setItem('arcaid-theme-public-roomb', 'graphite');
 
     renderHarness('/rooma');
     await waitFor(() => expect(hasClass('theme-synthwave')).toBe(true));
 
     fireEvent.click(screen.getByText('go-roomb'));
 
-    await waitFor(() => expect(hasClass('theme-midnight')).toBe(true));
+    await waitFor(() => expect(hasClass('theme-graphite')).toBe(true));
     expect(hasClass('theme-synthwave')).toBe(false);
   });
 
@@ -568,13 +568,13 @@ describe('ThemeProvider — resolution order (v2.132.0)', () => {
       if (url.startsWith('/api/me/preferences')) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve({ ui_theme: null, appearance: null }) });
       }
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({ id: 'res9', roomId: 'res9', slug: 'res9', name: 'res9', public_theme: 'midnight', ui_theme: 'midnight' }) });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ id: 'res9', roomId: 'res9', slug: 'res9', name: 'res9', public_theme: 'graphite', ui_theme: 'graphite' }) });
     });
     vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
 
     renderResolution('/res9');
 
-    await waitFor(() => expect(hasClass('theme-midnight')).toBe(true));
+    await waitFor(() => expect(hasClass('theme-graphite')).toBe(true));
     expect(localStorage.getItem('arcaid-theme-room-res9')).toBeNull();
     // The room id, not the slug, is what the server is asked about.
     expect(fetchMock.mock.calls.some(c => String(c[0]) === '/api/me/room-themes?roomId=res9')).toBe(true);
@@ -589,7 +589,7 @@ describe('ThemeProvider — resolution order (v2.132.0)', () => {
       if (url.startsWith('/api/me/preferences')) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve({ ui_theme: null, appearance: null }) });
       }
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({ id: 'res8', roomId: 'res8', slug: 'res8', name: 'res8', public_theme: 'midnight', ui_theme: 'midnight' }) });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ id: 'res8', roomId: 'res8', slug: 'res8', name: 'res8', public_theme: 'graphite', ui_theme: 'graphite' }) });
     });
     vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
 
@@ -597,7 +597,7 @@ describe('ThemeProvider — resolution order (v2.132.0)', () => {
 
     await waitFor(() => expect(screen.getByTestId('personal').textContent).toBe('none'));
     expect(localStorage.getItem('arcaid-theme-personal')).toBeNull();
-    await waitFor(() => expect(hasClass('theme-midnight')).toBe(true));
+    await waitFor(() => expect(hasClass('theme-graphite')).toBe(true));
   });
 
   // ── v2.134.1: an explicit pick unlocks a conflicting explicit appearance ──

@@ -901,7 +901,7 @@ function IntegritySection({ mode, rules, onModeChange, onRulesChange }: {
             onClick={() => onModeChange(m)}
             aria-pressed={mode === m}
             className={`px-4 py-2 text-sm transition-colors cursor-pointer ${
-              mode === m ? 'bg-neon-cyan/20 text-neon-cyan' : 'bg-raised text-muted hover:text-primary'
+              mode === m ? 'bg-lead/20 text-lead' : 'bg-raised text-muted hover:text-primary'
             }`}
           >{INTEGRITY_MODE_LABEL[m]}</button>
         ))}

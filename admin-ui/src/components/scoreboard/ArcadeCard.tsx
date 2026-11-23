@@ -35,12 +35,12 @@ import CardAttemptsLeft from './CardAttemptsLeft';
  * ─── Theme model: HYBRID (Phase 1 design decision 1) ───
  *
  * Base surfaces, borders and text track the room's `--color-*` tokens — a
- * synthwave or midnight room still reads as that room, exactly as Banner and
+ * synthwave or forest room still reads as that room, exactly as Banner and
  * Minimal do. Only the SIGNATURE accents are fixed: the per-category neon
  * frame, the gold/silver/bronze podium tints, and the contained footer strip.
  * Those come from the `--sb-*` token family (see `index.css`), which already
- * carries the light-polarity overrides (`.theme-light`, `.theme-arctic`,
- * `.theme-paper`), so the card is
+ * carries the light-polarity overrides (`.theme-light`, `.theme-paper`,
+ * `.theme-speegle`), so the card is
  * correct on a pale page without a second implementation.
  *
  * A full opt-out (Showcase's model, where the card ignores the room theme
