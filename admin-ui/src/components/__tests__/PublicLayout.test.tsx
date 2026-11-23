@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import PublicLayout from '../PublicLayout';
 import { ViewerAuthProvider } from '../../contexts/ViewerAuthContext';
@@ -181,6 +181,47 @@ describe('PublicLayout', () => {
     expect(column.contains(event)).toBe(true);
     expect(column.contains(witness)).toBe(true);
     expect(screen.getAllByRole('button', { name: 'Dismiss' }).length).toBeGreaterThanOrEqual(2);
+  });
+
+  // G26 — the room name in the nav is the room switcher (RoomSwitcher has the
+  // menu's own tests): named with the room's scoreboard title, listing the
+  // viewer's rooms from /api/me/rooms. Unique slug: getPortal caches per slug.
+  it('names the room with the switcher, which lists the viewer\'s rooms', async () => {
+    signInAs('user-1', 'Justin');
+    const fetchMock = vi.fn((url: string) => {
+      if (url.startsWith('/api/portal')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ id: 'room-sw', roomId: 'room-sw', slug: 'switcher_room', name: 'Switcher Room', pick_award_enabled: false }),
+        });
+      }
+      if (url === '/api/rooms/room-sw/scoreboard-config') {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ SCOREBOARD_TITLE: 'SWITCHER LEAGUE', LOGO_URL: '/brand.png' }) });
+      }
+      if (url.startsWith('/api/me/rooms')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve([
+            { roomId: 'room-sw', name: 'Switcher Room', slug: 'switcher_room', logoUrl: null, joinedAt: '2026-01-01', source: 'self_join', lastActivityAt: null },
+            { roomId: 'room-fc', name: 'Flipper Cove', slug: 'flipper_cove', logoUrl: null, joinedAt: '2026-01-01', source: 'self_join', lastActivityAt: null },
+          ]),
+        });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+    });
+    vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+
+    renderAt('/switcher_room/child');
+
+    // Desktop and phone each have one (CSS shows one per breakpoint; jsdom has no CSS).
+    const triggers = await screen.findAllByRole('button', { name: 'SWITCHER LEAGUE, switch game room' });
+    expect(triggers).toHaveLength(2);
+    expect(triggers[0]!.querySelector('img')).toHaveAttribute('src', '/brand.png');
+
+    fireEvent.click(triggers[0]!);
+    const menu = await screen.findByRole('menu');
+    await waitFor(() => expect(within(menu).getByRole('menuitem', { name: 'Flipper Cove' })).toHaveAttribute('href', '/flipper_cove'));
+    expect(within(menu).getByText('Switcher Room').closest('[role="menuitem"]')).toHaveAttribute('aria-current', 'page');
   });
 
   it('renders a friendly not-found state when the portal 404s', async () => {

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { render, screen, within, fireEvent } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { render, screen, within, fireEvent, waitFor } from '@testing-library/react';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import StyleGuide from '../StyleGuide';
 import { THEME_IDS } from '../../lib/themeIds';
 import { THEMES } from '../../components/ThemeProvider';
@@ -55,6 +55,26 @@ describe('StyleGuide', () => {
         expect(themed.querySelectorAll('.part-panel').length).toBeGreaterThan(0);
         expect(themed.querySelectorAll('.aw-panel')).toHaveLength(0);
         expect(within(themed).getByRole('heading', { level: 1, name: 'Weekly Rotation' })).toBeInTheDocument();
+    });
+
+    it('shows the room switcher on its Menu panel, operable, with sample rooms that go nowhere', async () => {
+        function Where() {
+            return <span data-testid="where">{useLocation().pathname}</span>;
+        }
+        render(
+            <MemoryRouter initialEntries={['/admin/style-guide']}>
+                <StyleGuide />
+                <Where />
+            </MemoryRouter>,
+        );
+        const preview = screen.getByTestId('menu-preview');
+        expect(preview.classList.contains('sb-theme-scope')).toBe(true);
+        fireEvent.click(within(preview).getByRole('button', { name: 'NEON ALLEY PINBALL, switch game room' }));
+        const menu = await screen.findByRole('menu');
+        expect(within(menu).getByText('You are here')).toBeInTheDocument();
+        fireEvent.click(within(menu).getByRole('menuitem', { name: 'Flipper Cove' }));
+        await waitFor(() => expect(screen.queryByRole('menu')).toBeNull());
+        expect(screen.getByTestId('where')).toHaveTextContent('/admin/style-guide');
     });
 
     it('loads the kit stylesheets while mounted and removes them on unmount', () => {
