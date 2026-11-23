@@ -35,15 +35,17 @@ describe('RoomSwitcher when its menu chunk fails to load', () => {
         renderSwitcher(true);
         fireEvent.click(trigger());
         await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('/my-rooms'));
-        expect(trigger()).toHaveAttribute('aria-expanded', 'false');
+        // While the menu cannot load, the button does not claim a pop-up.
+        expect(trigger()).not.toHaveAttribute('aria-haspopup');
+        expect(trigger()).not.toHaveAttribute('aria-expanded');
         expect(screen.queryByRole('menu')).toBeNull();
     });
 
-    it('signed out: after the failure the button stays, and a press goes to the room list', async () => {
+    it('signed out: after the failure the button stays, and a press (which retries first) goes to the room list', async () => {
         renderSwitcher(false);
         fireEvent.pointerEnter(trigger()); // the download starts, and fails
         await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
-        expect(trigger()).toHaveAttribute('aria-haspopup', 'menu');
+        expect(trigger()).not.toHaveAttribute('aria-haspopup');
         expect(screen.getByTestId('where')).toHaveTextContent('/rtx_pinball');
 
         fireEvent.keyDown(trigger(), { key: 'ArrowDown' });

@@ -1,9 +1,13 @@
 import { useEffect, useId, useLayoutEffect, useRef, type ReactNode } from 'react';
+import { useLocation } from 'react-router-dom';
 import { LayoutGrid, SlidersHorizontal } from 'lucide-react';
 import {
     Menu, MenuFooter, MenuGroup, MenuHeading, MenuItem, MenuNote, MenuPopup, MenuSeparator,
-    MenuSkeletonRow, MenuStaticRow, MenuTile, MenuTrigger,
+    MenuSkeletonRow, MenuStaticRow, MenuTile, MenuTrigger, type MenuActions,
 } from './parts/Menu';
+
+/** Tailwind's `sm`: the inline switcher shows from here up, the phone's brand-row one below it. */
+const SM_UP = '(min-width: 640px)';
 
 /**
  * G26 - the room switcher's menu: the base-ui half of `RoomSwitcher`.
@@ -18,7 +22,7 @@ import {
 
 /** A press on the plain button that arrived before this module did. */
 export type EarlyPress =
-    | { kind: 'pointer'; pointerType: string }
+    | { kind: 'pointer' }
     | { kind: 'click' }
     | { kind: 'key'; key: 'ArrowDown' | 'ArrowUp' };
 
@@ -59,29 +63,20 @@ export interface RoomSwitcherMenuProps {
 }
 
 /**
- * Replays an early press as the events the browser would have sent, so base-ui
- * opens exactly as on a normal press: a pointer press opens on `mousedown` with
- * nothing highlighted, a keyboard press (Enter, Space, a screen reader: a click
- * with `detail` 0) or an arrow key opens on the first room it can highlight.
+ * Replays an early press on base-ui's trigger through its synchronous click and
+ * key paths (never the mousedown path, which waits a frame that React
+ * StrictMode's simulated unmount cancels in development). A pointer press is a
+ * `click` with `detail` 1 and no `pointerdown`: base-ui opens it with nothing
+ * highlighted, as after a tap. A keyboard press (Enter, Space, a screen reader)
+ * is a `click` with `detail` 0, and an arrow key is its keydown: base-ui opens
+ * those on the first room it can highlight.
  */
 function replayPress(el: HTMLElement, press: EarlyPress) {
     if (press.kind === 'key') {
         el.dispatchEvent(new KeyboardEvent('keydown', { key: press.key, bubbles: true, cancelable: true }));
         return;
     }
-    if (press.kind === 'click') {
-        el.click();
-        return;
-    }
-    const mouse = { bubbles: true, cancelable: true, composed: true, button: 0, detail: 1 };
-    // 1x1 with pressure, so it does not read as a screen reader's synthesized press.
-    const pointer = { ...mouse, pointerId: 1, pointerType: press.pointerType, isPrimary: true, width: 1, height: 1, pressure: 0.5 };
-    const Pointer = typeof PointerEvent === 'function' ? PointerEvent : MouseEvent;
-    el.dispatchEvent(new Pointer('pointerdown', { ...pointer, buttons: 1 }));
-    el.dispatchEvent(new MouseEvent('mousedown', { ...mouse, buttons: 1 }));
-    el.dispatchEvent(new Pointer('pointerup', { ...pointer, pressure: 0 }));
-    el.dispatchEvent(new MouseEvent('mouseup', mouse));
-    el.dispatchEvent(new MouseEvent('click', mouse));
+    el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0, detail: press.kind === 'pointer' ? 1 : 0 }));
 }
 
 export default function RoomSwitcherMenu({
@@ -89,30 +84,61 @@ export default function RoomSwitcherMenu({
 }: RoomSwitcherMenuProps) {
     const noteId = useId();
     const triggerRef = useRef<HTMLButtonElement>(null);
+    const actionsRef = useRef<MenuActions | null>(null);
     const takeHandOffRef = useRef(takeHandOff);
     // Taken once per mount; StrictMode runs effects twice, and a second replay would close the menu again.
-    const handOffRef = useRef<{ focus: boolean; press: EarlyPress | null } | null>(null);
+    const handOffRef = useRef<{ press: EarlyPress | null } | null>(null);
     const replayedRef = useRef(false);
 
-    // Focus first, before paint, so focus never rests on <body> between the two buttons.
+    // Focus first, before paint, so focus never rests on <body> between the two buttons. Only
+    // when nothing else has it: the plain button had it as it left (so <body> has it now), or a
+    // press is waiting and focus is still on <body>. If the viewer has moved on to something
+    // else, a press still waiting is dropped too.
     useLayoutEffect(() => {
         if (handOffRef.current) return;
         const handOff = takeHandOffRef.current?.() ?? { focus: false, press: null };
-        handOffRef.current = handOff;
-        if (handOff.focus || handOff.press) triggerRef.current?.focus({ preventScroll: true });
+        const active = document.activeElement;
+        const focusFree = !active || active === document.body;
+        const keep = focusFree && (handOff.focus || handOff.press !== null);
+        handOffRef.current = { press: keep ? handOff.press : null };
+        if (keep) triggerRef.current?.focus({ preventScroll: true });
     }, []);
-    // The press after base-ui's own effects have run, so its trigger is wired up.
+    // The press once base-ui's own effects have run and settled: a microtask after this
+    // commit, so StrictMode's second pass over base-ui's effects (development) is over too.
     useEffect(() => {
         const press = handOffRef.current?.press;
-        if (!press || replayedRef.current || !triggerRef.current) return;
-        replayedRef.current = true;
-        replayPress(triggerRef.current, press);
+        if (!press || replayedRef.current) return;
+        let cancelled = false;
+        queueMicrotask(() => {
+            if (cancelled || replayedRef.current || !triggerRef.current) return;
+            replayedRef.current = true;
+            replayPress(triggerRef.current, press);
+        });
+        return () => { cancelled = true; };
+    }, []);
+
+    // A route change the menu did not cause (Back, a link elsewhere) closes it; so does
+    // crossing the `sm` breakpoint, which hides this trigger (the popup would otherwise
+    // re-anchor to the top-left corner). Not on mount: StrictMode re-runs this effect.
+    const location = useLocation();
+    const locationKeyRef = useRef(location.key);
+    useEffect(() => {
+        if (locationKeyRef.current === location.key) return;
+        locationKeyRef.current = location.key;
+        actionsRef.current?.close();
+    }, [location.key]);
+    useEffect(() => {
+        if (typeof window.matchMedia !== 'function') return;
+        const query = window.matchMedia(SM_UP);
+        const close = () => actionsRef.current?.close();
+        query.addEventListener('change', close);
+        return () => query.removeEventListener('change', close);
     }, []);
 
     const { current, others, signedIn, listLoading, noOtherRoom, isMember, count } = model;
 
     return (
-        <Menu>
+        <Menu actionsRef={actionsRef}>
             <MenuTrigger ref={triggerRef} className={triggerClassName} aria-label={triggerLabel} title={triggerTitle}>
                 {face}
             </MenuTrigger>

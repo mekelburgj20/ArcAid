@@ -28,15 +28,20 @@ type HighlightListener = (item: HTMLElement | undefined) => void;
 /** The group's pinball listens here for base-ui's `onItemHighlighted`. */
 const HighlightContext = createContext<RefObject<HighlightListener | null> | null>(null);
 
-export function Menu({ children, onOpenChange }: {
+/** base-ui's imperative handle: `close()` shuts the menu (a route change it did not cause, say). */
+export type MenuActions = BaseMenu.Root.Actions;
+
+export function Menu({ children, onOpenChange, actionsRef }: {
     children: ReactNode;
     onOpenChange?: (open: boolean) => void;
+    actionsRef?: RefObject<MenuActions | null>;
 }) {
     const listenerRef = useRef<HighlightListener | null>(null);
     return (
         <HighlightContext.Provider value={listenerRef}>
             <BaseMenu.Root
                 modal={false}
+                actionsRef={actionsRef}
                 onOpenChange={onOpenChange ? open => onOpenChange(open) : undefined}
                 onItemHighlighted={item => listenerRef.current?.(item)}
             >

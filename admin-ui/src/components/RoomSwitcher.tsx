@@ -1,5 +1,5 @@
-import { lazy, startTransition, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { lazy, startTransition, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type FocusEvent, type KeyboardEvent, type MouseEvent } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { ChevronDown } from 'lucide-react';
 import type { MemberRoom } from '../lib/landingRooms';
 import { parseServerDate } from '../lib/format';
@@ -22,12 +22,16 @@ import type { EarlyPress, RoomSwitcherMenuProps, SwitcherMenuModel } from './Roo
  *
  * The menu (base-ui) is NOT in the main bundle: `RoomSwitcherMenu` is a
  * `React.lazy` chunk. Until it arrives this draws the same button by hand (same
- * classes, name and ARIA), fetches the chunk when the browser is idle or the
- * moment a pointer or focus comes near the button, and remembers a press that
- * came first: the menu then opens as soon as it mounts, as base-ui opens it
- * (the press is replayed on base-ui's trigger), with focus kept on the button.
- * If the chunk cannot load (offline, a stale deploy), the button still works:
- * it goes to My Rooms (signed in) or the room list.
+ * classes, name and ARIA) and fetches the chunk when the browser is idle or the
+ * moment a pointer or focus comes near the button.
+ *
+ * A press that comes first is remembered and replayed on base-ui's trigger when
+ * the menu mounts, but only while it still means "open the menu": a second
+ * press, focus moving to something else, a press anywhere else, a route change,
+ * unmounting or 5 seconds each forget it. If the chunk cannot load (offline, a
+ * stale deploy), the button stays; it tries again on the next hover, focus,
+ * touch, press or route change, and a press whose load fails goes to My Rooms
+ * (signed in) or the room list instead.
  */
 
 export interface SwitcherCurrentRoom {
@@ -50,19 +54,45 @@ interface RoomSwitcherProps {
     variant: 'inline' | 'brandrow';
 }
 
-let menuLoad: Promise<{ default: ComponentType<RoomSwitcherMenuProps> }> | null = null;
-/** The chunk is in: a switcher mounted from now on (the next room page) starts as the menu. */
-let menuReady = false;
+type MenuModule = { default: ComponentType<RoomSwitcherMenuProps> };
 
-/** One download for every switcher on the page. A failure is forgotten, so the next page tries again. */
-function loadMenu() {
-    menuLoad ??= import('./RoomSwitcherMenu').then(
+let menuLoad: Promise<MenuModule> | null = null;
+/** The chunk is in: a switcher mounted from now on starts as the menu. */
+let menuReady = false;
+let failures = 0;
+let failedChunkUrl: string | null = null;
+
+/** The chunk's URL from the browser's failure message (Chrome and Firefox name it; Safari does not). */
+function chunkUrlOf(err: unknown): string | null {
+    const message = err instanceof Error ? err.message : String(err);
+    // A module script's URL only, never some other link in the message.
+    return /https?:\/\/[^\s'"?#]+\.(?:m?js|[jt]sx?)(?=[\s'"?#]|$)/.exec(message)?.[0] ?? null;
+}
+
+/**
+ * A browser keeps a failed module fetch in its module map and refuses the same
+ * URL again without asking the network (Chromium, checked 2026-11-23), so a
+ * retry asks for the chunk under a new URL. Its own imports keep their normal
+ * URLs, so React and the rest stay the same instances.
+ */
+function importMenu(): Promise<MenuModule> {
+    if (failures > 0 && failedChunkUrl) {
+        return import(/* @vite-ignore */ `${failedChunkUrl}?retry=${failures}`) as Promise<MenuModule>;
+    }
+    return import('./RoomSwitcherMenu');
+}
+
+/** One download for every switcher on the page; after a failure the next call tries again. */
+function loadMenu(): Promise<MenuModule> {
+    menuLoad ??= importMenu().then(
         mod => {
             menuReady = true;
             return mod;
         },
         err => {
             menuLoad = null;
+            failures += 1;
+            failedChunkUrl = chunkUrlOf(err) ?? failedChunkUrl;
             throw err;
         },
     );
@@ -70,6 +100,9 @@ function loadMenu() {
 }
 
 const RoomSwitcherMenu = lazy(loadMenu);
+
+/** An early press is forgotten after this long: a menu opening much later would surprise. */
+const PRESS_KEPT_MS = 5000;
 
 /** When the browser is idle after mount (a fixed wait where it cannot say). */
 function whenIdle(run: () => void): () => void {
@@ -109,6 +142,7 @@ function byActivityThenName(a: MemberRoom, b: MemberRoom): number {
 
 export default function RoomSwitcher({ current, rooms, loading, signedIn, variant }: RoomSwitcherProps) {
     const navigate = useNavigate();
+    const location = useLocation();
 
     const model = useMemo((): SwitcherMenuModel => {
         const isCurrent = (r: MemberRoom) =>
@@ -129,54 +163,108 @@ export default function RoomSwitcher({ current, rooms, loading, signedIn, varian
         };
     }, [rooms, loading, signedIn, current.roomId, current.slug, current.name, current.logoUrl]);
 
-    // 'button' until the menu chunk is in; 'failed' if it could not be loaded.
+    // 'button' until the menu chunk is in; 'failed' after a load failed (and until a retry succeeds).
     const [phase, setPhase] = useState<'button' | 'menu' | 'failed'>(() => (menuReady ? 'menu' : 'button'));
-    const pressRef = useRef<EarlyPress | null>(null);
-    const pointerTypeRef = useRef<string | null>(null);
+    const mountedRef = useRef(false);
+    const loadingRef = useRef(false);
+    const buttonElRef = useRef<HTMLButtonElement | null>(null);
     const focusHandOffRef = useRef(false);
     const fallbackPath = signedIn ? '/my-rooms' : '/';
     const fallbackRef = useRef(fallbackPath);
     useEffect(() => { fallbackRef.current = fallbackPath; }, [fallbackPath]);
 
+    // The waiting press, and how to forget it (its timer and its outside-press listeners go with it).
+    const pressRef = useRef<EarlyPress | null>(null);
+    const forgetPressRef = useRef<() => void>(() => {});
+    const forgetPress = useCallback(() => forgetPressRef.current(), []);
+    const rememberPress = useCallback((press: EarlyPress) => {
+        forgetPressRef.current();
+        pressRef.current = press;
+        const onPressElsewhere = (e: Event) => {
+            const el = buttonElRef.current;
+            if (!el || !(e.target instanceof Node) || !el.contains(e.target)) forget();
+        };
+        const timer = window.setTimeout(() => forget(), PRESS_KEPT_MS);
+        document.addEventListener('pointerdown', onPressElsewhere, true);
+        document.addEventListener('touchstart', onPressElsewhere, true);
+        function forget() {
+            pressRef.current = null;
+            window.clearTimeout(timer);
+            document.removeEventListener('pointerdown', onPressElsewhere, true);
+            document.removeEventListener('touchstart', onPressElsewhere, true);
+            forgetPressRef.current = () => {};
+        }
+        forgetPressRef.current = forget;
+    }, []);
+
+    useEffect(() => {
+        mountedRef.current = true;
+        return () => {
+            mountedRef.current = false;
+            forgetPress();
+        };
+    }, [forgetPress]);
+
     const warm = useCallback(() => {
-        if (phase !== 'button') return;
+        if (phase === 'menu' || loadingRef.current) return;
+        loadingRef.current = true;
         loadMenu().then(
-            // A transition: React keeps this button on screen until the menu can replace it.
-            () => startTransition(() => setPhase('menu')),
             () => {
+                loadingRef.current = false;
+                // A transition: React keeps this button on screen until the menu can replace it.
+                if (mountedRef.current) startTransition(() => setPhase('menu'));
+            },
+            () => {
+                loadingRef.current = false;
+                if (!mountedRef.current) return;
                 setPhase('failed');
+                // Only a press that is still waiting for this load goes elsewhere instead.
                 if (pressRef.current) {
-                    pressRef.current = null;
+                    forgetPress();
                     navigate(fallbackRef.current);
                 }
             },
         );
-    }, [phase, navigate]);
+    }, [phase, navigate, forgetPress]);
 
     useEffect(() => (phase === 'button' ? whenIdle(warm) : undefined), [phase, warm]);
 
+    // A route change forgets a waiting press, and gives a failed load another try.
+    const locationKeyRef = useRef(location.key);
+    useEffect(() => {
+        if (locationKeyRef.current === location.key) return;
+        locationKeyRef.current = location.key;
+        forgetPress();
+        if (phase === 'failed') warm();
+    }, [location.key, phase, warm, forgetPress]);
+
     const activate = (press: EarlyPress) => {
-        if (phase === 'failed') {
-            navigate(fallbackPath);
+        // A second press before the menu is in is "never mind", as a second press on an open menu closes it.
+        if (pressRef.current) {
+            forgetPress();
             return;
         }
-        pressRef.current = press;
+        rememberPress(press);
         warm();
     };
 
     // Read by the menu as it mounts (after this button has left the page): was
-    // the button focused, and was it pressed? Each is handed over once.
+    // the button focused, and is a press still waiting? Each is handed over once.
     const takeHandOff = useCallback(() => {
         const handOff = { focus: focusHandOffRef.current, press: pressRef.current };
         focusHandOffRef.current = false;
-        pressRef.current = null;
+        forgetPress();
         return handOff;
-    }, []);
+    }, [forgetPress]);
 
-    // Runs as the hand-drawn button leaves the page, while it can still hold focus.
+    // Its cleanup runs as the hand-drawn button leaves the page, while it can still hold focus.
     const buttonRef = useCallback((el: HTMLButtonElement | null) => {
         if (!el) return;
-        return () => { focusHandOffRef.current = document.activeElement === el; };
+        buttonElRef.current = el;
+        return () => {
+            focusHandOffRef.current = document.activeElement === el;
+            if (buttonElRef.current === el) buttonElRef.current = null;
+        };
     }, []);
 
     const triggerClassName = `room-switch room-switch--${variant}`;
@@ -193,6 +281,7 @@ export default function RoomSwitcher({ current, rooms, loading, signedIn, varian
         </>
     );
 
+    const failed = phase === 'failed';
     const button = (
         <button
             ref={buttonRef}
@@ -200,19 +289,21 @@ export default function RoomSwitcher({ current, rooms, loading, signedIn, varian
             className={triggerClassName}
             aria-label={triggerLabel}
             title={current.title}
-            aria-haspopup="menu"
-            aria-expanded="false"
+            // While the menu cannot load, the button is a way to a page, not a menu.
+            aria-haspopup={failed ? undefined : 'menu'}
+            aria-expanded={failed ? undefined : false}
             onPointerEnter={warm}
             onFocus={warm}
             onTouchStart={warm}
-            onPointerDown={(e: PointerEvent<HTMLButtonElement>) => {
-                pointerTypeRef.current = e.pointerType || 'mouse';
-                warm();
+            onPointerDown={warm}
+            onBlur={(e: FocusEvent<HTMLButtonElement>) => {
+                // Focus moved on to something else: the viewer has moved on. (Leaving the
+                // window, or this button leaving the page at the swap, has no relatedTarget.)
+                if (e.relatedTarget && e.relatedTarget !== e.currentTarget) forgetPress();
             }}
             // Enter and Space reach a button as a click with no pointer (`detail` 0), as do screen readers.
-            onClick={(e: MouseEvent<HTMLButtonElement>) => activate(
-                e.detail === 0 ? { kind: 'click' } : { kind: 'pointer', pointerType: pointerTypeRef.current ?? 'mouse' },
-            )}
+            // A press whose pointer goes down on this button and up after the swap is lost: press again.
+            onClick={(e: MouseEvent<HTMLButtonElement>) => activate(e.detail === 0 ? { kind: 'click' } : { kind: 'pointer' })}
             onKeyDown={(e: KeyboardEvent<HTMLButtonElement>) => {
                 if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
                 e.preventDefault();
