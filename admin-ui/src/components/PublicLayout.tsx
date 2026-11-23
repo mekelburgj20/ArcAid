@@ -343,7 +343,7 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
             for the status-bar/notch safe area without shrinking below the
             existing py-3 baseline on non-notched devices. */}
         <div
-          className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex items-center gap-2 sm:gap-3"
+          className="max-w-5xl xl:max-w-6xl 2xl:max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center gap-2 sm:gap-3"
           style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}
         >
           {/* v2.45.5 mobile nav layout: three hard-separated regions so the
