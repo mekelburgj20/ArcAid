@@ -18,12 +18,32 @@ import { Toaster, toast as sonner } from 'sonner';
  * so a burst of errors cannot bury the page. The clock is the pinball rail:
  * its CSS animation ending is what dismisses the toast, so it stops with it
  * (pointer over the toasts, focus inside them, or the tab hidden).
+ *
+ * A caller may name the heading and lengthen the clock (`ToastOptions`): the
+ * room page's "Arcaid Witness" toast says where the player's devices send
+ * their scores, one sentence per line, and stays 2 s longer per extra line.
  */
 
 type ToastType = 'success' | 'error' | 'info';
 
+export interface ToastOptions {
+  /**
+   * The heading, in place of the type's own (Done / Heads up / Didn't work):
+   * for a toast that reports a standing fact, not the result of something the
+   * person just did. Drawn exactly like the default headings.
+   */
+  label?: string;
+  /**
+   * How long a success or info toast stays (4 s when left out); a message of
+   * several lines needs longer to read. An error has no clock, so this does
+   * nothing there.
+   */
+  durationMs?: number;
+}
+
 interface ToastContextValue {
-  toast: (message: string, type?: ToastType) => void;
+  /** A line break in `message` starts a new line in the toast. */
+  toast: (message: string, type?: ToastType, options?: ToastOptions) => void;
 }
 
 const ToastContext = createContext<ToastContextValue>({ toast: () => {} });
@@ -51,8 +71,10 @@ function Emblem() {
   );
 }
 
-function ArcaidToast({ id, message, type }: { id: string | number; message: string; type: ToastType }) {
-  const { tone, label } = LOOK[type];
+function ArcaidToast({ id, message, type, options }: { id: string | number; message: string; type: ToastType; options?: ToastOptions }) {
+  const { tone } = LOOK[type];
+  const label = options?.label ?? LOOK[type].label;
+  const clearsAfterMs = options?.durationMs ?? CLEARS_AFTER_MS;
   const stays = type === 'error';
   const dismiss = () => sonner.dismiss(id);
   // Only the rail's own animation is the clock (a child's animationend bubbles here too).
@@ -75,7 +97,7 @@ function ArcaidToast({ id, message, type }: { id: string | number; message: stri
           <div className="arc-toast__rail" aria-hidden="true">
             <div
               className="arc-toast__run"
-              style={{ '--arc-toast-ms': `${CLEARS_AFTER_MS}ms` } as CSSProperties}
+              style={{ '--arc-toast-ms': `${clearsAfterMs}ms` } as CSSProperties}
               onAnimationEnd={railEnded}
             >
               <span className="arc-toast__ball" />
@@ -111,11 +133,11 @@ function usePhoneViewport(): boolean {
 }
 
 export function ToastProvider({ children }: { children: ReactNode }) {
-  const toast = useCallback((message: string, type: ToastType = 'info') => {
+  const toast = useCallback((message: string, type: ToastType = 'info', options?: ToastOptions) => {
     // Make room first, oldest out, so a fourth never waits hidden behind three errors.
     const active = sonner.getToasts();
     active.slice(0, Math.max(0, active.length - (MAX_ON_SCREEN - 1))).forEach(t => sonner.dismiss(t.id));
-    sonner.custom(id => <ArcaidToast id={id} message={message} type={type} />, { duration: Infinity });
+    sonner.custom(id => <ArcaidToast id={id} message={message} type={type} options={options} />, { duration: Infinity });
   }, []);
 
   // The rail's CSS clock would keep running in a hidden tab and the toast would be gone

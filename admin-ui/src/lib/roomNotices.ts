@@ -1,7 +1,8 @@
 /**
  * W83 - dismissal store for the notices at the top of a room page
- * (`EventBanner` cards, the "Your scores go to" device lines and the
- * "Start attempts needed on" line).
+ * (`EventBanner` cards, the "Your scores go to" lines of devices that do NOT
+ * send here, and the "Start attempts needed on" line; a device that sends
+ * here is a toast on entering the room and has nothing to dismiss).
  *
  * One localStorage key per room, `arcaid_room_notices_dismissed:<roomId>`,
  * holding JSON `{ [noticeKey]: dismissedAtMs }`. A dismissal lasts

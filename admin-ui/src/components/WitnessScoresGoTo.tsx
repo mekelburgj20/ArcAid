@@ -1,11 +1,13 @@
-import { Fragment, useEffect, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { ShieldCheck, AlertTriangle } from 'lucide-react';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import {
-    CHANGE_HREF, START_ATTEMPTS_NEEDED, attemptStartsNeeded, homeLines, roomLines,
+    CHANGE_HREF, ROOM_TOAST_LABEL, START_ATTEMPTS_NEEDED, attemptStartsNeeded, firstRoomToast, homeLines, roomLines,
+    roomToastLines, roomToastMs,
     type Device, type Line, type Routing,
 } from '../lib/witnessScoresGoTo';
+import { useToast } from './Toast';
 import { ATTEMPT_STARTS_CHANGED_EVENT, fetchRoomAttemptStarts, gamePageHref, type RoomAttemptStart } from '../lib/attemptStarts';
 import {
     ROOM_NOTICE_DISMISSED_EVENT, deviceNoticeKey, dismissNotice, isNoticeDismissed, startsNoticeKey,
@@ -21,22 +23,27 @@ import DismissibleNotice from './DismissibleNotice';
  * - **Room pages** (`roomId` set): does this device send HERE? The answer comes
  *   from `GET /api/me/witness/routing`, which applies the ingest's own routing
  *   rule (`deviceRoutesTo`) to the device's effective target, so this line can
- *   never disagree with where a score goes. A device that sends here is a quiet
- *   confirmation; one that does not is amber, with what to do about it.
+ *   never disagree with where a score goes. A device that does NOT send here
+ *   is an amber line, with what to do about it. The devices that DO send here
+ *   are confirmed by ONE "Arcaid Witness" toast on entering the room (owner
+ *   2026-11-23: three standing lines at the top of every room page were
+ *   clutter): once per room per page load, said again only when the answer
+ *   changes (`firstRoomToast`), and gone by itself after a few seconds.
  *   W56: when a device sends here and a Limited-attempts table still needs the
  *   player's Start attempts press, one more amber line names those tables
  *   (from `GET /api/rooms/:roomId/attempt-starts/me`), each linking to its
  *   game page. It re-reads that list when a scoreboard card is pressed.
  * - **Home page** (no `roomId`): where each device sends.
  *
- * W83 - on a ROOM page every line (each device line and the "Start attempts
- * needed on" line) has an X / touch swipe that hides it for 7 days. The
- * dismissal is keyed on the line's ANSWER (`lib/roomNotices.ts`), so a changed
- * routing answer or a changed table list shows the line again. The home page
- * keeps no X.
+ * W83 - on a ROOM page every line (each amber device line and the "Start
+ * attempts needed on" line) has an X / touch swipe that hides it for 7 days.
+ * The dismissal is keyed on the line's ANSWER (`lib/roomNotices.ts`), so a
+ * changed routing answer or a changed table list shows the line again. The
+ * home page keeps no X.
  *
- * Renders nothing for a guest or a player with no paired device, and nothing
- * once every room line is dismissed.
+ * Renders nothing for a guest or a player with no paired device, nothing on a
+ * room page where every device sends here and no table needs a press, and
+ * nothing once every room line is dismissed.
  */
 
 export default function WitnessScoresGoTo({
@@ -50,6 +57,10 @@ export default function WitnessScoresGoTo({
     const [attemptStarts, setAttemptStarts] = useState<{ roomId: string; games: RoomAttemptStart[] } | null>(null);
     // W83 - bumped to re-read dismissals when any room notice is dismissed.
     const [, setDismissTick] = useState(0);
+    // Read through a ref so the routing read below never re-runs for a new `toast` function.
+    const { toast } = useToast();
+    const toastRef = useRef(toast);
+    useEffect(() => { toastRef.current = toast; }, [toast]);
 
     useEffect(() => {
         if (!playerToken) return;
@@ -64,6 +75,14 @@ export default function WitnessScoresGoTo({
                 const rows = Array.isArray(body) ? body : [];
                 setRouting(roomId ? rows as Routing[] : []);
                 setLines(roomId ? roomLines(rows as Routing[]) : homeLines(rows as Device[]));
+                // Said here, from the answer just read for THIS room, never from state
+                // (which still holds the last room's lines while a new room loads).
+                if (roomId) {
+                    const said = roomToastLines(rows as Routing[]);
+                    if (said.length > 0 && firstRoomToast(roomId, said.join('\n'))) {
+                        toastRef.current(said.join('\n'), 'success', { label: ROOM_TOAST_LABEL, durationMs: roomToastMs(said.length) });
+                    }
+                }
             })
             .catch(() => { if (live) { setLines([]); setRouting([]); } });
         return () => { live = false; };
@@ -97,8 +116,9 @@ export default function WitnessScoresGoTo({
         const r = routing.find(x => x.deviceId === line.key);
         return r ? deviceNoticeKey(r) : null;
     };
+    // Room mode: a device that sends here was said by the toast; only the amber lines stay on the page.
     const shownLines = roomId
-        ? lines.filter(line => { const k = lineKey(line); return !k || !isNoticeDismissed(roomId, k); })
+        ? lines.filter(line => { if (line.ok) return false; const k = lineKey(line); return !k || !isNoticeDismissed(roomId, k); })
         : lines;
     const neededKey = needed ? startsNoticeKey(needed) : null;
     const showNeeded = !!needed && !(roomId && neededKey && isNoticeDismissed(roomId, neededKey));
@@ -120,9 +140,6 @@ export default function WitnessScoresGoTo({
                         {line.text}
                         {line.change && (
                             <> <Link to={CHANGE_HREF} className="underline hover:text-primary">Change</Link></>
-                        )}
-                        {line.ok && !line.change && roomId && (
-                            <> <Link to={CHANGE_HREF} className="underline hover:text-primary">Where your plays went</Link></>
                         )}
                     </span>
                 </p>

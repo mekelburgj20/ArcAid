@@ -165,7 +165,9 @@ describe('PublicLayout', () => {
       if (url.startsWith('/api/me/witness/routing')) {
         return Promise.resolve({
           ok: true,
-          json: () => Promise.resolve([{ deviceId: 'd1', deviceType: 'desktop', sendsHere: 'yes', why: null, targetRoomName: null, targetTournamentName: null }]),
+          // A device that does NOT send here: that line stays in the column (one
+          // that sends here is a toast on entering the room, owner 2026-11-23).
+          json: () => Promise.resolve([{ deviceId: 'd1', deviceType: 'desktop', sendsHere: 'no', why: 'global_only', targetRoomName: null, targetTournamentName: null }]),
         });
       }
       return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
@@ -175,7 +177,7 @@ describe('PublicLayout', () => {
     renderAt('/rtx_pinball/child');
 
     const event = await screen.findByText('LIMITED ATTEMPTS Test #4');
-    const witness = await screen.findByText(/Your PC sends its scores here/);
+    const witness = await screen.findByText(/Your PC is set to the Global Scoreboard only/);
     const column = screen.getByTestId('room-notices');
     expect(column.className).toMatch(/lg:max-w-sm/);
     expect(column.contains(event)).toBe(true);

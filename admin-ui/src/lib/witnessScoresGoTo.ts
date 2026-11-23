@@ -52,6 +52,22 @@ export function roomLines(rows: Routing[]): Line[] {
     return rows.map(r => withWatching(roomLine(r, seen, counts), r));
 }
 
+/**
+ * What a line says after the device's name when the device sends here; null
+ * when it does not. `many` words it for several devices in one sentence (the
+ * room toast).
+ */
+function sendsHereWords(r: Routing, many = false): string | null {
+    const sends = many ? 'send their scores here' : 'sends its scores here';
+    const tournament = r.targetTournamentName ? `"${r.targetTournamentName}"` : 'one tournament';
+    switch (r.sendsHere) {
+        case 'yes': return `${sends}.`;
+        case 'one_tournament': return `${sends}, to ${tournament} only.`;
+        case 'entered_only': return `${sends}, to the tournaments you're entered in.`;
+        default: return null;
+    }
+}
+
 function roomLine(r: Routing, seen: Map<string, number>, counts: Map<string, number>): Line {
     {
         const i = seen.get(r.deviceType) ?? 0;
@@ -60,11 +76,11 @@ function roomLine(r: Routing, seen: Map<string, number>, counts: Map<string, num
         const tournament = r.targetTournamentName ? `"${r.targetTournamentName}"` : 'one tournament';
         switch (r.sendsHere) {
             case 'yes':
-                return { key: r.deviceId, ok: true, text: `${who} sends its scores here.`, change: false };
+                return { key: r.deviceId, ok: true, text: `${who} ${sendsHereWords(r)}`, change: false };
             case 'one_tournament':
-                return { key: r.deviceId, ok: true, text: `${who} sends its scores here, to ${tournament} only.`, change: true };
+                return { key: r.deviceId, ok: true, text: `${who} ${sendsHereWords(r)}`, change: true };
             case 'entered_only':
-                return { key: r.deviceId, ok: true, text: `${who} sends its scores here, to the tournaments you're entered in.`, change: false };
+                return { key: r.deviceId, ok: true, text: `${who} ${sendsHereWords(r)}`, change: false };
             default:
                 switch (r.why) {
                     case 'global_only':
@@ -78,6 +94,71 @@ function roomLine(r: Routing, seen: Map<string, number>, counts: Map<string, num
                 }
         }
     }
+}
+
+/**
+ * The room toast (owner 2026-11-23): on a ROOM page the devices that
+ * send here are confirmed by one toast on entering the room, not by lines that
+ * stay at the top of every page. Devices with the same answer share a
+ * sentence ("Your cabinet 1 and your cabinet 2 send their scores here."), in
+ * the order they first appear. Empty when no device sends here. A device that
+ * does NOT send here is never in the toast: that line stays on the page, with
+ * its Change link, until the player dismisses it.
+ */
+export const ROOM_TOAST_LABEL = 'Arcaid Witness';
+
+export function roomToastLines(rows: Routing[]): string[] {
+    const counts = new Map<string, number>();
+    for (const r of rows) counts.set(r.deviceType, (counts.get(r.deviceType) ?? 0) + 1);
+    const seen = new Map<string, number>();
+    const groups = new Map<string, { first: Routing; names: string[] }>();
+    for (const r of rows) {
+        // Numbered exactly as `roomLines` numbers them, whether or not the device sends here.
+        const i = seen.get(r.deviceType) ?? 0;
+        seen.set(r.deviceType, i + 1);
+        if (sendsHereWords(r) === null) continue;
+        const who = deviceName(r.deviceType, (counts.get(r.deviceType) ?? 0) > 1, i);
+        // Same words after the name = same sentence (the not-watching tail differs by device type).
+        const same = [r.sendsHere, r.targetTournamentName ?? '', r.watching === 'no' ? `off:${r.deviceType}` : ''].join('|');
+        const group = groups.get(same);
+        if (group) group.names.push(who);
+        else groups.set(same, { first: r, names: [who] });
+    }
+    return [...groups.values()].map(({ first, names }) => {
+        const text = `${joinNames(names)} ${sendsHereWords(first, names.length > 1)}`;
+        return withWatching({ key: first.deviceId, ok: true, change: false, text }, first).text;
+    });
+}
+
+/** "Your cabinet 1, your cabinet 2 and your PC". */
+function joinNames(names: string[]): string {
+    const rest = names.slice(1).map(n => n.replace(/^Your /, 'your '));
+    if (rest.length === 0) return names[0];
+    return `${[names[0], ...rest.slice(0, -1)].join(', ')} and ${rest[rest.length - 1]}`;
+}
+
+/** How long the room toast stays: 4 s for one sentence, 2 s more for each further one, 10 s at most. */
+export function roomToastMs(lineCount: number): number {
+    return Math.min(4000 + 2000 * Math.max(0, lineCount - 1), 10000);
+}
+
+/**
+ * The room toast shows once per room per page load: this remembers what was
+ * last said for each room, so moving between the room's pages (or leaving for
+ * Account Settings and coming back) does not repeat it, and a changed answer
+ * is said again. Memory only: a reload or a new tab is a new entry.
+ */
+const roomToastSaid = new Map<string, string>();
+
+export function firstRoomToast(roomId: string, text: string): boolean {
+    if (roomToastSaid.get(roomId) === text) return false;
+    roomToastSaid.set(roomId, text);
+    return true;
+}
+
+/** Tests only. */
+export function forgetRoomToasts(): void {
+    roomToastSaid.clear();
 }
 
 export function homeLines(devices: Device[]): Line[] {
