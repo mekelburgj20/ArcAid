@@ -101,6 +101,7 @@ Each line is the rule; the named rule file has the detail and the why.
 | 2026-11-10 | Round timing is the runner's (Room Admin → Activity), never on public boards or Discord | ADR 0038, `events.md` |
 | 2026-11-19 | No map workaround on players' cabinets: map fixes go upstream (tomlogic → LU package); a table not fixed in time is swapped | ADR 0041, `witness.md` |
 | 2026-11-22 | Shared UI parts wear Arcaid's own look, never a library default; base-ui and Sonner carry behaviour only | ADR 0042, `admin-ui.md` |
+| 2026-11-23 | The room name in the nav is one standard Arcaid button (it switches rooms), never a per-room Title Style or the pixel font | `docs/style-guide-plan.md` decision 7, `admin-ui.md` |
 | ADR 0018 | Personal rooms were REJECTED; Throwdowns are room-less | `events.md` |
 | ADR 0034 | The room owner decides whether a room is listed | `rooms-tournaments.md` |
 

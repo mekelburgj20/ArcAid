@@ -103,6 +103,14 @@ the kit does.
    folding deck); errors pink, no clock, Dismiss. The same rule for every shared part: never ship a
    library's default look. Sonner carries the toasts' behaviour (decision 3). Shipped in v2.260.0 (#508); phones show them at the top, below the safe area, since v2.260.1 (#510, owner: at the bottom a stack covered dialog buttons). ADR 0042.
 
+7. **The room name in the nav is one standard Arcaid button, and it switches rooms** (owner 2026-11-23, from the
+   room-switcher mockup: "I like Arcaid Standard"; "Menu Arcaid look"; "the Arcaid 'Triangle' should be neon pink
+   like the logo"): the room's logo and title in one fixed style on a desktop and on a phone, replacing the
+   pixel font and the per-room Title Style there (the Title Style stays on the scoreboard, a protected surface).
+   Clicking it lists the rooms you belong to in a menu that wears the toast look, with the current room marked by
+   the logo's pink triangle. Shipped in v2.262.0 (G26); the offered alternatives (the room's own Title Style in
+   the nav, a menu that follows the room theme) were not chosen.
+
 ## The guide (G21, shipped v2.261.0)
 
 Three parts, so it cannot drift the way a document alone does. As built:
