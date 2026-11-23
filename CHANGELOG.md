@@ -6,6 +6,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.262.1] - 2026-11-23 - The room name gets the room it has
+
+### Fixed
+- **On a desktop the room name in the nav bar is no longer cut off** (owner, 2026-11-23: "MOX'S GAME R…" with
+  empty bar on both sides). The bar was the same 1024 px wide on every desktop, so the name was held to a
+  short width. On a screen 1280 px wide or more the bar now grows (to 1152 px, and to 1280 px from 1536 px) and
+  the name takes the extra space. Below 1280 px nothing changes: a long name is still cut to one line there,
+  and the menu shows it in full.
+
 ## [2.262.0] - 2026-11-23 - Room switcher
 
 The owner asked for an easier way to move between the game rooms you belong to, and picked the design from a

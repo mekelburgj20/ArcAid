@@ -2346,10 +2346,16 @@ select option {
   letter-spacing: .08em; text-transform: uppercase; color: var(--color-primary);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-/* 9rem: the button is then as wide as the old 220 px name link at most, so the
-   nav is never more crowded than before (its content is 976 px wide at every
-   desktop width, and the six items need about 554 px of it). */
+/* 9rem up to a 1280 px screen: the button is then as wide as the old 220 px name
+   link at most, so the nav is never more crowded than before (its content is
+   976 px wide there, and the six items need about 554 px of it). On a wider
+   screen the nav bar itself grows (PublicLayout: `xl:max-w-6xl 2xl:max-w-7xl`,
+   +128 px and +256 px) and the name takes that extra room, so a desktop shows
+   the whole name (owner 2026-11-23: "MOX'S GAME R…" with space to spare). Keep
+   the three steps equal to what the bar gains. */
 .room-switch--inline .room-switch__name { max-width: 9rem; }
+@media (min-width: 1280px) { .room-switch--inline .room-switch__name { max-width: 17rem; } }
+@media (min-width: 1536px) { .room-switch--inline .room-switch__name { max-width: 25rem; } }
 .room-switch__chev { width: 14px; height: 14px; flex: none; color: var(--color-muted); }
 .room-switch:hover .room-switch__name, .room-switch:focus-visible .room-switch__name, .room-switch[data-popup-open] .room-switch__name,
 .room-switch:hover .room-switch__chev, .room-switch:focus-visible .room-switch__chev, .room-switch[data-popup-open] .room-switch__chev {
