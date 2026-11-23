@@ -80,8 +80,11 @@ the kit does.
    purple title plate, no violet-black ground, and none of its smaller swaps (slanted buttons and
    lamps, sentence-case headings, Doto scores). The shipped G20 page is the look; G21 extracts it as
    it is.
-3. **base-ui (pop-ups, menus, selects) and Sonner (toasts), or hand-built:** the owner reviews
-   mockups first. Blocks G23 only.
+3. **base-ui (pop-ups, menus, selects) and Sonner (toasts)** (owner, after the G23 mockup: "Let's go
+   with both"): the libraries carry behaviour only (focus traps, Escape, stacking, timers, screen-reader
+   announcements); every part wears Arcaid's own look (decision 6). Visitors download them with the site
+   (about 9.5 KB gzip for Sonner, 38 KB for the dialog and sheet); the full installs live only in
+   `node_modules` and the Docker build stage. G23 still waits on G21.
 4. **Impeccable** (an outside design checker for Claude: a rule list, a scored review command, and a
    check that runs after every UI edit): not decided. Revisit once G21's rules exist (G25). Do not
    install it while agents are mid-task: its hook changes every session's edits.
@@ -96,7 +99,7 @@ the kit does.
    spinning reels, a chrome pinball on a neon rail as the clock (stops on hover, the rail's end dismisses),
    a flicker-on double-line neon edge with the G20 top light bar, three at most in a plain column (no
    folding deck); errors pink, no clock, Dismiss. The same rule for every shared part: never ship a
-   library's default look. Which library carries the behaviour (decision 3) is still open.
+   library's default look. Sonner carries the toasts' behaviour (decision 3).
 
 ## The guide (G21)
 
