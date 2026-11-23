@@ -6,6 +6,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.260.0] - 2026-11-22 - The Arcaid toast
+
+The owner picked this look from the G23 mockup ("Arcaid look toasts are amazing"), because
+library-default toasts "look pretty similar to a lot of other current AI generated website artifacts",
+and chose Sonner to carry the behaviour (style plan decisions 3 and 6).
+
+### Changed
+- **Every toast on the site is now the Arcaid toast** (`components/Toast.tsx`, "The Arcaid toast" in
+  `index.css`): a dark glass slab with the G20 panel's top light bar, a double-line neon edge that
+  flickers on like a tube striking, and the tilted double-line Arcaid triangle as the status mark. A small
+  uppercase heading says what kind it is: **Done** (cyan), **Heads up** (ice) or **Didn't work** (pink).
+- **The clock is a chrome pinball on a lit rail.** The rail burns down over 4 s and the toast leaves when
+  it runs out. It stops while the pointer is over the toasts, while one has keyboard focus, and while the
+  tab is hidden, so a toast is never missed. With reduced motion the flicker is off and the rail keeps
+  its full length.
+- **Sonner (2.0.8) carries the behaviour only**: the screen-reader live region, the stack, swipe to dismiss
+  and Alt+T to reach the toasts. Its own look is never shown. About 9.5 KB gzip.
+- The rules from v2.233.0 stay: an error has no clock and stays until Dismiss is tapped; at most three
+  are on screen (the oldest leaves to make room); errors are `role="alert"`. Every caller of
+  `useToast().toast(message, type)` is unchanged.
+
 ## [2.259.0] - 2026-11-22 - An arcade carpet under the Arcaid-look pages
 
 The owner picked it from the G23 pop-ups-and-toasts mockup: "Arcaid colours on Faint strength".
