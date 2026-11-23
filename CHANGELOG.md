@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.260.1] - 2026-11-22 - Toasts at the top on phones
+
+### Changed
+- **On a phone (600 px wide or less) toasts now appear at the top of the screen** (owner, 2026-11-22). At
+  the bottom, three stacked Arcaid toasts covered a centred dialog's buttons (and would cover a bottom
+  sheet's), because toasts sit above dialogs so a dialog's own errors can show. They clear the phone's
+  status bar (`env(safe-area-inset-top)` plus 12 px) and swipe up to dismiss. Desktop stays bottom-right.
+
 ## [2.260.0] - 2026-11-22 - The Arcaid toast
 
 The owner picked this look from the G23 mockup ("Arcaid look toasts are amazing"), because

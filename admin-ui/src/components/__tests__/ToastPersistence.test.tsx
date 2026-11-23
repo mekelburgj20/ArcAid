@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import { toast as sonner } from 'sonner';
 import { ToastProvider, useToast } from '../Toast';
@@ -67,5 +67,29 @@ describe('Toast', () => {
         const t = (await screen.findByText('Request sent')).closest('.arc-toast')!;
         expect(t.classList.contains('arc-toast--ice')).toBe(true);
         expect(t.textContent).toContain('Heads up');
+    });
+
+    // v2.260.1 (owner 2026-11-22): on a phone the stack sits at the top, clear of dialog and sheet buttons.
+    it.each([
+        [true, 'top', 'center'],
+        [false, 'bottom', 'right'],
+    ])('phone=%s puts the toasts %s-%s', async (phone, y, x) => {
+        vi.stubGlobal('matchMedia', (q: string) => ({
+            matches: phone && q === '(max-width: 600px)', media: q,
+            addEventListener: () => {}, removeEventListener: () => {},
+        }));
+        try {
+            render(
+                <ToastProvider>
+                    <Fire message="Where am I" type="success" />
+                </ToastProvider>,
+            );
+            fireEvent.click(screen.getByText('fire Where am I'));
+            const list = (await screen.findByText('Where am I')).closest('[data-sonner-toaster]')!;
+            expect(list.getAttribute('data-y-position')).toBe(y);
+            expect(list.getAttribute('data-x-position')).toBe(x);
+        } finally {
+            vi.unstubAllGlobals();
+        }
     });
 });

@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect } from 'react';
+import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import type { AnimationEvent, CSSProperties, ReactNode } from 'react';
 import { Toaster, toast as sonner } from 'sonner';
 
@@ -87,6 +87,29 @@ function ArcaidToast({ id, message, type }: { id: string | number; message: stri
   );
 }
 
+/**
+ * Phones get the toasts at the TOP (owner, 2026-11-22). At the bottom, stacked Arcaid toasts
+ * covered a centred dialog's buttons and the bottom sheets' (toasts sit above dialogs so a
+ * dialog's own errors show). 600 px is Sonner's own phone breakpoint, where it also goes full
+ * width, so the two switch together. Bottom-right when `matchMedia` is missing (jsdom).
+ */
+const PHONE_QUERY = '(max-width: 600px)';
+
+function usePhoneViewport(): boolean {
+  const [phone, setPhone] = useState(
+    () => typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia(PHONE_QUERY).matches,
+  );
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const mq = window.matchMedia(PHONE_QUERY);
+    const sync = () => setPhone(mq.matches);
+    sync();
+    mq.addEventListener('change', sync);
+    return () => mq.removeEventListener('change', sync);
+  }, []);
+  return phone;
+}
+
 export function ToastProvider({ children }: { children: ReactNode }) {
   const toast = useCallback((message: string, type: ToastType = 'info') => {
     // Make room first, oldest out, so a fourth never waits hidden behind three errors.
@@ -107,12 +130,15 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  const phone = usePhoneViewport();
+
   return (
     <ToastContext.Provider value={{ toast }}>
       {children}
       <Toaster
         theme="dark"
-        position="bottom-right"
+        position={phone ? 'top-center' : 'bottom-right'}
+        mobileOffset={{ top: 'calc(env(safe-area-inset-top, 0px) + 12px)' }}
         expand
         visibleToasts={MAX_ON_SCREEN}
         gap={10}
