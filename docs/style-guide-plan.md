@@ -99,7 +99,7 @@ the kit does.
    spinning reels, a chrome pinball on a neon rail as the clock (stops on hover, the rail's end dismisses),
    a flicker-on double-line neon edge with the G20 top light bar, three at most in a plain column (no
    folding deck); errors pink, no clock, Dismiss. The same rule for every shared part: never ship a
-   library's default look. Sonner carries the toasts' behaviour (decision 3). Shipped in v2.260.0 (#508).
+   library's default look. Sonner carries the toasts' behaviour (decision 3). Shipped in v2.260.0 (#508); phones show them at the top, below the safe area, since v2.260.1 (#510, owner: at the bottom a stack covered dialog buttons). ADR 0042.
 
 ## The guide (G21)
 
