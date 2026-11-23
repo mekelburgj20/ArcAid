@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { Home, Settings as SettingsIcon, LogOut, HardDrive, Activity, Menu, X, DoorOpen, Palette, Globe, ClipboardList, Flag, ListChecks, Merge, Cpu } from 'lucide-react';
+import { Home, Settings as SettingsIcon, LogOut, HardDrive, Activity, Menu, X, DoorOpen, Palette, Globe, ClipboardList, Flag, ListChecks, Merge, Cpu, SwatchBook } from 'lucide-react';
 import { api, isAuthenticated, getTokenRole, setToken } from '../lib/api';
 import LoadingState from './LoadingState';
 import UpdateNudgeBanner from './UpdateNudgeBanner';
@@ -70,6 +70,7 @@ export default function SuperAdminLayout() {
     { path: '/admin/dashboard', label: 'Dashboard', icon: <Home size={18} /> },
     { path: '/admin/rooms', label: 'Game Rooms', icon: <DoorOpen size={18} /> },
     { path: '/admin/styles', label: 'Style Catalogue', icon: <Palette size={18} /> },
+    { path: '/admin/style-guide', label: 'Style Guide', icon: <SwatchBook size={18} /> },
     { path: '/admin/catalogue', label: 'Global Catalogue', icon: <Globe size={18} /> },
     { path: '/admin/catalogue/approvals', label: 'Approvals', icon: <ClipboardList size={18} />, badge: pendingCount },
     { path: '/admin/game-names', label: 'Game Names', icon: <Merge size={18} /> },

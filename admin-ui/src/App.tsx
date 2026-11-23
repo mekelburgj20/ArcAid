@@ -28,6 +28,7 @@ const GlobalSettings = lazy(() => import('./pages/GlobalSettings'));
 const Backups = lazy(() => import('./pages/Backups'));
 const Logs = lazy(() => import('./pages/Logs'));
 const StyleCatalogue = lazy(() => import('./pages/StyleCatalogue'));
+const StyleGuide = lazy(() => import('./pages/StyleGuide'));
 const GlobalCatalogue = lazy(() => import('./pages/GlobalCatalogue'));
 const CatalogueApproval = lazy(() => import('./pages/CatalogueApproval'));
 const GameNameReconcile = lazy(() => import('./pages/GameNameReconcile'));
@@ -181,6 +182,7 @@ function App() {
           {/* Master Library consolidated into Global Catalogue (2026-07). Redirect old links. */}
           <Route path="library" element={<Navigate to="/admin/catalogue" replace />} />
           <Route path="styles" element={<StyleCatalogue />} />
+          <Route path="style-guide" element={<StyleGuide />} />
           <Route path="catalogue" element={<GlobalCatalogue />} />
           <Route path="catalogue/approvals" element={<CatalogueApproval />} />
           <Route path="game-names" element={<GameNameReconcile />} />

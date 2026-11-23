@@ -6,6 +6,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.261.0] - 2026-11-23 - The style kit
+
+The shipped Account Settings look (G20) is now the standard every other page will be moved onto (G22), kept in
+three places that have to agree: shared parts in code, a live page that shows them, and a rule section.
+
+### Added
+- **Shared parts** in `admin-ui/src/components/parts/`: `ArcaidPage` (the fixed dark page on the arcade carpet,
+  for personal and global pages), `PageShell` (a room or admin page, in the room's theme), `PageTitle`,
+  `PanelGroup`, `Panel`, `JumpList` and `Button`. Each part draws itself in the Arcaid look under `ArcaidPage`
+  and in the room's theme everywhere else, with the same shapes and sizes in both.
+- **Super Admin -> Style Guide** (`/admin/style-guide`): every part in the Arcaid look and in each of the 16 room
+  themes, the two page widths, and the rules in plain words. A new theme shows up there by itself.
+- **The style rules** in `.claude/rules/admin-ui.md` ("Style guide"): who the pages are for, which look goes
+  where, what to build from, what is banned, and the mechanics from the 2026-10-19 UX review.
+
+### Changed
+- **Account Settings is built from the shared parts.** Signed in, it looks the same: a pixel comparison with
+  2.260.1 on a desktop, a laptop and a phone differs only at a handful of buttons that were brought onto one
+  standard (Clear and the delete dialog's Cancel are 8 px wider; Unlink and Unpair gain 2 px between icon and
+  word; "Link AtGames" is 4 px shorter on a phone; a delete button stays red when pointed at, where it turned
+  pink).
+- **Signed out, Account Settings shows the arcade carpet.** It showed the Arcaid Witness picture behind the
+  sign-in buttons, which belongs to the Witness pages only.
+
 ## [2.260.1] - 2026-11-22 - Toasts at the top on phones
 
 ### Changed

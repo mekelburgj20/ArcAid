@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { playerApi } from '../lib/playerApi';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
-import SettingsPanel from './SettingsPanel';
+import Panel from './parts/Panel';
 
 /**
  * "My Throwdowns" — the creator's own challenges (v2.136.0, ADR 0018).
@@ -68,7 +68,7 @@ export default function ThrowdownsSection() {
     if (!Array.isArray(rows) || rows.length === 0) return null;
 
     return (
-        <SettingsPanel title="My Throwdowns">
+        <Panel title="My Throwdowns">
             <p className="text-xs text-muted mb-3">
                 Challenges you started. The link is all anyone needs to join.
             </p>
@@ -90,6 +90,6 @@ export default function ThrowdownsSection() {
                     );
                 })}
             </ul>
-        </SettingsPanel>
+        </Panel>
     );
 }
