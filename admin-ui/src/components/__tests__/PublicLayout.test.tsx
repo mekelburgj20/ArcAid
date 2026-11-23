@@ -219,10 +219,11 @@ describe('PublicLayout', () => {
     expect(triggers[0]!.querySelector('img')).toHaveAttribute('src', '/brand.png');
 
     fireEvent.click(triggers[0]!);
-    const menu = await screen.findByRole('menu');
+    // The menu is a lazy chunk: on a loaded build server its first import can take longer than the default second.
+    const menu = await screen.findByRole('menu', undefined, { timeout: 15000 });
     await waitFor(() => expect(within(menu).getByRole('menuitem', { name: 'Flipper Cove' })).toHaveAttribute('href', '/flipper_cove'));
     expect(within(menu).getByText('Switcher Room').closest('[role="menuitem"]')).toHaveAttribute('aria-current', 'page');
-  });
+  }, 30000);
 
   it('renders a friendly not-found state when the portal 404s', async () => {
     const fetchMock = vi.fn((url: string) => {
