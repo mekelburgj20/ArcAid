@@ -19,6 +19,7 @@ import WitnessDeviceHealth from '../components/WitnessDeviceHealth';
 import WitnessKitDownload from '../components/WitnessKitDownload';
 import ArcaidPage from '../components/parts/ArcaidPage';
 import Panel, { PanelGroup } from '../components/parts/Panel';
+import Button from '../components/parts/Button';
 import type { PartTone } from '../components/parts/skin';
 import { AW_BADGE_SRC, AW_BADGE_SRCSET } from '../lib/awTheme';
 import { roomFetch } from '../lib/roomFetch';
@@ -988,22 +989,16 @@ export default function AccountSettings() {
               </p>
             )}
             <div className="mt-4 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={closeDeleteModal}
-                disabled={deleting}
-                className="px-3 py-1.5 rounded border border-border text-sm text-muted hover:text-primary hover:border-muted disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer bg-transparent"
-              >
+              <Button variant="secondary" onClick={closeDeleteModal} disabled={deleting}>
                 Cancel
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                variant="danger"
                 onClick={deleteAccount}
                 disabled={deleting || confirmText.trim() !== 'DELETE'}
-                className="px-4 py-1.5 rounded border border-rose-500/50 bg-rose-500/15 text-rose-400 text-sm font-medium hover:bg-rose-500/25 hover:text-neon-magenta disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer inline-flex items-center gap-1.5"
               >
                 {deleting ? 'Deleting…' : <><Trash2 size={14} /> Delete account</>}
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -1146,23 +1141,13 @@ export default function AccountSettings() {
                 </p>
               )}
               <div className="mt-3 flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={save}
-                  disabled={!canSubmit}
-                  className="px-4 py-1.5 rounded border border-neon-cyan/40 bg-neon-cyan/10 text-neon-cyan text-sm font-medium hover:bg-neon-cyan/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                >
+                <Button onClick={save} disabled={!canSubmit}>
                   {saving ? 'Saving…' : 'Save'}
-                </button>
+                </Button>
                 {profile?.display_name && (
-                  <button
-                    type="button"
-                    onClick={() => { setDraft(''); }}
-                    disabled={saving}
-                    className="px-3 py-1.5 rounded border border-border text-sm text-muted hover:text-primary hover:border-muted disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer bg-transparent"
-                  >
+                  <Button variant="secondary" onClick={() => { setDraft(''); }} disabled={saving}>
                     Clear
-                  </button>
+                  </Button>
                 )}
               </div>
             </div>
@@ -1236,13 +1221,15 @@ export default function AccountSettings() {
                       placeholder="Name exactly as it appears on iScored"
                       className="flex-1 min-w-0 px-3 py-1.5 rounded bg-surface border border-border text-sm text-primary"
                     />
-                    <button
+                    <Button
+                      variant="secondary"
+                      size="sm"
                       onClick={submitClaim}
                       disabled={claimBusy || !claimInput.trim()}
-                      className="shrink-0 px-3 py-1.5 rounded text-xs font-medium border border-border text-muted hover:text-primary cursor-pointer disabled:cursor-default disabled:opacity-50 bg-transparent"
+                      className="shrink-0"
                     >
                       Claim
-                    </button>
+                    </Button>
                   </div>
                   {claimMsg && (
                     <p className={`mt-2 text-xs ${claimMsg.ok ? 'text-neon-green' : 'text-neon-red'}`}>
@@ -1286,14 +1273,9 @@ export default function AccountSettings() {
                       <AlertCircle size={12} /> {linkError}
                     </p>
                   )}
-                  <button
-                    type="button"
-                    onClick={startDiscordLink}
-                    disabled={linkStarting}
-                    className="px-4 py-1.5 rounded border border-neon-cyan/40 bg-neon-cyan/10 text-neon-cyan text-sm font-medium hover:bg-neon-cyan/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer inline-flex items-center gap-1.5"
-                  >
+                  <Button onClick={startDiscordLink} disabled={linkStarting}>
                     <Link2 size={14} /> {linkStarting ? 'Redirecting…' : 'Link Discord account'}
-                  </button>
+                  </Button>
                 </>
               ) : (
                 <>
@@ -1306,14 +1288,9 @@ export default function AccountSettings() {
                       <AlertCircle size={12} /> {linkError}
                     </p>
                   )}
-                  <button
-                    type="button"
-                    onClick={startGoogleLink}
-                    disabled={linkStarting}
-                    className="mb-3 px-4 py-1.5 rounded border border-neon-cyan/40 bg-neon-cyan/10 text-neon-cyan text-sm font-medium hover:bg-neon-cyan/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer inline-flex items-center gap-1.5"
-                  >
+                  <Button onClick={startGoogleLink} disabled={linkStarting} className="mb-3">
                     <Link2 size={14} /> {linkStarting ? 'Redirecting…' : 'Link Google account'}
-                  </button>
+                  </Button>
                   {linksLoading ? (
                     <p className="text-sm text-muted">Loading…</p>
                   ) : links && links.some(l => !l.provider_user_id.startsWith('atgames:')) ? (
@@ -1332,31 +1309,22 @@ export default function AccountSettings() {
                               <span className="text-[11px] text-muted hidden sm:inline">
                                 Google login becomes separate.
                               </span>
-                              <button
-                                type="button"
-                                onClick={confirmUnlink}
-                                disabled={unlinking}
-                                className="px-2 py-1 rounded border border-rose-500/40 text-rose-400 text-xs hover:bg-rose-500/10 disabled:opacity-50 cursor-pointer"
-                              >
+                              <Button variant="danger" size="xs" onClick={confirmUnlink} disabled={unlinking}>
                                 {unlinking ? '…' : 'Confirm unlink'}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setUnlinkTarget(null)}
-                                disabled={unlinking}
-                                className="px-2 py-1 rounded border border-border text-xs text-muted hover:text-primary cursor-pointer"
-                              >
+                              </Button>
+                              <Button variant="secondary" size="xs" onClick={() => setUnlinkTarget(null)} disabled={unlinking}>
                                 Cancel
-                              </button>
+                              </Button>
                             </span>
                           ) : (
-                            <button
-                              type="button"
+                            <Button
+                              variant="secondary"
+                              size="xs"
                               onClick={() => setUnlinkTarget(l.provider_user_id)}
-                              className="px-2 py-1 rounded border border-border text-xs text-muted hover:text-rose-400 hover:border-rose-500/40 cursor-pointer shrink-0 inline-flex items-center gap-1"
+                              className="shrink-0"
                             >
                               <Unlink size={12} /> Unlink
-                            </button>
+                            </Button>
                           )}
                         </li>
                       ))}
@@ -1385,8 +1353,9 @@ export default function AccountSettings() {
                           {atgamesLinks.map(l => (
                             <li key={l.provider_user_id} className="flex items-center justify-between gap-3 text-sm bg-surface border border-border rounded px-3 py-2">
                               <span className="font-mono text-xs text-muted truncate">AtGames account {l.provider_user_id.slice('atgames:'.length)}</span>
-                              <button
-                                type="button"
+                              <Button
+                                variant="secondary"
+                                size="xs"
                                 disabled={atgamesBusy}
                                 onClick={async () => {
                                   setAtgamesBusy(true); setAtgamesError(null);
@@ -1404,10 +1373,10 @@ export default function AccountSettings() {
                                     setAtgamesBusy(false);
                                   }
                                 }}
-                                className="px-2 py-1 rounded border border-border text-xs text-muted hover:text-rose-400 hover:border-rose-500/40 cursor-pointer shrink-0 inline-flex items-center gap-1"
+                                className="shrink-0"
                               >
                                 <Unlink size={12} /> Unlink
-                              </button>
+                              </Button>
                             </li>
                           ))}
                         </ul>
@@ -1438,8 +1407,7 @@ export default function AccountSettings() {
                           autoComplete="new-password"
                           className="flex-1 px-3 py-2 bg-surface border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan"
                         />
-                        <button
-                          type="button"
+                        <Button
                           disabled={atgamesBusy || !atgamesEmail.trim() || !atgamesPassword}
                           onClick={async () => {
                             setAtgamesBusy(true); setAtgamesError(null); setAtgamesNotice(null);
@@ -1466,8 +1434,8 @@ export default function AccountSettings() {
                               setAtgamesBusy(false);
                             }
                           }}
-                          className="px-4 py-2 rounded border border-neon-cyan/40 bg-neon-cyan/10 text-neon-cyan text-sm font-medium hover:bg-neon-cyan/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer whitespace-nowrap"
-                        >{atgamesBusy ? 'Linking…' : 'Link AtGames'}</button>
+                          className="whitespace-nowrap"
+                        >{atgamesBusy ? 'Linking…' : 'Link AtGames'}</Button>
                       </div>
                       {atgamesNotice && <p className="text-xs text-neon-cyan">{atgamesNotice}</p>}
                       {atgamesError && (
@@ -1513,8 +1481,7 @@ export default function AccountSettings() {
                     <p className="font-mono text-2xl font-bold tracking-[0.3em] text-neon-cyan">{witnessCode}</p>
                   </div>
                 ) : null}
-                <button
-                  type="button"
+                <Button
                   disabled={witnessBusy}
                   onClick={async () => {
                     setWitnessBusy(true); setWitnessError(null);
@@ -1532,10 +1499,10 @@ export default function AccountSettings() {
                       setWitnessBusy(false);
                     }
                   }}
-                  className="mb-3 px-4 py-1.5 rounded border border-neon-cyan/40 bg-neon-cyan/10 text-neon-cyan text-sm font-medium hover:bg-neon-cyan/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer inline-flex items-center gap-1.5"
+                  className="mb-3"
                 >
                   <Link2 size={14} /> {witnessBusy ? 'Working…' : witnessCode ? 'New code' : 'Pair a device'}
-                </button>
+                </Button>
                 <p className="mb-3 text-xs text-muted">
                   On Arcaid Witness 1.1.1 or newer, scan the code on the cabinet screen with your phone instead.
                 </p>
@@ -1576,8 +1543,9 @@ export default function AccountSettings() {
                           <span className="font-mono text-xs text-muted ml-2">{d.atgamesUniqueId.slice(0, 8)}…</span>
                           {d.lastSeenAt && <span className="text-xs text-faint ml-2">last seen {new Date(d.lastSeenAt).toLocaleDateString()}</span>}
                         </span>
-                        <button
-                          type="button"
+                        <Button
+                          variant="secondary"
+                          size="xs"
                           disabled={witnessBusy}
                           onClick={async () => {
                             setWitnessBusy(true); setWitnessError(null);
@@ -1593,10 +1561,10 @@ export default function AccountSettings() {
                               setWitnessBusy(false);
                             }
                           }}
-                          className="px-2 py-1 rounded border border-border text-xs text-muted hover:text-rose-400 hover:border-rose-500/40 cursor-pointer shrink-0 inline-flex items-center gap-1"
+                          className="shrink-0"
                         >
                           <Unlink size={12} /> Unpair
-                        </button>
+                        </Button>
                         </div>
                         <p className="mt-1" title={d.appVersionAt ? `Reported ${new Date(d.appVersionAt.replace(' ', 'T') + 'Z').toLocaleString()}` : undefined}>
                           <WitnessBuildChip version={d.appVersion} />
@@ -1826,14 +1794,9 @@ export default function AccountSettings() {
                     </p>
                   )}
                   <div className="mt-3">
-                    <button
-                      type="button"
-                      onClick={savePrefs}
-                      disabled={notifSaving || !notifDirty}
-                      className="px-4 py-1.5 rounded border border-neon-cyan/40 bg-neon-cyan/10 text-neon-cyan text-sm font-medium hover:bg-neon-cyan/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                    >
+                    <Button onClick={savePrefs} disabled={notifSaving || !notifDirty}>
                       {notifSaving ? 'Saving…' : 'Save'}
-                    </button>
+                    </Button>
                   </div>
                 </>
               )}
@@ -1921,15 +1884,10 @@ export default function AccountSettings() {
                           </p>
                           <div className="mt-2 flex flex-wrap items-center gap-2">
                             {notifSettings.discord.connectAvailable && (
-                              <button
-                                type="button"
-                                onClick={startConnect}
-                                disabled={connectBusy}
-                                className="px-3 py-1.5 rounded border border-neon-cyan/40 bg-neon-cyan/10 text-neon-cyan text-xs font-medium hover:bg-neon-cyan/20 disabled:opacity-50 cursor-pointer inline-flex items-center gap-1.5"
-                              >
+                              <Button size="sm" onClick={startConnect} disabled={connectBusy}>
                                 <Link2 size={12} />
                                 {connectBusy ? 'Connecting…' : 'Connect Discord notifications'}
-                              </button>
+                              </Button>
                             )}
                             {notifSettings.discord.inviteUrl && (
                               <a
@@ -1971,13 +1929,12 @@ export default function AccountSettings() {
                 Your scores stay on the leaderboards under your game handle, but they're
                 de-identified — no longer tied to your Discord account. This can't be undone.
               </p>
-              <button
-                type="button"
+              <Button
+                variant="danger"
                 onClick={() => { setConfirmText(''); setDeleteError(null); setShowDeleteModal(true); }}
-                className="px-4 py-1.5 rounded border border-rose-500/40 bg-rose-500/10 text-rose-400 text-sm font-medium hover:bg-rose-500/20 hover:text-neon-magenta transition-colors cursor-pointer inline-flex items-center gap-1.5"
               >
                 <Trash2 size={14} /> Delete my account
-              </button>
+              </Button>
             </Panel>
             </PanelGroup>
               </>
