@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useState, type MouseEvent, type ReactNode } from 'react';
 import ArcaidPage from '../components/parts/ArcaidPage';
 import PageShell from '../components/parts/PageShell';
 import PageTitle from '../components/parts/PageTitle';
@@ -6,8 +6,10 @@ import Panel, { PanelGroup } from '../components/parts/Panel';
 import JumpList, { type JumpItem } from '../components/parts/JumpList';
 import Button from '../components/parts/Button';
 import type { PartTone } from '../components/parts/skin';
+import RoomSwitcher, { type SwitcherCurrentRoom } from '../components/RoomSwitcher';
 import { THEMES } from '../components/ThemeProvider';
 import { THEME_IDS, type ThemeId } from '../lib/themeIds';
+import type { MemberRoom } from '../lib/landingRooms';
 
 /**
  * G21 - the live style guide (super admin). Every shared part, shown in the
@@ -33,6 +35,26 @@ const SAMPLE_TONES: Array<{ key: string; tone: PartTone; title: string; sub: str
 ];
 
 const THEME_TILE_TONES: PartTone[] = ['cyan', 'pink', 'violet', 'ice'];
+
+/** Made-up rooms for the menu sample (the logos are the site's own public images). */
+const SAMPLE_ROOM: SwitcherCurrentRoom = {
+    slug: 'neon_alley_pinball', name: 'Neon Alley Pinball', title: 'NEON ALLEY PINBALL',
+    logoUrl: '/arcaid-icon-192-v3.png', roomId: 'sg-room-1',
+};
+const sampleRoom = (roomId: string, name: string, slug: string, logoUrl: string | null, lastActivityAt: string | null): MemberRoom => ({
+    roomId, name, slug, logoUrl, lastActivityAt, joinedAt: '2026-01-01 12:00:00', source: 'self_join',
+});
+const SAMPLE_ROOMS: MemberRoom[] = [
+    sampleRoom('sg-room-1', 'Neon Alley Pinball', 'neon_alley_pinball', '/arcaid-icon-192-v3.png', '2026-11-20 18:00:00'),
+    sampleRoom('sg-room-2', 'Flipper Cove', 'flipper_cove', '/carpet/arcaid-carpet-motifs-a-v1.svg', '2026-11-19 21:00:00'),
+    sampleRoom('sg-room-3', 'Tilt Club After Dark', 'tilt_club_after_dark', null, '2026-11-12 20:30:00'),
+    sampleRoom('sg-room-4', 'The Saturday Night Silverball Society of Greater Springfield', 'saturday_silverball_society', null, null),
+];
+
+/** The sample's rooms are made up: picking one closes the menu and stays on this page. */
+function stayOnPage(e: MouseEvent) {
+    if ((e.target as Element).closest('a')) e.preventDefault();
+}
 
 /** The no-class dark default is `dark`; every other id is a `.theme-<id>` class (as in Leaderboard.tsx). */
 function themeScopeClass(id: ThemeId): string {
@@ -274,6 +296,21 @@ export default function StyleGuide() {
                                 </PanelGroup>
                             </div>
                         ))}
+                    </div>
+                </Panel>
+                <Panel title="Menu" wide>
+                    <p className="text-sm text-primary mb-2">
+                        The room switcher in the room nav. The button takes the theme picked above; the menu is the
+                        Arcaid look on every theme. Arrow keys move the pinball, Escape closes.
+                    </p>
+                    <p className="text-xs text-muted mb-3">Made-up rooms: picking one closes the menu and stays here.</p>
+                    {/* onClickCapture: React events cross the portal, so this sees the menu's links too. */}
+                    <div
+                        className={`${themeScopeClass(selected)} bg-deep text-primary rounded-lg border border-border p-4 sm:p-6`}
+                        data-testid="menu-preview"
+                        onClickCapture={stayOnPage}
+                    >
+                        <RoomSwitcher variant="inline" current={SAMPLE_ROOM} rooms={SAMPLE_ROOMS} loading={false} signedIn />
                     </div>
                 </Panel>
             </PanelGroup>

@@ -2113,7 +2113,7 @@ select option {
    under 600 px). */
 .arc-toast-li { padding: 0; width: var(--width); }
 
-.arc-toast {
+.arc-toast, .arc-menu {
   --arc-ice: #EAF6FF; --arc-cyan: #4FD6FF; --arc-pink: #FF3D7F;
   --arc-chrome: #B9C3D3; --arc-gunmetal: #6B7488; --arc-ball-edge: #1D202A;
   --t: var(--arc-cyan);
@@ -2306,3 +2306,170 @@ select option {
 }
 .part-title__sub { margin: 0.25rem 0 0; font-size: 0.875rem; color: var(--color-muted); }
 .part-title__actions { margin-left: auto; display: flex; align-items: center; gap: 1.25rem; }
+
+/* ─── The Arcaid menu (G26; components/parts/Menu.tsx) ─────────────────────
+   The owner's pick from the G26 room-switcher mockup (2026-11-23): the menu
+   is the toast's family, fixed dark on every theme. The dark glass slab, the
+   colours and the type face come from the shared rule in "The Arcaid toast"
+   (`.arc-toast, .arc-menu`); this block adds the menu's own shape: the
+   double-line neon edge and the G20 top light bar, a heading, a list that
+   scrolls inside the popup with a lit rail down its left edge and ONE chrome
+   pinball that rolls to the highlighted row, a separator and a footer of
+   quieter links. The mark on the row you are in is the logo's own triangle in
+   the logo's pink (`--color-brand-delta`; the popup carries `sb-theme-scope`,
+   so that is the dark theme's value on every page). base-ui draws nothing.
+   The trigger (`.room-switch`, components/RoomSwitcher.tsx) sits in the
+   themed room nav and takes the theme's tokens only.
+   Motion is opt-in (`prefers-reduced-motion: no-preference`, at the end). */
+
+/* The trigger: the room's logo and name in one bordered button, as tall as
+   the nav items. The name stays on one line (the full name is the button's
+   title); on a wide screen it is capped so the six nav items still fit. */
+.room-switch {
+  display: inline-flex; align-items: center; gap: 8px; min-height: 44px; max-width: 100%; min-width: 0;
+  padding: 4px 10px 4px 6px; border: 1px solid var(--color-border); border-radius: 4px;
+  background: transparent; color: var(--color-primary); cursor: pointer; text-align: left;
+}
+.room-switch:hover, .room-switch:focus-visible, .room-switch[data-popup-open] {
+  border-color: color-mix(in oklab, var(--color-neon-cyan) 75%, transparent);
+  background: color-mix(in oklab, var(--color-neon-cyan) 7%, transparent);
+}
+.room-switch:focus-visible { outline: 2px solid var(--color-neon-cyan); outline-offset: 2px; }
+.room-switch__tile { width: 26px; height: 26px; flex: none; border-radius: 4px; overflow: hidden; display: grid; place-items: center; }
+.room-switch__tile img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.room-switch__tile--init {
+  font: 700 12px/1 var(--font-display); color: var(--color-muted);
+  background: var(--color-raised); box-shadow: inset 0 0 0 1px var(--color-border);
+}
+.room-switch__name {
+  min-width: 0; font-family: var(--font-display); font-weight: 700; font-size: 14px; line-height: 1.15;
+  letter-spacing: .08em; text-transform: uppercase; color: var(--color-primary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* 9rem: the button is then as wide as the old 220 px name link at most, so the
+   nav is never more crowded than before (its content is 976 px wide at every
+   desktop width, and the six items need about 554 px of it). */
+.room-switch--inline .room-switch__name { max-width: 9rem; }
+.room-switch__chev { width: 14px; height: 14px; flex: none; color: var(--color-muted); }
+.room-switch:hover .room-switch__name, .room-switch:focus-visible .room-switch__name, .room-switch[data-popup-open] .room-switch__name,
+.room-switch:hover .room-switch__chev, .room-switch:focus-visible .room-switch__chev, .room-switch[data-popup-open] .room-switch__chev {
+  color: var(--color-neon-cyan);
+}
+.room-switch[data-popup-open] .room-switch__chev { transform: rotate(180deg); }
+
+/* The pop-up: above the nav (z-40) and the page, below the toasts. */
+.arc-menu-pos { z-index: 45; }
+/* The shared rule above is the toast's three-column slab; the menu is a column. */
+.arc-menu {
+  display: flex; flex-direction: column; align-items: stretch; gap: 0;
+  width: 384px; max-width: calc(100vw - 24px);
+  max-height: min(max(240px, 60vh), var(--available-height, 100vh));
+  padding: 8px 6px 6px;
+}
+/* The neon edge: an outer line and a thinner inner line, as in the logo. */
+.arc-menu::after {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: 2;
+  border: 1px solid color-mix(in srgb, var(--t) 70%, transparent);
+  box-shadow: inset 0 0 0 3px rgba(7, 9, 15, .9), inset 0 0 0 4px color-mix(in srgb, var(--t) 30%, transparent),
+              0 0 12px -2px color-mix(in srgb, var(--t) 60%, transparent);
+}
+/* The G20 panel's top light bar. */
+.arc-menu::before {
+  content: ""; position: absolute; left: 16px; right: 16px; top: -1px; height: 2px; border-radius: 2px; z-index: 3;
+  background: linear-gradient(90deg, var(--t), color-mix(in srgb, var(--t) 10%, transparent));
+  box-shadow: 0 0 14px color-mix(in srgb, var(--t) 70%, transparent);
+}
+
+/* Heading and the list under it. The heading stays put; the rows scroll. */
+.arc-menu__group { flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.arc-menu__head { flex: none; display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 8px 12px 8px 14px; }
+.arc-menu__label { margin: 0; font-weight: 600; font-size: 12.5px; line-height: 1.3; letter-spacing: .26em; text-transform: uppercase; color: var(--t); }
+.arc-menu__count { font-size: 12.5px; font-weight: 600; letter-spacing: .12em; font-variant-numeric: tabular-nums; color: var(--arc-chrome); }
+.arc-menu__scroll {
+  position: relative; flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--t) 40%, transparent) transparent;
+}
+/* More rows below: the last one fades out, so the list reads as scrollable. */
+.arc-menu__scroll[data-more-below] {
+  -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 36px), transparent);
+  mask-image: linear-gradient(to bottom, black calc(100% - 36px), transparent);
+}
+.arc-menu__track { position: relative; display: flex; flex-direction: column; gap: 2px; padding: 2px 0; }
+/* The rail the pinball rides, like the toast's clock rail but standing up. */
+.arc-menu__track::before {
+  content: ""; position: absolute; left: 13px; top: 14px; bottom: 14px; width: 2px; border-radius: 2px;
+  background: color-mix(in srgb, var(--t) 16%, transparent);
+}
+.arc-menu__ball {
+  position: absolute; left: 8px; top: 0; width: 12px; height: 12px; border-radius: 50%; z-index: 1; pointer-events: none;
+  background: radial-gradient(circle at 34% 30%, var(--arc-ice), var(--arc-chrome) 30%, var(--arc-gunmetal) 68%, var(--arc-ball-edge));
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .7), 0 0 6px color-mix(in srgb, var(--t) 50%, transparent);
+  transform: translateY(var(--y, 0px)); opacity: 0;
+}
+.arc-menu__ball[data-on] { opacity: 1; }
+
+/* A row: tile, name (wraps, never cut), and the mark on the row you are in. */
+.arc-menu__row {
+  position: relative; display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; align-items: center; column-gap: 12px;
+  min-height: 56px; padding: 9px 12px 9px 30px; border-radius: 4px; cursor: pointer; outline: none;
+  color: var(--arc-ice); text-decoration: none;
+}
+.arc-menu__row--static { cursor: default; }
+.arc-menu__row[data-highlighted] {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--t) 20%, transparent), color-mix(in srgb, var(--t) 5%, transparent) 70%, transparent);
+}
+.arc-menu__row:focus-visible { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--t) 55%, transparent); }
+.arc-menu__tile {
+  width: 36px; height: 36px; border-radius: 5px; overflow: hidden; display: grid; place-items: center;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--arc-chrome) 22%, transparent);
+}
+.arc-menu__tile img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.arc-menu__tile--init {
+  font-size: 13px; font-weight: 600; line-height: 1; letter-spacing: .04em; color: var(--arc-chrome);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--arc-chrome) 9%, rgba(16, 22, 42, .95)), rgba(7, 9, 15, .95));
+}
+.arc-menu__text { min-width: 0; display: flex; flex-direction: column; }
+.arc-menu__name { font-size: 15px; line-height: 1.35; font-weight: 500; color: var(--arc-ice); overflow-wrap: anywhere; }
+.arc-menu__caption { margin-top: 2px; font-size: 12px; font-weight: 600; letter-spacing: .2em; text-transform: uppercase; color: var(--t); }
+.arc-menu__mark { width: 24px; height: 24px; overflow: visible; filter: drop-shadow(0 0 5px var(--color-brand-delta)); }
+.arc-menu__mark polygon { fill: none; stroke: var(--color-brand-delta); stroke-linejoin: round; }
+.arc-menu__mark-outer { stroke-width: 2; }
+.arc-menu__mark-inner { stroke-width: 1.1; opacity: .7; }
+
+/* Loading: one row-shaped placeholder. */
+.arc-menu__skeleton { display: grid; grid-template-columns: 36px minmax(0, 1fr); align-items: center; column-gap: 12px; min-height: 56px; padding: 9px 12px 9px 30px; }
+.arc-menu__skeleton-tile, .arc-menu__skeleton-bar { display: block; background: color-mix(in srgb, var(--arc-chrome) 14%, transparent); }
+.arc-menu__skeleton-tile { width: 36px; height: 36px; border-radius: 5px; }
+.arc-menu__skeleton-bar { width: 62%; height: 12px; border-radius: 3px; }
+
+/* Separator, a note, and the footer's quieter links. */
+.arc-menu__sep {
+  flex: none; height: 1px; margin: 6px 10px 4px;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--arc-chrome) 28%, transparent) 12%, color-mix(in srgb, var(--arc-chrome) 28%, transparent) 88%, transparent);
+}
+.arc-menu__note { flex: none; margin: 6px 12px 4px; font-size: 14px; line-height: 1.45; color: var(--arc-chrome); }
+.arc-menu__foot { flex: none; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px; padding: 2px; }
+.arc-menu__foot--stack { flex-direction: column; align-items: stretch; }
+.arc-menu__link {
+  display: inline-flex; align-items: center; gap: 8px; min-height: 38px; padding: 8px 10px; border-radius: 4px; cursor: pointer; outline: none;
+  font-size: 12.5px; font-weight: 600; line-height: 1.2; letter-spacing: .12em; text-transform: uppercase; text-decoration: none;
+  color: var(--arc-chrome);
+}
+.arc-menu__link svg { width: 14px; height: 14px; flex: none; }
+.arc-menu__link--cta { color: var(--t); }
+.arc-menu__link[data-highlighted], .arc-menu__link:hover { color: var(--arc-ice); background: color-mix(in srgb, var(--t) 12%, transparent); }
+.arc-menu__link:focus-visible { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--t) 55%, transparent); }
+
+/* Motion, only for those who have not asked for less: the edge, bar and mark
+   strike like a neon tube as the menu opens (the toast's keyframes), the
+   pinball rolls between rows, the arrow turns, the placeholder pulses. */
+@keyframes arc-menu-pulse { 50% { opacity: .45; } }
+@media (prefers-reduced-motion: no-preference) {
+  .arc-menu::before, .arc-menu::after, .arc-menu__mark { animation: arc-toast-strike .6s linear both; }
+  .arc-menu__ball:not([data-jump]) { transition: transform .16s ease-out, opacity .12s linear; }
+  .arc-menu__link { transition: color .15s, background-color .15s; }
+  .arc-menu__skeleton-tile, .arc-menu__skeleton-bar { animation: arc-menu-pulse 1.4s ease-in-out infinite; }
+  .room-switch { transition: border-color .15s, background-color .15s; }
+  .room-switch__name { transition: color .15s; }
+  .room-switch__chev { transition: transform .16s ease-out, color .15s; }
+}

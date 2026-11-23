@@ -9,7 +9,7 @@ import { useMyRooms } from '../hooks/useMyRooms';
 import { useToast } from './Toast';
 import { getPortal, invalidatePortal, type Portal } from '../lib/portal';
 import { navSectionForPath, type NavSection } from '../lib/navSections';
-import { getTitleStyleClass } from './ScoreboardComponents';
+import RoomSwitcher, { type SwitcherCurrentRoom } from './RoomSwitcher';
 import { RoomContext } from '../contexts/RoomContext';
 import { setToken } from '../lib/api';
 import { decodeJwtPayload, isExpiredOrInvalid } from '../lib/adminSlotSeed';
@@ -43,7 +43,8 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
   // D2 (v2.38.0) — room-page join/leave affordance, surfaced as a UserMenu
   // contextual item (chosen over a header button: s20/s21 already made mobile
   // header space tight, and the menu item needs no extra layout work here).
-  const { isMember: isRoomMember, joinDetailed, leave: leaveRoom, requestJoin } = useMyRooms();
+  // G26 — the same list feeds the room switcher in the nav.
+  const { rooms: myRooms, loading: myRoomsLoading, isMember: isRoomMember, joinDetailed, leave: leaveRoom, requestJoin } = useMyRooms();
   const { toast } = useToast();
 
   // v2.39.0 — approval rooms hard-gate viewing. Mirrors the server-side gate:
@@ -92,12 +93,15 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
   const roomName = portal?.name ?? gameRoomName ?? 'ARCAID';
   const resolvedRoomId = portal?.roomId ?? null;
 
-  // v2.45.5 — mobile nav brand row (second row, centered under the icons)
-  // reuses the room's Leaderboard Branding: SCOREBOARD_TITLE text in its
-  // configured Title Style + the branding logo, scaled down. Fetched from
-  // the public scoreboard-config endpoint once the room resolves;
-  // best-effort (falls back to plain roomName until/unless it loads).
-  const [navBrand, setNavBrand] = useState<{ title: string; style: string; logoUrl: string } | null>(null);
+  // v2.45.5 — the nav names the room with its Leaderboard Branding: the
+  // SCOREBOARD_TITLE text + the branding logo. G26: both now sit in the room
+  // switcher (desktop and phone), in the one Arcaid standard style; the
+  // room's Title Style stays on the scoreboard itself. Fetched from the
+  // public scoreboard-config endpoint once the room resolves; best-effort
+  // (falls back to plain roomName until/unless it loads). Kept per room id,
+  // so switching rooms never shows the previous room's title for a moment.
+  const [navBrandState, setNavBrand] = useState<{ roomId: string; title: string; logoUrl: string } | null>(null);
+  const navBrand = navBrandState && navBrandState.roomId === resolvedRoomId ? navBrandState : null;
   useEffect(() => {
     if (!resolvedRoomId) return;
     let cancelled = false;
@@ -106,14 +110,21 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
       .then(cfg => {
         if (cancelled || !cfg) return;
         setNavBrand({
+          roomId: resolvedRoomId,
           title: cfg.SCOREBOARD_TITLE || '',
-          style: cfg.SCOREBOARD_TITLE_STYLE || 'default',
           logoUrl: cfg.SCOREBOARD_LOGO_ENABLED === 'false' ? '' : (cfg.LOGO_URL || ''),
         });
       })
-      .catch(() => { /* brand row falls back to plain roomName */ });
+      .catch(() => { /* the switcher falls back to plain roomName */ });
     return () => { cancelled = true; };
   }, [resolvedRoomId]);
+  const switcherRoom: SwitcherCurrentRoom = {
+    slug: slug || '',
+    name: roomName,
+    title: navBrand?.title || roomName,
+    logoUrl: navBrand?.logoUrl || null,
+    roomId: resolvedRoomId,
+  };
   // Stable identity across re-renders (lobby-dot/discordUser/pickAward state
   // changes) so RoomContext consumers don't re-render on every parent update.
   const roomCtx = useMemo(
@@ -337,23 +348,24 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
         >
           {/* v2.45.5 mobile nav layout: three hard-separated regions so the
               room name and nav items can NEVER paint over each other —
-              (1) brand (logo + name) is fixed-width and never shrinks,
+              (1) brand (logo + the room switcher) never shrinks,
               (2) nav items live in their own scrollable middle region
               (left-aligned on phones so overflow stays reachable — flexbox
               can't scroll into start-side overflow under justify-end),
-              (3) auth stays pinned at the right. Name: JS-capped at 12
-              chars, fixed 84px on phones (~8 chars always readable, full
-              name in title), natural width up to 220px on sm+. */}
+              (3) auth stays pinned at the right. G26: the room name is the
+              room switcher (components/RoomSwitcher.tsx), one line, its
+              width capped in CSS (`.room-switch--inline`) so the six nav
+              items still fit at 1024 px; the full name is its title. */}
           <div className="flex items-center gap-1.5 sm:gap-3 flex-shrink-0">
             <Link to="/" className="no-underline flex-shrink-0" aria-label="All game rooms" title="All game rooms">
               <img src="/arcaid-logo-wide-v2.png" alt="Arcaid" className="h-6 sm:h-9 w-auto flex-shrink-0" />
             </Link>
-            {/* Inline name is sm+ only — phones get the centered brand row
-                below the icons instead (user direction: the top-row name
-                looked terrible squeezed next to the nav). */}
-            <Link to={`/${slug}`} className="no-underline hidden sm:block sm:max-w-[220px]" title={roomName}>
-              <span className="font-pixel text-neon-cyan text-xs tracking-wider truncate block">{roomName}</span>
-            </Link>
+            {/* The inline switcher is sm+ only — phones get it in the
+                centered brand row below the icons instead (user direction:
+                the top-row name looked terrible squeezed next to the nav). */}
+            <div className="hidden sm:block min-w-0">
+              <RoomSwitcher variant="inline" current={switcherRoom} rooms={myRooms} loading={myRoomsLoading} signedIn={!!discordUser} />
+            </div>
             {/* Visible "Join room" pill (owner request 2026-08-12) — reverses
                 v2.38.0's menu-item-only decision: the UserMenu "Add to My
                 Rooms" item was too buried for testers to find. Open rooms
@@ -373,6 +385,10 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
               </button>
             )}
           </div>
+          {/* G26: when the row is tight (a long room name beside the
+              switcher), the items give up padding, never their icons —
+              `[&>svg]:shrink-0` and the badge wrapper's `shrink-0` keep the
+              icons at 16 px (a flex item's svg otherwise shrinks first). */}
           <div className="flex-1 min-w-0 flex items-center justify-start sm:justify-end gap-0.5 sm:gap-1 overflow-x-auto" data-tour="nav">
             {navItems.map(item => {
               const isActive = item.section != null && item.section === activeNavSection;
@@ -384,13 +400,13 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
                 aria-current={isActive ? 'page' : undefined}
                 data-tour={item.tour}
                 className={
-                  `flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-2 min-h-11 min-w-11 px-1.5 sm:px-3 py-1 sm:py-2 rounded transition-colors no-underline ${
+                  `flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-2 min-h-11 min-w-11 px-1.5 sm:px-3 py-1 sm:py-2 rounded transition-colors no-underline [&>svg]:shrink-0 ${
                     isActive ? 'text-neon-cyan bg-neon-cyan/10' : 'text-muted hover:text-neon-cyan'
                   }`
                 }
               >
                 {item.badge ? (
-                  <span className="relative">
+                  <span className="relative shrink-0">
                     {item.icon}
                     {item.badge.kind === 'dot' ? (
                       <span
@@ -459,22 +475,13 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
             )}
           </div>
         </div>
-        {/* Mobile brand row — centered under the nav icons: the room's
-            Leaderboard Branding logo (scaled down) + its SCOREBOARD_TITLE
-            in the configured Title Style. Links to the room home (same as
-            the sm+ inline name). */}
-        <Link
-          to={`/${slug}`}
-          className="sm:hidden flex items-center justify-center gap-2 px-4 pb-2 -mt-0.5 no-underline min-w-0"
-          title={roomName}
-        >
-          {navBrand?.logoUrl && (
-            <img src={navBrand.logoUrl} alt="" className="h-5 w-auto max-w-[80px] object-contain flex-shrink-0" />
-          )}
-          <span className={`font-display text-muted uppercase tracking-widest text-xs truncate ${getTitleStyleClass(navBrand?.style ?? 'default')}`}>
-            {navBrand?.title || roomName}
-          </span>
-        </Link>
+        {/* Mobile brand row — centered under the nav icons: the room
+            switcher, the same button as the sm+ inline one (the room's
+            Leaderboard Branding logo + its SCOREBOARD_TITLE, Arcaid
+            standard style), opening the same menu of the viewer's rooms. */}
+        <div className="sm:hidden flex justify-center px-4 pb-2 -mt-0.5 min-w-0">
+          <RoomSwitcher variant="brandrow" current={switcherRoom} rooms={myRooms} loading={myRoomsLoading} signedIn={!!discordUser} />
+        </div>
       </nav>
 
       {/* Page Content */}
