@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Home, User as UserIcon, CheckCircle2, AlertCircle, AlertTriangle, Trash2, Link2, Unlink } from 'lucide-react';
+import { User as UserIcon, CheckCircle2, AlertCircle, AlertTriangle, Trash2, Link2, Unlink } from 'lucide-react';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import LoginButtons from '../components/LoginButtons';
 import AppearanceControl from '../components/AppearanceControl';
@@ -17,8 +17,10 @@ import WitnessModelLabel from '../components/WitnessModelLabel';
 import WitnessDeviceSupport from '../components/WitnessDeviceSupport';
 import WitnessDeviceHealth from '../components/WitnessDeviceHealth';
 import WitnessKitDownload from '../components/WitnessKitDownload';
-import SettingsPanel, { SettingsGroup, type SettingsGroupTone } from '../components/SettingsPanel';
-import { AW_BADGE_SRC, AW_BADGE_SRCSET, useAwTheme } from '../lib/awTheme';
+import ArcaidPage from '../components/parts/ArcaidPage';
+import Panel, { PanelGroup } from '../components/parts/Panel';
+import type { PartTone } from '../components/parts/skin';
+import { AW_BADGE_SRC, AW_BADGE_SRCSET } from '../lib/awTheme';
 import { roomFetch } from '../lib/roomFetch';
 
 type AvatarProvider = 'discord' | 'google';
@@ -96,7 +98,7 @@ const DEFAULT_REMINDER_HOURS = [24, 48, 72];
  * group is a new entry here.
  */
 const SETTINGS_GROUPS: Record<'personal' | 'scores' | 'devices' | 'notifications' | 'danger',
-  { id: string; tone: SettingsGroupTone; title: string; sub: string }> = {
+  { id: string; tone: PartTone; title: string; sub: string }> = {
   personal: { id: 'group-personal', tone: 'cyan', title: 'Personal', sub: 'Your name and picture, and how Arcaid looks to you.' },
   scores: { id: 'group-scores', tone: 'pink', title: 'Scores and tables', sub: 'Where your scores are shown, the names they count under, and the tables you own.' },
   devices: { id: 'group-devices', tone: 'violet', title: 'Accounts and devices', sub: 'The logins and the machines that are tied to this account.' },
@@ -134,9 +136,6 @@ export default function AccountSettings() {
   const { discordUser, playerToken, loginWithDiscord, loginWithGoogle, logoutPlayer, setViewerAvatar } = useViewerAuth();
   const { personalTheme, setPersonalTheme } = useTheme();
   const navigate = useNavigate();
-  // G20 - the whole page wears the Arcaid Witness look (it was only the Witness
-  // devices section, W105): the kit stylesheets load while this page is mounted.
-  useAwTheme();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [draft, setDraft] = useState('');
   const [availability, setAvailability] = useState<AvailabilityState>({ status: 'idle' });
@@ -918,9 +917,12 @@ export default function AccountSettings() {
     setDeleting(false);
   };
 
+  // G20 - the whole page wears the Arcaid look (it was only the Witness devices
+  // section, W105): `ArcaidPage` loads the kit stylesheets while it is mounted,
+  // signed in or out.
   if (!discordUser) {
     return (
-      <div className="aw-screen sb-theme-scope aw-island min-h-screen bg-deep text-primary flex items-center justify-center">
+      <ArcaidPage title="Account Settings" bare>
         <div className="text-center px-6">
           <UserIcon size={40} className="text-muted/30 mx-auto mb-3" />
           <p className="text-muted mb-4">Log in to manage your account.</p>
@@ -930,7 +932,7 @@ export default function AccountSettings() {
             className="justify-center"
           />
         </div>
-      </div>
+      </ArcaidPage>
     );
   }
 
@@ -943,62 +945,71 @@ export default function AccountSettings() {
   const canSubmit = !saving && !isUnchanged && (draftTrimmed === '' || availability.status === 'available');
 
   return (
-    // G20 - the page is a Witness-look page, like `components/AwPageShell.tsx`
-    // but wide: `sb-theme-scope aw-island` on the root puts every site
-    // component inside (the delete dialog too) on the dark defaults with its
-    // colour tokens pointed at the kit, whatever site theme the visitor wears.
-    // `bg-deep text-primary` are what shows for the moment before the kit
-    // stylesheets arrive. The settings are five GROUPS (`SETTINGS_GROUPS`),
-    // each in its own colour, with a jump list beside them on a wide screen
-    // (`aw-web--wide`, capped at 1600 px like the results pages). The
-    // background is the arcade carpet, not the Witness picture (`aw-screen--arcaid`).
-    <div className="aw-screen aw-screen--arcaid sb-theme-scope aw-island min-h-screen bg-deep text-primary">
-      <div
-        className="aw-layout aw-web aw-web--wide px-4 sm:px-6"
-        style={{ paddingTop: 'max(1.5rem, env(safe-area-inset-top))' }}
-      >
-        <header className="aw-header flex-wrap">
-          <img className="aw-header__logo" src="/arcaid-logo-v2.png" alt="" aria-hidden="true" />
-          <h1 className="aw-brand m-0">
-            ARCAID
-            <span className="aw-brand__sub">ACCOUNT SETTINGS</span>
-          </h1>
-          <nav className="ml-auto flex items-center gap-5" aria-label="Page">
-            <button
-              onClick={() => window.history.back()}
-              className="flex items-center gap-1.5 text-sm text-muted hover:text-neon-cyan transition-colors cursor-pointer bg-transparent border-0 p-0"
-            >
-              <ArrowLeft size={16} />
-              Back
-            </button>
-            <Link to="/" className="flex items-center gap-1.5 text-sm text-muted hover:text-neon-cyan transition-colors no-underline">
-              <Home size={16} />
-              Home
-            </Link>
-          </nav>
-        </header>
-
-        <main className="aw-settings">
-          {/* Buttons, not `#` links: a link would add a history entry per jump,
-              and Back (above) would then step through them. */}
-          <nav className="aw-jump" aria-label="Sections">
-            {Object.values(SETTINGS_GROUPS).map(g => (
+    // G20 - the settings are five GROUPS (`SETTINGS_GROUPS`), each in its own
+    // colour, with the jump list beside them on a wide screen. The shell (the
+    // Arcaid look, the header, the width, the carpet) is `ArcaidPage`; the
+    // delete dialog is one of its overlays so it keeps the island's tokens.
+    <ArcaidPage
+      title="Account Settings"
+      jump={Object.values(SETTINGS_GROUPS)}
+      overlays={showDeleteModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-deep/80 backdrop-blur-sm p-4"
+          onMouseDown={e => { backdropMouseDown.current = e.target === e.currentTarget; }}
+          onClick={e => { if (e.target === e.currentTarget && backdropMouseDown.current) closeDeleteModal(); }}
+        >
+          <div
+            className="bg-surface border border-border rounded-lg shadow-2xl w-full max-w-md p-6"
+            onClick={e => e.stopPropagation()}
+          >
+            <h2 className="text-base font-semibold mb-2 inline-flex items-center gap-2 text-rose-400">
+              <AlertTriangle size={18} /> Delete your account?
+            </h2>
+            <p className="text-sm text-muted mb-3">
+              This permanently removes your profile, avatar, display name, proof photos,
+              comments, ratings, and friends, and unlinks Discord. Your scores stay on the
+              leaderboards under your handle but are de-identified. This can't be undone.
+            </p>
+            <label htmlFor="delete-confirm" className="block text-xs text-muted mb-1.5">
+              Type <span className="font-mono font-semibold text-primary">DELETE</span> to confirm.
+            </label>
+            <input
+              id="delete-confirm"
+              type="text"
+              autoFocus
+              value={confirmText}
+              onChange={e => { setConfirmText(e.target.value); setDeleteError(null); }}
+              placeholder="DELETE"
+              className="w-full bg-deep border border-border rounded px-3 py-2 text-sm text-primary placeholder-faint focus:border-rose-500 focus:outline-none"
+            />
+            {deleteError && (
+              <p className="mt-2 text-xs text-rose-400 inline-flex items-center gap-1">
+                <AlertCircle size={12} /> {deleteError}
+              </p>
+            )}
+            <div className="mt-4 flex items-center justify-end gap-2">
               <button
-                key={g.id}
                 type="button"
-                className={`aw-jump__item aw-group--${g.tone}`}
-                onClick={() => document.getElementById(g.id)?.scrollIntoView({
-                  block: 'start',
-                  behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
-                })}
+                onClick={closeDeleteModal}
+                disabled={deleting}
+                className="px-3 py-1.5 rounded border border-border text-sm text-muted hover:text-primary hover:border-muted disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer bg-transparent"
               >
-                {g.title}
+                Cancel
               </button>
-            ))}
-          </nav>
-
-          <div className="aw-settings__groups">
-            <SettingsGroup {...SETTINGS_GROUPS.personal}>
+              <button
+                type="button"
+                onClick={deleteAccount}
+                disabled={deleting || confirmText.trim() !== 'DELETE'}
+                className="px-4 py-1.5 rounded border border-rose-500/50 bg-rose-500/15 text-rose-400 text-sm font-medium hover:bg-rose-500/25 hover:text-neon-magenta disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer inline-flex items-center gap-1.5"
+              >
+                {deleting ? 'Deleting…' : <><Trash2 size={14} /> Delete account</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    >
+            <PanelGroup {...SETTINGS_GROUPS.personal}>
               {/* v2.130.0 — Appearance is deliberately the FIRST panel and sits
                   OUTSIDE the `loading` gate: it is a local preference that applies
                   instantly, so it must not wait on the profile fetch.
@@ -1006,7 +1017,7 @@ export default function AccountSettings() {
                   game room. Same component and same write as the Display settings
                   sheet's "My theme"; deliberately SECOND, because Appearance above
                   still has the last word on light vs dark. */}
-              <SettingsPanel title="Appearance">
+              <Panel title="Appearance">
                 <AppearanceControl />
                 <p className="text-xs text-faint mt-2">
                   Auto follows each room&rsquo;s theme and your device setting on global pages.
@@ -1027,12 +1038,12 @@ export default function AccountSettings() {
                 <p className="text-xs text-faint mt-2">
                   This page keeps its own look, so a change here shows on the rest of Arcaid.
                 </p>
-              </SettingsPanel>
+              </Panel>
 
               {loading ? (
                 <p className="text-sm text-muted">Loading…</p>
               ) : (
-            <SettingsPanel title="Profile">
+            <Panel title="Profile">
               <p className="text-xs text-muted mb-4">
                 Your display name appears on every leaderboard, announcement, and notification across Arcaid.
               </p>
@@ -1155,16 +1166,16 @@ export default function AccountSettings() {
                 )}
               </div>
             </div>
-            </SettingsPanel>
+            </Panel>
               )}
-            </SettingsGroup>
+            </PanelGroup>
 
             {!loading && (
               <>
-            <SettingsGroup {...SETTINGS_GROUPS.scores}>
+            <PanelGroup {...SETTINGS_GROUPS.scores}>
             <GlobalSharingSection />
 
-            <SettingsPanel title="Linked iScored aliases">
+            <Panel title="Linked iScored aliases">
               <p className="text-xs text-muted mb-3">
                 Scores submitted under any of these names count for you on every leaderboard.
                 You can hold up to {claims?.maxAliases ?? 3}.
@@ -1243,10 +1254,10 @@ export default function AccountSettings() {
                   </p>
                 </div>
               )}
-            </SettingsPanel>
+            </Panel>
 
             {/* C2 - My Tables. Count only; managing the inventory is its own page. */}
-            <SettingsPanel title="My Tables" testId="my-tables-summary">
+            <Panel title="My Tables" testId="my-tables-summary">
               <p className="text-xs text-muted mb-2">
                 {ownedTableCount === null
                   ? 'Mark the tables you own. Only a count is ever shown to others.'
@@ -1255,14 +1266,14 @@ export default function AccountSettings() {
               <Link to="/account/tables" className="text-sm text-neon-cyan hover:underline">
                 Manage my tables -&gt;
               </Link>
-            </SettingsPanel>
+            </Panel>
 
             {/* Last, because it renders nothing for a player who never started one. */}
             <ThrowdownsSection />
-            </SettingsGroup>
+            </PanelGroup>
 
-            <SettingsGroup {...SETTINGS_GROUPS.devices}>
-            <SettingsPanel title="Connected accounts">
+            <PanelGroup {...SETTINGS_GROUPS.devices}>
+            <Panel title="Connected accounts">
               {isGoogleIdentity ? (
                 <>
                   <p className="text-xs text-muted mb-3">
@@ -1355,13 +1366,13 @@ export default function AccountSettings() {
                   )}
                 </>
               )}
-            </SettingsPanel>
+            </Panel>
 
               {/* v2.141.0 — AtGames cabinet account. Unlike Google/Discord this
                   is not a login method: it exists so scores Arcaid pulls off an
                   AtGames tournament land on YOUR account instead of an
                   anonymous AtGames handle. */}
-              <SettingsPanel title="AtGames cabinet account">
+              <Panel title="AtGames cabinet account">
                 {(() => {
                   const atgamesLinks = (links ?? []).filter(l => l.provider_user_id.startsWith('atgames:'));
                   if (atgamesLinks.length > 0) {
@@ -1465,7 +1476,7 @@ export default function AccountSettings() {
                     </>
                   );
                 })()}
-              </SettingsPanel>
+              </Panel>
 
               {/* Full width - your devices on the left, where their plays went
                   on the right (stacked on a phone). */}
@@ -1478,7 +1489,7 @@ export default function AccountSettings() {
                   (badge, kit panel, kit status colours). G20: the whole page
                   now wears the kit, so the dark defaults and the token mapping
                   (`sb-theme-scope aw-island`) come from the page root. */}
-              <SettingsPanel
+              <Panel
                 wide
                 id="witness-devices"
                 panelRef={witnessBlockRef}
@@ -1684,12 +1695,12 @@ export default function AccountSettings() {
                   <div className="min-w-0 lg:-mt-6"><WitnessRecentPlays playerToken={playerToken} /></div>
                 )}
                 </div>
-              </SettingsPanel>
-            </SettingsGroup>
+              </Panel>
+            </PanelGroup>
 
-            <SettingsGroup {...SETTINGS_GROUPS.notifications}>
+            <PanelGroup {...SETTINGS_GROUPS.notifications}>
             {/* Full width: the list of events runs in columns on a desktop. */}
-            <SettingsPanel wide title="What to tell me about">
+            <Panel wide title="What to tell me about">
               <p className="text-xs text-muted mb-4">
                 Pick the events you want to hear about, then choose how they reach you. Everything
                 is off until you turn it on.
@@ -1826,7 +1837,7 @@ export default function AccountSettings() {
                   </div>
                 </>
               )}
-            </SettingsPanel>
+            </Panel>
 
                   {/* v2.72.0 (Discord HQ) — the two delivery channels, side by
                       side, each owning its own status. Browser push is a
@@ -1836,7 +1847,7 @@ export default function AccountSettings() {
                       implying the toggles above are enough. G20: each is its
                       own panel in the Notifications group. */}
                     {!notifLoading && vapidKey && (
-                      <SettingsPanel title="Browser push">
+                      <Panel title="Browser push">
                         {pushSupported ? (
                           <>
                             <label className="flex items-start justify-between gap-3 py-2 cursor-pointer">
@@ -1873,11 +1884,11 @@ export default function AccountSettings() {
                             first, then enable push from the installed app.
                           </p>
                         )}
-                      </SettingsPanel>
+                      </Panel>
                     )}
 
                     {!notifLoading && (
-                    <SettingsPanel title="Discord DMs">
+                    <Panel title="Discord DMs">
                       {!notifSettings?.discord.available ? (
                         <p className="text-xs text-faint">
                           You're signed in with Google. Link a Discord account above if you'd like DMs —
@@ -1946,12 +1957,12 @@ export default function AccountSettings() {
                           {connectNotice.text}
                         </p>
                       )}
-                    </SettingsPanel>
+                    </Panel>
                     )}
-            </SettingsGroup>
+            </PanelGroup>
 
-            <SettingsGroup {...SETTINGS_GROUPS.danger}>
-            <SettingsPanel wide title={<><AlertTriangle size={14} /> Delete my account</>}>
+            <PanelGroup {...SETTINGS_GROUPS.danger}>
+            <Panel wide title={<><AlertTriangle size={14} /> Delete my account</>}>
               <p className="text-xs text-muted mb-1.5">
                 Deleting your account removes your profile, avatar, chosen display name,
                 proof photos, comments, ratings, and friends, and unlinks your Discord login.
@@ -1967,74 +1978,10 @@ export default function AccountSettings() {
               >
                 <Trash2 size={14} /> Delete my account
               </button>
-            </SettingsPanel>
-            </SettingsGroup>
+            </Panel>
+            </PanelGroup>
               </>
             )}
-          </div>
-        </main>
-
-        <footer className="aw-footer">
-          <Link to="/">ARCAID.APP</Link>
-        </footer>
-      </div>
-
-      {showDeleteModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-deep/80 backdrop-blur-sm p-4"
-          onMouseDown={e => { backdropMouseDown.current = e.target === e.currentTarget; }}
-          onClick={e => { if (e.target === e.currentTarget && backdropMouseDown.current) closeDeleteModal(); }}
-        >
-          <div
-            className="bg-surface border border-border rounded-lg shadow-2xl w-full max-w-md p-6"
-            onClick={e => e.stopPropagation()}
-          >
-            <h2 className="text-base font-semibold mb-2 inline-flex items-center gap-2 text-rose-400">
-              <AlertTriangle size={18} /> Delete your account?
-            </h2>
-            <p className="text-sm text-muted mb-3">
-              This permanently removes your profile, avatar, display name, proof photos,
-              comments, ratings, and friends, and unlinks Discord. Your scores stay on the
-              leaderboards under your handle but are de-identified. This can't be undone.
-            </p>
-            <label htmlFor="delete-confirm" className="block text-xs text-muted mb-1.5">
-              Type <span className="font-mono font-semibold text-primary">DELETE</span> to confirm.
-            </label>
-            <input
-              id="delete-confirm"
-              type="text"
-              autoFocus
-              value={confirmText}
-              onChange={e => { setConfirmText(e.target.value); setDeleteError(null); }}
-              placeholder="DELETE"
-              className="w-full bg-deep border border-border rounded px-3 py-2 text-sm text-primary placeholder-faint focus:border-rose-500 focus:outline-none"
-            />
-            {deleteError && (
-              <p className="mt-2 text-xs text-rose-400 inline-flex items-center gap-1">
-                <AlertCircle size={12} /> {deleteError}
-              </p>
-            )}
-            <div className="mt-4 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={closeDeleteModal}
-                disabled={deleting}
-                className="px-3 py-1.5 rounded border border-border text-sm text-muted hover:text-primary hover:border-muted disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer bg-transparent"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={deleteAccount}
-                disabled={deleting || confirmText.trim() !== 'DELETE'}
-                className="px-4 py-1.5 rounded border border-rose-500/50 bg-rose-500/15 text-rose-400 text-sm font-medium hover:bg-rose-500/25 hover:text-neon-magenta disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer inline-flex items-center gap-1.5"
-              >
-                {deleting ? 'Deleting…' : <><Trash2 size={14} /> Delete account</>}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+    </ArcaidPage>
   );
 }

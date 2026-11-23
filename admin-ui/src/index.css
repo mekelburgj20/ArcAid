@@ -2205,3 +2205,106 @@ select option {
   .arc-toast__run { animation-duration: var(--arc-toast-ms, 4000ms) !important; }
   .arc-toast::before, .arc-toast::after, .arc-toast__emblem { animation: none; }
 }
+
+/* ─── Shared parts on themed pages (G21; components/parts/) ────────────────
+   The 'theme' skin of the shared parts: the panel, group, jump list, page
+   title and jump layout that room and admin pages draw in the site's own
+   themes. The 'arcaid' skin (ArcaidPage, Account Settings) is the Witness
+   kit's `.aw-*` classes in public/aw-theme/, which these mirror one for one:
+   `.part-panel` = `.aw-panel`, `.part-label` = `.aw-label`, `.part-group*` =
+   `.aw-group*`, `.part-jump*` = `.aw-jump*`, `.part-jumplayout*` =
+   `.aw-settings*`. The kit sheets do not load on a themed page, so the
+   geometry is restated here in the kit's own unit (`--u`, 0.32 px on the web:
+   aw-web.css) and every number is the kit's, so a part is the same box in
+   both skins. Every colour is a theme token: ice -> primary, chrome -> muted,
+   canvas -> deep, the panel -> surface. A group's colour is `--part-tone`
+   (the kit's `--aw-group`), set by `.part-tone--*` on the group or the jump
+   chip; a panel inside a group takes the group's. The panel has no drop
+   shadow (the kit's is for the Witness picture), and the two glows (the
+   panel's top light bar, the jump chip's dot) are off on the light themes. */
+.part-jumplayout, .part-jump, .part-group, .part-panel, .part-title { --part-u: 0.32px; }
+
+/* The colours. Cyan is the default; `:where` keeps a tone class on the panel
+   itself in charge, and the `:not` leaves a panel in a group to inherit. */
+.part-group, .part-jump__item { --part-tone: var(--color-neon-cyan); }
+:where(.part-panel:not(.part-group .part-panel)) { --part-tone: var(--color-neon-cyan); }
+.part-tone--pink   { --part-tone: var(--color-neon-magenta); }
+.part-tone--violet { --part-tone: var(--color-neon-purple); }
+.part-tone--ice    { --part-tone: var(--color-primary); }
+.part-tone--red    { --part-tone: var(--color-neon-coral); }
+
+/* Panel and label (.aw-panel, .aw-label). */
+.part-panel {
+  position: relative; background: var(--color-surface);
+  border: calc(2 * var(--part-u)) solid color-mix(in srgb, var(--part-tone) 30%, var(--color-border));
+  border-radius: calc(28 * var(--part-u));
+  padding: calc(64 * var(--part-u)) calc(72 * var(--part-u));
+}
+.part-panel::before { /* the top light bar */
+  content: ""; position: absolute; left: calc(72 * var(--part-u)); right: calc(72 * var(--part-u)); top: calc(-2 * var(--part-u));
+  height: calc(4 * var(--part-u)); border-radius: 4px;
+  background: linear-gradient(90deg, var(--part-tone), color-mix(in srgb, var(--part-tone) 10%, transparent));
+  box-shadow: 0 0 18px color-mix(in srgb, var(--part-tone) 55%, transparent);
+}
+.part-label {
+  font-family: var(--font-body); font-weight: 600; font-size: calc(42 * var(--part-u));
+  letter-spacing: .32em; text-transform: uppercase; color: var(--part-tone); margin-bottom: calc(26 * var(--part-u));
+}
+
+/* The jump list beside the groups (.aw-settings, .aw-jump): a row of chips on
+   a phone or a laptop, a column that stays in view on a wide screen. */
+.part-jumplayout { display: flex; flex-direction: column; gap: calc(110 * var(--part-u)); }
+.part-jumplayout__body { display: flex; flex-direction: column; gap: calc(140 * var(--part-u)); min-width: 0; }
+.part-jump { display: flex; flex-wrap: wrap; gap: calc(26 * var(--part-u)); }
+@media (min-width: 1280px) {
+  .part-jumplayout { display: grid; grid-template-columns: 15rem minmax(0, 1fr); column-gap: calc(110 * var(--part-u)); align-items: start; }
+  .part-jump { flex-direction: column; flex-wrap: nowrap; position: sticky; top: calc(80 * var(--part-u)); }
+}
+.part-jump__item {
+  display: inline-flex; align-items: center; gap: calc(26 * var(--part-u));
+  font-family: var(--font-body); font-weight: 600; font-size: calc(40 * var(--part-u)); line-height: 1.2;
+  letter-spacing: .16em; text-transform: uppercase; text-align: left;
+  color: var(--color-muted); background: color-mix(in srgb, var(--color-deep) 55%, transparent); cursor: pointer;
+  border: calc(2 * var(--part-u)) solid color-mix(in srgb, var(--part-tone) 32%, transparent);
+  border-radius: calc(16 * var(--part-u)); padding: calc(22 * var(--part-u)) calc(34 * var(--part-u));
+}
+.part-jump__item::before {
+  content: ""; flex: none; width: calc(24 * var(--part-u)); height: calc(24 * var(--part-u)); border-radius: 50%;
+  background: var(--part-tone); box-shadow: 0 0 10px var(--part-tone);
+}
+.part-jump__item:hover, .part-jump__item:focus-visible { color: var(--color-primary); border-color: var(--part-tone); outline: none; }
+
+/* A group of related panels (.aw-group): one title, one colour. */
+.part-group { display: flex; flex-direction: column; gap: calc(54 * var(--part-u)); min-width: 0; }
+.part-group__title {
+  display: flex; align-items: center; gap: calc(44 * var(--part-u)); margin: 0;
+  font-family: var(--font-display); font-weight: 700; font-size: calc(64 * var(--part-u));
+  letter-spacing: .08em; line-height: 1.15; text-transform: uppercase; color: var(--part-tone);
+}
+.part-group__title::after { /* the group's rule, fading out to the right */
+  content: ""; flex: 1; min-width: calc(60 * var(--part-u)); height: calc(3 * var(--part-u)); border-radius: 4px;
+  background: linear-gradient(90deg, var(--part-tone), transparent); opacity: .6;
+}
+.part-group__sub { margin: calc(14 * var(--part-u)) 0 0; font-weight: 500; font-size: calc(44 * var(--part-u)); color: var(--color-muted); }
+
+/* Glow is for a dark page: on the four light-polarity themes the light bar and
+   the chip dot are flat (the selector list is the light block's above). */
+.theme-light .part-panel::before,
+.theme-arctic .part-panel::before,
+.theme-paper .part-panel::before,
+.theme-speegle .part-panel::before,
+.theme-light .part-jump__item::before,
+.theme-arctic .part-jump__item::before,
+.theme-paper .part-jump__item::before,
+.theme-speegle .part-jump__item::before {
+  box-shadow: none;
+}
+
+/* The page title of a themed page (the Arcaid look's is the kit header). */
+.part-title { display: flex; flex-wrap: wrap; align-items: flex-end; gap: calc(40 * var(--part-u)); }
+.part-title__h {
+  margin: 0; font-family: var(--font-display); font-weight: 700; font-size: clamp(1.25rem, 1rem + 1vw, 1.75rem);
+  line-height: 1.15; letter-spacing: .08em; text-transform: uppercase; color: var(--color-primary);
+}
+.part-title__sub { margin: 0.25rem 0 0; font-size: 0.875rem; color: var(--color-muted); }
+.part-title__actions { margin-left: auto; display: flex; align-items: center; gap: 1.25rem; }
