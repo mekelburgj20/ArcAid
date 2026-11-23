@@ -2221,15 +2221,24 @@ select option {
    (the kit's `--aw-group`), set by `.part-tone--*` on the group or the jump
    chip; a panel inside a group takes the group's. The panel has no drop
    shadow (the kit's is for the Witness picture), and the two glows (the
-   panel's top light bar, the jump chip's dot) are off on the light themes. */
+   panel's top light bar, the jump chip's dot) are for a dark page:
+   `light-dark()` reads the theme's own `color-scheme` (light on the four
+   light themes, dark on <html> and on `.sb-theme-scope`), so a dark island
+   inside a light page keeps its glow and a light one inside a dark page has
+   none. */
 .part-jumplayout, .part-jump, .part-group, .part-panel, .part-title { --part-u: 0.32px; }
 
 /* The colours. Cyan is the default; `:where` keeps a tone class on the panel
    itself in charge, and the `:not` leaves a panel in a group to inherit. */
-.part-group, .part-jump__item { --part-tone: var(--color-neon-cyan); }
-:where(.part-panel:not(.part-group .part-panel)) { --part-tone: var(--color-neon-cyan); }
+.part-group, .part-jump__item { --part-tone: var(--color-neon-cyan); --part-ink: var(--part-tone); }
+:where(.part-panel:not(.part-group .part-panel)) { --part-tone: var(--color-neon-cyan); --part-ink: var(--part-tone); }
 .part-tone--pink   { --part-tone: var(--color-neon-magenta); }
-.part-tone--violet { --part-tone: var(--color-neon-purple); }
+/* Purple is the dimmest accent in most themes: as 13 px label text it fell
+   under 4.5:1 on four of them (measured 2026-11-23), so violet TEXT is the
+   token pulled 40% toward the theme's ink. Lines, bars and dots stay pure.
+   `--part-ink` is the tone as text; it is set wherever the tone is, so a group
+   inside another group (the style guide's previews) never inherits the outer one's. */
+.part-tone--violet { --part-tone: var(--color-neon-purple); --part-ink: color-mix(in oklch, var(--color-neon-purple) 60%, var(--color-primary)); }
 .part-tone--ice    { --part-tone: var(--color-primary); }
 .part-tone--red    { --part-tone: var(--color-neon-coral); }
 
@@ -2244,11 +2253,11 @@ select option {
   content: ""; position: absolute; left: calc(72 * var(--part-u)); right: calc(72 * var(--part-u)); top: calc(-2 * var(--part-u));
   height: calc(4 * var(--part-u)); border-radius: 4px;
   background: linear-gradient(90deg, var(--part-tone), color-mix(in srgb, var(--part-tone) 10%, transparent));
-  box-shadow: 0 0 18px color-mix(in srgb, var(--part-tone) 55%, transparent);
+  box-shadow: 0 0 18px light-dark(transparent, color-mix(in srgb, var(--part-tone) 55%, transparent));
 }
 .part-label {
   font-family: var(--font-body); font-weight: 600; font-size: calc(42 * var(--part-u));
-  letter-spacing: .32em; text-transform: uppercase; color: var(--part-tone); margin-bottom: calc(26 * var(--part-u));
+  letter-spacing: .32em; text-transform: uppercase; color: var(--part-ink); margin-bottom: calc(26 * var(--part-u));
 }
 
 /* The jump list beside the groups (.aw-settings, .aw-jump): a row of chips on
@@ -2270,35 +2279,24 @@ select option {
 }
 .part-jump__item::before {
   content: ""; flex: none; width: calc(24 * var(--part-u)); height: calc(24 * var(--part-u)); border-radius: 50%;
-  background: var(--part-tone); box-shadow: 0 0 10px var(--part-tone);
+  background: var(--part-tone); box-shadow: 0 0 10px light-dark(transparent, var(--part-tone));
 }
-.part-jump__item:hover, .part-jump__item:focus-visible { color: var(--color-primary); border-color: var(--part-tone); outline: none; }
+.part-jump__item:hover, .part-jump__item:focus-visible { color: var(--color-primary); border-color: var(--part-tone); }
+/* The kit's chip drops the outline; here the focus ring stays visible. */
+.part-jump__item:focus-visible { outline: 2px solid var(--part-tone); outline-offset: 2px; }
 
 /* A group of related panels (.aw-group): one title, one colour. */
 .part-group { display: flex; flex-direction: column; gap: calc(54 * var(--part-u)); min-width: 0; }
 .part-group__title {
   display: flex; align-items: center; gap: calc(44 * var(--part-u)); margin: 0;
   font-family: var(--font-display); font-weight: 700; font-size: calc(64 * var(--part-u));
-  letter-spacing: .08em; line-height: 1.15; text-transform: uppercase; color: var(--part-tone);
+  letter-spacing: .08em; line-height: 1.15; text-transform: uppercase; color: var(--part-ink);
 }
 .part-group__title::after { /* the group's rule, fading out to the right */
   content: ""; flex: 1; min-width: calc(60 * var(--part-u)); height: calc(3 * var(--part-u)); border-radius: 4px;
   background: linear-gradient(90deg, var(--part-tone), transparent); opacity: .6;
 }
 .part-group__sub { margin: calc(14 * var(--part-u)) 0 0; font-weight: 500; font-size: calc(44 * var(--part-u)); color: var(--color-muted); }
-
-/* Glow is for a dark page: on the four light-polarity themes the light bar and
-   the chip dot are flat (the selector list is the light block's above). */
-.theme-light .part-panel::before,
-.theme-arctic .part-panel::before,
-.theme-paper .part-panel::before,
-.theme-speegle .part-panel::before,
-.theme-light .part-jump__item::before,
-.theme-arctic .part-jump__item::before,
-.theme-paper .part-jump__item::before,
-.theme-speegle .part-jump__item::before {
-  box-shadow: none;
-}
 
 /* The page title of a themed page (the Arcaid look's is the kit header). */
 .part-title { display: flex; flex-wrap: wrap; align-items: flex-end; gap: calc(40 * var(--part-u)); }

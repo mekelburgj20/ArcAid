@@ -101,9 +101,23 @@ the kit does.
    folding deck); errors pink, no clock, Dismiss. The same rule for every shared part: never ship a
    library's default look. Sonner carries the toasts' behaviour (decision 3). Shipped in v2.260.0 (#508); phones show them at the top, below the safe area, since v2.260.1 (#510, owner: at the bottom a stack covered dialog buttons). ADR 0042.
 
-## The guide (G21)
+## The guide (G21, shipped v2.261.0)
 
-Three parts, so it cannot drift the way a document alone does:
+Three parts, so it cannot drift the way a document alone does. As built:
+
+- The parts are `admin-ui/src/components/parts/`: `ArcaidPage` (the fixed dark page shell), `PageShell`
+  (a themed page; `lib/pageLayout.ts` `PAGE_WIDTH` holds the two widths, 1600 px and 52rem), `PageTitle`,
+  `PanelGroup`, `Panel`, `JumpList`, `Button`. One component, two skins: under `ArcaidPage` a part emits the
+  kit's `aw-*` classes exactly as G20 shipped them; elsewhere it emits `part-*` classes (`index.css`) that
+  copy the kit's sizes and take their colours from the room's theme. `components/SettingsPanel.tsx` is gone.
+- Account Settings is built from them. A pixel comparison with the page as shipped (mock data; desktop,
+  laptop, phone) differs only at the buttons that were brought onto the one `Button`.
+- `NeonButton` (52 files) and `NeonCard` (32) stay as they are until each page family moves in G22.
+- The live page is Super Admin -> Style Guide (`/admin/style-guide`).
+- Left for G22, on Account Settings itself: four labels under 12 px and four fields with no visible focus
+  ring (the ring is a G23 part).
+
+The plan it was built from:
 
 1. **Shared parts in code**, taken from the shipped G20 page: page shell with the desktop widths,
    panel, group, button, page title, jump list. G20's `components/SettingsPanel.tsx`
