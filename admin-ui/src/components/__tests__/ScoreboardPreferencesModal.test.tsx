@@ -372,13 +372,13 @@ describe('ScoreboardPreferencesModal — Display settings sections', () => {
     localStorage.setItem('arcaid_player_token', 'player.jwt.token');
     await renderModal();
 
-    fireEvent.change(screen.getByTestId('room-theme-picker'), { target: { value: 'plasma' } });
+    fireEvent.change(screen.getByTestId('room-theme-picker'), { target: { value: 'forest' } });
 
     await waitFor(() => expect(
       fetchMock.mock.calls.some(c => String(c[0]) === '/api/me/room-themes/room-1' && c[1]?.method === 'PUT'),
     ).toBe(true));
     const put = fetchMock.mock.calls.find(c => String(c[0]) === '/api/me/room-themes/room-1')!;
-    expect(JSON.parse(put[1]!.body as string)).toEqual({ theme: 'plasma' });
+    expect(JSON.parse(put[1]!.body as string)).toEqual({ theme: 'forest' });
   });
 
   it('clearing the this-room theme PUTs null', async () => {
@@ -386,7 +386,7 @@ describe('ScoreboardPreferencesModal — Display settings sections', () => {
     await renderModal();
 
     const picker = screen.getByTestId('room-theme-picker');
-    fireEvent.change(picker, { target: { value: 'plasma' } });
+    fireEvent.change(picker, { target: { value: 'forest' } });
     await waitFor(() => expect(fetchMock.mock.calls.some(c => String(c[0]) === '/api/me/room-themes/room-1')).toBe(true));
     fireEvent.change(picker, { target: { value: '' } });
 

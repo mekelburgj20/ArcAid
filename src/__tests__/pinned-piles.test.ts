@@ -96,13 +96,13 @@ describe('PreferencesService pinned piles', () => {
 
     it('a room-theme save keeps the pins, and a pin keeps the room theme and device prefs', async () => {
         await PreferencesService.setScoreboardPrefs('pp-6', { SCOREBOARD_STYLE: 'minimal' }, 'mobile');
-        await PreferencesService.setRoomTheme('pp-6', 'room-a', 'plasma');
+        await PreferencesService.setRoomTheme('pp-6', 'room-a', 'forest');
         await PreferencesService.setPilePinned('pp-6', 't-a', true);
-        await PreferencesService.setRoomTheme('pp-6', 'room-b', 'midnight');
+        await PreferencesService.setRoomTheme('pp-6', 'room-b', 'graphite');
 
         const blob = await rawBlob('pp-6');
         expect(blob.pinnedPiles).toEqual(['t-a']);
-        expect(blob.roomThemes).toEqual({ 'room-a': 'plasma', 'room-b': 'midnight' });
+        expect(blob.roomThemes).toEqual({ 'room-a': 'forest', 'room-b': 'graphite' });
         expect(blob.mobile).toEqual({ SCOREBOARD_STYLE: 'minimal' });
     });
 

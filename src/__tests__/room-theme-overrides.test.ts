@@ -37,12 +37,15 @@ async function rawBlob(discordUserId: string): Promise<Record<string, unknown>> 
 
 describe('SetRoomThemeSchema', () => {
     it('accepts a known theme and an explicit null', () => {
-        expect(SetRoomThemeSchema.safeParse({ theme: 'plasma' }).success).toBe(true);
+        expect(SetRoomThemeSchema.safeParse({ theme: 'forest' }).success).toBe(true);
         expect(SetRoomThemeSchema.safeParse({ theme: null }).success).toBe(true);
     });
 
     it('rejects an unknown theme and a missing field', () => {
         expect(SetRoomThemeSchema.safeParse({ theme: 'neon-banana' }).success).toBe(false);
+        // A retired id is refused too (v2.133.0 convention, kept by the v2.263.0
+        // sweep): a write always stores a live id; only READS fold.
+        expect(SetRoomThemeSchema.safeParse({ theme: 'plasma' }).success).toBe(false);
         expect(SetRoomThemeSchema.safeParse({}).success).toBe(false);
     });
 });
@@ -55,14 +58,14 @@ describe('PreferencesService room themes', () => {
     });
 
     it('is per ROOM: room A\'s override is not room B\'s', async () => {
-        await PreferencesService.setRoomTheme('rt-2', 'room-a', 'plasma');
+        await PreferencesService.setRoomTheme('rt-2', 'room-a', 'forest');
         const map = await PreferencesService.getRoomThemes('rt-2');
-        expect(map['room-a']).toBe('plasma');
+        expect(map['room-a']).toBe('forest');
         expect(map['room-b']).toBeUndefined();
 
-        await PreferencesService.setRoomTheme('rt-2', 'room-b', 'midnight');
+        await PreferencesService.setRoomTheme('rt-2', 'room-b', 'graphite');
         const both = await PreferencesService.getRoomThemes('rt-2');
-        expect(both).toEqual({ 'room-a': 'plasma', 'room-b': 'midnight' });
+        expect(both).toEqual({ 'room-a': 'forest', 'room-b': 'graphite' });
     });
 
     it('is NOT per device: one write, visible whatever device asks', async () => {
@@ -76,27 +79,27 @@ describe('PreferencesService room themes', () => {
     });
 
     it('clears with null without disturbing the other rooms', async () => {
-        await PreferencesService.setRoomTheme('rt-4', 'room-a', 'plasma');
-        await PreferencesService.setRoomTheme('rt-4', 'room-b', 'midnight');
+        await PreferencesService.setRoomTheme('rt-4', 'room-a', 'forest');
+        await PreferencesService.setRoomTheme('rt-4', 'room-b', 'graphite');
         await PreferencesService.setRoomTheme('rt-4', 'room-a', null);
-        expect(await PreferencesService.getRoomThemes('rt-4')).toEqual({ 'room-b': 'midnight' });
+        expect(await PreferencesService.getRoomThemes('rt-4')).toEqual({ 'room-b': 'graphite' });
     });
 
     it('saving per-device prefs carries the room themes through untouched', async () => {
-        await PreferencesService.setRoomTheme('rt-5', 'room-a', 'plasma');
+        await PreferencesService.setRoomTheme('rt-5', 'room-a', 'forest');
         await PreferencesService.setScoreboardPrefs('rt-5', { SCOREBOARD_LAYOUT: 'grid' }, 'desktop');
-        expect(await PreferencesService.getRoomThemes('rt-5')).toEqual({ 'room-a': 'plasma' });
+        expect(await PreferencesService.getRoomThemes('rt-5')).toEqual({ 'room-a': 'forest' });
 
         // Reset All posts null for every per-device key — the harshest write
         // the sheet can make, and still not a room-theme write.
         await PreferencesService.setScoreboardPrefs('rt-5', { SCOREBOARD_LAYOUT: null as unknown as string }, 'desktop');
-        expect(await PreferencesService.getRoomThemes('rt-5')).toEqual({ 'room-a': 'plasma' });
+        expect(await PreferencesService.getRoomThemes('rt-5')).toEqual({ 'room-a': 'forest' });
     });
 
     it('saving a room theme carries the per-device prefs through untouched', async () => {
         await PreferencesService.setScoreboardPrefs('rt-6', { SCOREBOARD_LAYOUT: 'grid' }, 'desktop');
         await PreferencesService.setScoreboardPrefs('rt-6', { SCOREBOARD_ZOOM: '80' }, 'mobile');
-        await PreferencesService.setRoomTheme('rt-6', 'room-a', 'plasma');
+        await PreferencesService.setRoomTheme('rt-6', 'room-a', 'forest');
 
         expect(await PreferencesService.getScoreboardPrefs('rt-6', 'desktop')).toEqual({ SCOREBOARD_LAYOUT: 'grid' });
         expect(await PreferencesService.getScoreboardPrefs('rt-6', 'mobile')).toEqual({ SCOREBOARD_ZOOM: '80' });
@@ -106,9 +109,9 @@ describe('PreferencesService room themes', () => {
         const db = await getDatabase();
         await db.run(
             'INSERT INTO user_preferences (discord_user_id, scoreboard_prefs) VALUES (?, ?)',
-            'rt-7', JSON.stringify({ desktop: {}, mobile: {}, roomThemes: { 'room-a': 'sepia', 'room-b': 'midnight', '': 'plasma' } }),
+            'rt-7', JSON.stringify({ desktop: {}, mobile: {}, roomThemes: { 'room-a': 'sepia', 'room-b': 'graphite', '': 'forest' } }),
         );
-        expect(await PreferencesService.getRoomThemes('rt-7')).toEqual({ 'room-b': 'midnight' });
+        expect(await PreferencesService.getRoomThemes('rt-7')).toEqual({ 'room-b': 'graphite' });
     });
 });
 
@@ -124,10 +127,10 @@ describe('PreferencesService legacy UI_THEME lift', () => {
     }
 
     it('lifts the legacy per-device override onto the room being viewed, once', async () => {
-        await seedLegacy('rt-lift-1', { desktop: { UI_THEME: 'plasma', SCOREBOARD_LAYOUT: 'grid' }, mobile: {} });
+        await seedLegacy('rt-lift-1', { desktop: { UI_THEME: 'forest', SCOREBOARD_LAYOUT: 'grid' }, mobile: {} });
 
         const map = await PreferencesService.getRoomThemes('rt-lift-1', 'room-a');
-        expect(map).toEqual({ 'room-a': 'plasma' });
+        expect(map).toEqual({ 'room-a': 'forest' });
 
         // The device key is gone, the other device prefs are not.
         const blob = await rawBlob('rt-lift-1');
@@ -136,11 +139,11 @@ describe('PreferencesService legacy UI_THEME lift', () => {
 
         // Idempotent: visiting a DIFFERENT room afterwards must not lift
         // anything onto it — there is nothing left to lift.
-        expect(await PreferencesService.getRoomThemes('rt-lift-1', 'room-b')).toEqual({ 'room-a': 'plasma' });
+        expect(await PreferencesService.getRoomThemes('rt-lift-1', 'room-b')).toEqual({ 'room-a': 'forest' });
     });
 
     it('sweeps the legacy key from BOTH device blobs, so a second device cannot re-lift it', async () => {
-        await seedLegacy('rt-lift-2', { desktop: { UI_THEME: 'plasma' }, mobile: { UI_THEME: 'plasma' } });
+        await seedLegacy('rt-lift-2', { desktop: { UI_THEME: 'forest' }, mobile: { UI_THEME: 'forest' } });
 
         await PreferencesService.getRoomThemes('rt-lift-2', 'room-a');
 
@@ -155,14 +158,14 @@ describe('PreferencesService legacy UI_THEME lift', () => {
     });
 
     it('never overwrites an override the room already has', async () => {
-        await seedLegacy('rt-lift-4', { desktop: { UI_THEME: 'plasma' }, mobile: {}, roomThemes: { 'room-a': 'midnight' } });
-        expect(await PreferencesService.getRoomThemes('rt-lift-4', 'room-a')).toEqual({ 'room-a': 'midnight' });
+        await seedLegacy('rt-lift-4', { desktop: { UI_THEME: 'forest' }, mobile: {}, roomThemes: { 'room-a': 'graphite' } });
+        expect(await PreferencesService.getRoomThemes('rt-lift-4', 'room-a')).toEqual({ 'room-a': 'graphite' });
     });
 
     it('does nothing at all without a roomId — there is no room to lift onto', async () => {
-        await seedLegacy('rt-lift-5', { desktop: { UI_THEME: 'plasma' }, mobile: {} });
+        await seedLegacy('rt-lift-5', { desktop: { UI_THEME: 'forest' }, mobile: {} });
         expect(await PreferencesService.getRoomThemes('rt-lift-5')).toEqual({});
-        expect((await rawBlob('rt-lift-5')).desktop).toEqual({ UI_THEME: 'plasma' });
+        expect((await rawBlob('rt-lift-5')).desktop).toEqual({ UI_THEME: 'forest' });
     });
 });
 
@@ -179,7 +182,7 @@ describe('GET/PUT /api/me/room-themes', () => {
     it('requires auth', async () => {
         const app = await createApp();
         expect((await request(app).get('/api/me/room-themes')).status).toBe(401);
-        expect((await request(app).put('/api/me/room-themes/room-a').send({ theme: 'plasma' })).status).toBe(401);
+        expect((await request(app).put('/api/me/room-themes/room-a').send({ theme: 'forest' })).status).toBe(401);
     }, 30000);
 
     it('round-trips one room and leaves another alone', async () => {
@@ -192,19 +195,19 @@ describe('GET/PUT /api/me/room-themes', () => {
         const put = await request(app)
             .put('/api/me/room-themes/room-a')
             .set('Authorization', `Bearer ${token}`)
-            .send({ theme: 'plasma' });
+            .send({ theme: 'forest' });
         expect(put.status).toBe(200);
-        expect(put.body).toEqual({ roomThemes: { 'room-a': 'plasma' } });
+        expect(put.body).toEqual({ roomThemes: { 'room-a': 'forest' } });
 
         const get = await request(app).get('/api/me/room-themes').set('Authorization', `Bearer ${token}`);
-        expect(get.body.roomThemes['room-a']).toBe('plasma');
+        expect(get.body.roomThemes['room-a']).toBe('forest');
         expect(get.body.roomThemes['room-b']).toBeUndefined();
     });
 
     it('PUT { theme: null } clears it', async () => {
         const app = await createApp();
         const token = playerToken('rt-api-2');
-        await request(app).put('/api/me/room-themes/room-a').set('Authorization', `Bearer ${token}`).send({ theme: 'plasma' });
+        await request(app).put('/api/me/room-themes/room-a').set('Authorization', `Bearer ${token}`).send({ theme: 'forest' });
         const cleared = await request(app).put('/api/me/room-themes/room-a').set('Authorization', `Bearer ${token}`).send({ theme: null });
         expect(cleared.body).toEqual({ roomThemes: {} });
     });
@@ -226,12 +229,12 @@ describe('GET/PUT /api/me/room-themes', () => {
         await request(app)
             .post('/api/me/scoreboard-preferences?device=desktop')
             .set('Authorization', `Bearer ${token}`)
-            .send({ UI_THEME: 'plasma', SCOREBOARD_LAYOUT: 'grid' });
+            .send({ UI_THEME: 'forest', SCOREBOARD_LAYOUT: 'grid' });
 
         const lifted = await request(app)
             .get('/api/me/room-themes?roomId=room-a')
             .set('Authorization', `Bearer ${token}`);
-        expect(lifted.body).toEqual({ roomThemes: { 'room-a': 'plasma' } });
+        expect(lifted.body).toEqual({ roomThemes: { 'room-a': 'forest' } });
 
         const prefs = await request(app)
             .get('/api/me/scoreboard-preferences?device=desktop')

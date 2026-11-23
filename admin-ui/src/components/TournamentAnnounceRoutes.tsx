@@ -48,7 +48,7 @@ export default function TournamentAnnounceRoutes({ roomId, catchAll, routes, onC
       <p className="text-xs text-muted mb-2">
         Where each kind of post for this tournament goes. Room default follows the room&rsquo;s Announcement channels.
       </p>
-      {error && <p className="text-xs text-neon-magenta mb-2">Could not load the server&rsquo;s channels ({error}). Paste channel IDs instead.</p>}
+      {error && <p className="text-xs text-neon-coral mb-2">Could not load the server&rsquo;s channels ({error}). Paste channel IDs instead.</p>}
       <div className="divide-y divide-border/40">
         {ANNOUNCE_KINDS.map(({ kind, label, description }) => {
           const value = routes[kind] ?? '';
@@ -105,7 +105,7 @@ export default function TournamentAnnounceRoutes({ roomId, catchAll, routes, onC
                       onChange={e => setRow(kind, e.target.value.trim())}
                       className="mt-1.5 w-full px-3 py-2 bg-raised border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan transition-colors font-mono"
                     />
-                    {badId && <p className="text-xs text-neon-magenta mt-1">That is not a channel ID (digits only); it will not be saved.</p>}
+                    {badId && <p className="text-xs text-neon-coral mt-1">That is not a channel ID (digits only); it will not be saved.</p>}
                   </>
                 )}
               </div>

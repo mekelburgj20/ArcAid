@@ -504,7 +504,7 @@ export default function Reports() {
               key={t.key}
               onClick={() => setTab(t.key)}
               className={`px-4 py-1.5 rounded text-sm font-medium transition-colors cursor-pointer border-0 ${
-                tab === t.key ? 'bg-neon-cyan/20 text-neon-cyan' : 'bg-transparent text-muted hover:text-primary'
+                tab === t.key ? 'bg-lead/10 ink-lead' : 'bg-transparent text-muted hover:text-primary'
               }`}
             >
               {t.label}
@@ -771,7 +771,7 @@ export default function Reports() {
                           </Link>
                         )}
                         {tab === 'rooms' && r.room_suspended_at && (
-                          <span className="ml-2 text-xs px-2 py-0.5 rounded bg-neon-magenta/10 text-neon-magenta border border-neon-magenta/30 inline-flex items-center gap-1">
+                          <span className="ml-2 text-xs px-2 py-0.5 rounded bg-neon-coral/10 text-neon-coral border border-neon-coral/30 inline-flex items-center gap-1">
                             <ShieldAlert size={11} /> SUSPENDED
                           </span>
                         )}
@@ -906,7 +906,7 @@ export default function Reports() {
                       </p>
                       <p className="text-xs text-faint mt-0.5">
                         Reported by <span title={r.reporter_discord_id}>{nameOrId(r.reporter_display_name, r.reporter_username, r.reporter_discord_id)}</span> · {timeAgo(r.created_at)}
-                        {r.score_deleted_at && <span className="text-neon-magenta"> · score already deleted</span>}
+                        {r.score_deleted_at && <span className="text-neon-coral"> · score already deleted</span>}
                       </p>
                       {r.reason && <p className="text-sm text-muted mt-1.5">"{r.reason}"</p>}
                       {showResolved && (

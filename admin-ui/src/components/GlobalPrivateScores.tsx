@@ -79,7 +79,7 @@ export default function GlobalPrivateScores() {
                                 {s.origin_room_name ? ` · ${s.origin_room_name}` : ''}
                                 {` · ${whenText(s.submitted_at)}`}
                             </p>
-                            {errors[s.id] && <p className="text-xs text-neon-magenta mt-1">{errors[s.id]}</p>}
+                            {errors[s.id] && <p className="text-xs text-neon-coral mt-1">{errors[s.id]}</p>}
                         </div>
                         {posted[s.id] ? (
                             <div className="flex items-center gap-2 text-xs">

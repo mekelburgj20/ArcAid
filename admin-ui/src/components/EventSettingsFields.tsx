@@ -73,7 +73,7 @@ export function DateTimeField({ value, onChange, disabled, invalid, label }: {
     const [datePart, timePart] = value ? value.split('T') : ['', ''];
     const [hh, mm] = timePart ? timePart.split(':') : ['', ''];
     const minuteOptions = mm && !MINUTE_STEPS.includes(mm) ? [...MINUTE_STEPS, mm].sort() : MINUTE_STEPS;
-    const cls = `${inputClass} ${disabled ? 'opacity-60' : ''} ${invalid ? 'border-neon-magenta/60' : ''}`;
+    const cls = `${inputClass} ${disabled ? 'opacity-60' : ''} ${invalid ? 'border-neon-coral/60' : ''}`;
 
     const emit = (d: string, h: string, m: string) => {
         if (!d) { onChange(''); return; }
@@ -186,7 +186,7 @@ function GameNameInput({ roomId, value, onChange, invalid }: {
                     else if (e.key === 'Enter' && active >= 0) { e.preventDefault(); pick(hits[active]!.name); }
                     else if (e.key === 'Escape') setOpen(false);
                 }}
-                className={`${inputClass} ${invalid || unknown ? 'border-neon-magenta' : ''}`}
+                className={`${inputClass} ${invalid || unknown ? 'border-neon-coral' : ''}`}
             />
             {open && hits.length > 0 && !(exact && hits.length === 1) && (
                 <ul
@@ -211,7 +211,7 @@ function GameNameInput({ roomId, value, onChange, invalid }: {
                 </ul>
             )}
             {unknown && (
-                <p className="text-xs text-neon-magenta mt-1">
+                <p className="text-xs text-neon-coral mt-1">
                     Not a catalogue game. Pick one from the list{hits.length === 0 ? ' (try fewer letters)' : ''}.
                 </p>
             )}
@@ -405,7 +405,7 @@ export default function EventSettingsFields({ state, onChange, roomId, lockedRou
                         return (
                             <div
                                 key={round.roundNo}
-                                className={`p-3 rounded border ${error ? 'border-neon-magenta/60' : 'border-border'} bg-surface`}
+                                className={`p-3 rounded border ${error ? 'border-neon-coral/60' : 'border-border'} bg-surface`}
                             >
                                 <div className="grid grid-cols-1 md:grid-cols-[3rem_1fr_1.3fr_1.3fr_2.5rem] gap-2 items-end">
                                     <div className="text-xs font-display uppercase tracking-wider text-muted pb-2">
@@ -446,7 +446,7 @@ export default function EventSettingsFields({ state, onChange, roomId, lockedRou
                                             <button
                                                 type="button" onClick={() => removeRound(round.roundNo)}
                                                 title={`Remove round ${round.roundNo}`}
-                                                className="px-2 py-2 rounded border border-border text-muted hover:text-neon-magenta hover:border-neon-magenta transition-colors text-sm"
+                                                className="px-2 py-2 rounded border border-border text-muted hover:text-neon-coral hover:border-neon-coral transition-colors text-sm"
                                             >×</button>
                                         )}
                                     </div>
@@ -460,7 +460,7 @@ export default function EventSettingsFields({ state, onChange, roomId, lockedRou
                                             This round has already started — its window is fixed.
                                         </span>
                                     )}
-                                    {error && <span className="text-xs text-neon-magenta">{error}</span>}
+                                    {error && <span className="text-xs text-neon-coral">{error}</span>}
                                 </div>
                             </div>
                         );

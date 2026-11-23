@@ -401,7 +401,7 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
                 data-tour={item.tour}
                 className={
                   `flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-2 min-h-11 min-w-11 px-1.5 sm:px-3 py-1 sm:py-2 rounded transition-colors no-underline [&>svg]:shrink-0 ${
-                    isActive ? 'text-neon-cyan bg-neon-cyan/10' : 'text-muted hover:text-neon-cyan'
+                    isActive ? 'ink-lead bg-lead/10' : 'text-muted hover:ink-lead'
                   }`
                 }
               >
@@ -488,7 +488,7 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
       <div className="flex-1 min-h-0 overflow-y-auto">
         {portalError ? (
           <div className="flex flex-col items-center justify-center py-16 gap-2 text-center px-4">
-            <p className="font-pixel text-neon-magenta text-lg mb-1">Room not found</p>
+            <p className="font-pixel text-neon-coral text-lg mb-1">Room not found</p>
             <p className="text-muted text-sm">We couldn't find a room at this address.</p>
           </div>
         ) : !portal ? (
@@ -499,7 +499,7 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
           // response has no logo_url), no login CTA needed.
           <div className="flex flex-col items-center justify-center flex-1 px-6 py-16 text-center">
             <h1 className="font-display text-2xl font-bold mb-2">{portal.name}</h1>
-            <div className="flex items-center gap-2 text-neon-magenta mb-2">
+            <div className="flex items-center gap-2 text-neon-coral mb-2">
               <span className="font-medium">This room has been suspended</span>
             </div>
             <p className="text-muted text-sm max-w-sm">

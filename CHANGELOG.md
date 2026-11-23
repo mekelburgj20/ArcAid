@@ -6,6 +6,50 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.263.0] - 2026-11-23 - Eleven themes, and the default in the logo's colours
+
+The owner picked a new set of room themes from a mockup (G29): fewer of them, made from one recipe, each one
+clearly its own. Room owners and players do not have to do anything.
+
+### Changed
+- **There are 11 themes instead of 16, and each one looks different from the others.** No theme sits on
+  near-black any more: the dark ones have a real colour underneath (navy, violet, warm brown, deep green,
+  slate, charcoal, green-black), so cards stand out from the page. High contrast stays pure black on purpose,
+  with no glow.
+- **The default theme is now called Arcaid and wears the logo's colours:** navy, ice-white text, pink first
+  and cyan second. Everyone on the default sees it at once.
+- **Each theme has its own lead colour and a second one beside it.** The lead colours the main button, the menu
+  item for the page you are on and the tab you are on: pink on Arcaid, magenta on Synthwave, raspberry on
+  Light, orange on Backglass, lime on Forest, frost blue on Nordic, periwinkle on Graphite, phosphor green on
+  Retro terminal, signal yellow on High contrast, copper on Paper and blue on Speegle. First place on a leaderboard stays gold
+  on every theme, and Account Settings and the other Arcaid-look pages keep their cyan buttons.
+- **Small coloured text is readable on every theme.** A status word, a tag or a rank in any of a theme's
+  colours now reaches the 4.5:1 contrast bar on both the page and the cards, where before five themes had a
+  colour too faint for small text.
+- **Delete buttons and error messages are now red on every theme,** so they can never be mistaken for the theme's main colour.
+- Synthwave is a real violet with its horizon glow lower down, behind the panels; Retro terminal is lifted off
+  black and gains amber; Backglass is warm brown with orange; Forest is actually green; Light is cool and pale
+  with raspberry and cobalt; Paper leads with copper; Nordic's colours are readable on its panels.
+
+### Removed
+- **Five themes are gone, and nobody has to choose again.** Anyone on one of them, whether as their own theme,
+  a room's default or a "this room only" choice, is moved to the nearest theme automatically: Midnight and
+  Silverball go to Arcaid, Plasma to Synthwave, Ember to Backglass and Arctic to Light. A browser that still
+  remembers a removed theme lands on the same replacement.
+
+### For developers
+- `THEME_IDS` drops five ids and `LEGACY_THEME_MAP` gains them (`lib/themeIds.ts`, mirrored in
+  `src/utils/themeIds.ts`); `ocean`, `wizard` and `sunset` now point at `dark`, `synthwave` and `backglass`.
+  Migration 220 (`220_theme_sweep`) runs the same `remapRetiredThemeIds` as migration 162 over room defaults,
+  personal themes and the theme keys in `scoreboard_prefs`. The API still refuses a retired id on a write.
+- Two new tokens, `--color-lead` and `--color-second` (plain `@theme`, so `text-lead`, `bg-lead/10` and the
+  rest follow the theme class). Lead is used by the primary buttons (`parts/Button`, `NeonButton`,
+  `ShareButton`), the active nav item in the three layouts, the active tab of eight page tab bars, and the
+  shared parts' default tone. `.aw-island` pins lead and second to the kit's cyan and pink
+  (`AW_THEME_VERSION` 5).
+- `admin-ui/scripts/contrastAudit.cjs` also checks every accent used as text (the seven `neon-*` tokens, lead
+  and second) and exits 1 on a miss; `src/__tests__/themeContrast.test.ts` runs the same check in the suite.
+
 ## [2.262.1] - 2026-11-23 - The room name gets the room it has
 
 ### Fixed

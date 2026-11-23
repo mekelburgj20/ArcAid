@@ -3847,6 +3847,17 @@ async function doInitDatabase(): Promise<Database> {
             const n = await stripRetiredWizardLinks(db);
             console.log(`[migration 219] catalogue rows cleared of dead Wizard external/ links: ${n}`);
         } },
+        // G29 (v2.263.0): the theme sweep from sixteen themes to eleven.
+        // `midnight`, `silverball`, `plasma`, `ember` and `arctic` are gone
+        // from index.css, so a stored id naming one would paint the default
+        // and lose the choice. The same rewrite as migration 162, through the
+        // same `LEGACY_THEME_MAP` the runtime shim uses, across room
+        // defaults, personal themes and the theme keys in scoreboard_prefs.
+        // Idempotent.
+        { name: '220_theme_sweep', handler: async (db) => {
+            const { remapRetiredThemeIds } = await import('./migrations/themeOverhaul.js');
+            await remapRetiredThemeIds(db, 'migration 220');
+        } },
     ];
 
     for (const migration of migrations) {

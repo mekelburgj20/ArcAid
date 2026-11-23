@@ -89,7 +89,7 @@ export default function GlobalSharingSection() {
                 share one particular score by ticking the box when you submit it by hand.
             </p>
             <GlobalPrivateScores />
-            {error && <p className="text-xs text-neon-magenta mt-2">{error}</p>}
+            {error && <p className="text-xs text-neon-coral mt-2">{error}</p>}
         </Panel>
     );
 }

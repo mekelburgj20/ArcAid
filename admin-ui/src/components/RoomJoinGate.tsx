@@ -89,7 +89,7 @@ export default function RoomJoinGate({ portal, discordUser, onLoginDiscord, onLo
               <LoginButtons onDiscordLogin={onLoginDiscord} onGoogleLogin={onLoginGoogle} />
             </div>
           )}
-          {error && <p className="text-xs text-neon-magenta mt-3">{error}</p>}
+          {error && <p className="text-xs text-neon-coral mt-3">{error}</p>}
         </>
       )}
     </div>

@@ -163,7 +163,7 @@ function AttemptsSection({ base, maxAttempts, games, toast }: {
             {rows === null ? (
                 <p className="text-xs text-muted">Loading…</p>
             ) : failed ? (
-                <p className="text-xs text-neon-magenta" role="alert">Could not load attempts.</p>
+                <p className="text-xs text-neon-coral" role="alert">Could not load attempts.</p>
             ) : byGame.size === 0 ? (
                 <p className="text-xs text-faint">No game starts recorded yet.</p>
             ) : (
@@ -604,7 +604,7 @@ export default function IntegrityPanel({ roomId, tournament, onClose, toast }: I
                     <NeonButton variant="ghost" onClick={onClose} className="text-xs px-3 py-1">Close</NeonButton>
                 </div>
 
-                {error && <p className="text-xs text-neon-magenta mb-3" role="alert">{error}</p>}
+                {error && <p className="text-xs text-neon-coral mb-3" role="alert">{error}</p>}
                 {loading ? (
                     <p className="text-sm text-muted">Loading…</p>
                 ) : (

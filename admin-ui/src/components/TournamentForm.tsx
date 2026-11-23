@@ -562,7 +562,7 @@ function PlatformRulesEditor({ platforms, rules, onChange }: {
         />
       </div>
       {conflicts.length > 0 && (
-        <p className="text-xs text-neon-magenta">
+        <p className="text-xs text-neon-coral">
           {conflicts.join(', ')} can't be both required and not allowed — every submission would be rejected.
         </p>
       )}
@@ -658,7 +658,7 @@ function SeasonSection({ season, onChange }: {
             </div>
           </div>
           {errors.length > 0 && (
-            <ul className="text-xs text-neon-magenta space-y-0.5" role="alert">
+            <ul className="text-xs text-neon-coral space-y-0.5" role="alert">
               {errors.map(e => <li key={e}>{e}</li>)}
             </ul>
           )}
@@ -716,7 +716,7 @@ function PollSettings({ poll, onChange, schedule }: {
         </div>
       </div>
       {errors.length > 0 && (
-        <ul className="text-xs text-neon-magenta space-y-0.5" role="alert">
+        <ul className="text-xs text-neon-coral space-y-0.5" role="alert">
           {errors.map(e => <li key={e}>{e}</li>)}
         </ul>
       )}
@@ -901,7 +901,7 @@ function IntegritySection({ mode, rules, onModeChange, onRulesChange }: {
             onClick={() => onModeChange(m)}
             aria-pressed={mode === m}
             className={`px-4 py-2 text-sm transition-colors cursor-pointer ${
-              mode === m ? 'bg-neon-cyan/20 text-neon-cyan' : 'bg-raised text-muted hover:text-primary'
+              mode === m ? 'bg-lead/10 ink-lead' : 'bg-raised text-muted hover:text-primary'
             }`}
           >{INTEGRITY_MODE_LABEL[m]}</button>
         ))}
@@ -961,7 +961,7 @@ function IntegritySection({ mode, rules, onModeChange, onRulesChange }: {
               className={`${inputClass} font-mono text-xs`} disabled={!rules.requireKnownBuild} spellCheck={false} />
           </div>
           {errors.length > 0 && (
-            <ul className="text-xs text-neon-magenta space-y-0.5" role="alert">
+            <ul className="text-xs text-neon-coral space-y-0.5" role="alert">
               {errors.map(e => <li key={e}>{e}</li>)}
             </ul>
           )}

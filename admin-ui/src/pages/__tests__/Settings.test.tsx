@@ -1031,25 +1031,25 @@ describe('Settings page — Room default theme (v2.132.0)', () => {
   });
 
   it('renders a single "Room default theme" field and no "Admin Theme"', async () => {
-    stubFetch({ UI_THEME: 'plasma' });
+    stubFetch({ UI_THEME: 'forest' });
     renderSettings();
     await waitForLoaded();
 
     expect(screen.getByText('Room default theme')).toBeInTheDocument();
     expect(screen.queryByText('Admin Theme')).toBeNull();
     expect(screen.queryByText('Public Theme')).toBeNull();
-    expect((document.getElementById('room-default-theme') as HTMLSelectElement).value).toBe('plasma');
+    expect((document.getElementById('room-default-theme') as HTMLSelectElement).value).toBe('forest');
   });
 
   it('stages UI_THEME on the room settings save and never posts /me/preferences', async () => {
-    const fetchMock = stubFetch({ UI_THEME: 'plasma' });
+    const fetchMock = stubFetch({ UI_THEME: 'forest' });
     renderSettings();
     await waitForLoaded();
 
-    fireEvent.change(document.getElementById('room-default-theme')!, { target: { value: 'midnight' } });
+    fireEvent.change(document.getElementById('room-default-theme')!, { target: { value: 'graphite' } });
     fireEvent.click(screen.getByRole('button', { name: /Save All Changes/ }));
 
-    await waitFor(() => expect(lastSavePayload(fetchMock)?.UI_THEME).toBe('midnight'));
+    await waitFor(() => expect(lastSavePayload(fetchMock)?.UI_THEME).toBe('graphite'));
     expect(fetchMock.mock.calls.some((c: FetchArgs) => String(c[0]).includes('/me/preferences'))).toBe(false);
   });
 });

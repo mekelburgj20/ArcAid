@@ -111,7 +111,7 @@ export default function GameInfoModal({ gameId, seedName, seedManufacturer, seed
 
         <div className="p-5">
           {error ? (
-            <p className="text-neon-magenta text-sm">{error}</p>
+            <p className="text-neon-coral text-sm">{error}</p>
           ) : !game ? (
             <LoadingState message="Loading game details..." />
           ) : (

@@ -115,8 +115,8 @@ export default function PickGameModal({
 
           {/* Error */}
           {error && (
-            <div className="px-3 py-2 rounded-lg bg-neon-magenta/10 border border-neon-magenta/30">
-              <p className="text-xs text-neon-magenta">{error}</p>
+            <div className="px-3 py-2 rounded-lg bg-neon-coral/10 border border-neon-coral/30">
+              <p className="text-xs text-neon-coral">{error}</p>
             </div>
           )}
         </div>

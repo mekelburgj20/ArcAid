@@ -51,9 +51,9 @@ describe('AppearanceControl', () => {
     });
 
     it('picking Light applies the light theme and persists the choice', async () => {
-        localStorage.setItem('arcaid-theme-public-rooma', 'midnight');
+        localStorage.setItem('arcaid-theme-public-rooma', 'graphite');
         renderControl();
-        await waitFor(() => expect(hasClass('theme-midnight')).toBe(true));
+        await waitFor(() => expect(hasClass('theme-graphite')).toBe(true));
 
         fireEvent.click(screen.getByTestId('appearance-light'));
 
@@ -64,7 +64,7 @@ describe('AppearanceControl', () => {
 
     it('picking Auto hands the page back to the room theme', async () => {
         // Paper is the room's LIGHT theme, so appearance=dark genuinely
-        // overrides it — with a dark room theme like midnight the override is a
+        // overrides it — with a dark room theme like graphite the override is a
         // no-op and this would assert nothing.
         localStorage.setItem('arcaid-theme-public-rooma', 'paper');
         localStorage.setItem(STORAGE_APPEARANCE_KEY, 'dark');

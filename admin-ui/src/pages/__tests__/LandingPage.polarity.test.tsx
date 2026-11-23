@@ -3,6 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { createRequire } from 'node:module';
 import LandingPage from '../LandingPage';
 import { ViewerAuthProvider } from '../../contexts/ViewerAuthContext';
 import { ThemeProvider } from '../../components/ThemeProvider';
@@ -181,6 +182,11 @@ describe('LandingPage — light/dark polarity (v2.56.0)', () => {
 const INDEX_CSS = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8')
   .replace(/\r\n/g, '\n');
 
+/** The contrast audit's colour parser (oklch or hex to 0..1 sRGB). */
+const auditParseColor = (createRequire(resolve(process.cwd(), 'package.json'))('./scripts/contrastAudit.cjs') as {
+  parseColor: (value: string) => [number, number, number] | null;
+}).parseColor;
+
 function tokenValue(block: string, token: string): string | null {
   const m = new RegExp(`${token}\\s*:\\s*([^;]+);`).exec(block);
   return m ? m[1].trim() : null;
@@ -193,9 +199,9 @@ function darkBlock(): string {
   return INDEX_CSS.slice(start, end);
 }
 
-/** The `.theme-light, .theme-arctic, .theme-paper, .theme-speegle { ... }` override block. */
+/** The `.theme-light, .theme-paper, .theme-speegle { ... }` override block. */
 function lightBlock(): string {
-  const start = INDEX_CSS.indexOf('.theme-light,\n.theme-arctic,\n.theme-paper,\n.theme-speegle {');
+  const start = INDEX_CSS.indexOf('.theme-light,\n.theme-paper,\n.theme-speegle {');
   const end = INDEX_CSS.indexOf('\n}', start);
   return INDEX_CSS.slice(start, end);
 }
@@ -271,12 +277,18 @@ describe('index.css — landing-page polarity tokens (v2.56.0)', () => {
 
   it('clears WCAG AA (4.5:1) for the light motto on the light canvas', () => {
     // `--color-deep` under `.theme-light` is the canvas the motto sits on.
-    const canvas = /--color-deep:\s*(#[0-9a-f]{6})/i.exec(INDEX_CSS.slice(INDEX_CSS.indexOf('.theme-light {')));
-    expect(canvas).toBeTruthy();
+    // Since v2.263.0 it is an oklch() value, so it is converted through the
+    // contrast audit's own colour parser (admin-ui/scripts/contrastAudit.cjs).
+    const lightTheme = INDEX_CSS.slice(INDEX_CSS.indexOf('.theme-light {'), INDEX_CSS.indexOf('\n}', INDEX_CSS.indexOf('.theme-light {')));
+    const deep = tokenValue(lightTheme, '--color-deep');
+    expect(deep).toBeTruthy();
+    const rgb = auditParseColor(deep!);
+    expect(rgb).toBeTruthy();
+    const canvas = '#' + rgb!.map(c => Math.round(c * 255).toString(16).padStart(2, '0')).join('');
     const motto = tokenValue(lightBlock(), '--sb-motto-fg')!;
     expect(motto).toMatch(/^#[0-9a-f]{6}$/i);
-    const ratio = contrastRatio(motto, canvas![1]);
-    // Measured 7.12:1 for #6427af on #E8EAF0 — AA needs 4.5:1.
+    const ratio = contrastRatio(motto, canvas);
+    // Measured 7.12:1 for #6427af on the pre-v2.263.0 #E8EAF0; AA needs 4.5:1.
     expect(ratio).toBeGreaterThanOrEqual(4.5);
   });
 });

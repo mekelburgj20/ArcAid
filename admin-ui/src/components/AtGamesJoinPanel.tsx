@@ -80,7 +80,7 @@ export function AtGamesJoinForm({ roomId, eventId, playerToken, onJoined, onCanc
                     className="px-3 py-2 bg-raised border border-border rounded text-primary text-sm focus:outline-none focus:border-neon-cyan"
                 />
             </label>
-            {error && <p className="text-xs text-neon-magenta">{error}</p>}
+            {error && <p className="text-xs text-neon-coral">{error}</p>}
             <div className="flex gap-2">
                 <button
                     type="submit" disabled={!email || !password || busy}
@@ -133,7 +133,7 @@ export function AtGamesAlreadyJoined({ roomId, eventId, playerToken, onMarked }:
                     className="px-3 py-1.5 rounded border border-border bg-raised text-primary text-xs hover:border-neon-cyan transition-colors disabled:opacity-50"
                 >{busy ? 'Saving…' : "I've joined"}</button>
             </div>
-            {error && <p className="text-xs text-neon-magenta">{error}</p>}
+            {error && <p className="text-xs text-neon-coral">{error}</p>}
         </div>
     );
 }
@@ -189,7 +189,7 @@ export default function AtGamesJoinPanel({ roomId, eventId, playerToken, code, s
                         className="mt-2 text-xs text-muted underline underline-offset-2 hover:text-primary"
                     >Not joined after all? Undo</button>
                 )}
-                {undoError && <p className="text-xs text-neon-magenta mt-1">{undoError}</p>}
+                {undoError && <p className="text-xs text-neon-coral mt-1">{undoError}</p>}
             </section>
         );
     }

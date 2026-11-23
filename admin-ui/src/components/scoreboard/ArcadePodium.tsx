@@ -27,7 +27,7 @@ import { formatScore, parseServerDate } from '../../lib/format';
  *      shared row would travel with the podium on every swap.
  *   2. Colours are CSS TOKENS, never literal hex. Gold/silver/bronze come from
  *      the `--sb-row-*` family (which already carries the light-polarity
- *      overrides: `.theme-light`, `.theme-arctic`, `.theme-paper`), and the
+ *      overrides: `.theme-light`, `.theme-paper`, `.theme-speegle`), and the
  *      card's category neon
  *      arrives as the inherited `--arc-neon` custom property. A replacement
  *      design that reads the same tokens is theme-correct for free.

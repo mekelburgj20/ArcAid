@@ -106,7 +106,7 @@ export default function RenameCatalogueGameModal({ game, onClose, onRenamed }: R
           </ul>
 
           {error && (
-            <p role="alert" className="text-sm text-neon-magenta">{error}</p>
+            <p role="alert" className="text-sm text-neon-coral">{error}</p>
           )}
 
           <div className="flex justify-end gap-3">

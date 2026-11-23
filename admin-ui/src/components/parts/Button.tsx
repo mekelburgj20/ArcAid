@@ -8,7 +8,8 @@ import { forwardRef, type ButtonHTMLAttributes } from 'react';
  * page's `aw-island` points the same tokens at the kit (cyan, ice, chrome, and
  * the kit's red for `neon-coral`).
  *
- * - `primary`: the one thing a panel is for (Save, Link, Pair).
+ * - `primary`: the one thing a panel is for (Save, Link, Pair), in the
+ *   theme's lead colour (`--color-lead`; the kit's cyan on the Arcaid look).
  * - `secondary`: an outline for the quieter choice beside it (Clear, Cancel).
  * - `danger`: anything that removes or cannot be undone.
  *
@@ -31,9 +32,9 @@ const SIZES: Record<NonNullable<ButtonProps['size']>, string> = {
 };
 
 const VARIANTS: Record<NonNullable<ButtonProps['variant']>, string> = {
-    primary: 'border-neon-cyan/40 bg-neon-cyan/10 text-neon-cyan hover:bg-neon-cyan/20',
+    primary: 'border-lead/40 bg-lead/10 ink-lead hover:bg-lead/20',
     secondary: 'border-border bg-transparent text-muted hover:text-primary hover:border-muted',
-    danger: 'border-neon-coral/40 bg-neon-coral/10 text-neon-coral hover:bg-neon-coral/20',
+    danger: 'border-neon-coral/40 bg-neon-coral/10 ink-danger hover:bg-neon-coral/20',
 };
 
 const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(

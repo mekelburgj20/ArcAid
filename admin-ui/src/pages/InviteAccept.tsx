@@ -95,7 +95,7 @@ export default function InviteAccept() {
       <div className="min-h-screen flex items-center justify-center bg-deep">
         <div className="bg-surface border border-border rounded-lg p-8 w-full max-w-sm text-center">
           <img src="/arcaid-logo-v2.png" alt="Arcaid" className="w-16 h-16 mx-auto mb-4" />
-          <p className="text-neon-magenta mb-4">{error || 'Invalid or expired invite'}</p>
+          <p className="text-neon-coral mb-4">{error || 'Invalid or expired invite'}</p>
           <Link to="/" className="text-neon-cyan hover:underline text-sm no-underline">
             Back to Home
           </Link>
@@ -153,7 +153,7 @@ export default function InviteAccept() {
             />
           </div>
 
-          {error && <p className="text-neon-magenta text-sm">{error}</p>}
+          {error && <p className="text-neon-coral text-sm">{error}</p>}
 
           <NeonButton type="submit" disabled={submitting || !username.trim() || !password}>
             {submitting ? 'Creating Account...' : 'Create Account'}

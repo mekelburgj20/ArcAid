@@ -176,8 +176,8 @@ function ScopePill({ active, onClick, children }: { active: boolean; onClick: ()
       onClick={onClick}
       className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors cursor-pointer border ${
         active
-          ? 'bg-neon-cyan/10 border-neon-cyan/50 text-neon-cyan'
-          : 'bg-transparent border-border text-muted hover:text-primary hover:border-neon-cyan/30'
+          ? 'bg-lead/10 border-lead/50 ink-lead'
+          : 'bg-transparent border-border text-muted hover:text-primary hover:border-lead/30'
       }`}
     >
       {children}

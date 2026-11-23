@@ -1232,7 +1232,7 @@ export default function GlobalGameDetail() {
             <button
               onClick={() => setCommentTab('tips')}
               className={`flex items-center gap-1.5 px-1 pb-2 text-sm font-semibold border-b-2 transition-colors ${
-                commentTab === 'tips' ? 'border-neon-cyan text-neon-cyan' : 'border-transparent text-muted hover:text-primary'
+                commentTab === 'tips' ? 'border-lead ink-lead' : 'border-transparent text-muted hover:text-primary'
               }`}
             >
               <Lightbulb className="w-4 h-4" />
@@ -1241,7 +1241,7 @@ export default function GlobalGameDetail() {
             <button
               onClick={() => setCommentTab('comments')}
               className={`flex items-center gap-1.5 px-1 pb-2 text-sm font-semibold border-b-2 transition-colors ${
-                commentTab === 'comments' ? 'border-neon-cyan text-neon-cyan' : 'border-transparent text-muted hover:text-primary'
+                commentTab === 'comments' ? 'border-lead ink-lead' : 'border-transparent text-muted hover:text-primary'
               }`}
             >
               <MessageSquare className="w-4 h-4" />

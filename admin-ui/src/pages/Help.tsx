@@ -538,8 +538,8 @@ export default function Help() {
         {/* Theme */}
         <NeonCard title="Theme" className="mb-4">
           <p className="text-primary text-sm mb-3">
-            Choose from Arcaid's themes (17 and counting &mdash; Dark, Light, Retro, Cyberpunk, Ocean, Sunset, Backglass,
-            CRT Green, Cabinet, Silverball, and more).
+            Choose from Arcaid's eleven themes: Arcaid (the default, in the logo&apos;s colours), Synthwave, Backglass,
+            Forest, Nordic, Graphite, Retro terminal, High contrast, Light, Paper and Speegle.
           </p>
           <p className="text-muted text-sm">
             Set a <strong className="text-primary">Public Theme</strong> that every visitor sees, and optionally an

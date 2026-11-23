@@ -9,7 +9,8 @@ import { THEME_IDS, LEGACY_THEME_MAP, isThemeId, normalizeThemeId, normalizeThem
  * blocks deleted; anything still holding one (a localStorage mirror, a row
  * written before migration 162 ran, an old client POSTing) must land on a
  * theme that EXISTS. A miss is silent: `applyThemeClass` adds a class no
- * stylesheet defines and the page paints the default dark.
+ * stylesheet defines and the page paints the default dark. v2.263.0 (G29)
+ * retired five more (migration 220), leaving eleven themes.
  */
 
 const CSS_PATH = [
@@ -18,10 +19,11 @@ const CSS_PATH = [
 ].find(existsSync)!;
 
 describe('THEME_IDS', () => {
-    it('is the 16 shipped themes, darks first and lights last', () => {
-        expect(THEME_IDS).toHaveLength(16);
-        expect(THEME_IDS[0]).toBe('dark');
-        expect(THEME_IDS.slice(-4)).toEqual(['light', 'arctic', 'paper', 'speegle']);
+    it('is the 11 shipped themes, in picker order, darks first and lights last', () => {
+        expect([...THEME_IDS]).toEqual([
+            'dark', 'synthwave', 'backglass', 'forest', 'nordic', 'graphite', 'retro', 'contrast',
+            'light', 'paper', 'speegle',
+        ]);
     });
 
     it('has no duplicates', () => {
@@ -45,10 +47,10 @@ describe('THEME_IDS', () => {
 });
 
 describe('LEGACY_THEME_MAP', () => {
-    it('maps the eleven retired ids', () => {
+    it('maps the sixteen retired ids', () => {
         expect(Object.keys(LEGACY_THEME_MAP).sort()).toEqual([
-            'cabinet', 'coffee', 'crt-green', 'cyberpunk', 'invaders', 'marquee',
-            'minimal', 'ocean', 'playfield', 'sunset', 'wizard',
+            'arctic', 'cabinet', 'coffee', 'crt-green', 'cyberpunk', 'ember', 'invaders', 'marquee',
+            'midnight', 'minimal', 'ocean', 'plasma', 'playfield', 'silverball', 'sunset', 'wizard',
         ]);
     });
 
@@ -74,14 +76,28 @@ describe('normalizeThemeId', () => {
         expect(normalizeThemeId('coffee')).toBe('paper');
         expect(normalizeThemeId('crt-green')).toBe('retro');
         expect(normalizeThemeId('cyberpunk')).toBe('synthwave');
-        expect(normalizeThemeId('ocean')).toBe('midnight');
+        expect(normalizeThemeId('ocean')).toBe('dark');
         expect(normalizeThemeId('minimal')).toBe('graphite');
-        expect(normalizeThemeId('sunset')).toBe('ember');
+        expect(normalizeThemeId('sunset')).toBe('backglass');
         expect(normalizeThemeId('playfield')).toBe('forest');
         expect(normalizeThemeId('invaders')).toBe('forest');
-        expect(normalizeThemeId('wizard')).toBe('plasma');
+        expect(normalizeThemeId('wizard')).toBe('synthwave');
         expect(normalizeThemeId('marquee')).toBe('dark');
         expect(normalizeThemeId('cabinet')).toBe('dark');
+    });
+
+    it('folds the five ids retired in v2.263.0 (G29) to their nearest survivor', () => {
+        expect(normalizeThemeId('midnight')).toBe('dark');
+        expect(normalizeThemeId('silverball')).toBe('dark');
+        expect(normalizeThemeId('plasma')).toBe('synthwave');
+        expect(normalizeThemeId('ember')).toBe('backglass');
+        expect(normalizeThemeId('arctic')).toBe('light');
+    });
+
+    it('never points one retired id at another (a fold is one step)', () => {
+        for (const [legacy, replacement] of Object.entries(LEGACY_THEME_MAP)) {
+            expect(LEGACY_THEME_MAP[replacement], `${legacy} -> ${replacement}`).toBeUndefined();
+        }
     });
 
     it('is idempotent — folding twice is folding once', () => {
@@ -101,12 +117,14 @@ describe('normalizeThemeId', () => {
     });
 
     it('tolerates the stray whitespace a hand-edited localStorage value has', () => {
-        expect(normalizeThemeId(' ocean ')).toBe('midnight');
+        expect(normalizeThemeId(' ocean ')).toBe('dark');
+        expect(normalizeThemeId(' arctic ')).toBe('light');
     });
 
     it('normalizeThemeIdOr supplies a fallback', () => {
         expect(normalizeThemeIdOr('sepia')).toBe('dark');
         expect(normalizeThemeIdOr('sepia', 'light')).toBe('light');
-        expect(normalizeThemeIdOr('ocean', 'light')).toBe('midnight');
+        expect(normalizeThemeIdOr('ocean', 'light')).toBe('dark');
+        expect(normalizeThemeIdOr('plasma', 'light')).toBe('synthwave');
     });
 });

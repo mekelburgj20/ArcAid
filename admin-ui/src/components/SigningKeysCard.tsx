@@ -128,7 +128,7 @@ export default function SigningKeysCard() {
                   <button
                     onClick={() => setRetiring(k)}
                     disabled={busy}
-                    className="text-xs text-faint hover:text-neon-magenta cursor-pointer bg-transparent border-none"
+                    className="text-xs text-faint hover:text-neon-coral cursor-pointer bg-transparent border-none"
                   >
                     Retire
                   </button>

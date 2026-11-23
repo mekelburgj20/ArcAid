@@ -26,7 +26,7 @@ interface ShareButtonProps {
 
 const DEFAULT_CLASS =
     'inline-flex items-center gap-1.5 px-3 py-1.5 rounded border text-xs font-medium transition-colors cursor-pointer ' +
-    'border-neon-cyan/40 bg-neon-cyan/10 text-neon-cyan hover:bg-neon-cyan/20';
+    'border-lead/40 bg-lead/10 ink-lead hover:bg-lead/20';
 
 function legacyCopy(value: string): boolean {
     try {

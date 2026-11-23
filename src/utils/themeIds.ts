@@ -12,23 +12,19 @@
 /**
  * Every theme the app ships, in PICKER order: darks first, lights last.
  * `dark` is the no-class default (its values are the `@theme` block in
- * admin-ui/src/index.css); the other fourteen are `.theme-<id>` classes.
+ * admin-ui/src/index.css, shown in the picker as "Arcaid"); the other ten are
+ * `.theme-<id>` classes. v2.263.0 (G29) cut the list from sixteen to eleven.
  */
 export const THEME_IDS = [
     'dark',
-    'midnight',
-    'graphite',
-    'nordic',
-    'plasma',
     'synthwave',
-    'ember',
-    'forest',
     'backglass',
+    'forest',
+    'nordic',
+    'graphite',
     'retro',
-    'silverball',
     'contrast',
     'light',
-    'arctic',
     'paper',
     'speegle',
 ] as const;
@@ -36,43 +32,56 @@ export const THEME_IDS = [
 export type ThemeId = typeof THEME_IDS[number];
 
 /**
- * The eleven ids retired in v2.133.0, each pointing at the survivor closest to
- * what it actually rendered.
+ * The sixteen retired ids, each pointing at the survivor closest to what it
+ * actually rendered: eleven retired in v2.133.0 and five in v2.263.0 (G29).
  *
  * Stored theme ids live in four places — `game_room_settings.UI_THEME`,
  * `user_preferences.ui_theme`, the `roomThemes` map inside
  * `user_preferences.scoreboard_prefs`, and a handful of localStorage mirrors —
- * and migration 162 rewrites the first three. The map still has to exist at
- * RUNTIME because localStorage is not migratable: a viewer whose browser holds
+ * and migrations 162 (v2.133.0) and 220 (v2.263.0) rewrite the first three.
+ * The map still has to exist at RUNTIME because localStorage is not
+ * migratable: a viewer whose browser holds
  * `arcaid-theme-personal=cyberpunk` must land on Synthwave rather than on a
  * `.theme-cyberpunk` class no stylesheet defines any more (which paints the
  * default dark and silently loses their choice).
  *
- * Rationale for the pairings, in one line each:
- *   coffee    -> paper      the warm off-white light theme, redrawn
- *   crt-green -> retro      both are the phosphor-green terminal; retro is nicer
- *   marquee   -> dark       a white-glow near-black; the default is the same idea
- *   cabinet   -> dark       primary accents on black; the default, less crude
- *   ocean     -> midnight   cool blues on deep navy
- *   invaders  -> forest     green-accented black
- *   playfield -> forest     the "green felt" theme was green-on-black anyway
- *   wizard    -> plasma     purple-violet with magenta accents
- *   cyberpunk -> synthwave  hot pink on violet-black, done properly
- *   sunset    -> ember      warm orange/amber on a dark warm ground
- *   minimal   -> graphite   neutral monochrome with one cool accent
+ * Each retired id, the survivor it maps to, and why. Retired in v2.133.0:
+ *   coffee      paper      the warm off-white light theme, redrawn
+ *   crt-green   retro      both are the phosphor-green terminal; retro is nicer
+ *   marquee     dark       a white-glow near-black; the default is the same idea
+ *   cabinet     dark       primary accents on black; the default, less crude
+ *   ocean       dark       cool blues on deep navy, which the default is now
+ *   invaders    forest     green-accented black
+ *   playfield   forest     the "green felt" theme was green-on-black anyway
+ *   wizard      synthwave  purple-violet with magenta accents
+ *   cyberpunk   synthwave  hot pink on violet-black, done properly
+ *   sunset      backglass  warm orange and amber on a dark warm ground
+ *   minimal     graphite   neutral monochrome with one cool accent
+ * Retired in v2.263.0 (ocean, wizard and sunset pointed at three of these
+ * until then, so they moved on with them):
+ *   midnight    dark       deep navy with white ink, which the default is now
+ *   silverball  dark       cool grey with cool accents; the default is closest
+ *   plasma      synthwave  hot pink on purple; Synthwave is the violet theme
+ *   ember       backglass  orange on warm charcoal; Backglass is the warm one
+ *   arctic      light      a cool pale page with navy ink, which Light is now
  */
 export const LEGACY_THEME_MAP: Record<string, ThemeId> = {
     coffee: 'paper',
     'crt-green': 'retro',
     marquee: 'dark',
     cabinet: 'dark',
-    ocean: 'midnight',
+    ocean: 'dark',
     invaders: 'forest',
     playfield: 'forest',
-    wizard: 'plasma',
+    wizard: 'synthwave',
     cyberpunk: 'synthwave',
-    sunset: 'ember',
+    sunset: 'backglass',
     minimal: 'graphite',
+    midnight: 'dark',
+    silverball: 'dark',
+    plasma: 'synthwave',
+    ember: 'backglass',
+    arctic: 'light',
 };
 
 /** True for a live theme id. Retired ids are NOT theme ids — they map. */

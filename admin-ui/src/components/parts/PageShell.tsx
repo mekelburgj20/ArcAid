@@ -4,7 +4,7 @@ import JumpList, { type JumpItem } from './JumpList';
 
 /**
  * G21 - the content frame of a THEMED page (room and admin pages, which keep
- * the site's 16 themes). It sits inside the existing layouts, which own the
+ * the site's 11 themes). It sits inside the existing layouts, which own the
  * nav and the `<main>`, so it is a plain wrapper: one of the two page widths
  * (`PAGE_WIDTH`, lib/pageLayout.ts) and, with `jump`, the jump list beside the
  * children (`.part-jumplayout` in src/index.css: a row of chips on a phone or

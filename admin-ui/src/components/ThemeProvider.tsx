@@ -67,8 +67,10 @@ import { fetchRoomThemes } from '../lib/roomThemes';
 import { THEME_IDS, normalizeThemeId, type ThemeId } from '../lib/themeIds';
 
 /**
- * The picker list (v2.133.0). Order is DARKS first, LIGHTS last — the same
- * order as `THEME_IDS` in `lib/themeIds.ts`, which this object is keyed by.
+ * The picker list (v2.133.0; eleven themes since v2.263.0, G29). Order is
+ * DARKS first, LIGHTS last, the same order as `THEME_IDS` in
+ * `lib/themeIds.ts`, which this object is keyed by. The default (`dark`) is
+ * labelled "Arcaid": it wears the logo's colours.
  *
  * Every description states what the theme RENDERS: background tone, ink,
  * accent colours. No metaphors — the previous set had a "Playfield" theme
@@ -77,21 +79,16 @@ import { THEME_IDS, normalizeThemeId, type ThemeId } from '../lib/themeIds';
  * entry against its `.theme-<id>` block in index.css before writing the copy.
  */
 export const THEMES: Record<ThemeId, { label: string; description: string }> = {
-  dark: { label: 'Arcaid default', description: 'Dark navy slate, white text, cyan + magenta neon' },
-  midnight: { label: 'Midnight', description: 'Deep navy, crisp white text, electric blue + amber' },
-  graphite: { label: 'Graphite', description: 'Neutral charcoal with a single teal accent' },
-  nordic: { label: 'Nordic', description: 'Muted blue-grey, soft pastel accents, low glare' },
-  plasma: { label: 'Plasma', description: 'Purple-black with hot pink and electric blue' },
-  synthwave: { label: 'Synthwave', description: 'Violet-black, hot pink + cyan neon, horizon glow' },
-  ember: { label: 'Ember', description: 'Warm charcoal with orange and amber accents' },
-  forest: { label: 'Forest', description: 'Deep green-black with mint and gold accents' },
-  backglass: { label: 'Backglass', description: 'Warm brown-black with amber glow and gold accents' },
-  retro: { label: 'Retro terminal', description: 'Black with green phosphor text and glow' },
-  silverball: { label: 'Silverball', description: 'Gunmetal greys with chrome edges and cool accents' },
-  contrast: { label: 'High contrast', description: 'Pure black, white text, no glow — top legibility' },
-  light: { label: 'Light', description: 'Pale grey page, white cards, dark text, deep neon' },
-  arctic: { label: 'Arctic', description: 'Cool blue-white light theme with navy text' },
-  paper: { label: 'Paper', description: 'Warm off-white light theme, ink text, copper' },
+  dark: { label: 'Arcaid', description: 'Navy, ice-white text, pink lead, cyan second' },
+  synthwave: { label: 'Synthwave', description: 'Real violet, hot magenta lead, electric cyan' },
+  backglass: { label: 'Backglass', description: 'Warm brown, cream text, orange lead, red second' },
+  forest: { label: 'Forest', description: 'Deep green, lime lead, jade second, berry' },
+  nordic: { label: 'Nordic', description: 'Slate blue-grey, frost blue lead, soft pastels' },
+  graphite: { label: 'Graphite', description: 'Neutral charcoal, periwinkle lead, silver second' },
+  retro: { label: 'Retro terminal', description: 'Green-black, phosphor green text, amber second' },
+  contrast: { label: 'High contrast', description: 'Pure black, white text, signal-yellow lead, no glow' },
+  light: { label: 'Light', description: 'Cool pale page, white cards, raspberry + cobalt' },
+  paper: { label: 'Paper', description: 'Warm cream, brown ink, copper lead, teal second' },
   speegle: { label: 'Speegle', description: 'LEGO yellow page, pale-yellow cards, LEGO blue text' },
 };
 
@@ -286,27 +283,22 @@ const ALL_THEME_CLASSES = THEME_IDS.filter(id => id !== 'dark').map(id => `theme
  *
  * The source of truth is `color-scheme` in admin-ui/src/index.css: exactly
  * three theme blocks declare `color-scheme: light` (`.theme-light`,
- * `.theme-arctic`, `.theme-paper`) and `html` declares `color-scheme: dark`
- * for everything else. Note the traps: `graphite` and `silverball` are
- * neutral/pale-sounding but dark-surfaced, and `contrast` is pure black.
+ * `.theme-paper`, `.theme-speegle`) and `html` declares `color-scheme: dark`
+ * for everything else. Note the traps: `graphite` is neutral and
+ * pale-sounding but dark-surfaced, and `contrast` is pure black.
  * Add a theme to `THEMES` and `appearancePolarity.test.ts` fails until it is
  * classified here.
  */
 export const THEME_POLARITY: Record<ThemeId, GlobalPagePolarity> = {
   dark: 'dark',
-  midnight: 'dark',
-  graphite: 'dark',
-  nordic: 'dark',
-  plasma: 'dark',
   synthwave: 'dark',
-  ember: 'dark',
-  forest: 'dark',
   backglass: 'dark',
+  forest: 'dark',
+  nordic: 'dark',
+  graphite: 'dark',
   retro: 'dark',
-  silverball: 'dark',
   contrast: 'dark',
   light: 'light',
-  arctic: 'light',
   paper: 'light',
   speegle: 'light',
 };

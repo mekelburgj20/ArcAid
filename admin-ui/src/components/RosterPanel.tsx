@@ -115,7 +115,7 @@ export default function RosterPanel({ roomId, tournament, onClose, toast }: {
           <NeonButton variant="ghost" onClick={onClose} className="text-xs px-3 py-1">Close</NeonButton>
         </div>
 
-        {failed && <p className="text-xs text-neon-magenta mb-3" role="alert">Could not load the roster.</p>}
+        {failed && <p className="text-xs text-neon-coral mb-3" role="alert">Could not load the roster.</p>}
         {!data && !failed && <p className="text-sm text-muted">Loading…</p>}
 
         {data && (

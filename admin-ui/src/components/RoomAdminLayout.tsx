@@ -99,7 +99,7 @@ export default function RoomAdminLayout() {
     return (
       <div className="min-h-screen bg-deep flex items-center justify-center text-muted">
         <div className="text-center">
-          <p className="font-pixel text-neon-magenta text-lg mb-2">Error</p>
+          <p className="font-pixel text-neon-coral text-lg mb-2">Error</p>
           <p>{error || 'Game room not found'}</p>
         </div>
       </div>
@@ -209,7 +209,7 @@ export default function RoomAdminLayout() {
                   className={`
                     flex items-center gap-3 px-5 py-3 text-sm font-medium transition-all no-underline
                     ${isActive
-                      ? 'text-neon-cyan bg-neon-cyan/10 border-r-2 border-neon-cyan'
+                      ? 'ink-lead bg-lead/10 border-r-2 border-lead'
                       : 'text-muted hover:text-primary hover:bg-raised/50'
                     }
                   `}

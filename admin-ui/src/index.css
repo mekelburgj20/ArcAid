@@ -13,32 +13,41 @@
   color: #05161d;
 }
 
-/* === Dark Theme (Default) === */
+/* === The default theme: id `dark`, "Arcaid" in the picker (v2.263.0, G29) === */
 
 @theme {
-  /* Backgrounds */
-  --color-deep: oklch(21.15% 0.012 254.09);
-  --color-surface: oklch(23.26% 0.014 253.1);
-  --color-raised: oklch(25.33% 0.016 252.42);
+  /* Backgrounds: the logo's navy. */
+  --color-deep: oklch(19% 0.048 266);
+  --color-surface: oklch(23% 0.052 266);
+  --color-raised: oklch(27.5% 0.056 266);
 
   /* Borders */
-  --color-border: oklch(35% 0.02 255);
-  --color-border-glow: oklch(58% 0.233 277.117);
+  --color-border: oklch(40% 0.062 264);
+  --color-border-glow: #4fd6ff;
 
   /* Accents */
-  --color-neon-cyan: oklch(74% 0.16 232.661);
-  --color-neon-magenta: oklch(65% 0.241 354.308);
-  --color-neon-green: oklch(76% 0.177 163.223);
-  --color-neon-amber: oklch(82% 0.189 84.429);
-  /* In THIS (default dark) theme --color-neon-purple duplicates
-     --color-border-glow and --color-neon-blue duplicates --color-neon-cyan.
-     They are NOT aliases in general: most .theme-* blocks below give the
-     four tokens distinct values (retro, arctic, midnight, synthwave…), so
-     keep using the token that names the intent and never fold one into
-     the other. */
-  --color-neon-purple: oklch(58% 0.233 277.117);
-  --color-neon-coral: oklch(71% 0.194 13.428);
-  --color-neon-blue: oklch(74% 0.16 232.661);
+  --color-neon-cyan: #4fd6ff;
+  --color-neon-magenta: #ff3d7f;
+  --color-neon-green: oklch(84% 0.17 160);
+  --color-neon-amber: oklch(86% 0.15 88);
+  /* In THIS (default) theme --color-border-glow has the same value as
+     --color-neon-cyan. They are NOT aliases in general: the .theme-* blocks
+     below give the tokens their own values, so keep using the token that
+     names the intent and never fold one into the other. */
+  --color-neon-purple: #b492ff;
+  --color-neon-coral: oklch(76% 0.148 40);
+  --color-neon-blue: oklch(74% 0.13 262);
+
+  /* The colour a theme is known by, and the one beside it (v2.263.0, G29).
+     `lead` paints the primary button, the active nav item, the active tab
+     and the shared parts' default tone; `second` is its partner. Each points
+     at one of the accents above, so a theme can lead with pink or orange
+     without renaming anything. Every .theme-* block restates both, because a
+     theme that left them out would get the default's roles. Plain @theme,
+     not @theme inline: the utilities must read var(--color-lead) so a theme
+     class can change it. First place stays gold (`neon-amber`) everywhere. */
+  --color-lead: var(--color-neon-magenta);
+  --color-second: var(--color-neon-cyan);
 
   /* Enter animations (v2.258.1). Before this the admin toast asked for a
      `fadeIn` keyframe nobody defined and the Global Scoreboard toast for an
@@ -51,9 +60,9 @@
   --animate-slide-down: slide-down 0.25s ease-out;
 
   /* Text */
-  --color-primary: oklch(97.807% 0.029 256.847);
-  --color-muted: oklch(74% 0.02 255);
-  --color-faint: oklch(63% 0.015 255);
+  --color-primary: #eaf6ff;
+  --color-muted: #b9c3d3;
+  --color-faint: oklch(68% 0.035 262);
 
   /* Podium medal metals (A1, v2.50.0). Gold reuses --color-neon-amber, which
      is already theme-aware; silver and bronze had no existing equivalent.
@@ -72,7 +81,7 @@
   /* Scoreboard surfaces (A1, v2.50.0) — `--sb-` rather than `--color-` because
      these are composited overlays (scrims, tints, shadows), not palette
      entries, and their alpha/base flip with polarity. Light overrides live in
-     the `.theme-light, .theme-arctic, .theme-paper` block below. The Global Scoreboard card
+     the `.theme-light, .theme-paper, .theme-speegle` block below. The Global Scoreboard card
      consumes these exclusively: no literal rgba() belongs in that TSX. */
   --sb-art-scrim: linear-gradient(180deg, rgba(0, 0, 0, 0.05) 40%, rgba(16, 18, 26, 0.95) 100%);
   --sb-hero-scrim: linear-gradient(90deg, rgba(16, 18, 26, 0.95) 10%, rgba(16, 18, 26, 0.5) 55%, transparent 100%);
@@ -341,24 +350,26 @@
   background-image: none;
   background-repeat: repeat;
   background-attachment: scroll;
-  --color-border: oklch(35% 0.02 255);
-  --color-border-glow: oklch(58% 0.233 277.117);
+  --color-border: oklch(40% 0.062 264);
+  --color-border-glow: #4fd6ff;
   --color-brand-delta: #ff2e63;
-  --color-deep: oklch(21.15% 0.012 254.09);
-  --color-faint: oklch(63% 0.015 255);
+  --color-deep: oklch(19% 0.048 266);
+  --color-faint: oklch(68% 0.035 262);
+  --color-lead: var(--color-neon-magenta);
   --color-medal-bronze: #cd7f32;
   --color-medal-silver: #c0c0c0;
-  --color-muted: oklch(74% 0.02 255);
-  --color-neon-amber: oklch(82% 0.189 84.429);
-  --color-neon-blue: oklch(74% 0.16 232.661);
-  --color-neon-coral: oklch(71% 0.194 13.428);
-  --color-neon-cyan: oklch(74% 0.16 232.661);
-  --color-neon-green: oklch(76% 0.177 163.223);
-  --color-neon-magenta: oklch(65% 0.241 354.308);
-  --color-neon-purple: oklch(58% 0.233 277.117);
-  --color-primary: oklch(97.807% 0.029 256.847);
-  --color-raised: oklch(25.33% 0.016 252.42);
-  --color-surface: oklch(23.26% 0.014 253.1);
+  --color-muted: #b9c3d3;
+  --color-neon-amber: oklch(86% 0.15 88);
+  --color-neon-blue: oklch(74% 0.13 262);
+  --color-neon-coral: oklch(76% 0.148 40);
+  --color-neon-cyan: #4fd6ff;
+  --color-neon-green: oklch(84% 0.17 160);
+  --color-neon-magenta: #ff3d7f;
+  --color-neon-purple: #b492ff;
+  --color-primary: #eaf6ff;
+  --color-raised: oklch(27.5% 0.056 266);
+  --color-second: var(--color-neon-cyan);
+  --color-surface: oklch(23% 0.052 266);
   --sb-art-btn-bg: rgba(0, 0, 0, 0.55);
   --sb-art-btn-border: rgba(255, 255, 255, 0.15);
   --sb-art-meta: rgba(255, 255, 255, 0.62);
@@ -528,95 +539,80 @@
   .sb-pile-layer { transition: transform 160ms ease-out; }
 }
 
-/* Light theme (daisyUI-inspired clean light) */
+/* Light theme (cool pale page, white cards, navy ink, raspberry lead, cobalt
+   second; redrawn in v2.263.0, G29) */
 .theme-light {
   color-scheme: light;
-  /* v2.55.0 — #E8EAF0 is the exact canvas the light logo artwork was designed
-     and verified against (its spec warns off anything darker than ~#D0D4DE,
-     where the mark's backdrop plate stops separating). Was a neutral
-     oklch(95% 0 0); this is slightly darker and cooler, which also gives the
-     white `--color-surface` cards something to sit above. */
-  --color-deep: #e8eaf0;
+  /* The cool pale canvas. The light logo artwork's spec warns off anything
+     darker than about #D0D4DE, where the mark's backdrop plate stops
+     separating; this sits well above that, and the white
+     `--color-surface` cards still have something to sit above. */
+  --color-deep: oklch(93% 0.012 255);
   --color-surface: oklch(100% 0 0);
-  --color-raised: oklch(98% 0 0);
-  /* The logo pink at full chroma is ~3.1:1 on a pale surface — darkened here
+  --color-raised: oklch(97.2% 0.008 255);
+  /* The logo pink at full chroma is ~3.1:1 on a pale surface; darkened here
      so the trophy and any brand-pink UI stay legible. */
-  --color-brand-delta: #d10f47;
-  --color-border: oklch(85% 0.005 260);
-  --color-border-glow: oklch(45% 0.24 277.023);
-  --color-neon-cyan: oklch(50% 0.16 232.661);
-  --color-neon-magenta: oklch(55% 0.241 354.308);
-  --color-neon-green: oklch(50% 0.177 163.223);
-  --color-neon-amber: oklch(60% 0.189 84.429);
-  --color-neon-purple: oklch(45% 0.24 277.023);
-  --color-neon-coral: oklch(55% 0.194 13.428);
-  --color-neon-blue: oklch(50% 0.16 232.661);
-  --color-primary: oklch(21% 0.006 285.885);
-  --color-muted: oklch(42% 0.01 260);
-  --color-faint: oklch(51% 0.008 260);
+  --color-brand-delta: #c8104a;
+  --color-border: oklch(82% 0.02 255);
+  --color-border-glow: oklch(49.5% 0.16 255);
+  --color-neon-cyan: oklch(49.5% 0.16 255);
+  --color-neon-magenta: oklch(51.5% 0.208 2);
+  --color-neon-green: oklch(47.5% 0.11 158);
+  --color-neon-amber: oklch(49.5% 0.106 70);
+  --color-neon-purple: oklch(50% 0.2 292);
+  --color-neon-coral: oklch(51% 0.18 40);
+  --color-neon-blue: oklch(49% 0.138 250);
+  --color-primary: oklch(25% 0.045 262);
+  --color-muted: oklch(42% 0.035 258);
+  --color-faint: oklch(49% 0.03 258);
+  --color-lead: var(--color-neon-magenta);
+  --color-second: var(--color-neon-cyan);
 }
 
-/* Retro theme (green-on-black CRT terminal) */
+/* Retro terminal (green-black, phosphor green text, amber second). v2.263.0
+   lifted it off black and gave it an amber second. */
 .theme-retro {
-  --color-deep: oklch(8% 0.02 140);
-  --color-surface: oklch(12% 0.03 140);
-  --color-raised: oklch(16% 0.04 140);
-  --color-border: oklch(30% 0.08 140);
-  --color-border-glow: oklch(75% 0.25 140);
-  --color-neon-cyan: oklch(82% 0.25 140);
-  --color-neon-magenta: oklch(75% 0.22 140);
-  --color-neon-green: oklch(85% 0.28 140);
-  --color-neon-amber: oklch(85% 0.28 140);
-  --color-neon-purple: oklch(72% 0.22 140);
-  --color-neon-coral: oklch(80% 0.25 140);
-  --color-neon-blue: oklch(80% 0.25 140);
-  --color-primary: oklch(88% 0.15 140);
-  --color-muted: oklch(68% 0.1 140);
-  --color-faint: oklch(58% 0.06 140);
+  --color-deep: oklch(17% 0.025 150);
+  --color-surface: oklch(21.5% 0.032 150);
+  --color-raised: oklch(26% 0.038 150);
+  --color-border: oklch(38% 0.07 148);
+  --color-border-glow: oklch(86% 0.22 148);
+  --color-neon-cyan: oklch(86% 0.22 148);
+  --color-neon-magenta: oklch(83% 0.148 75);
+  --color-neon-green: oklch(88% 0.22 148);
+  --color-neon-amber: oklch(83% 0.148 75);
+  --color-neon-purple: oklch(78% 0.18 148);
+  --color-neon-coral: oklch(75% 0.16 50);
+  --color-neon-blue: oklch(82% 0.2 148);
+  --color-primary: oklch(90% 0.17 148);
+  --color-muted: oklch(80% 0.12 148);
+  --color-faint: oklch(72% 0.09 148);
+  --color-lead: var(--color-neon-cyan);
+  --color-second: var(--color-neon-magenta);
 }
 
-/* Arctic theme (LIGHT — cool blue-white page, navy ink, blue accents) */
-.theme-arctic {
-  color-scheme: light;
-  --color-deep: #e4edf7;
-  --color-surface: oklch(100% 0 0);
-  --color-raised: #f4f8fd;
-  /* Light polarity — same contrast reasoning as `.theme-light`. */
-  --color-brand-delta: #c10d42;
-  --color-border: #c2d3e6;
-  --color-border-glow: oklch(48% 0.17 252);
-  --color-neon-cyan: oklch(47% 0.11 218);
-  --color-neon-magenta: oklch(48% 0.2 350);
-  --color-neon-green: oklch(46% 0.13 160);
-  --color-neon-amber: oklch(50% 0.12 65);
-  --color-neon-purple: oklch(45% 0.2 288);
-  --color-neon-coral: oklch(48% 0.17 25);
-  --color-neon-blue: oklch(45% 0.18 252);
-  --color-primary: oklch(26% 0.045 255);
-  --color-muted: oklch(41% 0.035 250);
-  --color-faint: oklch(50% 0.03 250);
-}
-
-/* Paper theme (LIGHT — warm off-white page, ink text, copper accents) */
+/* Paper theme (LIGHT: warm cream page, brown ink, copper lead, teal second) */
 .theme-paper {
   color-scheme: light;
   --color-deep: #ece2cf;
   --color-surface: #fbf5e9;
   --color-raised: #f4ecdb;
-  /* Light polarity — same contrast reasoning as `.theme-light`. */
+  /* Light polarity: same contrast reasoning as `.theme-light`. */
   --color-brand-delta: #b8123f;
-  --color-border: #d3c3a6;
-  --color-border-glow: oklch(50% 0.12 55);
-  --color-neon-cyan: oklch(46% 0.09 205);
-  --color-neon-magenta: oklch(46% 0.18 12);
-  --color-neon-green: oklch(45% 0.11 150);
-  --color-neon-amber: oklch(48% 0.12 62);
-  --color-neon-purple: oklch(44% 0.16 300);
-  --color-neon-coral: oklch(48% 0.15 38);
-  --color-neon-blue: oklch(44% 0.14 250);
+  --color-border: #cdbb9b;
+  --color-border-glow: oklch(49% 0.13 48);
+  --color-neon-cyan: oklch(49% 0.13 48);
+  --color-neon-magenta: oklch(47% 0.08 210);
+  --color-neon-green: oklch(47% 0.11 140);
+  --color-neon-amber: oklch(48% 0.098 95);
+  --color-neon-purple: oklch(46% 0.12 335);
+  --color-neon-coral: oklch(48% 0.18 8);
+  --color-neon-blue: oklch(46% 0.1 255);
   --color-primary: oklch(28% 0.028 58);
   --color-muted: oklch(42% 0.032 55);
-  --color-faint: oklch(50% 0.03 55);
+  --color-faint: oklch(49% 0.03 55);
+  --color-lead: var(--color-neon-cyan);
+  --color-second: var(--color-neon-magenta);
 }
 
 /* Speegle theme (LIGHT — LEGO yellow page, pale-yellow cards, LEGO blue ink + accents) */
@@ -640,24 +636,31 @@
   --color-primary: oklch(32% 0.17 262);
   --color-muted: oklch(41% 0.16 258);
   --color-faint: oklch(43% 0.11 255);
+  --color-lead: var(--color-neon-cyan);
+  --color-second: var(--color-neon-magenta);
 }
+
+/* A colour used as TEXT on its own tint is the ink: pulled a fifth toward the
+   theme's ink so it clears 4.5:1 on a 10% fill in every theme. A line, fill or
+   dot uses the token itself (border-lead, bg-lead/10, bg-neon-coral/10). */
+@utility ink-lead { color: color-mix(in oklab, var(--color-lead) 80%, var(--color-primary)); }
+@utility ink-danger { color: color-mix(in oklab, var(--color-neon-coral) 80%, var(--color-primary)); }
 
 /*
  * Light-polarity overrides for the medal + scoreboard-surface tokens (A1,
- * v2.50.0). Exactly four theme blocks set `color-scheme: light` —
- * `.theme-light`, `.theme-arctic`, `.theme-paper` and `.theme-speegle` — and they are the whole
+ * v2.50.0). Exactly three theme blocks set `color-scheme: light`:
+ * `.theme-light`, `.theme-paper` and `.theme-speegle`, and they are the whole
  * selector list here. Every other theme is dark-surfaced and keeps the dark
  * defaults; `.theme-graphite` is a DARK neutral despite reading "quiet".
  *
  * Contrast, computed against each theme's --color-surface (white for
- * .theme-light and .theme-arctic, #fbf5e9 for .theme-paper):
+ * .theme-light, #fbf5e9 for .theme-paper):
  *   silver oklch(48% .025 255)  -> 6.53:1 on white, 5.98:1 on paper
  *   bronze oklch(47% .105 52)   -> 7.09:1 on white, 6.49:1 on paper
  * The dark defaults (#c0c0c0 / #cd7f32) score 1.82:1 / 3.14:1 on white, which
  * is why they cannot simply be reused.
  */
 .theme-light,
-.theme-arctic,
 .theme-paper,
 .theme-speegle {
   --color-medal-silver: oklch(48% 0.025 255);
@@ -839,198 +842,133 @@
   --sb-ticker-cta-fg: #ffffff;
 }
 
-/* Midnight theme (deep navy, crisp white ink, electric blue + amber) */
-.theme-midnight {
-  --color-deep: oklch(16% 0.035 262);
-  --color-surface: oklch(20% 0.038 262);
-  --color-raised: oklch(24.5% 0.04 262);
-  --color-border: oklch(36% 0.045 262);
-  --color-border-glow: oklch(72% 0.15 248);
-  --color-neon-cyan: oklch(80% 0.12 215);
-  --color-neon-magenta: oklch(72% 0.19 340);
-  --color-neon-green: oklch(80% 0.15 165);
-  --color-neon-amber: oklch(85% 0.16 82);
-  --color-neon-purple: oklch(70% 0.18 285);
-  --color-neon-coral: oklch(74% 0.17 25);
-  --color-neon-blue: oklch(74% 0.16 250);
-  --color-primary: oklch(98% 0.008 250);
-  --color-muted: oklch(76% 0.025 252);
-  --color-faint: oklch(63% 0.03 252);
-}
-
-/* Graphite theme (neutral charcoal, one restrained teal accent) */
+/* Graphite theme (neutral charcoal, periwinkle lead, silver second) */
 .theme-graphite {
-  --color-deep: oklch(18% 0 0);
-  --color-surface: oklch(22% 0 0);
-  --color-raised: oklch(26.5% 0 0);
-  --color-border: oklch(37% 0 0);
-  --color-border-glow: oklch(72% 0.09 195);
-  --color-neon-cyan: oklch(78% 0.1 195);
-  --color-neon-magenta: oklch(70% 0.03 350);
-  --color-neon-green: oklch(78% 0.1 195);
-  --color-neon-amber: oklch(82% 0.05 85);
-  --color-neon-purple: oklch(70% 0.03 285);
-  --color-neon-coral: oklch(72% 0.03 25);
-  --color-neon-blue: oklch(78% 0.1 195);
-  --color-primary: oklch(97% 0 0);
-  --color-muted: oklch(76% 0 0);
-  --color-faint: oklch(63% 0 0);
+  --color-deep: oklch(18% 0.002 270);
+  --color-surface: oklch(22.5% 0.003 270);
+  --color-raised: oklch(27% 0.004 270);
+  --color-border: oklch(39% 0.005 270);
+  --color-border-glow: oklch(82% 0.09 278);
+  --color-neon-cyan: oklch(82% 0.09 278);
+  --color-neon-magenta: oklch(90% 0.008 90);
+  --color-neon-green: oklch(90% 0.09 158);
+  --color-neon-amber: oklch(91% 0.1 95);
+  --color-neon-purple: oklch(86% 0.05 320);
+  --color-neon-coral: oklch(86% 0.074 28);
+  --color-neon-blue: oklch(82% 0.06 240);
+  --color-primary: oklch(97% 0.002 270);
+  --color-muted: oklch(83% 0.004 270);
+  --color-faint: oklch(72% 0.005 270);
+  --color-lead: var(--color-neon-cyan);
+  --color-second: var(--color-neon-magenta);
 }
 
-/* Synthwave theme (violet-black, hot pink + cyan neon, horizon glow) */
+/* Synthwave theme (real violet, hot magenta lead, electric cyan second,
+   horizon glow; redrawn in v2.263.0, G29) */
 .theme-synthwave {
-  --color-deep: oklch(11% 0.045 300);
-  --color-surface: oklch(15% 0.05 302);
-  --color-raised: oklch(19% 0.055 302);
-  --color-border: oklch(30% 0.07 302);
-  --color-border-glow: oklch(72% 0.26 348);
-  --color-neon-cyan: oklch(84% 0.15 195);
-  --color-neon-magenta: oklch(74% 0.24 348);
-  --color-neon-green: oklch(82% 0.17 160);
-  --color-neon-amber: oklch(86% 0.16 85);
-  --color-neon-purple: oklch(68% 0.23 300);
-  --color-neon-coral: oklch(74% 0.21 15);
-  --color-neon-blue: oklch(76% 0.17 240);
-  --color-primary: oklch(97% 0.02 310);
-  --color-muted: oklch(78% 0.04 305);
-  --color-faint: oklch(62% 0.055 305);
+  --color-deep: oklch(22% 0.11 305);
+  --color-surface: oklch(26.5% 0.12 305);
+  --color-raised: oklch(31% 0.125 305);
+  --color-border: oklch(43% 0.13 305);
+  --color-border-glow: oklch(72% 0.27 332);
+  --color-neon-cyan: oklch(88% 0.15 195);
+  --color-neon-magenta: oklch(72% 0.27 332);
+  --color-neon-green: oklch(88% 0.22 135);
+  --color-neon-amber: oklch(85% 0.116 70);
+  --color-neon-purple: oklch(82% 0.132 315);
+  --color-neon-coral: oklch(72% 0.174 20);
+  --color-neon-blue: oklch(76% 0.124 255);
+  --color-primary: oklch(97% 0.024 330);
+  --color-muted: oklch(84% 0.065 320);
+  --color-faint: oklch(76% 0.08 315);
+  --color-lead: var(--color-neon-magenta);
+  --color-second: var(--color-neon-cyan);
 }
 
-/* Ember theme (warm charcoal, orange + amber accents) */
-.theme-ember {
-  --color-deep: oklch(15% 0.018 50);
-  --color-surface: oklch(19% 0.022 48);
-  --color-raised: oklch(23% 0.026 48);
-  --color-border: oklch(34% 0.035 48);
-  --color-border-glow: oklch(76% 0.17 60);
-  --color-neon-cyan: oklch(80% 0.11 210);
-  --color-neon-magenta: oklch(70% 0.2 20);
-  --color-neon-green: oklch(80% 0.14 140);
-  --color-neon-amber: oklch(86% 0.17 72);
-  --color-neon-purple: oklch(70% 0.15 300);
-  --color-neon-coral: oklch(74% 0.19 32);
-  --color-neon-blue: oklch(74% 0.13 245);
-  --color-primary: oklch(97% 0.012 70);
-  --color-muted: oklch(77% 0.03 62);
-  --color-faint: oklch(63% 0.04 55);
-}
-
-/* Forest theme (deep green-black, mint + gold accents) */
+/* Forest theme (deep green, lime lead, jade second, berry) */
 .theme-forest {
-  --color-deep: oklch(14% 0.03 158);
-  --color-surface: oklch(18% 0.034 158);
-  --color-raised: oklch(22% 0.038 158);
-  --color-border: oklch(33% 0.05 158);
-  --color-border-glow: oklch(80% 0.15 165);
-  --color-neon-cyan: oklch(82% 0.12 190);
-  --color-neon-magenta: oklch(72% 0.18 350);
-  --color-neon-green: oklch(84% 0.15 165);
-  --color-neon-amber: oklch(86% 0.15 88);
-  --color-neon-purple: oklch(70% 0.15 300);
-  --color-neon-coral: oklch(76% 0.16 30);
-  --color-neon-blue: oklch(76% 0.13 235);
-  --color-primary: oklch(96% 0.015 160);
-  --color-muted: oklch(77% 0.035 160);
-  --color-faint: oklch(63% 0.045 160);
+  --color-deep: oklch(21% 0.05 160);
+  --color-surface: oklch(25.5% 0.058 160);
+  --color-raised: oklch(30% 0.068 160);
+  --color-border: oklch(41% 0.075 158);
+  --color-border-glow: oklch(88% 0.21 125);
+  --color-neon-cyan: oklch(80% 0.12 172);
+  --color-neon-magenta: oklch(74% 0.172 0);
+  --color-neon-green: oklch(88% 0.21 125);
+  --color-neon-amber: oklch(82% 0.132 65);
+  --color-neon-purple: oklch(78% 0.12 325);
+  --color-neon-coral: oklch(72% 0.15 30);
+  --color-neon-blue: oklch(78% 0.1 230);
+  --color-primary: oklch(95% 0.04 150);
+  --color-muted: oklch(84% 0.05 150);
+  --color-faint: oklch(74% 0.06 155);
+  --color-lead: var(--color-neon-green);
+  --color-second: var(--color-neon-cyan);
 }
 
-/* Nordic theme (muted blue-grey Nord palette, soft pastel accents) */
+/* Nordic theme (slate blue-grey Nord ground, frost blue lead, soft pastels) */
 .theme-nordic {
   --color-deep: #2e3440;
   --color-surface: #3b4252;
   --color-raised: #434c5e;
-  --color-border: #4c566a;
-  --color-border-glow: #88c0d0;
-  --color-neon-cyan: #8fbcbb;
-  --color-neon-magenta: #cf8fc7;
-  --color-neon-green: #a3be8c;
-  --color-neon-amber: #ebcb8b;
-  --color-neon-purple: #b7a3d8;
-  --color-neon-coral: #e0868f;
-  --color-neon-blue: #88c0d0;
+  --color-border: oklch(50% 0.035 264);
+  --color-border-glow: oklch(80.5% 0.075 217);
+  --color-neon-cyan: oklch(80.5% 0.075 217);
+  --color-neon-magenta: oklch(82.5% 0.08 340);
+  --color-neon-green: oklch(82% 0.1 131);
+  --color-neon-amber: oklch(86% 0.1 84);
+  --color-neon-purple: oklch(82% 0.07 285);
+  --color-neon-coral: oklch(82.5% 0.096 22);
+  --color-neon-blue: oklch(81% 0.06 249);
   --color-primary: #eceff4;
-  --color-muted: #cdd5e2;
-  --color-faint: #abb6c8;
+  --color-muted: #d8dee9;
+  --color-faint: oklch(80% 0.03 260);
+  --color-lead: var(--color-neon-cyan);
+  --color-second: var(--color-neon-magenta);
 }
 
-/* High contrast theme (pure black, white ink, no glow — accessibility) */
+/* High contrast theme (pure black, white ink, signal-yellow lead, no glow;
+   accessibility first) */
 .theme-contrast {
   --color-deep: #000000;
   --color-surface: #111111;
   --color-raised: #1c1c1c;
   --color-border: #595959;
   --color-border-glow: #ffffff;
-  --color-neon-cyan: #2ad4f0;
-  --color-neon-magenta: #ff74ad;
-  --color-neon-green: #35e07f;
-  --color-neon-amber: #fbc02d;
-  --color-neon-purple: #ae93ff;
-  --color-neon-coral: #ff8b6b;
-  --color-neon-blue: #6cb0fb;
+  --color-neon-cyan: oklch(85% 0.136 210);
+  --color-neon-magenta: oklch(78% 0.174 340);
+  --color-neon-green: oklch(89% 0.2 150);
+  --color-neon-amber: oklch(92% 0.168 100);
+  --color-neon-purple: oklch(84% 0.092 300);
+  --color-neon-coral: oklch(80% 0.118 40);
+  --color-neon-blue: oklch(78% 0.112 255);
   --color-primary: #ffffff;
   --color-muted: #d6d6d6;
   --color-faint: #a8a8a8;
+  --color-lead: var(--color-neon-amber);
+  --color-second: var(--color-neon-cyan);
 }
 
-/* Backglass theme (warm amber/orange — 1970s-80s pinball backglass translite) */
+/* Backglass theme (warm brown, cream text, orange lead, red second; a
+   1970s-80s pinball backglass translite, redrawn in v2.263.0, G29) */
 .theme-backglass {
-  --color-deep: oklch(8% 0.02 50);
-  --color-surface: oklch(12% 0.03 50);
-  --color-raised: oklch(16% 0.04 50);
-  --color-border: oklch(28% 0.06 50);
-  --color-border-glow: oklch(75% 0.18 65);
-  --color-neon-cyan: oklch(80% 0.18 70);
-  --color-neon-magenta: oklch(65% 0.22 15);
-  --color-neon-green: oklch(72% 0.15 120);
-  --color-neon-amber: oklch(82% 0.2 70);
-  --color-neon-purple: oklch(55% 0.15 310);
-  --color-neon-coral: oklch(70% 0.22 25);
-  --color-neon-blue: oklch(60% 0.12 230);
-  --color-primary: oklch(90% 0.04 65);
-  --color-muted: oklch(69% 0.05 60);
-  --color-faint: oklch(59% 0.03 50);
-}
-
-/* Plasma theme (hot pink + electric blue on dark purple-black) */
-.theme-plasma {
-  --color-deep: oklch(10% 0.04 310);
-  --color-surface: oklch(14% 0.05 310);
-  --color-raised: oklch(18% 0.06 310);
-  --color-border: oklch(28% 0.08 310);
-  --color-border-glow: oklch(68% 0.28 340);
-  --color-neon-cyan: oklch(72% 0.18 230);
-  --color-neon-magenta: oklch(70% 0.3 340);
-  --color-neon-green: oklch(75% 0.2 160);
-  --color-neon-amber: oklch(80% 0.18 85);
-  --color-neon-purple: oklch(58% 0.28 300);
-  --color-neon-coral: oklch(68% 0.25 15);
-  --color-neon-blue: oklch(70% 0.22 250);
-  --color-primary: oklch(93% 0.03 310);
-  --color-muted: oklch(69% 0.05 310);
-  --color-faint: oklch(59% 0.04 310);
-}
-
-/* Silverball theme (gunmetal/steel — chrome pinball machine aesthetic).
-   v2.133.0: the greys are unchanged; the ACCENTS were near-monochrome
-   (chroma 0.06-0.12) and the seven of them were indistinguishable from one
-   another on a card. Same hues, chroma raised to roughly the dark default,
-   so a magenta row and a cyan row read as different colours again. */
-.theme-silverball {
-  --color-deep: oklch(18% 0.005 260);
-  --color-surface: oklch(22% 0.008 260);
-  --color-raised: oklch(27% 0.01 260);
-  --color-border: oklch(40% 0.015 260);
-  --color-border-glow: oklch(72% 0.05 250);
-  --color-neon-cyan: oklch(76% 0.13 230);
-  --color-neon-magenta: oklch(68% 0.19 350);
-  --color-neon-green: oklch(76% 0.14 160);
-  --color-neon-amber: oklch(83% 0.17 80);
-  --color-neon-purple: oklch(68% 0.16 280);
-  --color-neon-coral: oklch(74% 0.17 20);
-  --color-neon-blue: oklch(72% 0.13 240);
-  --color-primary: oklch(88% 0.01 260);
-  --color-muted: oklch(72% 0.01 260);
-  --color-faint: oklch(62% 0.008 260);
+  --color-deep: oklch(19% 0.04 42);
+  --color-surface: oklch(23.5% 0.046 42);
+  --color-raised: oklch(28% 0.05 42);
+  --color-border: oklch(39% 0.06 48);
+  --color-border-glow: oklch(80% 0.144 62);
+  --color-neon-cyan: oklch(80% 0.144 62);
+  --color-neon-magenta: oklch(70% 0.19 28);
+  --color-neon-green: oklch(82% 0.16 120);
+  --color-neon-amber: oklch(89% 0.16 95);
+  --color-neon-purple: oklch(76% 0.12 310);
+  --color-neon-coral: oklch(74% 0.17 2);
+  --color-neon-blue: oklch(76% 0.11 235);
+  --color-primary: oklch(95% 0.035 85);
+  --color-muted: oklch(82% 0.05 78);
+  --color-faint: oklch(72% 0.055 70);
+  --color-lead: var(--color-neon-cyan);
+  --color-second: var(--color-neon-magenta);
 }
 
 /* Base resets */
@@ -1039,7 +977,7 @@
 }
 
 /* s20: color-scheme default lives on <html> (not body) so the per-theme
-   `.theme-light`/`.theme-arctic`/`.theme-paper` overrides above actually
+   `.theme-light`/`.theme-paper`/`.theme-speegle` overrides above actually
    take effect —
    color-scheme is inherited, and an explicit value on body would otherwise
    always win over html's for every descendant regardless of theme class. */
@@ -1079,7 +1017,6 @@ select option {
 
 /* Light + flat themes: no CRT veil. */
 .theme-light .scanlines::after,
-.theme-arctic .scanlines::after,
 .theme-paper .scanlines::after,
 .theme-speegle .scanlines::after,
 .theme-graphite .scanlines::after,
@@ -1088,59 +1025,50 @@ select option {
   background: none;
 }
 
-/* Retro theme: green-tinted scanlines, stronger effect */
+/* Retro theme: scanlines, stronger than the default veil (0.10 since
+   v2.263.0, when the ground was lifted off black) */
 .theme-retro .scanlines::after {
   background: repeating-linear-gradient(
     0deg,
     transparent,
     transparent 1px,
-    rgba(0, 0, 0, 0.15) 1px,
-    rgba(0, 0, 0, 0.15) 3px
+    rgba(0, 0, 0, 0.10) 1px,
+    rgba(0, 0, 0, 0.10) 3px
   );
 }
 
-/* Retro theme: phosphor glow on the entire page */
+/* Retro theme: phosphor glow on the entire page, in the theme's lead */
 .theme-retro {
-  text-shadow: 0 0 4px oklch(75% 0.2 140 / 0.4);
+  text-shadow: 0 0 4px color-mix(in srgb, var(--color-lead) 30%, transparent);
 }
 
-/* Retro theme: green-tinted borders and inputs */
+/* Retro theme: borders and inputs in the theme's own tokens */
 .theme-retro input,
 .theme-retro select,
 .theme-retro textarea {
-  border-color: oklch(40% 0.1 140);
-  color: oklch(85% 0.15 140);
+  border-color: var(--color-border);
+  color: var(--color-primary);
 }
 
 .theme-retro input:focus,
 .theme-retro select:focus,
 .theme-retro textarea:focus {
-  border-color: oklch(70% 0.2 140);
-  box-shadow: 0 0 6px oklch(70% 0.2 140 / 0.3);
+  border-color: var(--color-lead);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--color-lead) 30%, transparent);
 }
 
-/* Backglass theme: warm amber text glow */
+/* Backglass theme: warm text glow, in the theme's lead */
 .theme-backglass {
-  text-shadow: 0 0 3px oklch(75% 0.15 65 / 0.3);
+  text-shadow: 0 0 3px color-mix(in srgb, var(--color-lead) 22%, transparent);
 }
 
-/* Silverball theme: no scanlines, subtle metallic sheen */
-.theme-silverball .scanlines::after {
-  background: none;
-}
-
-/* Ember theme: faint warm bloom, half the strength of Backglass's. */
-.theme-ember {
-  text-shadow: 0 0 3px oklch(76% 0.15 62 / 0.18);
-}
-
-/* Synthwave theme: the horizon behind the page. Set on <html> AND body —
-   body carries an opaque bg-deep, so html alone would never show. */
+/* Synthwave theme: the horizon behind the page. Set on <html> AND body,
+   because body carries an opaque bg-deep, so html alone would never show.
+   Since v2.263.0 it sits low, behind the panels, never behind text on the
+   bare page. */
 .theme-synthwave body,
 .theme-synthwave {
-  background-image:
-    radial-gradient(120% 70% at 50% 108%, oklch(58% 0.22 330 / 0.30) 0%, transparent 62%),
-    linear-gradient(180deg, oklch(20% 0.10 285 / 0.55) 0%, transparent 46%);
+  background-image: radial-gradient(120% 40% at 50% 110%, color-mix(in srgb, var(--color-neon-magenta) 22%, transparent) 0%, transparent 62%);
   background-repeat: no-repeat;
   background-attachment: fixed;
 }
@@ -1335,10 +1263,6 @@ select option {
 .theme-light .glow-green,
 .theme-light .glow-magenta,
 .theme-light .glow-amber,
-.theme-arctic .glow-cyan,
-.theme-arctic .glow-green,
-.theme-arctic .glow-magenta,
-.theme-arctic .glow-amber,
 .theme-paper .glow-cyan,
 .theme-paper .glow-green,
 .theme-paper .glow-magenta,
@@ -2222,14 +2146,15 @@ select option {
    chip; a panel inside a group takes the group's. The panel has no drop
    shadow (the kit's is for the Witness picture), and the two glows (the
    panel's top light bar, the jump chip's dot) are for a dark page:
-   `light-dark()` reads the theme's own `color-scheme` (light on the four
+   `light-dark()` reads the theme's own `color-scheme` (light on the three
    light themes, dark on <html> and on `.sb-theme-scope`), so a dark island
    inside a light page keeps its glow and a light one inside a dark page has
    none. */
 .part-jumplayout, .part-jump, .part-group, .part-panel, .part-title { --part-u: 0.32px; }
 
-/* The colours. Cyan is the default; `:where` keeps a tone class on the panel
-   itself in charge, and the `:not` leaves a panel in a group to inherit. */
+/* The colours. The theme's lead is the default (v2.263.0); `:where` keeps a
+   tone class on the panel itself in charge, and the `:not` leaves a panel in
+   a group to inherit. */
 .part-group, .part-jump__item { --part-tone: var(--color-neon-cyan); --part-ink: var(--part-tone); }
 :where(.part-panel:not(.part-group .part-panel)) { --part-tone: var(--color-neon-cyan); --part-ink: var(--part-tone); }
 .part-tone--pink   { --part-tone: var(--color-neon-magenta); }

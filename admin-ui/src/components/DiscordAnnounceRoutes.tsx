@@ -79,7 +79,7 @@ export default function DiscordAnnounceRoutes({ roomId, settings, onSaveNow }: P
           Where each kind of post goes. Anything left on Room default uses the Default Announcement Channel above.
           A tournament&rsquo;s own Announcements setting overrides these.
         </p>
-        {channelsMessage && <p className="text-xs text-neon-magenta mt-1">{channelsMessage}</p>}
+        {channelsMessage && <p className="text-xs text-neon-coral mt-1">{channelsMessage}</p>}
       </div>
 
       <div className="divide-y divide-border/40">

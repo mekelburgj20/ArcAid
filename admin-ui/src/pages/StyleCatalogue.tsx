@@ -251,7 +251,7 @@ function StyleCard({ style, onClick, onDelete, onApply }: { style: Style; onClic
           {onDelete && (
             <button
               onClick={e => { e.stopPropagation(); onDelete(); }}
-              className="p-1 bg-black/60 rounded text-muted hover:text-neon-magenta border-0 cursor-pointer"
+              className="p-1 bg-black/60 rounded text-muted hover:text-neon-coral border-0 cursor-pointer"
               title="Delete"
             >
               <Trash2 size={14} />
@@ -499,7 +499,7 @@ function UploadModal({ uploadPath, onClose, onUploaded }: { uploadPath: string; 
                 <img src={bgPreview} alt="Background preview" className="w-full h-32 object-cover" />
                 <button
                   onClick={() => handleBgSelect(null)}
-                  className="absolute top-1 right-1 p-1 bg-black/60 rounded text-muted hover:text-neon-magenta border-0 cursor-pointer"
+                  className="absolute top-1 right-1 p-1 bg-black/60 rounded text-muted hover:text-neon-coral border-0 cursor-pointer"
                 >
                   <X size={14} />
                 </button>
@@ -546,7 +546,7 @@ function UploadModal({ uploadPath, onClose, onUploaded }: { uploadPath: string; 
                 <img src={headerPreview} alt="Game identifier preview" className="w-full h-24 object-contain bg-raised" />
                 <button
                   onClick={() => handleHeaderSelect(null)}
-                  className="absolute top-1 right-1 p-1 bg-black/60 rounded text-muted hover:text-neon-magenta border-0 cursor-pointer"
+                  className="absolute top-1 right-1 p-1 bg-black/60 rounded text-muted hover:text-neon-coral border-0 cursor-pointer"
                 >
                   <X size={14} />
                 </button>

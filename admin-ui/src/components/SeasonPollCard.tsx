@@ -132,7 +132,7 @@ export function SeasonPollCard({ summary, now, loggedIn, busy, error, showLogin,
                 )}
             </div>
 
-            {error && <p className="mt-2 text-xs text-neon-magenta" role="alert">{error}</p>}
+            {error && <p className="mt-2 text-xs text-neon-coral" role="alert">{error}</p>}
 
             {showLogin && !loggedIn && (
                 <div className="mt-3 pt-3 border-t border-border/40">

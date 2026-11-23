@@ -309,7 +309,7 @@ export default function CalloutsCard() {
 
             {pending && (
               <p
-                className={`text-xs mt-3 ${pending.result.ok ? 'text-neon-green' : 'text-neon-magenta'}`}
+                className={`text-xs mt-3 ${pending.result.ok ? 'text-neon-green' : 'text-neon-coral'}`}
                 data-testid="callout-upload-preview"
               >
                 {pending.result.ok
@@ -471,7 +471,7 @@ export default function CalloutsCard() {
                         </NeonButton>
                         <NeonButton
                           variant="ghost"
-                          className="text-xs px-2 py-1 text-neon-magenta hover:text-neon-magenta"
+                          className="text-xs px-2 py-1 text-neon-coral hover:text-neon-coral"
                           onClick={() => setDeletingId(row.id)}
                         >
                           Delete
