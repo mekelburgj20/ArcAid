@@ -5,6 +5,7 @@ import { api, isAuthenticated, getTokenRole, setToken } from '../lib/api';
 import LoadingState from './LoadingState';
 import UpdateNudgeBanner from './UpdateNudgeBanner';
 import GlobalThemeToggle from './GlobalThemeToggle';
+import ThemeFloor from './ThemeFloor';
 
 export default function SuperAdminLayout() {
   const location = useLocation();
@@ -84,6 +85,10 @@ export default function SuperAdminLayout() {
 
   return (
     <div className="flex min-h-screen scanlines">
+      {/* G29 (v2.264.0): the carpet floor. First child, so the page behind
+          it shows through and the positioned main, the fixed bars and the
+          sidebar paint over it. */}
+      <ThemeFloor />
       {/* Stale-PWA "new version available" nudge — fixed position. */}
       <UpdateNudgeBanner />
       {/* Mobile top bar — pt grows by the top safe-area inset so the
@@ -173,8 +178,8 @@ export default function SuperAdminLayout() {
         </div>
       </aside>
 
-      {/* Main Content */}
-      <main className="flex-1 min-w-0 md:ml-60 p-4 md:p-6 pt-[calc(4rem+env(safe-area-inset-top,0px))] md:pt-6">
+      {/* Main Content. `relative` keeps it above the carpet floor. */}
+      <main className="relative flex-1 min-w-0 md:ml-60 p-4 md:p-6 pt-[calc(4rem+env(safe-area-inset-top,0px))] md:pt-6">
         <Outlet />
       </main>
     </div>

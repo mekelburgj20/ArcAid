@@ -4,6 +4,7 @@ import { useTheme } from './ThemeProvider';
 import type { ThemeId } from '../lib/themeIds';
 import AppearanceControl from './AppearanceControl';
 import ThemePicker from './ThemePicker';
+import { MyFloorToggle } from './FloorToggle';
 import { saveRoomTheme } from '../lib/roomThemes';
 import type { ScoreboardStyle } from '../lib/scoreboardThemes';
 import { SHOWCASE_THEMES, DEFAULT_SHOWCASE_THEME } from '../lib/scoreboardThemes';
@@ -569,6 +570,9 @@ export default function ScoreboardPreferencesModal({
                 Applies to every game room and your admin pages. Appearance (above) still wins on
                 light/dark.
               </p>
+              {/* G29 (v2.264.0): the viewer's carpet floor, saved at once like
+                  the theme above. */}
+              <MyFloorToggle look="sheet" className="mt-1" />
             </section>
 
             {/* ══ 3. This room ═══════════════════════════════════════════

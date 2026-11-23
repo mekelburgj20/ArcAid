@@ -6,6 +6,7 @@ import NeonButton from '../components/NeonButton';
 import LoadingState from '../components/LoadingState';
 import { THEMES, useTheme } from '../components/ThemeProvider';
 import ThemePicker from '../components/ThemePicker';
+import { MyFloorToggle } from '../components/FloorToggle';
 import CalloutsCard from '../components/CalloutsCard';
 import SigningKeysCard from '../components/SigningKeysCard';
 
@@ -270,6 +271,8 @@ export default function GlobalSettings() {
               Your own theme, on every game room and these admin pages. Only affects your account —
               other admins see their own. Also editable under Display settings in the user menu.
             </p>
+            {/* G29 (v2.264.0): the viewer's carpet floor, saved at once. */}
+            <MyFloorToggle look="settings" className="mt-4" />
           </div>
         </div>
       </NeonCard>

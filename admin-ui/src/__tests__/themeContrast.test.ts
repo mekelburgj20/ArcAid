@@ -23,9 +23,18 @@ type Audit = {
     failures: Array<Row & { theme: string }>;
 };
 
+type FloorRow = {
+    theme: string; scheme: string; cap: number; allowed: number; declared?: number; hidden: boolean;
+    worst: { ratio: number; text: string; paint: string } | null; fail: boolean;
+};
+
 const requireFromRoot = createRequire(resolve(ROOT, 'package.json'));
-const { auditCss } = requireFromRoot('./scripts/contrastAudit.cjs') as { auditCss: (css: string) => Audit };
-const result = auditCss(readFileSync(resolve(ROOT, 'src/index.css'), 'utf8'));
+const { auditCss, floorAudit } = requireFromRoot('./scripts/contrastAudit.cjs') as {
+    auditCss: (css: string) => Audit;
+    floorAudit: (css: string) => { rows: FloorRow[]; failures: FloorRow[] };
+};
+const css = readFileSync(resolve(ROOT, 'src/index.css'), 'utf8');
+const result = auditCss(css);
 
 describe('theme contrast', () => {
     it('audits exactly the shipped themes', () => {
@@ -63,5 +72,45 @@ describe('theme contrast', () => {
                 expect(row.value, `${theme.name} ${token} resolves`).not.toMatch(/^var\(/);
             }
         }
+    });
+});
+
+/**
+ * G29 (v2.264.0): the carpet floor behind themed pages is only as strong as
+ * each palette allows. `floorAudit` recomputes the allowed opacity from the
+ * theme blocks (so a retuned palette is judged as it now is) and compares it
+ * with the "Carpet floor" block's declared one.
+ */
+describe('carpet floor contrast', () => {
+    const floor = floorAudit(css);
+
+    it('judges every shipped theme', () => {
+        expect(floor.rows.map(r => r.theme).sort()).toEqual(result.themes.map(t => t.name).sort());
+    });
+
+    it('declares no floor stronger than its palette allows', () => {
+        const misses = floor.failures.map(f => `${f.theme}: declared ${f.declared ?? '(none)'}%, allowed ${f.allowed}%`);
+        expect(misses).toEqual([]);
+        for (const row of floor.rows) {
+            if (row.hidden) continue;
+            expect(row.worst!.ratio, `${row.theme} worst text on the floor`).toBeGreaterThanOrEqual(4.5);
+            expect(row.declared!, `${row.theme} cap`).toBeLessThanOrEqual(row.cap);
+        }
+    });
+
+    it('caps a light theme at 12% and a dark one at 16%', () => {
+        for (const row of floor.rows) expect(row.cap, row.theme).toBe(row.scheme === 'light' ? 12 : 16);
+        expect(floor.rows.filter(r => r.scheme === 'light').map(r => r.theme).sort())
+            .toEqual(['theme-light', 'theme-paper', 'theme-speegle']);
+    });
+
+    it('never shows the floor under High contrast', () => {
+        expect(floor.rows.find(r => r.theme === 'theme-contrast')?.hidden).toBe(true);
+    });
+
+    it('fails a declaration stronger than allowed', () => {
+        const stronger = css.replace(/^(\.carpet-floor\s*\{[^}]*?opacity:\s*)[\d.]+/m, (_m, head: string) => `${head}0.5`);
+        expect(stronger).not.toBe(css);
+        expect(floorAudit(stronger).failures.map(f => f.theme)).toContain('dark (default)');
     });
 });

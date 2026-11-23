@@ -3858,6 +3858,14 @@ async function doInitDatabase(): Promise<Database> {
             const { remapRetiredThemeIds } = await import('./migrations/themeOverhaul.js');
             await remapRetiredThemeIds(db, 'migration 220');
         } },
+        // G29 (v2.264.0): the viewer's carpet floor choice. `'on'` / `'off'`
+        // once they flip the switch beside their theme picker; NULL (every
+        // existing row) follows the room's `UI_FLOOR` setting. A handler so
+        // the column check makes it idempotent without swallowing errors.
+        { name: '221_user_floor_preference', handler: async (db) => {
+            const { addUserFloorPreference } = await import('./migrations/userFloorPreference.js');
+            await addUserFloorPreference(db);
+        } },
     ];
 
     for (const migration of migrations) {

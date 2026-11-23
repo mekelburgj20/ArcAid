@@ -11,6 +11,7 @@ import { isProviderUserId, isDiscordUserId } from '../../utils/identityProvider.
 import { iscoredDeletesAllowed, ISCORED_DELETES_DISABLED_MESSAGE, type IScoredCreds } from '../../utils/iscoredCreds.js';
 import { nextRotationIso } from '../../utils/cronUtils.js';
 import { roomTimezone, resolveTimezone, isValidTimeZone, ROOM_TIMEZONE_KEY } from '../../utils/roomTimezone.js';
+import { UI_FLOOR_KEY, isFloorChoice, roomFloorSetting } from '../../utils/floorSetting.js';
 import { DISCORD_COMMAND_POLICY_KEY, serializeCommandPolicy } from '../../utils/discordCommandPolicy.js';
 import { DISCORD_ANNOUNCE_ROUTES_KEY, serializeAnnounceRoutes } from '../../utils/discordAnnounceRoutes.js';
 import {
@@ -278,6 +279,7 @@ router.get('/:roomId/portal', async (req, res) => {
 
         const uiTheme = await GameRoomSettingsService.get(room.id, 'UI_THEME');
         const adminTheme = await GameRoomSettingsService.get(room.id, 'ADMIN_THEME');
+        const uiFloor = roomFloorSetting(await GameRoomSettingsService.get(room.id, UI_FLOOR_KEY));
         const { RoomAccessService } = await import('../../services/RoomAccessService.js');
         const joinPolicy = await RoomAccessService.getJoinPolicy(room.id);
         const authHeader = req.headers['authorization'];
@@ -292,6 +294,7 @@ router.get('/:roomId/portal', async (req, res) => {
             logo_url: room.logo_url || null,
             ui_theme: uiTheme || 'dark',
             admin_theme: adminTheme || 'dark',
+            ui_floor: uiFloor,
             join_policy: joinPolicy,
             viewer_status: viewerStatus,
         });
@@ -5109,6 +5112,15 @@ router.post('/:roomId/settings', requireAuth, requireRoomAccess('roomId'), requi
                 return res.status(400).json({ error: `'${tz}' is not a valid IANA timezone.`, code: 'ROOM_TIMEZONE_INVALID' });
             }
             validationResult.data[ROOM_TIMEZONE_KEY] = tz;
+        }
+        // G29 (v2.264.0): the carpet floor switch is 'on' or 'off' (an empty
+        // value clears it, which reads as on). Anything else is refused.
+        if (Object.prototype.hasOwnProperty.call(validationResult.data, UI_FLOOR_KEY)) {
+            const floor = (validationResult.data[UI_FLOOR_KEY] ?? '').trim();
+            if (floor !== '' && !isFloorChoice(floor)) {
+                return res.status(400).json({ error: `'${floor}' is not a carpet floor value ('on' or 'off').`, code: 'UI_FLOOR_INVALID' });
+            }
+            validationResult.data[UI_FLOOR_KEY] = floor;
         }
         // v2.217.0 (E7): the slash-command policy is re-serialized through its
         // parser so garbage never lands in the DB ('' = nothing restricted,

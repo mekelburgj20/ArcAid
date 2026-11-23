@@ -1,5 +1,6 @@
 import { getDatabase } from '../database/database.js';
 import { isThemeId, normalizeThemeId, type ThemeId } from '../utils/themeIds.js';
+import { viewerFloorChoice, type FloorChoice } from '../utils/floorSetting.js';
 
 // v2.133.0 — the id list, the legacy fold and the type all live in
 // `src/utils/themeIds.ts` (mirrored byte-identically in
@@ -126,6 +127,30 @@ export class PreferencesService {
     }
 
     /**
+     * The viewer's carpet floor choice (G29, v2.264.0), or null when they have
+     * never flipped the switch, which means the room's `UI_FLOOR` applies. A
+     * junk value in the column reads as null, never as a choice.
+     */
+    static async getFloor(discordUserId: string): Promise<FloorChoice | null> {
+        const db = await getDatabase();
+        const row = await db.get(
+            'SELECT ui_floor FROM user_preferences WHERE discord_user_id = ?',
+            discordUserId
+        );
+        return viewerFloorChoice(row?.ui_floor);
+    }
+
+    /** Stores `'on'` / `'off'`; null stores NULL ("follow the room"). */
+    static async setFloor(discordUserId: string, floor: FloorChoice | null): Promise<void> {
+        const db = await getDatabase();
+        await db.run(
+            `INSERT INTO user_preferences (discord_user_id, ui_floor) VALUES (?, ?)
+             ON CONFLICT(discord_user_id) DO UPDATE SET ui_floor = excluded.ui_floor`,
+            discordUserId, viewerFloorChoice(floor)
+        );
+    }
+
+    /**
      * Whether this player's room scores fan out to the Global Scoreboard
      * (v2.137.0).
      *
@@ -172,10 +197,11 @@ export class PreferencesService {
         return !(await PreferencesService.getShareToGlobal(discordUserId));
     }
 
-    static async getAll(discordUserId: string): Promise<{ ui_theme: ThemeId | null; appearance: Appearance | null; share_to_global: boolean }> {
+    static async getAll(discordUserId: string): Promise<{ ui_theme: ThemeId | null; appearance: Appearance | null; ui_floor: FloorChoice | null; share_to_global: boolean }> {
         const theme = await this.getTheme(discordUserId);
         const appearance = await this.getAppearance(discordUserId);
-        return { ui_theme: theme, appearance, share_to_global: await this.getShareToGlobal(discordUserId) };
+        const floor = await this.getFloor(discordUserId);
+        return { ui_theme: theme, appearance, ui_floor: floor, share_to_global: await this.getShareToGlobal(discordUserId) };
     }
 
     /**

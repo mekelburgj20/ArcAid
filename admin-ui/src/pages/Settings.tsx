@@ -7,6 +7,8 @@ import { useToast } from '../components/Toast';
 import { useTheme } from '../components/ThemeProvider';
 import { normalizeThemeId, type ThemeId } from '../lib/themeIds';
 import ThemePicker from '../components/ThemePicker';
+import { FloorToggle } from '../components/FloorToggle';
+import { roomFloorChoice, UI_FLOOR_KEY } from '../lib/floor';
 import NeonCard from '../components/NeonCard';
 import NeonButton from '../components/NeonButton';
 import ConfirmModal from '../components/ConfirmModal';
@@ -487,6 +489,9 @@ const TOGGLE_DEFAULTS: Record<string, boolean> = {
 // True iff key k differs between two settings snapshots. Boolean toggles compare
 // by effective on/off (default-resolved); everything else by string value.
 const settingChanged = (k: string, a: Record<string, string>, b: Record<string, string>): boolean => {
+  // G29: the carpet floor is 'on'/'off' with absent = on, so it compares by
+  // the state it shows, like the boolean toggles below.
+  if (k === UI_FLOOR_KEY) return roomFloorChoice(a[k]) !== roomFloorChoice(b[k]);
   if (k in TOGGLE_DEFAULTS) {
     const eff = (src: Record<string, string>) => (src[k] !== undefined ? src[k] === 'true' : TOGGLE_DEFAULTS[k]);
     return eff(a) !== eff(b);
@@ -624,7 +629,7 @@ export default function Settings() {
   const room = useRoom();
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { publicTheme, setPublicTheme } = useTheme();
+  const { publicTheme, setPublicTheme, setPublicFloor } = useTheme();
   const [settings, setSettings] = useState<Record<string, string>>({});
   // Snapshot of the last-loaded/saved settings — the dirty baseline. State (not
   // a ref) so resetting it after save/load triggers a recompute of `isDirty`.
@@ -983,8 +988,8 @@ export default function Settings() {
     'SCOREBOARD_BG_URL', 'SCOREBOARD_BG_MODE', 'SCOREBOARD_BG_OPACITY',
     'LOGO_URL', 'LOGO_POSITION', 'LOGO_MAX_HEIGHT', 'SCOREBOARD_LOGO_ENABLED',
     'SCOREBOARD_TITLE', 'SCOREBOARD_TITLE_STYLE', 'SCOREBOARD_TITLE_SIZE',
-    // Theme (managed in Theme card)
-    'UI_THEME',
+    // Theme (managed in Theme card), and the carpet floor switch under it (G29)
+    'UI_THEME', UI_FLOOR_KEY,
     // Style-system revamp P0 (item 13) — ADMIN_THEME is managed via the Theme
     // card's "Admin Theme" select (saved through /me/preferences, not
     // handleChange), and SCOREBOARD_RANKINGS_STYLE is managed via the
@@ -1382,6 +1387,20 @@ export default function Settings() {
             public leaderboard, kiosk, and all public-facing pages.
           </p>
         </div>
+        {/* G29 (v2.264.0): the room's carpet floor, saved with the rest of
+            the page. `setPublicFloor` keeps the room's first-paint mirror in
+            step, like `setPublicTheme` above. */}
+        <FloorToggle
+          scope="room"
+          look="settings"
+          className="mt-4"
+          checked={roomFloorChoice(settings[UI_FLOOR_KEY]) === 'on'}
+          onChange={on => {
+            const next = on ? 'on' : 'off';
+            handleChange(UI_FLOOR_KEY, next);
+            setPublicFloor(next, room.roomSlug);
+          }}
+        />
       </NeonCard>
 
       {categorized.map(({ category, entries }) => entries.length > 0 && (
