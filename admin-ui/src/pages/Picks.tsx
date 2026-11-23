@@ -1304,7 +1304,7 @@ export default function Picks() {
                   data-testid="picks-queue-tab-all"
                   className={`flex-shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-xs font-medium border cursor-pointer transition-colors ${
                     activeQueueTab === 'all'
-                      ? 'border-lead/50 text-lead bg-lead/10'
+                      ? 'border-lead/50 ink-lead bg-lead/10'
                       : 'bg-deep border-border text-muted hover:text-primary'
                   }`}
                   style={activeQueueTab === 'all' ? { boxShadow: '0 0 10px color-mix(in oklab, var(--color-lead) 25%, transparent)' } : undefined}
@@ -1319,7 +1319,7 @@ export default function Picks() {
                     data-testid={`picks-queue-tab-${group.tournamentId}`}
                     className={`flex-shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-xs font-medium border cursor-pointer transition-colors ${
                       activeQueueTab === group.tournamentId
-                        ? 'border-lead/50 text-lead bg-lead/10'
+                        ? 'border-lead/50 ink-lead bg-lead/10'
                         : 'bg-deep border-border text-muted hover:text-primary'
                     }`}
                     style={activeQueueTab === group.tournamentId ? { boxShadow: '0 0 10px color-mix(in oklab, var(--color-lead) 25%, transparent)' } : undefined}
@@ -1356,7 +1356,7 @@ export default function Picks() {
                             </div>
                             <button
                               onClick={() => handleDeleteQueued(q.id)}
-                              className="p-1 text-muted hover:text-neon-magenta transition-colors cursor-pointer flex-shrink-0"
+                              className="p-1 text-muted hover:text-neon-coral transition-colors cursor-pointer flex-shrink-0"
                               title="Remove from queue"
                             >
                               <X size={14} />
@@ -1481,7 +1481,7 @@ export default function Picks() {
                             </button>
                             <button
                               onClick={() => handleDeleteQueued(q.id)}
-                              className="p-1 text-muted hover:text-neon-magenta transition-colors cursor-pointer"
+                              className="p-1 text-muted hover:text-neon-coral transition-colors cursor-pointer"
                               title="Remove from queue"
                             >
                               <X size={14} />

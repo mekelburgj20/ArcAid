@@ -241,7 +241,7 @@ export default function PublicStats() {
               aria-selected={view === 'players'}
               onClick={() => setView('players')}
               className={`flex items-center gap-1.5 px-3 py-1.5 text-xs transition-colors cursor-pointer ${
-                view === 'players' ? 'bg-lead/20 text-lead' : 'text-muted hover:text-primary'
+                view === 'players' ? 'bg-lead/10 ink-lead' : 'text-muted hover:text-primary'
               }`}
             >
               <Users size={12} />
@@ -252,7 +252,7 @@ export default function PublicStats() {
               aria-selected={view === 'games'}
               onClick={() => setView('games')}
               className={`flex items-center gap-1.5 px-3 py-1.5 text-xs transition-colors cursor-pointer ${
-                view === 'games' ? 'bg-lead/20 text-lead' : 'text-muted hover:text-primary'
+                view === 'games' ? 'bg-lead/10 ink-lead' : 'text-muted hover:text-primary'
               }`}
             >
               <Gamepad2 size={12} />

@@ -50,7 +50,7 @@ function TabSwitcher({ tab, onSelect }: { tab: ScoresTab; onSelect: (next: Score
         >
           <span className={`px-3 py-1 text-xs rounded-lg border transition-colors whitespace-nowrap ${
             tab === t
-              ? 'bg-lead/10 border-lead/40 text-lead'
+              ? 'bg-lead/10 border-lead/40 ink-lead'
               : 'border-border/50 text-muted hover:text-primary'
           }`}>
             {TAB_LABELS[t]}

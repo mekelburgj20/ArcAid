@@ -5,7 +5,7 @@ import NeonButton from '../components/NeonButton';
 type LogLevel = 'ALL' | 'ERROR' | 'WARN' | 'INFO' | 'DEBUG';
 
 const levelColors: Record<string, string> = {
-  ERROR: 'text-neon-magenta',
+  ERROR: 'text-neon-coral',
   WARN: 'text-neon-amber',
   INFO: 'text-primary',
   DEBUG: 'text-muted',
@@ -70,7 +70,7 @@ export default function Logs() {
   const filterChips: LogLevel[] = ['ALL', 'ERROR', 'WARN', 'INFO', 'DEBUG'];
   const chipColors: Record<LogLevel, string> = {
     ALL: 'border-border text-muted',
-    ERROR: 'border-neon-magenta/40 text-neon-magenta',
+    ERROR: 'border-neon-coral/40 text-neon-coral',
     WARN: 'border-neon-amber/40 text-neon-amber',
     INFO: 'border-neon-cyan/40 text-neon-cyan',
     DEBUG: 'border-border text-faint',

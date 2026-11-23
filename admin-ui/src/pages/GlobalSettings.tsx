@@ -290,7 +290,7 @@ export default function GlobalSettings() {
                 </div>
                 <button
                   onClick={() => handleRemoveSuperAdmin(admin.discord_user_id)}
-                  className="text-xs text-faint hover:text-neon-magenta cursor-pointer bg-transparent border-none"
+                  className="text-xs text-faint hover:text-neon-coral cursor-pointer bg-transparent border-none"
                 >
                   Remove
                 </button>

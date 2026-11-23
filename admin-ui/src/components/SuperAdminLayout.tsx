@@ -134,7 +134,7 @@ export default function SuperAdminLayout() {
                 className={`
                   flex items-center gap-3 px-5 py-3 text-sm font-medium transition-all no-underline
                   ${isActive
-                    ? 'text-lead bg-lead/10 border-r-2 border-lead'
+                    ? 'ink-lead bg-lead/10 border-r-2 border-lead'
                     : 'text-muted hover:text-primary hover:bg-raised/50'
                   }
                 `}

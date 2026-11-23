@@ -573,7 +573,7 @@ export default function Tournaments() {
               const info = runInfo[t.id];
               if (!info?.lastRun) return <span className="text-faint text-xs">—</span>;
               const o = info.lastRun.outcome;
-              const color = o === 'error' ? 'text-neon-magenta' : o === 'skipped' ? 'text-muted' : 'text-neon-green';
+              const color = o === 'error' ? 'text-neon-coral' : o === 'skipped' ? 'text-muted' : 'text-neon-green';
               const label = o === 'error' ? 'Error' : o === 'skipped' ? 'Skipped' : 'OK';
               return (
                 <span className={`text-xs ${color}`} title={info.lastRun.summary || undefined}>

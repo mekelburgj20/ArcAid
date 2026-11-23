@@ -62,7 +62,7 @@ export default function CorrectScoreModal({ playerLabel, currentScore, onConfirm
             className="w-full px-3 py-2 bg-raised border border-border rounded text-primary text-sm focus:outline-none focus:border-neon-cyan transition-colors"
           />
           {magnitude && <p className="text-xs text-faint">{magnitude}</p>}
-          {tooLarge && <p className="text-xs text-neon-magenta">That number is too large to record exactly.</p>}
+          {tooLarge && <p className="text-xs text-neon-coral">That number is too large to record exactly.</p>}
           {unchanged && <p className="text-xs text-faint">That is already the recorded score.</p>}
           <p className="text-xs text-muted pt-1">
             Changes the value in place — the score, its photo and its place in the player&apos;s

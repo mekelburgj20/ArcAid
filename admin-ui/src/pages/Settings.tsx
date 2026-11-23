@@ -71,7 +71,7 @@ function IScoredCredentialsCheck() {
             ✓ Logged in as <span className="font-mono">{result.username}</span>
           </span>
         ) : (
-          <span className="text-xs text-neon-magenta">
+          <span className="text-xs text-neon-coral">
             ✗ {result.error}{result.username ? ` (tried: ${result.username})` : ''}
           </span>
         )
@@ -1063,7 +1063,7 @@ export default function Settings() {
               </div>
               <NeonButton
                 variant="ghost"
-                className="text-xs px-2 py-1 text-neon-magenta hover:text-neon-magenta"
+                className="text-xs px-2 py-1 text-neon-coral hover:text-neon-coral"
                 onClick={() => handleRemoveDiscordAdmin(admin.discord_user_id)}
               >
                 Remove
@@ -1155,7 +1155,7 @@ export default function Settings() {
                 </div>
                 <NeonButton
                   variant="ghost"
-                  className="text-xs px-2 py-1 text-neon-magenta hover:text-neon-magenta"
+                  className="text-xs px-2 py-1 text-neon-coral hover:text-neon-coral"
                   onClick={() => setDeleteAdminTarget(admin)}
                 >
                   Remove
@@ -1192,7 +1192,7 @@ export default function Settings() {
                   </NeonButton>
                   <NeonButton
                     variant="ghost"
-                    className="text-xs px-2 py-1 text-neon-magenta hover:text-neon-magenta"
+                    className="text-xs px-2 py-1 text-neon-coral hover:text-neon-coral"
                     onClick={() => handleCancelInvite(inv.id)}
                   >
                     Cancel

@@ -165,7 +165,7 @@ export default function Dashboard() {
 
       {error && (
         <NeonCard glowColor="magenta" className="mb-6">
-          <h3 className="text-neon-magenta font-bold mb-1">Connection Error</h3>
+          <h3 className="text-neon-coral font-bold mb-1">Connection Error</h3>
           <p className="text-muted text-sm">Could not load dashboard data. The backend may not support the dashboard endpoint yet.</p>
         </NeonCard>
       )}
@@ -179,7 +179,7 @@ export default function Dashboard() {
             {(() => {
               const enabled = health?.discord.enabled ?? true;
               const ready = health ? health.discord.ready : (data?.systemHealth.botOnline ?? false);
-              const dot = !enabled ? 'bg-faint' : ready ? 'bg-neon-green pulse' : 'bg-neon-magenta';
+              const dot = !enabled ? 'bg-faint' : ready ? 'bg-neon-green pulse' : 'bg-neon-coral';
               return (
                 <>
                   <span className={`w-2.5 h-2.5 rounded-full ${dot}`} />
@@ -242,7 +242,7 @@ export default function Dashboard() {
 
         {/* Poller failure detail, if any */}
         {health && health.poller.accounts.some(a => a.consecutiveErrors > 0) && (
-          <div className="mt-3 pt-3 border-t border-border text-xs text-neon-magenta space-y-0.5">
+          <div className="mt-3 pt-3 border-t border-border text-xs text-neon-coral space-y-0.5">
             {health.poller.accounts.filter(a => a.consecutiveErrors > 0).map(a => (
               <div key={a.name}>
                 iScored “{a.name}”: {a.consecutiveErrors} consecutive failure(s){a.lastError ? ` — ${a.lastError}` : ''}

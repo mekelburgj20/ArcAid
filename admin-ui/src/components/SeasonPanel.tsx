@@ -128,7 +128,7 @@ const STATUS_META: Record<PollStatus, { label: string; tone: string }> = {
     draft: { label: 'Draft', tone: 'bg-border/30 text-muted border-border' },
     open: { label: 'Open', tone: 'bg-neon-green/15 text-neon-green border-neon-green/40' },
     resolved: { label: 'Resolved', tone: 'bg-neon-cyan/15 text-neon-cyan border-neon-cyan/40' },
-    cancelled: { label: 'Cancelled', tone: 'bg-neon-magenta/10 text-neon-magenta border-neon-magenta/40' },
+    cancelled: { label: 'Cancelled', tone: 'bg-neon-coral/10 text-neon-coral border-neon-coral/40' },
 };
 
 /** SQLite `datetime('now')` ships without a zone; everything else is ISO UTC. */
@@ -417,7 +417,7 @@ function PollEditor({ roomId, tournamentId, tz, defaultTieRule, editor, setEdito
                         <p className="text-xs text-faint">The poll must close before the next rotation; the server will say so if it doesn't.</p>
                     </div>
                 )}
-                {timeError && <p className="text-xs text-neon-magenta mt-1" role="alert">{timeError}</p>}
+                {timeError && <p className="text-xs text-neon-coral mt-1" role="alert">{timeError}</p>}
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

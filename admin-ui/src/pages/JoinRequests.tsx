@@ -133,7 +133,7 @@ export default function JoinRequests() {
                   </NeonButton>
                   <NeonButton
                     variant="ghost"
-                    className="text-xs px-3 py-1.5 text-neon-magenta hover:text-neon-magenta"
+                    className="text-xs px-3 py-1.5 text-neon-coral hover:text-neon-coral"
                     onClick={() => handleDeny(entry)}
                     disabled={actingOn === entry.id}
                   >
@@ -166,7 +166,7 @@ export default function JoinRequests() {
                       {entry.resolvedBy === 'auto:guild' ? 'Auto-approved (Discord member)' : 'Approved'}
                     </span>
                   ) : (
-                    <span className="flex items-center gap-1 text-neon-magenta">
+                    <span className="flex items-center gap-1 text-neon-coral">
                       <X size={14} /> Denied
                     </span>
                   )}

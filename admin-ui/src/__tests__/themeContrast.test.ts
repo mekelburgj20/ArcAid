@@ -41,6 +41,18 @@ describe('theme contrast', () => {
         expect(misses).toEqual([]);
     });
 
+    it('clears 4.5:1 for the lead and danger ink on a 10% fill of itself, in every theme', () => {
+        for (const theme of result.themes) {
+            for (const label of ['lead', 'danger']) {
+                const row = theme.rows.find(r => r.token === `button:${label}`);
+                expect(row, `${theme.name} button:${label} is audited`).toBeDefined();
+                for (const bg of ['--color-deep', '--color-surface']) {
+                    expect(row!.ratios[bg], `${theme.name} ${label} ink on ${bg}`).toBeGreaterThanOrEqual(4.5);
+                }
+            }
+        }
+    });
+
     it('has every theme name its own lead and second, as one of its accents', () => {
         for (const theme of result.themes) {
             for (const token of ['--color-lead', '--color-second']) {

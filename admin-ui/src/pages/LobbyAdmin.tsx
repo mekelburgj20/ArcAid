@@ -238,7 +238,7 @@ export default function LobbyAdmin() {
                 placeholder="Label (optional)"
                 className="w-28 bg-raised border border-border rounded px-2 py-1.5 text-xs text-primary"
               />
-              <button onClick={() => removeSocialLink(i)} className="text-neon-magenta/60 hover:text-neon-magenta cursor-pointer bg-transparent border-0 p-1">
+              <button onClick={() => removeSocialLink(i)} className="text-neon-coral/60 hover:text-neon-coral cursor-pointer bg-transparent border-0 p-1">
                 <Trash2 size={14} />
               </button>
             </div>
@@ -308,7 +308,7 @@ export default function LobbyAdmin() {
                 </button>
                 <button
                   onClick={() => deleteAnnouncement(a.id)}
-                  className="text-neon-magenta/60 hover:text-neon-magenta cursor-pointer bg-transparent border-0 p-1"
+                  className="text-neon-coral/60 hover:text-neon-coral cursor-pointer bg-transparent border-0 p-1"
                 >
                   <Trash2 size={13} />
                 </button>
@@ -419,7 +419,7 @@ export default function LobbyAdmin() {
             </a>
             <button
               onClick={() => deleteShelfItem(item.id)}
-              className="text-neon-magenta/60 hover:text-neon-magenta cursor-pointer bg-transparent border-0 p-1 flex-shrink-0"
+              className="text-neon-coral/60 hover:text-neon-coral cursor-pointer bg-transparent border-0 p-1 flex-shrink-0"
             >
               <Trash2 size={13} />
             </button>

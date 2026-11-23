@@ -164,7 +164,7 @@ export default function ComparePlayers() {
             <div className="w-8 h-8 border-2 border-neon-cyan/30 border-t-neon-cyan rounded-full animate-spin" />
           </div>
         ) : error ? (
-          <p className="text-neon-magenta text-center py-8 text-sm">{error}</p>
+          <p className="text-neon-coral text-center py-8 text-sm">{error}</p>
         ) : result ? (
           <>
             {/* Totals strip */}

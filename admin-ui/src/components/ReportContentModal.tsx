@@ -107,7 +107,7 @@ export default function ReportContentModal({ title, targetLabel, endpoint, extra
               className="w-full bg-raised border border-border rounded px-3 py-2 text-sm text-primary placeholder-faint focus:outline-none focus:border-neon-cyan/50 resize-none mb-2"
             />
             {outcome === 'error' && errorMessage && (
-              <p className="text-neon-magenta text-xs mb-2">{errorMessage}</p>
+              <p className="text-neon-coral text-xs mb-2">{errorMessage}</p>
             )}
             <div className="flex justify-end gap-3 mt-4">
               <NeonButton variant="ghost" onClick={onClose} disabled={submitting}>Cancel</NeonButton>

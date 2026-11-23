@@ -459,7 +459,7 @@ export default function EventDetail({ throwdownCode }: EventDetailProps = {}) {
                             <EventLobbyRoster entries={data.lobby!} viewerId={discordUser?.discordId ?? null} />
                         </div>
                     )}
-                    {error && <p className="text-xs text-neon-magenta mt-2">{error}</p>}
+                    {error && <p className="text-xs text-neon-coral mt-2">{error}</p>}
                 </section>
             )}
 
@@ -505,7 +505,7 @@ export default function EventDetail({ throwdownCode }: EventDetailProps = {}) {
                             </span>
                         </div>
                     )}
-                    {error && <p className="text-xs text-neon-magenta mt-2">{error}</p>}
+                    {error && <p className="text-xs text-neon-coral mt-2">{error}</p>}
                 </section>
             )}
 
@@ -550,7 +550,7 @@ export default function EventDetail({ throwdownCode }: EventDetailProps = {}) {
                             </div>
                         )}
                         {notice && <p className="text-xs text-neon-cyan mt-2">{notice}</p>}
-                        {error && <p className="text-xs text-neon-magenta mt-2">{error}</p>}
+                        {error && <p className="text-xs text-neon-coral mt-2">{error}</p>}
                     </section>
                 );
             })()}

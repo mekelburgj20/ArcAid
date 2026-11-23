@@ -37,7 +37,7 @@ describe('StyleGuide', () => {
         renderPage();
         for (const tile of screen.getAllByTestId('theme-tile')) {
             const roles = within(tile).getByTestId('theme-roles');
-            expect(within(roles).getByText('Lead').className).toContain('text-lead');
+            expect(within(roles).getByText('Lead').className).toContain('ink-lead');
             expect(within(roles).getByText('Second').className).toContain('text-second');
             expect(roles.querySelector('.bg-lead')).not.toBeNull();
             expect(roles.querySelector('.bg-second')).not.toBeNull();

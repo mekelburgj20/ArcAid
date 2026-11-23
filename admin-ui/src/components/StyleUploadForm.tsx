@@ -106,7 +106,7 @@ export default function StyleUploadForm({ uploadPath, gameName, onUploaded, onCa
   return (
     <div className="flex-1 overflow-y-auto p-4 space-y-4">
       {error && (
-        <div className="text-xs text-neon-magenta bg-neon-magenta/10 border border-neon-magenta/30 rounded px-3 py-2">{error}</div>
+        <div className="text-xs text-neon-coral bg-neon-coral/10 border border-neon-coral/30 rounded px-3 py-2">{error}</div>
       )}
 
       {/* Name */}
@@ -141,7 +141,7 @@ export default function StyleUploadForm({ uploadPath, gameName, onUploaded, onCa
             <img src={bgPreview} alt="Background preview" className="w-full h-32 object-cover" />
             <button
               onClick={() => handleFileSelect(null, 'bg')}
-              className="absolute top-1 right-1 p-1 bg-black/60 rounded text-muted hover:text-neon-magenta border-0 cursor-pointer"
+              className="absolute top-1 right-1 p-1 bg-black/60 rounded text-muted hover:text-neon-coral border-0 cursor-pointer"
             >
               <X size={14} />
             </button>
@@ -186,7 +186,7 @@ export default function StyleUploadForm({ uploadPath, gameName, onUploaded, onCa
             <img src={headerPreview} alt="Identifier preview" className="w-full h-24 object-contain bg-raised" />
             <button
               onClick={() => handleFileSelect(null, 'header')}
-              className="absolute top-1 right-1 p-1 bg-black/60 rounded text-muted hover:text-neon-magenta border-0 cursor-pointer"
+              className="absolute top-1 right-1 p-1 bg-black/60 rounded text-muted hover:text-neon-coral border-0 cursor-pointer"
             >
               <X size={14} />
             </button>

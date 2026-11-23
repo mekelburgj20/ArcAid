@@ -199,7 +199,7 @@ export default function CreateRoom() {
                 maxLength={50}
               />
               {effectiveSlug.length > 0 && !slugValid && (
-                <p className="text-xs text-neon-magenta mt-1.5">
+                <p className="text-xs text-neon-coral mt-1.5">
                   Lowercase letters, numbers, and underscores only.
                 </p>
               )}
@@ -227,7 +227,7 @@ export default function CreateRoom() {
               List this room on the landing page
             </label>
 
-            {error && <p className="text-neon-magenta text-sm">{error}</p>}
+            {error && <p className="text-neon-coral text-sm">{error}</p>}
 
             <NeonButton type="submit" disabled={!canSubmit}>
               {submitting ? 'Creating...' : 'Create Room'}

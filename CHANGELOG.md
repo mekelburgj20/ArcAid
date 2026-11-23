@@ -26,6 +26,7 @@ clearly its own. Room owners and players do not have to do anything.
 - **Small coloured text is readable on every theme.** A status word, a tag or a rank in any of a theme's
   colours now reaches the 4.5:1 contrast bar on both the page and the cards, where before five themes had a
   colour too faint for small text.
+- **Delete buttons and error messages are now red on every theme,** so they can never be mistaken for the theme's main colour.
 - Synthwave is a real violet with its horizon glow lower down, behind the panels; Retro terminal is lifted off
   black and gains amber; Backglass is warm brown with orange; Forest is actually green; Light is cool and pale
   with raspberry and cobalt; Paper leads with copper; Nordic's colours are readable on its panels.

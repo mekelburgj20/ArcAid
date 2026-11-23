@@ -137,7 +137,7 @@ export default function Friends() {
               Add
             </button>
           </div>
-          {error && <p className="text-xs text-neon-magenta mt-2">{error}</p>}
+          {error && <p className="text-xs text-neon-coral mt-2">{error}</p>}
         </div>
 
         {/* Friends list */}
@@ -180,7 +180,7 @@ export default function Friends() {
                 {/* Remove */}
                 <button
                   onClick={() => removeFriend(f.friend_user_id)}
-                  className="text-neon-magenta/50 hover:text-neon-magenta cursor-pointer bg-transparent border-0 p-1"
+                  className="text-neon-coral/50 hover:text-neon-coral cursor-pointer bg-transparent border-0 p-1"
                   title="Remove friend"
                 >
                   <Trash2 size={14} />

@@ -123,7 +123,7 @@ function MemberRow({
       {canBan && (
         <NeonButton
           variant="ghost"
-          className="text-xs px-2 py-1 text-neon-magenta hover:text-neon-magenta flex-shrink-0"
+          className="text-xs px-2 py-1 text-neon-coral hover:text-neon-coral flex-shrink-0"
           onClick={() => onBan(entry)}
         >
           <Ban size={13} className="inline -mt-0.5 mr-1" />

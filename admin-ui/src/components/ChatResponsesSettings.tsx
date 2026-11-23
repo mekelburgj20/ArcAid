@@ -490,7 +490,7 @@ export default function ChatResponsesSettings({ roomId, settings, onSaveNow, has
             );
           })}
         </div>
-        {optionsError && <p className="text-xs text-neon-magenta mt-2">{optionsError}</p>}
+        {optionsError && <p className="text-xs text-neon-coral mt-2">{optionsError}</p>}
 
         <div className="mt-4">
           <p className="text-xs font-display uppercase tracking-wider text-neon-cyan/70 mb-1 flex items-center">
@@ -518,7 +518,7 @@ export default function ChatResponsesSettings({ roomId, settings, onSaveNow, has
           )}
 
           {channelsLoading && <p className="text-xs text-faint">Loading channels&hellip;</p>}
-          {channelError && <p className="text-xs text-neon-magenta mb-2">{channelError}</p>}
+          {channelError && <p className="text-xs text-neon-coral mb-2">{channelError}</p>}
 
           {channels.length > 0 && (
             <div className="max-h-56 overflow-y-auto border border-border rounded divide-y divide-border/40">

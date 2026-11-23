@@ -343,7 +343,7 @@ export default function RAGameSearch({
                                         </div>
                                     )}
                                     {error && (
-                                        <div className="text-[11px] text-neon-magenta" data-testid="ra-row-error">
+                                        <div className="text-[11px] text-neon-coral" data-testid="ra-row-error">
                                             {error}
                                         </div>
                                     )}

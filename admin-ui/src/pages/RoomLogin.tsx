@@ -182,7 +182,7 @@ export default function RoomLogin({ onLogin }: { onLogin: () => void }) {
           />
 
           {error && (
-            <p className="text-neon-magenta text-sm">{error}</p>
+            <p className="text-neon-coral text-sm">{error}</p>
           )}
 
           <NeonButton type="submit" disabled={loading || !password}>

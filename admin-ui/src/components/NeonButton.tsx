@@ -7,8 +7,8 @@ interface NeonButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const variants = {
-  primary: 'bg-lead/20 text-lead border-lead/40 hover:bg-lead/30 hover:border-lead/60',
-  danger: 'bg-neon-magenta/20 text-neon-magenta border-neon-magenta/40 hover:bg-neon-magenta/30 hover:border-neon-magenta/60',
+  primary: 'bg-lead/10 ink-lead border-lead/40 hover:bg-lead/20 hover:border-lead/60',
+  danger: 'bg-neon-coral/10 ink-danger border-neon-coral/40 hover:bg-neon-coral/20 hover:border-neon-coral/60',
   ghost: 'bg-transparent text-muted border-border hover:text-primary hover:border-border-glow',
   secondary: 'bg-raised text-muted border-border hover:text-primary hover:border-border-glow',
 };

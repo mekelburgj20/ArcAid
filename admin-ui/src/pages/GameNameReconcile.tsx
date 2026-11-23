@@ -155,7 +155,7 @@ function OrphanRow({ orphan, onMerged }: { orphan: Orphan; onMerged: () => void 
             {preview.counts.suppressions > 0 && `, ${plural(preview.counts.suppressions, 'deleted-score marker')}`}.
           </p>
           {preview.warnings.map(w => <p key={w} className="text-neon-amber">{w}</p>)}
-          {preview.blockers.map(b => <p key={b} className="text-neon-magenta">Can't merge: {b}</p>)}
+          {preview.blockers.map(b => <p key={b} className="text-neon-coral">Can't merge: {b}</p>)}
           {preview.blockers.length === 0 && <p className="text-faint">Merges can be undone below.</p>}
         </div>
       )}

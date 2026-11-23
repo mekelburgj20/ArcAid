@@ -27,7 +27,7 @@ const PAGE_JUMP: JumpItem[] = [
 ];
 
 const SAMPLE_TONES: Array<{ key: string; tone: PartTone; title: string; sub: string }> = [
-    { key: 'cyan', tone: 'cyan', title: 'Cyan', sub: "The default tone; on a room page, the theme's lead." },
+    { key: 'cyan', tone: 'cyan', title: 'Cyan', sub: 'The default tone.' },
     { key: 'pink', tone: 'pink', title: 'Pink', sub: 'Scores and attention.' },
     { key: 'violet', tone: 'violet', title: 'Violet', sub: 'Accounts and devices.' },
     { key: 'ice', tone: 'ice', title: 'Ice', sub: 'Quiet groups such as notifications.' },
@@ -217,7 +217,7 @@ export default function StyleGuide() {
                     <p className="text-sm text-primary mb-2">
                         Room pages and admin pages keep the room&apos;s theme (11 themes) and get the same parts in
                         that theme&apos;s colours. Each theme has a lead colour (the primary button, the active nav
-                        item and tab, a group&apos;s default tone) and a second beside it; first place stays gold.
+                        item and tab) and a second beside it; first place stays gold.
                     </p>
                     <p className="text-xs text-muted">
                         Protected, never re-skinned: the room Scoreboard cards, the Global Scoreboard, the kiosk and the title styles.
@@ -285,7 +285,7 @@ export default function StyleGuide() {
                             >
                                 <h4 className="text-sm font-semibold mb-1">{THEMES[id].label}</h4>
                                 <div className="flex flex-wrap items-center gap-3 mb-2 text-xs" data-testid="theme-roles">
-                                    <span className="inline-flex items-center gap-1.5 text-lead">
+                                    <span className="inline-flex items-center gap-1.5 ink-lead">
                                         <span className="inline-block w-3 h-3 rounded-full bg-lead" aria-hidden="true" />
                                         Lead
                                     </span>

@@ -32,9 +32,9 @@ const SIZES: Record<NonNullable<ButtonProps['size']>, string> = {
 };
 
 const VARIANTS: Record<NonNullable<ButtonProps['variant']>, string> = {
-    primary: 'border-lead/40 bg-lead/10 text-lead hover:bg-lead/20',
+    primary: 'border-lead/40 bg-lead/10 ink-lead hover:bg-lead/20',
     secondary: 'border-border bg-transparent text-muted hover:text-primary hover:border-muted',
-    danger: 'border-neon-coral/40 bg-neon-coral/10 text-neon-coral hover:bg-neon-coral/20',
+    danger: 'border-neon-coral/40 bg-neon-coral/10 ink-danger hover:bg-neon-coral/20',
 };
 
 const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(

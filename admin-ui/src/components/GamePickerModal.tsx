@@ -178,7 +178,7 @@ export default function GamePickerModal({ styleName, styleId, onClose, onApplied
           {loading ? (
             <div className="text-center text-muted py-8">Loading games...</div>
           ) : error ? (
-            <div className="text-center text-neon-magenta py-8 text-sm">{error}</div>
+            <div className="text-center text-neon-coral py-8 text-sm">{error}</div>
           ) : (
             <>
               {/* Leaderboard games */}

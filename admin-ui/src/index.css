@@ -560,7 +560,7 @@
   --color-neon-green: oklch(47.5% 0.11 158);
   --color-neon-amber: oklch(49.5% 0.106 70);
   --color-neon-purple: oklch(50% 0.2 292);
-  --color-neon-coral: oklch(51% 0.18 30);
+  --color-neon-coral: oklch(51% 0.18 40);
   --color-neon-blue: oklch(49% 0.138 250);
   --color-primary: oklch(25% 0.045 262);
   --color-muted: oklch(42% 0.035 258);
@@ -606,7 +606,7 @@
   --color-neon-green: oklch(47% 0.11 140);
   --color-neon-amber: oklch(48% 0.098 95);
   --color-neon-purple: oklch(46% 0.12 335);
-  --color-neon-coral: oklch(48% 0.17 15);
+  --color-neon-coral: oklch(48% 0.18 8);
   --color-neon-blue: oklch(46% 0.1 255);
   --color-primary: oklch(28% 0.028 58);
   --color-muted: oklch(42% 0.032 55);
@@ -639,6 +639,12 @@
   --color-lead: var(--color-neon-cyan);
   --color-second: var(--color-neon-magenta);
 }
+
+/* A colour used as TEXT on its own tint is the ink: pulled a fifth toward the
+   theme's ink so it clears 4.5:1 on a 10% fill in every theme. A line, fill or
+   dot uses the token itself (border-lead, bg-lead/10, bg-neon-coral/10). */
+@utility ink-lead { color: color-mix(in oklab, var(--color-lead) 80%, var(--color-primary)); }
+@utility ink-danger { color: color-mix(in oklab, var(--color-neon-coral) 80%, var(--color-primary)); }
 
 /*
  * Light-polarity overrides for the medal + scoreboard-surface tokens (A1,
@@ -2149,8 +2155,8 @@ select option {
 /* The colours. The theme's lead is the default (v2.263.0); `:where` keeps a
    tone class on the panel itself in charge, and the `:not` leaves a panel in
    a group to inherit. */
-.part-group, .part-jump__item { --part-tone: var(--color-lead); --part-ink: var(--part-tone); }
-:where(.part-panel:not(.part-group .part-panel)) { --part-tone: var(--color-lead); --part-ink: var(--part-tone); }
+.part-group, .part-jump__item { --part-tone: var(--color-neon-cyan); --part-ink: var(--part-tone); }
+:where(.part-panel:not(.part-group .part-panel)) { --part-tone: var(--color-neon-cyan); --part-ink: var(--part-tone); }
 .part-tone--pink   { --part-tone: var(--color-neon-magenta); }
 /* Purple is the dimmest accent in most themes: as 13 px label text it fell
    under 4.5:1 on four of them (measured 2026-11-23), so violet TEXT is the

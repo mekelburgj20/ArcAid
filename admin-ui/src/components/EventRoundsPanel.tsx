@@ -447,7 +447,7 @@ export default function EventRoundsPanel({ roomId, roomSlug, tournament, onClose
                             <button
                                 type="button" onClick={() => removeParticipant(p.user_id)}
                                 disabled={busy === `rm-${p.user_id}`}
-                                className="px-2 py-0.5 text-xs rounded border border-border text-muted hover:text-neon-magenta hover:border-neon-magenta transition-colors"
+                                className="px-2 py-0.5 text-xs rounded border border-border text-muted hover:text-neon-coral hover:border-neon-coral transition-colors"
                             >Remove</button>
                         </div>
                     ))}
@@ -576,7 +576,7 @@ export default function EventRoundsPanel({ roomId, roomSlug, tournament, onClose
                                             <button
                                                 type="button" onClick={() => unlinkAccount(acc.atgamesAccountId)}
                                                 disabled={busy === `link-${acc.atgamesAccountId}`}
-                                                className="px-2 py-0.5 text-xs rounded border border-border text-muted hover:text-neon-magenta hover:border-neon-magenta transition-colors"
+                                                className="px-2 py-0.5 text-xs rounded border border-border text-muted hover:text-neon-coral hover:border-neon-coral transition-colors"
                                             >Unlink</button>
                                         </>
                                     ) : (

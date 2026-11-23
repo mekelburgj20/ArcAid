@@ -87,7 +87,7 @@ export default function TournamentInvite() {
             <p className="text-xs font-display uppercase tracking-wider text-muted mb-1">You're invited</p>
             <h1 className="font-display text-xl font-bold mb-1">{info.tournamentName}</h1>
             <p className="text-sm text-muted mb-5">in {info.roomName}. Accepting puts you on the roster, so your scores count here.</p>
-            {error && <p className="text-xs text-neon-magenta mb-3" role="alert">{error}</p>}
+            {error && <p className="text-xs text-neon-coral mb-3" role="alert">{error}</p>}
             {playerToken ? (
               <NeonButton onClick={accept} disabled={accepting} className="w-full">
                 {accepting ? 'Joining…' : 'Accept invite'}

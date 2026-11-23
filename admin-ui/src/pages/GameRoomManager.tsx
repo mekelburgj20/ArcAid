@@ -274,7 +274,7 @@ export default function GameRoomManager() {
           </span>
           {item.suspended_at && (
             <span
-              className="text-xs px-2 py-0.5 rounded bg-neon-magenta/10 text-neon-magenta border border-neon-magenta/30 inline-flex items-center gap-1"
+              className="text-xs px-2 py-0.5 rounded bg-neon-coral/10 text-neon-coral border border-neon-coral/30 inline-flex items-center gap-1"
               title={item.suspended_reason || 'Suspended pending review'}
             >
               <ShieldAlert size={12} /> SUSPENDED

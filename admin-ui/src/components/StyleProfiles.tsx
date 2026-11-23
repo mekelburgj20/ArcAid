@@ -284,7 +284,7 @@ export default function StyleProfiles({ roomId, onApplied, hasUnsavedChanges, on
                     aria-label={`Delete ${p.name}`}
                     onClick={() => handleDelete(p)}
                     disabled={busy}
-                    className="shrink-0 p-1.5 rounded cursor-pointer border-none bg-transparent text-faint hover:text-neon-magenta"
+                    className="shrink-0 p-1.5 rounded cursor-pointer border-none bg-transparent text-faint hover:text-neon-coral"
                   >
                     <Trash2 size={15} />
                   </button>
