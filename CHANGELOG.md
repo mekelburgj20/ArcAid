@@ -6,6 +6,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.265.5] - 2026-11-24 - The Arcaid Witness toast shows once, not on every refresh
+
+### Fixed
+- **The room's "Arcaid Witness" toast came back on every refresh** (owner, 2026-11-24, on the installed app
+  on a phone). It was remembered only until the page reloaded. Now the browser remembers it per room: the
+  toast shows the first time you open a room on that phone or computer, and again only when the answer
+  changes (a device is paired or removed, or is pointed at a different room or tournament). If no device
+  sends its scores to the room any more, the next one that does is confirmed again.
+- **A cabinet that stops or starts watching does not bring the toast back.** The toast still says "not
+  watching now, open the tile on the cabinet" when it shows, but that state flips every time a cabinet is
+  played, so it does not count as a changed answer. Account Settings -> Arcaid Witness devices (where a press
+  on the toast goes) shows whether each device is watching now.
+- Nothing is stored on the server and there is no "don't show this again" control to find: the memory is in
+  the browser (the same place the room notices' X is kept), so a new phone, another browser or cleared site
+  data shows the toast once more. A private window that blocks storage gets it once per page load, as before.
+
 ## [2.265.4] - 2026-11-23 - A room page that fails to load says so and tries again
 
 Follows 2.265.1. That release stopped visitors sharing one request allowance; this one fixes what the page

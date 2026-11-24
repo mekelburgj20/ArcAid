@@ -3,8 +3,8 @@ import { Link } from 'react-router-dom';
 import { ShieldCheck, AlertTriangle } from 'lucide-react';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import {
-    CHANGE_HREF, ROOM_TOAST_HINT, ROOM_TOAST_LABEL, START_ATTEMPTS_NEEDED, attemptStartsNeeded, firstRoomToast, homeLines, roomLines,
-    roomToastLines, roomToastMs,
+    CHANGE_HREF, ROOM_TOAST_HINT, ROOM_TOAST_LABEL, START_ATTEMPTS_NEEDED, attemptStartsNeeded, firstRoomToast, forgetRoomToast,
+    homeLines, roomLines, roomToastKey, roomToastLines, roomToastMs,
     type Device, type Line, type Routing,
 } from '../lib/witnessScoresGoTo';
 import { useToast } from './Toast';
@@ -27,8 +27,9 @@ import DismissibleNotice from './DismissibleNotice';
  *   is an amber line, with what to do about it. The devices that DO send here
  *   are confirmed by ONE "Arcaid Witness" toast on entering the room (owner
  *   2026-11-23: three standing lines at the top of every room page were
- *   clutter): once per room per page load, said again only when the answer
- *   changes (`firstRoomToast`), and gone by itself after a few seconds.
+ *   clutter): once per room in this browser (remembered in localStorage, so a
+ *   refresh does not repeat it; owner 2026-11-24), said again only when the
+ *   answer changes (`firstRoomToast`), and gone by itself after a few seconds.
  *   Pressing the toast opens the player's device settings (`CHANGE_HREF`).
  *   W56: when a device sends here and a Limited-attempts table still needs the
  *   player's Start attempts press, one more amber line names those tables
@@ -80,7 +81,9 @@ export default function WitnessScoresGoTo({
                 // (which still holds the last room's lines while a new room loads).
                 if (roomId) {
                     const said = roomToastLines(rows as Routing[]);
-                    if (said.length > 0 && firstRoomToast(roomId, said.join('\n'))) {
+                    // The devices answered and none sends here: the next one that does is news again.
+                    if (said.length === 0 && rows.length > 0) forgetRoomToast(roomId);
+                    if (said.length > 0 && firstRoomToast(roomId, roomToastKey(rows as Routing[]))) {
                         toastRef.current(said.join('\n'), 'success', {
                             label: ROOM_TOAST_LABEL, durationMs: roomToastMs(said.length),
                             href: CHANGE_HREF, hrefHint: ROOM_TOAST_HINT,
