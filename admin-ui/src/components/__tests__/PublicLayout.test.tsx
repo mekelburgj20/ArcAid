@@ -218,6 +218,9 @@ describe('PublicLayout', () => {
     expect(triggers).toHaveLength(2);
     expect(triggers[0]!.querySelector('img')).toHaveAttribute('src', '/brand.png');
 
+    // Have the menu's chunk in hand first: the switcher forgets a press whose chunk takes more than five
+    // seconds to arrive, and a loaded build server can take that long to transform it.
+    await import('../RoomSwitcherMenu');
     fireEvent.click(triggers[0]!);
     // The menu is a lazy chunk: on a loaded build server its first import can take longer than the default second.
     const menu = await screen.findByRole('menu', undefined, { timeout: 15000 });
