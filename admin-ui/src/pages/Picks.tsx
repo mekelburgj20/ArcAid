@@ -12,7 +12,9 @@ import { MysteryAwardIcon } from '../assets/icons/ThemedIcons';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { usePickAwardEnabled } from '../hooks/usePickAwardEnabled';
 import { useToast } from '../components/Toast';
-import { getPortal } from '../lib/portal';
+import { getPortalPatiently } from '../lib/portal';
+import { useRetryingLoad } from '../hooks/useRetryingLoad';
+import LoadFailedNotice from '../components/LoadFailedNotice';
 import { getPlatformDisplay, normalizePlatformList } from '../lib/platforms';
 import {
   UNKNOWN,
@@ -316,23 +318,29 @@ export default function Picks() {
   // it for the same slug) via getPortal instead of fetching the full rooms list.
   useEffect(() => {
     if (!slug) return;
-    getPortal(slug)
+    // G32: waits out a lookup that fails for now (the spinner stays until the
+    // room answers); only a definite "no such room" ends the spinner.
+    const leaving = new AbortController();
+    getPortalPatiently(slug, { signal: leaving.signal })
       .then(portal => {
         setRoomId(portal.roomId);
         setRoomName(portal.name);
         if (portal.logo_url) setRoomLogoUrl(portal.logo_url);
       })
       .catch(() => {})
-      .finally(() => setLoading(false));
+      .finally(() => { if (!leaving.signal.aborted) setLoading(false); });
+    return () => leaving.abort();
   }, [slug]);
 
-  // Load tournaments for this room
-  useEffect(() => {
-    if (!roomId) return;
-    roomFetch(`/api/rooms/${roomId}/tournaments`)
-      .then(r => r.json())
-      .then((ts: TournamentOption[]) => {
-        const actives = ts.filter((t: any) => t.is_active);
+  // Load tournaments for this room (G32: tries again by itself on a failure
+  // for now; the page says so instead of reading as "nothing to pick").
+  const { load: loadTournaments, phase: tournamentsPhase } = useRetryingLoad(
+    () => roomFetch(`/api/rooms/${roomId}/tournaments`),
+    async res => {
+      const ts = await res.json();
+      if (!Array.isArray(ts)) throw new Error('unexpected tournaments body');
+      {
+        const actives = (ts as TournamentOption[]).filter((t: any) => t.is_active);
         setTournaments(actives);
         // v2.2.10 — resolve URL slug to tournament id once the list has loaded.
         // Accepts either a UUID (back-compat) or a human slug from the URL.
@@ -344,39 +352,57 @@ export default function Picks() {
             setSelectedTournamentId(actives[0]!.id);
           }
         }
-      })
-      .catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomId]);
+      }
+    },
+    roomId,
+  );
+  useEffect(() => {
+    if (!roomId) return;
+    loadTournaments();
+  }, [roomId, loadTournaments]);
 
-  // Load availability data
+  // Load availability data (G32: only an ok answer with a games list is stored;
+  // a refusal's JSON error body used to land in `data` and crash the render).
+  const libraryKey = `${roomId}|${selectedTournamentId}`;
+  const { load: loadLibrary, phase: libraryPhase } = useRetryingLoad(
+    () => roomFetch(`/api/rooms/${roomId}/game-availability/${selectedTournamentId}`),
+    async res => {
+      const body = await res.json();
+      if (!body || !Array.isArray(body.games)) throw new Error('unexpected game-availability body');
+      setData(body as AvailabilityData);
+    },
+    libraryKey,
+  );
+  const dataKeyRef = useRef<string | null>(null);
   useEffect(() => {
     if (!roomId || !selectedTournamentId) return;
-    setLoading(true);
+    // A different tournament must not keep drawing the previous one's games.
+    if (dataKeyRef.current !== libraryKey) { dataKeyRef.current = libraryKey; setData(null); }
     // v2.2.10 — URL reflects the tournament's human slug rather than its UUID,
     // so `/picks?t=daily_grind` is shareable and remembered. Fallback to the
     // raw id if the tournament object hasn't loaded yet.
     const t = tournaments.find(x => x.id === selectedTournamentId);
     const urlValue = t ? tournamentSlug(t.name) : selectedTournamentId;
     setSearchParams({ t: urlValue });
-    roomFetch(`/api/rooms/${roomId}/game-availability/${selectedTournamentId}`)
-      .then(r => r.json())
-      .then(setData)
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    loadLibrary();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId, selectedTournamentId, tournaments]);
 
-  // Load pick status when Discord user is logged in
+  // Load pick status when Discord user is logged in (G32: quiet retry).
+  const { load: loadPickStatus } = useRetryingLoad(
+    () => fetch(`/api/rooms/${roomId}/pick-status`, {
+      headers: { Authorization: `Bearer ${playerToken}` },
+    }),
+    async res => {
+      const body = await res.json();
+      if (body) setPickStatus(body);
+    },
+    `${roomId}|${playerToken}`,
+  );
   const fetchPickStatus = useCallback(() => {
     if (!roomId || !playerToken) return;
-    fetch(`/api/rooms/${roomId}/pick-status`, {
-      headers: { Authorization: `Bearer ${playerToken}` },
-    })
-      .then(r => r.ok ? r.json() : null)
-      .then(data => { if (data) setPickStatus(data); })
-      .catch(() => {});
-  }, [roomId, playerToken]);
+    loadPickStatus();
+  }, [roomId, playerToken, loadPickStatus]);
 
   useEffect(() => { fetchPickStatus(); }, [fetchPickStatus]);
 
@@ -683,12 +709,7 @@ export default function Picks() {
     // Refresh data
     fetchPickStatus();
     refreshPickAlerts();
-    if (selectedTournamentId) {
-      roomFetch(`/api/rooms/${roomId}/game-availability/${selectedTournamentId}`)
-        .then(r => r.json())
-        .then(setData)
-        .catch(() => {});
-    }
+    if (selectedTournamentId) loadLibrary();
   };
 
   const handleDeleteQueued = async (gameId: string) => {
@@ -842,9 +863,11 @@ export default function Picks() {
    * rendered as chips, and matching on something invisible makes the result
    * list look wrong.
    */
+  // G32: a body without a games list can never throw the render.
+  const games = useMemo(() => (Array.isArray(data?.games) ? data!.games : []), [data]);
   const gameIndex = useMemo(() => {
     const index = new Map<string, { engines: string[]; haystack: string }>();
-    for (const g of data?.games ?? []) {
+    for (const g of games) {
       index.set(g.name, {
         engines: engineIdsFor(g),
         haystack: [
@@ -856,7 +879,7 @@ export default function Picks() {
       });
     }
     return index;
-  }, [data]);
+  }, [games]);
 
   /**
    * Distinct engines present in THIS tournament's list. One pill each, plus
@@ -878,7 +901,7 @@ export default function Picks() {
 
   const filteredGames = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const filtered = (data?.games ?? []).filter(g => {
+    const filtered = games.filter(g => {
       if (filter === 'available' && !g.available) return false;
       if (filter === 'cooldown' && g.available) return false;
       if (filter === 'owned' && !isOwned(g)) return false;
@@ -893,14 +916,14 @@ export default function Picks() {
     if (sortMode === 'rating') filtered.sort(compareByRating);
     else if (q) filtered.sort(compareByRank(q, g => g.name));
     return filtered;
-  }, [data, filter, activeEngine, search, gameIndex, isOwned, sortMode]);
+  }, [games, filter, activeEngine, search, gameIndex, isOwned, sortMode]);
 
-  const availableCount = data?.games.filter(g => g.available).length ?? 0;
-  const cooldownCount = data?.games.filter(g => !g.available).length ?? 0;
-  const ownedCount = data?.games.filter(isOwned).length ?? 0;
+  const availableCount = games.filter(g => g.available).length;
+  const cooldownCount = games.filter(g => !g.available).length;
+  const ownedCount = games.filter(isOwned).length;
   // The "I own" chip exists only for a logged-in viewer whose inventory loaded.
   const showOwnedChip = !!playerToken && ownedIds !== null;
-  const totalCount = data?.games.length ?? 0;
+  const totalCount = games.length;
 
   const hasPendingPicks = (pickStatus?.pendingPicks.length ?? 0) > 0;
   // Every badge state gets a rendering. `emptyQueue` becomes a soft banner;
@@ -1635,7 +1658,11 @@ export default function Picks() {
         </p>
       )}
 
-      {loading ? (
+      {tournamentsPhase === 'retrying' ? (
+        <LoadFailedNotice what="the picks" onRetry={loadTournaments} testId="picks-tournaments-load-failed" className="py-12" />
+      ) : libraryPhase === 'retrying' && selectedTournamentId ? (
+        <LoadFailedNotice what="the game list" onRetry={loadLibrary} testId="picks-load-failed" className="py-12" />
+      ) : loading || (!!roomId && tournamentsPhase === 'loading') || (!!selectedTournamentId && libraryPhase === 'loading') ? (
         <div className="flex items-center justify-center py-16">
           <div className="w-8 h-8 border-2 border-neon-cyan/30 border-t-neon-cyan rounded-full animate-spin" />
         </div>
@@ -1865,7 +1892,7 @@ export default function Picks() {
 
       {showPicker && data && (
         <MysteryAward
-          availableGames={data.games.filter(g => g.available).map(g => g.name)}
+          availableGames={games.filter(g => g.available).map(g => g.name)}
           onClose={() => setShowPicker(false)}
           roomName={roomName}
           backglassUrl={roomLogoUrl}

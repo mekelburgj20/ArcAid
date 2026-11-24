@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { Search } from 'lucide-react';
 import ScoreCardGrid from './ScoreCardGrid';
 import GameQuickView from './GameQuickView';
 import SubmissionSheet from './SubmissionSheet';
+import LoadFailedNotice from './LoadFailedNotice';
 import type { GameLeaderboard } from './ScoreboardComponents';
 import { catalogueImageFor } from '../lib/catalogueImage';
+import { useRetryingLoad } from '../hooks/useRetryingLoad';
 import {
   GLOBAL_SEE_FULL_LABEL,
   GLOBAL_SEARCH_PLACEHOLDER,
@@ -53,6 +55,16 @@ interface GlobalScoresViewProps {
 
 const PAGE_SIZE = 30;
 
+/** One page of GET /api/global/scoreboard, read the same way for the first page and Load more. */
+async function readPage(res: Response): Promise<{ data: GlobalTopGame[]; total: number; hasMore: boolean }> {
+  const payload = await res.json();
+  return {
+    data: Array.isArray(payload.data) ? payload.data : [],
+    total: Number(payload.total) || 0,
+    hasMore: Boolean(payload.hasMore),
+  };
+}
+
 // v2.50.0 (A2): the local image-path resolution that used to be copied here
 // now lives in lib/catalogueImage.ts, shared with GlobalScoreboard.tsx and
 // GlobalGameDetail.tsx.
@@ -96,7 +108,9 @@ export default function GlobalScoresView({ roomId, slug, config, roomName, viewe
   const [rows, setRows] = useState<GlobalTopGame[]>([]);
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(false);
-  const [loading, setLoading] = useState(true);
+  // The search the rows answer. A search that has not answered, or answered
+  // with a refusal, draws none of another search's rows.
+  const [rowsFor, setRowsFor] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
@@ -110,7 +124,7 @@ export default function GlobalScoresView({ roomId, slug, config, roomName, viewe
     return () => window.clearTimeout(t);
   }, [searchInput]);
 
-  const fetchPage = useCallback(async (offset: number): Promise<{ data: GlobalTopGame[]; total: number; hasMore: boolean }> => {
+  const requestPage = (offset: number) => {
     const params = new URLSearchParams({
       scope: 'global',
       hasScores: '1',
@@ -119,40 +133,58 @@ export default function GlobalScoresView({ roomId, slug, config, roomName, viewe
       offset: String(offset),
     });
     if (search) params.set('search', search);
-    const res = await fetch(`/api/global/scoreboard?${params}`);
-    if (!res.ok) return { data: [], total: 0, hasMore: false };
-    const payload = await res.json();
-    return {
-      data: Array.isArray(payload.data) ? payload.data : [],
-      total: Number(payload.total) || 0,
-      hasMore: Boolean(payload.hasMore),
-    };
-  }, [search]);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    (async () => {
-      const { data, total: t, hasMore: hm } = await fetchPage(0);
-      if (cancelled) return;
-      setRows(data);
-      setTotal(t);
-      setHasMore(hm);
-    })().finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [fetchPage]);
-
-  const loadMore = async () => {
-    if (loadingMore || !hasMore) return;
-    setLoadingMore(true);
-    const { data, total: t, hasMore: hm } = await fetchPage(rows.length);
-    setRows(prev => [...prev, ...data]);
-    setTotal(t);
-    setHasMore(hm);
-    setLoadingMore(false);
+    return fetch(`/api/global/scoreboard?${params}`);
   };
 
-  const cards = rows.map(globalRowToLeaderboard);
+  // Bumped whenever the first page is replaced, so a Load more answer still on
+  // its way for the old list is dropped instead of appended to the new one.
+  const listGeneration = useRef(0);
+
+  // G32: the first page tries again by itself when it fails for now (a 429, a
+  // deploy restart, no connection), and the empty text waits for an answer.
+  // `load` is also the reload after a score post: a failed reload keeps the
+  // cards on screen and retries quietly. The search is the only parameter.
+  const { load, phase } = useRetryingLoad(
+    () => requestPage(0),
+    async res => {
+      const page = await readPage(res);
+      listGeneration.current += 1;
+      setRows(page.data);
+      setTotal(page.total);
+      setHasMore(page.hasMore);
+      setRowsFor(search);
+    },
+    search,
+  );
+
+  useEffect(() => {
+    listGeneration.current += 1;
+    load();
+  }, [search, load]);
+
+  // The next page, appended. A failure keeps the cards and the Load more
+  // button (pressing it again asks again).
+  const loadMore = async () => {
+    if (loadingMore || !hasMore) return;
+    const generation = listGeneration.current;
+    setLoadingMore(true);
+    try {
+      const res = await requestPage(rows.length);
+      if (!res.ok) return;
+      const page = await readPage(res);
+      if (generation !== listGeneration.current) return;
+      setRows(prev => [...prev, ...page.data]);
+      setTotal(page.total);
+      setHasMore(page.hasMore);
+    } catch {
+      // No connection or a broken body: the button is still there.
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  const answered = phase === 'ready' && rowsFor === search;
+  const cards = answered ? rows.map(globalRowToLeaderboard) : [];
 
   const emptyState = (
     <div className="text-center py-16">
@@ -202,7 +234,7 @@ export default function GlobalScoresView({ roomId, slug, config, roomName, viewe
         </div>
 
         <div className="min-w-0 flex flex-wrap items-center gap-3 justify-start sm:justify-end">
-          {!loading && total > 0 && (
+          {answered && total > 0 && (
             <span className="text-[11px] text-faint whitespace-nowrap">
               Showing {rows.length.toLocaleString()} of {total.toLocaleString()} games with global scores
             </span>
@@ -213,22 +245,27 @@ export default function GlobalScoresView({ roomId, slug, config, roomName, viewe
         </div>
       </div>
 
-      <ScoreCardGrid
-        cards={cards}
-        slug={slug}
-        roomId={roomId}
-        config={config}
-        roomName={roomName}
-        viewerUsername={viewerUsername}
-        loading={loading}
-        hasMore={hasMore}
-        loadingMore={loadingMore}
-        onLoadMore={loadMore}
-        emptyState={emptyState}
-        linkFor={lb => `/games/${lb.globalGameId}?from=${encodeURIComponent(slug || '')}&tab=global`}
-        onSubmit={lb => setSubmissionTarget({ gameName: lb.gameName, globalGameId: lb.globalGameId! })}
-        onTitleClick={lb => setQuickViewLb(lb)}
-      />
+      {phase === 'retrying' ? (
+        // No answer yet and a try failed: say so, never "No global scores yet".
+        <LoadFailedNotice what="the scores" onRetry={load} testId="global-scores-load-failed" />
+      ) : (
+        <ScoreCardGrid
+          cards={cards}
+          slug={slug}
+          roomId={roomId}
+          config={config}
+          roomName={roomName}
+          viewerUsername={viewerUsername}
+          loading={phase === 'loading'}
+          hasMore={answered && hasMore}
+          loadingMore={loadingMore}
+          onLoadMore={loadMore}
+          emptyState={emptyState}
+          linkFor={lb => `/games/${lb.globalGameId}?from=${encodeURIComponent(slug || '')}&tab=global`}
+          onSubmit={lb => setSubmissionTarget({ gameName: lb.gameName, globalGameId: lb.globalGameId! })}
+          onTitleClick={lb => setQuickViewLb(lb)}
+        />
+      )}
 
       {quickViewLb && (
         <GameQuickView lb={quickViewLb} slug={slug} fromTab="global" onClose={() => setQuickViewLb(null)} />
@@ -243,7 +280,7 @@ export default function GlobalScoresView({ roomId, slug, config, roomName, viewe
           onClose={() => setSubmissionTarget(null)}
           onSubmitted={() => {
             setSubmissionTarget(null);
-            fetchPage(0).then(({ data, total: t, hasMore: hm }) => { setRows(data); setTotal(t); setHasMore(hm); });
+            load();
           }}
         />
       )}

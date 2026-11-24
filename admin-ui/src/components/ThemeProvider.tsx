@@ -74,7 +74,7 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useLocation } from 'react-router-dom';
 import { api, isAuthenticated } from '../lib/api';
-import { getPortal } from '../lib/portal';
+import { getPortalPatiently } from '../lib/portal';
 import { isAdminPath, isGlobalPath, getRoomSlugForPath } from '../lib/routeClass';
 import { fetchRoomThemes } from '../lib/roomThemes';
 // v2.133.0 — the id list, the legacy fold and the `ThemeId` type live in
@@ -554,6 +554,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   // classification changes (was `[]` — only ran once, so navigating between
   // rooms or admin<->public never re-fetched the theme for the new context).
   useEffect(() => {
+    // G32: the room lookup waits out a failure for now (a first-time visitor
+    // whose lookup failed once kept the default theme all visit); leaving the
+    // room stops the waiting.
+    const leaving = new AbortController();
     const hydrate = async () => {
       try {
         // v2.50.0 (A1): global pages no longer hydrate a theme from
@@ -565,8 +569,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
           /* no-op */
         } else if (roomSlug) {
           // Room pages use room-specific theme
-          const portal = await getPortal(roomSlug).catch(() => null);
-          if (portal) {
+          const portal = await getPortalPatiently(roomSlug, { signal: leaving.signal }).catch(() => null);
+          if (portal && !leaving.signal.aborted) {
             const serverPublicTheme = normalizeThemeId(portal.public_theme || portal.ui_theme);
             if (serverPublicTheme) {
               setPublicThemeState(serverPublicTheme);
@@ -638,6 +642,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     };
 
     hydrate();
+    return () => leaving.abort();
     // s20 M1 fix: deps are [adminRoute, roomSlug], NOT [pathname, roomSlug].
     // `pathname` is still read inside (for isGlobalPath), but must not be a
     // dep — otherwise every same-room navigation (e.g. scoreboard -> lobby)

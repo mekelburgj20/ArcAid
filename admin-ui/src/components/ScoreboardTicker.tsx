@@ -3,6 +3,8 @@ import { Flame, TrendingUp, Target, Trophy, Gamepad2, Star, Users, Crown, Hourgl
 import { getSocket } from '../lib/websocket';
 import { relativeTimeFrom } from '../lib/format';
 import { roomFetch } from '../lib/roomFetch';
+import { useRetryingLoad } from '../hooks/useRetryingLoad';
+import { isTransientStatus } from '../lib/loadRetry';
 
 interface TickerFeedEvent {
   id: number;
@@ -47,20 +49,43 @@ export default function ScoreboardTicker({ roomId }: ScoreboardTickerProps) {
   const seenIds = useRef(new Set<number>());
 
   // Seed from the lobby feed REST endpoint
+  // (optional decoration: a quiet retry, no failure state; the ticker renders
+  // nothing until it has items)
+  // The room the seed last answered for. The ticker stays mounted when the
+  // visitor moves to another room (it lives in the layout), so the first
+  // answer for a room REPLACES the list; only a later answer for the same
+  // room merges with what the socket delivered.
+  const seededRoom = useRef<string | null>(null);
+  const { load: loadSeed } = useRetryingLoad(
+    () => roomFetch(`/api/rooms/${roomId}/lobby/feed?limit=15`).then(r => {
+      // A definite refusal is an answer with nothing in it (as before).
+      if (!r.ok && !isTransientStatus(r.status)) {
+        seededRoom.current = roomId;
+        seenIds.current = new Set();
+        setEvents([]);
+      }
+      return r;
+    }),
+    async res => {
+      const data = (await res.json()) as TickerFeedEvent[];
+      const filtered = (Array.isArray(data) ? data : []).filter(e => !e.target_user_id);
+      const answered = new Set(filtered.map(e => e.id));
+      if (seededRoom.current !== roomId) {
+        seededRoom.current = roomId;
+        seenIds.current = answered;
+        setEvents(filtered);
+        return;
+      }
+      // Events the socket delivered before this answer stay, in front of it.
+      setEvents(prev => [...prev.filter(e => !answered.has(e.id)), ...filtered].slice(0, 15));
+      answered.forEach(id => seenIds.current.add(id));
+    },
+    roomId,
+  );
   useEffect(() => {
     if (!roomId) return;
-    let cancelled = false;
-    roomFetch(`/api/rooms/${roomId}/lobby/feed?limit=15`)
-      .then(r => r.ok ? r.json() : [])
-      .then((data: TickerFeedEvent[]) => {
-        if (cancelled) return;
-        const filtered = (data || []).filter(e => !e.target_user_id);
-        seenIds.current = new Set(filtered.map(e => e.id));
-        setEvents(filtered);
-      })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [roomId]);
+    loadSeed();
+  }, [roomId, loadSeed]);
 
   // Live updates over the shared lobby socket channel. The socket is a shared
   // singleton (see Lobby.tsx / v2.18 lesson) so handler refs are passed to

@@ -12,6 +12,9 @@ import AnnouncementsRail from '../components/lobby/AnnouncementsRail';
 import FeedItem from '../components/lobby/FeedItem';
 import CommunityShelf from '../components/lobby/CommunityShelf';
 import { roomFetch } from '../lib/roomFetch';
+import { useRetryingLoad } from '../hooks/useRetryingLoad';
+import { isTransientStatus } from '../lib/loadRetry';
+import LoadFailedNotice from '../components/LoadFailedNotice';
 
 interface FeedEvent {
   id: number;
@@ -59,55 +62,93 @@ export default function Lobby() {
 
   // Feed state
   const [events, setEvents] = useState<FeedEvent[]>([]);
-  const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const seenIds = useRef(new Set<number>());
+  // The room the feed's first answer was for: the first answer sets the list,
+  // a later one (a quiet reload) merges into it.
+  const answeredRoom = useRef<string | null>(null);
 
-  // Content zones
+  // Content zones (optional decoration: a quiet retry, no failure state, and a
+  // failed try never clears a zone that is already shown)
   const [config, setConfig] = useState<LobbyConfig | null>(null);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [shelfItems, setShelfItems] = useState<ShelfItem[]>([]);
 
-  // Fetch lobby content (config, announcements, shelf)
+  const { load: loadConfig } = useRetryingLoad(
+    () => roomFetch(`/api/rooms/${roomId}/lobby/config`),
+    async res => { const cfg = await res.json(); if (cfg) setConfig(cfg); },
+    roomId,
+  );
+  const { load: loadAnnouncements } = useRetryingLoad(
+    () => roomFetch(`/api/rooms/${roomId}/lobby/announcements`),
+    async res => { setAnnouncements((await res.json()) || []); },
+    roomId,
+  );
+  const { load: loadShelf } = useRetryingLoad(
+    () => roomFetch(`/api/rooms/${roomId}/lobby/shelf`),
+    async res => { setShelfItems((await res.json()) || []); },
+    roomId,
+  );
   useEffect(() => {
     if (!roomId) return;
-    Promise.all([
-      roomFetch(`/api/rooms/${roomId}/lobby/config`).then(r => r.ok ? r.json() : null),
-      roomFetch(`/api/rooms/${roomId}/lobby/announcements`).then(r => r.ok ? r.json() : []),
-      roomFetch(`/api/rooms/${roomId}/lobby/shelf`).then(r => r.ok ? r.json() : []),
-    ]).then(([cfg, ann, shelf]) => {
-      if (cfg) setConfig(cfg);
-      setAnnouncements(ann || []);
-      setShelfItems(shelf || []);
-    }).catch(() => {});
-  }, [roomId]);
+    loadConfig();
+    loadAnnouncements();
+    loadShelf();
+  }, [roomId, loadConfig, loadAnnouncements, loadShelf]);
 
-  // Fetch feed
+  // Fetch a further feed page. A refusal or failure throws, so "no more" ([])
+  // and "failed" are never the same thing.
   const fetchFeed = useCallback(async (before?: string) => {
-    if (!roomId) return;
     const params = new URLSearchParams({ limit: '20' });
     if (before) params.set('before', before);
     const headers: Record<string, string> = {};
     if (playerToken) headers['Authorization'] = `Bearer ${playerToken}`;
 
     const res = await fetch(`/api/rooms/${roomId}/lobby/feed?${params}`, { headers });
-    if (!res.ok) return [];
+    if (!res.ok) throw new Error(`Feed ${res.status}`);
     return res.json() as Promise<FeedEvent[]>;
   }, [roomId, playerToken]);
 
-  // Initial feed load
-  useEffect(() => {
-    if (!roomId) return;
-    setLoading(true);
-    fetchFeed().then(data => {
-      if (data) {
+  // Feed first page, on the retrying loader
+  const { load: loadFeed, phase: feedPhase } = useRetryingLoad(
+    () => {
+      const headers: Record<string, string> = {};
+      if (playerToken) headers['Authorization'] = `Bearer ${playerToken}`;
+      return fetch(`/api/rooms/${roomId}/lobby/feed?limit=20`, { headers }).then(r => {
+        // A definite refusal is an answer with nothing in it. Without this a
+        // move to a room that refuses the feed kept the last room's events.
+        if (!r.ok && !isTransientStatus(r.status)) {
+          answeredRoom.current = roomId ?? null;
+          seenIds.current = new Set();
+          setEvents([]);
+          setHasMore(false);
+        }
+        return r;
+      });
+    },
+    async res => {
+      const data = (await res.json()) as FeedEvent[];
+      if (!Array.isArray(data)) throw new Error('Bad feed');
+      if (answeredRoom.current !== roomId) {
+        answeredRoom.current = roomId ?? null;
         setEvents(data);
         seenIds.current = new Set(data.map(e => e.id));
         setHasMore(data.length >= 20);
+        return;
       }
-    }).catch(() => {}).finally(() => setLoading(false));
-  }, [roomId, fetchFeed]);
+      // A quiet reload: add what is new in front, keep every page already loaded.
+      const fresh = data.filter(e => !seenIds.current.has(e.id));
+      if (fresh.length === 0) return;
+      fresh.forEach(e => seenIds.current.add(e.id));
+      setEvents(prev => [...fresh, ...prev]);
+    },
+    roomId,
+  );
+  useEffect(() => {
+    if (!roomId) return;
+    loadFeed();
+  }, [roomId, playerToken, loadFeed]);
 
   // Load more (cursor pagination)
   const loadMore = useCallback(async () => {
@@ -124,7 +165,7 @@ export default function Lobby() {
       } else {
         setHasMore(false);
       }
-    } catch { /* ignore */ }
+    } catch { /* failed for now: keep the button so it can be tried again */ }
     setLoadingMore(false);
   }, [events, loadingMore, fetchFeed]);
 
@@ -169,7 +210,7 @@ export default function Lobby() {
   }, [roomId, bumpSeason]);
   // Any page that joins `room:<id>` needs this (CLAUDE.md, v2.154.0): covers
   // reconnect gaps, a backgrounded tab and iOS bfcache.
-  useLiveRefresh(() => { bumpSeason(); }, { enabled: !!roomId });
+  useLiveRefresh(() => { bumpSeason(); loadFeed(); }, { enabled: !!roomId });
 
   // Filter out self-activity (keep friend_score, tournament events, admin messages, etc.)
   const SELF_EVENT_TYPES = new Set(['score_posted', 'new_high_score', 'rank_change', 'player_milestone']);
@@ -216,10 +257,12 @@ export default function Lobby() {
         )}
 
         {/* Zone 3: Activity Stream */}
-        {loading ? (
+        {feedPhase === 'loading' ? (
           <div className="flex justify-center py-16">
             <div className="w-8 h-8 border-2 border-neon-cyan/30 border-t-neon-cyan rounded-full animate-spin" />
           </div>
+        ) : feedPhase === 'retrying' ? (
+          <LoadFailedNotice what="the activity" onRetry={loadFeed} testId="lobby-load-failed" className="py-12" />
         ) : visibleEvents.length === 0 ? (
           <div className="text-center py-12">
             <MessageSquare size={40} className="text-muted/30 mx-auto mb-3" />
