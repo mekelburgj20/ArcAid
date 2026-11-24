@@ -7,6 +7,7 @@ import { RoomContext } from '../contexts/RoomContext';
 import LoadingState from './LoadingState';
 import UpdateNudgeBanner from './UpdateNudgeBanner';
 import GlobalThemeToggle from './GlobalThemeToggle';
+import ThemeFloor from './ThemeFloor';
 
 interface Room {
   id: string;
@@ -154,6 +155,10 @@ export default function RoomAdminLayout() {
   return (
     <RoomContext.Provider value={{ roomId: room.id, roomSlug: room.slug, roomName: room.name }}>
       <div className="flex min-h-screen scanlines">
+        {/* G29 (v2.264.0): the carpet floor. First child, so the page behind
+            it shows through and the positioned main, the fixed bars and the
+            sidebar paint over it. */}
+        <ThemeFloor />
         {/* Stale-PWA "new version available" nudge — fixed position. */}
         <UpdateNudgeBanner />
         {/* Mobile top bar. pt grows by the device's top safe-area inset
@@ -248,8 +253,8 @@ export default function RoomAdminLayout() {
           </div>
         </aside>
 
-        {/* Main Content */}
-        <main className="flex-1 min-w-0 md:ml-60 p-4 md:p-6 pt-[calc(4rem+env(safe-area-inset-top,0px))] md:pt-6">
+        {/* Main Content. `relative` keeps it above the carpet floor. */}
+        <main className="relative flex-1 min-w-0 md:ml-60 p-4 md:p-6 pt-[calc(4rem+env(safe-area-inset-top,0px))] md:pt-6">
           <Outlet />
         </main>
       </div>

@@ -19,6 +19,11 @@
  * The script exits 1 when anything misses. `src/__tests__/themeContrast.test.ts`
  * runs the same `auditCss` and fails on the same misses.
  *
+ * The carpet floor (G29, v2.264.0) has its own check, `floorAudit`: for every
+ * theme it computes the strongest allowed floor opacity from the palette and
+ * fails when the "Carpet floor" block declares a stronger one (see the
+ * section below).
+ *
  * No dependencies: oklch -> Oklab -> linear sRGB -> sRGB is done inline.
  *
  * Usage:  node admin-ui/scripts/contrastAudit.cjs [--all]
@@ -136,10 +141,10 @@ function overlay(fg, bg, alpha) {
 
 // ── CSS parsing ────────────────────────────────────────────────────────────
 
-/** Pull `--token: value;` declarations out of the block that starts at `idx`. */
-function readBlock(src, idx) {
+/** The text inside the block that starts at `idx`, comments removed. */
+function blockBody(src, idx) {
   const open = src.indexOf('{', idx);
-  if (open < 0) return {};
+  if (open < 0) return '';
   let depth = 0;
   let end = open;
   for (let i = open; i < src.length; i++) {
@@ -152,7 +157,12 @@ function readBlock(src, idx) {
       }
     }
   }
-  const body = src.slice(open + 1, end).replace(/\/\*[\s\S]*?\*\//g, '');
+  return src.slice(open + 1, end).replace(/\/\*[\s\S]*?\*\//g, '');
+}
+
+/** Pull `--token: value;` declarations out of the block that starts at `idx`. */
+function readBlock(src, idx) {
+  const body = blockBody(src, idx);
   const out = {};
   const re = /(--[a-z0-9-]+)\s*:\s*([^;]+);/gi;
   let m;
@@ -164,13 +174,15 @@ function readBlock(src, idx) {
  * The default (`@theme`) plus every `.theme-x {` block that is a bare
  * single-class selector at line start and sets `--color-deep`. `own` is what
  * the block itself declares; `tokens` adds what it inherits from the default.
+ * `scheme` is `light` when the block declares `color-scheme: light`, else
+ * `dark` (the `html` default).
  */
 function parseThemes(src) {
   const themes = [];
   const themeIdx = src.search(/^@theme\s*\{/m);
   if (themeIdx < 0) throw new Error('no @theme block found');
   const defaults = readBlock(src, themeIdx);
-  themes.push({ name: 'dark (default)', own: defaults, tokens: defaults });
+  themes.push({ name: 'dark (default)', own: defaults, tokens: defaults, scheme: 'dark' });
 
   const classRe = /^\.(theme-[a-z-]+)\s*\{/gm;
   let cm;
@@ -181,7 +193,8 @@ function parseThemes(src) {
     if (!own['--color-deep']) continue; // helper blocks (scanlines, inputs, glows)
     if (seen.has(name)) continue;
     seen.add(name);
-    themes.push({ name, own, tokens: { ...defaults, ...own } });
+    const scheme = /(^|[;\s])color-scheme\s*:\s*light\b/.test(blockBody(src, cm.index)) ? 'light' : 'dark';
+    themes.push({ name, own, tokens: { ...defaults, ...own }, scheme });
   }
   return themes;
 }
@@ -272,6 +285,133 @@ function auditCss(src) {
   return { themes, failures };
 }
 
+// ── the carpet floor (G29, v2.264.0) ───────────────────────────────────────
+//
+// The floor is a faint pattern behind themed pages, painted in the theme's
+// own colours (components/ThemeFloor.tsx). Text that sits on the bare page
+// sits on it too, so each theme's floor is only as strong as its palette
+// allows: the strongest of FLOOR_STEPS percent, capped per polarity, at which
+// every FLOOR_TEXT token still clears 4.5:1 against the worst floor pixel. A
+// floor pixel is `--color-deep` with one floor colour laid over it at that
+// opacity (plain alpha blending in sRGB, as the browser composites). The
+// floor colours are what the generated tiles paint with: lead, second, the two
+// mixed in oklch, primary and muted (border and deep only shade the pinballs,
+// and sit closer to the page than these do).
+//
+// The declared strength is read from the "Carpet floor" block in index.css:
+// `.carpet-floor { opacity }` for the default theme and
+// `.theme-x .carpet-floor { opacity }` (or `display: none`) per theme.
+
+const FLOOR_STEPS = [16, 14, 12, 10, 8, 6, 5, 4, 3];
+const FLOOR_CAP = { dark: 16, light: 12 };
+const FLOOR_TEXT = ['--color-primary', '--color-muted', '--color-faint', '--color-neon-cyan', '--color-lead', '--color-second'];
+const FLOOR_PAINT = ['lead', 'second', 'mix', 'primary', 'muted'];
+
+/** A colour value as [L 0..1, C, h radians], or null. */
+function toOklch(value) {
+  const v = String(value || '').trim();
+  const m = /^oklch\(\s*([\d.]+)%\s+([\d.]+)\s+([\d.]+)\s*\)$/i.exec(v);
+  if (m) return [parseFloat(m[1]) / 100, parseFloat(m[2]), (parseFloat(m[3]) * Math.PI) / 180];
+  const rgb = parseColor(v);
+  if (!rgb) return null;
+  const [r, g, b] = rgb.map(srgbToLinear);
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+  const mm = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  const L = 0.2104542553 * l + 0.793617785 * mm - 0.0040720468 * s;
+  const A = 1.9779984951 * l - 2.428592205 * mm + 0.4505937099 * s;
+  const B = 0.0259040371 * l + 0.7827717662 * mm - 0.808675766 * s;
+  return [L, Math.hypot(A, B), Math.atan2(B, A)];
+}
+
+/** `color-mix(in oklch, a, b)`: half and half, the shorter way round the hue. */
+function mixOklch(a, b) {
+  const [L1, C1, h1] = toOklch(a);
+  const [L2, C2, h2] = toOklch(b);
+  let dh = h2 - h1;
+  if (dh > Math.PI) dh -= 2 * Math.PI;
+  if (dh < -Math.PI) dh += 2 * Math.PI;
+  const h = C1 === 0 ? h2 : C2 === 0 ? h1 : h1 + dh / 2;
+  return oklchToRgb((L1 + L2) / 2, (C1 + C2) / 2, (h * 180) / Math.PI).map(linearToSrgb);
+}
+
+/** `fg` over `bg` at `alpha`, both sRGB 0..1. */
+function composite(bg, fg, alpha) {
+  return bg.map((c, i) => c * (1 - alpha) + fg[i] * alpha);
+}
+
+/** Parse an `opacity` (0.08 or 8%) and `display: none` out of a rule body. */
+function floorRule(body) {
+  const out = {};
+  const m = /(?:^|[;\s{])opacity\s*:\s*([\d.]+)(%?)/.exec(body);
+  if (m) out.opacity = parseFloat(m[1]) / (m[2] ? 100 : 1);
+  if (/(?:^|[;\s{])display\s*:\s*none\b/.test(body)) out.hidden = true;
+  return out;
+}
+
+/** The declared floor: the base rule and each theme's rule, by theme name. */
+function parseFloorRules(src) {
+  const css = src.replace(/\/\*[\s\S]*?\*\//g, '');
+  const base = /^\.carpet-floor\s*\{([^}]*)\}/m.exec(css);
+  const perTheme = new Map();
+  const re = /^\.(theme-[a-z-]+)\s+\.carpet-floor\s*\{([^}]*)\}/gm;
+  let m;
+  while ((m = re.exec(css))) perTheme.set(m[1], { ...perTheme.get(m[1]), ...floorRule(m[2]) });
+  return { base: base ? floorRule(base[1]) : null, perTheme };
+}
+
+/**
+ * Every theme's floor: the allowed opacity (0 when even 3% fails), what the
+ * stylesheet declares (0 when the theme hides it), the worst text-on-floor
+ * ratio at the declared strength, and the failures (a declared opacity above
+ * the allowed one, or no declaration at all).
+ */
+function floorAudit(src) {
+  const { base, perTheme } = parseFloorRules(src);
+  const rows = parseThemes(src).map((theme) => {
+    const color = (token) => parseColor(resolveValue(theme.tokens, theme.tokens[token]) || '');
+    const deep = color('--color-deep');
+    const lead = resolveValue(theme.tokens, theme.tokens['--color-lead']);
+    const second = resolveValue(theme.tokens, theme.tokens['--color-second']);
+    const paints = {
+      lead: color('--color-lead'),
+      second: color('--color-second'),
+      mix: lead && second && toOklch(lead) && toOklch(second) ? mixOklch(lead, second) : null,
+      primary: color('--color-primary'),
+      muted: color('--color-muted'),
+    };
+    const texts = FLOOR_TEXT.map((token) => [token, color(token)]);
+    const broken = !deep || FLOOR_PAINT.some((p) => !paints[p]) || texts.some(([, rgb]) => !rgb);
+
+    /** The lowest text-on-floor ratio at `alpha`, and which pair it is. */
+    const worstAt = (alpha) => {
+      let worst = { ratio: Infinity, text: '', paint: '' };
+      if (broken) return { ratio: NaN, text: '', paint: '' };
+      for (const p of FLOOR_PAINT) {
+        const px = composite(deep, paints[p], alpha);
+        for (const [token, rgb] of texts) {
+          const ratio = contrast(rgb, px);
+          if (ratio < worst.ratio) worst = { ratio, text: token, paint: p };
+        }
+      }
+      return worst;
+    };
+
+    const cap = FLOOR_CAP[theme.scheme] ?? FLOOR_CAP.light;
+    const allowed = broken ? 0 : (FLOOR_STEPS.filter((s) => s <= cap).find((s) => worstAt(s / 100).ratio >= AA) ?? 0);
+
+    const key = theme.name === 'dark (default)' ? null : theme.name;
+    const rule = { ...(base || {}), ...((key && perTheme.get(key)) || {}) };
+    const hidden = !!rule.hidden;
+    const declaredRaw = hidden ? 0 : rule.opacity;
+    const declared = declaredRaw === undefined ? undefined : Math.round(declaredRaw * 10000) / 100;
+    const at = declared ? worstAt(declared / 100) : null;
+    const fail = broken || declared === undefined || declared > allowed;
+    return { theme: theme.name, scheme: theme.scheme, cap, allowed, declared, hidden, worst: at, fail };
+  });
+  return { rows, failures: rows.filter((r) => r.fail) };
+}
+
 // ── report ─────────────────────────────────────────────────────────────────
 
 function fmt(n) {
@@ -333,9 +473,28 @@ function main() {
     console.log('\n.sb-theme-scope matches @theme for every token checked here.');
   }
 
-  if (failures.length) process.exitCode = 1;
+  const floor = floorAudit(src);
+  console.log('');
+  console.log(`Carpet floor: the strongest of ${FLOOR_STEPS.join(', ')} percent (at most ${FLOOR_CAP.dark} on a dark theme,`);
+  console.log(`${FLOOR_CAP.light} on a light one) at which every text token clears ${AA}:1 on deep under the floor.`);
+  console.log(`${'theme'.padEnd(18)}  ${'scheme'.padEnd(6)}  ${'allowed'.padStart(7)}  ${'declared'.padStart(8)}  worst text on floor at the declared strength`);
+  for (const row of floor.rows) {
+    const declared = row.declared === undefined ? '(none)' : row.hidden ? 'hidden' : `${row.declared}%`;
+    const worst = row.worst
+      ? `${row.worst.ratio.toFixed(2)}  ${row.worst.text.replace('--color-', '')} on ${row.worst.paint}`
+      : '';
+    console.log(
+      `${row.theme.padEnd(18)}  ${row.scheme.padEnd(6)}  ${`${row.allowed}%`.padStart(7)}  ${declared.padStart(8)}  ${worst}${row.fail ? '   <-- FAIL' : ''}`
+    );
+  }
+  console.log(`FLOOR FAILURES: ${floor.failures.length}`);
+
+  if (failures.length || floor.failures.length) process.exitCode = 1;
 }
 
 if (require.main === module) main();
 
-module.exports = { auditCss, parseThemes, parseColor, contrast, resolveValue, AA, BGS, TEXT, ACCENTS };
+module.exports = {
+  auditCss, floorAudit, parseFloorRules, parseThemes, parseColor, contrast, resolveValue,
+  AA, BGS, TEXT, ACCENTS, FLOOR_STEPS, FLOOR_CAP, FLOOR_TEXT,
+};

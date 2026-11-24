@@ -40,6 +40,7 @@ export const SETTING_LABELS: Record<string, string> = {
     REQUIRE_SCORE_PHOTO: 'Require photo with score submission',
     GLOBAL_SCOREBOARD_ENABLED: 'Post scores to Global Scoreboard',
     THEME: 'Theme',
+    UI_FLOOR: 'Carpet floor',
     // Discord
     DISCORD_ENABLED: 'Discord integration',
     DISCORD_MENTIONS_ENABLED: 'Discord @mentions',

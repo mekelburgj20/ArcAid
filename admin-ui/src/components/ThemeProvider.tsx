@@ -28,6 +28,23 @@
  * Then, ALWAYS LAST on every route class: `resolveAppearance(base, appearance)`
  * — the viewer's Dark / Light / Auto switch (v2.130.0) has the final word.
  *
+ * THE CARPET FLOOR (G29, v2.264.0) is a separate on/off layer beside the
+ * theme: the faint arcade-carpet pattern `ThemeFloor` draws behind themed
+ * pages (PublicLayout, RoomAdminLayout and SuperAdminLayout mount it; nothing
+ * else does). Two stored choices, resolved by `resolveFloor` in lib/floor.ts:
+ *
+ *   ROOM PUBLIC PAGE   the viewer's choice (`/me/preferences.ui_floor`), else
+ *                      the room's setting (`game_room_settings.UI_FLOOR`,
+ *                      shipped as the portal's `ui_floor`), else on.
+ *   EVERY OTHER PAGE   the viewer's choice, else on.
+ *
+ * High contrast never shows it, whatever the switches say. Mirrors for the
+ * first paint: `arcaid-floor` (the viewer) and `arcaid-floor-public-<slug>`
+ * (the room). The viewer's value hydrates by APPEARANCE's rule, not the
+ * personal theme's: a server value wins, but a NULL column (never chosen)
+ * does not clear a choice made on this device before signing in; that
+ * choice is written up to the account instead.
+ *
  * What changed in v2.132.0:
  *
  *  - The personal theme used to be the ADMIN theme (a field misfiled under
@@ -65,6 +82,9 @@ import { fetchRoomThemes } from '../lib/roomThemes';
 // the backend). Deliberately NOT re-exported from here: this file is a
 // component module, and re-exports cost it fast refresh.
 import { THEME_IDS, normalizeThemeId, type ThemeId } from '../lib/themeIds';
+import {
+  STORAGE_FLOOR_KEY, floorPublicSlugKey, readFloorChoice, resolveFloor, roomFloorChoice, type FloorChoice,
+} from '../lib/floor';
 
 /**
  * The picker list (v2.133.0; eleven themes since v2.263.0, G29). Order is
@@ -139,6 +159,26 @@ interface ThemeContextType {
   appearance: Appearance;
   /** Records the choice: localStorage now, server too when signed in. */
   setAppearance: (appearance: Appearance) => void;
+  /**
+   * G29 (v2.264.0): the viewer's carpet floor choice, or null for "no choice"
+   * (the room's setting applies on its pages, and on elsewhere).
+   */
+  floorChoice: FloorChoice | null;
+  /** Records the viewer's choice: localStorage now, server too when signed in. */
+  setFloorChoice: (floor: FloorChoice | null) => void;
+  /** The room's `UI_FLOOR` for the room on screen (the last one resolved off-room). */
+  publicFloor: FloorChoice;
+  /**
+   * The room's setting, for the room Settings page's live preview: state now,
+   * and the per-slug mirror (`slug` defaults to the room on screen; the admin
+   * page passes its room's). Never written to the server from here.
+   */
+  setPublicFloor: (floor: FloorChoice, slug?: string) => void;
+  /**
+   * Whether the floor is on here (see the model block). High contrast hides
+   * it regardless, which `ThemeFloor` applies; a switch shows this value.
+   */
+  floor: boolean;
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
@@ -195,11 +235,31 @@ function readAppearance(): Appearance {
   }
 }
 
+/** G29 (v2.264.0): the viewer's stored floor choice, or null (also in private mode). */
+function readStoredFloorChoice(): FloorChoice | null {
+  try {
+    return readFloorChoice(localStorage.getItem(STORAGE_FLOOR_KEY));
+  } catch {
+    return null;
+  }
+}
+
+/** A room's mirrored floor setting; on when nothing is stored. */
+function readStoredRoomFloor(slug: string): FloorChoice {
+  try {
+    return roomFloorChoice(localStorage.getItem(floorPublicSlugKey(slug)));
+  } catch {
+    return 'on';
+  }
+}
+
 const PLAYER_TOKEN_KEY = 'arcaid_player_token';
 
 interface ServerPreferences {
   ui_theme: ThemeId | null;
   appearance: Appearance | null;
+  /** G29 (v2.264.0); absent from a server older than that, which reads as no choice. */
+  ui_floor?: FloorChoice | null;
 }
 
 /**
@@ -234,7 +294,7 @@ async function fetchUserPreferences(): Promise<ServerPreferences | null> {
  * present. `/me/preferences` writes only the fields it is sent (v2.130.0), so
  * `{appearance}` and `{ui_theme}` never clobber one another.
  */
-async function persistUserPreference(body: { appearance?: Appearance; ui_theme?: ThemeId | null }): Promise<void> {
+async function persistUserPreference(body: { appearance?: Appearance; ui_theme?: ThemeId | null; ui_floor?: FloorChoice | null }): Promise<void> {
   if (isAuthenticated()) {
     await api.post('/me/preferences', body).catch(() => { /* localStorage still holds it */ });
     return;
@@ -377,11 +437,29 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     return normalizeThemeId(localStorage.getItem(roomOverrideSlugKey(initialSlug)));
   });
 
+  // G29 (v2.264.0): the carpet floor's two choices, read synchronously so
+  // the first paint has the floor (or not) without a flash. The room's is
+  // seeded per SLUG, like the room default theme above.
+  const [floorChoiceState, setFloorChoiceState] = useState<FloorChoice | null>(readStoredFloorChoice);
+  const [publicFloorState, setPublicFloorState] = useState<FloorChoice>(() => {
+    const initialSlug = getRoomSlug(window.location.pathname);
+    return initialSlug ? readStoredRoomFloor(initialSlug) : 'on';
+  });
+
   // The room on screen RIGHT NOW, for async callbacks. Read from the router
   // (not `window.location`, which `MemoryRouter` never updates) so the guard
   // below behaves the same in tests as in the app.
   const currentRoomSlugRef = useRef<string | null>(roomSlug);
   useEffect(() => { currentRoomSlugRef.current = roomSlug; }, [roomSlug]);
+
+  /**
+   * Record a room's floor setting from the portal: mirror always, paint only
+   * if that room is still on screen (same reason as `applyRoomOverride`).
+   */
+  const applyRoomFloor = (slug: string, floor: FloorChoice) => {
+    try { localStorage.setItem(floorPublicSlugKey(slug), floor); } catch { /* private mode */ }
+    if (currentRoomSlugRef.current === slug) setPublicFloorState(floor);
+  };
 
   /**
    * Record a room's override: mirror always, paint only if that room is still
@@ -413,6 +491,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         : (personalThemeState ?? publicThemeState);
   const globalTheme = resolveAppearance(baseTheme, appearance);
   const theme = globalTheme;
+  // G29: the room's floor setting counts on its public pages only.
+  // `roomSlug` is null on admin, global and utility pages.
+  const floor = resolveFloor(floorChoiceState, roomSlug ? publicFloorState : null);
 
   // Apply theme class whenever effective theme changes
   useEffect(() => {
@@ -465,6 +546,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       || localStorage.getItem(STORAGE_GLOBAL_KEY);
     setPublicThemeState(normalizeThemeId(stored) || 'dark');
     setRoomThemeOverrideState(normalizeThemeId(localStorage.getItem(roomOverrideSlugKey(roomSlug))));
+    // G29: this room's floor mirror, on when it has none.
+    setPublicFloorState(readStoredRoomFloor(roomSlug));
   }, [adminRoute, roomSlug]);
 
   // Hydrate from API on mount and whenever the route's admin/public-slug
@@ -489,6 +572,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
               setPublicThemeState(serverPublicTheme);
               localStorage.setItem(STORAGE_PUBLIC_KEY, serverPublicTheme);
             }
+            // G29 (v2.264.0): the room's floor switch. A portal without the
+            // field (an older server) leaves the mirror as it is.
+            if (portal.ui_floor !== undefined) applyRoomFloor(roomSlug, roomFloorChoice(portal.ui_floor));
             // v2.132.0 — this room's personal override. Needs the ROOM ID,
             // which is why it waits on the portal. Passing `roomId` also opts
             // into the server's one-shot lift of a pre-v2.132 per-device
@@ -533,6 +619,17 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
             try { localStorage.setItem(STORAGE_APPEARANCE_KEY, prefs.appearance); } catch { /* private mode */ }
           } else if (readAppearance() !== 'auto') {
             void persistUserAppearance(readAppearance());
+          }
+          // G29 (v2.264.0): the floor switch follows appearance's rule: a
+          // server value wins and is mirrored; a NULL column has never been
+          // chosen, so a choice made here before signing in goes up to it.
+          const serverFloor = readFloorChoice(prefs.ui_floor);
+          if (serverFloor) {
+            setFloorChoiceState(serverFloor);
+            try { localStorage.setItem(STORAGE_FLOOR_KEY, serverFloor); } catch { /* private mode */ }
+          } else {
+            const localFloor = readStoredFloorChoice();
+            if (localFloor) void persistUserPreference({ ui_floor: localFloor });
           }
         }
       } catch {
@@ -644,6 +741,29 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     void persistUserAppearance(next);
   };
 
+  // G29 (v2.264.0): the viewer's floor switch, written exactly like
+  // `setAppearance`: localStorage at once (the only store a guest has), the
+  // server on top when signed in. Null clears both ("no choice").
+  const setFloorChoice = (next: FloorChoice | null) => {
+    setFloorChoiceState(next);
+    try {
+      if (next) localStorage.setItem(STORAGE_FLOOR_KEY, next);
+      else localStorage.removeItem(STORAGE_FLOOR_KEY);
+    } catch { /* private mode: the choice still applies for this session */ }
+    void persistUserPreference({ ui_floor: next });
+  };
+
+  // G29: the room's floor setting from the admin Settings page, like
+  // `setPublicTheme`: the page saves it with the room's other settings, this
+  // keeps the state and the room's mirror in step until then.
+  const setPublicFloor = (next: FloorChoice, slug?: string) => {
+    setPublicFloorState(next);
+    const target = slug ?? roomSlug;
+    if (target) {
+      try { localStorage.setItem(floorPublicSlugKey(target), next); } catch { /* private mode */ }
+    }
+  };
+
   return (
     <ThemeContext.Provider value={{
       theme, setTheme, globalTheme, setGlobalTheme,
@@ -652,6 +772,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       roomThemeOverride: roomThemeOverrideState, setRoomThemeOverride,
       adminTheme: personalThemeState ?? 'dark', setAdminTheme,
       globalPageTheme, appearance, setAppearance,
+      floorChoice: floorChoiceState, setFloorChoice,
+      publicFloor: publicFloorState, setPublicFloor,
+      floor,
     }}>
       {children}
     </ThemeContext.Provider>

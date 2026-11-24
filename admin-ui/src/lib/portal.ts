@@ -23,6 +23,8 @@ export interface Portal {
   admin_theme?: string | null;
   /** Not always present in the live response — public/showcase theme override. */
   public_theme?: string | null;
+  /** G29 (v2.264.0): the room's carpet floor switch; the server sends 'on' when unset. */
+  ui_floor?: 'on' | 'off';
   is_public?: boolean;
   pick_award_enabled?: boolean;
   /** v2.35.0 — drives the "sign in with Discord for DMs/picks" login nudge. */

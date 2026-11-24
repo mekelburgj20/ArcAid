@@ -1052,6 +1052,41 @@ describe('Settings page — Room default theme (v2.132.0)', () => {
     await waitFor(() => expect(lastSavePayload(fetchMock)?.UI_THEME).toBe('graphite'));
     expect(fetchMock.mock.calls.some((c: FetchArgs) => String(c[0]).includes('/me/preferences'))).toBe(false);
   });
+
+  // G29 (v2.264.0): the room's carpet floor switch sits under the picker.
+  it('shows the Carpet floor switch on when unset, and stages UI_FLOOR on the save', async () => {
+    const fetchMock = stubFetch({ UI_THEME: 'forest' });
+    renderSettings();
+    await waitForLoaded();
+
+    const sw = screen.getByRole('switch', { name: 'Carpet floor' });
+    expect(sw).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByText(/Visitors can turn it off for themselves\./)).toBeInTheDocument();
+
+    fireEvent.click(sw);
+    expect(screen.getByRole('switch', { name: 'Carpet floor' })).toHaveAttribute('aria-checked', 'false');
+    // The room's first-paint mirror follows at once, like the theme's.
+    expect(localStorage.getItem(`arcaid-floor-public-${ROOM_SLUG}`)).toBe('off');
+    expect(screen.getByText('1 unsaved change')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Save All Changes/ }));
+    await waitFor(() => expect(lastSavePayload(fetchMock)?.UI_FLOOR).toBe('off'));
+    expect(fetchMock.mock.calls.some((c: FetchArgs) => String(c[0]).includes('/me/preferences'))).toBe(false);
+  });
+
+  it('reads a stored off, and flipping it back on is not a change', async () => {
+    stubFetch({ UI_FLOOR: 'off' });
+    renderSettings();
+    await waitForLoaded();
+
+    const sw = screen.getByRole('switch', { name: 'Carpet floor' });
+    expect(sw).toHaveAttribute('aria-checked', 'false');
+    // Claimed by the Theme card, so never a raw text input in the "Other" card.
+    expect(screen.queryByDisplayValue('off')).toBeNull();
+    fireEvent.click(sw);
+    fireEvent.click(screen.getByRole('switch', { name: 'Carpet floor' }));
+    expect(screen.queryByText(/unsaved change/)).toBeNull();
+  });
 });
 
 /**

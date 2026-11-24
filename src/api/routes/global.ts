@@ -129,10 +129,12 @@ router.post('/me/preferences', requireAuth, async (req, res) => {
         // independently optional (schema rejects a body carrying neither), so
         // the Appearance control never has to round-trip, and possibly clobber,
         // the admin's theme choice and vice versa.
-        const { ui_theme, appearance, share_to_global } = validationResult.data;
+        const { ui_theme, appearance, share_to_global, ui_floor } = validationResult.data;
         if (ui_theme !== undefined) await PreferencesService.setTheme(userId, ui_theme);
         if (appearance !== undefined) await PreferencesService.setAppearance(userId, appearance);
         if (share_to_global !== undefined) await PreferencesService.setShareToGlobal(userId, share_to_global);
+        // G29 (v2.264.0): the carpet floor switch, same rule: only when sent.
+        if (ui_floor !== undefined) await PreferencesService.setFloor(userId, ui_floor);
         res.json({ success: true });
     } catch (error) {
         logError('API Error (POST /api/me/preferences):', error);
@@ -2267,6 +2269,9 @@ router.get('/portal', async (req, res) => {
         const { RoomAccessService } = await import('../../services/RoomAccessService.js');
         const uiTheme = await GameRoomSettingsService.get(room.id, 'UI_THEME');
         const adminTheme = await GameRoomSettingsService.get(room.id, 'ADMIN_THEME');
+        // G29 (v2.264.0): the room's carpet floor switch, absent = on.
+        const { UI_FLOOR_KEY, roomFloorSetting } = await import('../../utils/floorSetting.js');
+        const uiFloor = roomFloorSetting(await GameRoomSettingsService.get(room.id, UI_FLOOR_KEY));
         const pickAwardEnabled = await PickAwardGate.isEnabled(room.id);
         // v2.35.0 (Google login) — cheap additive field so public pages can
         // decide whether to show the "sign in with Discord for DMs/picks"
@@ -2288,6 +2293,7 @@ router.get('/portal', async (req, res) => {
             logo_url: room.logo_url || null,
             ui_theme: uiTheme || 'dark',
             admin_theme: adminTheme || 'dark',
+            ui_floor: uiFloor,
             is_public: !!room.is_public,
             pick_award_enabled: pickAwardEnabled,
             discord_enabled: discordEnabledRaw !== 'false',

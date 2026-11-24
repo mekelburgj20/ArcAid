@@ -5,6 +5,7 @@ import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import LoginButtons from '../components/LoginButtons';
 import AppearanceControl from '../components/AppearanceControl';
 import ThemePicker from '../components/ThemePicker';
+import { MyFloorToggle } from '../components/FloorToggle';
 import { useTheme } from '../components/ThemeProvider';
 import { resolveAvatarUrl } from '../lib/avatar';
 import { isGoogleUserId } from '../lib/identityProvider';
@@ -1030,6 +1031,9 @@ export default function AccountSettings() {
                   Applies to every game room and your admin pages. Appearance (above) still wins on
                   light/dark.
                 </p>
+                {/* G29 (v2.264.0): the viewer's carpet floor behind themed
+                    pages. This page's own carpet never changes with it. */}
+                <MyFloorToggle look="account" className="mt-3 max-w-sm" />
                 <p className="text-xs text-faint mt-2">
                   This page keeps its own look, so a change here shows on the rest of Arcaid.
                 </p>

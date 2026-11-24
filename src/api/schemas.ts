@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { containsBlockedTerm } from '../utils/contentBlocklist.js';
 import { normalizeTournamentRulesInput } from '../utils/platformRules.js';
 import { THEME_IDS } from '../utils/themeIds.js';
+import { FLOOR_CHOICES } from '../utils/floorSetting.js';
 import { serializeTournamentAnnounceRoutes } from '../utils/discordAnnounceRoutes.js';
 import {
     CALLOUT_ACTIONS, CALLOUT_CATEGORIES, CalloutAction, CalloutCategory,
@@ -351,9 +352,12 @@ export const UpdatePreferencesSchema = z.object({
     appearance: z.enum(['dark', 'light', 'auto']).nullable().optional(),
     /** v2.137.0 — whether room scores reach the Global Scoreboard. */
     share_to_global: z.boolean().optional(),
+    /** G29 (v2.264.0): the carpet floor switch; null = follow the room. */
+    ui_floor: z.enum(FLOOR_CHOICES).nullable().optional(),
 }).refine(
-    body => body.ui_theme !== undefined || body.appearance !== undefined || body.share_to_global !== undefined,
-    { message: 'Provide ui_theme, appearance and/or share_to_global' },
+    body => body.ui_theme !== undefined || body.appearance !== undefined || body.share_to_global !== undefined
+        || body.ui_floor !== undefined,
+    { message: 'Provide ui_theme, appearance, ui_floor and/or share_to_global' },
 );
 
 // PATCH /api/me/global-scores/:scoreId — a player posts a score they kept private

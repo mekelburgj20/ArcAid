@@ -115,7 +115,8 @@ export default function ScoreboardTicker({ roomId }: ScoreboardTickerProps) {
     // s21 — in-flow bar (was fixed bottom-0, which painted over PublicLayout's
     // Privacy/Terms footer). PublicLayout mounts this above the footer; the
     // footer now owns the safe-area inset, so the s20 height-calc hack is gone.
-    <div className="flex-shrink-0 h-9 bg-deep/90 border-t border-border/30 overflow-hidden">
+    // `relative` keeps the bar above the carpet floor (G29, v2.264.0).
+    <div className="relative flex-shrink-0 h-9 bg-deep/90 border-t border-border/30 overflow-hidden">
       <div ref={trackRef} className="scoreboard-ticker-track flex items-center gap-10 whitespace-nowrap h-full pr-4">
         {/* News-ticker contract (owner report 2026-10-18): ONE copy of the
             items, entering from fully off the strip's right edge and exiting

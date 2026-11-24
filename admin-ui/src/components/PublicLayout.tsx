@@ -27,6 +27,7 @@ import ConfirmModal from './ConfirmModal';
 import TourController from './TourController';
 import NotificationNudgeBanner from './NotificationNudgeBanner';
 import UpdateNudgeBanner from './UpdateNudgeBanner';
+import ThemeFloor from './ThemeFloor';
 import { roomFetch } from '../lib/roomFetch';
 
 interface PublicLayoutProps {
@@ -332,6 +333,10 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
 
   return (
     <div className="h-[100dvh] bg-deep text-primary relative flex flex-col overflow-hidden">
+      {/* G29 (v2.264.0): the carpet floor. First child, so it paints over
+          this root's bg-deep; the nav and footer (z-40) and the positioned
+          page content and ticker below paint over it. */}
+      <ThemeFloor />
       {/* Stale-PWA "new version available" nudge — fixed position, renders
           regardless of room load state (portal loading/error/gated). */}
       <UpdateNudgeBanner />
@@ -484,8 +489,8 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
         </div>
       </nav>
 
-      {/* Page Content */}
-      <div className="flex-1 min-h-0 overflow-y-auto">
+      {/* Page Content. `relative` keeps it above the carpet floor. */}
+      <div className="relative flex-1 min-h-0 overflow-y-auto">
         {portalError ? (
           <div className="flex flex-col items-center justify-center py-16 gap-2 text-center px-4">
             <p className="font-pixel text-neon-coral text-lg mb-1">Room not found</p>

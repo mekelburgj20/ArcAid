@@ -6,6 +6,43 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.264.0] - 2026-11-23 - A carpet floor behind themed pages
+
+The owner asked for an optional, faint arcade-carpet pattern behind themed pages, made from the theme's own
+colours, with a switch beside the theme picker (G29). It is on for everyone until someone turns it off.
+
+### Added
+- **A faint arcade carpet behind room pages and admin pages.** It is the carpet Account Settings already has
+  (the logo's neon triangles, chrome pinballs and 90s carpet shapes), drawn in each theme's own colours. It sits
+  behind the menu bar, the cards and the footer, never in front of anything, and stays faint enough that text
+  on the page is as easy to read as before on every theme: a little stronger on the darker themes, very light
+  on Paper, Speegle and Light. High contrast never shows it. Phones get the same carpet, a little smaller.
+- **Room owners: a "Carpet floor" switch under "Room default theme"** (Room Admin, then Room Settings, the
+  Theme card). It sets what your visitors see on your room's pages; save the page as usual.
+- **Players and admins: your own "Carpet floor" switch under "My theme"**, in Display settings (the user menu),
+  in Account Settings (the Appearance panel) and, for super admins, in Global Settings. Your choice beats the
+  room's, applies on admin pages too, follows you to your other devices when you are signed in, and is
+  remembered in this browser when you are not. It saves the moment you flip it.
+- Account Settings and the other Arcaid-look pages keep their own carpet, which the switch never changes. The
+  kiosk, the Global Scoreboard and the landing page have no floor.
+
+### For developers
+- `components/ThemeFloor.tsx` is the first child of `PublicLayout`, `RoomAdminLayout` and `SuperAdminLayout`;
+  the content after it is positioned (`relative` on the public scroll area, the ticker and the admin `main`),
+  which keeps the fixed floor behind the page without a new stacking context. Its markup,
+  `components/themeFloorTiles.generated.ts`, is written by `scripts/arcadeCarpet.mjs` from the same seeds as
+  the public tiles (which come out byte-identical) and loads as its own chunk (74 kB, 12.8 kB gzip) only when
+  the floor shows. Its colours and per-theme opacity are the "Carpet floor" block at the end of `index.css`.
+- `scripts/contrastAudit.cjs` gained `floorAudit`: per theme, the strongest of 16 down to 3 percent (16 at
+  most on a dark theme, 12 on a light one) at which primary, muted, faint, cyan, lead and second text keep
+  4.5:1 on the page under the floor, recomputed from the CSS; it exits 1 when a declared opacity is stronger.
+  `src/__tests__/themeContrast.test.ts` runs it too.
+- Room setting `UI_FLOOR` (`'on'`/`'off'`, absent = on; the room settings route refuses anything else) ships
+  as the portal's `ui_floor`. Migration 221 (`221_user_floor_preference`) adds `user_preferences.ui_floor`
+  (NULL = no choice), read and written through `/api/me/preferences` like the theme and appearance.
+  `ThemeProvider` resolves the two (`resolveFloor` in `lib/floor.ts`) and mirrors them in `arcaid-floor` and
+  `arcaid-floor-public-<slug>` for the first paint.
+
 ## [2.263.0] - 2026-11-23 - Eleven themes, and the default in the logo's colours
 
 The owner picked a new set of room themes from a mockup (G29): fewer of them, made from one recipe, each one
