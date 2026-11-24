@@ -6,6 +6,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.265.0] - 2026-11-23 - Global in the room switcher
+
+The owner asked that the Global Scoreboard not feel cut off from the rooms: Global is now a place in the room
+menu, and the Global Scoreboard has the room menu too.
+
+### Added
+- **"Global Scoreboard" is in the room menu.** Click the room name in a room's nav bar: under the rooms is a
+  "Global Scoreboard" row with a trophy. It is there whether you are signed in or not, and it is not counted
+  as one of your rooms.
+- **The Global Scoreboard has the room menu when you are signed in.** Beside the Arcaid logo at the top (on a
+  phone, on its own row under the top bar) a button reads "Global Scoreboard". Click it to see your rooms,
+  the one you used most recently first, under Global marked "You are here", with "All game rooms" and
+  "Manage my rooms" at the bottom. Signed out, the top of the page is as before.
+
+### For developers
+- `SwitcherCurrentRoom` takes `kind: 'global'` (an empty slug and no room id, which never match a room), and
+  the menu model carries `current.kind` and `showGlobal`. `MenuTile` (`parts/Menu.tsx`) takes an optional
+  `icon` (`.arc-menu__tile--icon`), the trigger draws `.room-switch__tile--icon`, and `.room-switch--global`
+  lifts the name's width cap. `GlobalScoreboard.tsx` imports `RoomSwitcher` and `useMyRooms` only, so the
+  menu chunk stays lazy.
+
 ## [2.264.0] - 2026-11-23 - A carpet floor behind themed pages
 
 The owner asked for an optional, faint arcade-carpet pattern behind themed pages, made from the theme's own

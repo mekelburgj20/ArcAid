@@ -1,6 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, type ReactNode } from 'react';
 import { useLocation } from 'react-router-dom';
-import { LayoutGrid, SlidersHorizontal } from 'lucide-react';
+import { LayoutGrid, SlidersHorizontal, Trophy } from 'lucide-react';
 import {
     Menu, MenuFooter, MenuGroup, MenuHeading, MenuItem, MenuNote, MenuPopup, MenuSeparator,
     MenuSkeletonRow, MenuStaticRow, MenuTile, MenuTrigger, type MenuActions,
@@ -36,9 +36,12 @@ export interface SwitcherMenuRoom {
 
 /** What the menu shows, worked out by `RoomSwitcher`. */
 export interface SwitcherMenuModel {
-    current: { name: string; logoUrl: string | null; initials: string };
+    /** Where the viewer is: a room, or the Global Scoreboard (its tile is the trophy). */
+    current: { kind: 'room' | 'global'; name: string; logoUrl: string | null; initials: string };
     /** The viewer's other rooms, already in order. */
     others: SwitcherMenuRoom[];
+    /** The Global Scoreboard's row after the rooms: on a room, never on Global itself. */
+    showGlobal: boolean;
     signedIn: boolean;
     listLoading: boolean;
     noOtherRoom: boolean;
@@ -135,7 +138,7 @@ export default function RoomSwitcherMenu({
         return () => query.removeEventListener('change', close);
     }, []);
 
-    const { current, others, signedIn, listLoading, noOtherRoom, isMember, count } = model;
+    const { current, others, showGlobal, signedIn, listLoading, noOtherRoom, isMember, count } = model;
 
     return (
         <Menu actionsRef={actionsRef}>
@@ -152,7 +155,9 @@ export default function RoomSwitcherMenu({
                     )}
                 >
                     <MenuStaticRow
-                        media={<MenuTile src={current.logoUrl} initials={current.initials} />}
+                        media={current.kind === 'global'
+                            ? <MenuTile icon={<Trophy />} />
+                            : <MenuTile src={current.logoUrl} initials={current.initials} />}
                         caption="You are here"
                         mark
                         aria-current="page"
@@ -170,6 +175,12 @@ export default function RoomSwitcherMenu({
                             {room.name}
                         </MenuItem>
                     ))}
+                    {/* The Global Scoreboard is public: a place in this list for every viewer, after the rooms. */}
+                    {showGlobal && (
+                        <MenuItem to="/scoreboard" media={<MenuTile icon={<Trophy />} />}>
+                            Global Scoreboard
+                        </MenuItem>
+                    )}
                 </MenuGroup>
                 <MenuSeparator />
                 {!signedIn ? (

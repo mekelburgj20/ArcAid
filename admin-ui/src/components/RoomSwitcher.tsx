@@ -1,6 +1,6 @@
 import { lazy, startTransition, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type FocusEvent, type KeyboardEvent, type MouseEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, Trophy } from 'lucide-react';
 import type { MemberRoom } from '../lib/landingRooms';
 import { parseServerDate } from '../lib/format';
 import type { EarlyPress, RoomSwitcherMenuProps, SwitcherMenuModel } from './RoomSwitcherMenu';
@@ -32,9 +32,17 @@ import type { EarlyPress, RoomSwitcherMenuProps, SwitcherMenuModel } from './Roo
  * stale deploy), the button stays; it tries again on the next hover, focus,
  * touch, press or route change, and a press whose load fails goes to My Rooms
  * (signed in) or the room list instead.
+ *
+ * The Global Scoreboard is a place in the same list (owner 2026-11-23): on a
+ * room, a "Global Scoreboard" row follows the rooms, for every viewer. The
+ * Global Scoreboard's own header shows this switcher to a signed-in viewer
+ * with Global as the current place (`kind: 'global'`); its tile is the trophy
+ * icon, as Global has no logo.
  */
 
 export interface SwitcherCurrentRoom {
+    /** `global`: the Global Scoreboard, a place with no room (an empty slug and no room id). Absent means a room. */
+    kind?: 'room' | 'global';
     slug: string;
     /** The room's own name (the menu row). */
     name: string;
@@ -144,24 +152,29 @@ export default function RoomSwitcher({ current, rooms, loading, signedIn, varian
     const navigate = useNavigate();
     const location = useLocation();
 
+    const isGlobal = current.kind === 'global';
     const model = useMemo((): SwitcherMenuModel => {
+        // Global is no room, and an empty slug never names one.
+        const currentSlug = isGlobal ? '' : current.slug.toLowerCase();
         const isCurrent = (r: MemberRoom) =>
-            (!!current.roomId && r.roomId === current.roomId) || r.slug.toLowerCase() === current.slug.toLowerCase();
+            !isGlobal && ((!!current.roomId && r.roomId === current.roomId) || (!!currentSlug && r.slug.toLowerCase() === currentSlug));
         // A row with no slug (an optimistic join still in flight) has nowhere to link to.
         const listed = rooms.filter(r => r.slug);
         const others = listed.filter(r => !isCurrent(r)).sort(byActivityThenName);
         const isMember = listed.some(isCurrent);
         const listLoading = signedIn && loading;
         return {
-            current: { name: current.name, logoUrl: current.logoUrl, initials: initialsOf(current.name) },
+            current: { kind: isGlobal ? 'global' : 'room', name: current.name, logoUrl: current.logoUrl, initials: initialsOf(current.name) },
             others: others.map(r => ({ roomId: r.roomId, slug: r.slug, name: r.name, logoUrl: r.logoUrl, initials: initialsOf(r.name) })),
+            showGlobal: !isGlobal,
             signedIn,
             listLoading,
             noOtherRoom: signedIn && !listLoading && others.length === 0,
             isMember,
+            // Rooms only: the Global row is a place, not one of your rooms.
             count: others.length + (isMember ? 1 : 0),
         };
-    }, [rooms, loading, signedIn, current.roomId, current.slug, current.name, current.logoUrl]);
+    }, [rooms, loading, signedIn, isGlobal, current.roomId, current.slug, current.name, current.logoUrl]);
 
     // 'button' until the menu chunk is in; 'failed' after a load failed (and until a retry succeeds).
     const [phase, setPhase] = useState<'button' | 'menu' | 'failed'>(() => (menuReady ? 'menu' : 'button'));
@@ -267,11 +280,15 @@ export default function RoomSwitcher({ current, rooms, loading, signedIn, varian
         };
     }, []);
 
-    const triggerClassName = `room-switch room-switch--${variant}`;
+    // `room-switch--global`: Global's name is never capped (its header has no nav items to make room for).
+    const triggerClassName = `room-switch room-switch--${variant}${isGlobal ? ' room-switch--global' : ''}`;
     const triggerLabel = `${current.title}, switch game room`;
     const face = (
         <>
-            {current.logoUrl ? (
+            {isGlobal ? (
+                // Global has no logo: the trophy, the icon the room nav's "Global" item wears.
+                <span className="room-switch__tile room-switch__tile--icon" aria-hidden="true"><Trophy /></span>
+            ) : current.logoUrl ? (
                 <span className="room-switch__tile" aria-hidden="true"><img src={current.logoUrl} alt="" /></span>
             ) : (
                 <span className="room-switch__tile room-switch__tile--init" aria-hidden="true">{model.current.initials}</span>

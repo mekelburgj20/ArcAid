@@ -116,6 +116,8 @@ function mockFetch(games: Row[], opts: MockOpts = {}) {
             });
         }
         if (url.startsWith('/api/rooms')) return ok([]);
+        // The header's room switcher lists the viewer's rooms (an array, as the server answers).
+        if (url.startsWith('/api/me/rooms')) return ok([]);
         return ok({});
     });
     vi.stubGlobal('fetch', fn);

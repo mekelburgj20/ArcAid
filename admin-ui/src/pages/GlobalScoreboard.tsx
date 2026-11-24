@@ -9,6 +9,8 @@ import UserMenu from '../components/UserMenu';
 import LoginButtons from '../components/LoginButtons';
 import GlobalThemeToggle from '../components/GlobalThemeToggle';
 import BrandWordmark from '../components/BrandWordmark';
+import RoomSwitcher, { type SwitcherCurrentRoom } from '../components/RoomSwitcher';
+import { useMyRooms } from '../hooks/useMyRooms';
 import GlobalSearchPalette, { type PaletteGame } from '../components/GlobalSearchPalette';
 import PinnedCarousel, { type PinnedGame } from '../components/PinnedCarousel';
 import GlobalGameCard, { type GlobalGameCardGame, type Density } from '../components/GlobalGameCard';
@@ -100,6 +102,15 @@ const CATEGORY_CHIPS: Array<[string, string]> = [
   ...CARD_CATEGORY_ORDER.map(id => [id, getCardCategoryLabel(id) as string] as [string, string]),
 ];
 
+/**
+ * The room switcher's current place on this page (owner 2026-11-23: Global is
+ * not cut off from the rooms). Global is no room: no slug, no room id, and the
+ * trophy tile instead of a logo.
+ */
+const GLOBAL_PLACE: SwitcherCurrentRoom = {
+  kind: 'global', slug: '', name: 'Global Scoreboard', title: 'Global Scoreboard', logoUrl: null, roomId: null,
+};
+
 const DENSITY_STORAGE_KEY = 'arcaid-scoreboard-density';
 const DENSITY_PREF_KEY = 'global_density';
 
@@ -136,6 +147,8 @@ function formatAgo(seconds: number): string {
 
 export default function GlobalScoreboard() {
   const { discordUser, playerToken, loginWithDiscord, loginWithGoogle, logoutPlayer } = useViewerAuth();
+  /** The signed-in viewer's rooms, for the room switcher in the header (empty and fetch-free for a guest). */
+  const { rooms: myRooms, loading: myRoomsLoading } = useMyRooms();
   const [games, setGames] = useState<TopGame[]>([]);
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(false);
@@ -570,7 +583,19 @@ export default function GlobalScoreboard() {
           className="px-4 sm:px-6 lg:px-10 py-4 flex items-center justify-between gap-3"
           style={{ paddingTop: 'max(1rem, env(safe-area-inset-top))' }}
         >
-          <BrandWordmark />
+          {discordUser ? (
+            /* Signed in: the room switcher beside the wordmark, as the room nav puts it
+               beside the logo, with Global as the current place (sm and up; a phone gets
+               it on its own row below). Signed out, the header is the wordmark alone. */
+            <div className="flex items-center gap-3 min-w-0">
+              <BrandWordmark />
+              <div className="hidden sm:block min-w-0">
+                <RoomSwitcher variant="inline" current={GLOBAL_PLACE} rooms={myRooms} loading={myRoomsLoading} signedIn />
+              </div>
+            </div>
+          ) : (
+            <BrandWordmark />
+          )}
           <div className="flex items-center gap-3">
             <Link to="/" className="text-xs text-muted hover:text-neon-cyan no-underline hidden sm:inline">
               Rooms
@@ -591,6 +616,12 @@ export default function GlobalScoreboard() {
             )}
           </div>
         </div>
+        {/* A phone's header row is full: the switcher gets its own centred row under it. */}
+        {discordUser && (
+          <div className="sm:hidden flex justify-center px-4 pb-3 -mt-1 min-w-0">
+            <RoomSwitcher variant="brandrow" current={GLOBAL_PLACE} rooms={myRooms} loading={myRoomsLoading} signedIn />
+          </div>
+        )}
       </div>
 
       {/* Content */}

@@ -124,6 +124,8 @@ function mockFetch(games: MockRow[], opts: { pins?: Record<string, unknown>[]; p
         }
         if (url.startsWith('/api/global/scoreboard')) return ok({ data: games, total: games.length, hasMore: false });
         if (url.startsWith('/api/rooms')) return ok([]);
+        // The header's room switcher lists the viewer's rooms (an array, as the server answers).
+        if (url.startsWith('/api/me/rooms')) return ok([]);
         return ok({});
     });
     vi.stubGlobal('fetch', fn);
@@ -197,7 +199,9 @@ describe('GlobalScoreboard — pin hotspot', () => {
 
     it('sends the player token on the scoreboard request', async () => {
         const fn = vi.fn((url: string, init?: RequestInit) => {
-            void url; void init; // captured via fn.mock.calls, not used here
+            void init; // captured via fn.mock.calls, not used here
+            // The header's room switcher lists the viewer's rooms (an array, as the server answers).
+            if (url.startsWith('/api/me/rooms')) return Promise.resolve({ ok: true, json: async () => [] } as unknown as Response);
             return Promise.resolve({ ok: true, json: async () => ({ data: [], total: 0, hasMore: false }) } as unknown as Response);
         });
         vi.stubGlobal('fetch', fn);
