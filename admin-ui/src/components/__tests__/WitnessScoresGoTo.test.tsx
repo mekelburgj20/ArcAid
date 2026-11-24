@@ -2,25 +2,34 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import WitnessScoresGoTo from '../WitnessScoresGoTo';
-import { attemptStartsNeeded, homeLines, roomLines, type Routing } from '../../lib/witnessScoresGoTo';
+import {
+    attemptStartsNeeded, firstRoomToast, forgetRoomToasts, homeLines, roomLines, roomToastLines, roomToastMs, type Routing,
+} from '../../lib/witnessScoresGoTo';
 import { ATTEMPT_STARTS_CHANGED_EVENT } from '../../lib/attemptStarts';
 
 /**
  * W27.3 (ADR 0033 §5) — "Your scores go to". Pins the words a player reads on a
  * room page for every routing answer the server gives, the home page's lines,
  * and that a miss carries a way to fix it (Change → the device picker).
+ *
+ * Owner 2026-11-23: on a room page a device that sends here is said by ONE
+ * toast on entering the room, never by a line that stays on the page; only a
+ * device that does not send here (and the Start attempts line) stays.
  */
 
 vi.mock('../../contexts/ViewerAuthContext', () => ({
     useViewerAuth: () => ({ playerToken: 'tok' }),
 }));
 
+const toastSpy = vi.hoisted(() => vi.fn());
+vi.mock('../Toast', () => ({ useToast: () => ({ toast: toastSpy }) }));
+
 const row = (over: Partial<Routing>): Routing => ({
     deviceId: 'dev', deviceType: 'atgames', sendsHere: 'yes', why: null,
     targetRoomName: null, targetTournamentName: null, ...over,
 });
 
-afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); });
+afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); toastSpy.mockClear(); forgetRoomToasts(); });
 
 describe('roomLines', () => {
     it('says yes quietly, and says why not with a way to fix it', () => {
@@ -42,6 +51,42 @@ describe('roomLines', () => {
     it('names a PC apart from a cabinet, and numbers two of a kind', () => {
         const lines = roomLines([row({ deviceId: 'a' }), row({ deviceId: 'b' }), row({ deviceId: 'c', deviceType: 'desktop' })]);
         expect(lines.map(l => l.text.split(' sends')[0])).toEqual(['Your cabinet 1', 'Your cabinet 2', 'Your PC']);
+    });
+});
+
+describe('roomToastLines', () => {
+    it('says one device as its room line reads', () => {
+        expect(roomToastLines([row({})])).toEqual(['Your cabinet sends its scores here.']);
+        expect(roomToastLines([row({ sendsHere: 'one_tournament', targetTournamentName: 'Spooky Season' })]))
+            .toEqual(['Your cabinet sends its scores here, to "Spooky Season" only.']);
+        expect(roomToastLines([row({ deviceType: 'desktop', watching: 'no' })])).toEqual(['Your PC sends its scores here · not watching now.']);
+    });
+
+    it('puts devices with the same answer in one sentence, in the order they first appear', () => {
+        // The owner's own room, 2026-11-23: two cabinets not watching, one PC.
+        expect(roomToastLines([
+            row({ deviceId: 'a', watching: 'no' }), row({ deviceId: 'b', deviceType: 'desktop' }), row({ deviceId: 'c', watching: 'no' }),
+        ])).toEqual([
+            'Your cabinet 1 and your cabinet 2 send their scores here · not watching now, open the tile on the cabinet.',
+            'Your PC sends its scores here.',
+        ]);
+        expect(roomToastLines([row({ deviceId: 'a' }), row({ deviceId: 'b' }), row({ deviceId: 'c', deviceType: 'desktop' })]))
+            .toEqual(['Your cabinet 1, your cabinet 2 and your PC send their scores here.']);
+    });
+
+    it('leaves out a device that does not send here, and keeps the numbering of the room lines', () => {
+        expect(roomToastLines([row({ deviceId: 'a', sendsHere: 'no', why: 'global_only' }), row({ deviceId: 'b' })]))
+            .toEqual(['Your cabinet 2 sends its scores here.']);
+        expect(roomToastLines([row({ sendsHere: 'no', why: 'not_member' })])).toEqual([]);
+        expect(roomToastLines([])).toEqual([]);
+    });
+
+    it('stays longer for more sentences, and is said once per room until the answer changes', () => {
+        expect([1, 2, 3, 9].map(roomToastMs)).toEqual([4000, 6000, 8000, 10000]);
+        expect(firstRoomToast('room-1', 'a')).toBe(true);
+        expect(firstRoomToast('room-1', 'a')).toBe(false);
+        expect(firstRoomToast('room-2', 'a')).toBe(true);
+        expect(firstRoomToast('room-1', 'b')).toBe(true);
     });
 });
 
@@ -117,7 +162,8 @@ describe('WitnessScoresGoTo', () => {
     it('W56: no line once every table is started', async () => {
         stubRoom([row({})], [{ gameName: 'Congo', started: true }]);
         render(<MemoryRouter><WitnessScoresGoTo roomId="room-1" roomSlug="wizard" /></MemoryRouter>);
-        expect(await screen.findByText('Your cabinet sends its scores here.')).toBeTruthy();
+        await waitFor(() => expect(toastSpy).toHaveBeenCalled());
+        await new Promise(r => setTimeout(r, 0));
         expect(screen.queryByTestId('attempt-starts-needed')).toBeNull();
     });
 
@@ -149,6 +195,58 @@ describe('WitnessScoresGoTo', () => {
         await waitFor(() => expect(screen.queryByTestId('attempt-starts-needed')).toBeNull());
     });
 
+    it('says the devices that send here in ONE toast, and draws no line for them', async () => {
+        stubRoom([row({ deviceId: 'a', watching: 'no' }), row({ deviceId: 'b', deviceType: 'desktop' }), row({ deviceId: 'c', watching: 'no' })], []);
+        const { container } = render(<MemoryRouter><WitnessScoresGoTo roomId="room-1" roomSlug="wizard" /></MemoryRouter>);
+        await waitFor(() => expect(toastSpy).toHaveBeenCalledTimes(1));
+        expect(toastSpy).toHaveBeenCalledWith(
+            'Your cabinet 1 and your cabinet 2 send their scores here · not watching now, open the tile on the cabinet.\nYour PC sends its scores here.',
+            'success',
+            { label: 'Arcaid Witness', durationMs: 6000 },
+        );
+        await new Promise(r => setTimeout(r, 0));
+        expect(container.innerHTML).toBe('');
+    });
+
+    it('says it once per room: not again on the next page of the room, again when the answer changes', async () => {
+        stubRoom([row({})], []);
+        const first = render(<MemoryRouter><WitnessScoresGoTo roomId="room-1" roomSlug="wizard" /></MemoryRouter>);
+        await waitFor(() => expect(toastSpy).toHaveBeenCalledTimes(1));
+        first.unmount();
+
+        const fetchMock = stubRoom([row({})], []);
+        const second = render(<MemoryRouter><WitnessScoresGoTo roomId="room-1" roomSlug="wizard" /></MemoryRouter>);
+        await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+        await new Promise(r => setTimeout(r, 0));
+        expect(toastSpy).toHaveBeenCalledTimes(1);
+        second.unmount();
+
+        stubRoom([row({ sendsHere: 'one_tournament', targetTournamentName: 'Spooky Season' })], []);
+        render(<MemoryRouter><WitnessScoresGoTo roomId="room-1" roomSlug="wizard" /></MemoryRouter>);
+        await waitFor(() => expect(toastSpy).toHaveBeenCalledTimes(2));
+        expect(toastSpy.mock.calls[1][0]).toBe('Your cabinet sends its scores here, to "Spooky Season" only.');
+    });
+
+    it('a device that does not send here stays a line on the page and is never in the toast', async () => {
+        stubRoom([row({ deviceId: 'a' }), row({ deviceId: 'b', deviceType: 'desktop', sendsHere: 'no', why: 'global_only' })], []);
+        render(<MemoryRouter><WitnessScoresGoTo roomId="room-1" roomSlug="wizard" /></MemoryRouter>);
+        expect(await screen.findByText(/Your PC is set to the Global Scoreboard only/)).toBeTruthy();
+        expect(screen.getByRole('link', { name: 'Change' })).toBeTruthy();
+        expect(screen.queryByText(/Your cabinet sends its scores here/)).toBeNull();
+        expect(toastSpy).toHaveBeenCalledTimes(1);
+        expect(toastSpy.mock.calls[0][0]).toBe('Your cabinet sends its scores here.');
+    });
+
+    it('the home page never toasts', async () => {
+        vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve([{ atgamesUniqueId: 'd', targetRoomId: null, targetRoomName: null, targetTournamentId: null, targetTournamentName: null }]),
+        })));
+        render(<MemoryRouter><WitnessScoresGoTo /></MemoryRouter>);
+        expect(await screen.findByText(/sends its scores to every room you belong to/)).toBeTruthy();
+        expect(toastSpy).not.toHaveBeenCalled();
+    });
+
     it('renders nothing with no paired device', async () => {
         vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve([]) })));
         const { container } = render(<MemoryRouter><WitnessScoresGoTo roomId="room-1" /></MemoryRouter>);
@@ -170,23 +268,26 @@ describe('WitnessScoresGoTo dismissal (W83)', () => {
     const stored = () => Object.keys(JSON.parse(localStorage.getItem(STORE) ?? '{}'));
 
     it('the X on a device line hides just that line, keyed on its routing answer', async () => {
-        stub([row({ deviceId: 'a' }), row({ deviceId: 'b', deviceType: 'desktop', sendsHere: 'no', why: 'global_only' })]);
+        stub([
+            row({ deviceId: 'a', sendsHere: 'no', why: 'other_room', targetRoomName: 'RTX Pinball' }),
+            row({ deviceId: 'b', deviceType: 'desktop', sendsHere: 'no', why: 'global_only' }),
+        ]);
         render(<MemoryRouter><WitnessScoresGoTo roomId="room-1" roomSlug="wizard" /></MemoryRouter>);
-        const line = (await screen.findByText(/Your cabinet sends its scores here/)).closest('[data-testid="dismissible-notice"]') as HTMLElement;
-        expect(line.getAttribute('data-notice-key')).toBe('device:a:yes::');
+        const line = (await screen.findByText(/Your cabinet sends to RTX Pinball only/)).closest('[data-testid="dismissible-notice"]') as HTMLElement;
+        expect(line.getAttribute('data-notice-key')).toBe('device:a:no:other_room:');
         fireEvent.click(within(line).getByRole('button', { name: 'Dismiss' }));
-        expect(screen.queryByText(/Your cabinet sends its scores here/)).toBeNull();
+        expect(screen.queryByText(/Your cabinet sends to RTX Pinball only/)).toBeNull();
         expect(screen.getByText(/Your PC is set to the Global Scoreboard only/)).toBeTruthy();
-        expect(stored()).toEqual(['device:a:yes::']);
+        expect(stored()).toEqual(['device:a:no:other_room:']);
     });
 
     it('a changed routing answer shows the line again', async () => {
-        localStorage.setItem(STORE, JSON.stringify({ 'device:a:yes::': Date.now() }));
-        stub([row({ deviceId: 'a', sendsHere: 'one_tournament', targetTournamentName: 'Spooky Season' })]);
+        localStorage.setItem(STORE, JSON.stringify({ 'device:a:no:other_room:': Date.now() }));
+        stub([row({ deviceId: 'a', sendsHere: 'no', why: 'global_only' })]);
         render(<MemoryRouter><WitnessScoresGoTo roomId="room-1" roomSlug="wizard" /></MemoryRouter>);
-        const text = await screen.findByText(/to "Spooky Season" only/);
+        const text = await screen.findByText(/set to the Global Scoreboard only/);
         expect(text.closest('[data-testid="dismissible-notice"]')?.getAttribute('data-notice-key'))
-            .toBe('device:a:one_tournament::Spooky Season');
+            .toBe('device:a:no:global_only:');
     });
 
     it('the "Start attempts needed on" line is dismissible, keyed on its sorted table list', async () => {
@@ -197,16 +298,17 @@ describe('WitnessScoresGoTo dismissal (W83)', () => {
         expect(wrapper.getAttribute('data-notice-key')).toBe('starts:Cactus Canyon|Congo');
         fireEvent.click(within(wrapper).getByRole('button', { name: 'Dismiss' }));
         expect(screen.queryByTestId('attempt-starts-needed')).toBeNull();
-        expect(screen.getByText('Your cabinet sends its scores here.')).toBeTruthy();
+        expect(stored()).toEqual(['starts:Cactus Canyon|Congo']);
     });
 
     it('renders nothing once every line is dismissed', async () => {
-        stub([row({ deviceId: 'a' })], [{ gameName: 'Congo', started: false }]);
+        stub([row({ deviceId: 'a' }), row({ deviceId: 'b', deviceType: 'desktop', sendsHere: 'no', why: 'global_only' })], [{ gameName: 'Congo', started: false }]);
         const { container } = render(<MemoryRouter><WitnessScoresGoTo roomId="room-1" roomSlug="wizard" /></MemoryRouter>);
         await screen.findByTestId('attempt-starts-needed');
+        await screen.findByText(/Your PC is set to the Global Scoreboard only/);
         for (const btn of screen.getAllByRole('button', { name: 'Dismiss' })) fireEvent.click(btn);
         expect(container.innerHTML).toBe('');
-        expect(stored().sort()).toEqual(['device:a:yes::', 'starts:Congo']);
+        expect(stored().sort()).toEqual(['device:b:no:global_only:', 'starts:Congo']);
     });
 
     it('home mode (no room) has no X', async () => {

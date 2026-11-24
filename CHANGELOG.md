@@ -6,6 +6,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.265.2] - 2026-11-23 - "Your cabinet sends its scores here" is a toast
+
+### Changed
+- **On a room page, the Arcaid Witness devices that send their scores to the room are confirmed by one toast
+  when you enter the room** (owner, 2026-11-23: three standing lines at the top of every room page were
+  clutter). The toast is headed "Arcaid Witness", goes by itself (4 s for one sentence, 2 s more for each
+  further one), and shows once per room per page load: moving between the room's pages, or going to Account
+  Settings and back, does not repeat it; a reload, a new tab or a changed answer does. Devices with the same
+  answer share a sentence ("Your cabinet 1 and your cabinet 2 send their scores here · not watching now, open
+  the tile on the cabinet." / "Your PC sends its scores here.").
+- **What stays on the page:** a device that does NOT send its scores to the room keeps its amber line with the
+  Change link ("Your PC is set to the Global Scoreboard only, so plays here won't count in this room."), and
+  "Start attempts needed on: ..." stays too. Both still have the X and come back after 7 days or when the answer
+  changes. A warning that fades after a few seconds is the miss these lines were built to prevent (W27.3).
+- The "Where your plays went" link that sat on the confirming lines is gone from room pages with them; the list
+  is under Account Settings -> Arcaid Witness devices, as before. The home page's lines under My Game Rooms are
+  unchanged.
+
+### Added
+- **A toast can name its own heading and how long it stays**: `toast(message, type, { label, durationMs })`,
+  and a line break in the message starts a new line. The look is unchanged (the heading is drawn like Done /
+  Heads up / Didn't work, the type still picks the colour) and an error still stays until dismissed.
+
 ## [2.265.1] - 2026-11-23 - The request limit counts each visitor, not Cloudflare
 
 The owner went from the Global Scoreboard to a room through the new dropdown and got the room with no logo,

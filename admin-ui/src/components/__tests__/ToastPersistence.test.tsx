@@ -69,6 +69,34 @@ describe('Toast', () => {
         expect(t.textContent).toContain('Heads up');
     });
 
+    // Owner 2026-11-23: the room's Arcaid Witness toast names its own heading and stays longer
+    // for several lines; the type still picks the colour, and an error still never clears itself.
+    it('takes a heading and a clock of its own, and keeps an error with neither', async () => {
+        function FireNamed() {
+            const { toast } = useToast();
+            return (
+                <>
+                    <button onClick={() => toast('Line one\nLine two', 'success', { label: 'Arcaid Witness', durationMs: 6000 })}>fire named</button>
+                    <button onClick={() => toast('Refused', 'error', { durationMs: 1000 })}>fire timed error</button>
+                </>
+            );
+        }
+        render(<ToastProvider><FireNamed /></ToastProvider>);
+        fireEvent.click(screen.getByText('fire named'));
+        const msg = await screen.findByText(/Line one/);
+        expect(msg.textContent).toBe('Line one\nLine two');
+        const t = msg.closest('.arc-toast')!;
+        expect(t.querySelector('.arc-toast__label')!.textContent).toBe('Arcaid Witness');
+        expect(t.textContent).not.toContain('Done');
+        expect(t.classList.contains('arc-toast--cyan')).toBe(true);
+        expect((t.querySelector('.arc-toast__run') as HTMLElement).style.getPropertyValue('--arc-toast-ms')).toBe('6000ms');
+
+        fireEvent.click(screen.getByText('fire timed error'));
+        const error = await screen.findByRole('alert');
+        expect(error.querySelector('.arc-toast__run')).toBeNull();
+        expect(error.textContent).toContain("Didn't work");
+    });
+
     // v2.260.1 (owner 2026-11-22): on a phone the stack sits at the top, clear of dialog and sheet buttons.
     it.each([
         [true, 'top', 'center'],
