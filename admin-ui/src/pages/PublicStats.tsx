@@ -9,6 +9,9 @@ import { relativeTimeFrom } from '../lib/format';
 import GameArt from '../components/GameArt';
 import { PlayerAvatar } from '../components/ScoreboardComponents';
 import { roomFetch } from '../lib/roomFetch';
+import { useRetryingLoad } from '../hooks/useRetryingLoad';
+import { isTransientStatus } from '../lib/loadRetry';
+import LoadFailedNotice from '../components/LoadFailedNotice';
 
 interface PlayerSummary {
   /** Arcaid profile username (v2.141.1) — searchable, never displayed here. */
@@ -85,22 +88,25 @@ export default function PublicStats() {
   const [overview, setOverview] = useState<StatsOverview | null>(null);
   const [tournamentTypes, setTournamentTypes] = useState<string[]>([]);
   const [search, setSearch] = useState('');
-  const [loading, setLoading] = useState(true);
   const { roomId } = useRoom();
 
   // Distinct tournament types for the chip row. Fetched once per room — the
   // set of types rarely changes and this endpoint is already public/cheap
-  // (Rankings.tsx uses the same one for its tournament picker).
+  // (Rankings.tsx uses the same one for its tournament picker). G32: it
+  // retries quietly; the filter just has no options until it arrives.
+  const { load: loadTypes } = useRetryingLoad(
+    () => roomFetch(`/api/rooms/${roomId}/tournaments`),
+    async res => {
+      const rows: TournamentOption[] = await res.json();
+      const types = Array.from(new Set((rows || []).map(t => t.type).filter(Boolean))).sort();
+      setTournamentTypes(types);
+    },
+    roomId,
+  );
   useEffect(() => {
     if (!roomId) return;
-    roomFetch(`/api/rooms/${roomId}/tournaments`)
-      .then(r => r.ok ? r.json() : [])
-      .then((rows: TournamentOption[]) => {
-        const types = Array.from(new Set((rows || []).map(t => t.type).filter(Boolean))).sort();
-        setTournamentTypes(types);
-      })
-      .catch(() => {});
-  }, [roomId]);
+    loadTypes();
+  }, [roomId, loadTypes]);
 
   // `week` wins over `range` (see comment above); `weekInputToRange` returning
   // null for a malformed/partial value (e.g. mid-typing) falls back to "all"
@@ -112,27 +118,62 @@ export default function PublicStats() {
 
   const filtersActive = !!typeFilter || !!weekFilter || rangeFilter !== 'all';
 
-  useEffect(() => {
-    if (!roomId) return;
-    setLoading(true);
+  const suffix = useMemo(() => {
     const qs = new URLSearchParams();
     if (typeFilter) qs.set('type', typeFilter);
     if (dateWindow.from) qs.set('from', dateWindow.from);
     if (dateWindow.to) qs.set('to', dateWindow.to);
-    const suffix = qs.toString() ? `?${qs.toString()}` : '';
-    (async () => {
-      const [playersRes, gamesRes, overviewRes] = await Promise.all([
-        roomFetch(`/api/rooms/${roomId}/stats/enhanced/players${suffix}`).then(r => r.ok ? r.json() : []),
-        roomFetch(`/api/rooms/${roomId}/stats/games-activity${suffix}`).then(r => r.ok ? r.json() : []),
-        roomFetch(`/api/rooms/${roomId}/stats/overview`).then(r => r.ok ? r.json() : null),
-      ]);
-      setPlayers(playersRes || []);
-      setGames(gamesRes || []);
-      setOverview(overviewRes);
-    })()
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [roomId, typeFilter, dateWindow.from, dateWindow.to]);
+    return qs.toString() ? `?${qs.toString()}` : '';
+  }, [typeFilter, dateWindow.from, dateWindow.to]);
+
+  // G32: each read retries by itself when it fails for now. The subject is the
+  // room plus the filter, so a filter change shows loading again and drops
+  // whatever was in flight. A definite refusal is an answer: it empties the
+  // list as before (never retried).
+  const statsKey = `${roomId}|${suffix}`;
+  const { load: loadPlayers, phase: playersPhase } = useRetryingLoad(
+    () => roomFetch(`/api/rooms/${roomId}/stats/enhanced/players${suffix}`).then(r => {
+      if (!r.ok && !isTransientStatus(r.status)) setPlayers([]);
+      return r;
+    }),
+    async res => {
+      // Only a list is drawn; anything else counts as a failed try.
+      const body = await res.json();
+      if (!Array.isArray(body)) throw new Error('Bad players body');
+      setPlayers(body);
+    },
+    statsKey,
+  );
+  const { load: loadGames, phase: gamesPhase } = useRetryingLoad(
+    () => roomFetch(`/api/rooms/${roomId}/stats/games-activity${suffix}`).then(r => {
+      if (!r.ok && !isTransientStatus(r.status)) setGames([]);
+      return r;
+    }),
+    async res => {
+      const body = await res.json();
+      if (!Array.isArray(body)) throw new Error('Bad games body');
+      setGames(body);
+    },
+    statsKey,
+  );
+  // The tiles retry quietly: they draw dashes until an answer arrives.
+  const { load: loadOverview } = useRetryingLoad(
+    () => roomFetch(`/api/rooms/${roomId}/stats/overview`).then(r => {
+      if (!r.ok && !isTransientStatus(r.status)) setOverview(null);
+      return r;
+    }),
+    async res => { setOverview(await res.json()); },
+    statsKey,
+  );
+  const loadAllStats = () => { loadPlayers(); loadGames(); loadOverview(); };
+  useEffect(() => {
+    if (!roomId) return;
+    loadPlayers();
+    loadGames();
+    loadOverview();
+  }, [roomId, suffix, loadPlayers, loadGames, loadOverview]);
+  // The spinner belongs to the view on screen; the other view's read keeps going.
+  const loading = (view === 'players' ? playersPhase : gamesPhase) === 'loading';
 
   const setView = (v: View) => {
     const next = new URLSearchParams(params);
@@ -343,7 +384,9 @@ export default function PublicStats() {
             <div className="w-8 h-8 border-2 border-neon-cyan/30 border-t-neon-cyan rounded-full animate-spin" />
           </div>
         ) : view === 'players' ? (
-          filteredPlayers.length === 0 ? (
+          playersPhase === 'retrying' ? (
+            <LoadFailedNotice what="the players" onRetry={loadAllStats} testId="stats-players-load-failed" className="py-12" />
+          ) : filteredPlayers.length === 0 ? (
             <p className="text-muted text-center py-12">No players found.</p>
           ) : (
             <div className="bg-surface border border-border rounded-lg overflow-hidden">
@@ -411,7 +454,9 @@ export default function PublicStats() {
             </div>
           )
         ) : (
-          filteredGames.length === 0 ? (
+          gamesPhase === 'retrying' ? (
+            <LoadFailedNotice what="the games" onRetry={loadAllStats} testId="stats-games-load-failed" className="py-12" />
+          ) : filteredGames.length === 0 ? (
             <p className="text-muted text-center py-12">No game activity yet.</p>
           ) : (
             <div className="bg-surface border border-border rounded-lg overflow-hidden">

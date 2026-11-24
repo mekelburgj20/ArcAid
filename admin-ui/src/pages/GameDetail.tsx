@@ -37,6 +37,9 @@ import ScorePhotoModal from '../components/ScorePhotoModal';
 import { useToast } from '../components/Toast';
 import { attemptsLeft } from '../lib/attemptsLeft';
 import { roomFetch } from '../lib/roomFetch';
+import { useRetryingLoad } from '../hooks/useRetryingLoad';
+import { isTransientStatus } from '../lib/loadRetry';
+import LoadFailedNotice from '../components/LoadFailedNotice';
 
 interface RankedEntry {
   rank: number;
@@ -337,7 +340,18 @@ export default function GameDetail() {
       .map(([id, used]) => ({ id, label: integrity.attemptPlayers[id]!, left: attemptsLeft(limit, used) }))
       .sort((a, b) => a.left - b.left || a.label.localeCompare(b.label));
   })();
-  const [loading, setLoading] = useState(true);
+  // G32: the per-game stats read retries by itself when it fails for now. A
+  // definite refusal (404 for a game with no tournament data) is an answer
+  // and clears `stats`, as before.
+  const { load: loadStats, phase: statsPhase } = useRetryingLoad(
+    () => roomFetch(`/api/rooms/${roomId}/stats/game/${encodeURIComponent(name ?? '')}`).then(r => {
+      if (!r.ok && !isTransientStatus(r.status)) setStats(null);
+      return r;
+    }),
+    async res => { setStats(await res.json()); },
+    `${roomId}|${name}`,
+  );
+  const loading = statsPhase === 'loading';
   const [ratingInfo, setRatingInfo] = useState<RatingInfo | null>(null);
   // A14.2 - land a `#ratings` link on the rating block once it has mounted
   // (it renders only after the ratings fetch AND the page load resolve).
@@ -373,6 +387,83 @@ export default function GameDetail() {
   // the pre-P3 bug where tabs were labelled from alias-folded values and then
   // queried raw, so a tab could match zero rows.
   const [distinctEngines, setDistinctEngines] = useState<string[]>([]);
+
+  /** What follows the room's board list: this game's board, or the Room Scores card. */
+  const applyBoardList = (rid: string, gameName: string, boards: GameLeaderboard[]) => {
+        const match = boards.find(b => b.gameName.toLowerCase() === gameName.toLowerCase());
+        if (match) {
+          setLeaderboard(match);
+          // Fetch score counts for conditional expand icons
+          roomFetch(`/api/rooms/${rid}/score-counts/${match.gameId}`)
+            .then(r => r.ok ? r.json() : {})
+            .then(setScoreCounts)
+            .catch(() => {});
+          // v2.58.0: pull the distinct engines separately so the "All" view can
+          // render the segmented tab strip. Bulk leaderboard list endpoint
+          // doesn't include this; the per-game endpoint does.
+          roomFetch(`/api/rooms/${rid}/leaderboard/${match.gameId}`)
+            .then(r => r.ok ? r.json() : null)
+            .then((data: (Pick<GameLeaderboard, 'notCounted' | 'witnessFlagMode' | 'witnessByHistoryId'> & { distinctEngines?: string[]; rankings?: RankedEntry[]; tournamentId?: string | null }) | null) => {
+              if (!data) return;
+              if (Array.isArray(data.distinctEngines)) setDistinctEngines(data.distinctEngines);
+              if (typeof data.tournamentId === 'string' && data.tournamentId) setIntegrityTournamentId(data.tournamentId);
+              // The per-game endpoint also returns a fresher rankings array
+              // that's been recomputed post-cache-flush, so prefer it.
+              if (Array.isArray(data.rankings) && data.rankings.length > 0) {
+                setLeaderboard(prev => prev ? { ...prev, rankings: data.rankings! } : prev);
+              }
+              // v2.190.0 (W22): an event round's set-aside scores + verdicts
+              // ride the same read; absent (and left alone) for any other game.
+              if (data.witnessFlagMode) {
+                setLeaderboard(prev => prev ? {
+                  ...prev,
+                  notCounted: data.notCounted ?? [],
+                  witnessFlagMode: data.witnessFlagMode,
+                  witnessByHistoryId: data.witnessByHistoryId ?? {},
+                } : prev);
+              }
+            })
+            .catch(() => {});
+          return;
+        }
+        // Non-active games (pinned/room-only games with no ACTIVE tournament
+        // board) aren't in the active-boards list above. Fall back to the
+        // Room Scores card for this game — see the doc comment above.
+        roomFetch(`/api/rooms/${rid}/room-scores?search=${encodeURIComponent(gameName)}&limit=10`)
+          .then(r => r.ok ? r.json() : null)
+          .then((payload: { data?: GameLeaderboard[] } | null) => {
+            const card = payload?.data?.find(c => c.gameName.toLowerCase() === gameName.toLowerCase());
+            if (!card) return;
+            setLeaderboard(card);
+            // Score counts keyed by name (fallback cards have no games-table
+            // id to key the id-based score-counts endpoint on).
+            roomFetch(`/api/rooms/${rid}/score-counts?gameNames=${encodeURIComponent(gameName)}`)
+              .then(r => r.ok ? r.json() : null)
+              .then((data: { counts?: Record<string, Record<string, number>> } | null) => {
+                if (data?.counts?.[gameName]) setScoreCounts(data.counts[gameName]);
+              })
+              .catch(() => {});
+          })
+          .catch(() => {});
+  };
+
+  // G32: the board rows start from the room's board list, which retries the
+  // same way (quietly: the notice above the tabs belongs to the stats read,
+  // and the two fail together when the room's requests are refused). The reads
+  // that follow it stay best-effort and come back on the next live refresh.
+  const { load: loadBoardList } = useRetryingLoad(
+    () => roomFetch(`/api/rooms/${roomId}/leaderboard`).then(r => {
+      // A definite refusal is an answer: go on to the Room Scores card, as before.
+      if (!r.ok && !isTransientStatus(r.status) && roomId && name) applyBoardList(roomId, name, []);
+      return r;
+    }),
+    async res => {
+      const boards: GameLeaderboard[] = await res.json();
+      if (!Array.isArray(boards)) throw new Error('Bad board list');
+      if (roomId && name) applyBoardList(roomId, name, boards);
+    },
+    `${roomId}|${name}`,
+  );
   const [selectedEngine, setSelectedEngine] = useState<string | null>(null);
   const [filteredRankings, setFilteredRankings] = useState<RankedEntry[] | null>(null);
 
@@ -435,11 +526,7 @@ export default function GameDetail() {
   useEffect(() => {
     if (!name || !roomId) return;
 
-    roomFetch(`/api/rooms/${roomId}/stats/game/${encodeURIComponent(name)}`)
-      .then(r => r.ok ? r.json() : null)
-      .then(setStats)
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    loadStats();
 
     // v2.86.0 — room-scoped ratings (migration 139): read via raw fetch
     // against the room-prefixed endpoint, not api.ts's legacy `/ratings`
@@ -474,7 +561,7 @@ export default function GameDetail() {
         setDiscordEnabled(cfg.DISCORD_ENABLED !== 'false');
       })
       .catch(() => {});
-  }, [name, roomId]);
+  }, [name, roomId, loadStats]);
 
   // v2.147.0 — per-score share deep link (`?score=<score_history.id>`).
   // Silent on a miss (deleted score, stale bookmark, malformed id) — the page
@@ -506,10 +593,12 @@ export default function GameDetail() {
   // else keep 'community'. Guarded by tabInitialized so this runs exactly once
   // — a manual tab switch or a back-nav re-fetch won't override the user.
   useEffect(() => {
-    if (loading || tabInitialized.current) return;
+    // Wait for an answer (not just "a try failed"), or a stats read that
+    // is still being retried would pin the page to Community for good.
+    if (statsPhase !== 'ready' || tabInitialized.current) return;
     tabInitialized.current = true;
     setActiveTab(stats ? 'leaderboard' : 'community');
-  }, [loading, stats]);
+  }, [statsPhase, stats]);
 
   // v2.58.0: fetch engine-filtered rankings whenever the user picks a
   // non-"All" tab. "All" uses the unfiltered rankings already in `leaderboard`.
@@ -723,66 +812,7 @@ export default function GameDetail() {
    * /score-counts/:gameId endpoints must never be called against it.
    */
   const loadScores = (rid: string, gameName: string) => {
-    roomFetch(`/api/rooms/${rid}/leaderboard`)
-      .then(r => r.ok ? r.json() : [])
-      .then((boards: GameLeaderboard[]) => {
-        const match = boards.find(b => b.gameName.toLowerCase() === gameName.toLowerCase());
-        if (match) {
-          setLeaderboard(match);
-          // Fetch score counts for conditional expand icons
-          roomFetch(`/api/rooms/${rid}/score-counts/${match.gameId}`)
-            .then(r => r.ok ? r.json() : {})
-            .then(setScoreCounts)
-            .catch(() => {});
-          // v2.58.0: pull the distinct engines separately so the "All" view can
-          // render the segmented tab strip. Bulk leaderboard list endpoint
-          // doesn't include this; the per-game endpoint does.
-          roomFetch(`/api/rooms/${rid}/leaderboard/${match.gameId}`)
-            .then(r => r.ok ? r.json() : null)
-            .then((data: (Pick<GameLeaderboard, 'notCounted' | 'witnessFlagMode' | 'witnessByHistoryId'> & { distinctEngines?: string[]; rankings?: RankedEntry[]; tournamentId?: string | null }) | null) => {
-              if (!data) return;
-              if (Array.isArray(data.distinctEngines)) setDistinctEngines(data.distinctEngines);
-              if (typeof data.tournamentId === 'string' && data.tournamentId) setIntegrityTournamentId(data.tournamentId);
-              // The per-game endpoint also returns a fresher rankings array
-              // that's been recomputed post-cache-flush, so prefer it.
-              if (Array.isArray(data.rankings) && data.rankings.length > 0) {
-                setLeaderboard(prev => prev ? { ...prev, rankings: data.rankings! } : prev);
-              }
-              // v2.190.0 (W22): an event round's set-aside scores + verdicts
-              // ride the same read; absent (and left alone) for any other game.
-              if (data.witnessFlagMode) {
-                setLeaderboard(prev => prev ? {
-                  ...prev,
-                  notCounted: data.notCounted ?? [],
-                  witnessFlagMode: data.witnessFlagMode,
-                  witnessByHistoryId: data.witnessByHistoryId ?? {},
-                } : prev);
-              }
-            })
-            .catch(() => {});
-          return;
-        }
-        // Non-active games (pinned/room-only games with no ACTIVE tournament
-        // board) aren't in the active-boards list above. Fall back to the
-        // Room Scores card for this game — see the doc comment above.
-        roomFetch(`/api/rooms/${rid}/room-scores?search=${encodeURIComponent(gameName)}&limit=10`)
-          .then(r => r.ok ? r.json() : null)
-          .then((payload: { data?: GameLeaderboard[] } | null) => {
-            const card = payload?.data?.find(c => c.gameName.toLowerCase() === gameName.toLowerCase());
-            if (!card) return;
-            setLeaderboard(card);
-            // Score counts keyed by name (fallback cards have no games-table
-            // id to key the id-based score-counts endpoint on).
-            roomFetch(`/api/rooms/${rid}/score-counts?gameNames=${encodeURIComponent(gameName)}`)
-              .then(r => r.ok ? r.json() : null)
-              .then((data: { counts?: Record<string, Record<string, number>> } | null) => {
-                if (data?.counts?.[gameName]) setScoreCounts(data.counts[gameName]);
-              })
-              .catch(() => {});
-          })
-          .catch(() => {});
-      })
-      .catch(() => {});
+    loadBoardList();
 
     // Load all-time player rankings for this game
     roomFetch(`/api/rooms/${rid}/stats/game/${encodeURIComponent(gameName)}/players`)
@@ -1221,6 +1251,11 @@ export default function GameDetail() {
             <StatCard label="Avg Score" value={stats.avgScore.toLocaleString()} color="text-muted" />
             <StatCard label="All-Time High" value={stats.allTimeHigh.toLocaleString()} color="text-neon-amber" />
           </div>
+        )}
+
+        {/* No answer yet and a try failed: say so rather than show no stat cards. */}
+        {statsPhase === 'retrying' && !stats && (
+          <LoadFailedNotice what="the leaderboard" onRetry={loadStats} testId="game-load-failed" className="py-12" />
         )}
 
         {/* Tabs */}

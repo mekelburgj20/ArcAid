@@ -6,6 +6,42 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.265.7] - 2026-11-24 - The other room pages say when a load failed, and try again
+
+Follows 2.265.4 (G31), which did this for the room scoreboard. The same silence was on every other room
+page: a load that failed for now (a refused request, a restart during a deploy, a dropped connection) was
+drawn as the page's "nothing here yet" text and stayed that way until a manual refresh (G32).
+
+### Fixed
+- **Room Scores and Global tabs.** A failed load no longer reads "No scores here yet" / "No global scores
+  yet": it says "Couldn't load the scores. Trying again automatically." with a "Try now" button and comes
+  back by itself. A failed refresh after posting or deleting a score no longer wipes the cards already on
+  screen. "Load more" no longer leaves its spinner stuck, or hides the rest of the list, when a page fails:
+  the button stays and can be pressed again.
+- **Lobby.** A failed activity feed no longer reads "No activity yet. Be the first to post a score!". The
+  feed, the announcements, the pinned message, the social links and the shelf each try again by
+  themselves, and the feed is also refreshed when the tab comes back or the connection returns (only the
+  season poll was before).
+- **Stats and Players.** A failed load no longer reads "No players found." / "No game activity yet.".
+- **Picks.** A failed load no longer reads "No game library configured for this tournament.", and a
+  refused request can no longer blank the page (the refusal's error body used to be stored as the game
+  list, and the page crashed drawing it). The pick queue also comes back by itself.
+- **A game's page.** The stat cards, the Leaderboard tab and the board rows come back by themselves; a
+  failed load says "Couldn't load the leaderboard" in their place.
+- **The ticker under the scoreboard** appears once its first read gets through (it stayed missing for the
+  whole visit), and a move to another room no longer carries the last room's items along.
+- **A first-time visitor whose room lookup failed once** now gets the room's theme when the lookup
+  answers, not the default theme for the whole visit.
+
+### Added
+- `components/LoadFailedNotice.tsx`: the one "Couldn't load ... / Trying again automatically. / Try now"
+  message, used by every page above and by the scoreboard.
+
+### Not in this release
+- On a game's page the Community scores, Tips and comments, player rankings and ratings are still read
+  once; on Picks the alert banners, the "I own" filter, the member pickers and the disposition are. They
+  are logged on the board (G28).
+
 ## [2.265.6] - 2026-11-24 - Account Settings leads with pink; Silverball rooms go to Graphite
 
 Two owner answers (2026-11-24) to questions left open by the theme sweep (G29, 2.263.0).

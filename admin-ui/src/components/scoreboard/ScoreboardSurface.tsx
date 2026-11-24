@@ -19,7 +19,7 @@ import HorizontalScrollNav, { type HScrollMetrics } from '../HorizontalScrollNav
 import { deriveCardProps, deriveScoreboardConfig, getCardWidth, qrEdgeMetrics } from '../../lib/scoreboardConfig';
 import { compareByRank } from '../../lib/searchRank';
 import type { LoadPhase } from '../../lib/loadRetry';
-import Button from '../parts/Button';
+import LoadFailedNotice from '../LoadFailedNotice';
 
 export interface LeaderboardWithViewer extends GameLeaderboard {
   viewerEntry?: RankedEntry | null;
@@ -792,15 +792,7 @@ export default function ScoreboardSurface({
             /* G31 — the board has not loaded and the last try failed. Say so
                (it used to read "Waiting for active games", the text of a room
                with nothing on) and that it is being asked again. */
-            <div className="flex-1 flex flex-col items-center gap-3 text-center py-24" role="status" data-testid="board-load-failed">
-              <p className="text-primary font-display">Couldn't load the scores</p>
-              <p className="text-muted text-sm max-w-xs">Trying again automatically.</p>
-              {onRetryBoard && (
-                <Button variant="secondary" size="sm" className="min-h-11 px-4" onClick={onRetryBoard}>
-                  Try now
-                </Button>
-              )}
-            </div>
+            <LoadFailedNotice what="the scores" onRetry={onRetryBoard} testId="board-load-failed" className="flex-1 py-24" />
           ) : (
             <div className="flex-1 text-center py-24">
               <p className="text-muted font-display">

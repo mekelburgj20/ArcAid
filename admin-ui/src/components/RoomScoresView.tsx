@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { Search } from 'lucide-react';
 import ScoreCardGrid from './ScoreCardGrid';
 import GameQuickView from './GameQuickView';
 import SubmissionSheet from './SubmissionSheet';
+import LoadFailedNotice from './LoadFailedNotice';
 import type { GameLeaderboard, RankedEntry } from './ScoreboardComponents';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
+import { useRetryingLoad } from '../hooks/useRetryingLoad';
 import { decodeViewerClaims, isRoomAdminFor } from '../lib/viewerClaims';
 import {
   ROOM_SCORES_SEARCH_PLACEHOLDER,
@@ -45,12 +47,24 @@ interface RoomScoresViewProps {
 
 const PAGE_SIZE = 48;
 
+/** One page of GET /:roomId/room-scores, read the same way for the first page and Load more. */
+async function readPage(res: Response): Promise<{ data: RoomScoreCard[]; total: number; hasMore: boolean }> {
+  const payload = await res.json();
+  return {
+    data: Array.isArray(payload.data) ? payload.data : [],
+    total: Number(payload.total) || 0,
+    hasMore: Boolean(payload.hasMore),
+  };
+}
+
 export default function RoomScoresView({ roomId, slug, config, roomName, viewerUsername, tabSwitcher }: RoomScoresViewProps) {
   const [rows, setRows] = useState<RoomScoreCard[]>([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(false);
-  const [loading, setLoading] = useState(true);
+  // The query (`query` below) the rows answer. A query that has not answered,
+  // or answered with a refusal, draws none of another query's rows.
+  const [rowsFor, setRowsFor] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
@@ -68,59 +82,76 @@ export default function RoomScoresView({ roomId, slug, config, roomName, viewerU
     return () => window.clearTimeout(t);
   }, [searchInput]);
 
-  const fetchPage = useCallback(async (pageOffset: number): Promise<{ data: RoomScoreCard[]; total: number; hasMore: boolean }> => {
-    if (!roomId) return { data: [], total: 0, hasMore: false };
+  const requestPage = (pageOffset: number) => {
     const params = new URLSearchParams({ sort, limit: String(PAGE_SIZE), offset: String(pageOffset) });
     if (search) params.set('search', search);
     // Optional Bearer — server best-effort resolves viewerEntry per card and
     // never 401s on a bad/absent token (edge case 11). Headers are built
     // inline from the stable playerToken string: usePlayerHeaders() returns a
-    // NEW object each render, and having it in this callback's deps refired
-    // the first-page effect every render (v2.18.0 infinite-fetch-loop bug —
-    // the 429 storm that took the tab down on launch day).
+    // NEW object each render, and having it in the first-page effect's deps
+    // refired that effect every render (v2.18.0 infinite-fetch-loop bug —
+    // the 429 storm that took the tab down on launch day). The effect below
+    // depends on `query`, a string, for the same reason.
     const headers: Record<string, string> = playerToken ? { Authorization: `Bearer ${playerToken}` } : {};
-    const res = await fetch(`/api/rooms/${roomId}/room-scores?${params}`, { headers });
-    if (!res.ok) return { data: [], total: 0, hasMore: false };
-    const payload = await res.json();
-    return {
-      data: Array.isArray(payload.data) ? payload.data : [],
-      total: Number(payload.total) || 0,
-      hasMore: Boolean(payload.hasMore),
-    };
-  }, [roomId, search, sort, playerToken]);
+    return fetch(`/api/rooms/${roomId}/room-scores?${params}`, { headers });
+  };
 
-  // First page — replaces rows on room/search change.
+  // Everything the first page depends on. The token is in it so signing in or
+  // out reloads the list (it decides each card's viewerEntry).
+  const query = `${roomId}|${sort}|${search}|${playerToken ?? ''}`;
+  // Bumped whenever the first page is replaced, so a Load more answer still on
+  // its way for the old list is dropped instead of appended to the new one.
+  const listGeneration = useRef(0);
+
+  // G32: the first page tries again by itself when it fails for now (a 429, a
+  // deploy restart, no connection), and the empty text waits for an answer.
+  // `load` is also the reload after a score post or delete: a failed reload
+  // keeps the cards on screen and retries quietly.
+  const { load, phase } = useRetryingLoad(
+    () => requestPage(0),
+    async res => {
+      const page = await readPage(res);
+      listGeneration.current += 1;
+      setRows(page.data);
+      setTotal(page.total);
+      setHasMore(page.hasMore);
+      setOffset(0);
+      setRowsFor(query);
+    },
+    query,
+  );
+
+  // First page — replaces rows on room/sort/search/sign-in change.
   useEffect(() => {
     if (!roomId) return;
-    let cancelled = false;
-    setLoading(true);
-    setOffset(0);
-    (async () => {
-      const { data, total: t, hasMore: hm } = await fetchPage(0);
-      if (cancelled) return;
-      setRows(data);
-      setTotal(t);
-      setHasMore(hm);
-    })().finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [roomId, fetchPage]);
+    listGeneration.current += 1;
+    load();
+  }, [roomId, query, load]);
 
+  // The next page, appended. A failure keeps the cards and the Load more
+  // button (pressing it again asks again) and leaves `offset` where it was.
   const loadMore = async () => {
     if (loadingMore || !hasMore) return;
-    setLoadingMore(true);
+    const generation = listGeneration.current;
     const nextOffset = offset + PAGE_SIZE;
-    const { data, total: t, hasMore: hm } = await fetchPage(nextOffset);
-    setRows(prev => [...prev, ...data]);
-    setTotal(t);
-    setHasMore(hm);
-    setOffset(nextOffset);
-    setLoadingMore(false);
+    setLoadingMore(true);
+    try {
+      const res = await requestPage(nextOffset);
+      if (!res.ok) return;
+      const page = await readPage(res);
+      if (generation !== listGeneration.current) return;
+      setRows(prev => [...prev, ...page.data]);
+      setTotal(page.total);
+      setHasMore(page.hasMore);
+      setOffset(nextOffset);
+    } catch {
+      // No connection or a broken body: the button is still there.
+    } finally {
+      setLoadingMore(false);
+    }
   };
 
-  const refetchFirstPage = () => {
-    setOffset(0);
-    fetchPage(0).then(({ data, total: t, hasMore: hm }) => { setRows(data); setTotal(t); setHasMore(hm); });
-  };
+  const answered = phase === 'ready' && rowsFor === query;
 
   const claims = useMemo(() => decodeViewerClaims(playerToken), [playerToken]);
   const isRoomAdmin = isRoomAdminFor(claims, roomId);
@@ -196,7 +227,7 @@ export default function RoomScoresView({ roomId, slug, config, roomName, viewerU
 
           {/* Running total (F3 pagination fix) + persistent muted browse link (F5 (b)). */}
           <div className="flex items-center gap-3 text-[11px] text-faint whitespace-nowrap">
-            {!loading && total > 0 && <span>{total.toLocaleString()} game{total === 1 ? '' : 's'}</span>}
+            {answered && total > 0 && <span>{total.toLocaleString()} game{total === 1 ? '' : 's'}</span>}
             <Link to={browseHref} className="text-muted hover:text-primary transition-colors no-underline">
               {browseLabel}
             </Link>
@@ -204,26 +235,31 @@ export default function RoomScoresView({ roomId, slug, config, roomName, viewerU
         </div>
       </div>
 
-      <ScoreCardGrid
-        cards={rows}
-        slug={slug}
-        roomId={roomId}
-        config={config}
-        roomName={roomName}
-        viewerUsername={viewerUsername}
-        loading={loading}
-        hasMore={hasMore}
-        loadingMore={loadingMore}
-        onLoadMore={loadMore}
-        emptyState={emptyState}
-        linkFor={lb => `/${slug}/games/${encodeURIComponent(lb.gameName)}?tab=room`}
-        onSubmit={lb => setSubmissionTarget({ gameName: lb.gameName })}
-        onTitleClick={lb => setQuickViewLb(lb)}
-        // v2.109.0 (score-gesture-photos) — a click that opens the popup
-        // (once a row is expanded, or immediately for a single-score row)
-        // opens the same popup the title opens.
-        onOpenQuickView={lb => setQuickViewLb(lb)}
-      />
+      {phase === 'retrying' ? (
+        // No answer yet and a try failed: say so, never "No scores here yet".
+        <LoadFailedNotice what="the scores" onRetry={load} testId="room-scores-load-failed" />
+      ) : (
+        <ScoreCardGrid
+          cards={answered ? rows : []}
+          slug={slug}
+          roomId={roomId}
+          config={config}
+          roomName={roomName}
+          viewerUsername={viewerUsername}
+          loading={phase === 'loading'}
+          hasMore={answered && hasMore}
+          loadingMore={loadingMore}
+          onLoadMore={loadMore}
+          emptyState={emptyState}
+          linkFor={lb => `/${slug}/games/${encodeURIComponent(lb.gameName)}?tab=room`}
+          onSubmit={lb => setSubmissionTarget({ gameName: lb.gameName })}
+          onTitleClick={lb => setQuickViewLb(lb)}
+          // v2.109.0 (score-gesture-photos) — a click that opens the popup
+          // (once a row is expanded, or immediately for a single-score row)
+          // opens the same popup the title opens.
+          onOpenQuickView={lb => setQuickViewLb(lb)}
+        />
+      )}
 
       {quickViewLb && (
         <GameQuickView
@@ -234,7 +270,7 @@ export default function RoomScoresView({ roomId, slug, config, roomName, viewerU
           // deliberately does NOT pass roomId (global rows delete through
           // /api/me/global-scores instead).
           roomId={roomId}
-          onScoreDeleted={refetchFirstPage}
+          onScoreDeleted={load}
           onClose={() => setQuickViewLb(null)}
         />
       )}
@@ -262,7 +298,7 @@ export default function RoomScoresView({ roomId, slug, config, roomName, viewerU
           onClose={() => setSubmissionTarget(null)}
           onSubmitted={() => {
             setSubmissionTarget(null);
-            refetchFirstPage();
+            load();
           }}
         />
       )}
