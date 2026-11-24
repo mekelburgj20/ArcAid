@@ -106,6 +106,8 @@ function roomLine(r: Routing, seen: Map<string, number>, counts: Map<string, num
  * its Change link, until the player dismisses it.
  */
 export const ROOM_TOAST_LABEL = 'Arcaid Witness';
+/** The toast is a link to the device settings (`CHANGE_HREF`); this says so on hover and to a screen reader. */
+export const ROOM_TOAST_HINT = 'Open your device settings';
 
 export function roomToastLines(rows: Routing[]): string[] {
     const counts = new Map<string, number>();
@@ -137,9 +139,13 @@ function joinNames(names: string[]): string {
     return `${[names[0], ...rest.slice(0, -1)].join(', ')} and ${rest[rest.length - 1]}`;
 }
 
-/** How long the room toast stays: 4 s for one sentence, 2 s more for each further one, 10 s at most. */
+/**
+ * How long the room toast stays: 9 s for one sentence, 2 s more for each further one, 15 s at most.
+ * It was 4 s + 2 s; the owner found that too quick to read (2026-11-23): the clock starts while the
+ * room page is still drawing, and a sentence with the not-watching tail is a long one.
+ */
 export function roomToastMs(lineCount: number): number {
-    return Math.min(4000 + 2000 * Math.max(0, lineCount - 1), 10000);
+    return Math.min(9000 + 2000 * Math.max(0, lineCount - 1), 15000);
 }
 
 /**

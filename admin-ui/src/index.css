@@ -2101,7 +2101,14 @@ select option {
   transition: color .2s, border-color .2s;
 }
 .arc-toast__x:hover { color: var(--arc-ice); border-color: color-mix(in srgb, var(--t) 50%, transparent); }
-.arc-toast__chip:focus-visible, .arc-toast__x:focus-visible { outline: 2px solid var(--t); outline-offset: 2px; }
+.arc-toast__chip:focus-visible, .arc-toast__x:focus-visible, .arc-toast__go:focus-visible { outline: 2px solid var(--t); outline-offset: 2px; }
+/* A toast that goes somewhere (`href`): its words are a link whose ::after covers the whole card, so a press
+   anywhere follows it; the corner x sits above that, and the rail lets the press through. */
+.arc-toast__go { display: block; color: inherit; text-decoration: none; cursor: pointer; border-radius: 4px; }
+.arc-toast__go::after { content: ""; position: absolute; inset: 0; border-radius: 6px; }
+.arc-toast__go:hover .arc-toast__msg { text-decoration: underline; text-underline-offset: 3px; }
+.arc-toast__go ~ .arc-toast__x { position: relative; z-index: 1; }
+.arc-toast__go ~ .arc-toast__rail { pointer-events: none; }
 
 /* The clock: a lit rail that burns down right to left, a chrome pinball riding its end. */
 .arc-toast__rail {

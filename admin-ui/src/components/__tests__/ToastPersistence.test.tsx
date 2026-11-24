@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { toast as sonner } from 'sonner';
 import { ToastProvider, useToast } from '../Toast';
 
@@ -95,6 +96,73 @@ describe('Toast', () => {
         const error = await screen.findByRole('alert');
         expect(error.querySelector('.arc-toast__run')).toBeNull();
         expect(error.textContent).toContain("Didn't work");
+    });
+
+    // Owner 2026-11-23: pressing the room's Arcaid Witness toast opens the device settings.
+    describe('a toast with an href', () => {
+        function FireLink() {
+            const { toast } = useToast();
+            return (
+                <>
+                    <button onClick={() => toast('Your PC sends its scores here.', 'success', { href: '/account/settings#witness-devices', hrefHint: 'Open your device settings' })}>fire link</button>
+                    <button onClick={() => toast('Refused', 'error', { href: '/account/settings' })}>fire error link</button>
+                </>
+            );
+        }
+        function Where() {
+            const { pathname, hash } = useLocation();
+            return <p data-testid="where">{pathname + hash}</p>;
+        }
+        const renderLink = () => render(
+            <MemoryRouter initialEntries={['/room']}>
+                <ToastProvider><FireLink /><Where /></ToastProvider>
+            </MemoryRouter>,
+        );
+
+        it('is one link: a press goes there and closes the toast', async () => {
+            renderLink();
+            fireEvent.click(screen.getByText('fire link'));
+            const link = await screen.findByRole('link', { name: /Your PC sends its scores here/ });
+            expect(link.getAttribute('href')).toBe('/account/settings#witness-devices');
+            expect(link.getAttribute('title')).toBe('Open your device settings');
+            // The heading and the message are both inside it, and the corner x is not.
+            expect(link.textContent).toContain('Done');
+            expect(link.querySelector('button')).toBeNull();
+            expect(link.closest('.arc-toast')!.querySelector('.arc-toast__x')).toBeTruthy();
+
+            fireEvent.click(link);
+            expect(screen.getByTestId('where').textContent).toBe('/account/settings#witness-devices');
+            await waitFor(() => expect(screen.queryByText('Your PC sends its scores here.')).toBeNull());
+        });
+
+        it('a swipe is not a press, and the corner x only closes it', async () => {
+            // jsdom has no pointer capture; Sonner asks for it on every pointer down.
+            const proto = Element.prototype as unknown as { setPointerCapture?: unknown };
+            const had = proto.setPointerCapture;
+            proto.setPointerCapture = () => {};
+            try {
+                renderLink();
+                fireEvent.click(screen.getByText('fire link'));
+                const link = await screen.findByRole('link', { name: /Your PC sends its scores here/ });
+                fireEvent.pointerDown(link, { clientX: 20, clientY: 20 });
+                fireEvent.click(link, { clientX: 140, clientY: 22 });
+                expect(screen.getByTestId('where').textContent).toBe('/room');
+
+                fireEvent.click(link.closest('.arc-toast')!.querySelector('.arc-toast__x')!);
+                await waitFor(() => expect(screen.queryByText('Your PC sends its scores here.')).toBeNull());
+                expect(screen.getByTestId('where').textContent).toBe('/room');
+            } finally {
+                proto.setPointerCapture = had;
+            }
+        });
+
+        it('an error is never a link: it keeps its Dismiss button', async () => {
+            renderLink();
+            fireEvent.click(screen.getByText('fire error link'));
+            const error = await screen.findByRole('alert');
+            expect(error.querySelector('a')).toBeNull();
+            expect(screen.getByRole('button', { name: 'Dismiss' })).toBeTruthy();
+        });
     });
 
     // v2.260.1 (owner 2026-11-22): on a phone the stack sits at the top, clear of dialog and sheet buttons.
