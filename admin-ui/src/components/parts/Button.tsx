@@ -9,7 +9,8 @@ import { forwardRef, type ButtonHTMLAttributes } from 'react';
  * the kit's red for `neon-coral`).
  *
  * - `primary`: the one thing a panel is for (Save, Link, Pair), in the
- *   theme's lead colour (`--color-lead`; the kit's cyan on the Arcaid look).
+ *   theme's lead colour (`--color-lead`; the kit's pink on the Arcaid look since v2.265.6,
+ *   its cyan on the three Witness pages).
  * - `secondary`: an outline for the quieter choice beside it (Clear, Cancel).
  * - `danger`: anything that removes or cannot be undone.
  *

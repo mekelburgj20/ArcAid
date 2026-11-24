@@ -60,7 +60,8 @@ export type ThemeId = typeof THEME_IDS[number];
  * Retired in v2.263.0 (ocean, wizard and sunset pointed at three of these
  * until then, so they moved on with them):
  *   midnight    dark       deep navy with white ink, which the default is now
- *   silverball  dark       cool grey with cool accents; the default is closest
+ *   silverball  graphite   cool grey with cool accents; Graphite is the neutral
+ *                          grey (it pointed at the default until v2.265.6)
  *   plasma      synthwave  hot pink on purple; Synthwave is the violet theme
  *   ember       backglass  orange on warm charcoal; Backglass is the warm one
  *   arctic      light      a cool pale page with navy ink, which Light is now
@@ -78,7 +79,7 @@ export const LEGACY_THEME_MAP: Record<string, ThemeId> = {
     sunset: 'backglass',
     minimal: 'graphite',
     midnight: 'dark',
-    silverball: 'dark',
+    silverball: 'graphite',
     plasma: 'synthwave',
     ember: 'backglass',
     arctic: 'light',
