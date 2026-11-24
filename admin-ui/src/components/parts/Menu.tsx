@@ -158,8 +158,13 @@ export function MenuGroup({ heading, children }: { heading?: ReactNode; children
     );
 }
 
-/** A square tile at the start of a row: the image when there is one, else the given initials. */
-export function MenuTile({ src, initials }: { src?: string | null; initials: string }) {
+/**
+ * A square tile at the start of a row: the given icon for a place with no logo
+ * (the Global Scoreboard's trophy), else the image when there is one, else the
+ * given initials.
+ */
+export function MenuTile({ src, initials = '', icon }: { src?: string | null; initials?: string; icon?: ReactNode }) {
+    if (icon) return <span className="arc-menu__tile arc-menu__tile--icon" aria-hidden="true">{icon}</span>;
     return src ? (
         <span className="arc-menu__tile" aria-hidden="true"><img src={src} alt="" /></span>
     ) : (

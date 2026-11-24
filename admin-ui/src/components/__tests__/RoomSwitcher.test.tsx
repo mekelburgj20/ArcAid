@@ -41,15 +41,23 @@ function renderSwitcher(props: Partial<Parameters<typeof RoomSwitcher>[0]> = {})
 
 const trigger = () => screen.getByRole('button', { name: 'RTX PINBALL, switch game room' });
 
-async function openMenu() {
-    fireEvent.click(trigger());
+async function openMenu(button: HTMLElement = trigger()) {
+    // Have the menu's chunk in hand first: the switcher forgets a press whose chunk takes more than five
+    // seconds to arrive, and a loaded build server can take that long to transform it.
+    await import('../RoomSwitcherMenu');
+    fireEvent.click(button);
     return screen.findByRole('menu');
 }
 
-/** The rows of the room list, in order (the current room is a disabled item, the rest are links). */
+/** The rows of the room list, in order (the current place is a disabled item, the rest are links). */
 function roomRows(menu: HTMLElement) {
     return within(within(menu).getByRole('group')).getAllByRole('menuitem');
 }
+
+const rowNames = (menu: HTMLElement) => roomRows(menu).map(r => r.querySelector('.arc-menu__name')!.textContent);
+
+/** The Global Scoreboard as the current place (its own header). */
+const GLOBAL: SwitcherCurrentRoom = { kind: 'global', slug: '', name: 'Global Scoreboard', title: 'Global Scoreboard', logoUrl: null, roomId: null };
 
 describe('RoomSwitcher', () => {
     it('names the room with its title on a closed button', () => {
@@ -63,16 +71,17 @@ describe('RoomSwitcher', () => {
         expect(button).toHaveTextContent('RP');
     });
 
-    it('lists the current room first, then the others by last activity (none last), then by name', async () => {
+    it('lists the current room first, then the others by last activity (none last), then by name, then Global', async () => {
         renderSwitcher();
         const menu = await openMenu();
         expect(trigger()).toHaveAttribute('aria-expanded', 'true');
         expect(within(menu).getByRole('group', { name: /Your game rooms/ })).toBeInTheDocument();
+        // Five rooms: the Global row is a place, not one of your rooms.
         expect(within(menu).getByText('5', { selector: '.arc-menu__count' })).toBeInTheDocument();
 
         const rows = roomRows(menu);
-        expect(rows.map(r => r.querySelector('.arc-menu__name')!.textContent)).toEqual([
-            'RTX Pinball', 'Neon Alley Pinball', 'Flipper Cove', 'Arcade Annex', 'Tilt Club After Dark',
+        expect(rowNames(menu)).toEqual([
+            'RTX Pinball', 'Neon Alley Pinball', 'Flipper Cove', 'Arcade Annex', 'Tilt Club After Dark', 'Global Scoreboard',
         ]);
 
         const here = rows[0]!;
@@ -87,6 +96,13 @@ describe('RoomSwitcher', () => {
         expect(rows[2]!.querySelector('img')).toHaveAttribute('src', '/logo-cove.png');
         expect(rows[4]).toHaveTextContent('TC');
 
+        // Global: a link to the Global Scoreboard, its tile the trophy (no initials, no logo).
+        const global = rows[5]!;
+        expect(global).toHaveAttribute('href', '/scoreboard');
+        expect(global).not.toHaveAttribute('aria-current');
+        expect(global.querySelector('.arc-menu__tile--icon svg')).not.toBeNull();
+        expect(global.querySelector('.arc-menu__tile--init')).toBeNull();
+
         expect(within(menu).getByRole('menuitem', { name: /All game rooms/ })).toHaveAttribute('href', '/');
         expect(within(menu).getByRole('menuitem', { name: /Manage my rooms/ })).toHaveAttribute('href', '/my-rooms');
     });
@@ -99,12 +115,22 @@ describe('RoomSwitcher', () => {
         await waitFor(() => expect(screen.queryByRole('menu')).toBeNull());
     });
 
-    it('signed out: the current room, a line to sign in, and only "All game rooms"', async () => {
+    it('picking Global goes to the Global Scoreboard', async () => {
+        renderSwitcher();
+        const menu = await openMenu();
+        fireEvent.click(within(menu).getByRole('menuitem', { name: 'Global Scoreboard' }));
+        expect(screen.getByTestId('where')).toHaveTextContent('/scoreboard');
+        await waitFor(() => expect(screen.queryByRole('menu')).toBeNull());
+    });
+
+    it('signed out: the current room and Global, a line to sign in, and only "All game rooms"', async () => {
         renderSwitcher({ signedIn: false, rooms: [] });
         const menu = await openMenu();
         expect(within(menu).getByRole('group', { name: 'Game rooms' })).toBeInTheDocument();
         expect(menu.querySelector('.arc-menu__count')).toBeNull();
-        expect(roomRows(menu)).toHaveLength(1);
+        // The Global Scoreboard is public: its row is there for a signed-out viewer too.
+        expect(rowNames(menu)).toEqual(['RTX Pinball', 'Global Scoreboard']);
+        expect(within(menu).getByRole('menuitem', { name: 'Global Scoreboard' })).toHaveAttribute('href', '/scoreboard');
         expect(within(menu).getByText('Sign in to see your rooms')).toBeInTheDocument();
         expect(within(menu).getByRole('menuitem', { name: /All game rooms/ })).toHaveAttribute('href', '/');
         expect(within(menu).queryByRole('menuitem', { name: /Manage my rooms/ })).toBeNull();
@@ -114,7 +140,7 @@ describe('RoomSwitcher', () => {
         renderSwitcher({ rooms: [ROOMS[0]!] });
         const menu = await openMenu();
         expect(within(menu).getByText('1', { selector: '.arc-menu__count' })).toBeInTheDocument();
-        expect(roomRows(menu)).toHaveLength(1);
+        expect(rowNames(menu)).toEqual(['RTX Pinball', 'Global Scoreboard']);
         const note = within(menu).getByText('This is your only room so far.');
         const more = within(menu).getByRole('menuitem', { name: /Find more rooms/ });
         expect(more).toHaveAttribute('href', '/');
@@ -127,15 +153,15 @@ describe('RoomSwitcher', () => {
         const menu = await openMenu();
         expect(within(menu).getByText('2', { selector: '.arc-menu__count' })).toBeInTheDocument();
         const rows = roomRows(menu);
-        expect(rows.map(r => r.querySelector('.arc-menu__name')!.textContent)).toEqual(['RTX Pinball', 'Neon Alley Pinball', 'Flipper Cove']);
+        expect(rowNames(menu)).toEqual(['RTX Pinball', 'Neon Alley Pinball', 'Flipper Cove', 'Global Scoreboard']);
         expect(rows[0]).toHaveAttribute('aria-current', 'page');
         expect(rows[0]).toHaveTextContent('You are here');
     });
 
-    it('while the rooms load: the current room and one placeholder row', async () => {
+    it('while the rooms load: the current room, one placeholder row, and Global', async () => {
         renderSwitcher({ loading: true, rooms: [] });
         const menu = await openMenu();
-        expect(roomRows(menu)).toHaveLength(1);
+        expect(rowNames(menu)).toEqual(['RTX Pinball', 'Global Scoreboard']);
         expect(within(menu).getByText('Loading your rooms')).toBeInTheDocument();
         expect(menu.querySelector('.arc-menu__count')).toBeNull();
         expect(within(menu).queryByText('This is your only room so far.')).toBeNull();
@@ -143,6 +169,7 @@ describe('RoomSwitcher', () => {
 
     it('keyboard: opens on the first other room, arrows and typeahead move the highlight, the pinball rides with it, Escape returns focus', async () => {
         renderSwitcher();
+        await import('../RoomSwitcherMenu'); // the chunk in hand before the press (see openMenu)
         trigger().focus();
         fireEvent.keyDown(trigger(), { key: 'ArrowDown' });
         const menu = await screen.findByRole('menu');
@@ -178,5 +205,53 @@ describe('RoomSwitcher', () => {
         await waitFor(() => expect(screen.queryByRole('menu')).toBeNull());
         expect(trigger()).toHaveAttribute('aria-expanded', 'false');
         await waitFor(() => expect(document.activeElement).toBe(trigger()));
+    });
+});
+
+describe('RoomSwitcher with Global as the current place (the Global Scoreboard header)', () => {
+    const globalTrigger = () => screen.getByRole('button', { name: 'Global Scoreboard, switch game room' });
+
+    it('names Global on the button, with the trophy tile and its name never capped', () => {
+        renderSwitcher({ current: GLOBAL });
+        const button = globalTrigger();
+        expect(button).toHaveTextContent('Global Scoreboard');
+        expect(button).toHaveAttribute('title', 'Global Scoreboard');
+        expect(button.className).toBe('room-switch room-switch--inline room-switch--global');
+        expect(button.querySelector('.room-switch__tile--icon svg')).not.toBeNull();
+        expect(button.querySelector('.room-switch__tile--init')).toBeNull();
+    });
+
+    it('lists Global first as "You are here", then every room (none taken for the current one), no second Global row', async () => {
+        renderSwitcher({ current: GLOBAL });
+        const menu = await openMenu(globalTrigger());
+        // Every room is listed and counted: an empty slug and no room id never match a room.
+        expect(within(menu).getByText('5', { selector: '.arc-menu__count' })).toBeInTheDocument();
+        expect(rowNames(menu)).toEqual([
+            'Global Scoreboard', 'Neon Alley Pinball', 'Flipper Cove', 'RTX Pinball', 'Arcade Annex', 'Tilt Club After Dark',
+        ]);
+
+        const here = roomRows(menu)[0]!;
+        expect(here.tagName).not.toBe('A');
+        expect(here).toHaveAttribute('aria-current', 'page');
+        expect(here).toHaveAttribute('aria-disabled', 'true');
+        expect(here).toHaveTextContent('You are here');
+        expect(here.querySelector('.arc-menu__mark')).not.toBeNull();
+        expect(here.querySelector('.arc-menu__tile--icon svg')).not.toBeNull();
+        expect(within(menu).queryAllByRole('menuitem', { name: /Global Scoreboard/ })).toHaveLength(1);
+        expect(menu.querySelector('a[href="/scoreboard"]')).toBeNull();
+
+        expect(roomRows(menu)[3]).toHaveAttribute('href', '/rtx_pinball');
+        expect(within(menu).getByRole('menuitem', { name: /All game rooms/ })).toHaveAttribute('href', '/');
+        expect(within(menu).getByRole('menuitem', { name: /Manage my rooms/ })).toHaveAttribute('href', '/my-rooms');
+    });
+
+    it('with no rooms yet: says so, offers more rooms and Manage my rooms', async () => {
+        renderSwitcher({ current: GLOBAL, rooms: [] });
+        const menu = await openMenu(globalTrigger());
+        expect(within(menu).getByText('0', { selector: '.arc-menu__count' })).toBeInTheDocument();
+        expect(rowNames(menu)).toEqual(['Global Scoreboard']);
+        const note = within(menu).getByText('You have not joined a game room yet.');
+        expect(within(menu).getByRole('menuitem', { name: /Find more rooms/ })).toHaveAttribute('aria-describedby', note.id);
+        expect(within(menu).getByRole('menuitem', { name: /Manage my rooms/ })).toHaveAttribute('href', '/my-rooms');
     });
 });

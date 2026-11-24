@@ -83,8 +83,11 @@ function makeGame(
   };
 }
 
-function mockFetch(games: unknown[]) {
+function mockFetch(games: unknown[], myRooms?: unknown[]) {
   const fetchMock = vi.fn((url: string) => {
+    if (myRooms && url.startsWith('/api/me/rooms')) {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(myRooms) });
+    }
     if (url.startsWith('/api/global/scoreboard')) {
       return Promise.resolve({
         ok: true,
@@ -271,5 +274,55 @@ describe('GlobalScoreboard card (v2.50.0 A2)', () => {
     const tagLinks = within(card).getAllByRole('link', { name: 'RTX' });
     expect(tagLinks).toHaveLength(1);
     expect(tagLinks[0]).toHaveAttribute('href', '/scoreboard?room=rtx_pinball');
+  });
+});
+
+// Owner 2026-11-23: the Global Scoreboard is not cut off from the rooms. A
+// signed-in viewer gets the room switcher in the header, with Global as the
+// current place (RoomSwitcher has the menu's own tests).
+describe('GlobalScoreboard header room switcher', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    localStorage.clear();
+    document.documentElement.className = '';
+  });
+
+  const myRoom = (roomId: string, name: string, slug: string, lastActivityAt: string | null) =>
+    ({ roomId, name, slug, logoUrl: null, joinedAt: '2026-01-01 12:00:00', source: 'self_join', lastActivityAt });
+
+  it('signed in: the switcher names Global, and its menu has Global first, then the viewer\'s rooms', async () => {
+    signInAs('discord-me');
+    mockFetch([makeGame('g1', 'Header Game', [makeScore(1)])], [
+      myRoom('r1', 'RTX Pinball', 'rtx_pinball', '2026-11-01 10:00:00'),
+      myRoom('r2', 'Flipper Cove', 'flipper_cove', '2026-11-18 10:00:00'),
+    ]);
+
+    renderScoreboard();
+    await findCard('Header Game');
+
+    // Desktop and phone each have one (CSS shows one per breakpoint; jsdom has no CSS).
+    const triggers = await screen.findAllByRole('button', { name: 'Global Scoreboard, switch game room' });
+    expect(triggers).toHaveLength(2);
+
+    // Have the menu's chunk in hand first: the switcher forgets a press whose chunk takes more than five
+    // seconds to arrive, and a loaded build server can take that long to transform it.
+    await import('../../components/RoomSwitcherMenu');
+    fireEvent.click(triggers[0]!);
+    const menu = await screen.findByRole('menu', undefined, { timeout: 15000 });
+    await waitFor(() => expect(within(menu).getByRole('menuitem', { name: 'Flipper Cove' })).toHaveAttribute('href', '/flipper_cove'));
+    const rows = within(within(menu).getByRole('group')).getAllByRole('menuitem');
+    expect(rows.map(r => r.querySelector('.arc-menu__name')!.textContent)).toEqual(['Global Scoreboard', 'Flipper Cove', 'RTX Pinball']);
+    expect(rows[0]).toHaveAttribute('aria-current', 'page');
+    expect(rows[0]).toHaveTextContent('You are here');
+  }, 30000);
+
+  it('signed out: no switcher, the header is as before', async () => {
+    mockFetch([makeGame('g1', 'Header Game', [makeScore(1)])]);
+
+    renderScoreboard();
+    await findCard('Header Game');
+
+    expect(screen.queryByRole('button', { name: /switch game room/ })).toBeNull();
+    expect(screen.getAllByRole('img', { name: 'Arcaid' }).length).toBeGreaterThan(0);
   });
 });
