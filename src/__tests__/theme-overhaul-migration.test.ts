@@ -193,7 +193,7 @@ describe('migration 220 — theme sweep', () => {
 
         await remapRetiredThemeIds(await getDatabase(), 'migration 220');
 
-        expect(await roomTheme(silverball)).toBe('dark');
+        expect(await roomTheme(silverball)).toBe('graphite');
         expect(await roomTheme(plasma)).toBe('synthwave');
         expect(await roomTheme(ember)).toBe('backglass');
         expect(await roomTheme(survivor)).toBe('backglass');

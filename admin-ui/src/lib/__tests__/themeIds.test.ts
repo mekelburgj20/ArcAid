@@ -88,7 +88,7 @@ describe('normalizeThemeId', () => {
 
     it('folds the five ids retired in v2.263.0 (G29) to their nearest survivor', () => {
         expect(normalizeThemeId('midnight')).toBe('dark');
-        expect(normalizeThemeId('silverball')).toBe('dark');
+        expect(normalizeThemeId('silverball')).toBe('graphite');
         expect(normalizeThemeId('plasma')).toBe('synthwave');
         expect(normalizeThemeId('ember')).toBe('backglass');
         expect(normalizeThemeId('arctic')).toBe('light');

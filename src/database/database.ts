@@ -3866,6 +3866,17 @@ async function doInitDatabase(): Promise<Database> {
             const { addUserFloorPreference } = await import('./migrations/userFloorPreference.js');
             await addUserFloorPreference(db);
         } },
+        // v2.265.6 (owner 2026-11-24): the retired Silverball theme points at
+        // Graphite, not the default. Migration 220 already rewrote the rooms
+        // that were on it to `dark`, so the only record of which rooms those
+        // were is the pre-deploy snapshots beside the database; this reads
+        // them and moves a room that still holds 220's `dark`. Does nothing
+        // where there are no snapshots, and never throws.
+        { name: '222_silverball_rooms_to_graphite', handler: async (db) => {
+            const { silverballRoomsToGraphite } = await import('./migrations/silverballToGraphite.js');
+            const isFile = dbPath !== ':memory:' && !dbPath.startsWith('file:');
+            await silverballRoomsToGraphite(db, isFile ? path.join(path.dirname(dbPath), 'pre-deploy') : null);
+        } },
     ];
 
     for (const migration of migrations) {

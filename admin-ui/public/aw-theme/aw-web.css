@@ -123,9 +123,10 @@
    the page wears), it points the site's colour tokens at the kit, so links,
    buttons and status words keep their markup and show the kit's roles:
    cyan = OK / success, pink = attention, red = problem. No green, no yellow.
-   The site's lead and second (v2.263.0) are pinned to the kit's cyan and pink,
-   so the primary button stays the kit's cyan here whatever the site's default
-   theme leads with. */
+   The site's lead and second (v2.263.0) are pinned to the kit's cyan and pink
+   here, so the Witness pages keep the kit's cyan primary button whatever the
+   site's default theme leads with. An Arcaid-look page (`ArcaidPage`, below)
+   swaps the two. */
 .aw-island {
   color: var(--aw-ice);
   font-family: var(--aw-font-ui);
@@ -143,6 +144,15 @@
   --color-amber-400: var(--aw-red);
   --color-rose-400: var(--aw-red);
   --color-rose-500: var(--aw-red);
+}
+
+/* An Arcaid-look page (Account Settings and the personal pages after it) leads
+   with pink, like a room on the default theme: the primary button and the
+   active tab are the kit's pink, cyan is second (owner 2026-11-24). The three
+   Witness pages are not `aw-screen--arcaid` and stay on the rule above. */
+.aw-screen--arcaid.aw-island {
+  --color-lead: var(--aw-pink);
+  --color-second: var(--aw-cyan);
 }
 
 /* Some site themes style form fields by element (`.theme-retro select` is

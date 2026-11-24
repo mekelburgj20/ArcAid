@@ -6,6 +6,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.265.6] - 2026-11-24 - Account Settings leads with pink; Silverball rooms go to Graphite
+
+Two owner answers (2026-11-24) to questions left open by the theme sweep (G29, 2.263.0).
+
+### Changed
+- **Account Settings leads with pink, like a room on the default theme.** Its main buttons (Save, Link
+  Google account, Pair a device) are the Arcaid look's pink and cyan is the second colour. Until now the
+  page pinned them to cyan. The three Arcaid Witness pages (install, pair, pair with a code) keep cyan:
+  they share their look with the cabinet app. Nothing else on the page moves (measured: four buttons).
+- **The retired Silverball theme now points at Graphite, not the default.** Graphite is the neutral grey,
+  which is closer to what Silverball looked like. A browser that still remembers Silverball lands on
+  Graphite.
+
+### Fixed
+- **The room that was on Silverball is moved to Graphite** (migration 222). 2.263.0 had already rewritten
+  it to the default, so nothing in the live data says which room it was; the migration reads the
+  pre-deploy snapshots taken before 2.263.0 (they still say Silverball) and moves a room only if it still
+  holds the default that 2.263.0 gave it. A room whose admin has picked another theme since is left
+  alone. It cannot stop a start-up: with no snapshots, or one it cannot read, it does nothing and says so
+  in the log.
+
+### Not changed
+- A player whose own theme was Silverball stays on the default (the ruling was about rooms). They can pick
+  Graphite in Account Settings.
+- The default theme's carpet floor keeps its strength (owner: no).
+
 ## [2.265.5] - 2026-11-24 - The Arcaid Witness toast shows once, not on every refresh
 
 ### Fixed

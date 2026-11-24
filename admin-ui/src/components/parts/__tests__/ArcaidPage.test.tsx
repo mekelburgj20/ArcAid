@@ -67,7 +67,7 @@ describe('ArcaidPage', () => {
         expect(root.lastElementChild).toBe(screen.getByTestId('dialog'));
 
         expect(themeLinks()).toEqual([
-            '/aw-theme/aw-theme.css?v=5', '/aw-theme/aw-theme-ext.css?v=5', '/aw-theme/aw-web.css?v=5',
+            '/aw-theme/aw-theme.css?v=6', '/aw-theme/aw-theme-ext.css?v=6', '/aw-theme/aw-web.css?v=6',
         ]);
         unmount();
         expect(themeLinks()).toEqual([]);
