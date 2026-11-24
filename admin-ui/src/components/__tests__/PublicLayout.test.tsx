@@ -244,6 +244,38 @@ describe('PublicLayout', () => {
     await waitFor(() => expect(screen.getByText('Room not found')).toBeInTheDocument());
   });
 
+  // G31 (v2.265.4) — a lookup that fails FOR NOW (a refused request, a
+  // restart, no connection) used to read "Room not found" until a reload. It
+  // now says it is trying again, asks again, and opens the room.
+  it('waits out a room lookup that fails for now, without saying "Room not found"', async () => {
+    let portalCalls = 0;
+    const fetchMock = vi.fn((url: string) => {
+      if (url.startsWith('/api/portal')) {
+        portalCalls += 1;
+        if (portalCalls === 1) {
+          return Promise.resolve({ ok: false, status: 503, headers: { get: () => null }, json: () => Promise.resolve(null) });
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ id: 'room-7', roomId: 'room-7', slug: 'back_soon', name: 'Back Soon', pick_award_enabled: false }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+    });
+    vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+
+    renderAt('/back_soon/child');
+
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent("Can't reach this room right now. Trying again..."));
+    expect(screen.queryByText('Room not found')).not.toBeInTheDocument();
+
+    // The first retry is about a second out.
+    await waitFor(() => expect(screen.getByTestId('roomId')).toHaveTextContent('room-7'));
+    expect(screen.queryByText('Room not found')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Can't reach this room/)).not.toBeInTheDocument();
+  });
+
   // D2.2 (v2.38.0) — room-page join/leave affordance placed as a UserMenu
   // contextual item (over a header button — mobile header space is already
   // tight per s20/s21; see PublicLayout.tsx comment at the hook call site).

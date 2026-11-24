@@ -7,7 +7,8 @@ import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { usePickAwardEnabled } from '../hooks/usePickAwardEnabled';
 import { useMyRooms } from '../hooks/useMyRooms';
 import { useToast } from './Toast';
-import { getPortal, invalidatePortal, type Portal } from '../lib/portal';
+import { getPortal, getPortalPatiently, invalidatePortal, type Portal } from '../lib/portal';
+import { useRetryingLoad } from '../hooks/useRetryingLoad';
 import { navSectionForPath, type NavSection } from '../lib/navSections';
 import RoomSwitcher, { type SwitcherCurrentRoom } from './RoomSwitcher';
 import { RoomContext } from '../contexts/RoomContext';
@@ -39,6 +40,8 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
   const location = useLocation();
   const [portal, setPortal] = useState<Portal | null>(null);
   const [portalError, setPortalError] = useState(false);
+  // G31 — the room lookup has failed for now and is being asked again.
+  const [portalWaiting, setPortalWaiting] = useState(false);
   const { discordUser, playerToken, loginWithDiscord, loginWithGoogle, logoutPlayer } = useViewerAuth();
   const { loading: pickAwardLoading, enabled: pickAwardEnabled } = usePickAwardEnabled(slug);
   // D2 (v2.38.0) — room-page join/leave affordance, surfaced as a UserMenu
@@ -85,10 +88,18 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
     // must never render under a stale room's context with the new slug's URL.
     setPortal(null);
     setPortalError(false);
-    getPortal(slug)
-      .then(p => { if (!cancelled) setPortal(p); })
-      .catch(() => { if (!cancelled) setPortalError(true); });
-    return () => { cancelled = true; };
+    setPortalWaiting(false);
+    // G31 — a lookup that fails FOR NOW (no connection, a refused request, a
+    // restart) is asked again until the room answers; only a definite "no
+    // such room" is "Room not found".
+    const leaving = new AbortController();
+    getPortalPatiently(slug, {
+      signal: leaving.signal,
+      onWaiting: () => { if (!cancelled) setPortalWaiting(true); },
+    })
+      .then(p => { if (!cancelled) { setPortal(p); setPortalWaiting(false); } })
+      .catch(() => { if (!cancelled) { setPortalError(true); setPortalWaiting(false); } });
+    return () => { cancelled = true; leaving.abort(); };
   }, [slug]);
 
   const roomName = portal?.name ?? gameRoomName ?? 'ARCAID';
@@ -103,22 +114,25 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
   // so switching rooms never shows the previous room's title for a moment.
   const [navBrandState, setNavBrand] = useState<{ roomId: string; title: string; logoUrl: string } | null>(null);
   const navBrand = navBrandState && navBrandState.roomId === resolvedRoomId ? navBrandState : null;
+  // G31 — the read tries again by itself when it fails for now, so a refused
+  // request no longer leaves the switcher on the room's initial and plain
+  // name until a reload. The hook drops an answer for a room we have left.
+  const { load: loadNavBrand } = useRetryingLoad(
+    () => fetch(`/api/rooms/${resolvedRoomId}/scoreboard-config`),
+    async res => {
+      const cfg = await res.json();
+      if (!cfg || !resolvedRoomId) return;
+      setNavBrand({
+        roomId: resolvedRoomId,
+        title: cfg.SCOREBOARD_TITLE || '',
+        logoUrl: cfg.SCOREBOARD_LOGO_ENABLED === 'false' ? '' : (cfg.LOGO_URL || ''),
+      });
+    },
+    resolvedRoomId,
+  );
   useEffect(() => {
-    if (!resolvedRoomId) return;
-    let cancelled = false;
-    fetch(`/api/rooms/${resolvedRoomId}/scoreboard-config`)
-      .then(r => (r.ok ? r.json() : null))
-      .then(cfg => {
-        if (cancelled || !cfg) return;
-        setNavBrand({
-          roomId: resolvedRoomId,
-          title: cfg.SCOREBOARD_TITLE || '',
-          logoUrl: cfg.SCOREBOARD_LOGO_ENABLED === 'false' ? '' : (cfg.LOGO_URL || ''),
-        });
-      })
-      .catch(() => { /* the switcher falls back to plain roomName */ });
-    return () => { cancelled = true; };
-  }, [resolvedRoomId]);
+    if (resolvedRoomId) loadNavBrand();
+  }, [resolvedRoomId, loadNavBrand]);
   const switcherRoom: SwitcherCurrentRoom = {
     slug: slug || '',
     name: roomName,
@@ -497,7 +511,13 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
             <p className="text-muted text-sm">We couldn't find a room at this address.</p>
           </div>
         ) : !portal ? (
-          <LoadingState message="Loading room..." />
+          portalWaiting ? (
+            <div role="status">
+              <LoadingState message="Can't reach this room right now. Trying again..." />
+            </div>
+          ) : (
+            <LoadingState message="Loading room..." />
+          )
         ) : isSuspended ? (
           // S22 Phase 2 (v2.44.0) — styled like the approval-gate shell below:
           // centered message, room branding withheld (the minimal portal

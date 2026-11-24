@@ -6,7 +6,8 @@ import ScoreboardSurface from '../components/scoreboard/ScoreboardSurface';
 import { deriveCardProps, deriveScoreboardConfig } from '../lib/scoreboardConfig';
 import { getSocket } from '../lib/websocket';
 import { useLiveRefresh } from '../hooks/useLiveRefresh';
-import { getPortal } from '../lib/portal';
+import { getPortalPatiently } from '../lib/portal';
+import { useRetryingLoad } from '../hooks/useRetryingLoad';
 import { relativeTimeFrom } from '../lib/format';
 import { roomFetch } from '../lib/roomFetch';
 
@@ -36,7 +37,10 @@ export default function KioskScoreboard() {
   const [leaderboards, setLeaderboards] = useState<GameLeaderboard[]>([]);
   const [rankingGroups, setRankingGroups] = useState<RankingGroupData[]>([]);
   const [config, setConfig] = useState<Record<string, string>>({});
-  const [configLoaded, setConfigLoaded] = useState(false);
+  // G31 — the room lookup failed for now and is being asked again / answered
+  // "no such room".
+  const [roomWaiting, setRoomWaiting] = useState(false);
+  const [roomMissing, setRoomMissing] = useState(false);
   const [roomName, setRoomName] = useState('');
   const [roomId, setRoomId] = useState('');
   const [feedEvents, setFeedEvents] = useState<Array<{ id: number; type: string; title: string; created_at: string }>>([]);
@@ -46,29 +50,57 @@ export default function KioskScoreboard() {
   // "NOT supported this release" — no KIOSK_KEY pairing mechanism yet).
   const [gated, setGated] = useState(false);
 
-  // Resolve room and fetch scoreboard config
+  // Resolve the room. G31 (v2.265.4) — a lookup that fails for now (the TV
+  // came up during a restart, the network dropped) is asked again until the
+  // room answers. Before this one failed lookup left the screen empty until
+  // somebody reloaded it, and nobody stands at a kiosk.
   useEffect(() => {
     if (!slug) return;
-    getPortal(slug)
+    const leaving = new AbortController();
+    getPortalPatiently(slug, {
+      signal: leaving.signal,
+      onWaiting: () => setRoomWaiting(true),
+    })
       .then(portal => {
+        if (leaving.signal.aborted) return;
+        setRoomWaiting(false);
         setRoomName(portal.name);
         setRoomId(portal.roomId);
         const isGated = portal.join_policy === 'approval'
           && (portal.viewer_status ?? 'none') !== 'admin' && (portal.viewer_status ?? 'none') !== 'member';
         setGated(isGated);
-        return fetch(`/api/rooms/${portal.roomId}/scoreboard-config`);
       })
-      .then(r => r.ok ? r.json() : {})
-      .then(cfg => { setConfig(cfg || {}); setConfigLoaded(true); })
-      .catch(() => { setConfigLoaded(true); });
+      .catch(() => {
+        if (leaving.signal.aborted) return;
+        setRoomWaiting(false);
+        setRoomMissing(true);
+      });
+    return () => leaving.abort();
   }, [slug]);
+
+  // The room's look and the board each try again by themselves (G31); the
+  // rankings and the ticker ride the refresh interval below.
+  const { load: loadConfig, phase: configPhase } = useRetryingLoad(
+    () => fetch(`/api/rooms/${roomId}/scoreboard-config`),
+    async res => { setConfig((await res.json()) || {}); },
+    roomId,
+  );
+  useEffect(() => {
+    if (roomId) loadConfig();
+  }, [roomId, loadConfig]);
+  // Draw once the look has answered OR is known to be failing for now (the
+  // board then shows in the default look and restyles when the answer lands).
+  const configLoaded = roomMissing || (!!roomId && configPhase !== 'loading');
+
+  const { load: loadBoard, phase: boardPhase } = useRetryingLoad(
+    () => roomFetch(`/api/rooms/${roomId}/leaderboard`),
+    async res => setLeaderboards(await res.json()),
+    roomId,
+  );
 
   const loadData = useCallback(async () => {
     if (!roomId) return;
-    try {
-      const res = await roomFetch(`/api/rooms/${roomId}/leaderboard`);
-      if (res.ok) setLeaderboards(await res.json());
-    } catch { /* ignore */ }
+    loadBoard();
     try {
       const res = await roomFetch(`/api/rooms/${roomId}/rankings`);
       if (res.ok) setRankingGroups(await res.json());
@@ -80,7 +112,7 @@ export default function KioskScoreboard() {
         setFeedEvents(events.filter((e: any) => !e.target_user_id));
       }
     } catch { /* ignore */ }
-  }, [roomId]);
+  }, [roomId, loadBoard]);
 
   // Initial load + auto-refresh
   useEffect(() => {
@@ -119,12 +151,7 @@ export default function KioskScoreboard() {
     // mount before this, so a look change needed a full page reload to land on
     // a wall-mounted kiosk. Payload is empty by design; refetch the public
     // config endpoint, which has its own key allowlist.
-    const onSettings = () => {
-      fetch(`/api/rooms/${roomId}/scoreboard-config`)
-        .then(r => (r.ok ? r.json() : null))
-        .then(cfg => { if (cfg) setConfig(cfg); })
-        .catch(() => { /* ignore */ });
-    };
+    const onSettings = () => loadConfig();
     socket.on('score:new', onScore);
     socket.on('leaderboard:updated', onUpdate);
     socket.on('settings:updated', onSettings);
@@ -135,7 +162,7 @@ export default function KioskScoreboard() {
       socket.off('leaderboard:updated', onUpdate);
       socket.off('settings:updated', onSettings);
     };
-  }, [roomId, loadData]);
+  }, [roomId, loadData, loadConfig]);
 
   // A wall-mounted kiosk is the worst place for a socket to die quietly:
   // nobody is standing there to notice a frozen board, and the screen is
@@ -250,7 +277,15 @@ export default function KioskScoreboard() {
 
   // Guard: wait for config to load, then check if kiosk is enabled
   if (!configLoaded) {
-    return <div className="min-h-screen bg-deep" />;
+    return (
+      <div className="min-h-screen bg-deep flex items-center justify-center text-center px-6">
+        {roomWaiting && (
+          <p className="text-muted font-display text-lg" role="status">
+            Can't reach this room right now. Trying again...
+          </p>
+        )}
+      </div>
+    );
   }
   // Available unless explicitly disabled — matches the Settings "Kiosk Mode"
   // toggle, which defaults ON (defaultOn: true). Gating on === 'true' treated
@@ -286,6 +321,9 @@ export default function KioskScoreboard() {
         slug={slug || ''}
         leaderboards={leaderboards}
         rankingGroups={rankingGroups}
+        // G31 — a failed first load says so; no "Try now" on a wall display.
+        // A room that does not exist keeps the old empty board.
+        boardPhase={roomMissing ? 'ready' : boardPhase}
         // S21 — kiosk pages zoom by kioskZoom (TV/distance tuning), not the
         // legacy SCOREBOARD_ZOOM directly. deriveScoreboardConfig's fallback
         // chain (KIOSK_ZOOM -> SCOREBOARD_ZOOM -> 100) means existing TVs

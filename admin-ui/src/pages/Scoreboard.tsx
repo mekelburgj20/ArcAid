@@ -3,6 +3,8 @@ import { useParams, useSearchParams } from 'react-router-dom';
 import { Search } from 'lucide-react';
 import { getSocket } from '../lib/websocket';
 import { useLiveRefresh } from '../hooks/useLiveRefresh';
+import { useRetryingLoad } from '../hooks/useRetryingLoad';
+import { isTransientStatus } from '../lib/loadRetry';
 import { useRoom } from '../contexts/RoomContext';
 import { useViewerAuth, useViewerHeaders, usePlayerHeaders } from '../contexts/ViewerAuthContext';
 import type { GameLeaderboard, RankingGroupData } from '../components/ScoreboardComponents';
@@ -129,8 +131,12 @@ export default function Scoreboard() {
 
   const deviceType = window.innerWidth <= 640 ? 'mobile' : 'desktop';
 
-  /** Fetch user prefs for current device, merge with room config, apply theme */
-  const applyUserPrefs = async (cfg: Record<string, string>, token: string) => {
+  /**
+   * Fetch user prefs for current device and merge them over the room config.
+   * `applied` = merged and set; `none` = this viewer has none to apply;
+   * `later` = the read failed for now (G31), so the caller asks again.
+   */
+  const applyUserPrefs = async (cfg: Record<string, string>, token: string): Promise<'applied' | 'none' | 'later'> => {
     try {
       const prefsRes = await fetch(`/api/me/scoreboard-preferences?device=${deviceType}`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -144,28 +150,64 @@ export default function Scoreboard() {
         // per-device prefs entirely and `ThemeProvider` owns it now; the
         // legacy `UI_THEME` key that may still be in `prefs` is inert.
         setConfig({ ...cfg, ...prefs });
-        return true;
+        return 'applied';
       }
-    } catch { /* fall through */ }
-    return false;
+      return isTransientStatus(prefsRes.status) ? 'later' : 'none';
+    } catch {
+      return 'later';
+    }
   };
+
+  // G31 (v2.265.4) — the page's three reads (the room's look, the board, the
+  // rankings) each try again by themselves when they fail for now. Before
+  // this a refused or dropped request left the page with no logo, no title
+  // and "Waiting for active games" until a manual refresh (owner 2026-11-23).
+  // Declared ABOVE the effects that call them (see the hook).
+
+  // The room's look, with the viewer's own display choices merged over it.
+  // One definition for the three things that reload it: arriving, a Display
+  // settings save, and a room admin changing the room's appearance.
+  const { load: loadConfig } = useRetryingLoad(
+    () => fetch(`/api/rooms/${roomId}/scoreboard-config`, { headers: viewerHeaders }),
+    async res => {
+      const cfg: Record<string, string> = (await res.json()) || {};
+      const prefs = playerToken ? await applyUserPrefs(cfg, playerToken) : 'none';
+      if (prefs === 'applied') return;
+      setConfig(cfg);
+      // The room's own look is on screen; throwing asks again for the
+      // viewer's choices instead of leaving them off until a reload.
+      if (prefs === 'later') throw new Error('viewer display choices not read yet');
+    },
+    roomId,
+  );
+
+  const { load: loadBoard, phase: boardPhase } = useRetryingLoad(
+    () => {
+      // W56 — a rotation or a round change can open/close a start-required
+      // table. Both ride every try, so they come back with the board.
+      void reloadAttemptStarts();
+      void reloadAtGamesJoin();
+      return fetch(`/api/rooms/${roomId}/leaderboard`, { headers: playerHeaders });
+    },
+    async res => setLeaderboards(await res.json()),
+    roomId,
+  );
+
+  const { load: loadRankingGroups } = useRetryingLoad(
+    () => fetch(`/api/rooms/${roomId}/rankings`, { headers: playerHeaders }),
+    async res => setRankingGroups(await res.json()),
+    roomId,
+  );
+
+  const loadData = () => { if (roomId) loadBoard(); };
+  const loadRankings = () => { if (roomId) loadRankingGroups(); };
 
   // Fetch scoreboard config (merged with user prefs if logged in). S18 —
   // roomId now comes from RoomContext (resolved once in PublicLayout)
   // instead of this effect fetching /api/portal itself.
   useEffect(() => {
-    if (!roomId) return;
-    (async () => {
-      try {
-        const cfgRes = await fetch(`/api/rooms/${roomId}/scoreboard-config`, { headers: viewerHeaders });
-        const cfg = cfgRes.ok ? await cfgRes.json() : {};
-        if (playerToken) {
-          if (await applyUserPrefs(cfg || {}, playerToken)) return;
-        }
-        setConfig(cfg || {});
-      } catch { /* ignore */ }
-    })();
-  }, [roomId, playerToken]);
+    if (roomId) loadConfig();
+  }, [roomId, playerToken, loadConfig]);
 
   // v2.132.0 — the Display settings sheet itself is mounted app-wide by
   // `DisplaySettingsHost` (so the user-menu item works on every page). This
@@ -173,38 +215,9 @@ export default function Scoreboard() {
   // overrides over the room config exactly as the old `onSaved` callback did.
   useEffect(() => {
     if (!roomId || !playerToken) return;
-    const handler = () => {
-      (async () => {
-        try {
-          const cfgRes = await fetch(`/api/rooms/${roomId}/scoreboard-config`, { headers: viewerHeaders });
-          const cfg = cfgRes.ok ? await cfgRes.json() : {};
-          if (!(await applyUserPrefs(cfg || {}, playerToken))) setConfig(cfg || {});
-        } catch { /* ignore */ }
-      })();
-    };
-    window.addEventListener(DISPLAY_SETTINGS_SAVED_EVENT, handler);
-    return () => window.removeEventListener(DISPLAY_SETTINGS_SAVED_EVENT, handler);
-    /* eslint-disable-next-line react-hooks/exhaustive-deps */
-  }, [roomId, playerToken]);
-
-  const loadData = async () => {
-    if (!roomId) return;
-    // W56 — a rotation or a round change can open/close a start-required table.
-    void reloadAttemptStarts();
-    void reloadAtGamesJoin();
-    try {
-      const res = await fetch(`/api/rooms/${roomId}/leaderboard`, { headers: playerHeaders });
-      if (res.ok) setLeaderboards(await res.json());
-    } catch { /* ignore */ }
-  };
-
-  const loadRankings = async () => {
-    if (!roomId) return;
-    try {
-      const res = await fetch(`/api/rooms/${roomId}/rankings`, { headers: playerHeaders });
-      if (res.ok) setRankingGroups(await res.json());
-    } catch { /* ignore */ }
-  };
+    window.addEventListener(DISPLAY_SETTINGS_SAVED_EVENT, loadConfig);
+    return () => window.removeEventListener(DISPLAY_SETTINGS_SAVED_EVENT, loadConfig);
+  }, [roomId, playerToken, loadConfig]);
 
   useEffect(() => {
     if (!roomId) return;
@@ -233,16 +246,7 @@ export default function Scoreboard() {
     // v2.116.0 — a room admin saved the room's appearance. Same refetch the
     // prefs modal does on save (viewer prefs are re-applied over the new room
     // config, so a viewer's own overrides survive the room changing).
-    const onSettings = () => {
-      (async () => {
-        try {
-          const cfgRes = await fetch(`/api/rooms/${roomId}/scoreboard-config`, { headers: viewerHeaders });
-          const cfg = cfgRes.ok ? await cfgRes.json() : {};
-          if (playerToken && await applyUserPrefs(cfg || {}, playerToken)) return;
-          setConfig(cfg || {});
-        } catch { /* ignore */ }
-      })();
-    };
+    const onSettings = () => loadConfig();
     socket.on('score:new', onScore);
     socket.on('leaderboard:updated', onLeaderboard);
     socket.on('game:rotated', onRotated);
@@ -284,6 +288,8 @@ export default function Scoreboard() {
         slug={slug || ''}
         leaderboards={leaderboards}
         rankingGroups={rankingGroups}
+        boardPhase={boardPhase}
+        onRetryBoard={() => { loadData(); loadRankings(); loadConfig(); }}
         viewerUsername={viewerUsername}
         onSubmitScore={(lb) => setSelectedGame(lb)}
         titleLinkTo={tournamentCardTitleLink(slug || '')}

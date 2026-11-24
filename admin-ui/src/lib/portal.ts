@@ -12,6 +12,8 @@
  * propagates, so a transient failure doesn't permanently poison the slug.
  */
 
+import { isTransientStatus, retryAfterMs, retryDelayForHint } from './loadRetry';
+
 export interface Portal {
   id: string;
   roomId: string;
@@ -42,6 +44,22 @@ export interface Portal {
   suspended?: boolean;
 }
 
+/**
+ * The lookup failed FOR NOW (no connection, a refused request, a restart), as
+ * opposed to "there is no such room" (G31, v2.265.4). Before this every
+ * failure was the same plain Error and the room page said "Room not found"
+ * for a dropped connection.
+ */
+export class PortalUnavailableError extends Error {
+  /** How long the server asked us to wait, when it said. */
+  readonly retryAfterMs: number | null;
+  constructor(slug: string, retryAfter: number | null) {
+    super(`Room lookup unavailable: ${slug}`);
+    this.name = 'PortalUnavailableError';
+    this.retryAfterMs = retryAfter;
+  }
+}
+
 const cache = new Map<string, Promise<Portal>>();
 
 export function getPortal(slug: string): Promise<Portal> {
@@ -57,10 +75,15 @@ export function getPortal(slug: string): Promise<Portal> {
   const headers: Record<string, string> = playerToken ? { Authorization: `Bearer ${playerToken}` } : {};
 
   const promise = fetch(`/api/portal?slug=${encodeURIComponent(slug)}`, { headers })
-    .then(r => {
-      if (!r.ok) throw new Error(`Room not found: ${slug}`);
-      return r.json() as Promise<Portal>;
-    })
+    .then(
+      r => {
+        if (r.ok) return r.json() as Promise<Portal>;
+        if (isTransientStatus(r.status)) throw new PortalUnavailableError(slug, retryAfterMs(r));
+        throw new Error(`Room not found: ${slug}`);
+      },
+      // The request never got an answer at all.
+      () => { throw new PortalUnavailableError(slug, null); },
+    )
     // Normalize the id/roomId duplication ONCE here — the live handler ships
     // both fields, but callers should only ever need `roomId`.
     .then(p => ({ ...p, roomId: p.roomId ?? p.id }))
@@ -73,6 +96,36 @@ export function getPortal(slug: string): Promise<Portal> {
 
   cache.set(key, promise);
   return promise;
+}
+
+/**
+ * `getPortal` that waits out a failure-for-now (G31): it keeps asking, on the
+ * shared rising delay, until the room answers. It resolves with the portal and
+ * rejects only on a definite answer ("no such room"). `onWaiting` fires each
+ * time a try fails for now, so the caller can say it is still trying.
+ *
+ * Abort `signal` when the caller goes away; the promise then never settles,
+ * which is what an effect that has been cleaned up wants.
+ */
+export function getPortalPatiently(
+  slug: string,
+  opts: { signal?: AbortSignal; onWaiting?: () => void } = {},
+): Promise<Portal> {
+  const { signal, onWaiting } = opts;
+  return new Promise<Portal>((resolve, reject) => {
+    let attempt = 0;
+    const tryOnce = () => {
+      if (signal?.aborted) return;
+      getPortal(slug).then(resolve, err => {
+        if (!(err instanceof PortalUnavailableError)) { reject(err); return; }
+        if (signal?.aborted) return;
+        onWaiting?.();
+        const timer = setTimeout(tryOnce, retryDelayForHint(attempt++, err.retryAfterMs));
+        signal?.addEventListener('abort', () => clearTimeout(timer), { once: true });
+      });
+    };
+    tryOnce();
+  });
 }
 
 /** Drop the cached portal for a slug — used after a join-request/approval so
