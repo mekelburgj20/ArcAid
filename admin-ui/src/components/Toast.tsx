@@ -1,5 +1,6 @@
-import { createContext, useCallback, useContext, useEffect, useState } from 'react';
-import type { AnimationEvent, CSSProperties, ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import type { AnimationEvent, CSSProperties, MouseEvent, PointerEvent, ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import { Toaster, toast as sonner } from 'sonner';
 
 /**
@@ -22,6 +23,8 @@ import { Toaster, toast as sonner } from 'sonner';
  * A caller may name the heading and lengthen the clock (`ToastOptions`): the
  * room page's "Arcaid Witness" toast says where the player's devices send
  * their scores, one sentence per line, and stays 2 s longer per extra line.
+ * A caller may also make the toast a link (`href`): that same toast opens the
+ * player's Witness device settings when pressed (owner 2026-11-23).
  */
 
 type ToastType = 'success' | 'error' | 'info';
@@ -39,6 +42,14 @@ export interface ToastOptions {
    * nothing there.
    */
   durationMs?: number;
+  /**
+   * Makes the whole toast one link to this in-app path: a press goes there and
+   * closes the toast (the corner × still only closes it). Needs the router
+   * above the toasts, which the app has.
+   */
+  href?: string;
+  /** Where `href` goes, in words: the link's tooltip and its description for a screen reader. */
+  hrefHint?: string;
 }
 
 interface ToastContextValue {
@@ -71,6 +82,35 @@ function Emblem() {
   );
 }
 
+/** A swipe that ends further than this from where it began is a swipe, not a press. */
+const PRESS_SLOP_PX = 8;
+
+/**
+ * The label and message as one link that covers the toast (`.arc-toast__go` in
+ * `index.css`). An `<a>`, not a `<button>`: Sonner does not start a swipe on a
+ * button, and a toast must still swipe away. The price is that the click after
+ * a swipe lands here too, so a press that travelled is dropped.
+ */
+function ToastLink({ href, hint, onGo, children }: { href: string; hint?: string; onGo: () => void; children: ReactNode }) {
+  const down = useRef<{ x: number; y: number } | null>(null);
+  const pressed = (e: PointerEvent<HTMLAnchorElement>) => { down.current = { x: e.clientX, y: e.clientY }; };
+  const clicked = (e: MouseEvent<HTMLAnchorElement>) => {
+    const from = down.current;
+    down.current = null;
+    if (from && Math.hypot(e.clientX - from.x, e.clientY - from.y) > PRESS_SLOP_PX) {
+      e.preventDefault();
+      return;
+    }
+    // A plain press: the router follows the link, and the toast has done its job.
+    if (!e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) onGo();
+  };
+  return (
+    <Link className="arc-toast__body arc-toast__go" to={href} title={hint} draggable={false} onPointerDown={pressed} onClick={clicked}>
+      {children}
+    </Link>
+  );
+}
+
 function ArcaidToast({ id, message, type, options }: { id: string | number; message: string; type: ToastType; options?: ToastOptions }) {
   const { tone } = LOOK[type];
   const label = options?.label ?? LOOK[type].label;
@@ -81,16 +121,27 @@ function ArcaidToast({ id, message, type, options }: { id: string | number; mess
   const railEnded = (e: AnimationEvent<HTMLDivElement>) => {
     if (e.target === e.currentTarget) dismiss();
   };
+  const words = (
+    <>
+      <p className="arc-toast__label">{label}</p>
+      <p className="arc-toast__msg">{message}</p>
+    </>
+  );
+  // An error keeps its Dismiss button under the message, so it is never one big link.
+  const href = stays ? undefined : options?.href;
   return (
     <div className={`arc-toast arc-toast--${tone}`} role={stays ? 'alert' : 'status'}>
       <Emblem />
-      <div className="arc-toast__body">
-        <p className="arc-toast__label">{label}</p>
-        <p className="arc-toast__msg">{message}</p>
-        {stays && (
-          <button type="button" className="arc-toast__chip" onClick={dismiss}>Dismiss</button>
-        )}
-      </div>
+      {href ? (
+        <ToastLink href={href} hint={options?.hrefHint} onGo={dismiss}>{words}</ToastLink>
+      ) : (
+        <div className="arc-toast__body">
+          {words}
+          {stays && (
+            <button type="button" className="arc-toast__chip" onClick={dismiss}>Dismiss</button>
+          )}
+        </div>
+      )}
       {!stays && (
         <>
           <button type="button" className="arc-toast__x" aria-label="Dismiss" onClick={dismiss}>×</button>

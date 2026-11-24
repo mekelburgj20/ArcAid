@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { ShieldCheck, AlertTriangle } from 'lucide-react';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import {
-    CHANGE_HREF, ROOM_TOAST_LABEL, START_ATTEMPTS_NEEDED, attemptStartsNeeded, firstRoomToast, homeLines, roomLines,
+    CHANGE_HREF, ROOM_TOAST_HINT, ROOM_TOAST_LABEL, START_ATTEMPTS_NEEDED, attemptStartsNeeded, firstRoomToast, homeLines, roomLines,
     roomToastLines, roomToastMs,
     type Device, type Line, type Routing,
 } from '../lib/witnessScoresGoTo';
@@ -29,6 +29,7 @@ import DismissibleNotice from './DismissibleNotice';
  *   2026-11-23: three standing lines at the top of every room page were
  *   clutter): once per room per page load, said again only when the answer
  *   changes (`firstRoomToast`), and gone by itself after a few seconds.
+ *   Pressing the toast opens the player's device settings (`CHANGE_HREF`).
  *   W56: when a device sends here and a Limited-attempts table still needs the
  *   player's Start attempts press, one more amber line names those tables
  *   (from `GET /api/rooms/:roomId/attempt-starts/me`), each linking to its
@@ -80,7 +81,10 @@ export default function WitnessScoresGoTo({
                 if (roomId) {
                     const said = roomToastLines(rows as Routing[]);
                     if (said.length > 0 && firstRoomToast(roomId, said.join('\n'))) {
-                        toastRef.current(said.join('\n'), 'success', { label: ROOM_TOAST_LABEL, durationMs: roomToastMs(said.length) });
+                        toastRef.current(said.join('\n'), 'success', {
+                            label: ROOM_TOAST_LABEL, durationMs: roomToastMs(said.length),
+                            href: CHANGE_HREF, hrefHint: ROOM_TOAST_HINT,
+                        });
                     }
                 }
             })

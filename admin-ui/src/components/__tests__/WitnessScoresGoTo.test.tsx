@@ -82,7 +82,7 @@ describe('roomToastLines', () => {
     });
 
     it('stays longer for more sentences, and is said once per room until the answer changes', () => {
-        expect([1, 2, 3, 9].map(roomToastMs)).toEqual([4000, 6000, 8000, 10000]);
+        expect([1, 2, 3, 9].map(roomToastMs)).toEqual([9000, 11000, 13000, 15000]);
         expect(firstRoomToast('room-1', 'a')).toBe(true);
         expect(firstRoomToast('room-1', 'a')).toBe(false);
         expect(firstRoomToast('room-2', 'a')).toBe(true);
@@ -202,7 +202,8 @@ describe('WitnessScoresGoTo', () => {
         expect(toastSpy).toHaveBeenCalledWith(
             'Your cabinet 1 and your cabinet 2 send their scores here · not watching now, open the tile on the cabinet.\nYour PC sends its scores here.',
             'success',
-            { label: 'Arcaid Witness', durationMs: 6000 },
+            // Pressing it opens the device settings (owner 2026-11-23).
+            { label: 'Arcaid Witness', durationMs: 11000, href: '/account/settings#witness-devices', hrefHint: 'Open your device settings' },
         );
         await new Promise(r => setTimeout(r, 0));
         expect(container.innerHTML).toBe('');

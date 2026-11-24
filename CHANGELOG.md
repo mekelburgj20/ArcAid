@@ -6,6 +6,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.265.3] - 2026-11-23 - The Arcaid Witness toast stays longer and opens your device settings
+
+### Changed
+- **The room's "Arcaid Witness" toast stays longer** (owner, 2026-11-23: "too quick to fade"): 9 s for one
+  sentence and 2 s more for each further one, 15 s at most. It was 4 s and 2 s, which is the time a "Saved"
+  toast gets; this one arrives while the room page is still drawing and can carry a long sentence ("... not
+  watching now, open the tile on the cabinet."). It still waits while the pointer is over it.
+- **Pressing the toast opens your device settings** (Account Settings -> Arcaid Witness devices) and closes
+  the toast. The whole card is the link, and hovering underlines the words; the corner x still only closes it,
+  and swiping it away goes nowhere.
+
+### Added
+- **A toast can be a link**: `toast(message, type, { href, hrefHint })` makes the whole toast one in-app
+  link, with `hrefHint` as its tooltip. An error is never a link (it keeps its Dismiss button).
+
 ## [2.265.2] - 2026-11-23 - "Your cabinet sends its scores here" is a toast
 
 ### Changed
