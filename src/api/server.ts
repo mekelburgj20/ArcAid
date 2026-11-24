@@ -10,6 +10,7 @@ import { getDatabase } from '../database/database.js';
 import { logInfo, logError } from '../utils/logger.js';
 import { authLimiter, generalLimiter, ogPreviewLimiter } from './rateLimit.js';
 import { correlationId } from './correlationId.js';
+import { realClientIp } from './clientIp.js';
 import { maybeBuildOgShell, isPreviewBot } from './ogMeta.js';
 import { mountCastcadeJoin } from './castcadeJoin.js';
 
@@ -101,6 +102,9 @@ export function startApiServer(port: number = 3001) {
 
     // Trust proxy (Caddy/nginx in front of Docker)
     app.set('trust proxy', 1);
+    // Behind Cloudflare the hop Caddy reports is a Cloudflare edge address, shared by every
+    // visitor. From here on `req.ip` is the visitor (see clientIp.ts); it must run before any limiter.
+    app.use(realClientIp);
 
     // --- Security Headers ---
     app.use(helmet({

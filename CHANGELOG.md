@@ -6,6 +6,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.265.1] - 2026-11-23 - The request limit counts each visitor, not Cloudflare
+
+The owner went from the Global Scoreboard to a room through the new dropdown and got the room with no logo,
+no title and "Waiting for active games"; a refresh brought everything back. The room had been found, and
+every request after it had been refused.
+
+### Fixed
+- **The per-minute request limit was shared between visitors.** The site sits behind Cloudflare, and the
+  address the server counted requests against was Cloudflare's, not the visitor's. Everybody arriving
+  through the same Cloudflare address shared one allowance of 100 requests a minute, so a busy minute
+  (other players, kiosk screens, cabinets) could refuse somebody else's room page. The server now counts
+  against the visitor's own address, taken from Cloudflare's `CF-Connecting-IP` header and believed only
+  when the request really came from Cloudflare (`src/api/clientIp.ts`). The same correction applies to
+  the login, write and pick limits and to the match relay.
+- **The general limit is 300 requests a minute per address, up from 100.** Counted per visitor, 100 was
+  reached by one player moving between four pages in a minute, and at once by an arcade where phones,
+  a kiosk screen and cabinets share one address. The stricter limits on logins and writes are unchanged.
+
+### Not changed
+- A room page whose requests fail still shows "Waiting for active games" instead of saying that loading
+  failed and trying again. That is logged as its own item.
+
+---
+
 ## [2.265.0] - 2026-11-23 - Global in the room switcher
 
 The owner asked that the Global Scoreboard not feel cut off from the rooms: Global is now a place in the room
