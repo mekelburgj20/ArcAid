@@ -1,5 +1,6 @@
 import { randomBytes } from 'crypto';
 import { logInfo } from '../utils/logger.js';
+import { resolveClientIp } from './clientIp.js';
 import { WitnessService } from '../services/WitnessService.js';
 
 /**
@@ -127,12 +128,15 @@ function asAck(value: unknown): Ack {
  * The address rate limits key on. Express runs with `trust proxy = 1` (Caddy
  * in front), so mirror that: the LAST X-Forwarded-For hop is the one our own
  * proxy wrote; anything before it is client-supplied. No header = direct.
+ * Behind Cloudflare that hop is a Cloudflare edge address, so the visitor is
+ * taken from Cloudflare's own header, on the same terms as `realClientIp`.
  */
 function clientIp(socket: RelaySocket): string {
     const raw = socket.handshake.headers['x-forwarded-for'];
     const header = Array.isArray(raw) ? raw[raw.length - 1] : raw;
     const last = header?.split(',').pop()?.trim();
-    return last || socket.handshake.address || 'unknown';
+    const peer = last || socket.handshake.address;
+    return resolveClientIp(peer, socket.handshake.headers['cf-connecting-ip']) || 'unknown';
 }
 
 export class MatchRelay {

@@ -98,10 +98,20 @@ export const roomCreateLimiter = rateLimit({
     message: { error: 'Room creation limit reached (3 per hour). Please try again later.' },
 });
 
-/** General API: 100 requests per minute per IP */
+/**
+ * General API: 300 requests per minute per visitor address (v2.265.1; was 100).
+ *
+ * `req.ip` is the visitor since `realClientIp` (clientIp.ts). Before that it was a Cloudflare
+ * edge address, so one visitor was spread over several counters and shared each of them with
+ * everybody else. Counted per visitor, 100 was too low: one room page load is about 15 to 25
+ * API calls (images are served before this limiter and do not count), so a player moving
+ * between four pages in a minute reached it alone, and an arcade (phones, a kiosk TV and
+ * cabinets behind one address) reached it at once. This is a backstop against abuse, not a
+ * throttle on browsing; the write, login and pick limiters below it stay as they were.
+ */
 export const generalLimiter = rateLimit({
     windowMs: 60 * 1000,
-    max: 100,
+    max: 300,
     standardHeaders: true,
     legacyHeaders: false,
     message: { error: 'Too many requests. Please try again later.' },
