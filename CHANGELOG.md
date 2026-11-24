@@ -6,6 +6,40 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.265.4] - 2026-11-23 - A room page that fails to load says so and tries again
+
+Follows 2.265.1. That release stopped visitors sharing one request allowance; this one fixes what the page
+did when its requests failed anyway (a refused request, a restart during a deploy, a dropped connection):
+it looked like an empty room and stayed that way until a manual refresh.
+
+### Fixed
+- **The room scoreboard no longer shows "Waiting for active games" when it could not load.** It says
+  "Couldn't load the scores. Trying again automatically." with a "Try now" button, and asks again by itself:
+  after 1, 2, 4, 8, 15 and then every 30 seconds, or after exactly as long as the server asked (the request
+  limit says how long to wait). When the requests get through, the board, the rankings, the room's logo,
+  title and look all come back with no reload. "Waiting for active games..." is now only shown for a room
+  that really has none, and before the first answer the page reads "Loading games...".
+- **The room's logo and title in the nav come back too.** The room switcher used to stay on the room's
+  initial and plain name until a reload when its one read failed.
+- **A room address that could not be reached for a moment no longer says "Room not found".** That message is
+  now only for an address with no room. Otherwise the page says "Can't reach this room right now. Trying
+  again..." and opens the room as soon as it answers. The Picks nav item, which used to stay hidden after
+  such a failure, waits the same way.
+- **A kiosk TV that starts while the site is restarting recovers by itself.** Before, one failed room lookup
+  left the screen empty until somebody reloaded it. The kiosk now keeps asking, says so while it waits, and
+  its look and board retry like the room page's.
+- A signed-in player whose own display choices could not be read gets the room's look at once and their own
+  choices on the retry, not the room's look until a reload.
+
+### Added
+- `admin-ui/src/lib/loadRetry.ts` (which failures mean "ask again", the waits, `RetryingLoader`) and
+  `hooks/useRetryingLoad.ts` (`{ load, phase }`), for any page load that should recover by itself.
+  `lib/portal.ts` gains `PortalUnavailableError` and `getPortalPatiently`.
+
+### Not in this release
+- The same silence on the other room pages (the Room Scores and Global tabs, Lobby, Stats, Picks and a
+  game's page) is logged as G32; they still show their empty text when a load fails.
+
 ## [2.265.3] - 2026-11-23 - The Arcaid Witness toast stays longer and opens your device settings
 
 ### Changed

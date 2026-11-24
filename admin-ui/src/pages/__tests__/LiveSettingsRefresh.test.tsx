@@ -37,12 +37,17 @@ vi.mock('../../lib/websocket', () => ({
   }),
 }));
 
-vi.mock('../../lib/portal', () => ({
-  getPortal: vi.fn().mockResolvedValue({
+vi.mock('../../lib/portal', () => {
+  const portal = {
     roomId: 'room-1', slug: 'test-room', name: 'Test Room',
     public_theme: null, ui_theme: 'dark', join_policy: 'open', viewer_status: 'none',
-  }),
-}));
+  };
+  return {
+    getPortal: vi.fn().mockResolvedValue(portal),
+    // G31 — the kiosk resolves its room through the patient lookup.
+    getPortalPatiently: vi.fn().mockResolvedValue(portal),
+  };
+});
 
 vi.mock('../../components/ThemeProvider', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../components/ThemeProvider')>();

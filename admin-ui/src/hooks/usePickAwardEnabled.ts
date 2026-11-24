@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { getPortal } from '../lib/portal';
+import { getPortalPatiently } from '../lib/portal';
 
 type State = { loading: boolean; enabled: boolean };
 
@@ -26,7 +26,11 @@ export function usePickAwardEnabled(slug: string | undefined): State {
     if (cache.has(slug)) { setState({ loading: false, enabled: cache.get(slug)! }); return; }
 
     let cancelled = false;
-    getPortal(slug)
+    // G31 — waits out a lookup that fails for now, like the layout does. A
+    // plain `getPortal` here answered "off" on a dropped request and the
+    // Picks nav item stayed hidden until a reload.
+    const leaving = new AbortController();
+    getPortalPatiently(slug, { signal: leaving.signal })
       .then(data => {
         if (cancelled) return;
         const enabled = !!data?.pick_award_enabled;
@@ -36,7 +40,7 @@ export function usePickAwardEnabled(slug: string | undefined): State {
       .catch(() => {
         if (!cancelled) setState({ loading: false, enabled: false });
       });
-    return () => { cancelled = true; };
+    return () => { cancelled = true; leaving.abort(); };
   }, [slug]);
 
   return state;

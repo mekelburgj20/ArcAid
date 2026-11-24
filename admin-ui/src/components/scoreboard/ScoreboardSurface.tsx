@@ -18,6 +18,8 @@ import { tournamentResultsPath } from '../../lib/tournamentLinks';
 import HorizontalScrollNav, { type HScrollMetrics } from '../HorizontalScrollNav';
 import { deriveCardProps, deriveScoreboardConfig, getCardWidth, qrEdgeMetrics } from '../../lib/scoreboardConfig';
 import { compareByRank } from '../../lib/searchRank';
+import type { LoadPhase } from '../../lib/loadRetry';
+import Button from '../parts/Button';
 
 export interface LeaderboardWithViewer extends GameLeaderboard {
   viewerEntry?: RankedEntry | null;
@@ -99,6 +101,16 @@ export interface ScoreboardSurfaceProps {
   slug: string;
   leaderboards: LeaderboardWithViewer[];
   rankingGroups: RankingGroupData[];
+  /**
+   * G31 (v2.265.4) — where the board's own load stands (`lib/loadRetry.ts`).
+   * It only matters while there are no cards: `loading` reads "Loading
+   * games...", `retrying` says the load failed and is being asked again, and
+   * `ready` (the default, so a caller that passes nothing is unchanged) keeps
+   * "Waiting for active games..." for a room that really has none.
+   */
+  boardPhase?: LoadPhase;
+  /** Draws "Try now" beside the failed-load message. */
+  onRetryBoard?: () => void;
 
   /** Highlights the viewer's own row. Omitted on admin. */
   viewerUsername?: string;
@@ -235,6 +247,8 @@ export default function ScoreboardSurface({
   slug,
   leaderboards,
   rankingGroups,
+  boardPhase = 'ready',
+  onRetryBoard,
   viewerUsername,
   onSubmitScore,
   titleLinkTo,
@@ -774,13 +788,30 @@ export default function ScoreboardSurface({
 
         {/* Game leaderboards */}
         {visibleLeaderboards.length === 0 ? (
-          <div className="flex-1 text-center py-24">
-            <p className="text-muted font-display">
-              {trimmedSearch
-                ? `No active games match "${(searchFilter || '').trim()}".`
-                : 'Waiting for active games...'}
-            </p>
-          </div>
+          boardPhase === 'retrying' ? (
+            /* G31 — the board has not loaded and the last try failed. Say so
+               (it used to read "Waiting for active games", the text of a room
+               with nothing on) and that it is being asked again. */
+            <div className="flex-1 flex flex-col items-center gap-3 text-center py-24" role="status" data-testid="board-load-failed">
+              <p className="text-primary font-display">Couldn't load the scores</p>
+              <p className="text-muted text-sm max-w-xs">Trying again automatically.</p>
+              {onRetryBoard && (
+                <Button variant="secondary" size="sm" className="min-h-11 px-4" onClick={onRetryBoard}>
+                  Try now
+                </Button>
+              )}
+            </div>
+          ) : (
+            <div className="flex-1 text-center py-24">
+              <p className="text-muted font-display">
+                {boardPhase === 'loading'
+                  ? 'Loading games...'
+                  : trimmedSearch
+                    ? `No active games match "${(searchFilter || '').trim()}".`
+                    : 'Waiting for active games...'}
+              </p>
+            </div>
+          )
         ) : effectiveLayout === 'grid' ? (
           /* Grid layout — responsive rows, mobile forces single column via CSS */
           <div className="flex-1 min-w-0">
