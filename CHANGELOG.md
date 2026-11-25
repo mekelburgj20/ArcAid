@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.267.1] - 2026-11-25 - The Arcaid Witness toast stays 5 seconds
+
+### Changed
+- **The "Arcaid Witness" toast now stays 5 seconds** (owner, 2026-11-25). 2.265.3 read "maybe 5 seconds"
+  as 5 seconds more than the 4 it had, so it stayed 9; 5 in all was meant. A toast with more than one
+  sentence (devices that send here in different ways) still stays 2 seconds more for each further
+  sentence, 15 at most. Pressing it still opens your device settings.
+
 ## [2.267.0] - 2026-11-24 - Every modern VPX and VPinMAME counts as a known build
 
 ### Changed
