@@ -16,15 +16,15 @@ import { forwardRef, type ButtonHTMLAttributes } from 'react';
  *
  * `type="button"` unless the caller says otherwise, so a button dropped inside
  * a form never submits it by accident. No `transition-all` and no
- * `focus:outline-none`: the browser's own focus ring stays until the shared
- * ring exists.
+ * `focus:outline-none`: keyboard focus shows the global cyan ring (`index.css`
+ * base layer), and `part-focus` adds the parts' faint halo.
  */
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
     variant?: 'primary' | 'secondary' | 'danger';
     size?: 'md' | 'sm' | 'xs';
 };
 
-const BASE = 'inline-flex items-center justify-center gap-1.5 rounded border font-medium cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed';
+const BASE = 'part-focus inline-flex items-center justify-center gap-1.5 rounded border font-medium cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed';
 
 const SIZES: Record<NonNullable<ButtonProps['size']>, string> = {
     md: 'px-4 py-1.5 text-sm',
