@@ -73,7 +73,13 @@ router.get('/rooms/:roomId/tournaments/:id/attempt-starts/me', requireDiscordUse
         const { AttemptService } = await import('../../services/AttemptService.js');
         const canonical = await IdentityLinkService.resolveCanonical(req.user!.discordId as string);
         const starts = await AttemptService.startsFor(canonical, games.map(g => g.id));
-        res.json({ starts });
+        // W126 — additive: my practice state per table (`offered: false` on
+        // every table when the tournament does not offer practice).
+        const practiceGames = await AttemptService.practiceGamesFor(tournamentId);
+        const practice = await AttemptService.practiceStateFor(
+            canonical, games.map(g => ({ gameId: g.id, practiceGames })),
+        );
+        res.json({ starts, practice });
     } catch (error) {
         logError('API Error (GET rooms/:roomId/tournaments/:id/attempt-starts/me):', error);
         res.status(500).json({ error: 'Internal Server Error' });
@@ -119,6 +125,49 @@ router.post('/rooms/:roomId/tournaments/:id/games/:gameId/attempt-start', requir
         res.json({ startedTs: result.startedTs });
     } catch (error) {
         logError('API Error (POST rooms/:roomId/tournaments/:id/games/:gameId/attempt-start):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Player: W126 (ADR 0043) — press "Pause attempts" on one table: the games I
+// START from now on are practice (no attempt used, off the tournament board,
+// on to the Global Scoreboard) until I resume or my practice games run out.
+// 409 `NOT_OFFERED` / `NOT_OPEN` / `NOT_STARTED` / `NO_ATTEMPTS_LEFT` /
+// `NO_PRACTICE_LEFT`, 403 `NOT_ENTERED`, each with a sentence the page shows.
+// A second press keeps the open pause. Answers my new practice state.
+router.post('/rooms/:roomId/tournaments/:id/games/:gameId/attempt-pause', requireDiscordUser, async (req, res) => {
+    try {
+        const { AttemptService } = await import('../../services/AttemptService.js');
+        const result = await AttemptService.pauseForPlayer({
+            roomId: req.params.roomId as string,
+            tournamentId: req.params.id as string,
+            gameId: req.params.gameId as string,
+            userId: req.user!.discordId as string,
+        });
+        if (!result.ok) return res.status(result.httpStatus).json({ error: result.message, code: result.code });
+        res.json({ practice: result.practice });
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/tournaments/:id/games/:gameId/attempt-pause):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Player: W126 — press "Resume attempts": the games I start from now on count
+// again. Never refused for a closed table (resuming is the safe direction); a
+// press with no open pause answers `resumed: false`.
+router.post('/rooms/:roomId/tournaments/:id/games/:gameId/attempt-resume', requireDiscordUser, async (req, res) => {
+    try {
+        const { AttemptService } = await import('../../services/AttemptService.js');
+        const result = await AttemptService.resumeForPlayer({
+            roomId: req.params.roomId as string,
+            tournamentId: req.params.id as string,
+            gameId: req.params.gameId as string,
+            userId: req.user!.discordId as string,
+        });
+        if (!result.ok) return res.status(result.httpStatus).json({ error: result.message, code: result.code });
+        res.json({ resumed: result.resumed, practice: result.practice });
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/tournaments/:id/games/:gameId/attempt-resume):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
@@ -178,11 +227,15 @@ router.get('/rooms/:roomId/admin/tournaments/:id/attempts', requireAuth, require
         if (!await tournamentInRoom(roomId, tournamentId)) return res.status(404).json({ error: 'Tournament not found' });
         const gameId = typeof req.query.gameId === 'string' && req.query.gameId ? req.query.gameId : null;
         const { AttemptService } = await import('../../services/AttemptService.js');
-        const [attempts, maxAttempts] = await Promise.all([
+        const [attempts, maxAttempts, practiceGames, pausedAll] = await Promise.all([
             AttemptService.listForAdmin(tournamentId, gameId),
             AttemptService.limitFor(tournamentId),
+            AttemptService.practiceGamesFor(tournamentId),
+            AttemptService.pausedNow(tournamentId),
         ]);
-        res.json({ maxAttempts, attempts });
+        // W126 — additive: the practice allowance and who is in practice mode now.
+        const paused = gameId ? pausedAll.filter(p => p.gameId === gameId) : pausedAll;
+        res.json({ maxAttempts, attempts, practiceGames, paused });
     } catch (error) {
         logError('API Error (GET rooms/:roomId/admin/tournaments/:id/attempts):', error);
         res.status(500).json({ error: 'Internal Server Error' });

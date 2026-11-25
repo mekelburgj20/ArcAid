@@ -176,6 +176,14 @@ const TournamentBaseSchema = z.object({
      */
     require_attempt_start: z.boolean().optional(),
     /**
+     * W126 (ADR 0043) — Practice mode: how many practice games each player
+     * gets on each table while their attempts are paused. `null` = players
+     * cannot pause (the default), `0` = unlimited, `1..999` = that many.
+     * Omitted = leave as stored (update) / null (create). Only meaningful with
+     * `max_attempts`; stored regardless, like `require_attempt_start`.
+     */
+    practice_games: z.number().int().min(0).max(999).nullable().optional(),
+    /**
      * v2.179.0 (W39, ADR 0033 §6) — who may play: every room member
      * (`members`, default) or only the roster (`invited`). Omitted = leave as
      * stored (update) / members (create).

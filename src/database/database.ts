@@ -3877,6 +3877,41 @@ async function doInitDatabase(): Promise<Database> {
             const isFile = dbPath !== ':memory:' && !dbPath.startsWith('file:');
             await silverballRoomsToGraphite(db, isFile ? path.join(path.dirname(dbPath), 'pre-deploy') : null);
         } },
+        // W126 (ADR 0043) — Practice mode on a limited-attempts tournament.
+        //   tournaments.practice_games  NULL = pausing is not offered (every
+        //     existing tournament), 0 = unlimited practice, N = N practice
+        //     games per player per games row for the table's whole run.
+        //   attempt_pauses  one row per pause a player pressed on one table:
+        //     `paused_ts` is the SERVER's clock at the press (never backdated,
+        //     never edited), `resumed_ts` NULL while it is open. A play is
+        //     practice when its START falls inside one of these intervals; the
+        //     play itself is an `attempts` row with status `practice`.
+        // At most one OPEN pause per player per table (the partial unique
+        // index makes a double press a no-op). No FKs, same doctrine as
+        // `attempts` / `attempt_starts`: the trail outlives its game.
+        { name: '223_practice_mode', handler: async (db) => {
+            const cols = (await db.all(`PRAGMA table_info(tournaments)`)) as Array<{ name: string }>;
+            if (!cols.some(c => c.name === 'practice_games')) {
+                await db.exec(`ALTER TABLE tournaments ADD COLUMN practice_games INTEGER`);
+            }
+            await db.exec(`
+                CREATE TABLE IF NOT EXISTS attempt_pauses (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    game_id TEXT NOT NULL,
+                    canonical_user_id TEXT NOT NULL,
+                    tournament_id TEXT NOT NULL,
+                    paused_ts INTEGER NOT NULL,
+                    resumed_ts INTEGER,
+                    source TEXT NOT NULL DEFAULT 'web',
+                    ended_by TEXT,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+                );
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_attempt_pauses_open
+                    ON attempt_pauses(game_id, canonical_user_id) WHERE resumed_ts IS NULL;
+                CREATE INDEX IF NOT EXISTS idx_attempt_pauses_game_user
+                    ON attempt_pauses(game_id, canonical_user_id, paused_ts);
+            `);
+        } },
     ];
 
     for (const migration of migrations) {

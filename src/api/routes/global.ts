@@ -1122,6 +1122,10 @@ router.get('/witness/score', witnessIngestLimiter, async (req, res) => {
 //   no_match    no open game of the player's matched
 // A resend of the same key returns the stored answer. `late` = the start
 // reached us more than 120 s after it happened: it counts, its score will not.
+// W126: a start inside the player's pause is PRACTICE. No new status (an older
+// companion already shows `no_match` with its reason): the answer is
+// `no_match` + `reason` + an additive `practice: { n, of, remaining }`
+// (`of` 0 = unlimited, `remaining` then null); no attempt was used.
 // A CABINET (1.0.4) calls it too, after the fact, for a game it detected but
 // cannot score (`reason=no_score|short_game`, `ended`, key `cab:<started>`) —
 // never late, and the same key its score report would use, so one start is
@@ -1159,6 +1163,7 @@ router.get('/witness/attempt', witnessIngestLimiter, async (req, res) => {
             ok: true, status: result.status, game: result.game,
             attempt: result.attempt, of: result.of, remaining: result.remaining, late: result.late,
             ...(result.reason ? { reason: result.reason } : {}),
+            ...(result.practice ? { practice: result.practice } : {}),
         });
     } catch (error) {
         logError('API Error (GET /api/witness/attempt)');

@@ -265,7 +265,8 @@ export class WitnessTileService {
                     table: cabinetText(g.gameName, TILE_TABLE_MAX),
                     // A round closes at its end (no grace); a scheduled, unpaused rotation at its next rotation (D2).
                     closes: g.endsTs ?? g.nextRotationTs,
-                    attempts: a ? (a.notStarted ? 'press start' : `${a.left} of ${a.limit} left`) : null,
+                    // W126 — a paused table reads `practice`: the next play there uses no attempt.
+                    attempts: a ? (a.notStarted ? 'press start' : a.practice ? 'practice' : `${a.left} of ${a.limit} left`) : null,
                     gameId: g.gameId,
                     tournamentId: g.tournamentId,
                 };

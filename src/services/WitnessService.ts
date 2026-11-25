@@ -986,6 +986,8 @@ export class WitnessService {
         remaining: number | null;
         late: boolean;
         reason?: string;
+        /** W126 — set when the start was filed as a practice game (status `no_match`, no attempt used). */
+        practice?: import('./AttemptService.js').PracticeCount;
     } | null> {
         const deviceId = (input.atgamesUniqueId || '').trim();
         if (!deviceId || !input.token) return null;
@@ -1051,6 +1053,12 @@ export class WitnessService {
             return { status: 'no_match', ...empty, game: limited[0]!.name, reason: ATTEMPT_REFUSAL_TEXT.not_started };
         }
         let first: { status: 'counted' | 'over_limit'; game: string; attempt: number; of: number; remaining: number; late: boolean } | null = null;
+        // W126 — a start inside the player's pause on a table is a practice
+        // game there (decided inside `recordStart`, with the allowance). The
+        // answer names an ATTEMPT when the start used one anywhere (the same
+        // table in another tournament the player did not pause); only a start
+        // that was practice everywhere is answered as practice.
+        let firstPractice: { game: string; practice: import('./AttemptService.js').PracticeCount } | null = null;
         for (const game of counting) {
             const started = await AttemptService.recordStart({
                 tournamentId: game.tournament_id!, gameId: game.id, gameRoomId: game.game_room_id,
@@ -1064,6 +1072,15 @@ export class WitnessService {
                 note: device.device_type !== 'desktop' ? (input.reason ?? null) : null,
             });
             if (!started) return { status: 'invalid', ...empty, reason: 'key missing' };
+            if (started.status === 'practice') {
+                logInfo(
+                    `Witness attempt: ${device.canonical_user_id} PRACTICE ${started.practice.n}` +
+                    `${started.practice.of > 0 ? ` of ${started.practice.of}` : ''} on "${game.name}" ` +
+                    `(tournament ${game.tournament_id}${started.resent ? ', resend' : ''})`,
+                );
+                firstPractice ??= { game: game.name, practice: started.practice };
+                continue;
+            }
             logInfo(
                 `Witness attempt: ${device.canonical_user_id} ${started.status} ${started.attempt} of ${started.of} ` +
                 `on "${game.name}" (tournament ${game.tournament_id}${started.late ? ', LATE' : ''}${started.resent ? ', resend' : ''})`,
@@ -1073,7 +1090,12 @@ export class WitnessService {
                 attempt: started.attempt, of: started.of, remaining: started.remaining, late: started.late,
             };
         }
-        return first!;
+        if (first) return first;
+        // Not a new wire status (same reasoning as `not_started` above).
+        return {
+            status: 'no_match', ...empty, game: firstPractice!.game,
+            reason: ATTEMPT_REFUSAL_TEXT.practice, practice: firstPractice!.practice,
+        };
     }
 
     /**

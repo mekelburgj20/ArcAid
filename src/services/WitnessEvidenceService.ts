@@ -1,4 +1,5 @@
 import { getDatabase } from '../database/database.js';
+import { normalizePracticeGames } from '../utils/practiceGames.js';
 import {
     normalizeIntegrityMode, normalizeSanctionedRules, parseEngineEvidence, parseScorePlausibility,
     type GameRequirements, type IntegrityMode, type SanctionedRules, type Verdict, type WitnessEvidence,
@@ -158,6 +159,8 @@ export type TournamentIntegrity = {
     attempts: Record<string, Record<string, number>>;
     /** v2.178.0 (W38) — players press Start attempts per table before plays count. False when unlimited. */
     requireAttemptStart: boolean;
+    /** W126 — practice games per player per table while paused: null = players cannot pause (and always null when unlimited), 0 = unlimited. */
+    practiceGames: number | null;
 };
 
 type DbRow = {
@@ -473,9 +476,9 @@ export class WitnessEvidenceService {
         const db = await getDatabase();
         const t = await db.get<{
             id: string; integrity_mode: string | null; sanctioned_rules: string | null; max_attempts: number | null;
-            require_attempt_start: number | null;
+            require_attempt_start: number | null; practice_games: number | null;
         }>(
-            'SELECT id, integrity_mode, sanctioned_rules, max_attempts, require_attempt_start FROM tournaments WHERE id = ?', tournamentId,
+            'SELECT id, integrity_mode, sanctioned_rules, max_attempts, require_attempt_start, practice_games FROM tournaments WHERE id = ?', tournamentId,
         );
         if (!t) return null;
         const games = await db.all<Array<{
@@ -498,6 +501,7 @@ export class WitnessEvidenceService {
             maxAttempts,
             attempts,
             requireAttemptStart: maxAttempts != null && t.require_attempt_start === 1,
+            practiceGames: maxAttempts != null ? normalizePracticeGames(t.practice_games) : null,
             mode: normalizeIntegrityMode(t.integrity_mode),
             rules: normalizeSanctionedRules(t.sanctioned_rules),
             games: games.map(g => ({

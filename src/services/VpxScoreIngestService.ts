@@ -335,6 +335,8 @@ type CandidateRow = {
     checkin_required: number | null;
     /** v2.178.0 (W38) — players press Start attempts before plays count. */
     require_attempt_start: number | null;
+    /** W126 — the tournament's practice allowance (null = not offered, 0 = unlimited). Read by the device line and the room read only; the rule itself reads the column inside `AttemptService.insertAtomic`. */
+    practice_games: number | null;
     /** v2.179.0 (W39) — `members` | `invited` (ADR 0033 §6). */
     entry_mode: string | null;
     /** v2.179.0 (W39) — the player is on the tournament's roster. */
@@ -1461,14 +1463,18 @@ export class VpxScoreIngestService {
             no_match: `Score ${fmt} on ${input.tableName} matched no open game${why}`,
             invalid: `Score on ${input.tableName} was invalid${why}`,
         };
-        const problem = ['attempt_refused', 'not_sanctioned', 'no_match', 'invalid'].includes(extra.outcome)
-            || (extra.outcome === 'global' && reasons.length > 0);
+        // W126 — a practice game is what the player asked for, not a refusal:
+        // its own sentence, and never a problem row.
+        const isPractice = extra.outcome === 'attempt_refused' && reasons.includes('practice');
+        if (isPractice) SUMMARY.attempt_refused = `Practice game on ${where}: score ${fmt} used no attempt and did not count`;
+        const problem = !isPractice && (['attempt_refused', 'not_sanctioned', 'no_match', 'invalid'].includes(extra.outcome)
+            || (extra.outcome === 'global' && reasons.length > 0));
         const roomId = extra.gameRoomId ?? null;
         const isRoomRow = !!roomId && ['ingested', 'attempt_refused', 'not_sanctioned', 'suppressed'].includes(extra.outcome);
         void ActivityLogService.record({
             roomId: isRoomRow ? roomId : null,
             category: 'score',
-            eventType: `witness_${extra.outcome}`,
+            eventType: isPractice ? 'witness_practice' : `witness_${extra.outcome}`,
             severity: problem ? 'problem' : 'info',
             userId: input.canonicalUserId,
             deviceId: input.deviceId ?? null,
@@ -1848,12 +1854,13 @@ export class VpxScoreIngestService {
      * the line can never name a game a score would not land on. W105: those
      * filters are `openCandidates`, shared with `openGamesForDevice`.
      */
-    static async openLimitedGames(input: OpenGamesInput): Promise<Array<{ gameId: string; gameName: string; tournamentId: string; limit: number; requireStart: boolean }>> {
+    static async openLimitedGames(input: OpenGamesInput): Promise<Array<{ gameId: string; gameName: string; tournamentId: string; limit: number; requireStart: boolean; practiceGames: number | null }>> {
         return (await VpxScoreIngestService.openCandidates(input))
             .filter(row => VpxScoreIngestService.isLimited(row))
             .map(row => ({
                 gameId: row.id, gameName: row.name, tournamentId: row.tournament_id!, limit: row.max_attempts!,
                 requireStart: row.require_attempt_start === 1,
+                practiceGames: row.practice_games ?? null,
             }));
     }
 
@@ -1934,6 +1941,8 @@ export class VpxScoreIngestService {
     static async roomLimitedGames(input: { canonicalUserId: string; roomId: string }): Promise<Array<{
         gameId: string; gameName: string; tournamentId: string; tournamentName: string | null;
         roundNo: number | null; limit: number; requireStart: boolean;
+        /** W126 — the tournament's practice allowance (null = not offered, 0 = unlimited). */
+        practiceGames: number | null;
     }>> {
         return (await VpxScoreIngestService.enteredLimitedCandidates(input.canonicalUserId))
             .filter(row => row.game_room_id === input.roomId && row.status === 'ACTIVE')
@@ -1941,6 +1950,7 @@ export class VpxScoreIngestService {
                 gameId: row.id, gameName: row.name, tournamentId: row.tournament_id!,
                 tournamentName: row.tournament_name ?? null, roundNo: row.round_no ?? null,
                 limit: row.max_attempts!, requireStart: row.require_attempt_start === 1,
+                practiceGames: row.practice_games ?? null,
             }));
     }
 
@@ -1973,6 +1983,7 @@ export class VpxScoreIngestService {
                     g.required_vps_table_id, g.required_rom, g.required_fingerprint,
                     t.format, t.end_grace_sec, t.platform_rules, t.integrity_mode, t.sanctioned_rules,
                     t.max_attempts, t.checkin_required, t.require_attempt_start, t.entry_mode,
+                    t.practice_games,
                     t.name AS tournament_name, gr.name AS room_name,
                     t.cadence, t.is_active,
                     EXISTS (

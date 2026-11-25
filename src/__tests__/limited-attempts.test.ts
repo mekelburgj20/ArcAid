@@ -714,7 +714,7 @@ describe('W38 (ADR 0033 §3–4): plays that straddle the window, and "Start att
             expect([first, second]).toEqual([1000, 1000]);
             const me = await request(app).get(`/api/rooms/${roomId}/tournaments/${tournamentId}/attempt-starts/me`)
                 .set('Authorization', `Bearer ${playerToken(USER)}`);
-            expect(me.body).toEqual({ starts: { [gameId]: 1000 } });
+            expect(me.body.starts).toEqual({ [gameId]: 1000 });
         });
 
         it('refuses a press from a non-member (403), on a tournament without the setting (409) and on a closed table (409)', async () => {
@@ -786,6 +786,8 @@ describe('W56 / W82: the room limited-attempts list (GET /rooms/:roomId/attempt-
             gameId: congo.gameId, gameName: 'Congo', tournamentId: congo.tournamentId, tournamentName: 'Five Shots',
             roundNo: null, started: false, startedTs: null,
             limit: 3, used: 0, left: 3, requireStart: true,
+            // W126 — additive: the tournament offers no practice games.
+            practice: { offered: false, limit: null, used: 0, left: null, paused: false, pausedTs: null },
         });
         expect(byName['Cactus Canyon']).toMatchObject({ gameId: cactus.gameId, started: true, startedTs: 1234, requireStart: true });
     });
@@ -798,6 +800,8 @@ describe('W56 / W82: the room limited-attempts list (GET /rooms/:roomId/attempt-
             gameId: noPress.gameId, gameName: 'No Press', tournamentId: noPress.tournamentId, tournamentName: 'Five Shots',
             roundNo: null, started: false, startedTs: null,
             limit: 3, used: 0, left: 3, requireStart: false,
+            // W126 — additive: the tournament offers no practice games.
+            practice: { offered: false, limit: null, used: 0, left: null, paused: false, pausedTs: null },
         }]);
     });
 
