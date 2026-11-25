@@ -111,6 +111,28 @@ the kit does.
    the logo's pink triangle. Shipped in v2.262.0 (G26); the offered alternatives (the room's own Title Style in
    the nav, a menu that follows the room theme) were not chosen.
 
+8. **The rest of G23's parts, and the parts the personal pages need** (owner 2026-11-25, every recommended
+   option of the G23 parts mockup, https://claude.ai/artifact/HJCfg6dePQkMy6ymUYARqN, source
+   `tmp/g23-mockup/src.html` in the main checkout):
+   - *Confirm pop-up:* the Arcaid slab, the toast and menu family, fixed dark on every theme: the double-line
+     neon edge and top light bar in the tone, the logo's triangle beside a tracked-caps label, a plain title,
+     Cancel + the action; pink for attention (Leave room), red for harm (Delete score); a corner ×; focus
+     starts on Cancel. Not chosen: a pop-up that follows the room theme (it turned Leave teal on Paper).
+   - *Form pop-up and phone sheet:* the same slab; on a phone it rises from the bottom, with a grab handle
+     drawn as a short lit rail with the chrome pinball resting on it; dragging it down closes it.
+   - *Fields:* the recessed well (a darker box set into the panel; its border and label light cyan while
+     typing; an error in the problem tone with the triangle mark). Not chosen: a lit baseline with no box.
+   - *Keyboard focus ring:* the lit ring, 2 px cyan, 2 px out, with a faint halo, for keyboard focus only.
+   - *Loading:* placeholders in the shape of the content with an attract-mode glint crossing them (static
+     with reduced motion), never a spinner in the middle. Not chosen: chaser bulbs.
+   - *Empty states:* the sign switched off: the logo's triangle unlit, a title, one sentence, one button; the
+     triangle flickers on while the button is pointed at or focused.
+   - *Tabs:* rail tabs: tracked-caps labels over a lit rail, the chrome pinball rolls under the active tab,
+     the active label in the lead colour; a row that does not fit scrolls sideways on a phone.
+   - *Stat tiles:* lit tiles: the number big in the display face, a tracked-caps label, a short top light
+     bar; tiles share one panel divided by faint rules, never a box per tile. Not chosen: score reels.
+   - *List rows:* the menu row family (tile, wrapping name, caption, trailing action), offered as the one style.
+
 ## The guide (G21, shipped v2.261.0)
 
 Three parts, so it cannot drift the way a document alone does. As built:
