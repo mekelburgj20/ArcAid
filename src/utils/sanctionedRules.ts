@@ -60,11 +60,14 @@ export type SanctionedRules = {
     require_factory_adjustments: boolean;
     /** Adjustment labels (case-insensitive) that may differ from factory. Free play is harmless and routine. */
     adjustments_allowed: string[];
-    /** The VPX and VPinMAME builds must be of an accepted family (never "official only"). */
+    /**
+     * The VPX and VPinMAME builds must be known (never "official only"): official, Panasony, a nightly when
+     * allowed, any build from `MODERN_BUILD_FLOOR` on (owner ruling 2026-11-24, W125), or a blessed hash.
+     */
     require_known_build: boolean;
     /** The `nightly` family passes (`require_known_build` on). Owner default: on. */
     allow_nightly_builds: boolean;
-    /** SHA-256 hashes of `unknown`-family binaries the runner has blessed for this tournament. */
+    /** SHA-256 hashes of `unknown`-family binaries older than the floor (or unversioned) the runner has blessed. */
     blessed_build_hashes: string[];
     /**
      * VPX's analog-tilt plumb bob: `TiltSensitivity` 0–1000, HIGHER tilts
@@ -162,6 +165,43 @@ export type BuildEvidence = {
     /** VPinMAME's per-ROM cheat option. */
     cheat: boolean | null;
 };
+
+/**
+ * Owner ruling 2026-11-24 (W125): every modern build passes "known build" by its VERSION, whatever family
+ * the companion sorted it into: VPX from 10.8.0, VPinMAME from 3.6.0 (official, Panasony, nightly, the
+ * Castcade fork `10.8.0.9999.castcade-<commit>`, a commit-suffixed or self-compiled build). An older or
+ * unversioned build still needs a blessed hash. The version is the text the companion read from the
+ * binary's version resource, so it is a statement, not a proof, exactly as the Panasony word always was;
+ * only `official` is proven (by hash, companion-side).
+ */
+export const MODERN_BUILD_FLOOR = { VPX: [10, 8, 0], VPinMAME: [3, 6, 0] } as const satisfies Record<string, readonly [number, number, number]>;
+
+export type BuildKind = keyof typeof MODERN_BUILD_FLOOR;
+
+/**
+ * The leading major.minor.patch of a reported version, or null. The companion sends the version
+ * resource's text, separated by dots (`10.8.0.2079.Panasony`) or by commas (`3, 6, 0, 929`); a missing
+ * patch reads as 0.
+ */
+export function parseBuildVersion(version: string | null): [number, number, number] | null {
+    if (!version) return null;
+    const m = /^\s*v?(\d{1,5})\s*[.,]\s*(\d{1,5})(?:\s*[.,]\s*(\d{1,5}))?/i.exec(version);
+    if (!m) return null;
+    return [Number(m[1]), Number(m[2]), m[3] === undefined ? 0 : Number(m[3])];
+}
+
+/** True when the reported version is at or above that binary's `MODERN_BUILD_FLOOR`. */
+export function isModernBuild(kind: BuildKind, version: string | null): boolean {
+    const v = parseBuildVersion(version);
+    if (!v) return false;
+    const floor = MODERN_BUILD_FLOOR[kind];
+    for (let i = 0; i < 3; i++) {
+        if (v[i] !== floor[i]) return v[i]! > floor[i]!;
+    }
+    return true;
+}
+
+const floorText = (kind: BuildKind) => MODERN_BUILD_FLOOR[kind].join('.');
 
 export type IniEvidence = {
     /** Physics-set override on the table file (0 = stock). */
@@ -639,7 +679,7 @@ export function evaluateSanctioned(input: EvaluateInput): Verdict {
         fail('known_build', 'builds were not reported');
     } else {
         const problems: string[] = [];
-        const judge = (label: string, b: BinaryEvidence | null) => {
+        const judge = (label: BuildKind, b: BinaryEvidence | null) => {
             if (!b) return;
             switch (b.family) {
                 case 'official':
@@ -649,9 +689,12 @@ export function evaluateSanctioned(input: EvaluateInput): Verdict {
                     if (!rules.allow_nightly_builds) problems.push(`${label} ${b.version ?? ''} is a nightly build and this tournament does not allow them`.replace(/\s+/g, ' '));
                     return;
                 default:
-                    if (!(b.sha256 && rules.blessed_build_hashes.includes(b.sha256))) {
-                        problems.push(`${label} ${b.version ?? ''} is an unrecognised build the runner has not blessed`.replace(/\s+/g, ' '));
-                    }
+                    // W125 (owner 2026-11-24): any build from the floor on passes, whatever the companion called it.
+                    if (isModernBuild(label, b.version)) return;
+                    if (b.sha256 && rules.blessed_build_hashes.includes(b.sha256)) return;
+                    problems.push(parseBuildVersion(b.version)
+                        ? `${label} ${b.version} is older than ${floorText(label)} and the runner has not blessed it`
+                        : `${label} ${b.version ?? ''} is an unrecognised build the runner has not blessed`.replace(/\s+/g, ' '));
             }
         };
         judge('VPX', build.vpx);
@@ -712,7 +755,9 @@ export function evaluateSanctioned(input: EvaluateInput): Verdict {
 }
 
 function describeBuilds(b: BuildEvidence): string {
-    const part = (label: string, x: BinaryEvidence | null) => x ? `${label} ${x.version ?? ''} (${x.family})`.replace(/\s+/g, ' ') : null;
+    const kindOf = (label: BuildKind, x: BinaryEvidence) =>
+        x.family === 'unknown' && isModernBuild(label, x.version) ? `${floorText(label)} or newer` : x.family;
+    const part = (label: BuildKind, x: BinaryEvidence | null) => x ? `${label} ${x.version ?? ''} (${kindOf(label, x)})`.replace(/\s+/g, ' ') : null;
     return [part('VPX', b.vpx), part('VPinMAME', b.vpinmame)].filter(Boolean).join('; ');
 }
 

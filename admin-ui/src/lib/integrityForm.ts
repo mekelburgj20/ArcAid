@@ -25,10 +25,10 @@ export interface SanctionedRulesForm {
   requireFactoryAdjustments: boolean;
   /** Comma-separated adjustment labels that may differ from factory. */
   adjustmentsAllowed: string;
-  /** VPX / VPinMAME builds must be of an accepted family (official, Panasony, nightly when allowed, or blessed). */
+  /** VPX / VPinMAME builds must be known: official, Panasony, nightly when allowed, VPX 10.8.0+ / VPinMAME 3.6.0+ (W125), or blessed. */
   requireKnownBuild: boolean;
   allowNightlyBuilds: boolean;
-  /** One SHA-256 (64 hex) per line of `unknown`-family binaries the runner has blessed. */
+  /** One SHA-256 (64 hex) per line of older or unversioned `unknown`-family binaries the runner has blessed. */
   blessedBuildHashes: string;
   /** VPX `TiltSensitivity` 0–1000; higher tilts sooner; 0 = analog tilt off. */
   minTiltSensitivity: number;
