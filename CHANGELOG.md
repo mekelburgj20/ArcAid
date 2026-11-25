@@ -6,6 +6,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.265.8] - 2026-11-24 - The Arcaid Witness toast is said once, not once in every room
+
+### Fixed
+- **The "Arcaid Witness" toast still showed often** (owner, 2026-11-24, on the installed app) after 2.265.5
+  stopped it repeating on a refresh. It was remembered per room, so a player in several rooms was told the
+  same thing once in each of them, and told again whenever a device was pointed away from a room and back.
+  Now each device's answer is said once on that phone or computer, in whichever room you open first. It is
+  said again only for news: a device paired since, or a device pointed at a tournament it has not been
+  pointed at before. Another room, a refresh, or an answer already said is not news.
+- What 2.265.5 remembered per room counts as already said, so this update does not show the toast once
+  more.
+- Unchanged: a device that does NOT send its scores to the room you are in is still an amber line at the
+  top of that room, with its Change link, until you dismiss it. The toast only ever confirmed the devices
+  that do. Account Settings -> Arcaid Witness devices shows where each device sends.
+
 ## [2.265.7] - 2026-11-24 - The other room pages say when a load failed, and try again
 
 Follows 2.265.4 (G31), which did this for the room scoreboard. The same silence was on every other room

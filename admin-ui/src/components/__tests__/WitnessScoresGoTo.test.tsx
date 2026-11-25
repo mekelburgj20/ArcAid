@@ -3,7 +3,7 @@ import { render, screen, waitFor, fireEvent, within } from '@testing-library/rea
 import { MemoryRouter } from 'react-router-dom';
 import WitnessScoresGoTo from '../WitnessScoresGoTo';
 import {
-    attemptStartsNeeded, firstRoomToast, forgetRoomToast, forgetRoomToasts, homeLines, roomLines, roomToastKey, roomToastLines,
+    attemptStartsNeeded, firstRoomToast, forgetRoomToasts, homeLines, roomLines, roomToastKeys, roomToastLines,
     roomToastMs, type Routing,
 } from '../../lib/witnessScoresGoTo';
 import { ATTEMPT_STARTS_CHANGED_EVENT } from '../../lib/attemptStarts';
@@ -82,55 +82,73 @@ describe('roomToastLines', () => {
         expect(roomToastLines([])).toEqual([]);
     });
 
-    it('stays longer for more sentences, and is said once per room until the answer changes', () => {
+    it('stays longer for more sentences, and each answer is said once', () => {
         expect([1, 2, 3, 9].map(roomToastMs)).toEqual([9000, 11000, 13000, 15000]);
-        expect(firstRoomToast('room-1', 'a')).toBe(true);
-        expect(firstRoomToast('room-1', 'a')).toBe(false);
-        expect(firstRoomToast('room-2', 'a')).toBe(true);
-        expect(firstRoomToast('room-1', 'b')).toBe(true);
+        expect(firstRoomToast(['a'])).toBe(true);
+        expect(firstRoomToast(['a'])).toBe(false);
+        expect(firstRoomToast(['a', 'b'])).toBe(true); // one of them is new
+        expect(firstRoomToast(['b'])).toBe(false);
+        expect(firstRoomToast(['b', 'a'])).toBe(false);
     });
 
     // Owner 2026-11-24: every refresh of the installed app on a phone said it again.
-    it('is remembered across a reload, until the answer changes or no device sends here', () => {
-        expect(firstRoomToast('room-1', 'a')).toBe(true);
+    it('is remembered across a reload, and an answer said before is never news again', () => {
+        expect(firstRoomToast(['a'])).toBe(true);
         forgetRoomToasts(); // a reload: memory is gone, the browser's storage is not
-        expect(firstRoomToast('room-1', 'a')).toBe(false);
+        expect(firstRoomToast(['a'])).toBe(false);
+        expect(firstRoomToast(['b'])).toBe(true);
         forgetRoomToasts();
-        expect(firstRoomToast('room-2', 'a')).toBe(true);
-        expect(firstRoomToast('room-1', 'b')).toBe(true);
-        forgetRoomToasts();
-        expect(firstRoomToast('room-1', 'a')).toBe(true); // back to the first answer: a change again
+        expect(firstRoomToast(['a'])).toBe(false); // back to the first answer: seen before
+        expect(firstRoomToast(['a', 'b'])).toBe(false);
+        expect(JSON.parse(localStorage.getItem('arcaid_room_toast_said') ?? '[]')).toEqual(['a', 'b']);
+    });
 
-        forgetRoomToast('room-1');
+    it('counts what v2.265.5 remembered per room as said, and folds it into the one list', () => {
+        localStorage.setItem('arcaid_room_toast_said:room-1', 'a|b');
+        localStorage.setItem('arcaid_room_toast_said:room-2', 'c');
+        expect(firstRoomToast(['a'])).toBe(false);
+        expect(firstRoomToast(['c', 'b'])).toBe(false);
+        expect(firstRoomToast(['d'])).toBe(true);
+        expect(JSON.parse(localStorage.getItem('arcaid_room_toast_said') ?? '[]').sort()).toEqual(['a', 'b', 'c', 'd']);
+        expect(localStorage.getItem('arcaid_room_toast_said:room-1')).toBeNull();
+        expect(localStorage.getItem('arcaid_room_toast_said:room-2')).toBeNull();
+    });
+
+    it('keeps only the newest answers, and a list that is not a list is no list', () => {
+        for (let i = 0; i < 70; i++) firstRoomToast([`k${i}`]);
+        const kept = JSON.parse(localStorage.getItem('arcaid_room_toast_said') ?? '[]') as string[];
+        expect(kept).toHaveLength(60);
+        expect(kept[59]).toBe('k69');
         forgetRoomToasts();
-        expect(firstRoomToast('room-1', 'a')).toBe(true);
+        localStorage.setItem('arcaid_room_toast_said', '{"not":"a list"}');
+        expect(firstRoomToast(['a'])).toBe(true);
+        expect(firstRoomToast(['a'])).toBe(false);
     });
 
     it('with storage blocked it is still once per page load', () => {
         const refuse = () => { throw new Error('blocked'); };
         const get = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(refuse);
         const set = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(refuse);
-        const remove = vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(refuse);
         try {
-            expect(firstRoomToast('room-1', 'a')).toBe(true);
-            expect(firstRoomToast('room-1', 'a')).toBe(false);
-            expect(() => forgetRoomToast('room-1')).not.toThrow();
-            expect(firstRoomToast('room-1', 'a')).toBe(true);
+            expect(firstRoomToast(['a'])).toBe(true);
+            expect(firstRoomToast(['a'])).toBe(false);
+            forgetRoomToasts();
+            expect(firstRoomToast(['a'])).toBe(true);
         } finally {
-            get.mockRestore(); set.mockRestore(); remove.mockRestore();
+            get.mockRestore(); set.mockRestore();
         }
     });
 
-    it('is keyed on which devices send here and how, never on whether they are watching now', () => {
+    it('is keyed on each device that sends here and how, never on the room or on whether it is watching now', () => {
         const a = row({ deviceId: 'a' });
         const b = row({ deviceId: 'b', deviceType: 'desktop' });
-        expect(roomToastKey([a, b])).toBe(roomToastKey([b, a]));
-        expect(roomToastKey([{ ...a, watching: 'no' }, b])).toBe(roomToastKey([{ ...a, watching: 'yes' }, b]));
-        expect(roomToastKey([a])).not.toBe(roomToastKey([a, b]));
-        expect(roomToastKey([a])).not.toBe(roomToastKey([row({ deviceId: 'a', sendsHere: 'one_tournament', targetTournamentName: 'Spooky Season' })]));
+        expect(roomToastKeys([a, b])).toEqual(['device:a:yes::', 'device:b:yes::']);
+        expect(roomToastKeys([{ ...a, watching: 'no' }])).toEqual(roomToastKeys([{ ...a, watching: 'yes' }]));
+        expect(roomToastKeys([row({ deviceId: 'a', sendsHere: 'one_tournament', targetTournamentName: 'Spooky Season' })]))
+            .toEqual(['device:a:one_tournament::Spooky Season']);
         // A device that does not send here is not what the toast is about.
-        expect(roomToastKey([a, { ...b, sendsHere: 'no', why: 'global_only' }])).toBe(roomToastKey([a]));
-        expect(roomToastKey([{ ...a, sendsHere: 'no', why: 'not_member' }])).toBe('');
+        expect(roomToastKeys([a, { ...b, sendsHere: 'no', why: 'global_only' }])).toEqual(roomToastKeys([a]));
+        expect(roomToastKeys([{ ...a, sendsHere: 'no', why: 'not_member' }])).toEqual([]);
     });
 });
 
@@ -253,7 +271,7 @@ describe('WitnessScoresGoTo', () => {
         expect(container.innerHTML).toBe('');
     });
 
-    it('says it once per room: not again on the next page of the room, again when the answer changes', async () => {
+    it('says it once: not again on the next page of the room, again for an answer not said before', async () => {
         stubRoom([row({})], []);
         const first = render(<MemoryRouter><WitnessScoresGoTo roomId="room-1" roomSlug="wizard" /></MemoryRouter>);
         await waitFor(() => expect(toastSpy).toHaveBeenCalledTimes(1));
@@ -288,7 +306,7 @@ describe('WitnessScoresGoTo', () => {
         second.unmount();
         forgetRoomToasts();
 
-        // Pointed away from the room (the amber line says so), then back: said again.
+        // Pointed away from the room (the amber line says so), then back: the same answer, not news.
         stubRoom([row({ sendsHere: 'no', why: 'global_only' })], []);
         const away = render(<MemoryRouter><WitnessScoresGoTo roomId="room-1" roomSlug="wizard" /></MemoryRouter>);
         expect(await screen.findByText(/is set to the Global Scoreboard only/)).toBeTruthy();
@@ -296,9 +314,40 @@ describe('WitnessScoresGoTo', () => {
         away.unmount();
         forgetRoomToasts();
 
-        stubRoom([row({})], []);
+        const back = stubRoom([row({})], []);
         render(<MemoryRouter><WitnessScoresGoTo roomId="room-1" roomSlug="wizard" /></MemoryRouter>);
+        await waitFor(() => expect(back).toHaveBeenCalledTimes(2));
+        await new Promise(r => setTimeout(r, 0));
+        expect(toastSpy).toHaveBeenCalledTimes(1);
+    });
+
+    // Owner 2026-11-24, after it was remembered per room: "still seeing it pop up often".
+    it('does not say the same devices again in the player\'s next room, but does say a device paired since', async () => {
+        stubRoom([row({ deviceId: 'a' }), row({ deviceId: 'b', deviceType: 'desktop' })], []);
+        const first = render(<MemoryRouter><WitnessScoresGoTo roomId="room-1" roomSlug="wizard" /></MemoryRouter>);
+        await waitFor(() => expect(toastSpy).toHaveBeenCalledTimes(1));
+        first.unmount();
+        forgetRoomToasts();
+
+        const next = stubRoom([row({ deviceId: 'a' }), row({ deviceId: 'b', deviceType: 'desktop' })], []);
+        const second = render(<MemoryRouter><WitnessScoresGoTo roomId="room-2" roomSlug="rtx" /></MemoryRouter>);
+        await waitFor(() => expect(next).toHaveBeenCalledTimes(2));
+        await new Promise(r => setTimeout(r, 0));
+        expect(toastSpy).toHaveBeenCalledTimes(1);
+        second.unmount();
+
+        // A room where only one of them sends: nothing new either.
+        const one = stubRoom([row({ deviceId: 'a' }), row({ deviceId: 'b', deviceType: 'desktop', sendsHere: 'no', why: 'other_room', targetRoomName: 'Wizard' })], []);
+        const third = render(<MemoryRouter><WitnessScoresGoTo roomId="room-3" roomSlug="mox" /></MemoryRouter>);
+        await waitFor(() => expect(one).toHaveBeenCalledTimes(2));
+        expect(await screen.findByText(/Your PC sends to Wizard only/)).toBeTruthy();
+        expect(toastSpy).toHaveBeenCalledTimes(1);
+        third.unmount();
+
+        stubRoom([row({ deviceId: 'a' }), row({ deviceId: 'b', deviceType: 'desktop' }), row({ deviceId: 'c' })], []);
+        render(<MemoryRouter><WitnessScoresGoTo roomId="room-2" roomSlug="rtx" /></MemoryRouter>);
         await waitFor(() => expect(toastSpy).toHaveBeenCalledTimes(2));
+        expect(toastSpy.mock.calls[1][0]).toBe('Your cabinet 1, your PC and your cabinet 2 send their scores here.');
     });
 
     it('a device that does not send here stays a line on the page and is never in the toast', async () => {
