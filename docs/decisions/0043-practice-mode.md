@@ -83,11 +83,19 @@ cannot both be the last practice game, and the start after the last one is an at
 
 ### When the decision is made
 
-- **Desktop:** when the live start call (`/witness/attempt`) arrives, tested at the server's clock, and
-  stored on the row. The later score binds to that row and is never re-decided. A late (offline) start
-  is tested at the play's own start time; its score is refused as `late` either way.
-- **Cabinet:** the report comes after the game, so the game's own start time is compared with the
-  intervals, as `playIsStarted` does for Start attempts.
+Always against the play's OWN start time (the device's clock), as `playIsStarted` does for Start
+attempts, and once:
+
+- **Desktop:** when the start call (`/witness/attempt`) arrives, the row is written with the decision.
+  The later score binds to that row and is never re-decided.
+- **Cabinet:** the report comes after the game; the same test runs then.
+
+The moment a call ARRIVED is deliberately not used. Testing a live start at the server's clock was built
+first and removed in review: a start call held back for a minute (network unplugged) until the player
+saw the game going badly and pressed Pause would have been filed as practice. With the play's own time,
+a game that began before the press is an attempt whenever its call arrives. The cost is the one Start
+attempts already has: a device whose clock is wrong by more than the gap between a press and the next
+game start files that game on the wrong side of the press.
 
 ### Where a practice play goes
 
@@ -119,8 +127,9 @@ in another tournament (the same table, not paused there) is answered as that att
   convert them (ruling 5). The paused state is therefore shown everywhere a player looks before playing.
   W126.2 holds the host action if this bites.
 - **Forgetting to pause** burns an attempt; the host's existing void covers it.
-- **A cabinet with a wrong clock** can file a play on the wrong side of a press, the same exposure the
-  game-window test already has.
+- **A device with a wrong clock** (a cabinet after a power cut, a PC that is off by more than a few
+  seconds) can file a play on the wrong side of a press, the same exposure the game-window test and
+  Start attempts already have.
 - **Practice scores are public on the Global Scoreboard.** A practice score above a player's tournament
   best is visible there.
 - **The allowance edge inside one cabinet report:** with one practice game left, a report of two restarts

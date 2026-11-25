@@ -204,6 +204,25 @@ describe('the pause and the allowance (AttemptService)', () => {
         expect(bound).toMatchObject({ ok: true, attempt: { n: 1, of: 3 } });
     });
 
+    it('a start call that ARRIVES after the press, for a game that began before it, is still an attempt (no held-back-call loophole)', async () => {
+        const ids = await createGame(roomId, 3, 0);
+        // The game began at now-60 with the network unplugged; the player saw it
+        // going badly, pressed Pause at now-30, then let the start call through.
+        await press(ids, now - 30);
+        const held = await AttemptService.recordStart({
+            ...ids, gameRoomId: roomId, canonicalUserId: USER, deviceId: DESKTOP, key: 'held',
+            limit: 3, startedTs: now - 60, nowSec: now,
+        });
+        expect(held).toMatchObject({ status: 'counted', attempt: 1, late: false });
+        // And the mirror: a practice game whose call arrives after Resume stays practice.
+        await resume(ids, now - 10);
+        const practiceHeld = await AttemptService.recordStart({
+            ...ids, gameRoomId: roomId, canonicalUserId: USER, deviceId: DESKTOP, key: 'held-2',
+            limit: 3, startedTs: now - 20, nowSec: now,
+        });
+        expect(practiceHeld).toMatchObject({ status: 'practice', practice: { n: 1 } });
+    });
+
     it('a practice game stays practice after a resume: its score is refused as `practice` and kept on the row', async () => {
         const ids = await createGame(roomId, 3, 0);
         await press(ids, now - 300);

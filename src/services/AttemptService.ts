@@ -333,7 +333,7 @@ export class AttemptService {
      *
      * W126 (ADR 0043): the same statement decides PRACTICE first. The start is
      * practice when it falls inside one of the player's pauses on the table
-     * (`playIsPractice`, tested at `practiceTs`) AND the tournament offers
+     * (`playIsPractice`, tested at the play's own start) AND the tournament offers
      * practice AND the allowance is not used up (0 = unlimited). A practice
      * row uses no slot, is numbered in its own sequence (practice 1, 2, 3)
      * and beats a forced status — an unreported start inside a pause is
@@ -351,17 +351,17 @@ export class AttemptService {
         tableName?: string | null; rom?: string | null;
         endedTs?: number | null; score?: number | null;
         note?: string | null;
-        /**
-         * W126 — the instant the pause is tested at. Default: the play's own
-         * start (`startedTs`, the device's clock), which is all an
-         * after-the-fact report has. A LIVE desktop start passes the server's
-         * clock instead, so a PC clock that is a few seconds off cannot file
-         * the game on the wrong side of a press.
-         */
-        practiceTs?: number;
     }): Promise<void> {
         const db = await getDatabase();
-        const practiceTs = Math.floor(row.practiceTs ?? row.startedTs);
+        // W126 — the pause is tested at the play's OWN start (`startedTs`, the
+        // device's clock), on a live start call as on an after-the-fact
+        // report, exactly like `playIsStarted`. Deliberately not the moment
+        // the call ARRIVED: a start call held back for a minute (network
+        // unplugged) until the player saw the game going badly and pressed
+        // Pause would then be filed as practice. With the play's own time a
+        // game that began before the press is an attempt whenever its call
+        // arrives.
+        const practiceTs = Math.floor(row.startedTs);
         await db.run(
             `INSERT OR IGNORE INTO attempts (
                 tournament_id, game_id, game_room_id, canonical_user_id, device_id, attempt_key,
@@ -477,18 +477,10 @@ export class AttemptService {
         const existing = await AttemptService.byKey(input.deviceId, key, input.gameId);
         const now = input.nowSec ?? Math.floor(Date.now() / 1000);
         if (!existing) {
-            const startedTs = Math.floor(input.startedTs);
-            // W126 — a LIVE desktop start (reported within the late window of
-            // when it happened) is tested against the pause on the SERVER's
-            // clock: the press and this call are then on one clock. A cabinet
-            // report and a late start are after the fact, so the play's own
-            // start time is all there is.
-            const live = !input.cabinet && Math.abs(now - startedTs) <= ATTEMPT_LATE_SEC;
             await AttemptService.insertAtomic({
                 ...input, key, forcedStatus: null,
-                late: !input.cabinet && now - startedTs > ATTEMPT_LATE_SEC,
+                late: !input.cabinet && now - Math.floor(input.startedTs) > ATTEMPT_LATE_SEC,
                 endedTs: input.endedTs != null && Number.isFinite(input.endedTs) ? Math.floor(input.endedTs) : null,
-                practiceTs: live ? now : startedTs,
             });
         }
         const row = (existing ?? await AttemptService.byKey(input.deviceId, key, input.gameId))!;
