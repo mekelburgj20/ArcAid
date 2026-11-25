@@ -2252,16 +2252,16 @@ select option {
    `ArcaidPage` the `.aw-island` mapping (public/aw-theme/aw-web.css) points the
    same tokens at the kit, so there is no skin switch. Body text inherits the
    page's font (the island's is the kit's); only digits use `--font-display`.
-   Two shades are declared once here, as light/dark pairs that resolve where
-   they are used (the theme's `color-scheme`): `--part-shade` is the well's
-   inset bezel, `--part-glint` the loading sweep. Everything else is a token.
+   Two shades are declared once here, as `light-dark(light, dark)` pairs:
+   `--part-shade` is the well's inset bezel, `--part-glint` the loading sweep.
+   They are declared ON the parts, not on :root, because a custom property
+   resolves light-dark() where it is declared: on :root a light island inside
+   a dark page (a Paper preview) would get the dark value. Everything else is a token.
    The keyboard ring itself is the global `:focus-visible` in `@layer base`
    (top of this file); the faint halo is added by the grouped rule below, to
    the parts only. Never a `:focus` rule that shows on a mouse click. */
-:root {
-  --part-shade: light-dark(rgb(74 52 20 / .14), rgb(0 0 0 / .5)); /* light-dark(light, dark) */
-  --part-glint: light-dark(rgb(255 255 255 / .8), rgb(234 246 255 / .11));
-}
+.part-field__box { --part-shade: light-dark(rgb(74 52 20 / .14), rgb(0 0 0 / .5)); }
+.part-skel__bar { --part-glint: light-dark(rgb(255 255 255 / .8), rgb(234 246 255 / .11)); }
 /* The halo, on the parts only (Button, tabs, rows, the clear button, a field's well).
    Written here, not in a custom property, so it takes the island's cyan. */
 :is(.part-focus, .part-tab, .part-field__clear):focus-visible,
