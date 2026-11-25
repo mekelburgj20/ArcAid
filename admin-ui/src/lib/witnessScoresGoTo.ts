@@ -142,12 +142,12 @@ function joinNames(names: string[]): string {
 }
 
 /**
- * How long the room toast stays: 9 s for one sentence, 2 s more for each further one, 15 s at most.
- * It was 4 s + 2 s; the owner found that too quick to read (2026-11-23): the clock starts while the
- * room page is still drawing, and a sentence with the not-watching tail is a long one.
+ * How long the room toast stays: 5 s for one sentence, 2 s more for each further one, 15 s at most.
+ * It was 4 s + 2 s, which the owner found too quick (2026-11-23: "maybe 5 seconds"); 2.265.3 read
+ * that as 5 s more (9 s), and the owner meant 5 s in all (2026-11-25).
  */
 export function roomToastMs(lineCount: number): number {
-    return Math.min(9000 + 2000 * Math.max(0, lineCount - 1), 15000);
+    return Math.min(5000 + 2000 * Math.max(0, lineCount - 1), 15000);
 }
 
 /**

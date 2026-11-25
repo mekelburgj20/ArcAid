@@ -83,7 +83,8 @@ describe('roomToastLines', () => {
     });
 
     it('stays longer for more sentences, and each answer is said once', () => {
-        expect([1, 2, 3, 9].map(roomToastMs)).toEqual([9000, 11000, 13000, 15000]);
+        // Owner 2026-11-25: 5 s in all for one sentence, not 5 s more.
+        expect([1, 2, 3, 9].map(roomToastMs)).toEqual([5000, 7000, 9000, 15000]);
         expect(firstRoomToast(['a'])).toBe(true);
         expect(firstRoomToast(['a'])).toBe(false);
         expect(firstRoomToast(['a', 'b'])).toBe(true); // one of them is new
@@ -303,7 +304,7 @@ describe('WitnessScoresGoTo', () => {
             'Your cabinet 1 and your cabinet 2 send their scores here · not watching now, open the tile on the cabinet.\nYour PC sends its scores here.',
             'success',
             // Pressing it opens the device settings (owner 2026-11-23).
-            { label: 'Arcaid Witness', durationMs: 11000, href: '/account/settings#witness-devices', hrefHint: 'Open your device settings' },
+            { label: 'Arcaid Witness', durationMs: 7000, href: '/account/settings#witness-devices', hrefHint: 'Open your device settings' },
         );
         await new Promise(r => setTimeout(r, 0));
         expect(container.innerHTML).toBe('');
