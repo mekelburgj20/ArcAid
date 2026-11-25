@@ -36,6 +36,10 @@ import ConfirmModal from '../components/ConfirmModal';
 import ScorePhotoModal from '../components/ScorePhotoModal';
 import { useToast } from '../components/Toast';
 import { attemptsLeft } from '../lib/attemptsLeft';
+import {
+  ATTEMPT_STARTS_CHANGED_EVENT, NO_PRACTICE, PRACTICE_ON_TEXT, canPausePractice, practiceLeftText, pressAttemptPause,
+  type PracticeState,
+} from '../lib/attemptStarts';
 import { roomFetch } from '../lib/roomFetch';
 import { useRetryingLoad } from '../hooks/useRetryingLoad';
 import { isTransientStatus } from '../lib/loadRetry';
@@ -303,7 +307,12 @@ export default function GameDetail() {
       requireAttemptStart: boolean;
       /** W81 (v2.208.0) — a label per id in `attempts`; an id with none is absent (never printed raw). */
       attemptPlayers: Record<string, string>;
+      /** W126 — practice games per player per table while paused: null = players cannot pause, 0 = unlimited. */
+      practiceGames: number | null;
     } | null>(null);
+  /** W126 — the viewer's practice state on THIS board's table (keyed on the game id, like `attemptStart`). */
+  const [practiceLoaded, setPracticeLoaded] = useState<{ gameId: string; practice: PracticeState } | null>(null);
+  const [changingPractice, setChangingPractice] = useState(false);
   /**
    * W38 (ADR 0033 §4) — when the viewer pressed Start attempts on THIS board's
    * table: undefined = not loaded yet, null = not pressed, else epoch seconds.
@@ -741,6 +750,7 @@ export default function GameDetail() {
         mode?: string; verdicts?: IntegrityVerdictMap; quits?: QuitMap; signed?: SignedMap;
         maxAttempts?: number | null; attempts?: Record<string, Record<string, number>>;
         requireAttemptStart?: boolean; attemptPlayers?: Record<string, string>;
+        practiceGames?: number | null;
       } | null) => {
         if (cancelled || !data) return;
         setIntegrityLoaded({
@@ -753,6 +763,7 @@ export default function GameDetail() {
           attempts: data.attempts && typeof data.attempts === 'object' ? data.attempts : {},
           requireAttemptStart: data.requireAttemptStart === true,
           attemptPlayers: data.attemptPlayers && typeof data.attemptPlayers === 'object' ? data.attemptPlayers : {},
+          practiceGames: typeof data.practiceGames === 'number' && data.practiceGames >= 0 ? data.practiceGames : null,
         });
       })
       .catch(() => {});
@@ -762,23 +773,49 @@ export default function GameDetail() {
   // W38 (ADR 0033 §4) — the viewer's own Start attempts press for this table,
   // only when the tournament requires one and someone is logged in.
   const needsAttemptStart = integrity?.requireAttemptStart === true;
+  // W126 — the same read carries the viewer's practice state, so it also runs
+  // when the tournament offers practice games.
+  const practiceOffered = integrity?.maxAttempts != null && integrity.practiceGames != null;
   const boardGameId = leaderboard?.gameId;
   useEffect(() => {
-    if (!roomId || !integrityTournamentId || !needsAttemptStart || !playerToken || !boardGameId) return;
+    if (!roomId || !integrityTournamentId || !(needsAttemptStart || practiceOffered) || !playerToken || !boardGameId) return;
     let cancelled = false;
     fetch(`/api/rooms/${roomId}/tournaments/${integrityTournamentId}/attempt-starts/me`, {
       headers: { Authorization: `Bearer ${playerToken}` },
     })
       .then(r => r.ok ? r.json() : null)
-      .then((data: { starts?: Record<string, number> } | null) => {
+      .then((data: { starts?: Record<string, number>; practice?: Record<string, PracticeState> } | null) => {
         if (cancelled || !data) return;
         const ts = data.starts?.[boardGameId];
         setAttemptStart({ gameId: boardGameId, startedTs: typeof ts === 'number' ? ts : null });
+        setPracticeLoaded({ gameId: boardGameId, practice: data.practice?.[boardGameId] ?? NO_PRACTICE });
       })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [roomId, integrityTournamentId, needsAttemptStart, playerToken, boardGameId]);
+  }, [roomId, integrityTournamentId, needsAttemptStart, practiceOffered, playerToken, boardGameId]);
   const myAttemptStart = attemptStart && attemptStart.gameId === boardGameId ? attemptStart : null;
+  const myPractice = practiceLoaded && practiceLoaded.gameId === boardGameId ? practiceLoaded.practice : null;
+
+  // W126 — Pause to practice / Resume attempts on this table.
+  const handlePractice = async (action: 'pause' | 'resume') => {
+    if (!roomId || !integrityTournamentId || !boardGameId || !playerToken) return;
+    setChangingPractice(true);
+    try {
+      const result = await pressAttemptPause(roomId, { tournamentId: integrityTournamentId, gameId: boardGameId }, playerToken, action);
+      if (!result.ok) { toast(result.error, 'error'); return; }
+      setPracticeLoaded({ gameId: boardGameId, practice: result.practice });
+      toast(
+        action === 'pause'
+          ? 'Practice mode is on. Games you start now use no attempt and do not count. Press Resume attempts before your next real game.'
+          : 'Attempts resumed. Games you start now count.',
+        'success',
+      );
+      // The room scoreboard's cards and the "Your scores go to" strip read the same state.
+      window.dispatchEvent(new Event(ATTEMPT_STARTS_CHANGED_EVENT));
+    } finally {
+      setChangingPractice(false);
+    }
+  };
 
   const handleStartAttempts = async () => {
     if (!roomId || !integrityTournamentId || !boardGameId || !playerToken) return;
@@ -1332,6 +1369,59 @@ export default function GameDetail() {
                       </span>
                     </div>
                   ) : null
+                )}
+                {/* W126 (ADR 0043) — Practice mode, when the host allows it. */}
+                {integrity.practiceGames != null && (
+                  <div className="mt-2" data-testid="practice-box">
+                    <p className="text-muted text-xs">
+                      Practice mode: you can pause your attempts on this table to practice
+                      {integrity.practiceGames === 0
+                        ? ' as much as you like.'
+                        : ` for up to ${integrity.practiceGames} game${integrity.practiceGames === 1 ? '' : 's'}.`}
+                      {' '}A game you start while paused uses no attempt and does not count; a game already running still counts.
+                      {!playerToken && ' Log in to pause.'}
+                    </p>
+                    {playerToken && myPractice && leaderboard.gameStatus === 'ACTIVE' && (
+                      myPractice.paused ? (
+                        <div className="mt-2 flex flex-wrap items-center gap-3 rounded border border-neon-amber/50 bg-neon-amber/5 px-3 py-2" data-testid="practice-on">
+                          <span className="text-neon-amber text-xs">
+                            {PRACTICE_ON_TEXT} · {practiceLeftText(myPractice)}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handlePractice('resume')}
+                            disabled={changingPractice}
+                            className="px-3 py-1.5 rounded border border-neon-amber text-neon-amber text-xs font-display uppercase tracking-wider hover:bg-neon-amber/10 disabled:opacity-50"
+                            data-testid="resume-attempts"
+                          >
+                            {changingPractice ? 'Resuming…' : 'Resume attempts'}
+                          </button>
+                        </div>
+                      ) : canPausePractice({
+                        practice: myPractice,
+                        left: viewerAttemptsLeft ?? integrity.maxAttempts,
+                        requireStart: integrity.requireAttemptStart,
+                        started: myAttemptStart?.startedTs != null,
+                      }) ? (
+                        <div className="mt-2 flex flex-wrap items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => handlePractice('pause')}
+                            disabled={changingPractice}
+                            className="px-3 py-1.5 rounded border border-neon-cyan text-neon-cyan text-xs font-display uppercase tracking-wider hover:bg-neon-cyan/10 disabled:opacity-50"
+                            data-testid="pause-attempts"
+                          >
+                            {changingPractice ? 'Pausing…' : 'Pause to practice'}
+                          </button>
+                          <span className="text-muted text-xs">{practiceLeftText(myPractice)}</span>
+                        </div>
+                      ) : myPractice.offered && myPractice.left === 0 ? (
+                        <p className="text-muted text-xs mt-1" data-testid="practice-used-up">
+                          You have used all your practice games on this table. Every game you start now counts.
+                        </p>
+                      ) : null
+                    )}
+                  </div>
                 )}
               </div>
             )}

@@ -73,3 +73,4 @@ You do **not** need an ADR for routine bug fixes, code style preferences, or any
 | 0040 | [A cabinet sends its logs when its player asks, and updates itself from a signed release](0040-witness-log-pull-and-signed-self-update.md) | accepted (built v2.246.0) | 2026-11-13 |
 | 0041 | [Map fixes go upstream; Arcaid does not hand players a cabinet workaround](0041-no-map-workarounds-on-player-cabinets.md) | accepted | 2026-11-19 |
 | 0042 | [Shared UI parts wear Arcaid's own look; libraries carry behaviour only](0042-arcaid-look-over-library-defaults.md) | accepted (built v2.260.0) | 2026-11-22 |
+| 0043 | [Practice mode: a player pauses their own attempts, and a pause only looks forward](0043-practice-mode.md) | accepted (built v2.266.0) | 2026-11-24 |

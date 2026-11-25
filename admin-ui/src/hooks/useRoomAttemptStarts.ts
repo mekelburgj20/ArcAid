@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { useToast } from '../components/Toast';
 import type { CardAttemptStartValue } from '../components/scoreboard/cardAttemptStartContext';
 import {
-  ATTEMPT_STARTS_CHANGED_EVENT, fetchRoomAttemptStarts, pressAttemptStart, type RoomAttemptStart,
+  ATTEMPT_STARTS_CHANGED_EVENT, fetchRoomAttemptStarts, pressAttemptPause, pressAttemptStart, type RoomAttemptStart,
 } from '../lib/attemptStarts';
 
 /**
@@ -44,13 +44,38 @@ export function useRoomAttemptStarts(roomId: string | null | undefined, playerTo
     }
   }, [roomId, playerToken, reload, toast]);
 
+  // W126 — Pause to practice / Resume attempts. Both re-read the list (the
+  // card and the badge flip) and tell the "Your scores go to" strip, like the
+  // Start press. The pause toast says how to get out again: forgetting to
+  // resume is the one way a player loses a game they meant to count.
+  const setPractice = useCallback(async (item: RoomAttemptStart, action: 'pause' | 'resume') => {
+    if (!roomId || !playerToken) return;
+    setPendingGameId(item.gameId);
+    try {
+      const result = await pressAttemptPause(roomId, item, playerToken, action);
+      if (!result.ok) { toast(result.error, 'error'); return; }
+      toast(
+        action === 'pause'
+          ? `Practice mode is on for ${item.gameName}. Games you start now use no attempt and do not count. Press Resume attempts before your next real game.`
+          : `Attempts resumed on ${item.gameName}. Games you start now count.`,
+        'success',
+      );
+      await reload();
+      window.dispatchEvent(new Event(ATTEMPT_STARTS_CHANGED_EVENT));
+    } finally {
+      setPendingGameId(null);
+    }
+  }, [roomId, playerToken, reload, toast]);
+
   const value = useMemo<CardAttemptStartValue | null>(() => (
     !playerToken || games.length === 0 ? null : {
       byGameId: Object.fromEntries(games.map(g => [g.gameId, g])),
       pendingGameId,
       start: (item) => { void start(item); },
+      pause: (item) => { void setPractice(item, 'pause'); },
+      resume: (item) => { void setPractice(item, 'resume'); },
     }
-  ), [playerToken, games, pendingGameId, start]);
+  ), [playerToken, games, pendingGameId, start, setPractice]);
 
   return { value, reload };
 }

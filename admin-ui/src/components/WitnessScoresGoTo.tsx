@@ -8,9 +8,12 @@ import {
     type Device, type Line, type Routing,
 } from '../lib/witnessScoresGoTo';
 import { useToast } from './Toast';
-import { ATTEMPT_STARTS_CHANGED_EVENT, fetchRoomAttemptStarts, gamePageHref, type RoomAttemptStart } from '../lib/attemptStarts';
 import {
-    ROOM_NOTICE_DISMISSED_EVENT, deviceNoticeKey, dismissNotice, isNoticeDismissed, startsNoticeKey,
+    ATTEMPT_STARTS_CHANGED_EVENT, PRACTICE_MODE_ON_FOR, fetchRoomAttemptStarts, gamePageHref, practicingTables,
+    type RoomAttemptStart,
+} from '../lib/attemptStarts';
+import {
+    ROOM_NOTICE_DISMISSED_EVENT, deviceNoticeKey, dismissNotice, isNoticeDismissed, practiceNoticeKey, startsNoticeKey,
 } from '../lib/roomNotices';
 import DismissibleNotice from './DismissibleNotice';
 
@@ -37,6 +40,10 @@ import DismissibleNotice from './DismissibleNotice';
  *   player's Start attempts press, one more amber line names those tables
  *   (from `GET /api/rooms/:roomId/attempt-starts/me`), each linking to its
  *   game page. It re-reads that list when a scoreboard card is pressed.
+ *   W126: and one amber line names the tables the player is in PRACTICE MODE
+ *   on (their attempts are paused there), from the same list, so a player who
+ *   forgot to resume sees it on every room page before a game they meant to
+ *   count. Dismissing it hides that pause only; the next pause shows it again.
  * - **Home page** (no `roomId`): where each device sends.
  *
  * W83 - on a ROOM page every line (each amber device line and the "Start
@@ -129,7 +136,16 @@ export default function WitnessScoresGoTo({
         : lines;
     const neededKey = needed ? startsNoticeKey(needed) : null;
     const showNeeded = !!needed && !(roomId && neededKey && isNoticeDismissed(roomId, neededKey));
-    if (shownLines.length === 0 && !showNeeded) return null;
+    // W126 - the tables the player is practicing on. Like the Start line, only
+    // when a device of theirs sends here (otherwise no play counts here anyway).
+    const practicing = roomId && attemptStarts?.roomId === roomId && routing.some(r => r.sendsHere !== 'no')
+        ? practicingTables(attemptStarts.games)
+        : null;
+    const practiceKey = practicing
+        ? practiceNoticeKey(practicing.map(g => ({ gameId: g.gameId, pausedTs: g.practice?.pausedTs ?? null })))
+        : null;
+    const showPractice = !!practicing && !(roomId && practiceKey && isNoticeDismissed(roomId, practiceKey));
+    if (shownLines.length === 0 && !showNeeded && !showPractice) return null;
 
     const dismissible = (noticeKey: string | null, node: ReactNode, reactKey: string) => (roomId && noticeKey
         ? <DismissibleNotice key={reactKey} noticeKey={noticeKey} onDismiss={() => dismissNotice(roomId, noticeKey)}>{node}</DismissibleNotice>
@@ -167,6 +183,23 @@ export default function WitnessScoresGoTo({
                     </span>
                 </p>
             ), 'attempt-starts-needed')}
+            {showPractice && practicing && dismissible(practiceKey, (
+                <p className="flex items-start gap-1.5 text-xs text-neon-amber" data-testid="practice-mode-on">
+                    <AlertTriangle size={13} aria-hidden="true" className="mt-px shrink-0" />
+                    <span>
+                        {PRACTICE_MODE_ON_FOR}{' '}
+                        {practicing.map((g, i) => (
+                            <Fragment key={g.gameId}>
+                                {i > 0 && ', '}
+                                {roomSlug
+                                    ? <Link to={gamePageHref(roomSlug, g.gameName)} className="underline hover:text-primary">{g.gameName}</Link>
+                                    : g.gameName}
+                            </Fragment>
+                        ))}
+                        . Games you start there do not count until you press Resume attempts.
+                    </span>
+                </p>
+            ), 'practice-mode-on')}
         </div>
     );
 }

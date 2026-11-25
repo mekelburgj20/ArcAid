@@ -1,6 +1,6 @@
 # ADR 0029 — Limited attempts: N game starts per player per table, witnessed by Castcade
 
-**Status:** accepted (owner ruling 2026-10-22) · **Ships:** v2.167.0 · **Castcade half:** castcade `WORK.md` (contract below)
+**Status:** accepted (owner ruling 2026-10-22) · **Ships:** v2.167.0 · **Castcade half:** castcade `WORK.md` (contract below) · **Amended by:** ADR 0043 (Practice mode: a start inside a player's pause uses no attempt)
 
 ## Context
 

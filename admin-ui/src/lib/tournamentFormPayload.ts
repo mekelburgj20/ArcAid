@@ -78,6 +78,8 @@ export interface Tournament {
   max_attempts?: number | null;
   /** W38 (migration 193) — players press Start attempts first. 1 = on. */
   require_attempt_start?: number | null;
+  /** W126 (migration 223) — practice games per player per table while paused. null = players cannot pause, 0 = unlimited. */
+  practice_games?: number | null;
   /** W39 (migration 194) — who may play. Absent = 'members'. */
   entry_mode?: 'members' | 'invited' | null;
   /** W39 — the self-serve ways onto the roster, as stored JSON `{link, request}`. */
@@ -195,6 +197,9 @@ export function toPayload(state: TournamentFormState, extra: Record<string, any>
     max_attempts: state.maxAttempts ?? null,
     // W38: always sent; only a limited tournament reads it.
     require_attempt_start: state.requireAttemptStart,
+    // W126: always sent, so unticking the box switches practice mode off
+    // (null); only a limited tournament reads it.
+    practice_games: state.practiceGames ?? null,
     // W39: always sent, both formats. The methods ride along in members mode
     // too, so a tuned choice survives a switch to Room members and back.
     entry_mode: state.entryMode,
@@ -272,6 +277,8 @@ export function tournamentToFormState(t: Tournament, roomTimezone: string = DEFA
     sanctionedRules: sanctionedRulesFromRow(t.sanctioned_rules),
     maxAttempts: typeof t.max_attempts === 'number' && t.max_attempts >= 1 ? t.max_attempts : null,
     requireAttemptStart: t.require_attempt_start === 1,
+    practiceGames: typeof t.practice_games === 'number' && Number.isInteger(t.practice_games) && t.practice_games >= 0
+      ? t.practice_games : null,
     entryMode: t.entry_mode === 'invited' ? 'invited' : 'members',
     entryLink: entryMethodsFromRow(t.entry_methods).link,
     entryRequest: entryMethodsFromRow(t.entry_methods).request,

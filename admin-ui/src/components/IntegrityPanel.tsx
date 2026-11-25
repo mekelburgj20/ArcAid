@@ -55,7 +55,8 @@ export type AttemptRow = {
     /** Resolved server-side (display name → username → alias); never a raw id. */
     playerLabel: string;
     attemptNo: number;
-    status: 'counted' | 'over_limit' | 'scored' | 'void' | 'unreported';
+    /** W126 — `practice`: a game started while the player's attempts were paused; it used no attempt. */
+    status: 'counted' | 'over_limit' | 'scored' | 'void' | 'unreported' | 'practice';
     late: boolean;
     startedTs: number;
     receivedAt: string;
@@ -80,6 +81,20 @@ const ATTEMPT_STATUS_LABEL: Record<AttemptRow['status'], string> = {
     over_limit: 'over the limit',
     unreported: 'start not reported',
     void: 'voided',
+    practice: 'practice game, used no attempt',
+};
+
+/** W126 — a player whose attempts are paused on a table right now (the admin attempts read's `paused`). */
+export type PausedPlayer = {
+    gameId: string;
+    gameName: string | null;
+    userId: string;
+    /** Resolved server-side; never a raw id. */
+    playerLabel: string;
+    pausedTs: number;
+    practiceUsed: number;
+    /** null = unlimited. */
+    practiceLeft: number | null;
 };
 
 function AttemptsSection({ base, maxAttempts, games, toast }: {
@@ -96,11 +111,20 @@ function AttemptsSection({ base, maxAttempts, games, toast }: {
     const [alsoDelete, setAlsoDelete] = useState(false);
     // Bumped after a void / reinstate: either changes which over-the-limit rows have room.
     const [reloadKey, setReloadKey] = useState(0);
+    // W126 — the tournament's practice allowance (null = players cannot pause,
+    // 0 = unlimited) and who is in practice mode now. Absent on an older server.
+    const [practiceGames, setPracticeGames] = useState<number | null>(null);
+    const [paused, setPaused] = useState<PausedPlayer[]>([]);
 
     useEffect(() => {
         let cancelled = false;
-        api.get<{ attempts: AttemptRow[] }>(`${base}/attempts`)
-            .then(r => { if (!cancelled) setRows(r.attempts ?? []); })
+        api.get<{ attempts: AttemptRow[]; practiceGames?: number | null; paused?: PausedPlayer[] }>(`${base}/attempts`)
+            .then(r => {
+                if (cancelled) return;
+                setRows(r.attempts ?? []);
+                setPracticeGames(typeof r.practiceGames === 'number' ? r.practiceGames : null);
+                setPaused(Array.isArray(r.paused) ? r.paused : []);
+            })
             .catch(() => { if (!cancelled) { setRows([]); setFailed(true); } });
         return () => { cancelled = true; };
     }, [base, reloadKey]);
@@ -114,7 +138,9 @@ function AttemptsSection({ base, maxAttempts, games, toast }: {
             setRows(prev => (prev ?? []).map(r => r.id === row.id ? { ...r, status: 'void', voidable: false, reinstatable: false } : r));
             setConfirming(null);
             setAlsoDelete(false);
-            if (deleteScore && res?.scoreDeleteError) {
+            if (row.status === 'practice') {
+                toast(`Practice game ${row.attemptNo} given back to ${row.playerLabel}`, 'success');
+            } else if (deleteScore && res?.scoreDeleteError) {
                 toast(`Attempt ${row.attemptNo} given back to ${row.playerLabel}, but its score was not deleted: ${res.scoreDeleteError}`, 'error');
             } else {
                 toast(`Attempt ${row.attemptNo} given back to ${row.playerLabel}${deleteScore && res?.scoreDeleted ? ' and its score deleted' : ''}`, 'success');
@@ -159,7 +185,30 @@ function AttemptsSection({ base, maxAttempts, games, toast }: {
                 Each player gets {maxAttempts} game start{maxAttempts === 1 ? '' : 's'} per table, counted by Arcaid Witness (Castcade when the game starts, a cabinet when it reports the game).
                 Void gives an attempt back (a crashed companion, an honest mistake); a scored attempt can be voided too, optionally deleting its score.
                 Reinstate counts an over-the-limit play once room exists. Otherwise a void, and an over-the-limit play, is final.
+                {practiceGames != null && (
+                    <>
+                        {' '}Practice mode is on: a player may pause their attempts on a table
+                        {practiceGames === 0 ? ' for as many practice games as they like' : ` for up to ${practiceGames} practice game${practiceGames === 1 ? '' : 's'}`}.
+                        A practice game uses no attempt and never reaches this board; voiding one gives it back.
+                    </>
+                )}
             </p>
+            {paused.length > 0 && (
+                <div className="mb-3 rounded border border-neon-amber/50 bg-neon-amber/5 px-3 py-2" data-testid="attempts-paused-now">
+                    <p className="text-xs text-neon-amber mb-1">In practice mode now (games they start do not count)</p>
+                    <ul className="flex flex-wrap gap-x-3 gap-y-1 text-xs">
+                        {paused.map(p => (
+                            <li key={`${p.gameId}:${p.userId}`} data-testid="attempts-paused-player">
+                                <span className="text-primary">{p.playerLabel}</span>{' '}
+                                <span className="text-muted">
+                                    on {nameOf(p.gameId, p.gameName)} since {formatWhen(new Date(p.pausedTs * 1000).toISOString())}
+                                    {p.practiceLeft != null ? ` · ${p.practiceLeft} practice game${p.practiceLeft === 1 ? '' : 's'} left` : ''}
+                                </span>
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            )}
             {rows === null ? (
                 <p className="text-xs text-muted">Loading…</p>
             ) : failed ? (
@@ -198,8 +247,12 @@ function AttemptsSection({ base, maxAttempts, games, toast }: {
                                         {list.map(r => (
                                             <tr key={r.id} className="border-t border-border/60 align-top" data-testid={`attempt-row-${r.id}`}>
                                                 <td className="py-1.5 pr-2 text-primary break-words">{r.playerLabel}</td>
-                                                <td className="py-1.5 pr-2 text-muted whitespace-nowrap">{r.attemptNo} of {maxAttempts}</td>
-                                                <td className={`py-1.5 pr-2 ${r.status === 'scored' ? 'text-neon-cyan' : r.status === 'void' ? 'text-faint' : r.status === 'counted' ? 'text-muted' : 'text-neon-magenta'}`}>
+                                                <td className="py-1.5 pr-2 text-muted whitespace-nowrap">
+                                                    {r.status === 'practice'
+                                                        ? `practice ${r.attemptNo}${practiceGames ? ` of ${practiceGames}` : ''}`
+                                                        : `${r.attemptNo} of ${maxAttempts}`}
+                                                </td>
+                                                <td className={`py-1.5 pr-2 ${r.status === 'scored' ? 'text-neon-cyan' : r.status === 'void' ? 'text-faint' : r.status === 'counted' || r.status === 'practice' ? 'text-muted' : 'text-neon-magenta'}`}>
                                                     {ATTEMPT_STATUS_LABEL[r.status] ?? r.status}
                                                     {r.late && r.status !== 'void' && <span className="block text-[10px] text-faint">reported late</span>}
                                                 </td>
@@ -226,7 +279,9 @@ function AttemptsSection({ base, maxAttempts, games, toast }: {
                                                                     if (r.status === 'scored') { setConfirming(r.id); setAlsoDelete(false); }
                                                                     else void voidAttempt(r);
                                                                 }}
-                                                                aria-label={`Void attempt ${r.attemptNo} for ${r.playerLabel}`}>
+                                                                aria-label={r.status === 'practice'
+                                                                    ? `Void practice game ${r.attemptNo} for ${r.playerLabel}`
+                                                                    : `Void attempt ${r.attemptNo} for ${r.playerLabel}`}>
                                                                 Void
                                                             </NeonButton>
                                                         )}

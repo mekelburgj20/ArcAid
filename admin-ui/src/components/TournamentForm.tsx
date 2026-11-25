@@ -141,6 +141,12 @@ export interface TournamentFormState {
    */
   requireAttemptStart: boolean;
   /**
+   * W126 (ADR 0043) — Practice mode: players may pause their attempts on a
+   * table to practice. null = off (the default), 0 = unlimited practice games,
+   * 1-999 = that many per player per table. Always sent; read only with a limit.
+   */
+  practiceGames: number | null;
+  /**
    * v2.179.0 (W39, ADR 0033 §6) — who may play: every room member (default)
    * or only the roster. Always sent.
    */
@@ -191,6 +197,7 @@ export const defaultFormState: TournamentFormState = {
   sanctionedRules: { ...defaultSanctionedRules },
   maxAttempts: null,
   requireAttemptStart: false,
+  practiceGames: null,
   entryMode: 'members',
   entryLink: false,
   entryRequest: false,
@@ -771,9 +778,11 @@ function EntryField({ mode, link, request, onChange }: {
  * PC, the Witness app on a cabinet): every game start counts, and manual
  * (phone / Discord) entry is refused by the server.
  */
-function LimitedAttemptsField({ value, onChange, requireStart, onRequireStartChange }: {
+function LimitedAttemptsField({ value, onChange, requireStart, onRequireStartChange, practiceGames, onPracticeGamesChange }: {
   value: number | null; onChange: (v: number | null) => void;
   requireStart: boolean; onRequireStartChange: (v: boolean) => void;
+  /** W126 — null = players cannot pause, 0 = unlimited practice games, else games per player per table. */
+  practiceGames: number | null; onPracticeGamesChange: (v: number | null) => void;
 }) {
   return (
     <div className="mb-4" data-testid="limited-attempts">
@@ -822,6 +831,58 @@ function LimitedAttemptsField({ value, onChange, requireStart, onRequireStartCha
             </span>
           </span>
         </label>
+      )}
+      {/* W126 (ADR 0043) — Practice mode. Off unless the host turns it on. */}
+      {value != null && (
+        <div className="mt-3" data-testid="practice-games">
+          <label className="flex items-start gap-2 text-sm text-primary cursor-pointer">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={practiceGames != null}
+              onChange={e => onPracticeGamesChange(e.target.checked ? 0 : null)}
+            />
+            <span>
+              Players can pause their attempts to practice
+              <span className="block text-xs text-faint mt-0.5">
+                {practiceGames != null
+                  ? 'A player presses "Pause to practice" on a table. Games they start while paused use no attempt, stay off this tournament\'s board and go to the Global Scoreboard. A game already running when they pause still counts.'
+                  : 'Off: every game a player starts on an open table uses an attempt.'}
+              </span>
+            </span>
+          </label>
+          {practiceGames != null && (
+            <div className="mt-2 ml-6">
+              <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5" htmlFor="tournament-practice-games">
+                Practice games per table
+              </label>
+              <input
+                id="tournament-practice-games"
+                type="number"
+                inputMode="numeric"
+                min={0}
+                max={999}
+                step={1}
+                aria-label="Practice games per table"
+                value={practiceGames}
+                onChange={e => {
+                  // A whole number 0-999; anything else is ignored (the field
+                  // keeps its last valid value). Blank is not "off": the box above is.
+                  const raw = e.target.value;
+                  if (raw.trim() === '') return;
+                  const n = Number(raw);
+                  if (Number.isInteger(n) && n >= 0 && n <= 999) onPracticeGamesChange(n);
+                }}
+                className="w-32 px-3 py-2 bg-raised border border-border rounded text-primary placeholder-faint text-sm focus:border-neon-cyan focus-visible:outline focus-visible:outline-2 focus-visible:outline-neon-cyan transition-colors"
+              />
+              <p className="text-xs text-faint mt-1">
+                {practiceGames === 0
+                  ? '0 = unlimited: a player may practice as much as they like while paused.'
+                  : `Each player gets ${practiceGames} practice game${practiceGames === 1 ? '' : 's'} on each table, for as long as that table is open. When the last one starts, their attempts count again.`}
+              </p>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
@@ -1247,6 +1308,8 @@ export default function TournamentFormFields({ state, set, platforms, roomId, lo
         onChange={v => set('maxAttempts', v)}
         requireStart={state.requireAttemptStart}
         onRequireStartChange={v => set('requireAttemptStart', v)}
+        practiceGames={state.practiceGames}
+        onPracticeGamesChange={v => set('practiceGames', v)}
       />
       {isEvent && (
         <WitnessFlagModeField value={state.witnessFlagMode} onChange={v => set('witnessFlagMode', v)} />
