@@ -12,6 +12,7 @@ import { roomFetch } from '../lib/roomFetch';
 import { useRetryingLoad } from '../hooks/useRetryingLoad';
 import { isTransientStatus } from '../lib/loadRetry';
 import LoadFailedNotice from '../components/LoadFailedNotice';
+import RoomNoticeSlot from '../components/RoomNoticeSlot';
 
 interface PlayerSummary {
   /** Arcaid profile username (v2.141.1) — searchable, never displayed here. */
@@ -316,6 +317,8 @@ export default function PublicStats() {
           className="bg-raised border border-border rounded px-3 py-2 text-sm text-primary placeholder-faint focus:border-neon-cyan focus:outline-none w-full sm:w-60"
         />
       </div>
+
+      <RoomNoticeSlot className="px-4 sm:px-6 lg:px-10" />
 
       {/* v2.9x — tournament-type + time-window filters. Applies to both
           Players and Games views (composes: type AND window). URL-stated —

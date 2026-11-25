@@ -9,6 +9,7 @@ import type { GameLeaderboard, RankedEntry } from './ScoreboardComponents';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { useRetryingLoad } from '../hooks/useRetryingLoad';
 import { decodeViewerClaims, isRoomAdminFor } from '../lib/viewerClaims';
+import RoomNoticeSlot from './RoomNoticeSlot';
 import {
   ROOM_SCORES_SEARCH_PLACEHOLDER,
   ROOM_SORT_LABELS,
@@ -234,6 +235,8 @@ export default function RoomScoresView({ roomId, slug, config, roomName, viewerU
           </div>
         </div>
       </div>
+
+      <RoomNoticeSlot />
 
       {phase === 'retrying' ? (
         // No answer yet and a try failed: say so, never "No scores here yet".

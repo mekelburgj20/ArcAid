@@ -5,6 +5,7 @@ import { formatScore } from '../lib/format';
 import { useRoom } from '../contexts/RoomContext';
 import { compareByRank } from '../lib/searchRank';
 import { roomFetch } from '../lib/roomFetch';
+import RoomNoticeSlot from '../components/RoomNoticeSlot';
 
 /**
  * WP2 — S14 social loops: head-to-head player comparison.
@@ -130,6 +131,7 @@ export default function ComparePlayers() {
           <ArrowLeftRight size={20} className="text-neon-cyan" />
           Compare Players
         </h2>
+        <RoomNoticeSlot />
       </div>
 
       <main className="max-w-4xl mx-auto px-4 sm:px-6 py-6">

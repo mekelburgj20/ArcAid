@@ -8,6 +8,7 @@ import LoadFailedNotice from './LoadFailedNotice';
 import type { GameLeaderboard } from './ScoreboardComponents';
 import { catalogueImageFor } from '../lib/catalogueImage';
 import { useRetryingLoad } from '../hooks/useRetryingLoad';
+import RoomNoticeSlot from './RoomNoticeSlot';
 import {
   GLOBAL_SEE_FULL_LABEL,
   GLOBAL_SEARCH_PLACEHOLDER,
@@ -244,6 +245,8 @@ export default function GlobalScoresView({ roomId, slug, config, roomName, viewe
           </Link>
         </div>
       </div>
+
+      <RoomNoticeSlot />
 
       {phase === 'retrying' ? (
         // No answer yet and a try failed: say so, never "No global scores yet".

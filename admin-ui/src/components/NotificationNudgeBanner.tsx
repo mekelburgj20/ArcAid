@@ -151,7 +151,7 @@ export default function NotificationNudgeBanner({ roomDiscordEnabled, roomId }: 
 
   if (showFailure) {
     return (
-      <div className="mb-4 rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 flex items-start gap-2">
+      <div className="w-full sm:w-auto sm:max-w-sm rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 flex items-start gap-2">
         <AlertTriangle size={14} className="mt-0.5 shrink-0 text-amber-400" />
         <div className="min-w-0 flex-1 text-xs text-primary">
           <p>
@@ -178,7 +178,7 @@ export default function NotificationNudgeBanner({ roomDiscordEnabled, roomId }: 
     const room = discordLink.roomName ?? 'This game room';
     const noDiscord = discordLink.state === 'no_discord';
     return (
-      <div className="mb-4 rounded border border-neon-purple/40 bg-neon-purple/10 px-3 py-2.5 flex items-start gap-2">
+      <div className="w-full sm:w-auto sm:max-w-sm rounded border border-neon-purple/40 bg-neon-purple/10 px-3 py-2.5 flex items-start gap-2">
         <MessageSquare size={14} className="mt-0.5 shrink-0 text-neon-purple" />
         <div className="min-w-0 flex-1 text-xs text-primary">
           <p>
@@ -226,7 +226,7 @@ export default function NotificationNudgeBanner({ roomDiscordEnabled, roomId }: 
 
   if (showOnboard) {
     return (
-      <div className="mb-4 rounded border border-border bg-surface px-3 py-2.5 flex items-start gap-2">
+      <div className="w-full sm:w-auto sm:max-w-sm rounded border border-border bg-surface px-3 py-2.5 flex items-start gap-2">
         <Bell size={14} className="mt-0.5 shrink-0 text-neon-cyan" />
         <div className="min-w-0 flex-1 text-xs text-primary">
           <p>Want score and pick notifications? Set them up once — it works for every room.</p>

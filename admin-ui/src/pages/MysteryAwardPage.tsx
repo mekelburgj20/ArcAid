@@ -9,6 +9,7 @@ import { usePickAwardEnabled } from '../hooks/usePickAwardEnabled';
 import { useToast } from '../components/Toast';
 import { getPortal } from '../lib/portal';
 import { roomFetch } from '../lib/roomFetch';
+import RoomNoticeSlot from '../components/RoomNoticeSlot';
 
 /**
  * Standalone Mystery Award page (v2.0.1) — shareable URL for Discord.
@@ -178,6 +179,9 @@ export default function MysteryAwardPage() {
                     </div>
                 )}
             </div>
+
+            {/* G13 - under the fixed header bar; takes no space when empty. */}
+            <RoomNoticeSlot className="relative z-[60] px-4 [&:has([data-testid=room-notices]:not(:empty))]:pt-14" />
 
             <MysteryAward
                 availableGames={availableGames}

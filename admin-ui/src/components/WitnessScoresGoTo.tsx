@@ -148,11 +148,11 @@ export default function WitnessScoresGoTo({
     if (shownLines.length === 0 && !showNeeded && !showPractice) return null;
 
     const dismissible = (noticeKey: string | null, node: ReactNode, reactKey: string) => (roomId && noticeKey
-        ? <DismissibleNotice key={reactKey} noticeKey={noticeKey} onDismiss={() => dismissNotice(roomId, noticeKey)}>{node}</DismissibleNotice>
+        ? <DismissibleNotice key={reactKey} noticeKey={noticeKey} onDismiss={() => dismissNotice(roomId, noticeKey)} className="w-fit max-w-full sm:max-w-2xl">{node}</DismissibleNotice>
         : <Fragment key={reactKey}>{node}</Fragment>);
 
     return (
-        <div className={`space-y-1 ${className}`} data-testid="witness-scores-go-to">
+        <div className={`basis-full space-y-1 ${className}`} data-testid="witness-scores-go-to">
             {shownLines.map(line => dismissible(lineKey(line), (
                 <p className={`flex items-start gap-1.5 text-xs ${line.ok ? 'text-muted' : 'text-neon-amber'}`}>
                     {/* The icon never wraps away from its text (a phone broke it onto its own line). */}

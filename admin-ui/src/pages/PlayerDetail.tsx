@@ -15,6 +15,7 @@ import { RESULTS_PAGE } from '../lib/pageLayout';
 import { PlayerAvatar } from '../components/ScoreboardComponents';
 import { gameArtFor } from '../lib/gameArt';
 import { roomFetch } from '../lib/roomFetch';
+import RoomNoticeSlot from '../components/RoomNoticeSlot';
 
 interface Achievements {
   tournamentWins: number;
@@ -317,6 +318,7 @@ export default function PlayerDetail() {
             Admin: link this player's alias through the identity claims queue or the identity merge tool.
           </p>
         )}
+        <RoomNoticeSlot />
       </div>
 
       {showReportName && (

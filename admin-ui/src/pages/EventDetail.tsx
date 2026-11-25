@@ -12,6 +12,7 @@ import { ApiError } from '../lib/api';
 import { playerApi } from '../lib/playerApi';
 import AtGamesJoinPanel from '../components/AtGamesJoinPanel';
 import type { AtGamesJoinedVia } from '../components/scoreboard/cardAtGamesJoinContext';
+import RoomNoticeSlot from '../components/RoomNoticeSlot';
 
 /**
  * `/:slug/events/:id` — the public face of a Live Event (v2.135.0, ADR 0017).
@@ -380,6 +381,8 @@ export default function EventDetail({ throwdownCode }: EventDetailProps = {}) {
                     </p>
                 )}
             </header>
+
+            <RoomNoticeSlot />
 
             {/* v2.179.0 (W39) — invite-only: a player off the roster is told so (and may request). */}
             {!isThrowdown && roomId && (
