@@ -6,6 +6,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.267.2] - 2026-11-25 - Room notices sit under the page's own header
+
+### Changed
+- **On a room page the notices now come after the page's own header, not before it** (owner, 2026-11-25,
+  G13). The live event notices, the "Start attempts needed on" line and the "Want score and pick
+  notifications?" bar used to sit near the middle of a wide screen above the room's name and the
+  Tournaments / Room Scores / Global tabs, pushing them down. Now the room's name and tabs come first, then
+  the notices in a row on the left edge of the page content (side by side on a wide screen, stacked on a
+  phone), then the cards. It is the same on every room page (Lobby, Picks, Stats, History, players,
+  tables, tournaments, events, rankings, members) and on all three Scoreboard tabs.
+- Nothing about the notices themselves changed: same words, same dismiss (the X, or a swipe on a phone),
+  same Arcaid Witness toast. The notifications bar is now a compact notice in the row instead of a bar
+  across the whole page.
+- In code: `PublicLayout` renders the three notice components once, portalled into one stable DOM node, and
+  each room page places `<RoomNoticeSlot />` after its header; the layout moves the node into the slot
+  (fallback: top of the content), so nothing remounts when you move between pages. New
+  `components/RoomNoticeSlot.tsx` and its test.
+
 ## [2.267.1] - 2026-11-25 - The Arcaid Witness toast stays 5 seconds
 
 ### Changed

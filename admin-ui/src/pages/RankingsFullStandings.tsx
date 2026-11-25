@@ -4,6 +4,7 @@ import { ChevronLeft } from 'lucide-react';
 import { useRoom } from '../contexts/RoomContext';
 import { PlayerAvatar, playerName, METHOD_LABELS } from '../components/ScoreboardComponents';
 import { roomFetch } from '../lib/roomFetch';
+import RoomNoticeSlot from '../components/RoomNoticeSlot';
 
 /**
  * `/:slug/rankings/:groupId` — the full-standings destination page, linked
@@ -119,6 +120,8 @@ export default function RankingsFullStandings() {
           {' · '}{rankings.length} player{rankings.length !== 1 ? 's' : ''}
         </p>
       </header>
+
+      <RoomNoticeSlot />
 
       {rankings.length === 0 ? (
         <p className="text-muted text-center py-12">

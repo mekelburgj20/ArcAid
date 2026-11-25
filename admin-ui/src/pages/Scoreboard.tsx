@@ -24,6 +24,7 @@ import { useRoomAttemptStarts } from '../hooks/useRoomAttemptStarts';
 import { useRoomAtGamesJoin } from '../hooks/useRoomAtGamesJoin';
 import { CardAtGamesJoinContext } from '../components/scoreboard/cardAtGamesJoinContext';
 import { usePinnedPiles } from '../hooks/usePinnedPiles';
+import RoomNoticeSlot from '../components/RoomNoticeSlot';
 
 type ScoresTab = 'tournaments' | 'room' | 'global';
 
@@ -363,6 +364,8 @@ export default function Scoreboard() {
                 <SeasonPollLobbyNudge roomId={roomId} roomSlug={slug} refreshKey={seasonRefreshKey} />
               </div>
             )}
+            {/* G13 - the room notices go under the tabs (owner 2026-11-25). */}
+            <RoomNoticeSlot className="[&:has([data-testid=room-notices]:not(:empty))]:mt-3" />
           </div>
         }
         contentOverride={

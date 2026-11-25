@@ -15,6 +15,7 @@ import { roomFetch } from '../lib/roomFetch';
 import { useRetryingLoad } from '../hooks/useRetryingLoad';
 import { isTransientStatus } from '../lib/loadRetry';
 import LoadFailedNotice from '../components/LoadFailedNotice';
+import RoomNoticeSlot from '../components/RoomNoticeSlot';
 
 interface FeedEvent {
   id: number;
@@ -248,6 +249,7 @@ export default function Lobby() {
           <h2 className="font-display text-xl font-bold">Lobby</h2>
         </div>
         <p className="text-xs text-muted mt-1">Recent activity and competitive moments</p>
+        <RoomNoticeSlot className="[&:has([data-testid=room-notices]:not(:empty))]:mt-3" />
       </div>
 
       <main className="max-w-3xl mx-auto px-4 sm:px-6 py-4 space-y-6">

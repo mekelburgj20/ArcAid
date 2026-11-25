@@ -179,7 +179,7 @@ describe('PublicLayout', () => {
     const event = await screen.findByText('LIMITED ATTEMPTS Test #4');
     const witness = await screen.findByText(/Your PC is set to the Global Scoreboard only/);
     const column = screen.getByTestId('room-notices');
-    expect(column.className).toMatch(/lg:max-w-sm/);
+    expect(column.className).toMatch(/flex-wrap/);
     expect(column.contains(event)).toBe(true);
     expect(column.contains(witness)).toBe(true);
     expect(screen.getAllByRole('button', { name: 'Dismiss' }).length).toBeGreaterThanOrEqual(2);

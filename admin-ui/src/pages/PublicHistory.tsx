@@ -7,6 +7,7 @@ import { TOURNAMENT_TYPE_COLORS } from '../components/TournamentTypeBadge';
 import RunFeed from '../components/results/RunFeed';
 import { useRoom } from '../contexts/RoomContext';
 import { roomFetch } from '../lib/roomFetch';
+import RoomNoticeSlot from '../components/RoomNoticeSlot';
 
 /**
  * `/:slug/history` — every finished run in the room.
@@ -97,6 +98,7 @@ export default function PublicHistory() {
           </select>
         </div>
       </div>
+      <RoomNoticeSlot />
       {tournamentFilter && roomSlug && (
         <div className="pb-4">
           <Link

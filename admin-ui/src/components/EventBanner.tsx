@@ -121,13 +121,13 @@ export default function EventBanner({ roomId, roomSlug, roomName }: { roomId: st
     if (visible.length === 0) return null;
 
     return (
-        <div className="space-y-2" data-testid="event-banner">
+        <div className="contents" data-testid="event-banner">
             {visible.map(e => (
                 <DismissibleNotice
                     key={e.key}
                     noticeKey={e.key}
                     onDismiss={() => dismissNotice(roomId, e.key)}
-                    className="p-3 rounded border border-neon-cyan/40 bg-neon-cyan/10 hover:bg-neon-cyan/20 transition-colors"
+                    className="w-full sm:w-auto sm:max-w-sm p-3 rounded border border-neon-cyan/40 bg-neon-cyan/10 hover:bg-neon-cyan/20 transition-colors"
                 >
                     <Link
                         to={`/${roomSlug}/events/${e.id}`}

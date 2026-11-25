@@ -8,6 +8,7 @@ import { useRoom } from '../contexts/RoomContext';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { getPortal } from '../lib/portal';
 import { parseServerDate, relativeTimeFrom } from '../lib/format';
+import RoomNoticeSlot from '../components/RoomNoticeSlot';
 
 /**
  * Room Members/Players page (v2.42.0, docs/contracts/room-members-page-contract.md).
@@ -145,6 +146,7 @@ export default function RoomMembers() {
         <h2 className="font-display text-xl font-bold">{title}</h2>
       </div>
       <p className="text-muted text-sm mb-6">{subtitle}</p>
+      <RoomNoticeSlot />
 
       {members.length === 0 ? (
         <p className="text-muted text-center py-12">{emptyMessage}</p>

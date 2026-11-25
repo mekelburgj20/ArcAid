@@ -9,6 +9,7 @@ import RunFeed from '../components/results/RunFeed';
 import { RESULTS_PAGE } from '../lib/pageLayout';
 import { useRoom } from '../contexts/RoomContext';
 import { roomFetch } from '../lib/roomFetch';
+import RoomNoticeSlot from '../components/RoomNoticeSlot';
 
 /**
  * `/:slug/tournaments/:tournamentId` — one tournament's results.
@@ -273,6 +274,8 @@ export default function TournamentDetail() {
           By table
         </button>
       </div>
+
+      <RoomNoticeSlot />
 
       {view === 'runs'
         ? <RunFeed key={tournamentId} roomId={roomId} slug={roomSlug} tournamentId={tournamentId} showTournament={false} />

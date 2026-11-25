@@ -27,6 +27,7 @@ import { compareByRank } from '../lib/searchRank';
 import RatingBadge from '../components/RatingBadge';
 import { compareByRating } from '../lib/ratingSort';
 import { roomFetch } from '../lib/roomFetch';
+import RoomNoticeSlot from '../components/RoomNoticeSlot';
 
 interface GameAvailabilityEntry {
   name: string;
@@ -963,6 +964,7 @@ export default function Picks() {
           Queue your next pick or spin the Mystery Award.
         </p>
       </div>
+      <RoomNoticeSlot />
 
       {/* F1 — "Style 1" tournament selector. The FIRST thing on the page
           (owner ruling 2026-10-02): every section below — Mystery Award,

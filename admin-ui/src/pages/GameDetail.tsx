@@ -44,6 +44,7 @@ import { roomFetch } from '../lib/roomFetch';
 import { useRetryingLoad } from '../hooks/useRetryingLoad';
 import { isTransientStatus } from '../lib/loadRetry';
 import LoadFailedNotice from '../components/LoadFailedNotice';
+import RoomNoticeSlot from '../components/RoomNoticeSlot';
 
 interface RankedEntry {
   rank: number;
@@ -1263,6 +1264,7 @@ export default function GameDetail() {
       </div>
 
       <main className="max-w-4xl mx-auto px-4 sm:px-6 py-6">
+        <RoomNoticeSlot />
         {/* C2 - named ratings + the public owner count. Below the hero, not in
             it: the hero is a fixed-height art scrim with white ink, and these
             rows use theme tokens. */}

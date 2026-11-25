@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { RoomNoticeSlotContext, type RoomNoticeSlotApi } from './roomNoticeSlotContext';
 import { Link, Outlet, useParams, useLocation } from 'react-router-dom';
 import EventBanner from './EventBanner';
 import WitnessScoresGoTo from './WitnessScoresGoTo';
@@ -42,6 +44,25 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
   const [portalError, setPortalError] = useState(false);
   // G31 — the room lookup has failed for now and is being asked again.
   const [portalWaiting, setPortalWaiting] = useState(false);
+  // G13 — the room notices live in ONE DOM node that never remounts; it is
+  // moved into the page's <RoomNoticeSlot /> (after the page's own header), or
+  // into the fallback wrapper at the top of the content when no page has one.
+  const [noticeContainer] = useState(() => {
+    const el = document.createElement('div');
+    el.setAttribute('data-testid', 'room-notices');
+    el.className = 'flex flex-wrap items-start gap-2 w-full [&:not(:empty)]:mb-4';
+    return el;
+  });
+  const [noticeSlotEl, setNoticeSlotEl] = useState<HTMLElement | null>(null);
+  const [noticeFallbackEl, setNoticeFallbackEl] = useState<HTMLElement | null>(null);
+  const noticeSlotApi = useMemo<RoomNoticeSlotApi>(() => ({
+    register: (el, from) => setNoticeSlotEl(cur => (el ? el : (from && cur !== from ? cur : null))),
+  }), []);
+  const noticeTarget = noticeSlotEl ?? noticeFallbackEl;
+  useLayoutEffect(() => {
+    if (noticeTarget && noticeContainer.parentNode !== noticeTarget) noticeTarget.appendChild(noticeContainer);
+  }, [noticeTarget, noticeContainer]);
+  useEffect(() => () => { noticeContainer.remove(); }, [noticeContainer]);
   const { discordUser, playerToken, loginWithDiscord, loginWithGoogle, logoutPlayer } = useViewerAuth();
   const { loading: pickAwardLoading, enabled: pickAwardEnabled } = usePickAwardEnabled(slug);
   // D2 (v2.38.0) — room-page join/leave affordance, surfaced as a UserMenu
@@ -554,34 +575,40 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
             {/* v2.72.0 (Discord HQ) — "we couldn't DM you" / "set up
                 notifications" nudge. Renders nothing for guests, for users
                 with no pending nudge, and in Discord-connected rooms. */}
-            <NotificationNudgeBanner roomDiscordEnabled={portal?.discord_enabled !== false} roomId={resolvedRoomId} />
-            {/* W83 — ONE notices column for the room-page notices below: full
-                width on a phone, a narrow column at the top-left of the content
-                area on desktop (lg+), out of the way. Every notice in it is
-                dismissible (X, or swipe on touch — lib/roomNotices.ts). The
-                column collapses its bottom margin when everything inside
-                rendered nothing. */}
-            {resolvedRoomId && (
-              <div className="max-w-5xl mx-auto px-4 sm:px-6 pt-3">
-                <div className="w-full lg:max-w-sm space-y-2 mb-4 empty:mb-0" data-testid="room-notices">
-                  {/* v2.141.0 — live/upcoming event discovery. Rendered at the
-                      layout so every public page carries it (before this,
-                      NOTHING player-facing linked to an event page). Suppressed
-                      on the event pages themselves — a banner linking to the
-                      page you are on is noise. */}
-                  {!location.pathname.includes('/events/') && (
-                    <EventBanner roomId={resolvedRoomId} roomSlug={slug || ''} roomName={roomName} />
-                  )}
-                  {/* W27.3 (ADR 0033 §5) — does each of the viewer's paired
-                      Witness devices send here? Renders nothing for guests and
-                      players with no paired device. */}
-                  <WitnessScoresGoTo roomId={resolvedRoomId} roomSlug={slug} />
-                </div>
-              </div>
+            {/* W83 / G13 — ONE row of room-page notices, rendered here once
+                into a stable node (`noticeContainer`) so nothing remounts. Each
+                page puts <RoomNoticeSlot /> after its own header and the node
+                moves into it; with no slot it sits at the top of the content
+                (the fallback wrapper below). Every notice is dismissible (X, or
+                swipe on touch — lib/roomNotices.ts). */}
+            {resolvedRoomId && createPortal(
+              <>
+                {/* v2.72.0 (Discord HQ) — "we couldn't DM you" / "set up
+                    notifications" nudge. Renders nothing for guests, for users
+                    with no pending nudge, and in Discord-connected rooms. */}
+                <NotificationNudgeBanner roomDiscordEnabled={portal?.discord_enabled !== false} roomId={resolvedRoomId} />
+                {/* v2.141.0 — live/upcoming event discovery. Rendered at the
+                    layout so every public page carries it. Suppressed on the
+                    event pages themselves — a banner linking to the page you
+                    are on is noise. */}
+                {!location.pathname.includes('/events/') && (
+                  <EventBanner roomId={resolvedRoomId} roomSlug={slug || ''} roomName={roomName} />
+                )}
+                {/* W27.3 (ADR 0033 §5) — does each of the viewer's paired
+                    Witness devices send here? Renders nothing for guests and
+                    players with no paired device. */}
+                <WitnessScoresGoTo roomId={resolvedRoomId} roomSlug={slug} />
+              </>,
+              noticeContainer,
             )}
-            <PlayerQuickViewProvider>
-              <Outlet />
-            </PlayerQuickViewProvider>
+            {resolvedRoomId && !noticeSlotEl && (
+              <div className="max-w-5xl mx-auto px-4 sm:px-6 pt-3 w-full" ref={setNoticeFallbackEl} />
+            )}
+            <RoomNoticeSlotContext.Provider value={noticeSlotApi}>
+              <PlayerQuickViewProvider>
+                <Outlet />
+              </PlayerQuickViewProvider>
+            </RoomNoticeSlotContext.Provider>
           </RoomContext.Provider>
         )}
       </div>
