@@ -345,6 +345,14 @@ describe('PublicLayout', () => {
     // W21 — a confirm, not an instant leave.
     expect(await screen.findByText('Leave RTX Pinball?')).toBeInTheDocument();
     expect(deleted()).toBe(false);
+    // G23: the dialog's own code arrives while this first confirm is open and the
+    // real dialog takes the stand-in's place. Wait for that, so the second open is
+    // the real one from the start: a button found on a stand-in that is swapped
+    // out before the click is detached, and the click lands nowhere (2 runs in 3).
+    await waitFor(() => {
+      expect(document.querySelector('.arc-dialog--stand-in')).toBeNull();
+      expect(document.querySelector('.arc-dialog')).not.toBeNull();
+    });
     fireEvent.click(screen.getByText('Cancel'));
     await waitFor(() => expect(screen.queryByText('Leave RTX Pinball?')).not.toBeInTheDocument());
     expect(deleted()).toBe(false);
