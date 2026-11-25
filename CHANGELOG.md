@@ -6,6 +6,54 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.266.0] - 2026-11-24 - Practice mode: pause your attempts on a limited-attempts table
+
+In a Limited-attempts tournament every game start on the table used an attempt, so a week-long tournament
+left no way to practice: a cabinet replays its records for days, and closing the Witness did not help. A
+host can now let players pause their own attempts (W126, ADR 0043).
+
+### Added
+- **Host setting, off by default.** Room Admin -> Tournaments -> edit a tournament -> Limited attempts:
+  "Players can pause their attempts to practice" and "Practice games per table" (0 = unlimited). The
+  allowance is per player per table, for as long as that table is open. Offered on any limited
+  tournament, events included. Existing tournaments are unchanged until a host ticks the box.
+- **Pause to practice / Resume attempts** on the room scoreboard card and on the game's page. Games a
+  player STARTS while paused are practice: they use no attempt, stay off the tournament board and go to
+  the Global Scoreboard. When the last practice game starts, the pause ends by itself and the next game
+  counts.
+- **A pause only looks forward.** A game already running when Pause is pressed still counts, so a bad
+  game cannot be turned into practice; a practice game still running at Resume stays practice. The pause
+  times are the server's clock at the press.
+- **The paused state is shown everywhere a player looks before playing:** an amber line and "Resume
+  attempts" on the card and the game page, "Practice mode" in place of the attempts badge, one amber line
+  on every room page naming the paused tables, and on a cabinet the "Sending to" line reads PRACTICE MODE
+  and the tile card reads "practice" (no cabinet update needed).
+- **For the runner:** practice games are listed on the Integrity panel's Attempts section ("practice 2 of
+  3", outside the used count) with the players in practice mode now; voiding a practice game gives it
+  back. Pause, resume and "practice games used up" are rows on Room Admin -> Activity; a practice play is
+  an info row, not a refusal. "Where your plays went" says a practice play did not count and why.
+- `/witness/attempt` answers a start inside a pause `no_match` with a reason and an additive
+  `practice: { n, of, remaining }` (no new status).
+
+### Changed
+- The attempts rules moved from `.claude/rules/witness.md` (39,991 of 40,000 characters) to a new
+  path-scoped `.claude/rules/attempts.md`, with the Practice mode rules.
+- `AttemptService.startForPlayer` shares its game read and entry check with the new Pause press
+  (`playerGameRow`, `playerEntry`); no behaviour change.
+
+### Database
+- Migration 223: `tournaments.practice_games` (NULL = not offered) and `attempt_pauses`. A practice
+  game is an `attempts` row with the new status `practice`.
+
+### Not in this release
+- **A host cannot turn a practice game into an attempt** (owner 2026-11-24). A player who forgets to
+  resume plays their real games as practice; the paused state is loud for that reason (W126.2 if it bites).
+- **Castcade says nothing at the start of a practice game** until it reads the new `practice` field
+  (W126.1); it shows the reason when the score is sent.
+- **Pause and Resume cannot be pressed on the cabinet or in Castcade** (W126.3); use the phone or PC.
+- Practice with Castcade closed is still invisible on a PC, as before; the allowance counts only the
+  games the Witness sees.
+
 ## [2.265.8] - 2026-11-24 - The Arcaid Witness toast is said once, not once in every room
 
 ### Fixed

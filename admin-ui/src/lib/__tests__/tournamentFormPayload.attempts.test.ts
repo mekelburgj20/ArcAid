@@ -61,6 +61,34 @@ describe('entry setting in the tournament form (W39, ADR 0033 §6)', () => {
   });
 });
 
+describe('practice_games in the tournament form (W126, ADR 0043)', () => {
+  it('is off (null) for a new tournament and always sent', () => {
+    expect(defaultFormState.practiceGames).toBeNull();
+    expect(toPayload(defaultFormState, { id: 'new', is_active: true })).toHaveProperty('practice_games', null);
+  });
+
+  it('0 is unlimited, not off: it loads as 0 and saves back as 0', () => {
+    const unlimited = tournamentToFormState(row({ max_attempts: 5, practice_games: 0 }));
+    expect(unlimited.practiceGames).toBe(0);
+    expect(toPayload(unlimited, { id: 't-1', is_active: true })).toHaveProperty('practice_games', 0);
+  });
+
+  it('a stored allowance round-trips; a row without the column, null or a bad value is off', () => {
+    const three = tournamentToFormState(row({ max_attempts: 5, practice_games: 3 }));
+    expect(three.practiceGames).toBe(3);
+    expect(toPayload(three, { id: 't-1', is_active: true })).toMatchObject({ practice_games: 3 });
+    expect(tournamentToFormState(row()).practiceGames).toBeNull();
+    expect(tournamentToFormState(row({ practice_games: null })).practiceGames).toBeNull();
+    expect(tournamentToFormState(row({ practice_games: -1 })).practiceGames).toBeNull();
+    expect(tournamentToFormState(row({ practice_games: 1.5 })).practiceGames).toBeNull();
+  });
+
+  it('unticking the box sends null so the server switches practice mode off', () => {
+    const state = { ...tournamentToFormState(row({ max_attempts: 5, practice_games: 3 })), practiceGames: null };
+    expect(toPayload(state, { id: 't-1', is_active: true })).toHaveProperty('practice_games', null);
+  });
+});
+
 describe('require_attempt_start in the tournament form (W38, ADR 0033 §4)', () => {
   it('is off for a new tournament and always sent', () => {
     expect(defaultFormState.requireAttemptStart).toBe(false);

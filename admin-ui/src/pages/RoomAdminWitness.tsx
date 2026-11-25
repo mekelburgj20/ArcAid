@@ -56,7 +56,11 @@ interface AdminDevice {
    * device's next play would count on (the server reads it the way the
    * cabinet's own attempts line does). Absent from older servers.
    */
-  attemptsLeft?: Array<{ gameId: string; gameName: string; limit: number; used: number; left: number; notStarted: boolean }>;
+  attemptsLeft?: Array<{
+    gameId: string; gameName: string; limit: number; used: number; left: number; notStarted: boolean;
+    /** W126 — the player's attempts are paused on this table: the next play is practice. Absent from older servers. */
+    practice?: boolean;
+  }>;
 }
 
 interface AdminEvent {
@@ -147,11 +151,11 @@ function DeviceCard({ d, timezone }: { d: AdminDevice; timezone: string }) {
         <p className="mt-3 text-sm break-words" data-testid="witness-admin-attempts">
           <span className="text-xs uppercase tracking-wider text-faint mr-1">Attempts left</span>{' '}
           {d.attemptsLeft!.map((a, i) => (
-            <span key={a.gameId} title={a.notStarted ? 'This table needs Start attempts before plays count.' : `${a.used} of ${a.limit} used`}>
+            <span key={a.gameId} title={a.notStarted ? 'This table needs Start attempts before plays count.' : a.practice ? `Practice mode: the next play here uses no attempt. ${a.used} of ${a.limit} used` : `${a.used} of ${a.limit} used`}>
               {i > 0 && <span className="text-faint"> · </span>}
               <span className="text-primary">{a.gameName}</span>{' '}
-              <span className={a.notStarted ? 'text-faint' : a.left === 0 ? 'text-neon-magenta' : 'text-neon-cyan'}>
-                {a.notStarted ? 'not started' : `${a.left} left`}
+              <span className={a.notStarted ? 'text-faint' : a.practice ? 'text-neon-amber' : a.left === 0 ? 'text-neon-magenta' : 'text-neon-cyan'}>
+                {a.notStarted ? 'not started' : a.practice ? `practice mode, ${a.left} left` : `${a.left} left`}
               </span>
             </span>
           ))}

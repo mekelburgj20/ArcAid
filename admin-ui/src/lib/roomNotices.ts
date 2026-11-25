@@ -91,3 +91,12 @@ export function deviceNoticeKey(r: {
 export function startsNoticeKey(gameNames: string[]): string {
     return `starts:${[...gameNames].sort().join('|')}`;
 }
+
+/**
+ * W126 — the "Practice mode is on for" line. Keyed on each table AND the
+ * moment its pause was pressed, so dismissing it hides THIS pause only: the
+ * next time the player pauses (the same table included) the line is back.
+ */
+export function practiceNoticeKey(tables: Array<{ gameId: string; pausedTs: number | null }>): string {
+    return `practice:${tables.map(t => `${t.gameId}@${t.pausedTs ?? 0}`).sort().join('|')}`;
+}

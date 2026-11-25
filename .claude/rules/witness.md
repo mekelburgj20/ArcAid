@@ -2,7 +2,6 @@
 paths:
   - "src/services/Witness*.ts"
   - "src/services/VpxScoreIngest*.ts"
-  - "src/services/Attempt*.ts"
   - "src/services/TournamentEntry*.ts"
   - "src/services/EventLobby*.ts"
   - "src/services/GlobalGameRom*.ts"
@@ -21,16 +20,13 @@ paths:
   - "admin-ui/src/components/Integrity*.tsx"
   - "admin-ui/src/components/Roster*.tsx"
   - "admin-ui/src/components/EntryNotice*.tsx"
-  - "admin-ui/src/components/scoreboard/*Attempt*"
-  - "admin-ui/src/hooks/useRoomAttemptStarts.ts"
   - "admin-ui/src/pages/TournamentInvite*.tsx"
   - "admin-ui/src/lib/integrityBadge.ts"
   - "admin-ui/src/lib/witness*.ts"
-  - "admin-ui/src/lib/attempt*.ts"
 ---
 # Arcaid Witness, VPX ingest, integrity, attempts — rules
 
-Detail for Witness devices, VPX routing, integrity, Limited attempts and invite-only entry; cross-cutting invariants live in the root CLAUDE.md.
+Detail for Witness devices, VPX routing, integrity and invite-only entry; Limited attempts and Practice mode are in `attempts.md`; cross-cutting invariants live in the root CLAUDE.md.
 
 ## Arcaid Witness — devices and the verify-join (v2.142.0 + v2.145.0, ADR 0020)
 - **The device reports over a synchronous GET.** An app on the cabinet reports table `launch_ts`/`exit_ts` (epoch SECONDS, device clock) into `witness_observations` over a **GET** — the AtGames SDK offers no POST — authenticated by a device-scoped token bound to the device id (`witness_devices.atgames_unique_id` — an `ATGAMES_UNIQUE_ID` for a cabinet, a per-install UUID for the Castcade companion).
@@ -118,19 +114,8 @@ Detail for Witness devices, VPX routing, integrity, Limited attempts and invite-
 - **Cabinet 1.0.8 restarts (W64, v2.198.0):** a game abandoned by a hold-Start restart is sent as its own score with `reason=restart`, `quit=1`, `quit_ball=<ball in play>`; its scored attempt row carries note `restart` (the `:r<i>` rows from `restarts=N` stay for older builds). Nothing gates `quit` on device type.
 - **The badge is withheld when there is nothing to judge (v2.166.2).** `VpxScoreIngestService.badgeVerdict` decides what the trail STORES for a score that LANDED: a CABINET never gets a verdict (whatever a later cabinet build sends — VPS ids, table/script/ROM/engine hashes — is stored but NOT run through the desktop rules, which would fail "settings/builds were not reported" and paint every cabinet score Flagged; a cabinet evidence profile in `evaluateSanctioned` is the item that lifts this), and neither does a desktop that sent NO evidence (Castcade < 0.2.5). The trail row is still written (outcome, raw fields, evidence) and the Sanctioned gate is unchanged — the `not_sanctioned` refusal row KEEPS its flagged verdict for the runner's review. "No evidence" is an absence of badge, never a badge of absence (`integrityBadge.ts`).
 
-## Limited attempts (v2.167.0, ADR 0029)
-- **`tournaments.max_attempts` (NULL = unlimited) makes a tournament witness-only.** Attempts are counted per game START in `attempts` via `AttemptService` (desktop: `GET /witness/attempt` + `attempt=<key>` on the score; cabinet: each report is the attempt, key `cab:<started>`); the score and attempt calls share `VpxScoreIngestService.match`.
-- **Every manual submit path must call `checkAttemptLimitSubmission` beside its event gate** — a new submit path that skips it lets typed scores onto a limited board.
-- **Host corrections (v2.203.0, W68).** A SCORED attempt can be voided (route body `deleteScore: true` also deletes its score through `ScoreHistoryService.deleteEvent`, after the void). An `over_limit` attempt can be REINSTATED (`AttemptService.reinstateAttempt`) once the player's other non-void rows on that table are under the limit — it lands through the ingest's own `VpxScoreIngestService.writeBoardRow` with no second Global row; a desktop over-limit start never stored its score and is refused.
-- **Otherwise `void` and `over_limit` are terminal** (`bindScore` and the cabinet report path refuse a replay of either), and no score delete touches `attempts`.
-- **An `over_limit` row USED no slot (v2.217.1, W85).** Every used count — `insertAtomic`'s next-start decision, `usedByGame` / `usedByPlayer`, the reinstate room check, the FE `summarizeAttempts` — reads `USED_STATUS_SQL` (`counted` / `scored` / `unreported`). A hand-written `status <> 'void'` count is a bug (it printed "15 of 5" and blocked Reinstate). Over-limit rows still number past the limit (`MAX(limit, used) + k`).
-- **Pre-window starts count (v2.178.0, W38, ADR 0033 §3–4).** A desktop play that STARTED before the window and ended inside it is counted at score time (`bindScore`'s `windowStartTs`, note "started before the window") instead of refused as `unreported`.
-- **`tournaments.require_attempt_start`** (host setting, off by default): plays go to Global and use NO attempt until the player presses Start attempts for that table (`attempt_starts`, one row per player per games row, first press kept).
-- **`GET /api/witness/attempt-start` (v2.188.0, W45) is the device-token twin of the web button:** it derives its games from `VpxScoreIngestService.openLimitedGames` (so it can never start a table a play would not land on; a named table narrows them through `match`) and writes `source='device'` through the same `AttemptService.startAttempts`.
-- **The rule is `playIsStarted`** (the GAME's start at/after the press), checked BEFORE any attempt row is written, in three places: the score ingest's limited block (`not_started`), `WitnessService.recordAttempt` (answers `no_match` + reason, no new wire status) and so the cabinet's report path. The web button (`AttemptService.startForPlayer`) applies `entryAllowed` like a device play. Check-in and Start attempts are independent.
-- **The button is also on the room scoreboard (v2.197.0, W56):** every card style carries a Start attempts strip above its footer for the viewer's unstarted tables, fed by ONE room read `GET /rooms/:roomId/attempt-starts/me` whose game set is `VpxScoreIngestService.roomLimitedGames` (sharing `enteredLimitedCandidates` with `openLimitedGames`, so a card can never offer a table a play would not land on); the "Your scores go to" strip lists the tables still to start.
-- **That room read returns EVERY open limited game the viewer is allowed in (v2.210.0, W82)** (additive `limit`/`used`/`left`/`requireStart`): the press control and the "needed on" line filter on `requireStart`, and `CardAttemptsLeft.tsx` paints "N attempts left" top-left of the viewer's OWN card in all four styles — nothing for a guest, the kiosk or the admin preview, which have no `CardAttemptStartContext` provider (`pages/Scoreboard.tsx` is the only one).
-- **`openLimitedGames` takes `playDevice` (v2.191.0, W51),** so the attempts line and the device press apply the same device-exclusion rule as `match`.
+## Limited attempts and Practice mode
+Moved to `.claude/rules/attempts.md` (ADR 0029, ADR 0043): counting, host corrections, Start attempts, Practice mode. What stays here is where they meet the ingest: `match`, routing, entry, and "the start uses an attempt in EACH limited tournament" above.
 
 ## Invite-only tournaments (v2.179.0, W39, ADR 0033 §6)
 - **Columns.** `tournaments.entry_mode` (`members` default | `invited`) + `entry_methods` JSON `{link, request}` + `invite_code` (migration 194). `TournamentEntryService` owns the roster (`tournament_roster`, canonical ids), the invite code, the request queue (`tournament_entry_requests`) and the typed gate.

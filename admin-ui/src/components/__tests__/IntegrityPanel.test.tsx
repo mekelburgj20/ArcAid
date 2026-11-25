@@ -427,3 +427,76 @@ describe('IntegrityPanel — attempts left per player (W81)', () => {
     expect(summary.textContent).not.toMatch(/\d{17,}/);
   });
 });
+
+/**
+ * W126 (ADR 0043) — Practice mode in the runner's Attempts section: a practice
+ * game is listed as one (numbered in its own sequence, never "of the limit"),
+ * it does not count as a used attempt, voiding it gives the practice game
+ * back, and the players in practice mode right now are named above the tables.
+ */
+describe('IntegrityPanel — practice mode (W126)', () => {
+  const BASE = `/rooms/${ROOM}/admin/tournaments/t-1`;
+  const mockedPost = vi.mocked(api.post);
+  const row = (id: number, status: string, attemptNo: number, over: Record<string, unknown> = {}) => ({
+    id, gameId: 'g-mb', gameName: 'Monster Bash', userId: '111111111111111111', playerLabel: 'Mox', attemptNo, status,
+    late: false, startedTs: 1_761_800_000, receivedAt: '2026-10-29 20:00:00', endedTs: null,
+    score: null, scoreHistoryId: null, tableName: 'Monster Bash', voidedAt: null, voidable: true,
+    reinstatable: false, reinstateBlockedReason: null,
+    ...over,
+  });
+  const stub = (body: Record<string, unknown>) => {
+    mockedGet.mockImplementation((path: string) => {
+      if (path.endsWith('/integrity')) return Promise.resolve({ ...INTEGRITY, maxAttempts: 5 });
+      if (path.includes('/evidence')) return Promise.resolve({ evidence: [] });
+      if (path === `${BASE}/attempts`) return Promise.resolve({ maxAttempts: 5, ...body });
+      if (path === '/global/games/gg-mb/tables') return Promise.resolve(TABLES);
+      return Promise.reject(new Error(`unexpected GET ${path}`));
+    });
+  };
+
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  it('lists a practice game as practice, outside the used count, and names who is paused now', async () => {
+    stub({
+      practiceGames: 3,
+      attempts: [row(41, 'scored', 1, { score: 1_000 }), row(42, 'practice', 2, { score: 2_000 })],
+      paused: [{ gameId: 'g-mb', gameName: 'Monster Bash', userId: '111111111111111111', playerLabel: 'Mox', pausedTs: 1_761_800_000, practiceUsed: 2, practiceLeft: 1 }],
+    });
+    render(<IntegrityPanel roomId={ROOM} tournament={TOURNAMENT} onClose={() => {}} toast={vi.fn()} />);
+    const practice = await screen.findByTestId('attempt-row-42');
+    expect(practice).toHaveTextContent('practice 2 of 3');
+    expect(practice).toHaveTextContent('practice game, used no attempt');
+    expect(practice).not.toHaveTextContent('2 of 5');
+    expect(within(screen.getByTestId('attempts-summary-g-mb')).getByTestId('attempts-summary-player'))
+      .toHaveTextContent('Mox 1 of 5 used · 4 left');
+
+    const now = screen.getByTestId('attempts-paused-now');
+    expect(within(now).getByTestId('attempts-paused-player')).toHaveTextContent(/^Mox on Monster Bash since .+ · 1 practice game left$/);
+    expect(now.textContent).not.toMatch(/\d{17,}/);
+    expect(screen.getByTestId('attempts-section')).toHaveTextContent('for up to 3 practice games');
+  });
+
+  it('unlimited practice numbers the game without a limit; voiding it gives the practice game back', async () => {
+    const toast = vi.fn();
+    stub({ practiceGames: 0, attempts: [row(42, 'practice', 4)], paused: [] });
+    mockedPost.mockResolvedValue({ success: true });
+    render(<IntegrityPanel roomId={ROOM} tournament={TOURNAMENT} onClose={() => {}} toast={toast} />);
+    const practice = await screen.findByTestId('attempt-row-42');
+    expect(practice).toHaveTextContent('practice 4');
+    expect(practice).not.toHaveTextContent('practice 4 of');
+    expect(screen.getByTestId('attempts-section')).toHaveTextContent('for as many practice games as they like');
+    expect(screen.queryByTestId('attempts-paused-now')).toBeNull();
+
+    fireEvent.click(within(practice).getByLabelText('Void practice game 4 for Mox'));
+    await waitFor(() => expect(mockedPost).toHaveBeenCalledWith(`${BASE}/attempts/42/void`, {}));
+    await waitFor(() => expect(toast).toHaveBeenCalledWith('Practice game 4 given back to Mox', 'success'));
+  });
+
+  it('an older server (no practice fields) shows the section as before', async () => {
+    stub({ attempts: [row(41, 'scored', 1, { score: 1_000 })] });
+    render(<IntegrityPanel roomId={ROOM} tournament={TOURNAMENT} onClose={() => {}} toast={vi.fn()} />);
+    await screen.findByTestId('attempt-row-41');
+    expect(screen.getByTestId('attempts-section')).not.toHaveTextContent('Practice mode');
+    expect(screen.queryByTestId('attempts-paused-now')).toBeNull();
+  });
+});

@@ -1,6 +1,7 @@
 import { useContext } from 'react';
 import type { GameLeaderboard } from '../ScoreboardComponents';
 import { CardAttemptStartContext } from './cardAttemptStartContext';
+import { isPracticing } from '../../lib/attemptStarts';
 
 /**
  * W82 (owner 2026-10-31) — the LOGGED-IN viewer's own attempts left on a
@@ -32,9 +33,15 @@ export default function CardAttemptsLeft({
   if (!item) return null;
 
   const { left, limit } = item;
-  const text = left === 0 ? 'No attempts left' : `${left} attempt${left === 1 ? '' : 's'} left`;
-  const label = `${left} of ${limit} attempts left on ${lb.displayName || lb.gameName}`;
-  const tone = left === 0
+  // W126 — while the viewer's attempts are paused the badge says so instead
+  // of the count: the next game here uses none of them.
+  const practicing = isPracticing(item);
+  const text = practicing ? 'Practice mode'
+    : left === 0 ? 'No attempts left' : `${left} attempt${left === 1 ? '' : 's'} left`;
+  const label = practicing
+    ? `Practice mode on ${lb.displayName || lb.gameName}: games you start now do not count. ${left} of ${limit} attempts left`
+    : `${left} of ${limit} attempts left on ${lb.displayName || lb.gameName}`;
+  const tone = practicing || left === 0
     ? 'border-neon-amber/50 text-neon-amber'
     : 'border-neon-cyan/40 text-neon-cyan';
   const shape = variant === 'tab'

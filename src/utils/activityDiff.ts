@@ -210,6 +210,7 @@ export const TOURNAMENT_FIELD_LABELS: Record<string, string> = {
     sanctioned_rules: 'Sanctioned play rules',
     max_attempts: 'Attempts per table',
     require_attempt_start: 'Players press Start attempts first',
+    practice_games: 'Practice games per table (0 = unlimited)',
     witness_flag_mode: 'Flagged Witness scores',
     entry_mode: 'Who may play',
     entry_methods: 'Ways onto the roster',

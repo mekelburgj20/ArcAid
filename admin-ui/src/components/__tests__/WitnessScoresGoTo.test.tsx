@@ -257,6 +257,44 @@ describe('WitnessScoresGoTo', () => {
         await waitFor(() => expect(screen.queryByTestId('attempt-starts-needed')).toBeNull());
     });
 
+    // W126 — the "Practice mode is on for:" line.
+    const practiceGame = (gameId: string, gameName: string, pausedTs: number | null) => ({
+        gameId, gameName, tournamentId: 't', tournamentName: 'T', roundNo: null, started: false, startedTs: null,
+        limit: 3, used: 0, left: 3, requireStart: false,
+        practice: { offered: true, limit: 3, used: 0, left: 3, paused: pausedTs != null, pausedTs },
+    });
+    const stubPractice = (routing: Routing[], games: () => unknown[]) => {
+        vi.stubGlobal('fetch', vi.fn((url: string) => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(url.includes('/attempt-starts/me') ? { games: games() } : routing),
+        })));
+    };
+
+    it('W126: names the tables the player is in practice mode on, each linking to its game page', async () => {
+        stubPractice([row({})], () => [practiceGame('g1', 'Congo', 1000), practiceGame('g2', 'Taxi', null)]);
+        render(<MemoryRouter><WitnessScoresGoTo roomId="room-1" roomSlug="wizard" /></MemoryRouter>);
+        const line = await screen.findByTestId('practice-mode-on');
+        expect(line).toHaveTextContent('Practice mode is on for: Congo. Games you start there do not count until you press Resume attempts.');
+        expect(screen.getByRole('link', { name: 'Congo' }).getAttribute('href')).toBe('/wizard/games/Congo');
+        expect(screen.queryByRole('link', { name: 'Taxi' })).toBeNull();
+    });
+
+    it('W126: no practice line when no device sends here, and it goes when the player resumes', async () => {
+        stubPractice([row({ sendsHere: 'no', why: 'global_only' })], () => [practiceGame('g1', 'Congo', 1000)]);
+        const first = render(<MemoryRouter><WitnessScoresGoTo roomId="room-1" roomSlug="wizard" /></MemoryRouter>);
+        expect(await screen.findByText(/set to the Global Scoreboard only/)).toBeTruthy();
+        expect(screen.queryByTestId('practice-mode-on')).toBeNull();
+        first.unmount();
+
+        let pausedTs: number | null = 1000;
+        stubPractice([row({})], () => [practiceGame('g1', 'Congo', pausedTs)]);
+        render(<MemoryRouter><WitnessScoresGoTo roomId="room-1" roomSlug="wizard" /></MemoryRouter>);
+        expect(await screen.findByTestId('practice-mode-on')).toBeTruthy();
+        pausedTs = null;
+        window.dispatchEvent(new Event(ATTEMPT_STARTS_CHANGED_EVENT));
+        await waitFor(() => expect(screen.queryByTestId('practice-mode-on')).toBeNull());
+    });
+
     it('says the devices that send here in ONE toast, and draws no line for them', async () => {
         stubRoom([row({ deviceId: 'a', watching: 'no' }), row({ deviceId: 'b', deviceType: 'desktop' }), row({ deviceId: 'c', watching: 'no' })], []);
         const { container } = render(<MemoryRouter><WitnessScoresGoTo roomId="room-1" roomSlug="wizard" /></MemoryRouter>);

@@ -1,5 +1,6 @@
 import { getDatabase } from '../database/database.js';
 import { normalizeWitnessFlagMode } from '../utils/witnessFlagMode.js';
+import { normalizePracticeGames } from '../utils/practiceGames.js';
 import { normalizeIntegrityMode, normalizeSanctionedRules } from '../utils/sanctionedRules.js';
 import { logError } from '../utils/logger.js';
 import { serializeTournamentAnnounceRoutes } from '../utils/discordAnnounceRoutes.js';
@@ -221,6 +222,8 @@ export class TournamentService {
         witness_flag_mode?: 'prevent' | 'flag';
         /** v2.178.0 (W38) — "Players press Start attempts first"; default off. */
         require_attempt_start?: boolean;
+        /** W126 — practice games per player per table while paused; null (default) = no pausing, 0 = unlimited. */
+        practice_games?: number | null;
         /** v2.179.0 (W39) — entry: every room member (default) or the roster only. */
         entry_mode?: 'members' | 'invited';
         /** v2.179.0 (W39) — the self-serve ways onto the roster. */
@@ -255,6 +258,11 @@ export class TournamentService {
         );
         if (data.require_attempt_start) {
             await db.run('UPDATE tournaments SET require_attempt_start = 1 WHERE id = ?', data.id);
+        }
+        // W126 — off (NULL) unless the host asked for it.
+        const practiceGames = normalizePracticeGames(data.practice_games);
+        if (practiceGames != null) {
+            await db.run('UPDATE tournaments SET practice_games = ? WHERE id = ?', practiceGames, data.id);
         }
         // E16 (v2.226.0) — per-kind announcement overrides, canonicalised
         // through the column's serializer ('' -> NULL).
@@ -314,6 +322,8 @@ export class TournamentService {
         witness_flag_mode?: 'prevent' | 'flag';
         /** v2.178.0 (W38) — omitted = unchanged. */
         require_attempt_start?: boolean;
+        /** W126 — omitted = unchanged, null = players cannot pause, 0 = unlimited practice. */
+        practice_games?: number | null;
         /** v2.179.0 (W39) — omitted = unchanged. */
         entry_mode?: 'members' | 'invited';
         /** v2.179.0 (W39) — omitted = unchanged. */
@@ -381,6 +391,13 @@ export class TournamentService {
         // W38 — same omission rule as the other integrity fields.
         if (data.require_attempt_start !== undefined) {
             await db.run('UPDATE tournaments SET require_attempt_start = ? WHERE id = ?', data.require_attempt_start ? 1 : 0, id);
+        }
+        // W126 — same omission rule. Turning practice off leaves the practice
+        // games already played as they are (they never count afterwards) and
+        // any open pause simply stops producing practice (`insertAtomic`
+        // reads the column).
+        if (data.practice_games !== undefined) {
+            await db.run('UPDATE tournaments SET practice_games = ? WHERE id = ?', normalizePracticeGames(data.practice_games), id);
         }
         // W39 — same omission rule: a form that predates the entry setting
         // must never turn an invite-only tournament back into an open one.

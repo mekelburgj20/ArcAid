@@ -47,6 +47,7 @@ const SOURCE_LABEL: Record<string, string> = {
 const WITNESS_OUTCOME: Record<string, string> = {
     ingested: 'Landed',
     attempt_refused: 'Refused by Limited attempts',
+    practice: 'Practice game (used no attempt, did not count)',
     not_sanctioned: 'Refused by Sanctioned play',
     suppressed: 'Ignored (the player deleted this play)',
     global: 'Went to the Global Scoreboard',

@@ -32,7 +32,73 @@ export type RoomAttemptStart = {
   left: number;
   /** Does the tournament make players press Start attempts first? */
   requireStart: boolean;
+  /** W126 — the viewer's practice state on this table; absent from a server that predates practice mode. */
+  practice?: PracticeState;
 };
+
+/**
+ * W126 (ADR 0043) — Practice mode. A player PAUSES their attempts on one
+ * table; the games they START while paused are practice: no attempt used, off
+ * the tournament board, on to the Global Scoreboard. `limit` is the
+ * tournament's allowance per player per table (null = not offered, 0 =
+ * unlimited, then `left` is null). `paused` is true only while the next game
+ * would really be practice (the server reads an open pause with nothing left
+ * as not paused).
+ */
+export type PracticeState = {
+  offered: boolean;
+  limit: number | null;
+  used: number;
+  left: number | null;
+  paused: boolean;
+  pausedTs: number | null;
+};
+
+/** The state of a table whose tournament offers no practice (and of a row from an older server). */
+export const NO_PRACTICE: PracticeState = { offered: false, limit: null, used: 0, left: null, paused: false, pausedTs: null };
+
+/** Is the viewer in practice mode on this table right now? */
+export function isPracticing(item: Pick<RoomAttemptStart, 'practice'>): boolean {
+  return item.practice?.paused === true;
+}
+
+/**
+ * May the viewer press "Pause to practice" here? The same checks the server
+ * makes, so the button is never one the press would refuse: practice is
+ * offered and not already on, a practice game is left, an attempt is left
+ * (there is nothing to protect once they are used), and Start attempts — when
+ * the tournament requires it — has been pressed.
+ */
+export function canPausePractice(item: Pick<RoomAttemptStart, 'practice' | 'left' | 'requireStart' | 'started'>): boolean {
+  const p = item.practice;
+  if (!p?.offered || p.paused) return false;
+  if (p.left === 0 || item.left <= 0) return false;
+  return !item.requireStart || item.started;
+}
+
+/** "2 practice games left" / "1 practice game left" / "Unlimited practice games" / "No practice games left". */
+export function practiceLeftText(p: Pick<PracticeState, 'limit' | 'left'>): string {
+  if (p.limit === 0 || p.left == null) return 'Unlimited practice games';
+  if (p.left === 0) return 'No practice games left';
+  return `${p.left} practice game${p.left === 1 ? '' : 's'} left`;
+}
+
+/** What the paused state says, everywhere it is said. */
+export const PRACTICE_ON_TEXT = 'Practice mode: games you start now use no attempt and do not count';
+
+/**
+ * The lead-in of the room line that names the tables the viewer is practicing
+ * on ("Practice mode is on for: Congo"), so a player who forgot to resume sees
+ * it on every room page before they play a game they meant to count.
+ */
+export const PRACTICE_MODE_ON_FOR = 'Practice mode is on for:';
+
+/** The tables that line names (each once, list order), or null when the viewer is practicing on none. */
+export function practicingTables(games: RoomAttemptStart[]): RoomAttemptStart[] | null {
+  const seen = new Set<string>();
+  const out = games.filter(g => isPracticing(g) && !seen.has(g.gameId) && seen.add(g.gameId));
+  return out.length > 0 ? out : null;
+}
 
 /**
  * Fired on `window` after a press, so the strip in `PublicLayout` (a separate
@@ -70,6 +136,30 @@ export async function pressAttemptStart(
     return { ok: true, startedTs: body.startedTs };
   } catch {
     return { ok: false, error: 'Could not start your attempts' };
+  }
+}
+
+/**
+ * W126 — press "Pause to practice" (`pause`) or "Resume attempts" (`resume`)
+ * on one table. Answers the viewer's new practice state; a refusal carries the
+ * server's own sentence (no practice games left, not entered, table closed).
+ */
+export async function pressAttemptPause(
+  roomId: string, item: Pick<RoomAttemptStart, 'tournamentId' | 'gameId'>, playerToken: string, action: 'pause' | 'resume',
+): Promise<{ ok: true; practice: PracticeState } | { ok: false; error: string }> {
+  const fallback = action === 'pause' ? 'Could not pause your attempts' : 'Could not resume your attempts';
+  try {
+    const res = await fetch(
+      `/api/rooms/${roomId}/tournaments/${item.tournamentId}/games/${item.gameId}/attempt-${action}`,
+      { method: 'POST', headers: { Authorization: `Bearer ${playerToken}` } },
+    );
+    const body = await res.json().catch(() => ({})) as { error?: string; practice?: PracticeState };
+    if (!res.ok || !body.practice || typeof body.practice !== 'object') {
+      return { ok: false, error: body.error || fallback };
+    }
+    return { ok: true, practice: body.practice };
+  } catch {
+    return { ok: false, error: fallback };
   }
 }
 

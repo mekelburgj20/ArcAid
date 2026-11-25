@@ -24,6 +24,10 @@ export type CardAttemptStartValue = {
   pendingGameId: string | null;
   /** Press Start attempts for one listed game. */
   start: (item: RoomAttemptStart) => void;
+  /** W126 — press "Pause to practice" for one listed game (uses `pendingGameId` while in flight). */
+  pause: (item: RoomAttemptStart) => void;
+  /** W126 — press "Resume attempts" for one listed game. */
+  resume: (item: RoomAttemptStart) => void;
 };
 
 export const CardAttemptStartContext = createContext<CardAttemptStartValue | null>(null);
