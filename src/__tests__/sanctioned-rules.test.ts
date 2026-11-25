@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-    DEFAULT_SANCTIONED_RULES, evaluateSanctioned, normalizeSanctionedRules, parseWitnessEvidence,
+    DEFAULT_SANCTIONED_RULES, evaluateSanctioned, isModernBuild, normalizeSanctionedRules, parseBuildVersion, parseWitnessEvidence,
     type GameRequirements, type WitnessEvidence,
 } from '../utils/sanctionedRules.js';
 
@@ -138,13 +138,58 @@ describe('evaluateSanctioned', () => {
         expect(run(rigEvidence({ adjustments: { total: 52, items: [], non_factory: ['Balls Per Game'] } }), { adjustments_allowed: ['balls per game'] }).verdict).toBe('pass');
     });
 
-    it('builds: official and Panasony pass; nightly passes unless the runner turns it off; unknown needs a blessed hash; cheat always fails', () => {
+    it('builds: official and Panasony pass; nightly passes unless the runner turns it off; an old or unversioned build needs a blessed hash; cheat always fails', () => {
         expect(run(rigEvidence(), { allow_nightly_builds: false }).reasons[0]).toMatch(/VPinMAME .* nightly/);
-        const unknown = rigEvidence({ build: { vpx: { sha256: SHA, version: '10.8.0.9999', known: null, family: 'unknown' } } });
-        expect(run(unknown).reasons[0]).toMatch(/VPX .* unrecognised build/);
-        expect(run(unknown, { blessed_build_hashes: [SHA] }).verdict).toBe('pass');
+        const old = rigEvidence({ build: { vpx: { sha256: SHA, version: '10.7.4.0', known: null, family: 'unknown' } } });
+        expect(run(old).reasons).toEqual(['VPX 10.7.4.0 is older than 10.8.0 and the runner has not blessed it']);
+        expect(run(old, { blessed_build_hashes: [SHA] }).verdict).toBe('pass');
+        const unversioned = rigEvidence({ build: { vpx: { sha256: SHA, version: null, known: null, family: 'unknown' } } });
+        expect(run(unversioned).reasons).toEqual(['VPX is an unrecognised build the runner has not blessed']);
+        expect(run(unversioned, { blessed_build_hashes: [SHA] }).verdict).toBe('pass');
         expect(run(rigEvidence({ build: { cheat: true } })).reasons).toEqual(['VPinMAME cheat option is ON for this ROM']);
         expect(run(rigEvidence({ build: { cheat: true } }), { require_known_build: false }).reasons).toEqual(['VPinMAME cheat option is ON for this ROM']);
+    });
+
+    it('W125 (owner 2026-11-24): every VPX from 10.8.0 and VPinMAME from 3.6.0 passes, whatever family the companion named', () => {
+        const withBuilds = (vpx: string | null, vpinmame: string | null) => rigEvidence({ build: {
+            vpx: { sha256: SHA, version: vpx, known: null, family: 'unknown' },
+            vpinmame: { sha256: 'b'.repeat(64), version: vpinmame, known: null, family: 'unknown' },
+        } });
+        // Krobs' Congo scores on our fork, his own commit-suffixed build, saecrow's VPinMAME, a 10.8.1/10.9 build.
+        for (const [vpx, vpm] of [
+            ['10.8.0.9999.castcade-9e78aef', '3.6.0.1227'],
+            ['10.8.0.2058.800a99c', '3, 6, 0, 929'],
+            ['10.9.0.3100', '3.7.0.250'],
+            ['10, 8, 1, 2200', '3, 6, 1, 0'],
+        ] as const) {
+            const v = run(withBuilds(vpx, vpm));
+            expect(v.verdict, `${vpx} / ${vpm}`).toBe('pass');
+        }
+        expect(run(withBuilds('10.8.0.9999.castcade-9e78aef', '3, 6, 0, 929')).checks.find(c => c.rule === 'known_build'))
+            .toMatchObject({ status: 'pass', detail: 'VPX 10.8.0.9999.castcade-9e78aef (10.8.0 or newer); VPinMAME 3, 6, 0, 929 (3.6.0 or newer)' });
+        // Below the floor, each binary is judged against its own floor.
+        expect(run(withBuilds('10.8.0.1', '3, 5, 0, 900')).reasons).toEqual(['VPinMAME 3, 5, 0, 900 is older than 3.6.0 and the runner has not blessed it']);
+        expect(run(withBuilds('10.7.9.3000', '3.6.0.1')).reasons).toEqual(['VPX 10.7.9.3000 is older than 10.8.0 and the runner has not blessed it']);
+        // A modern build the companion called a nightly still follows the runner's nightly switch.
+        expect(run(rigEvidence({ build: { vpx: { sha256: SHA, version: '10.8.0.2100', known: null, family: 'nightly' } } }), { allow_nightly_builds: false }).reasons[0])
+            .toMatch(/VPX 10\.8\.0\.2100 is a nightly build/);
+        // An unreported VPX still fails: the rule cannot pass a build it never saw.
+        expect(run(rigEvidence({ build: { vpx: null } })).reasons).toEqual(['the VPX build was not reported']);
+    });
+
+    it('parseBuildVersion and isModernBuild read dotted and comma-separated versions', () => {
+        expect(parseBuildVersion('10.8.0.2079.Panasony')).toEqual([10, 8, 0]);
+        expect(parseBuildVersion('3, 6, 0, 929')).toEqual([3, 6, 0]);
+        expect(parseBuildVersion('v10.9')).toEqual([10, 9, 0]);
+        expect(parseBuildVersion('Panasony 10.8')).toBeNull();
+        expect(parseBuildVersion('')).toBeNull();
+        expect(parseBuildVersion(null)).toBeNull();
+        expect(isModernBuild('VPX', '10.8.0.0')).toBe(true);
+        expect(isModernBuild('VPX', '11.0.0')).toBe(true);
+        expect(isModernBuild('VPX', '10.7.99')).toBe(false);
+        expect(isModernBuild('VPinMAME', '3.6')).toBe(true);
+        expect(isModernBuild('VPinMAME', '3.5.99.9999')).toBe(false);
+        expect(isModernBuild('VPinMAME', null)).toBe(false);
     });
 
     it('the named table: unconfigured skips, a different table fails, an unidentified table fails, a match passes', () => {

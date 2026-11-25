@@ -44,7 +44,11 @@ in which a tournament can genuinely require a named table and stock conditions.
    `min_tilt_sensitivity` (default 300), `max_accel_gain` (default 150 = VPX's default),
    `require_nudge_filter` (default off). The cheat flag is refused unconditionally. **"Known build" is an
    allow-list, never "official only":** `official` and `panasony` pass, `nightly` passes behind the toggle,
-   `unknown` passes only with a blessed hash.
+   `unknown` passes only with a blessed hash. **Widened 2026-11-24 (owner, W125, v2.267.0):** every VPX
+   from 10.8.0 and every VPinMAME from 3.6.0 passes by its reported version, whatever the family (the
+   Castcade fork, commit-suffixed and self-compiled builds included); only an older or unversioned `unknown`
+   build still needs a blessed hash, and a `nightly` still follows the toggle. The version is the binary's
+   own text, so it is a statement, not a proof, as the Panasony word always was.
 
 3. **The rules are evaluated for every witness score that matches a tournament, in both modes, and the
    verdict is stored** (`witness_evidence`, one row per witness score the ingest saw, every outcome, keyed to

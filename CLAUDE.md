@@ -90,7 +90,7 @@ Each line is the rule; the named rule file has the detail and the why.
 | 2026-08-31 | A submitter may correct their own score while the card is unlocked | `scores-identity.md`, v2.150.0 |
 | 2026-10-18 | Season and Pick by poll are independent switches; poll cards belong in the Lobby | ADR 0026, `events.md` |
 | 2026-10-18 | Never render a raw user id; resolve through the label chain | v2.162.1 |
-| 2026-10-19 | Known-build rule is an allow-list (`official` + `panasony` pass), never "official only" | ADR 0027, `witness.md` |
+| 2026-10-19 | Known-build rule is an allow-list (`official` + `panasony` pass), never "official only"; widened 2026-11-24: every VPX ≥ 10.8.0 and VPinMAME ≥ 3.6.0 passes by version | ADR 0027, `witness.md`, W125 |
 | 2026-10-22 | An event round is a labelled Start + End pair, duration is a caption | v2.167.2 |
 | 2026-10-25 | `is_active = 0` on a rotation is a pause, not closed | `events.md` |
 | 2026-10-25 | Machine-reported rows are not editable by anyone; Sanctioned / Limited closes the submitter correction tier | v2.176.0 |

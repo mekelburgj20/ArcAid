@@ -6,6 +6,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.267.0] - 2026-11-24 - Every modern VPX and VPinMAME counts as a known build
+
+### Changed
+- **A Castcade score is no longer Flagged only because the player's VPX or VPinMAME is not one of the
+  builds Arcaid named** (owner ruling 2026-11-24, W125). The "known build" check now passes any VPX from
+  10.8.0 and any VPinMAME from 3.6.0, whatever kind of build it is: the official release, the Panasony VR
+  build, a nightly, the Castcade build testers use for the 3D watch, or one a player compiled. Before, only
+  the official release, Panasony and nightlies passed: Krobs' Congo scores on the Castcade build and
+  saecrow's on VPinMAME 3.6.0 build 929 were Flagged for this in Open play, and a Sanctioned tournament
+  would have kept them off its board.
+- Arcaid reads the version Castcade already sends with every score, so this works with every Castcade
+  version and nobody needs to update anything.
+- Unchanged: a VPX older than 10.8.0, a VPinMAME older than 3.6.0, or a build that reports no version still
+  needs the runner to bless its SHA-256 (the reason now says "older than 10.8.0"). "Allow nightly builds"
+  still decides for a build Castcade calls a nightly. A score whose VPX Castcade could not read ("the VPX
+  build was not reported", seen when VPX runs as administrator) still fails the check, and the cheat rule is
+  untouched.
+- Scores already Flagged keep their flag: the verdict is stored when a score arrives and is not judged again.
+- The tournament form's help for Require a known build, Allow nightly builds and Blessed build hashes
+  describes the new rule. Where it shows: Room Admin -> Tournaments -> Integrity -> Evidence, where a passing
+  score reads, for example, "Known build: VPX 10.8.0.9999.castcade-9e78aef (10.8.0 or newer)".
+
 ## [2.266.0] - 2026-11-24 - Practice mode: pause your attempts on a limited-attempts table
 
 In a Limited-attempts tournament every game start on the table used an attempt, so a week-long tournament

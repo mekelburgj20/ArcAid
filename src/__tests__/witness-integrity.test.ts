@@ -350,7 +350,8 @@ describe('Integrity mode — the ingest', () => {
         await createRotationGame(roomId, 'Tales from the Crypt (Data East 1993)', {
             mode: 'sanctioned', rules: { blessed_build_hashes: [SHA] },
         });
-        const unknownVpx = evidence({ build: { vpx: { sha256: SHA, version: '10.8.0.9999', known: null, family: 'unknown' } } });
+        // Older than 10.8.0, so the blessing is what admits it (a modern build passes on its version, W125).
+        const unknownVpx = evidence({ build: { vpx: { sha256: SHA, version: '10.7.4.0', known: null, family: 'unknown' } } });
         res = await request(app).get('/api/witness/score').query({ device: DESKTOP, token, ...scoreQuery({ score: 5 }), ...unknownVpx });
         expect(res.body.status).toBe('ingested');
     });

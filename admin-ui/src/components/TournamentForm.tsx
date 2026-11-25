@@ -982,9 +982,9 @@ function IntegritySection({ mode, rules, onModeChange, onRulesChange }: {
             {check('requireFactoryAdjustments', 'Require factory adjustments',
               'ROM machine adjustments at factory values; Free Play is allowed by default')}
             {check('requireKnownBuild', 'Require a known build',
-              'Official 10.8.0 and the Panasony VR community build pass; nightlies pass when allowed; anything else needs its SHA-256 blessed here')}
+              'Any VPX from 10.8.0 and any VPinMAME from 3.6.0 pass (official, Panasony, the Castcade build, self-compiled); nightlies pass when allowed; an older build, or one that reports no version, needs its SHA-256 blessed here')}
             {check('allowNightlyBuilds', 'Allow nightly builds',
-              'A VPX or VPinMAME nightly build passes the known-build rule. Off = only official, Panasony or blessed builds.', !rules.requireKnownBuild)}
+              'A build Castcade names a nightly passes the known-build rule. Off = a nightly is flagged; every other VPX from 10.8.0 and VPinMAME from 3.6.0 still passes.', !rules.requireKnownBuild)}
             {check('requireNudgeFilter', 'Require the nudge filter',
               'VPX\'s EnableNudgeFilter must be on. Off by default: the 10.8.0 filter blocks little, and many players never touch it.')}
           </div>
@@ -1015,7 +1015,7 @@ function IntegritySection({ mode, rules, onModeChange, onRulesChange }: {
           </div>
           <div>
             <label className={labelClass} htmlFor="integrity-blessed-hashes">
-              Blessed build hashes <InfoTip text="SHA-256 of a VPX or VPinMAME binary that is neither official, Panasony nor a nightly but that you accept for this tournament. One per line; the Castcade Status page shows a player's build hash." />
+              Blessed build hashes <InfoTip text="SHA-256 of a VPX older than 10.8.0, a VPinMAME older than 3.6.0, or a build that reports no version, that you accept for this tournament. One per line; the Castcade Status page shows a player's build hash." />
             </label>
             <textarea id="integrity-blessed-hashes" rows={2} placeholder="One SHA-256 (64 hex characters) per line" aria-label="Blessed build hashes"
               value={rules.blessedBuildHashes} onChange={e => patch({ blessedBuildHashes: e.target.value })}
