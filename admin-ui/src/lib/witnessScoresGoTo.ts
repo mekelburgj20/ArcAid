@@ -151,67 +151,74 @@ export function roomToastMs(lineCount: number): number {
 }
 
 /**
- * What the room toast is ABOUT: which devices send here, and how. Built from
- * the same per-device key the dismissible lines use (`deviceNoticeKey`), so
- * "the answer changed" means one thing on the page. The not-watching tail is
- * deliberately NOT in it: a cabinet stops and starts watching every time it is
- * played, and that would bring the toast back each time.
+ * What the room toast is ABOUT: one key for each device that sends here, saying
+ * how. It is the per-device key the dismissible lines use (`deviceNoticeKey`),
+ * so "the answer changed" means one thing on the page. The room is deliberately
+ * NOT in it (a device set to all the player's rooms gives the same answer in
+ * each of them), and neither is the not-watching tail: a cabinet stops and
+ * starts watching every time it is played.
  */
-export function roomToastKey(rows: Routing[]): string {
-    return rows.filter(r => sendsHereWords(r) !== null).map(deviceNoticeKey).sort().join('|');
+export function roomToastKeys(rows: Routing[]): string[] {
+    return rows.filter(r => sendsHereWords(r) !== null).map(deviceNoticeKey);
 }
 
 /**
- * The room toast is said ONCE per room in this browser, and again only when
- * its answer changes (`roomToastKey`). The owner got it on every refresh of the
- * installed app on a phone (2026-11-24), which is what remembering it only in
- * memory did. So the last answer said for each room is kept in localStorage
- * (`arcaid_room_toast_said:<roomId>`), with no expiry: a confirmation the
- * player has read is not news until it changes. Memory is still consulted
- * first and is all there is when storage is blocked (a private window): then
- * it is once per page load, as before.
+ * Each device's answer is said ONCE in this browser, in whichever room the
+ * player meets it first. The owner got the toast on every refresh of the
+ * installed app (2026-11-24, memory only), and then still "often" once it was
+ * remembered per room: a player in several rooms was told the same thing in
+ * each, and again whenever a device was pointed away and back. So the answers
+ * already said are one list in localStorage (`arcaid_room_toast_said`, the
+ * newest `SAID_MAX`), with no expiry and no forgetting: a newly paired device,
+ * or a device pointed at a tournament it has not been pointed at before, is
+ * news; a room, a refresh or an answer seen before is not. With storage
+ * blocked (a private window) it is once per page load.
  */
-const SAID_PREFIX = 'arcaid_room_toast_said:';
-const roomToastSaid = new Map<string, string>();
+const SAID_KEY = 'arcaid_room_toast_said';
+/** v2.265.5 kept one joined answer per room under this prefix; those count as said. */
+const SAID_BY_ROOM_PREFIX = 'arcaid_room_toast_said:';
+const SAID_MAX = 60;
+const saidThisLoad = new Set<string>();
 
-function lastSaid(roomId: string): string | null {
-    const inMemory = roomToastSaid.get(roomId);
-    if (inMemory !== undefined) return inMemory;
+function byRoomKeys(): string[] {
+    const keys: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k?.startsWith(SAID_BY_ROOM_PREFIX)) keys.push(k);
+    }
+    return keys;
+}
+
+function storedSaid(): string[] {
     try {
-        return localStorage.getItem(SAID_PREFIX + roomId);
+        const raw = localStorage.getItem(SAID_KEY);
+        if (raw === null) return byRoomKeys().flatMap(k => (localStorage.getItem(k) ?? '').split('|')).filter(Boolean);
+        const parsed: unknown = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed.filter((k): k is string => typeof k === 'string') : [];
     } catch {
-        return null;
+        return [];
     }
 }
 
-export function firstRoomToast(roomId: string, key: string): boolean {
-    if (lastSaid(roomId) === key) return false;
-    roomToastSaid.set(roomId, key);
+/** True when at least one of these answers has not been said in this browser; it then remembers them all. */
+export function firstRoomToast(keys: string[]): boolean {
+    const stored = storedSaid();
+    const known = new Set([...stored, ...saidThisLoad]);
+    const fresh = keys.filter(k => !known.has(k));
+    if (fresh.length === 0) return false;
+    for (const k of fresh) saidThisLoad.add(k);
     try {
-        localStorage.setItem(SAID_PREFIX + roomId, key);
+        localStorage.setItem(SAID_KEY, JSON.stringify([...stored, ...fresh].slice(-SAID_MAX)));
+        for (const k of byRoomKeys()) localStorage.removeItem(k);
     } catch {
         // Storage unavailable: remembered for this page load only.
     }
     return true;
 }
 
-/**
- * No device sends here any more: forget what was said, so the day one is
- * pointed back at the room the toast confirms it (the same answer as before,
- * but news to the player who has just fixed it).
- */
-export function forgetRoomToast(roomId: string): void {
-    roomToastSaid.delete(roomId);
-    try {
-        localStorage.removeItem(SAID_PREFIX + roomId);
-    } catch {
-        // Nothing stored, nothing to forget.
-    }
-}
-
 /** Tests only: what a reload forgets (memory), not what the browser keeps. */
 export function forgetRoomToasts(): void {
-    roomToastSaid.clear();
+    saidThisLoad.clear();
 }
 
 export function homeLines(devices: Device[]): Line[] {
