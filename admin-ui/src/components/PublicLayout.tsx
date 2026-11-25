@@ -649,6 +649,7 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
           title={`Leave ${roomName}?`}
           message="You can rejoin any time. Leaving takes this room off My Game Rooms; your scores stay on its boards."
           confirmLabel="Leave room"
+          tone="pink"
           onConfirm={leaveConfirmed}
           onCancel={() => setConfirmLeave(false)}
         />

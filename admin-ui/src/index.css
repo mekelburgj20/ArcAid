@@ -2042,7 +2042,7 @@ select option {
    under 600 px). */
 .arc-toast-li { padding: 0; width: var(--width); }
 
-.arc-toast, .arc-menu {
+.arc-toast, .arc-menu, .arc-dialog {
   --arc-ice: #EAF6FF; --arc-cyan: #4FD6FF; --arc-pink: #FF3D7F;
   --arc-chrome: #B9C3D3; --arc-gunmetal: #6B7488; --arc-ball-edge: #1D202A;
   --t: var(--arc-cyan);
@@ -2641,6 +2641,169 @@ a.part-row__name::after, button.part-row__name::after { content: ""; position: a
   .room-switch { transition: border-color .15s, background-color .15s; }
   .room-switch__name { transition: color .15s; }
   .room-switch__chev { transition: transform .16s ease-out, color .15s; }
+}
+
+/* ─── The Arcaid dialog and sheet (G23, owner pick 2026-11-25; components/parts/Dialog.tsx) ───
+   The owner's pick from the G23 parts mockup (style plan decision 8): the
+   confirm and form pop-ups are one slab of the toast and menu family, fixed
+   dark on every theme. Its glass, colours and face come from the shared rule
+   in "The Arcaid toast" (`.arc-toast, .arc-menu, .arc-dialog`); the popup
+   carries `sb-theme-scope`, and this block points the site tokens that a
+   `parts/Button` or a field inside reads at the kit, as `.aw-island` does on
+   the Arcaid look: primary is the kit's pink, danger its red.
+   The slab: the double-line neon edge and the top light bar in the tone, the
+   logo's triangle beside a tracked-caps label, a plain title, a corner x; a
+   body that scrolls while the title and the actions stay. On a phone (600 px
+   or less) the actions stack full width, the action on top, and a `sheet`
+   rises from the bottom with a grab handle (a short lit rail, the chrome
+   pinball resting on it) that base-ui's Drawer drags (`--drawer-swipe-*`).
+   The same classes draw the stand-in shown while the base-ui chunk is on its
+   way (`--stand-in`); a real dialog that replaces one does not animate in
+   again (`--handoff`). Stacking: above the page, the nav (z-40), the menu (45)
+   and the hand-built modals (z-50, z-60, a confirm opens over them); below the
+   tour (100) and Sonner's toaster, so toasts sit above dialogs.
+   Motion is opt-in (`prefers-reduced-motion: no-preference`, at the end); a
+   sheet still follows the finger with reduced motion. */
+.arc-dialog, .arc-dialog-backdrop {
+  --arc-red: #FF4B4B; --arc-canvas: #07090F;
+  --arc-inner: rgba(7, 9, 15, .9); --arc-shade-ball: rgba(0, 0, 0, .7);
+}
+
+/* The page behind, dimmed and blurred. A sheet dragged down lets it show through. */
+.arc-dialog-backdrop {
+  position: fixed; inset: 0; z-index: 70;
+  background: color-mix(in srgb, var(--arc-canvas) 72%, transparent);
+  -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+  opacity: calc(1 - var(--drawer-swipe-progress, 0));
+}
+/* Centres the slab; a press on it, outside the slab, cancels. */
+.arc-dialog-vp {
+  position: fixed; inset: 0; z-index: 70;
+  display: flex; align-items: center; justify-content: center; padding: 16px;
+}
+
+/* The shared rule above is the toast's three-column slab; a dialog is a column. */
+.arc-dialog {
+  --color-primary: var(--arc-ice); --color-muted: var(--arc-chrome);
+  --color-neon-cyan: var(--arc-cyan); --color-neon-magenta: var(--arc-pink); --color-neon-coral: var(--arc-red);
+  --color-lead: var(--arc-pink); --color-second: var(--arc-cyan);
+  display: flex; flex-direction: column; align-items: stretch; gap: 0;
+  width: min(28rem, 100%); max-height: 100%; min-height: 0; padding: 0; outline: none;
+  font-size: 15px; line-height: 1.45; font-weight: 500;
+}
+.arc-dialog--md { width: min(32rem, 100%); }
+.arc-dialog--form { max-height: min(100%, 46rem); }
+.arc-dialog--pink { --t: var(--arc-pink); }
+.arc-dialog--red { --t: var(--arc-red); }
+/* The neon edge: an outer line and a thinner inner line, as in the logo. */
+.arc-dialog::after {
+  content: ""; position: absolute; inset: 0; z-index: 2; border-radius: inherit; pointer-events: none;
+  border: 1px solid color-mix(in srgb, var(--t) 70%, transparent);
+  box-shadow: inset 0 0 0 3px var(--arc-inner), inset 0 0 0 4px color-mix(in srgb, var(--t) 30%, transparent),
+              0 0 12px -2px color-mix(in srgb, var(--t) 60%, transparent);
+}
+/* The G20 panel's top light bar. */
+.arc-dialog::before {
+  content: ""; position: absolute; left: 16px; right: 16px; top: -1px; height: 2px; border-radius: 2px; z-index: 3;
+  background: linear-gradient(90deg, var(--t), color-mix(in srgb, var(--t) 10%, transparent));
+  box-shadow: 0 0 14px color-mix(in srgb, var(--t) 70%, transparent);
+}
+
+/* The head: the triangle, the label over the title, the corner x. */
+.arc-dialog__top { flex: none; padding: 20px 20px 0; }
+.arc-dialog--form .arc-dialog__top { padding: 18px 18px 12px; }
+.arc-dialog__head { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; column-gap: 12px; align-items: start; }
+.arc-dialog__em { width: 34px; height: 34px; margin-top: 2px; overflow: visible; filter: drop-shadow(0 0 5px var(--t)); }
+.arc-dialog__em polygon { fill: none; stroke: var(--t); stroke-linejoin: round; }
+.arc-dialog__em-outer { stroke-width: 2; }
+.arc-dialog__em-inner { stroke-width: 1.1; opacity: .7; }
+.arc-dialog__heading { min-width: 0; }
+.arc-dialog__label { margin: 0; font-weight: 600; font-size: 12.5px; line-height: 1.3; letter-spacing: .26em; text-transform: uppercase; color: var(--t); }
+.arc-dialog__title { margin: 4px 0 0; font-weight: 600; font-size: 20px; line-height: 1.3; color: var(--arc-ice); overflow-wrap: anywhere; }
+.arc-dialog__x {
+  width: 40px; height: 40px; display: grid; place-items: center; margin: -8px -8px 0 0; border-radius: 4px; cursor: pointer;
+  background: none; border: 1px solid transparent; color: var(--arc-chrome);
+}
+.arc-dialog__x svg { width: 20px; height: 20px; }
+.arc-dialog__x:hover { color: var(--arc-ice); border-color: color-mix(in srgb, var(--t) 50%, transparent); }
+.arc-dialog__x:focus-visible { outline: 2px solid var(--t); outline-offset: 2px; }
+/* The words under the title line up with it, past the triangle. */
+.arc-dialog__desc { margin: 10px 0 0 46px; font-size: 15px; line-height: 1.5; color: var(--arc-chrome); }
+
+/* A form's body scrolls between the head and the actions. */
+.arc-dialog__body {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 6px 18px 18px;
+  scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--t) 40%, transparent) transparent;
+}
+.arc-dialog__foot { flex: none; position: relative; padding: 22px 20px 18px; }
+.arc-dialog--form .arc-dialog__foot { padding: 14px 18px 18px; }
+.arc-dialog--form .arc-dialog__foot::before {
+  content: ""; position: absolute; left: 12px; right: 12px; top: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--arc-chrome) 28%, transparent) 12%, color-mix(in srgb, var(--arc-chrome) 28%, transparent) 88%, transparent);
+}
+.arc-dialog__acts { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 10px; }
+/* A pop-up's actions are the large touch size (44 px), on every screen. */
+.arc-dialog__acts > button { min-height: 44px; padding: 10px 18px; font-size: 15px; line-height: 20px; }
+
+/* The sheet's grab handle: a short lit rail with the chrome pinball resting at its centre (phones only). */
+.arc-dialog__grab {
+  display: none; flex: none; position: relative; height: 32px; place-items: center;
+  cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none;
+}
+.arc-dialog__grab:active { cursor: grabbing; }
+.arc-dialog__rail {
+  position: relative; width: 48px; height: 2px; border-radius: 2px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--t) 30%, transparent), var(--t), color-mix(in srgb, var(--t) 30%, transparent));
+  box-shadow: 0 0 8px color-mix(in srgb, var(--t) 70%, transparent);
+}
+.arc-dialog__ball {
+  position: absolute; left: 50%; top: 50%; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%;
+  background: radial-gradient(circle at 34% 30%, var(--arc-ice), var(--arc-chrome) 30%, var(--arc-gunmetal) 68%, var(--arc-ball-edge));
+  box-shadow: 0 1px 3px var(--arc-shade-ball), 0 0 6px color-mix(in srgb, var(--t) 50%, transparent);
+}
+
+@media (max-width: 600px) {
+  .arc-dialog__acts { flex-direction: column-reverse; align-items: stretch; }
+  .arc-dialog__desc { margin-left: 0; }
+  /* The sheet: full width on the bottom edge, top corners rounded, the light bar along its top. */
+  .arc-dialog-vp--sheet { align-items: flex-end; padding: 0; }
+  .arc-dialog--sheet {
+    width: 100%; max-height: 88%; border-radius: 14px 14px 0 0; touch-action: none;
+    transform: translateY(var(--drawer-swipe-movement-y, 0px));
+  }
+  .arc-dialog--sheet .arc-dialog__body { touch-action: pan-y; }
+  .arc-dialog--sheet .arc-dialog__grab { display: grid; }
+  .arc-dialog--sheet .arc-dialog__top { padding-top: 0; }
+  .arc-dialog--sheet .arc-dialog__foot { padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
+}
+
+/* Motion, only for those who have not asked for less: the edge, bar and
+   triangle strike like a neon tube (the toast's keyframes), the slab grows in
+   and the backdrop fades (base-ui's starting and ending states; the stand-in
+   by keyframes, as nothing sets those on it), a sheet rises and falls and
+   springs back from a short drag. */
+@keyframes arc-dialog-fade { from { opacity: 0; } }
+@keyframes arc-dialog-pop { from { opacity: 0; transform: scale(.96); } }
+@keyframes arc-dialog-rise { from { transform: translateY(100%); } }
+@media (prefers-reduced-motion: no-preference) {
+  .arc-dialog:not(.arc-dialog--handoff)::before, .arc-dialog:not(.arc-dialog--handoff)::after,
+  .arc-dialog:not(.arc-dialog--handoff) .arc-dialog__em { animation: arc-toast-strike .6s linear both; }
+  .arc-dialog__x { transition: color .15s, border-color .15s; }
+  .arc-dialog-backdrop { transition: opacity 180ms ease-out; }
+  .arc-dialog-backdrop[data-starting-style], .arc-dialog-backdrop[data-ending-style] { opacity: 0; }
+  .arc-dialog-backdrop[data-ending-style] { transition-duration: 140ms; transition-timing-function: ease-in; }
+  .arc-dialog-backdrop--stand-in { animation: arc-dialog-fade 180ms ease-out both; }
+  .arc-dialog { transition: opacity 180ms ease-out, transform 180ms ease-out; }
+  .arc-dialog:not(.arc-dialog--handoff)[data-starting-style], .arc-dialog[data-ending-style] { opacity: 0; transform: scale(.96); }
+  .arc-dialog[data-ending-style] { transition-duration: 140ms; transition-timing-function: ease-in; }
+  .arc-dialog--stand-in { animation: arc-dialog-pop 180ms ease-out both; }
+  @media (max-width: 600px) {
+    .arc-dialog--sheet { transition: transform 300ms cubic-bezier(.32, .72, 0, 1); }
+    .arc-dialog--sheet:not(.arc-dialog--handoff)[data-starting-style], .arc-dialog--sheet[data-ending-style] { opacity: 1; transform: translateY(100%); }
+    .arc-dialog--sheet[data-ending-style] { transition-duration: calc(var(--drawer-swipe-strength, 1) * 300ms); }
+    .arc-dialog--sheet[data-swiping], .arc-dialog-backdrop[data-swiping] { transition-duration: 0ms; }
+    .arc-dialog--sheet.arc-dialog--stand-in { animation-name: arc-dialog-rise; animation-duration: 300ms; }
+  }
 }
 
 /* === Carpet floor (G29, v2.264.0) ==========================================

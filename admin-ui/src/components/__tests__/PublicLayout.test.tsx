@@ -351,7 +351,8 @@ describe('PublicLayout', () => {
 
     fireEvent.click(screen.getByLabelText('User menu'));
     fireEvent.click(await screen.findByText('Leave RTX Pinball'));
-    fireEvent.click(await screen.findByText('Leave room'));
+    // By role: the confirm's label above its title says "Leave room" too (G23).
+    fireEvent.click(await screen.findByRole('button', { name: 'Leave room' }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
       '/api/me/rooms/room-1',
       expect.objectContaining({ method: 'DELETE' }),

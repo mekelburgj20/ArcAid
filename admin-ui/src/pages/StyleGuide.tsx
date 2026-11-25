@@ -1,4 +1,4 @@
-import { useState, type MouseEvent, type ReactNode } from 'react';
+import { useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import ArcaidPage from '../components/parts/ArcaidPage';
 import PageShell from '../components/parts/PageShell';
 import PageTitle from '../components/parts/PageTitle';
@@ -12,6 +12,7 @@ import { RailTabs } from '../components/parts/Tabs';
 import { tabPanelProps } from '../components/parts/tabPanel';
 import StatTiles from '../components/parts/StatTiles';
 import { ListRows, ListRow } from '../components/parts/ListRow';
+import { ConfirmDialog, Dialog } from '../components/parts/Dialog';
 import type { PartTone } from '../components/parts/skin';
 import RoomSwitcher, { type SwitcherCurrentRoom } from '../components/RoomSwitcher';
 import { THEMES } from '../components/ThemeProvider';
@@ -91,6 +92,81 @@ function ButtonRow({ label, size, disabled }: { label: string; size: 'md' | 'sm'
     );
 }
 
+const FIELD = 'w-full bg-surface border border-border rounded px-3 py-2 text-sm text-primary placeholder-faint focus:border-neon-cyan focus:outline-none';
+
+/**
+ * G23 - the pop-ups: the two confirms (pink for attention, red for harm) and a
+ * form, a bottom sheet on a phone. They are the Arcaid look whatever is behind
+ * them; nothing they offer does anything here.
+ */
+function PopupSamples({ idPrefix }: { idPrefix: string }) {
+    const [open, setOpen] = useState<'pink' | 'red' | 'form' | null>(null);
+    const firstField = useRef<HTMLSelectElement>(null);
+    const close = () => setOpen(null);
+    const id = (k: string) => `${idPrefix}-pop-${k}`;
+    return (
+        <Panel title="Pop-ups" wide>
+            <p className="text-sm text-primary mb-2">
+                The Arcaid look on every theme. Focus starts on Cancel; Escape, a press outside and the × cancel.
+                On a phone a form rises from the bottom: drag its handle down to close it.
+            </p>
+            <div className="flex flex-wrap gap-2">
+                <Button variant="secondary" onClick={() => setOpen('pink')}>Open the pink confirm</Button>
+                <Button variant="secondary" onClick={() => setOpen('red')}>Open the red confirm</Button>
+                <Button variant="secondary" onClick={() => setOpen('form')}>Open the form sheet</Button>
+            </div>
+            <ConfirmDialog
+                open={open === 'pink'}
+                tone="pink"
+                title="Leave Neon Alley Pinball?"
+                message="You can rejoin any time. Your scores stay on its boards."
+                confirmLabel="Leave room"
+                onCancel={close}
+                onConfirm={close}
+            />
+            <ConfirmDialog
+                open={open === 'red'}
+                tone="red"
+                title="Delete 12,450,330 on Attack from Mars?"
+                message="The score comes off every board. This can't be undone."
+                confirmLabel="Delete score"
+                onCancel={close}
+                onConfirm={close}
+            />
+            <Dialog
+                open={open === 'form'}
+                onOpenChange={next => { if (!next) close(); }}
+                sheet
+                size="md"
+                label="Submit a score"
+                title="Attack from Mars"
+                initialFocusRef={firstField}
+                footer={(
+                    <>
+                        <Button variant="secondary" onClick={close}>Cancel</Button>
+                        <Button onClick={close}>Submit score</Button>
+                    </>
+                )}
+            >
+                <label htmlFor={id('table')} className="block text-sm font-medium mb-1.5">Table</label>
+                <select ref={firstField} id={id('table')} defaultValue="afm" className={`${FIELD} mb-4`}>
+                    <option value="afm">Attack from Mars</option>
+                    <option value="mm">Medieval Madness</option>
+                </select>
+                <label htmlFor={id('score')} className="block text-sm font-medium mb-1.5">Score</label>
+                <input id={id('score')} type="text" inputMode="numeric" defaultValue="12,450,330" className={`${FIELD} mb-4`} />
+                <label htmlFor={id('note')} className="block text-sm font-medium mb-1.5">Note (optional)</label>
+                <textarea
+                    id={id('note')}
+                    rows={3}
+                    placeholder="Anything the room should know, like a stuck ball on the left ramp"
+                    className={FIELD}
+                />
+            </Dialog>
+        </Panel>
+    );
+}
+
 function StatusWord({ dot, text, label }: { dot: string; text: string; label: string }) {
     return (
         <li className={`flex items-center gap-2 text-sm ${text}`}>
@@ -161,6 +237,7 @@ function SampleGroups({ idPrefix }: { idPrefix: string }) {
                 <Panel title="Stat tiles" wide>
                     <StatTiles tiles={[{ label: 'Plays', value: '128' }, { label: 'Best rank', value: '3rd' }, { label: 'Points', value: '12,450' }]} />
                 </Panel>
+                <PopupSamples idPrefix={idPrefix} />
             </PanelGroup>
 
             <PanelGroup id={id('pink')} tone="pink" title={t('pink').title} sub={t('pink').sub}>

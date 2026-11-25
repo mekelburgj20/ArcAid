@@ -6,6 +6,41 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.269.0] - 2026-11-25 - Every "are you sure?" pop-up wears the Arcaid look
+
+### Changed
+- **Every "are you sure?" pop-up on the site now has the Arcaid look** the owner picked from the G23 mockup
+  (2026-11-25): a dark slab with a neon edge and a light bar along its top, the Arcaid triangle beside a
+  small label, the question, and Cancel beside the action. It looks the same on every room theme. Leaving a
+  room is pink; deleting, removing or replacing something is red. The 26 places that ask (Leave room on the
+  room menu and on My Rooms, deleting a score, removing a pick, retiring a key, and the rest) changed at once.
+- **Escape, a press outside the pop-up and the new corner x all mean Cancel**, and keyboard focus stays
+  inside the pop-up until it closes, then goes back to the button that opened it. Focus now starts on
+  Cancel, not on the action, so a stray Enter no longer confirms.
+- **On a phone the two buttons stack full width**, the action on top and Cancel under it, both large enough
+  to tap.
+- **The pop-up opens even when the site is half-updated or offline.** Its smarts load in the background
+  after the page; if they are late or cannot load, a stand-in that looks and works the same (Cancel,
+  the action, Escape, a press outside) shows instead, and the full one takes its place without a jump.
+
+### Added
+- **The Arcaid dialog and phone sheet, the shared pop-up part for what comes next** (G23 part B): forms in a
+  pop-up use the same slab, and on a phone (600 px or less) one rises from the bottom as a sheet with a grab
+  handle, a short lit rail with the chrome pinball resting on it. Drag the sheet down to close it: past half
+  its height or with a flick it closes, less and it springs back. Super Admin -> Style Guide has samples of
+  the pink and red confirm and of a form sheet.
+- Code: `components/parts/Dialog.tsx` (`Dialog`, `ConfirmDialog`, `DialogFrame`, in the main bundle, no
+  base-ui) and `components/parts/DialogImpl.tsx` (base-ui `Dialog` for the centred pop-up, base-ui `Drawer`
+  for `sheet`, which carries the swipe and keeps a focused field above a phone's keyboard), a chunk of its
+  own fetched when the browser is idle after the first `Dialog` mounts. `lib/lazyPart.ts` is the room
+  switcher's loader made generic (one download per chunk; a failed chunk is asked for again under
+  `?retry=N`). `index.css` "The Arcaid dialog and sheet" draws both halves; the slab joins the toast and
+  menu's shared `--arc-*` rule and carries `sb-theme-scope`, and inside it `parts/Button` primary is the
+  kit's pink and danger its red. Stacking: z-index 70, above the hand-built modals (50, 60) and below the
+  tour and the toasts. `ConfirmModal` keeps its props (plus `tone`, pink at the two leave-room sites).
+  Main bundle +2 kB gzip; the dialog chunk is 15.6 kB gzip plus base-ui's shared 19.8 kB, which the room
+  switcher's menu already loads.
+
 ## [2.268.0] - 2026-11-25 - Keyboard focus ring and seven new shared parts (G23)
 
 ### Added
