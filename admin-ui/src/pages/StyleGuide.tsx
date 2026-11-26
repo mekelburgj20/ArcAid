@@ -4,7 +4,7 @@ import PageShell from '../components/parts/PageShell';
 import PageTitle from '../components/parts/PageTitle';
 import Panel, { PanelGroup } from '../components/parts/Panel';
 import JumpList, { type JumpItem } from '../components/parts/JumpList';
-import Button from '../components/parts/Button';
+import Button, { ButtonLink } from '../components/parts/Button';
 import { TextInput, TextArea, Select, SearchInput } from '../components/parts/Field';
 import { SkeletonRows, SkeletonTiles } from '../components/parts/Skeleton';
 import EmptyState from '../components/parts/EmptyState';
@@ -214,6 +214,26 @@ function TabsSample({ idPrefix }: { idPrefix: string }) {
     );
 }
 
+/** Two small pressed/unpressed chips, for the ListRow `below` sample. */
+function ChipsSample() {
+    const [on, setOn] = useState<string[]>(['VPX']);
+    const chip = (label: string) => {
+        const pressed = on.includes(label);
+        return (
+            <button
+                key={label}
+                type="button"
+                aria-pressed={pressed}
+                onClick={() => setOn(cur => (pressed ? cur.filter(x => x !== label) : [...cur, label]))}
+                className={`rounded-full border px-2.5 py-0.5 text-xs transition-colors cursor-pointer ${pressed ? 'border-neon-cyan/60 bg-neon-cyan/15 text-neon-cyan' : 'border-border text-muted'}`}
+            >
+                {label}
+            </button>
+        );
+    };
+    return <div className="flex flex-wrap items-center gap-1.5"><span className="text-xs text-muted">Owned on:</span>{chip('VPX')}{chip('AtGames')}</div>;
+}
+
 /** One component shown in both looks, so the two previews show the same thing. */
 function SampleGroups({ idPrefix }: { idPrefix: string }) {
     const id = (k: string) => `${idPrefix}-${k}`;
@@ -230,6 +250,10 @@ function SampleGroups({ idPrefix }: { idPrefix: string }) {
                     <ButtonRow label="Small" size="sm" />
                     <ButtonRow label="Extra small" size="xs" />
                     <ButtonRow label="Disabled" size="md" disabled />
+                    <Row label="Link">
+                        <ButtonLink to="/admin/style-guide">Primary link</ButtonLink>
+                        <ButtonLink to="/admin/style-guide" variant="secondary" size="xs">Secondary link</ButtonLink>
+                    </Row>
                 </Panel>
                 <Panel title="Tabs">
                     <TabsSample idPrefix={`${idPrefix}-tabs`} />
@@ -300,6 +324,7 @@ function SampleGroups({ idPrefix }: { idPrefix: string }) {
                     <ListRows label="Sample rooms">
                         <ListRow tile="NA" name="Neon Alley Pinball" caption="Last played today" href="/admin/style-guide" trailing={<Button variant="secondary" size="xs">Leave</Button>} />
                         <ListRow tile="TC" name="The Saturday Night Silverball Society of Greater Springfield Pinball" caption="Member" href="/admin/style-guide" />
+                        <ListRow tile="MM" name="Medieval Madness" caption="Williams 1997" href="/admin/style-guide" trailing={<Button variant="secondary" size="xs">Remove</Button>} below={<ChipsSample />} />
                     </ListRows>
                 </Panel>
             </PanelGroup>

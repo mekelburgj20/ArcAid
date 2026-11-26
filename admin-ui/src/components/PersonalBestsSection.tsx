@@ -125,6 +125,7 @@ export function PersonalBestsSection({
   showRoomCaption = false,
   wrapTitles = false,
   gameArt,
+  heading = true,
 }: {
   personalBests?: PersonalBestRow[];
   /** Room slug to link into when a row doesn't carry its own `room_slug`
@@ -149,6 +150,9 @@ export function PersonalBestsSection({
    *  page's `gameArt`). When given, each row leads with the table's art;
    *  omitted (My Stats) the rows are unchanged. */
   gameArt?: Record<string, string>;
+  /** G22: false drops the "Personal Bests" h2 and the top margin, for a page whose
+   *  own panel title says it. Default true (PlayerDetail unchanged). */
+  heading?: boolean;
 }) {
   const [query, setQuery] = useState('');
   const [showAll, setShowAll] = useState(false);
@@ -172,8 +176,8 @@ export function PersonalBestsSection({
   const showSearch = all.length > PERSONAL_BESTS_SEARCH_THRESHOLD;
 
   return (
-    <div className="mt-8">
-      <h2 className="font-display text-sm text-muted uppercase tracking-wider mb-3">Personal Bests</h2>
+    <div className={heading ? "mt-8" : undefined}>
+      {heading && <h2 className="font-display text-sm text-muted uppercase tracking-wider mb-3">Personal Bests</h2>}
 
       {showSearch && (
         <div className="relative mb-3 max-w-sm">

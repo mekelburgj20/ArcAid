@@ -43,4 +43,19 @@ describe('ListRow (G23)', () => {
         expect(screen.queryByRole('link')).toBeNull();
         expect(screen.queryByRole('button')).toBeNull();
     });
+
+    it('a control in below stays clickable on a row with a link', () => {
+        const pick = vi.fn();
+        render(
+            <MemoryRouter>
+                <ListRows testId="rows">
+                    <ListRow testId="row-1" tile="X" name="Table" href="/t" below={<button type="button" aria-pressed="false" onClick={pick}>VPX</button>} />
+                </ListRows>
+            </MemoryRouter>,
+        );
+        fireEvent.click(screen.getByRole('button', { name: 'VPX' }));
+        expect(pick).toHaveBeenCalled();
+        expect(screen.getByTestId('row-1').querySelector('.part-row__below')).not.toBeNull();
+        expect(screen.getByTestId('rows')).toBeInTheDocument();
+    });
 });
