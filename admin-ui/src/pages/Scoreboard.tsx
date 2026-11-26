@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { Search } from 'lucide-react';
 import { getSocket } from '../lib/websocket';
@@ -16,7 +16,9 @@ import RoomScoresView from '../components/RoomScoresView';
 import GlobalScoresView from '../components/GlobalScoresView';
 import GameQuickView from '../components/GameQuickView';
 import SubmissionSheet from '../components/SubmissionSheet';
-import { DISPLAY_SETTINGS_SAVED_EVENT } from '../components/DisplaySettingsHost';
+import {
+  DISPLAY_SETTINGS_LIVE_EVENT, DISPLAY_SETTINGS_SAVED_EVENT, prefsDevice, type DisplaySettingsLiveDetail,
+} from '../lib/displaySettingsLive';
 import { TAB_LABELS } from '../lib/scoresCopy';
 import { SeasonPollLobbyNudge } from '../components/SeasonPollCard';
 import { CardAttemptStartContext } from '../components/scoreboard/cardAttemptStartContext';
@@ -70,7 +72,12 @@ export default function Scoreboard() {
   const [rankingGroups, setRankingGroups] = useState<RankingGroupData[]>([]);
   const [flash, setFlash] = useState(false);
   const [scoreToast, setScoreToast] = useState<{ player: string; score: number; game: string } | null>(null);
-  const [config, setConfig] = useState<Record<string, string>>({});
+  // G34a: the room's own look and the viewer's overrides are kept apart, so a
+  // setting the viewer clears in the Display settings panel falls back to the
+  // room's value while the panel is still open (the live event below).
+  const [roomConfig, setRoomConfig] = useState<Record<string, string>>({});
+  const [viewerPrefs, setViewerPrefs] = useState<Record<string, string>>({});
+  const config = useMemo(() => ({ ...roomConfig, ...viewerPrefs }), [roomConfig, viewerPrefs]);
   const { roomId, roomName } = useRoom();
   const [selectedGame, setSelectedGame] = useState<GameLeaderboard | null>(null);
   // v2.13.12 — game quick-view modal triggered by title click on tournament cards.
@@ -130,16 +137,14 @@ export default function Scoreboard() {
   // v2.236.0 (B23) — which tournaments' past-games piles this viewer keeps open.
   const pinnedPiles = usePinnedPiles(playerToken);
 
-  const deviceType = window.innerWidth <= 640 ? 'mobile' : 'desktop';
-
   /**
-   * Fetch user prefs for current device and merge them over the room config.
-   * `applied` = merged and set; `none` = this viewer has none to apply;
+   * Fetch user prefs for current device; they are drawn over the room config.
+   * A map = this viewer's overrides; `none` = this viewer has none to apply;
    * `later` = the read failed for now (G31), so the caller asks again.
    */
-  const applyUserPrefs = async (cfg: Record<string, string>, token: string): Promise<'applied' | 'none' | 'later'> => {
+  const readUserPrefs = async (token: string): Promise<Record<string, string> | 'none' | 'later'> => {
     try {
-      const prefsRes = await fetch(`/api/me/scoreboard-preferences?device=${deviceType}`, {
+      const prefsRes = await fetch(`/api/me/scoreboard-preferences?device=${prefsDevice()}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (prefsRes.ok) {
@@ -150,8 +155,7 @@ export default function Scoreboard() {
         // personal theme). The per-room override moved out of these
         // per-device prefs entirely and `ThemeProvider` owns it now; the
         // legacy `UI_THEME` key that may still be in `prefs` is inert.
-        setConfig({ ...cfg, ...prefs });
-        return 'applied';
+        return prefs && typeof prefs === 'object' ? prefs : {};
       }
       return isTransientStatus(prefsRes.status) ? 'later' : 'none';
     } catch {
@@ -172,9 +176,11 @@ export default function Scoreboard() {
     () => fetch(`/api/rooms/${roomId}/scoreboard-config`, { headers: viewerHeaders }),
     async res => {
       const cfg: Record<string, string> = (await res.json()) || {};
-      const prefs = playerToken ? await applyUserPrefs(cfg, playerToken) : 'none';
-      if (prefs === 'applied') return;
-      setConfig(cfg);
+      const prefs = playerToken ? await readUserPrefs(playerToken) : 'none';
+      // Both together, so the room's own look never shows for a moment first.
+      setRoomConfig(cfg);
+      setViewerPrefs(typeof prefs === 'object' ? prefs : {});
+      if (typeof prefs === 'object') return;
       // The room's own look is on screen; throwing asks again for the
       // viewer's choices instead of leaving them off until a reload.
       if (prefs === 'later') throw new Error('viewer display choices not read yet');
@@ -219,6 +225,19 @@ export default function Scoreboard() {
     window.addEventListener(DISPLAY_SETTINGS_SAVED_EVENT, loadConfig);
     return () => window.removeEventListener(DISPLAY_SETTINGS_SAVED_EVENT, loadConfig);
   }, [roomId, playerToken, loadConfig]);
+
+  // G34a: every change in the open panel, before it is saved. Only this
+  // window's set of card settings applies (the panel edits the device in hand).
+  useEffect(() => {
+    if (!roomId || !playerToken) return;
+    const onLive = (e: Event) => {
+      const detail = (e as CustomEvent<DisplaySettingsLiveDetail>).detail;
+      if (!detail || detail.device !== prefsDevice()) return;
+      setViewerPrefs(detail.prefs);
+    };
+    window.addEventListener(DISPLAY_SETTINGS_LIVE_EVENT, onLive);
+    return () => window.removeEventListener(DISPLAY_SETTINGS_LIVE_EVENT, onLive);
+  }, [roomId, playerToken]);
 
   useEffect(() => {
     if (!roomId) return;

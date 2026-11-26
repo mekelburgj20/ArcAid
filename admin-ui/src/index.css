@@ -2795,6 +2795,52 @@ a.part-row__name::after, button.part-row__name::after { content: ""; position: a
   .arc-dialog--sheet .arc-dialog__foot { padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
 }
 
+/* A row that stays between the head and the scrolling body (`bar`: a panel's tabs on a phone). */
+.arc-dialog__bar { flex: none; padding: 0 18px; }
+
+/* The panel (`panel`, G34a: Display settings). Not a modal: no backdrop, and the
+   viewport lets every press through to the page; only the slab takes them, so
+   the page beside it stays bright, scrollable and clickable. Stacking: above
+   the page, its nav (z-40) and the menus (45); below the room's scanline veil
+   (50, which draws over it as over the page), the hand-built pop-ups (50, 60),
+   every Arcaid dialog (70) and the toasts. Above 1023 px it is docked to the
+   right edge, full height; at 1023 px and less it is a bottom sheet whose
+   three heights are base-ui's snap points: the slab is 92 % of the screen
+   tall, base-ui moves it down by `--drawer-snap-point-offset`, and the same
+   offset as bottom padding keeps the actions on screen at every height. */
+.arc-dialog-vp--panel { z-index: 48; display: block; padding: 0; pointer-events: none; }
+.arc-dialog--panel { pointer-events: auto; max-height: none; }
+.arc-dialog--panel .arc-dialog__top { padding: 18px 18px 10px; }
+.arc-dialog--panel .arc-dialog__body { padding: 4px 18px 14px; }
+.arc-dialog--panel .arc-dialog__foot { padding: 12px 18px 16px; }
+.arc-dialog--panel .arc-dialog__acts { align-items: center; }
+@media (min-width: 1024px) {
+  .arc-dialog--panel {
+    position: absolute;
+    top: env(safe-area-inset-top, 0px); right: env(safe-area-inset-right, 0px); bottom: env(safe-area-inset-bottom, 0px);
+    width: clamp(360px, 30vw, 520px); border-radius: 6px 0 0 6px;
+  }
+}
+@media (max-width: 1023px) {
+  .arc-dialog--panel {
+    position: absolute; left: 0; right: 0; bottom: 0; width: 100%; height: 92%;
+    border-radius: 14px 14px 0 0; touch-action: none;
+    padding-bottom: var(--drawer-snap-point-offset, 0px);
+    transform: translateY(calc(var(--drawer-snap-point-offset, 0px) + var(--drawer-swipe-movement-y, 0px)));
+  }
+  /* The stand-in does not drag: it rests at the middle height. */
+  .arc-dialog--panel.arc-dialog--stand-in { height: 55%; padding-bottom: 0; transform: none; }
+  .arc-dialog--panel .arc-dialog__grab { display: grid; }
+  .arc-dialog--panel .arc-dialog__top { padding: 0 16px 6px; }
+  .arc-dialog--panel .arc-dialog__bar { padding: 0 12px; }
+  .arc-dialog--panel .arc-dialog__body { padding: 4px 16px 12px; touch-action: pan-y; }
+  .arc-dialog--panel .arc-dialog__foot { padding: 10px 16px calc(12px + env(safe-area-inset-bottom, 0px)); }
+}
+@media (max-width: 600px) {
+  /* A panel's actions stay one row beside its save status. */
+  .arc-dialog--panel .arc-dialog__acts { flex-direction: row; align-items: center; }
+}
+
 /* Motion, only for those who have not asked for less: the edge, bar and
    triangle strike like a neon tube (the toast's keyframes), the slab grows in
    and the backdrop fades (base-ui's starting and ending states; the stand-in
@@ -2803,6 +2849,7 @@ a.part-row__name::after, button.part-row__name::after { content: ""; position: a
 @keyframes arc-dialog-fade { from { opacity: 0; } }
 @keyframes arc-dialog-pop { from { opacity: 0; transform: scale(.96); } }
 @keyframes arc-dialog-rise { from { transform: translateY(100%); } }
+@keyframes arc-dialog-slide { from { transform: translateX(100%); } }
 @media (prefers-reduced-motion: no-preference) {
   .arc-dialog:not(.arc-dialog--handoff)::before, .arc-dialog:not(.arc-dialog--handoff)::after,
   .arc-dialog:not(.arc-dialog--handoff) .arc-dialog__em { animation: arc-toast-strike .6s linear both; }
@@ -2822,6 +2869,188 @@ a.part-row__name::after, button.part-row__name::after { content: ""; position: a
     .arc-dialog--sheet[data-swiping], .arc-dialog-backdrop[data-swiping] { transition-duration: 0ms; }
     .arc-dialog--sheet.arc-dialog--stand-in { animation-name: arc-dialog-rise; animation-duration: 300ms; }
   }
+  /* The panel slides in from the right edge, or rises as a sheet and moves between its heights. */
+  @media (min-width: 1024px) {
+    .arc-dialog--panel { transition: transform 260ms cubic-bezier(.32, .72, 0, 1); }
+    .arc-dialog--panel:not(.arc-dialog--handoff)[data-starting-style], .arc-dialog--panel[data-ending-style] { opacity: 1; transform: translateX(100%); }
+    .arc-dialog--panel[data-ending-style] { transition-duration: 200ms; transition-timing-function: ease-in; }
+    .arc-dialog--panel.arc-dialog--stand-in { animation: arc-dialog-slide 260ms cubic-bezier(.32, .72, 0, 1) both; }
+  }
+  @media (max-width: 1023px) {
+    .arc-dialog--panel { transition: transform 300ms cubic-bezier(.32, .72, 0, 1); }
+    .arc-dialog--panel:not(.arc-dialog--handoff)[data-starting-style], .arc-dialog--panel[data-ending-style] { opacity: 1; transform: translateY(100%); }
+    .arc-dialog--panel[data-ending-style] { transition-duration: calc(var(--drawer-swipe-strength, 1) * 300ms); }
+    .arc-dialog--panel[data-swiping] { transition-duration: 0ms; }
+    .arc-dialog--panel.arc-dialog--stand-in { animation: arc-dialog-rise 300ms cubic-bezier(.32, .72, 0, 1) both; }
+  }
+}
+
+/* ─── Display settings, the panel's own controls (G34a; components/displaySettings/) ───
+   Drawn inside the Arcaid dialog's panel (fixed dark): the sections with a
+   tracked-caps title and a muted caption, the rows (a label column, the
+   control beside it, stacked when the panel is narrow), and the small controls
+   (segmented choice, switch, tiles, stepper, slider, select). Colours are the
+   slab's `--arc-*` and the default theme's `--color-*`, which the slab pins;
+   a theme tile's dots are drawn inside `sb-theme-scope theme-<id>`, so they
+   show that theme's own colours. Touch targets are 44 px on a touch screen. */
+.dset { container-type: inline-size; }
+.dset-sec { position: relative; padding: 10px 0 6px; }
+.dset-sec + .dset-sec::before, .dset-sec + .dset-more::before, .dset-rule::before {
+  content: ""; position: absolute; left: -6px; right: -6px; top: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--arc-chrome) 28%, transparent) 12%, color-mix(in srgb, var(--arc-chrome) 28%, transparent) 88%, transparent);
+}
+.dset-sec__head { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 4px 12px; margin: 0 0 4px; }
+.dset-sec__title { margin: 0; font-weight: 600; font-size: 12.5px; line-height: 1.3; letter-spacing: .26em; text-transform: uppercase; color: var(--t); }
+.dset-sec__cap { font-size: 13px; line-height: 1.3; color: var(--color-faint); }
+.dset-sub { margin: 12px 0 2px; font-weight: 600; font-size: 12.5px; line-height: 1.3; letter-spacing: .16em; text-transform: uppercase; color: var(--arc-chrome); }
+
+/* A row: the label column (label, lit dot, Reset, the room's value) and the control. */
+.dset-row { display: grid; grid-template-columns: 128px minmax(0, 1fr); column-gap: 12px; row-gap: 6px; align-items: center; padding: 6px 0; }
+.dset-row--wide { grid-template-columns: minmax(0, 1fr); }
+.dset-row--switch { grid-template-columns: minmax(0, 1fr) auto; }
+@container (max-width: 400px) {
+  .dset-row:not(.dset-row--switch) { grid-template-columns: minmax(0, 1fr); }
+}
+.dset-row__l { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; min-width: 0; }
+.dset-row__lbl { display: inline-flex; align-items: center; gap: 7px; font-size: 14.5px; font-weight: 600; line-height: 1.3; color: var(--arc-ice); }
+.dset-row__help, .dset-row__room { flex-basis: 100%; font-size: 13px; line-height: 1.4; font-weight: 500; color: var(--arc-chrome); }
+.dset-row__room { color: var(--color-faint); }
+.dset-row__c { min-width: 0; }
+.dset-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: color-mix(in srgb, var(--arc-chrome) 16%, transparent); }
+.dset-row[data-changed] .dset-dot { background: var(--arc-cyan); box-shadow: 0 0 6px var(--arc-cyan), 0 0 12px color-mix(in srgb, var(--arc-cyan) 60%, transparent); }
+.dset-reset {
+  display: inline-flex; align-items: center; gap: 4px; min-height: 28px; padding: 2px 4px; border: 0; border-radius: 3px; background: none; cursor: pointer;
+  font-family: inherit; font-weight: 600; font-size: 12.5px; line-height: 1.2; letter-spacing: .12em; text-transform: uppercase; color: var(--arc-cyan);
+}
+.dset-reset svg { width: 12px; height: 12px; }
+.dset-reset:hover { color: var(--arc-ice); }
+.dset-note { margin: 4px 0 2px; font-size: 13px; line-height: 1.45; color: var(--arc-chrome); }
+.dset-note--faint { color: var(--color-faint); }
+
+/* Segmented choice. */
+.dset-seg { display: inline-flex; flex-wrap: wrap; max-width: 100%; padding: 2px; gap: 2px; border-radius: 8px; border: 1px solid var(--color-border); background: var(--color-raised); }
+.dset-seg button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px; padding: 0 11px; border: 0; border-radius: 6px; cursor: pointer;
+  font-family: inherit; font-weight: 500; font-size: 14px; line-height: 1.2; text-align: center; overflow-wrap: anywhere; color: var(--arc-chrome); background: transparent;
+}
+.dset-seg button svg { flex: none; width: 15px; height: 15px; }
+.dset-seg button:hover { color: var(--arc-ice); }
+.dset-seg button[aria-pressed="true"] { color: var(--arc-cyan); background: color-mix(in srgb, var(--arc-cyan) 15%, transparent); }
+
+/* Tiles: the theme swatches and the card styles. */
+.dset-tiles { display: grid; gap: 8px; }
+.dset-tiles--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.dset-tiles--2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 640px) {
+  .dset-tiles--3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.dset-tile {
+  display: flex; flex-direction: column; align-items: stretch; gap: 5px; min-width: 0; min-height: 44px; padding: 5px 5px 6px; border-radius: 6px; cursor: pointer; text-align: center;
+  font-family: inherit; font-weight: 600; font-size: 13px; line-height: 1.25; color: var(--arc-chrome);
+  background: color-mix(in srgb, var(--color-deep) 55%, transparent); border: 1px solid var(--color-border);
+}
+.dset-tile:hover { color: var(--arc-ice); border-color: color-mix(in srgb, var(--arc-chrome) 60%, transparent); }
+.dset-tile[aria-pressed="true"] { color: var(--arc-cyan); background: color-mix(in srgb, var(--arc-cyan) 15%, transparent); border-color: color-mix(in srgb, var(--arc-cyan) 50%, transparent); }
+.dset-tile__name { overflow-wrap: anywhere; }
+/* The dots read the theme the swatch is scoped to: lead, second, ink, first place, on its deep ground. */
+.dset-swatch { display: flex; align-items: center; justify-content: center; gap: 5px; height: 18px; border-radius: 4px; background: var(--color-deep); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--arc-ice) 8%, transparent); }
+.dset-swatch i { width: 9px; height: 9px; border-radius: 50%; box-shadow: 0 0 0 1px color-mix(in srgb, var(--arc-canvas) 25%, transparent); }
+.dset-swatch i:nth-child(1) { background: var(--color-lead); }
+.dset-swatch i:nth-child(2) { background: var(--color-second); }
+.dset-swatch i:nth-child(3) { background: var(--color-primary); }
+.dset-swatch i:nth-child(4) { background: var(--color-neon-amber); }
+.dset-tile--style { padding: 7px 8px; gap: 1px; }
+.dset-tile--style .dset-tile__name { font-size: 14px; }
+.dset-tile__cap { font-size: 12.5px; font-weight: 500; line-height: 1.3; color: var(--arc-chrome); }
+.dset-tile--style[aria-pressed="true"] .dset-tile__cap { color: color-mix(in srgb, var(--arc-cyan) 75%, var(--arc-ice)); }
+
+/* Switch: the button is the touch target, the track is drawn inside it. */
+.dset-switch { display: inline-grid; place-items: center; min-width: 44px; min-height: 36px; padding: 0; border: 0; border-radius: 999px; background: none; cursor: pointer; }
+.dset-switch__track { position: relative; display: block; width: 36px; height: 20px; border-radius: 999px; border: 1px solid var(--color-border); background: var(--color-deep); }
+.dset-switch__knob { position: absolute; top: 1px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--arc-ice); }
+.dset-switch[aria-checked="true"] .dset-switch__track { background: color-mix(in srgb, var(--arc-cyan) 30%, transparent); border-color: color-mix(in srgb, var(--arc-cyan) 50%, transparent); }
+.dset-switch[aria-checked="true"] .dset-switch__knob { transform: translateX(15px); }
+
+/* Stepper: minus, the number, plus. */
+.dset-step { display: inline-flex; align-items: center; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-raised); padding: 2px; }
+.dset-step button { width: 36px; height: 36px; border: 0; border-radius: 6px; cursor: pointer; background: transparent; color: var(--arc-chrome); font-family: inherit; font-weight: 600; font-size: 18px; line-height: 1; }
+.dset-step button:hover:not(:disabled) { color: var(--arc-ice); background: color-mix(in srgb, var(--arc-chrome) 10%, transparent); }
+.dset-step button:disabled { opacity: .4; cursor: not-allowed; }
+.dset-step output { min-width: 56px; padding: 0 4px; text-align: center; font: 700 15px/1 var(--font-display); font-variant-numeric: tabular-nums; color: var(--arc-ice); }
+
+/* Slider: the lit rail with the chrome pinball. `--p` is how far along it is. */
+.dset-range { display: flex; align-items: center; gap: 12px; }
+.dset-range input { flex: 1; min-width: 0; height: 28px; margin: 0; background: transparent; -webkit-appearance: none; appearance: none; cursor: pointer; border-radius: 4px; }
+.dset-range input::-webkit-slider-runnable-track {
+  height: 2px; border-radius: 2px;
+  background: linear-gradient(90deg, var(--arc-cyan) 0 var(--p, 50%), color-mix(in srgb, var(--arc-cyan) 18%, transparent) var(--p, 50%));
+  box-shadow: 0 0 8px color-mix(in srgb, var(--arc-cyan) 50%, transparent);
+}
+.dset-range input::-moz-range-track { height: 2px; border-radius: 2px; background: color-mix(in srgb, var(--arc-cyan) 18%, transparent); }
+.dset-range input::-moz-range-progress { height: 2px; background: var(--arc-cyan); }
+.dset-range input::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 16px; height: 16px; margin-top: -7px; border-radius: 50%; border: 0;
+  background: radial-gradient(circle at 34% 30%, var(--arc-ice), var(--arc-chrome) 30%, var(--arc-gunmetal) 68%, var(--arc-ball-edge));
+  box-shadow: 0 1px 3px var(--arc-shade-ball), 0 0 6px color-mix(in srgb, var(--arc-cyan) 50%, transparent);
+}
+.dset-range input::-moz-range-thumb {
+  width: 16px; height: 16px; border-radius: 50%; border: 0;
+  background: radial-gradient(circle at 34% 30%, var(--arc-ice), var(--arc-chrome) 30%, var(--arc-gunmetal) 68%, var(--arc-ball-edge));
+}
+.dset-range output { min-width: 52px; text-align: right; font: 700 14px/1 var(--font-display); font-variant-numeric: tabular-nums; color: var(--arc-cyan); }
+
+/* Select: the Field part's recessed well. */
+.dset-well { position: relative; display: flex; align-items: center; min-height: 40px; border-radius: 4px; background: var(--color-deep); border: 1px solid color-mix(in srgb, var(--arc-chrome) 38%, transparent); }
+.dset-well select {
+  flex: 1; min-width: 0; min-height: 38px; padding: 0 34px 0 10px; border: 0; border-radius: 4px; cursor: pointer;
+  background: transparent; color: var(--arc-ice); font-family: inherit; font-weight: 500; font-size: 14px; line-height: 1.3; -webkit-appearance: none; appearance: none;
+}
+.dset-well select option { background: var(--color-deep); color: var(--arc-ice); }
+.dset-well svg { position: absolute; right: 10px; width: 16px; height: 16px; color: var(--arc-chrome); pointer-events: none; }
+.dset-well:has(select:focus-visible) { outline: 2px solid var(--arc-cyan); outline-offset: 2px; }
+.dset-well select:focus-visible { outline: none; box-shadow: none; }
+
+/* More: a row that opens in place, its summary saying what is inside. */
+.dset-more { position: relative; padding: 6px 0 2px; }
+.dset-more__btn {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 10px; width: 100%; min-height: 44px; padding: 10px 4px;
+  border: 0; border-radius: 4px; background: none; cursor: pointer; text-align: left; color: inherit; font: inherit;
+}
+.dset-more__btn svg { grid-column: 2; grid-row: 1 / span 2; width: 18px; height: 18px; color: var(--arc-chrome); }
+.dset-more__btn[aria-expanded="true"] svg { transform: rotate(90deg); }
+.dset-more__list { grid-column: 1; font-size: 13.5px; line-height: 1.45; color: var(--color-faint); }
+.dset-more__btn:hover .dset-more__list { color: var(--arc-chrome); }
+.dset-more__body { padding: 0 0 8px; }
+
+/* The header's room-admin line and the footer's status and device line. */
+.dset-admin { display: block; margin-top: 6px; font-size: 13.5px; line-height: 1.45; color: var(--color-faint); }
+.dset-admin a { color: var(--arc-cyan); font-weight: 600; text-decoration: none; border-radius: 3px; }
+.dset-admin a:hover { text-decoration: underline; text-underline-offset: 3px; }
+.dset-foot-note { flex-basis: 100%; margin: 0 0 2px; font-size: 13px; line-height: 1.4; color: var(--color-faint); }
+.dset-status { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; margin-right: auto; min-height: 44px; font-size: 14px; font-weight: 600; letter-spacing: .04em; color: var(--arc-cyan); }
+.dset-status[data-state="saving"] { color: var(--arc-chrome); }
+.dset-status__retry {
+  min-height: 32px; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-family: inherit; font-weight: 600; font-size: 13px; line-height: 1.2;
+  border: 1px solid var(--color-border); background: transparent; color: var(--arc-ice);
+}
+.dset-status__retry:hover { border-color: var(--arc-chrome); }
+
+@media (max-width: 1023px), (pointer: coarse) {
+  .dset-seg button, .dset-step button { min-height: 44px; }
+  .dset-step button { width: 44px; height: 44px; }
+  .dset-switch { min-height: 44px; }
+  .dset-well, .dset-well select { min-height: 44px; }
+  /* A touch input stays 16 px, or iOS zooms the page on focus (the global rule loses to the class). */
+  .dset-well select { font-size: 16px; }
+  .dset-reset, .dset-status__retry { min-height: 44px; }
+  .dset-range input { height: 44px; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .dset-seg button, .dset-tile, .dset-reset { transition: color .15s, background-color .15s, border-color .15s; }
+  .dset-dot { transition: background-color .2s, box-shadow .2s; }
+  .dset-switch__track { transition: background-color .15s, border-color .15s; }
+  .dset-switch__knob { transition: transform .15s; }
+  .dset-more__btn svg { transition: transform .16s ease-out; }
 }
 
 /* === Carpet floor (G29, v2.264.0) ==========================================
