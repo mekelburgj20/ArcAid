@@ -109,6 +109,9 @@ export default function UserMenu({ user, hasAdminToken, slug, roomMembership, on
 
   const openPrefs = () => {
     setOpen(false);
+    // G34a: the menu item goes with the menu, so the trigger holds focus and
+    // the Display settings panel gives it back there when it closes.
+    triggerRef.current?.focus();
     window.dispatchEvent(new Event('open-scoreboard-prefs'));
   };
 

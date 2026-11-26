@@ -100,7 +100,7 @@ const FIELD = 'w-full bg-surface border border-border rounded px-3 py-2 text-sm 
  * them; nothing they offer does anything here.
  */
 function PopupSamples({ idPrefix }: { idPrefix: string }) {
-    const [open, setOpen] = useState<'pink' | 'red' | 'form' | null>(null);
+    const [open, setOpen] = useState<'pink' | 'red' | 'form' | 'panel' | null>(null);
     const firstField = useRef<HTMLSelectElement>(null);
     const close = () => setOpen(null);
     const id = (k: string) => `${idPrefix}-pop-${k}`;
@@ -108,13 +108,36 @@ function PopupSamples({ idPrefix }: { idPrefix: string }) {
         <Panel title="Pop-ups" wide>
             <p className="text-sm text-primary mb-2">
                 The Arcaid look on every theme. Focus starts on Cancel; Escape, a press outside and the × cancel.
-                On a phone a form rises from the bottom: drag its handle down to close it.
+                On a phone a form rises from the bottom: drag its handle down to close it. A panel is not a
+                modal: the page beside it stays usable, and only the × or Escape inside it closes it.
             </p>
             <div className="flex flex-wrap gap-2">
                 <Button variant="secondary" onClick={() => setOpen('pink')}>Open the pink confirm</Button>
                 <Button variant="secondary" onClick={() => setOpen('red')}>Open the red confirm</Button>
                 <Button variant="secondary" onClick={() => setOpen('form')}>Open the form sheet</Button>
+                <Button variant="secondary" onClick={() => setOpen(o => (o === 'panel' ? null : 'panel'))}>Open a panel</Button>
             </div>
+            {open === 'panel' && (
+                <Dialog
+                    open
+                    onOpenChange={next => { if (!next) close(); }}
+                    panel
+                    label="Panel"
+                    title="Room lights"
+                    description="Changes show on the page as you make them."
+                    footer={<Button variant="secondary" onClick={close}>Done</Button>}
+                >
+                    <p className="text-sm mb-3">
+                        Docked to the right on a computer, with the page beside it still bright and usable. On a phone it
+                        is a sheet that rests at half height: drag its handle up for more, or down past the lowest to close it.
+                    </p>
+                    <label htmlFor={id('glow')} className="block text-sm font-medium mb-1.5">Glow</label>
+                    <select id={id('glow')} defaultValue="soft" className={FIELD}>
+                        <option value="soft">Soft</option>
+                        <option value="bright">Bright</option>
+                    </select>
+                </Dialog>
+            )}
             <ConfirmDialog
                 open={open === 'pink'}
                 tone="pink"

@@ -35,6 +35,16 @@ import { lazyPart } from '../../lib/lazyPart';
  * a press inside the top one never closes the one under it, and Tab stays in
  * the top one. The stand-in does the same by acting only while its slab is the
  * last in the document.
+ *
+ * With `panel` (G34a, Display settings) it is not a modal: the page beside it
+ * stays bright, scrollable, clickable and readable by a screen reader (no
+ * backdrop, no scroll lock, no focus trap, nothing hidden). Above 1023 px it is
+ * docked to the right edge at full height; at 1023 px and less it is a bottom
+ * sheet with three heights (30, 55 and 92 percent of the screen) that rests at
+ * 55 and closes when dragged below the lowest. Only Escape with focus in the
+ * panel and the × close it; a press on the page never does. Focus starts on
+ * its title and goes back where it was on close; Tab may leave it. It sits
+ * above the page and its nav and below every modal dialog and toast.
  */
 
 export type DialogTone = 'cyan' | 'pink' | 'red';
@@ -53,10 +63,17 @@ export interface DialogProps {
     footer?: ReactNode;
     /** On a phone (600 px or less) a bottom sheet with a grab handle; a centred dialog above that. */
     sheet?: boolean;
+    /**
+     * A non-modal panel (see the top of this file): docked right above 1023 px,
+     * a three-height bottom sheet below. Not combined with `sheet` or `size`.
+     */
+    panel?: boolean;
     /** `sm` 28rem, `md` 32rem (a form). */
     size?: 'sm' | 'md';
-    /** Where focus starts; the first focusable element when absent. */
+    /** Where focus starts; the first focusable element when absent (a panel's title). */
     initialFocusRef?: RefObject<HTMLElement | null>;
+    /** A row that stays between the head and the scrolling body (a `RailTabs` row). */
+    bar?: ReactNode;
     /** The body, which scrolls inside the dialog while the title and the actions stay. */
     children?: ReactNode;
 }
@@ -122,21 +139,21 @@ export function DialogFrame({ dialog, parts, popupProps, titleId, descriptionId,
     /** `stand-in` animates itself in; `handoff` replaced a stand-in and must not animate again. */
     stage: 'stand-in' | 'live' | 'handoff';
 }) {
-    const { tone = 'cyan', size = 'sm', sheet = false, label, title, description, footer, children } = dialog;
+    const { tone = 'cyan', size = 'sm', sheet = false, panel = false, label, title, description, footer, bar, children } = dialog;
     const { Popup, Title, Description, Close, Body } = parts;
     const form = children != null && children !== false;
     const className = [
         'arc-dialog sb-theme-scope',
         `arc-dialog--${tone}`,
-        `arc-dialog--${size}`,
+        panel ? 'arc-dialog--panel' : `arc-dialog--${size}`,
         form ? 'arc-dialog--form' : 'arc-dialog--confirm',
-        sheet ? 'arc-dialog--sheet' : '',
+        sheet && !panel ? 'arc-dialog--sheet' : '',
         stage === 'stand-in' ? 'arc-dialog--stand-in' : '',
         stage === 'handoff' ? 'arc-dialog--handoff' : '',
     ].filter(Boolean).join(' ');
     return (
         <Popup className={className} {...popupProps}>
-            {sheet && (
+            {(sheet || panel) && (
                 <div className="arc-dialog__grab" aria-hidden="true">
                     <span className="arc-dialog__rail" />
                     <span className="arc-dialog__ball" />
@@ -151,7 +168,8 @@ export function DialogFrame({ dialog, parts, popupProps, titleId, descriptionId,
                     </svg>
                     <div className="arc-dialog__heading">
                         <p className="arc-dialog__label">{label}</p>
-                        <Title className="arc-dialog__title" id={titleId}>{title}</Title>
+                        {/* A panel's focus starts on its title (nothing is chosen for you on open). */}
+                        <Title className="arc-dialog__title" id={titleId} tabIndex={panel ? -1 : undefined}>{title}</Title>
                     </div>
                     <Close className="arc-dialog__x" aria-label="Close" {...closeProps}>
                         <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false">
@@ -163,6 +181,7 @@ export function DialogFrame({ dialog, parts, popupProps, titleId, descriptionId,
                     <Description className="arc-dialog__desc" id={descriptionId}>{description}</Description>
                 )}
             </div>
+            {bar != null && bar !== false && <div className="arc-dialog__bar">{bar}</div>}
             {form && <Body className="arc-dialog__body">{children}</Body>}
             {footer != null && footer !== false && (
                 <div className="arc-dialog__foot">
@@ -181,6 +200,9 @@ const STAND_IN_PARTS: DialogFrameParts = { Popup: 'div', Title: 'h2', Descriptio
  * behind does not scroll, and focus goes back where it was on close (but not
  * when the real dialog takes over: that one has it then). With a stand-in
  * nested in another, only the top one answers Escape and Tab.
+ *
+ * A `panel` stand-in is not a modal either: no backdrop, no scroll lock, no
+ * Tab trap, and Escape closes it only while focus is inside it.
  */
 function StandInDialog({ dialog, slabRef, returnToRef, isSwapping }: {
     dialog: DialogProps;
@@ -191,7 +213,7 @@ function StandInDialog({ dialog, slabRef, returnToRef, isSwapping }: {
 }) {
     const titleId = useId();
     const descriptionId = useId();
-    const { onOpenChange, initialFocusRef } = dialog;
+    const { onOpenChange, initialFocusRef, panel = false } = dialog;
     const onOpenChangeRef = useRef(onOpenChange);
     useEffect(() => { onOpenChangeRef.current = onOpenChange; }, [onOpenChange]);
 
@@ -199,7 +221,22 @@ function StandInDialog({ dialog, slabRef, returnToRef, isSwapping }: {
         const slab = slabRef.current;
         const before = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null;
         returnToRef.current = before;
-        (initialFocusRef?.current ?? focusablesIn(slab)[0] ?? slab)?.focus({ preventScroll: true });
+        const title = panel ? slab?.querySelector<HTMLElement>('.arc-dialog__title') : null;
+        (initialFocusRef?.current ?? title ?? focusablesIn(slab)[0] ?? slab)?.focus({ preventScroll: true });
+
+        if (panel) {
+            const onPanelKey = (e: KeyboardEvent) => {
+                if (e.key !== 'Escape' || !slab?.contains(document.activeElement)) return;
+                e.preventDefault();
+                e.stopPropagation();
+                onOpenChangeRef.current(false);
+            };
+            document.addEventListener('keydown', onPanelKey);
+            return () => {
+                document.removeEventListener('keydown', onPanelKey);
+                if (!isSwapping() && before && document.contains(before)) before.focus({ preventScroll: true });
+            };
+        }
 
         const onKey = (e: KeyboardEvent) => {
             // Every open stand-in hears the document's keys; only the top one
@@ -232,17 +269,18 @@ function StandInDialog({ dialog, slabRef, returnToRef, isSwapping }: {
             root.style.overflow = overflow;
             if (!isSwapping() && before && document.contains(before)) before.focus({ preventScroll: true });
         };
-    }, [slabRef, returnToRef, isSwapping, initialFocusRef]);
+    }, [slabRef, returnToRef, isSwapping, initialFocusRef, panel]);
 
     const cancel = () => onOpenChangeRef.current(false);
     const onViewportClick = (e: MouseEvent<HTMLDivElement>) => {
         if (e.target === e.currentTarget) cancel();
     };
+    const viewportClass = panel ? 'arc-dialog-vp arc-dialog-vp--panel' : `arc-dialog-vp${dialog.sheet ? ' arc-dialog-vp--sheet' : ''}`;
 
     return createPortal(
         <>
-            <div className="arc-dialog-backdrop arc-dialog-backdrop--stand-in" aria-hidden="true" />
-            <div className={`arc-dialog-vp${dialog.sheet ? ' arc-dialog-vp--sheet' : ''}`} onClick={onViewportClick}>
+            {!panel && <div className="arc-dialog-backdrop arc-dialog-backdrop--stand-in" aria-hidden="true" />}
+            <div className={viewportClass} onClick={panel ? undefined : onViewportClick}>
                 <DialogFrame
                     dialog={dialog}
                     parts={STAND_IN_PARTS}
@@ -252,7 +290,7 @@ function StandInDialog({ dialog, slabRef, returnToRef, isSwapping }: {
                     popupProps={{
                         ref: slabRef,
                         role: 'dialog',
-                        'aria-modal': 'true',
+                        'aria-modal': panel ? 'false' : 'true',
                         'aria-labelledby': titleId,
                         'aria-describedby': dialog.description != null && dialog.description !== false ? descriptionId : undefined,
                         tabIndex: -1,

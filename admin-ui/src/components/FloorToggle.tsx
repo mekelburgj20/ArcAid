@@ -4,10 +4,11 @@
  *
  *   - scope `room`: under the room default theme in Room Settings. The room's
  *     choice for its visitors (`UI_FLOOR`).
- *   - scope `viewer`: under the personal theme picker (Display settings,
- *     Account Settings, Global Settings). The viewer's own choice, which wins
- *     for them. `MyFloorToggle` wires it to `ThemeProvider`: it shows the
- *     floor's effective state and writes an explicit on or off when flipped.
+ *   - scope `viewer`: under the personal theme picker (Account Settings,
+ *     Global Settings). The viewer's own choice, which wins for them.
+ *     `MyFloorToggle` wires it to `ThemeProvider`: it shows the floor's
+ *     effective state and writes an explicit on or off when flipped. The
+ *     Display settings panel (G34a) draws its own switch for the same setter.
  *
  * Each page keeps the switch it already uses for its other on/off settings,
  * so `look` picks that page's control: `settings` is the room Settings pill
@@ -48,7 +49,8 @@ const LOOKS: Record<FloorToggleLook, LookClasses> = {
     }`,
     knob: on => `absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-primary transition-transform ${on ? 'translate-x-6' : ''}`,
   },
-  // components/ScoreboardPreferencesModal.tsx, `renderToggle`.
+  // The pre-G34a Display settings sheet's switch. The live panel
+  // (components/displaySettings/) draws its own; ThemeFloor's tests still use this.
   sheet: {
     row: 'flex items-center justify-between py-2 cursor-pointer',
     text: 'flex-1 mr-4',

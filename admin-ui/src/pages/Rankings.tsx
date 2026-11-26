@@ -70,7 +70,7 @@ const inputClass = "w-full px-3 py-2 bg-raised border border-border rounded text
 
 /** v2.13.9 — ranking-card display styles. Persisted to game_room_settings
  *  under SCOREBOARD_RANKINGS_STYLE; the renderer in RankingGroupCard branches
- *  on this. Same option set is mirrored in ScoreboardPreferencesModal. */
+ *  on this. Same option set is mirrored in components/displaySettings/model.ts. */
 const RANKINGS_STYLE_OPTIONS: { value: 'match' | 'plaque' | 'compact' | 'sidebar' | 'ticker'; label: string; description: string }[] = [
   { value: 'match', label: 'Match Leaderboard', description: 'Mirror the leaderboard card style. Legacy default.' },
   { value: 'plaque', label: 'Plaque', description: 'Tall, narrow hall-of-fame frame. Reads as its own object.' },

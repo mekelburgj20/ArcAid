@@ -9,7 +9,7 @@
  *   ROOM PUBLIC PAGE (`/:slug/*`)
  *     1. this-room override   — `scoreboard_prefs.roomThemes[roomId]` ("theme
  *                               for this room only", set in Display settings
- *                               → This room). Keyed by ROOM, not by device.
+ *                               → Theme, Use it: Only in). Keyed by ROOM.
  *     2. personal theme       — `/me/preferences.ui_theme` ("my theme
  *                               everywhere"; NULL = "use each room's default")
  *     3. room default         — `game_room_settings.UI_THEME` (room admin's
@@ -269,7 +269,7 @@ interface ServerPreferences {
  * ever sends the ADMIN token — so a signed-in player (whose token lives in
  * `arcaid_player_token`, and who never has an admin token) would silently get
  * no server-side appearance at all. Same raw-fetch-with-the-player-token
- * shape `ScoreboardPreferencesModal` already uses for its own prefs calls.
+ * shape the Display settings panel uses for its own prefs calls.
  * ThemeProvider wraps ViewerAuthProvider (App.tsx), so the token is read from
  * localStorage rather than through `useViewerAuth`.
  */
