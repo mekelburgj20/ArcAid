@@ -14,7 +14,7 @@ describe('Button', () => {
         const button = screen.getByRole('button', { name: 'Save' });
         expect(button.getAttribute('type')).toBe('button');
         expect(button.className).toBe(
-            'inline-flex items-center justify-center gap-1.5 rounded border font-medium cursor-pointer transition-colors '
+            'part-focus inline-flex items-center justify-center gap-1.5 rounded border font-medium cursor-pointer transition-colors '
             + 'disabled:opacity-50 disabled:cursor-not-allowed px-4 py-1.5 text-sm '
             // The theme's lead (v2.263.0, G29), never a fixed accent.
             + 'border-lead/40 bg-lead/10 ink-lead hover:bg-lead/20',

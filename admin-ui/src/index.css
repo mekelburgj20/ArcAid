@@ -2017,6 +2017,11 @@ select option {
   input, select, textarea { font-size: 16px; }
 }
 
+/* The keyboard focus ring, everywhere (G23, 2026-11-25): a 2 px cyan outline for keyboard focus only. In the base layer, so a utility such as `focus:outline-none` (a page that draws its own ring) still wins. The parts add a faint halo (see "Shared parts, G23"). */
+@layer base {
+  :focus-visible { outline: 2px solid var(--color-neon-cyan); outline-offset: 2px; }
+}
+
 /* ─── The Arcaid toast (G23, v2.260.0; components/Toast.tsx) ───────────────
    The owner's pick from the G23 mockup (2026-11-22, style plan decision 6):
    a dark glass slab with the G20 panel's top light bar, a double-line neon
@@ -2239,6 +2244,213 @@ select option {
 }
 .part-title__sub { margin: 0.25rem 0 0; font-size: 0.875rem; color: var(--color-muted); }
 .part-title__actions { margin-left: auto; display: flex; align-items: center; gap: 1.25rem; }
+
+/* ─── Shared parts, G23 (owner picks 2026-11-25): focus ring, fields, loading, empty, tabs, tiles, rows ───
+   The look is option A of each G23 part-A mockup (style plan decision 8), drawn
+   with the SITE tokens only (`--color-*`), like `Button`: one set of classes
+   serves both looks. On a room or admin page the tokens are the theme's; inside
+   `ArcaidPage` the `.aw-island` mapping (public/aw-theme/aw-web.css) points the
+   same tokens at the kit, so there is no skin switch. Body text inherits the
+   page's font (the island's is the kit's); only digits use `--font-display`.
+   Two shades are declared once here, as `light-dark(light, dark)` pairs:
+   `--part-shade` is the well's inset bezel, `--part-glint` the loading sweep.
+   They are declared ON the parts, not on :root, because a custom property
+   resolves light-dark() where it is declared: on :root a light island inside
+   a dark page (a Paper preview) would get the dark value. Everything else is a token.
+   The keyboard ring itself is the global `:focus-visible` in `@layer base`
+   (top of this file); the faint halo is added by the grouped rule below, to
+   the parts only. Never a `:focus` rule that shows on a mouse click. */
+.part-field__box { --part-shade: light-dark(rgb(74 52 20 / .14), rgb(0 0 0 / .5)); }
+.part-skel__bar { --part-glint: light-dark(rgb(255 255 255 / .8), rgb(234 246 255 / .11)); }
+/* The halo, on the parts only (Button, tabs, rows, the clear button, a field's well).
+   Written here, not in a custom property, so it takes the island's cyan. */
+:is(.part-focus, .part-tab, .part-field__clear):focus-visible,
+.part-row:has(.part-row__name:focus-visible) {
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--color-neon-cyan) 14%, transparent),
+              0 0 16px 3px light-dark(color-mix(in srgb, var(--color-neon-cyan) 12%, transparent), color-mix(in srgb, var(--color-neon-cyan) 30%, transparent));
+}
+
+/* Fields (parts/Field.tsx): the recessed well. */
+.part-field { --part-danger-ink: color-mix(in oklab, var(--color-neon-coral) 80%, var(--color-primary)); position: relative; min-width: 0; }
+.part-field__label {
+  display: block; margin: 0 0 8px; font-size: 12.5px; line-height: 1.3; font-weight: 600;
+  letter-spacing: .2em; text-transform: uppercase; color: var(--color-muted); transition: color .15s;
+}
+.part-field__opt { font-weight: 500; letter-spacing: .02em; text-transform: none; }
+.part-field__box {
+  position: relative; display: flex; align-items: center; min-height: 44px;
+  background: var(--color-deep); border: 1px solid color-mix(in srgb, var(--color-muted) 38%, transparent); border-radius: 4px;
+  box-shadow: inset 0 1px 2px var(--part-shade); transition: border-color .15s, box-shadow .15s;
+}
+.part-field__box--area { align-items: stretch; }
+/* `.part-field .part-field__input:focus` out-ranks the unlayered `.aw-island input:focus` and `.theme-retro input:focus` (border, glow): the well draws focus, not the input. */
+.part-field__input, .part-field .part-field__input:focus {
+  flex: 1 1 auto; min-width: 0; width: 100%; min-height: 42px; margin: 0; padding: 0 12px; border: 0; border-radius: 0;
+  background: transparent; color: var(--color-primary); font: inherit; font-size: 15px; font-weight: 500; line-height: 1.4;
+  outline: none; box-shadow: none; -webkit-appearance: none; appearance: none;
+}
+.part-field__input::placeholder { color: var(--color-faint); opacity: 1; }
+.part-field__input::-webkit-search-cancel-button { -webkit-appearance: none; display: none; }
+textarea.part-field__input { display: block; min-height: 96px; padding: 10px 12px; resize: vertical; line-height: 1.5; }
+.part-field__input--score { min-height: 54px; font-family: var(--font-display); font-size: 24px; font-weight: 700; line-height: 1.2; font-variant-numeric: tabular-nums; letter-spacing: .04em; }
+.part-field__input:disabled { cursor: not-allowed; }
+.part-field__select { padding-right: 38px; cursor: pointer; }
+.part-field__chev { position: absolute; right: 12px; top: 50%; width: 16px; height: 16px; margin-top: -8px; color: var(--color-muted); pointer-events: none; }
+.part-field__icon { flex: none; width: 18px; height: 18px; margin-left: 12px; color: var(--color-muted); }
+.part-field__icon + .part-field__input { padding-left: 10px; }
+.part-field__clear {
+  flex: none; display: grid; place-items: center; width: 36px; height: 36px; margin-right: 4px; border: 0; border-radius: 4px;
+  background: none; color: var(--color-muted); cursor: pointer; transition: color .15s;
+}
+.part-field__clear:hover { color: var(--color-primary); }
+.part-field__clear svg { width: 18px; height: 18px; }
+.part-field__hint { margin: 7px 0 0; font-size: 13px; line-height: 1.45; font-weight: 500; color: var(--color-muted); }
+.part-field__err { display: flex; gap: 7px; align-items: flex-start; margin: 8px 0 0; font-size: 13px; line-height: 1.45; font-weight: 600; color: var(--part-danger-ink); }
+.part-field__err svg { flex: none; width: 14px; height: 14px; margin-top: 2px; overflow: visible; }
+.part-field__err polygon { fill: none; stroke: currentColor; }
+.part-field:focus-within .part-field__box {
+  border-color: var(--color-neon-cyan);
+  box-shadow: inset 0 1px 2px var(--part-shade), 0 0 0 3px color-mix(in srgb, var(--color-neon-cyan) 14%, transparent),
+              0 0 14px light-dark(transparent, color-mix(in srgb, var(--color-neon-cyan) 30%, transparent));
+}
+.part-field:focus-within .part-field__label { color: var(--color-neon-cyan); }
+.part-field--error .part-field__box { border-color: var(--color-neon-coral); }
+.part-field--error:focus-within .part-field__box { border-color: var(--color-neon-coral); box-shadow: inset 0 1px 2px var(--part-shade), 0 0 0 3px color-mix(in srgb, var(--color-neon-coral) 16%, transparent); }
+.part-field--error .part-field__label, .part-field--error:focus-within .part-field__label { color: var(--part-danger-ink); }
+.part-field--disabled { opacity: .62; }
+.part-field--disabled .part-field__box { background: transparent; border-style: dashed; box-shadow: none; }
+/* Keyboard focus: the global ring, drawn on the well (the input itself shows none). */
+.part-field .part-field__box:has(.part-field__input:focus-visible) {
+  outline: 2px solid var(--color-neon-cyan); outline-offset: 2px;
+  box-shadow: inset 0 1px 2px var(--part-shade),
+              0 0 16px 3px light-dark(color-mix(in srgb, var(--color-neon-cyan) 12%, transparent), color-mix(in srgb, var(--color-neon-cyan) 30%, transparent));
+}
+/* The unlayered touch rule (`input, select, textarea { font-size: 16px }`) is
+   out-ranked by `.part-field__input`'s 15 px, so it is restated here. */
+@media (pointer: coarse) {
+  .part-field__input, .part-field .part-field__input:focus { font-size: 16px; }
+  .part-field__input--score, .part-field .part-field__input--score:focus { font-size: 24px; }
+}
+
+/* Loading (parts/Skeleton.tsx): bars in the content's shape, an attract-mode glint across them. */
+.part-skel__bar { display: block; position: relative; overflow: hidden; border-radius: 3px; background: color-mix(in srgb, var(--color-muted) 12%, transparent); }
+.part-skel__tile { width: 40px; height: 40px; border-radius: 5px; }
+@keyframes part-glint { 0% { transform: translateX(-110%); } 48%, 100% { transform: translateX(110%); } }
+@media (prefers-reduced-motion: no-preference) {
+  .part-skel__bar::after {
+    content: ""; position: absolute; inset: 0; transform: translateX(-110%);
+    background: linear-gradient(105deg, transparent 25%, var(--part-glint) 50%, transparent 75%);
+    animation: part-glint 1.8s ease-in-out infinite; animation-delay: var(--gd, 0s);
+  }
+}
+
+/* Empty state (parts/EmptyState.tsx): the unlit double-line triangle strikes on when the action is reached. */
+.part-empty { --part-sign: var(--color-neon-cyan); display: flex; flex-direction: column; align-items: center; text-align: center; padding: 18px 6px 8px; }
+.part-empty--pink { --part-sign: var(--color-neon-magenta); }
+.part-empty__sign { width: 56px; height: 56px; margin-bottom: 14px; overflow: visible; }
+.part-empty__sign polygon { fill: none; stroke: var(--color-faint); stroke-linejoin: round; }
+.part-empty__sign .part-empty__outer { stroke-width: 2; }
+.part-empty__sign .part-empty__inner { stroke-width: 1.1; opacity: .7; }
+.part-empty__title { margin: 0; font-size: 18px; line-height: 1.3; font-weight: 600; color: var(--color-primary); }
+.part-empty__text { margin: 6px 0 0; max-width: 36ch; font-size: 15px; line-height: 1.5; font-weight: 500; color: var(--color-muted); }
+.part-empty__action { margin-top: 18px; }
+.part-empty:has(.part-empty__action :is(a, button):hover, .part-empty__action :is(a, button):focus-visible) .part-empty__sign { filter: drop-shadow(0 0 6px light-dark(transparent, var(--part-sign))); }
+.part-empty:has(.part-empty__action :is(a, button):hover, .part-empty__action :is(a, button):focus-visible) .part-empty__sign polygon { stroke: var(--part-sign); }
+@media (prefers-reduced-motion: no-preference) {
+  .part-empty:has(.part-empty__action :is(a, button):hover, .part-empty__action :is(a, button):focus-visible) .part-empty__sign { animation: arc-toast-strike .6s linear both; }
+}
+
+/* Tabs (parts/Tabs.tsx): a lit rail under the row, one chrome pinball under the active tab. */
+.part-tabs { container-type: inline-size; overflow-x: auto; scrollbar-width: thin; padding: 8px 8px 0; margin: -8px -8px 0; /* room for the focus ring and halo inside the scroller */ }
+.part-tabs__row { position: relative; display: flex; gap: 2px; width: max-content; min-width: 100%; padding-bottom: 12px; }
+.part-tab {
+  flex: none; min-height: 44px; padding: 10px 14px; border: 0; border-radius: 4px; background: none; cursor: pointer;
+  font: inherit; font-size: 13px; line-height: 1.2; font-weight: 600; letter-spacing: .2em; text-transform: uppercase; white-space: nowrap;
+  color: var(--color-muted); transition: color .15s;
+}
+.part-tab:hover { color: var(--color-primary); }
+/* The active label is the lead as TEXT: the `ink-lead` mix (a utility is layered, so it cannot win here). */
+.part-tab[aria-selected="true"] { color: color-mix(in oklab, var(--color-lead) 80%, var(--color-primary)); }
+.part-tabs__rail { position: absolute; left: 0; right: 0; bottom: 5px; height: 2px; border-radius: 2px; background: color-mix(in srgb, var(--color-lead) 16%, transparent); pointer-events: none; }
+.part-tabs__lit {
+  position: absolute; left: 0; bottom: 5px; height: 2px; width: var(--w, 0px); border-radius: 2px; pointer-events: none; transform: translateX(var(--x, 0px));
+  background: linear-gradient(90deg, color-mix(in srgb, var(--color-lead) 25%, transparent), var(--color-lead), color-mix(in srgb, var(--color-lead) 25%, transparent));
+  box-shadow: 0 0 10px light-dark(transparent, color-mix(in srgb, var(--color-lead) 70%, transparent));
+}
+.part-tabs__ball {
+  position: absolute; left: 0; bottom: 0; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%; pointer-events: none; transform: translateX(var(--bx, 0px));
+  background: radial-gradient(circle at 34% 30%, var(--color-primary), var(--color-muted) 30%, var(--color-faint) 68%, color-mix(in srgb, var(--color-deep) 50%, black));
+  box-shadow: 0 1px 3px color-mix(in srgb, black 70%, transparent), 0 0 6px light-dark(transparent, color-mix(in srgb, var(--color-lead) 50%, transparent));
+}
+@media (prefers-reduced-motion: no-preference) {
+  .part-tabs--ready .part-tabs__lit { transition: transform 250ms ease-out, width 250ms ease-out; }
+  .part-tabs--ready .part-tabs__ball { transition: transform 250ms ease-out; }
+}
+@container (max-width: 420px) { .part-tab { padding: 10px 8px; font-size: 12.5px; letter-spacing: .1em; } }
+
+/* Stat tiles (parts/StatTiles.tsx): lit tiles, no box per tile. Meant to sit inside a Panel. */
+.part-tiles-box { container-type: inline-size; }
+.part-tiles {
+  --part-bar: var(--part-tone, var(--aw-group, var(--color-neon-cyan)));
+  display: grid; grid-template-columns: repeat(var(--part-tiles-cols, 3), minmax(0, 1fr)); margin: 6px -14px 0; padding: 0;
+}
+.part-tile { position: relative; display: flex; flex-direction: column; min-width: 0; margin: 0; padding: 8px 18px; }
+.part-tile + .part-tile { border-left: 1px solid color-mix(in srgb, var(--color-muted) 26%, transparent); }
+.part-tile::before {
+  content: ""; order: 0; display: block; width: 28px; height: 2px; border-radius: 2px;
+  background: linear-gradient(90deg, var(--part-bar), color-mix(in srgb, var(--part-bar) 20%, transparent));
+  box-shadow: 0 0 10px light-dark(transparent, color-mix(in srgb, var(--part-bar) 60%, transparent));
+}
+.part-tile__num { order: 1; display: flex; align-items: center; margin: 12px 0 0; min-height: 36px; font-family: var(--font-display); font-size: clamp(15px, calc((100cqi / var(--part-tiles-cols, 3) - 20px) / 4.6), 30px); line-height: 36px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: .02em; color: var(--color-primary); white-space: nowrap; }
+.part-tile__label { order: 2; display: block; margin: 6px 0 0; font-size: 12.5px; line-height: 1.3; font-weight: 600; letter-spacing: .2em; text-transform: uppercase; color: var(--color-muted); }
+.part-tile--skel::before { box-shadow: none; background: color-mix(in srgb, var(--color-muted) 12%, transparent); }
+.part-tile--skel .part-tile__num .part-skel__bar { width: 72%; height: 24px; }
+.part-tile--skel .part-tile__label .part-skel__bar { width: 64%; height: 12px; margin-top: 2px; }
+@container (max-width: 520px) {
+  .part-tiles { margin-inline: -8px; }
+  .part-tile { padding: 12px 10px 14px; }
+  .part-tile__label { letter-spacing: .12em; }
+}
+
+/* List rows (parts/ListRow.tsx): the menu's row family. The name's ::after covers the row; `trailing` sits above it. */
+.part-rows { --part-row-tone: var(--part-tone, var(--aw-group, var(--color-neon-cyan))); container-type: inline-size; display: flex; flex-direction: column; margin: 0 -10px; padding: 0; list-style: none; }
+.part-row {
+  --t: var(--part-row-tone);
+  position: relative; display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; grid-template-areas: "tile text end"; align-items: center; column-gap: 12px;
+  min-height: 56px; padding: 8px 10px; border-radius: 4px;
+}
+.part-row + .part-row::before {
+  content: ""; position: absolute; left: 10px; right: 10px; top: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--color-muted) 26%, transparent) 12%, color-mix(in srgb, var(--color-muted) 26%, transparent) 88%, transparent);
+}
+.part-row--link:hover, .part-row--link:has(.part-row__name:focus-visible) {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--t) 20%, transparent), color-mix(in srgb, var(--t) 5%, transparent) 70%, transparent);
+}
+.part-row:has(.part-row__name:focus-visible) { outline: 2px solid var(--color-neon-cyan); outline-offset: 2px; }
+.part-row__tile {
+  grid-area: tile; width: 40px; height: 40px; border-radius: 5px; display: grid; place-items: center; overflow: hidden;
+  font-size: 13px; line-height: 1; font-weight: 600; letter-spacing: .04em; color: var(--color-muted);
+  background: var(--color-raised); box-shadow: inset 0 0 0 1px var(--color-border);
+}
+.part-row__tile img { width: 100%; height: 100%; object-fit: cover; }
+.part-row__text { grid-area: text; min-width: 0; display: flex; flex-direction: column; }
+.part-row__name {
+  margin: 0; padding: 0; border: 0; background: none; text-align: left; cursor: pointer;
+  font: inherit; font-size: 15px; line-height: 1.35; font-weight: 500; color: var(--color-primary); text-decoration: none; overflow-wrap: anywhere;
+}
+span.part-row__name { cursor: default; }
+a.part-row__name::after, button.part-row__name::after { content: ""; position: absolute; inset: 0; border-radius: 4px; }
+.part-row__name:focus-visible { outline: none; }
+.part-row__cap { margin-top: 2px; font-size: 12px; line-height: 1.35; font-weight: 600; letter-spacing: .2em; text-transform: uppercase; color: var(--part-row-tone); }
+.part-row__end { grid-area: end; display: flex; align-items: center; justify-content: flex-end; gap: 10px; position: relative; z-index: 1; pointer-events: none; }
+.part-row__end :is(button, a, input, select) { pointer-events: auto; }
+.part-row__chev { flex: none; width: 16px; height: 16px; color: var(--color-muted); }
+@container (max-width: 420px) { .part-row__cap { letter-spacing: .12em; } }
+/* A row with a trailing button stacks it under the name in a narrow list, so the name keeps its width. */
+@container (max-width: 520px) {
+  .part-row--trail { grid-template-areas: "tile text" "tile end"; grid-template-columns: 40px minmax(0, 1fr); row-gap: 6px; }
+  .part-row--trail .part-row__end { justify-content: flex-start; }
+}
 
 /* ─── The Arcaid menu (G26; components/parts/Menu.tsx) ─────────────────────
    The owner's pick from the G26 room-switcher mockup (2026-11-23): the menu

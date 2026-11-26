@@ -5,6 +5,13 @@ import PageTitle from '../components/parts/PageTitle';
 import Panel, { PanelGroup } from '../components/parts/Panel';
 import JumpList, { type JumpItem } from '../components/parts/JumpList';
 import Button from '../components/parts/Button';
+import { TextInput, TextArea, Select, SearchInput } from '../components/parts/Field';
+import { SkeletonRows, SkeletonTiles } from '../components/parts/Skeleton';
+import EmptyState from '../components/parts/EmptyState';
+import { RailTabs } from '../components/parts/Tabs';
+import { tabPanelProps } from '../components/parts/tabPanel';
+import StatTiles from '../components/parts/StatTiles';
+import { ListRows, ListRow } from '../components/parts/ListRow';
 import type { PartTone } from '../components/parts/skin';
 import RoomSwitcher, { type SwitcherCurrentRoom } from '../components/RoomSwitcher';
 import { THEMES } from '../components/ThemeProvider';
@@ -93,6 +100,44 @@ function StatusWord({ dot, text, label }: { dot: string; text: string; label: st
     );
 }
 
+const SAMPLE_TABS = [
+    { id: 'scores', label: 'Scores' },
+    { id: 'tables', label: 'Tables' },
+    { id: 'friends', label: 'Friends' },
+    { id: 'achievements', label: 'Long tab name, all achievements' },
+];
+
+/** G23 sample: the five field kinds. */
+function FieldSamples({ idPrefix }: { idPrefix: string }) {
+    const id = (k: string) => `${idPrefix}-f-${k}`;
+    return (
+        <div className="grid gap-5">
+            <TextInput id={id('name')} label="Display name" hint="Shown on every board you play." defaultValue="Sample player" />
+            <TextInput id={id('score')} label="Score" size="score" defaultValue="12,450,330" />
+            <TextArea id={id('note')} label="Note" optional placeholder="Anything the room should know" />
+            <Select id={id('table')} label="Table" defaultValue="afm">
+                <option value="afm">Attack from Mars</option>
+                <option value="tz">Twilight Zone</option>
+            </Select>
+            <SearchInput id={id('search')} label="Search" placeholder="Search the catalogue" defaultValue="Medieval" />
+            <TextInput id={id('err')} label="Room address" defaultValue="joes arcade" error="Use letters, numbers and _ only." />
+            <TextInput id={id('off')} label="Room code" defaultValue="Locked" disabled />
+        </div>
+    );
+}
+
+function TabsSample({ idPrefix }: { idPrefix: string }) {
+    const [tab, setTab] = useState('scores');
+    return (
+        <>
+            <RailTabs label="Sample tabs" idPrefix={idPrefix} tabs={SAMPLE_TABS} value={tab} onChange={setTab} />
+            <p className="text-sm text-muted mt-3" {...tabPanelProps(idPrefix, tab)}>
+                The {SAMPLE_TABS.find(t => t.id === tab)!.label} tab. Arrow keys, Home and End move between tabs.
+            </p>
+        </>
+    );
+}
+
 /** One component shown in both looks, so the two previews show the same thing. */
 function SampleGroups({ idPrefix }: { idPrefix: string }) {
     const id = (k: string) => `${idPrefix}-${k}`;
@@ -109,6 +154,12 @@ function SampleGroups({ idPrefix }: { idPrefix: string }) {
                     <ButtonRow label="Small" size="sm" />
                     <ButtonRow label="Extra small" size="xs" />
                     <ButtonRow label="Disabled" size="md" disabled />
+                </Panel>
+                <Panel title="Tabs">
+                    <TabsSample idPrefix={`${idPrefix}-tabs`} />
+                </Panel>
+                <Panel title="Stat tiles" wide>
+                    <StatTiles tiles={[{ label: 'Plays', value: '128' }, { label: 'Best rank', value: '3rd' }, { label: 'Points', value: '12,450' }]} />
                 </Panel>
             </PanelGroup>
 
@@ -136,6 +187,9 @@ function SampleGroups({ idPrefix }: { idPrefix: string }) {
                         Share my scores to the Global Scoreboard
                     </label>
                 </Panel>
+                <Panel title="Fields" wide>
+                    <FieldSamples idPrefix={idPrefix} />
+                </Panel>
                 <Panel title="Status">
                     <ul className="m-0 p-0 list-none space-y-2">
                         <StatusWord dot="bg-neon-green" text="text-neon-green" label="Fine" />
@@ -155,6 +209,21 @@ function SampleGroups({ idPrefix }: { idPrefix: string }) {
             <PanelGroup id={id('ice')} tone="ice" title={t('ice').title} sub={t('ice').sub}>
                 <Panel title="A wide panel" wide>
                     <p className="text-sm text-primary">A wide panel spans both columns of its group.</p>
+                </Panel>
+                <Panel title="Loading">
+                    <SkeletonRows count={2} />
+                    <SkeletonTiles count={3} />
+                </Panel>
+                <Panel title="Empty state">
+                    <EmptyState title="No tables yet" action={<Button variant="secondary" size="sm">Add a table</Button>}>
+                        Tables you add show up here, ready to pick for a tournament.
+                    </EmptyState>
+                </Panel>
+                <Panel title="List rows" wide>
+                    <ListRows label="Sample rooms">
+                        <ListRow tile="NA" name="Neon Alley Pinball" caption="Last played today" href="/admin/style-guide" trailing={<Button variant="secondary" size="xs">Leave</Button>} />
+                        <ListRow tile="TC" name="The Saturday Night Silverball Society of Greater Springfield Pinball" caption="Member" href="/admin/style-guide" />
+                    </ListRows>
                 </Panel>
             </PanelGroup>
 

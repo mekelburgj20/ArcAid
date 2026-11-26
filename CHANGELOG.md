@@ -6,6 +6,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.268.0] - 2026-11-25 - Keyboard focus ring and seven new shared parts (G23)
+
+### Added
+- **Keyboard users now see a cyan ring** around whatever has focus, on every page (owner pick, G23). Nothing
+  changes for mouse or touch. The shared button also gets a faint glow around its ring. A page that draws
+  its own focus look keeps it.
+- **Seven new shared parts, in the look the owner chose from the mockup**: fields (text, score, note,
+  native drop-down, search with a clear button), loading skeletons, an empty state, rail tabs with a rolling
+  pinball, stat tiles and list rows. They exist on Super Admin -> Style Guide; no page uses them yet (the
+  pages move over in the next change).
+
+### Changed (code)
+- `index.css`: a global `:focus-visible` outline in `@layer base` (utilities such as `focus:outline-none`
+  still win), and a block "Shared parts, G23" before the Arcaid menu block. `parts/Button` gets the `part-focus` halo class.
+- New in `components/parts/`: `Field.tsx` (`TextInput`, `TextArea`, `Select`, `SearchInput`), `Skeleton.tsx`,
+  `EmptyState.tsx`, `Tabs.tsx` (`RailTabs`, `tabPanelProps`), `StatTiles.tsx`, `ListRow.tsx`. All draw with site
+  tokens (`part-*` classes), so one set serves the room themes and the Arcaid look. Touch inputs stay 16 px.
+- Samples on the Style Guide; one test file per part; `.claude/rules/admin-ui.md` updated.
+
 ## [2.267.2] - 2026-11-25 - Room notices sit under the page's own header
 
 ### Changed
