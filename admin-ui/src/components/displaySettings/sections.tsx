@@ -1,6 +1,7 @@
-import { useContext, useId, useState, type ReactNode } from 'react';
+import { useContext, useId, useRef, useState, type ReactNode } from 'react';
 import { ChevronRight, Moon, Sun, SunMoon } from 'lucide-react';
-import Button from '../parts/Button';
+import Button, { ButtonLink } from '../parts/Button';
+import { useToast } from '../Toast';
 import { THEMES, type Appearance } from '../ThemeProvider';
 import { THEME_IDS, type ThemeId } from '../../lib/themeIds';
 import { SettingRow, Segmented, Switch, Stepper, Slider, SelectWell, Section } from './controls';
@@ -219,10 +220,48 @@ const px = (n: number) => `${n} px`;
 const rows = (n: number) => `${n} rows`;
 const fontSize = (n: number) => (n === 0 ? 'Auto' : `${n} px`);
 
+/** G34b: the kiosk address of this room, to open on a TV's browser. Not a preference; nothing is saved. */
+function TvRow({ slug }: { slug: string }) {
+    const { toast } = useToast();
+    const path = `/${slug}/kiosk`;
+    const address = `${window.location.origin}${path}`;
+    const addressRef = useRef<HTMLSpanElement>(null);
+    const selectAddress = () => {
+        const node = addressRef.current;
+        if (!node) return;
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        const sel = window.getSelection();
+        sel?.removeAllRanges();
+        sel?.addRange(range);
+    };
+    const copy = async () => {
+        try {
+            await navigator.clipboard.writeText(address);
+            toast('Link copied', 'success');
+        } catch {
+            selectAddress();
+        }
+    };
+    return (
+        <SettingRow label="Show this board on a TV" kind="wide" help="A full-screen board that scrolls by itself. Open this link on the TV's browser." testId="tv-row">
+            <span className="dset-addr" ref={addressRef} data-testid="tv-address">{address}</span>
+            <div className="dset-addr__acts">
+                <ButtonLink to={path} variant="secondary" size="sm" className="min-h-11 px-3" target="_blank" rel="noopener">Open</ButtonLink>
+                <Button variant="secondary" size="sm" className="min-h-11 px-3" onClick={() => { void copy(); }}>Copy link</Button>
+            </div>
+        </SettingRow>
+    );
+}
+
 /** The card settings everyone reaches for: style, art, scores, layout and size. */
-export function CardsSection({ model, headingId, showHead = true, notOnScoreboard, onOpenScoreboard }: {
+export function CardsSection({ model, headingId, showHead = true, notOnScoreboard, onOpenScoreboard, slug, copyRow }: {
     model: CardModel;
     headingId: string;
+    /** The room's slug: the kiosk link of its last row. */
+    slug?: string | null;
+    /** The last row: the copy-to-my-other-device caption and button (the panel owns what it does). */
+    copyRow?: ReactNode;
     showHead?: boolean;
     /** On another room page: a first row says where these show, with a way there. */
     notOnScoreboard: boolean;
@@ -338,6 +377,8 @@ export function CardsSection({ model, headingId, showHead = true, notOnScoreboar
                     />
                 </>
             )}
+            {slug && <TvRow slug={slug} />}
+            {copyRow}
         </>
     );
     if (!showHead) return <div className="dset-sec">{body}</div>;
@@ -377,6 +418,14 @@ export function MoreRows({ model }: { model: CardModel }) {
             />
             <SwitchRow model={model} label="Hide empty games" keyName="SCOREBOARD_HIDE_EMPTY" mine={mine.hideEmpty} room={room.hideEmpty} help="Leave out tables nobody has played yet." />
             <SwitchRow model={model} label="Countdown timer" keyName="SCOREBOARD_SHOW_TIMER" mine={mine.showTimer} room={room.showTimer} help="The time left on each card." />
+            <SwitchRow
+                model={model}
+                label="Flash on new scores"
+                keyName="SCOREBOARD_SCORE_FLASH"
+                mine={mineRaw.SCOREBOARD_SCORE_FLASH !== 'false'}
+                room={roomRaw.SCOREBOARD_SCORE_FLASH !== 'false'}
+                help="The screen glows briefly when someone posts a score."
+            />
             <ChoiceRow
                 model={model}
                 label="Game title style"
