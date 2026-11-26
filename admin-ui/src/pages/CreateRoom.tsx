@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { Building2, ArrowLeft, Home } from 'lucide-react';
+import { Building2 } from 'lucide-react';
 import { useViewerAuth, usePlayerHeaders } from '../contexts/ViewerAuthContext';
-import NeonButton from '../components/NeonButton';
 import LoginButtons from '../components/LoginButtons';
-
-const inputClass = "w-full px-4 py-3 bg-raised border border-border rounded text-primary placeholder-faint focus:outline-none focus:border-neon-cyan transition-colors";
+import ArcaidPage from '../components/parts/ArcaidPage';
+import Panel, { PanelGroup } from '../components/parts/Panel';
+import Button from '../components/parts/Button';
+import { TextInput, TextArea } from '../components/parts/Field';
 
 const SLUG_PATTERN = /^[a-z0-9_]+$/;
 
@@ -44,10 +44,10 @@ export default function CreateRoom() {
 
   if (!discordUser) {
     return (
-      <div className="min-h-screen bg-deep flex items-center justify-center px-4">
-        <div className="text-center max-w-sm">
+      <ArcaidPage title="Create a Game Room" bare>
+        <div className="text-center max-w-sm px-4">
           <Building2 size={40} className="text-muted/30 mx-auto mb-3" />
-          <h1 className="font-display text-xl font-bold mb-2">Create a Game Room</h1>
+          <h1 className="text-xl font-bold mb-2">Create a Game Room</h1>
           <p className="text-muted mb-4">
             Log in to create your own game room. You'll automatically become its admin.
           </p>
@@ -58,7 +58,7 @@ export default function CreateRoom() {
             className="justify-center"
           />
         </div>
-      </div>
+      </ArcaidPage>
     );
   }
 
@@ -135,106 +135,69 @@ export default function CreateRoom() {
   };
 
   return (
-    <div className="min-h-screen bg-deep text-primary">
-      <nav className="border-b border-border bg-surface/80 backdrop-blur-sm">
-        <div
-          className="max-w-xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between"
-          style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}
-        >
-          <button
-            onClick={() => window.history.back()}
-            className="flex items-center gap-1.5 text-sm text-muted hover:text-neon-cyan transition-colors cursor-pointer bg-transparent border-0 p-0"
-          >
-            <ArrowLeft size={16} />
-            Back
-          </button>
-          <Link to="/" className="flex items-center gap-1.5 text-sm text-muted hover:text-neon-cyan transition-colors no-underline">
-            <Home size={16} />
-            Home
-          </Link>
-        </div>
-      </nav>
-
-      <div className="max-w-xl mx-auto px-4 sm:px-6 py-8">
-        <div className="flex items-center gap-2 mb-2">
-          <Building2 size={20} className="text-neon-cyan" />
-          <h1 className="font-display text-xl font-bold">Create a Game Room</h1>
-        </div>
-        <p className="text-sm text-muted mb-6">
-          Your room starts web-only, with no Discord bot or iScored board attached.
-          You can connect Discord and iScored later in the room's Settings.
-        </p>
-
-        {redirecting ? (
-          <div className="flex flex-col items-center gap-3 py-12">
-            <div className="w-8 h-8 border-2 border-neon-cyan/30 border-t-neon-cyan rounded-full animate-spin" />
-            <p className="text-muted text-sm">Room created — signing you in as its admin...</p>
-          </div>
-        ) : (
-          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-            <div>
-              <label className="block text-xs uppercase tracking-wider text-faint mb-1.5">Room Name</label>
-              <input
-                type="text"
+    <ArcaidPage title="Create a Game Room" width="column">
+      <PanelGroup
+        id="create-room"
+        tone="cyan"
+        title="New room"
+        sub="Your room starts web-only, with no Discord bot or iScored board attached. You can connect Discord and iScored later in the room's Settings."
+      >
+        <Panel wide title="Room details">
+          {redirecting ? (
+            <p className="text-sm text-muted py-6" role="status">Room created. Signing you in as its admin…</p>
+          ) : (
+            <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+              <TextInput
+                id="room-name"
+                label="Room name"
                 placeholder="e.g. Joe's Arcade"
                 value={name}
                 onChange={e => setName(e.target.value)}
-                className={inputClass}
                 autoFocus
                 maxLength={100}
               />
-            </div>
 
-            <div>
-              <label className="block text-xs uppercase tracking-wider text-faint mb-1.5">URL Slug</label>
-              <div className="flex items-center gap-1 mb-1.5 text-xs text-faint">
-                <span>{window.location.origin}/</span>
-              </div>
-              <input
-                type="text"
+              <TextInput
+                id="room-slug"
+                label="Web address"
+                hint={`${window.location.origin}/${effectiveSlug || 'your_room'}`}
                 placeholder="joes_arcade"
                 value={effectiveSlug}
                 onChange={e => { setSlugTouched(true); setSlug(e.target.value.toLowerCase()); }}
-                className={inputClass}
                 maxLength={50}
+                error={effectiveSlug.length > 0 && !slugValid ? 'Lowercase letters, numbers, and underscores only.' : undefined}
               />
-              {effectiveSlug.length > 0 && !slugValid && (
-                <p className="text-xs text-neon-coral mt-1.5">
-                  Lowercase letters, numbers, and underscores only.
-                </p>
-              )}
-            </div>
 
-            <div>
-              <label className="block text-xs uppercase tracking-wider text-faint mb-1.5">Description (optional)</label>
-              <textarea
+              <TextArea
+                id="room-desc"
+                label="Description"
+                optional
+                rows={3}
+                maxLength={500}
                 placeholder="What's this room about?"
                 value={description}
                 onChange={e => setDescription(e.target.value)}
-                className={`${inputClass} resize-none`}
-                rows={3}
-                maxLength={500}
               />
-            </div>
 
-            <label className="flex items-center gap-2 text-sm text-muted cursor-pointer">
-              <input
-                type="checkbox"
-                checked={isPublic}
-                onChange={e => setIsPublic(e.target.checked)}
-                className="accent-neon-cyan"
-              />
-              List this room on the landing page
-            </label>
+              <label className="flex items-center gap-2 text-sm text-muted cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={isPublic}
+                  onChange={e => setIsPublic(e.target.checked)}
+                  className="accent-neon-cyan"
+                />
+                List this room on the landing page
+              </label>
 
-            {error && <p className="text-neon-coral text-sm">{error}</p>}
+              {error && <p className="text-sm ink-danger" role="alert">{error}</p>}
 
-            <NeonButton type="submit" disabled={!canSubmit}>
-              {submitting ? 'Creating...' : 'Create Room'}
-            </NeonButton>
-          </form>
-        )}
-      </div>
-    </div>
+              <Button type="submit" className="self-start" disabled={!canSubmit}>
+                {submitting ? 'Creating…' : 'Create Room'}
+              </Button>
+            </form>
+          )}
+        </Panel>
+      </PanelGroup>
+    </ArcaidPage>
   );
 }
