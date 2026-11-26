@@ -1,8 +1,16 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { UserPlus, Trash2, Users, ArrowLeft, Home } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Users } from 'lucide-react';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import LoginButtons from '../components/LoginButtons';
+import LoadFailedNotice from '../components/LoadFailedNotice';
+import ArcaidPage from '../components/parts/ArcaidPage';
+import Panel, { PanelGroup } from '../components/parts/Panel';
+import Button from '../components/parts/Button';
+import { TextInput } from '../components/parts/Field';
+import { ListRows, ListRow } from '../components/parts/ListRow';
+import { SkeletonRows } from '../components/parts/Skeleton';
+import EmptyState from '../components/parts/EmptyState';
+import { useRetryingLoad } from '../hooks/useRetryingLoad';
 import { resolveAvatarUrl } from '../lib/avatar';
 
 interface Friend {
@@ -18,10 +26,21 @@ interface Friend {
   created_at: string;
 }
 
+function friendName(f: Friend): string {
+  return f.display_name || f.iscored_username || f.friend_discord_username || f.friend_user_id;
+}
+
+/** The avatar, or the name's first letter when there is none or it does not load. */
+function FriendTile({ friend }: { friend: Friend }) {
+  const [broken, setBroken] = useState(false);
+  const url = resolveAvatarUrl(friend.friend_user_id, friend.avatar_url ?? friend.avatar_hash);
+  if (url && !broken) return <img src={url} alt="" onError={() => setBroken(true)} />;
+  return <>{friendName(friend).charAt(0).toUpperCase()}</>;
+}
+
 export default function Friends() {
   const { discordUser, playerToken, loginWithDiscord, loginWithGoogle } = useViewerAuth();
   const [friends, setFriends] = useState<Friend[]>([]);
-  const [loading, setLoading] = useState(true);
   const [username, setUsername] = useState('');
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState('');
@@ -30,16 +49,17 @@ export default function Friends() {
     ? { Authorization: `Bearer ${playerToken}`, 'Content-Type': 'application/json' }
     : { 'Content-Type': 'application/json' };
 
-  const loadFriends = useCallback(async () => {
-    if (!playerToken) return;
-    try {
-      const res = await fetch('/api/me/friends', { headers: { Authorization: `Bearer ${playerToken}` } });
-      if (res.ok) setFriends(await res.json());
-    } catch {}
-    setLoading(false);
-  }, [playerToken]);
-
-  useEffect(() => { loadFriends(); }, [loadFriends]);
+  // A load that fails for now tries again by itself; the empty text waits for an answer (G31).
+  const { load, phase } = useRetryingLoad(
+    () => fetch('/api/me/friends', { headers: { Authorization: `Bearer ${playerToken}` } }),
+    async res => {
+      const body = await res.json();
+      if (!Array.isArray(body)) throw new Error('shape');
+      setFriends(body);
+    },
+    playerToken,
+  );
+  useEffect(() => { if (playerToken) load(); }, [playerToken, load]);
 
   const addFriend = async () => {
     if (!username.trim() || !playerToken) return;
@@ -53,7 +73,7 @@ export default function Friends() {
       });
       if (res.ok) {
         setUsername('');
-        loadFriends();
+        load();
       } else {
         const data = await res.json().catch(() => ({}));
         setError(data.error || 'Failed to add friend');
@@ -70,13 +90,13 @@ export default function Friends() {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${playerToken}` },
     });
-    loadFriends();
+    load();
   };
 
   if (!discordUser) {
     return (
-      <div className="min-h-screen bg-deep flex items-center justify-center">
-        <div className="text-center">
+      <ArcaidPage title="Friends" bare>
+        <div className="text-center px-6">
           <Users size={40} className="text-muted/30 mx-auto mb-3" />
           <p className="text-muted mb-4">Log in to manage your friends list</p>
           <LoginButtons
@@ -85,111 +105,66 @@ export default function Friends() {
             className="justify-center"
           />
         </div>
-      </div>
+      </ArcaidPage>
     );
   }
 
+  const noAnswerYet = phase !== 'ready' && friends.length === 0;
+
   return (
-    <div className="min-h-screen bg-deep text-primary">
-      {/* Navigation header */}
-      <nav className="border-b border-border bg-surface/80 backdrop-blur-sm">
-        <div
-          className="max-w-xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between"
-          style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}
-        >
-          <button
-            onClick={() => window.history.back()}
-            className="flex items-center gap-1.5 text-sm text-muted hover:text-neon-cyan transition-colors cursor-pointer bg-transparent border-0 p-0"
-          >
-            <ArrowLeft size={16} />
-            Back
-          </button>
-          <Link to="/" className="flex items-center gap-1.5 text-sm text-muted hover:text-neon-cyan transition-colors no-underline">
-            <Home size={16} />
-            Home
-          </Link>
-        </div>
-      </nav>
-
-      <div className="max-w-xl mx-auto px-4 sm:px-6 py-8">
-        <div className="flex items-center gap-2 mb-6">
-          <Users size={20} className="text-neon-cyan" />
-          <h1 className="font-display text-xl font-bold">Friends</h1>
-        </div>
-
-        {/* Add friend */}
-        <div className="bg-surface border border-border rounded-lg p-4 mb-6">
-          <label className="text-xs text-muted block mb-2">Add a friend by their username</label>
-          <div className="flex gap-2">
-            <input
+    <ArcaidPage title="Friends" width="column">
+      <PanelGroup id="friends-add" tone="cyan" title="Add a friend">
+        <Panel wide title="By username">
+          <div className="flex flex-col sm:flex-row sm:items-end gap-2">
+            <TextInput
+              id="friend-username"
+              label="Their username"
+              placeholder="Username"
+              className="flex-1 min-w-0"
               value={username}
               onChange={e => { setUsername(e.target.value); setError(''); }}
               onKeyDown={e => e.key === 'Enter' && addFriend()}
-              placeholder="Username..."
-              className="flex-1 bg-raised border border-border rounded px-3 py-2 text-sm text-primary"
+              error={error || undefined}
             />
-            <button
-              onClick={addFriend}
-              disabled={adding || !username.trim()}
-              className="flex items-center gap-1.5 px-4 py-2 bg-neon-cyan/20 text-neon-cyan border border-neon-cyan/40 rounded text-sm font-medium hover:bg-neon-cyan/30 cursor-pointer disabled:opacity-50"
-            >
-              <UserPlus size={14} />
-              Add
-            </button>
+            <Button className="self-start sm:self-auto" onClick={addFriend} disabled={adding || !username.trim()}>Add</Button>
           </div>
-          {error && <p className="text-xs text-neon-coral mt-2">{error}</p>}
-        </div>
+        </Panel>
+      </PanelGroup>
 
-        {/* Friends list */}
-        {loading ? (
-          <div className="flex justify-center py-12">
-            <div className="w-8 h-8 border-2 border-neon-cyan/30 border-t-neon-cyan rounded-full animate-spin" />
-          </div>
-        ) : friends.length === 0 ? (
-          <div className="text-center py-12">
-            <p className="text-muted">No friends added yet.</p>
-            <p className="text-xs text-faint mt-1">Add friends to see their scores in your lobby feed.</p>
-          </div>
-        ) : (
-          <div className="bg-surface border border-border rounded-lg divide-y divide-border/30">
-            {friends.map(f => (
-              <div key={f.id} className="flex items-center gap-3 px-4 py-3">
-                {/* Avatar */}
-                {resolveAvatarUrl(f.friend_user_id, f.avatar_url ?? f.avatar_hash) ? (
-                  <img
-                    src={resolveAvatarUrl(f.friend_user_id, f.avatar_url ?? f.avatar_hash)!}
-                    alt=""
-                    className="w-8 h-8 rounded-full border border-border"
+      <PanelGroup id="friends-list" tone="pink" title="Your friends" sub="Their scores show in your lobby feed.">
+        <Panel wide title={`Friends (${friends.length})`}>
+          {noAnswerYet ? (
+            phase === 'retrying'
+              ? <LoadFailedNotice what="your friends" onRetry={load} className="py-8" />
+              : <SkeletonRows count={3} label="Loading your friends" />
+          ) : friends.length === 0 ? (
+            <EmptyState title="No friends added yet." tone="pink">
+              Add a friend above by their username to see their scores in your lobby feed.
+            </EmptyState>
+          ) : (
+            <ListRows label="Your friends">
+              {friends.map(f => {
+                const name = friendName(f);
+                return (
+                  <ListRow
+                    key={f.id}
+                    name={name}
+                    tile={<FriendTile friend={f} />}
+                    caption={f.friend_discord_username && f.iscored_username && f.friend_discord_username !== f.iscored_username
+                      ? f.friend_discord_username
+                      : undefined}
+                    trailing={
+                      <Button variant="secondary" size="xs" aria-label={`Remove ${name}`} onClick={() => removeFriend(f.friend_user_id)}>
+                        Remove
+                      </Button>
+                    }
                   />
-                ) : (
-                  <div className="w-8 h-8 rounded-full bg-neon-cyan/10 border border-border flex items-center justify-center text-[10px] font-bold text-neon-cyan">
-                    {(f.display_name || f.friend_discord_username || f.iscored_username || '?').charAt(0).toUpperCase()}
-                  </div>
-                )}
-
-                {/* Info — v2.8.0: prefer chosen display_name. */}
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-primary truncate">
-                    {f.display_name || f.iscored_username || f.friend_discord_username || f.friend_user_id}
-                  </p>
-                  {f.friend_discord_username && f.iscored_username && f.friend_discord_username !== f.iscored_username && (
-                    <p className="text-[10px] text-faint truncate">{f.friend_discord_username}</p>
-                  )}
-                </div>
-
-                {/* Remove */}
-                <button
-                  onClick={() => removeFriend(f.friend_user_id)}
-                  className="text-neon-coral/50 hover:text-neon-coral cursor-pointer bg-transparent border-0 p-1"
-                  title="Remove friend"
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
+                );
+              })}
+            </ListRows>
+          )}
+        </Panel>
+      </PanelGroup>
+    </ArcaidPage>
   );
 }
