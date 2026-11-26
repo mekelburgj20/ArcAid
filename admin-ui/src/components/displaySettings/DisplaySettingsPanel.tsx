@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Dialog } from '../parts/Dialog';
+import { ConfirmDialog, Dialog } from '../parts/Dialog';
+import { useToast } from '../Toast';
 import Button from '../parts/Button';
 import { RailTabs } from '../parts/Tabs';
 import { tabPanelProps } from '../parts/tabPanel';
@@ -16,7 +17,7 @@ import {
   DISPLAY_SETTINGS_SAVED_EVENT, dispatchDisplaySettingsLive, prefsDevice, type DisplayPrefsDevice,
 } from '../../lib/displaySettingsLive';
 import {
-  CardSetContext, applyChanges, buildPayload, cardModel, hasCardSettings, samePrefs, withoutCardSettings, type Prefs,
+  CardSetContext, applyChanges, buildPayload, cardModel, copyOver, hasCardSettings, samePrefs, withoutCardSettings, type Prefs,
 } from './model';
 import { CardsSection, ColoursSection, MoreRows, MoreSection } from './sections';
 
@@ -299,6 +300,39 @@ export default function DisplaySettingsPanel({ onClose, playerToken, slug, roomI
 
   const roomDefaults = () => commit(withoutCardSettings(prefsRef.current));
 
+  // ── Copy to my other device (G34b) ─────────────────────────────────────
+  // The keys both device sets show go to the other set; nothing on this page
+  // changes (it is the other device's set), so there is no live event.
+  const { toast } = useToast();
+  const [copyAsk, setCopyAsk] = useState(false);
+  const [copying, setCopying] = useState(false);
+  const other: DisplayPrefsDevice = device === 'desktop' ? 'mobile' : 'desktop';
+  const otherName = device === 'desktop' ? 'phone' : 'computer';
+  const copyToOther = async () => {
+    if (copying) return;
+    setCopying(true);
+    const headers = { Authorization: `Bearer ${tokenRef.current}` };
+    try {
+      const got = await fetch(`/api/me/scoreboard-preferences?device=${other}`, { headers });
+      if (!got.ok) throw new Error(`read refused (${got.status})`);
+      const data = await got.json();
+      const theirs: Prefs = data && typeof data === 'object' ? data : {};
+      const res = await fetch(`/api/me/scoreboard-preferences?device=${other}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...headers },
+        body: JSON.stringify(copyOver(prefsRef.current, theirs)),
+      });
+      if (!res.ok) throw new Error(`copy refused (${res.status})`);
+      setCopyAsk(false);
+      toast(`Copied to your ${otherName}`, 'success');
+    } catch {
+      setCopyAsk(false);
+      toast("Couldn't copy. Try again.", 'error');
+    } finally {
+      setCopying(false);
+    }
+  };
+
   // ── Drawing ───────────────────────────────────────────────────────────
   const model = useMemo(
     () => (roomConfig ? cardModel(device, prefs, roomConfig) : null),
@@ -326,11 +360,21 @@ export default function DisplaySettingsPanel({ onClose, playerToken, slug, roomI
       onFloor={changeFloor}
     />
   );
+  const copyRow = (
+    <div className="dset-row dset-row--wide" data-testid="copy-row">
+      <p className="dset-note">{device === 'desktop' ? 'Your phone keeps its own card settings.' : 'Your computer keeps its own card settings.'}</p>
+      <div className="dset-row__c">
+        <Button variant="secondary" className="dset-copy" onClick={() => setCopyAsk(true)} disabled={!loaded}>
+          {device === 'desktop' ? 'Copy to my phone' : 'Copy to my computer'}
+        </Button>
+      </div>
+    </div>
+  );
   const cardsWaiting = prefsPhase === 'ready' && !loaded
     ? <p className="dset-note" role="status">Couldn't load your card settings. <button type="button" className="dset-reset" onClick={() => loadPrefs()}>Try again</button></p>
     : <SkeletonRows count={4} label="Loading your card settings" />;
   const cards = cardsReady
-    ? <CardsSection model={model} headingId={`${ids}-cards`} showHead notOnScoreboard={!onScoreboard} onOpenScoreboard={openScoreboard} />
+    ? <CardsSection model={model} headingId={`${ids}-cards`} showHead notOnScoreboard={!onScoreboard} onOpenScoreboard={openScoreboard} slug={slug} copyRow={copyRow} />
     : cardsWaiting;
 
   // A phone gets the sections as tabs: Cards first on the scoreboard, else Colours.
@@ -372,11 +416,6 @@ export default function DisplaySettingsPanel({ onClose, playerToken, slug, roomI
   const statusText = status === 'saving' ? 'Saving…' : status === 'saved' ? 'Saved ✓' : status === 'failed' ? "Couldn't save" : '';
   const footer = (
     <>
-      {roomScoped && (
-        <p className="dset-foot-note">
-          {device === 'desktop' ? 'Your phone keeps its own card settings.' : 'Your computer keeps its own card settings.'}
-        </p>
-      )}
       <span className="dset-status" role="status" aria-live="polite" data-state={status} data-testid="display-save-status">
         {status === 'failed'
           ? <><span className="ink-danger">{statusText}</span><button type="button" className="dset-status__retry" onClick={retry}>Try again</button></>
@@ -415,6 +454,16 @@ export default function DisplaySettingsPanel({ onClose, playerToken, slug, roomI
     >
       <CardSetContext.Provider value={setCards}>
         <div className="dset">{body}</div>
+        <ConfirmDialog
+          open={copyAsk}
+          onCancel={() => setCopyAsk(false)}
+          onConfirm={() => { void copyToOther(); }}
+          title={`Copy to your ${otherName}?`}
+          message={`Your card style, game art, scores per card and the More settings replace the ones on your ${otherName}. Zoom, layout and QR codes stay as they are.`}
+          confirmLabel="Copy"
+          tone="cyan"
+          busy={copying}
+        />
       </CardSetContext.Provider>
     </Dialog>
   );

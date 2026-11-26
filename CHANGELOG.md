@@ -6,6 +6,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.275.0] - 2026-11-26 - Three additions to Display settings (G34b)
+
+### Added
+- **Show this board on a TV.** The last row of Cards gives the address of the room's full-screen board (it scrolls by itself) with an Open link and a Copy link button, so a TV's browser can be pointed at it. Nothing is saved; it is only the link.
+- **Flash on new scores.** A switch in More, under Cards and header: the screen glows briefly when someone posts a score. On by default; each device keeps its own, and it changes on the page at once like the other settings.
+- **Copy to my phone / Copy to my computer.** A button in the panel's footer copies your card style, game art, scores per card and the More settings to your other device, after one confirmation. Zoom, layout and QR codes stay as they are on the other device.
+
+### Fixed
+- **The new-score flash no longer pulses for a viewer whose device asks for reduced motion.** It is not drawn at all for them.
+
+### Technical
+- `SCOREBOARD_SCORE_FLASH` ('true' / 'false', unset = on) is a per-device viewer key: added to `SAVED_KEYS` (so a save posts it, null when unset, and Reset / Room defaults clear it); the room never sets it, so its "Room:" line reads On. `pages/Scoreboard.tsx` reads it from the merged config through a ref (the socket handler outlives renders), so the live event applies at once.
+- The overlay uses `motion-safe:animate-pulse motion-reduce:hidden` (no new `prefers-reduced-motion` block in `index.css`).
+- `model.ts` `COPY_KEYS` is derived from `CARD_KEYS` minus the per-device keys (zoom, layout, every QR key, the phone's layout and card size); `copyOver` merges them over the other device's own map. The copy GETs the other device, POSTs once to `?device=`, and writes no live event. No server change: `POST /api/me/scoreboard-preferences` already stores any keys.
+- Tests: `DisplaySettingsPanel.test.tsx` (TV row, flash switch, copy: cancel, merge, failure, phone wording; the Toast hook is mocked and the stub server gained `otherPrefs`), new `pages/__tests__/ScoreboardScoreFlash.test.tsx`.
+
 ## [2.274.0] - 2026-11-26 - Display settings is a live panel beside the page (G34a)
 
 ### Changed

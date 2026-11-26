@@ -3027,6 +3027,10 @@ a.part-row__name::after, button.part-row__name::after { content: ""; position: a
 .dset-admin a { color: var(--arc-cyan); font-weight: 600; text-decoration: none; border-radius: 3px; }
 .dset-admin a:hover { text-decoration: underline; text-underline-offset: 3px; }
 .dset-foot-note { flex-basis: 100%; margin: 0 0 2px; font-size: 13px; line-height: 1.4; color: var(--color-faint); }
+.dset-copy { width: 100%; min-height: 44px; }
+/* The TV row: the kiosk address wraps rather than overflows, and is selectable. */
+.dset-addr { display: block; padding: 8px 10px; border-radius: 4px; border: 1px solid var(--color-border); background: color-mix(in srgb, var(--arc-chrome) 8%, transparent); font-size: 13.5px; line-height: 1.4; color: var(--arc-ice); overflow-wrap: anywhere; user-select: all; }
+.dset-addr__acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .dset-status { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; margin-right: auto; min-height: 44px; font-size: 14px; font-weight: 600; letter-spacing: .04em; color: var(--arc-cyan); }
 .dset-status[data-state="saving"] { color: var(--arc-chrome); }
 .dset-status__retry {

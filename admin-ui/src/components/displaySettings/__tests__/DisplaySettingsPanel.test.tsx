@@ -12,6 +12,10 @@ import { SAVED_KEYS } from '../model';
 
 stubResizeObserver();
 
+// G34b: the toasts the panel raises are read here (the real ones need Sonner on the page).
+const toastMock = vi.hoisted(() => vi.fn());
+vi.mock('../../Toast', () => ({ useToast: () => ({ toast: toastMock }) }));
+
 /**
  * G34a - Display settings as a live panel (owner decisions 2026-11-26): only
  * the device in hand, every change on the page at once and saved by itself,
@@ -24,6 +28,8 @@ interface Server {
   appearance: string | null;
   floor: string | null;
   prefs: Record<string, string>;
+  /** What the OTHER device (mobile, when the panel is on a computer) has stored. */
+  otherPrefs: Record<string, string>;
   failPosts: boolean;
 }
 
@@ -39,7 +45,7 @@ function stubFetch() {
       return method === 'GET' ? ok({ ui_theme: server.personal, appearance: server.appearance, ui_floor: server.floor }) : ok({});
     }
     if (url.startsWith('/api/me/scoreboard-preferences')) {
-      if (method === 'GET') return ok(server.prefs);
+      if (method === 'GET') return ok(url.includes('device=mobile') ? server.otherPrefs : server.prefs);
       return server.failPosts ? failed() : ok({ ok: true });
     }
     if (url.startsWith('/api/me/room-themes')) return ok(method === 'GET' ? { roomThemes: {} } : {});
@@ -107,7 +113,8 @@ const innerWidth = window.innerWidth;
 beforeEach(() => {
   localStorage.clear();
   localStorage.setItem('arcaid_player_token', 'player.jwt.token');
-  server = { personal: null, appearance: null, floor: null, prefs: {}, failPosts: false };
+  server = { personal: null, appearance: null, floor: null, prefs: {}, otherPrefs: {}, failPosts: false };
+  toastMock.mockReset();
   fetchMock.mockReset();
   stubFetch();
   live = [];
@@ -505,5 +512,121 @@ describe('Display settings panel - where it is open', () => {
     renderPanel({ token: jwt({ role: 'player' }) });
     await ready();
     expect(screen.queryByRole('link', { name: /Room admin/ })).toBeNull();
+  });
+});
+
+describe('Display settings panel - G34b additions', () => {
+  it('the TV row (Cards, last): the kiosk address for this room, Open to /<slug>/kiosk, Copy link copies it', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    renderPanel();
+    await ready();
+    const row = screen.getByTestId('tv-row');
+    expect(row).toHaveTextContent('Show this board on a TV');
+    expect(row).toHaveTextContent("A full-screen board that scrolls by itself. Open this link on the TV's browser.");
+    expect(screen.getByTestId('tv-address')).toHaveTextContent(`${window.location.origin}/rooma/kiosk`);
+    const open = within(row).getByRole('link', { name: 'Open' });
+    expect(open).toHaveAttribute('href', '/rooma/kiosk');
+    expect(open).toHaveAttribute('target', '_blank');
+    expect(open).toHaveAttribute('rel', 'noopener');
+    fireEvent.click(within(row).getByRole('button', { name: 'Copy link' }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/rooma/kiosk`));
+    await waitFor(() => expect(toastMock).toHaveBeenCalledWith('Link copied', 'success'));
+    // Not a preference: nothing was saved or sent live.
+    expect(prefPosts()).toHaveLength(0);
+    expect(live).toHaveLength(0);
+  });
+
+  it('the TV row is not there off room pages', async () => {
+    renderPanel({ path: '/scoreboard', slug: null });
+    await waitForRealDialog();
+    expect(screen.queryByTestId('tv-row')).toBeNull();
+  });
+
+  it('Flash on new scores: writes false and back, reads "Room: On", and Reset clears it', async () => {
+    renderPanel();
+    await ready();
+    fireEvent.click(screen.getByRole('button', { name: 'More' }));
+    const sw = screen.getByRole('switch', { name: 'Flash on new scores' });
+    expect(sw).toHaveAttribute('aria-checked', 'true');
+    fireEvent.click(sw);
+    expect(lastLive()).toEqual({ SCOREBOARD_SCORE_FLASH: 'false' });
+    expect(screen.getByRole('switch', { name: 'Flash on new scores' })).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByText('Room: On')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: "Reset Flash on new scores to the room's" }));
+    expect(lastLive()).toEqual({});
+    fireEvent.click(screen.getByRole('switch', { name: 'Flash on new scores' }));
+    fireEvent.click(screen.getByRole('switch', { name: 'Flash on new scores' }));
+    expect(lastLive()).toEqual({ SCOREBOARD_SCORE_FLASH: 'true' });
+    await waitFor(() => expect(prefPosts().length).toBeGreaterThan(0));
+    expect(lastBody(prefPosts())).toHaveProperty('SCOREBOARD_SCORE_FLASH', 'true');
+  });
+
+  it('Copy to my phone: Cancel sends nothing', async () => {
+    renderPanel();
+    await ready();
+    // The last row of Cards, after the TV row, with the device line as its caption; not in the pinned footer.
+    const copyRow = screen.getByTestId('copy-row');
+    expect(copyRow).toHaveTextContent('Your phone keeps its own card settings.');
+    expect(copyRow.previousElementSibling).toBe(screen.getByTestId('tv-row'));
+    expect(within(screen.getByTestId('display-save-status').parentElement!).queryByRole('button', { name: 'Copy to my phone' })).toBeNull();
+    fireEvent.click(within(copyRow).getByRole('button', { name: 'Copy to my phone' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Copy to your phone?' });
+    expect(dialog).toHaveTextContent('Your card style, game art, scores per card and the More settings replace the ones on your phone. Zoom, layout and QR codes stay as they are.');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Copy to your phone?' })).toBeNull());
+    expect(prefPosts()).toHaveLength(0);
+    expect(calls('/api/me/scoreboard-preferences', 'GET').filter(([u]) => String(u).includes('device=mobile'))).toHaveLength(0);
+    expect(toastMock).not.toHaveBeenCalled();
+  });
+
+  it('Copy to my phone: copies only the shared keys over the phone\'s own, nulls what this device has not set', async () => {
+    server.prefs = {
+      SCOREBOARD_STYLE: 'banner', SCOREBOARD_MAX_SCORES: '9', SCOREBOARD_ZOOM: '120', SCOREBOARD_LAYOUT: 'grid',
+      SCOREBOARD_QR_MODE: 'all', SCOREBOARD_QR_SIZE: '80',
+    };
+    server.otherPrefs = {
+      SCOREBOARD_STYLE: 'minimal', SCOREBOARD_CARD_SPACING: '40', SCOREBOARD_MOBILE_VERTICAL: 'false', SCOREBOARD_MOBILE_SCALE: '0.6',
+    };
+    renderPanel();
+    await ready();
+    fireEvent.click(screen.getByRole('button', { name: 'Copy to my phone' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Copy to your phone?' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Copy' }));
+    await waitFor(() => expect(toastMock).toHaveBeenCalledWith('Copied to your phone', 'success'));
+    const post = calls('/api/me/scoreboard-preferences?device=mobile', 'POST');
+    expect(post).toHaveLength(1);
+    const body = lastBody(post);
+    expect(body.SCOREBOARD_STYLE).toBe('banner');
+    expect(body.SCOREBOARD_MAX_SCORES).toBe('9');
+    // This device has no spacing of its own: the phone then follows the room.
+    expect(body.SCOREBOARD_CARD_SPACING).toBeNull();
+    expect(body.SCOREBOARD_SCORE_FLASH).toBeNull();
+    // The phone's own keys are untouched, and this computer's never go over.
+    expect(body.SCOREBOARD_MOBILE_VERTICAL).toBe('false');
+    expect(body.SCOREBOARD_MOBILE_SCALE).toBe('0.6');
+    for (const key of ['SCOREBOARD_ZOOM', 'SCOREBOARD_LAYOUT', 'SCOREBOARD_QR_MODE', 'SCOREBOARD_QR_SIZE']) expect(body).not.toHaveProperty(key);
+    // Nothing on this page changed: no live event, no save of this device's own.
+    expect(live).toHaveLength(0);
+    expect(prefPosts().filter(([u]) => String(u).includes('device=desktop'))).toHaveLength(0);
+  });
+
+  it('a failed copy says so', async () => {
+    renderPanel();
+    await ready();
+    server.failPosts = true;
+    fireEvent.click(screen.getByRole('button', { name: 'Copy to my phone' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Copy to your phone?' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Copy' }));
+    await waitFor(() => expect(toastMock).toHaveBeenCalledWith("Couldn't copy. Try again.", 'error'));
+    expect(toastMock).not.toHaveBeenCalledWith('Copied to your phone', 'success');
+  });
+
+  it('on a phone the button copies to the computer', async () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
+    renderPanel();
+    await waitForRealDialog();
+    fireEvent.click(await screen.findByRole('button', { name: 'Copy to my computer' }));
+    expect(await screen.findByRole('dialog', { name: 'Copy to your computer?' })).toBeInTheDocument();
   });
 });

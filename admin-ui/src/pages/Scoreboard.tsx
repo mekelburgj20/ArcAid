@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { Search } from 'lucide-react';
 import { getSocket } from '../lib/websocket';
@@ -78,6 +78,10 @@ export default function Scoreboard() {
   const [roomConfig, setRoomConfig] = useState<Record<string, string>>({});
   const [viewerPrefs, setViewerPrefs] = useState<Record<string, string>>({});
   const config = useMemo(() => ({ ...roomConfig, ...viewerPrefs }), [roomConfig, viewerPrefs]);
+  // G34b: the viewer's "Flash on new scores" switch (unset = on); a ref, because the socket handler outlives renders.
+  const flashOnRef = useRef(true);
+  const flashOn = config.SCOREBOARD_SCORE_FLASH !== 'false';
+  useEffect(() => { flashOnRef.current = flashOn; }, [flashOn]);
   const { roomId, roomName } = useRoom();
   const [selectedGame, setSelectedGame] = useState<GameLeaderboard | null>(null);
   // v2.13.12 — game quick-view modal triggered by title click on tournament cards.
@@ -252,7 +256,7 @@ export default function Scoreboard() {
     const onConnect = () => socket.emit('join:room', roomId);
     socket.on('connect', onConnect);
     const onScore = (data?: { playerName?: string; score?: number; gameName?: string }) => {
-      setFlash(true);
+      setFlash(flashOnRef.current);
       loadData();
       loadRankings();
       setTimeout(() => setFlash(false), 1500);
@@ -328,7 +332,7 @@ export default function Scoreboard() {
           <>
             {/* Score flash overlay */}
             {flash && (
-              <div className="fixed inset-0 bg-neon-cyan/5 pointer-events-none z-40 animate-pulse" />
+              <div data-testid="score-flash" className="fixed inset-0 bg-neon-cyan/5 pointer-events-none z-40 motion-safe:animate-pulse motion-reduce:hidden" />
             )}
 
             {/* Score toast notification */}

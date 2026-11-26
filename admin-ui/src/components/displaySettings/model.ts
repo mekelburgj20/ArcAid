@@ -41,10 +41,36 @@ export const SAVED_KEYS = [
   'SCOREBOARD_MOBILE_VERTICAL',
   'SCOREBOARD_MOBILE_SCALE',
   'SCOREBOARD_ZOOM',
+  'SCOREBOARD_SCORE_FLASH',
 ] as const;
 
 /** The keys a viewer can set here (every saved key but the retired one). */
 export const CARD_KEYS: readonly string[] = SAVED_KEYS.filter(k => k !== 'UI_THEME');
+
+/**
+ * G34b - "Copy to my other device": the keys the panel shows on BOTH device
+ * sets, i.e. every card key but the ones that belong to one device (the
+ * computer's zoom, layout and QR codes; the phone's layout and card size).
+ */
+const PER_DEVICE_KEYS: readonly string[] = [
+  'SCOREBOARD_ZOOM',
+  'SCOREBOARD_LAYOUT',
+  'SCOREBOARD_QR_MODE',
+  'SCOREBOARD_QR_POSITION',
+  'SCOREBOARD_QR_SIZE',
+  'SCOREBOARD_QR_OFFSET_PX',
+  'SCOREBOARD_MOBILE_VERTICAL',
+  'SCOREBOARD_MOBILE_SCALE',
+];
+export const COPY_KEYS: readonly string[] = CARD_KEYS.filter(k => !PER_DEVICE_KEYS.includes(k));
+
+/** The other device's map with this device's copied keys over it (null here = cleared there). */
+export function copyOver(mine: Prefs, theirs: Prefs): Record<string, string | null> {
+  const payload: Record<string, string | null> = { ...theirs };
+  for (const key of COPY_KEYS) payload[key] = mine[key] ?? null;
+  payload.UI_THEME = null;
+  return payload;
+}
 
 export type Prefs = Record<string, string>;
 
