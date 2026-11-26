@@ -132,6 +132,10 @@ the kit does.
    - *Stat tiles:* lit tiles: the number big in the display face, a tracked-caps label, a short top light
      bar; tiles share one panel divided by faint rules, never a box per tile. Not chosen: score reels.
    - *List rows:* the menu row family (tile, wrapping name, caption, trailing action), offered as the one style.
+   - *Content pop-ups* (owner 2026-11-26): the game quick view, the player quick view and the score-photo
+     viewer are the same Arcaid slab, fixed dark on every theme, so there is one pop-up family (confirms, forms,
+     toasts, the room menu). Inside it the content takes the default Arcaid theme's colours (first place and
+     scores stay gold). Not chosen: content pop-ups in the room's theme (two pop-up looks).
 
 ## The guide (G21, shipped v2.261.0)
 
