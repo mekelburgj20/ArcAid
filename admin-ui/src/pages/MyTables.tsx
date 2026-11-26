@@ -1,13 +1,22 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Home, Library, Plus, Search, Trash2 } from 'lucide-react';
+import { ArrowLeft, Home, Library } from 'lucide-react';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import LoginButtons from '../components/LoginButtons';
+import LoadFailedNotice from '../components/LoadFailedNotice';
 import RatingBadge from '../components/RatingBadge';
 import { compareByRating } from '../lib/ratingSort';
 import { catalogueImageFor, toCatalogueUrl, type CatalogueImageSource } from '../lib/catalogueImage';
 import { getEngineShortLabel } from '../lib/scoreProvenance';
 import { engineOptionsFor } from '../lib/engineOptions';
+import { useRetryingLoad } from '../hooks/useRetryingLoad';
+import ArcaidPage from '../components/parts/ArcaidPage';
+import Panel, { PanelGroup } from '../components/parts/Panel';
+import Button from '../components/parts/Button';
+import { SearchInput } from '../components/parts/Field';
+import { ListRows, ListRow } from '../components/parts/ListRow';
+import { SkeletonRows } from '../components/parts/Skeleton';
+import EmptyState from '../components/parts/EmptyState';
 
 /**
  * C2 - My Tables: the player's table inventory.
@@ -23,6 +32,9 @@ import { engineOptionsFor } from '../lib/engineOptions';
  *   PUT    /api/me/tables/:globalGameId  { platforms: string[] } -> { table: OwnedTable }
  *   DELETE /api/me/tables/:globalGameId  -> { ok, removed }
  *   GET    /api/global/games?search=&limit=20 -> { data: [...], nextCursor, hasMore }
+ *
+ * G22: the page wears the Arcaid look; the owned list loads through
+ * `useRetryingLoad` (a failed load retries, never reads as "no tables").
  */
 
 interface OwnedTable {
@@ -57,17 +69,6 @@ function useDebounced<T>(value: T, ms: number): T {
   return v;
 }
 
-function Thumb({ src, name }: { src: string | null; name: string }) {
-  if (!src) {
-    return (
-      <div className="w-12 h-12 rounded bg-raised border border-border flex items-center justify-center flex-shrink-0" aria-hidden="true">
-        <Library size={18} className="text-faint" />
-      </div>
-    );
-  }
-  return <img src={src} alt={name} className="w-12 h-12 rounded object-cover border border-border flex-shrink-0" />;
-}
-
 /** Middle dot separator, built from its code point to keep this file ASCII-only. */
 const MIDDOT = ` ${String.fromCharCode(0xb7)} `;
 
@@ -77,8 +78,7 @@ function mfgYear(m: string | null, y: number | null): string {
 
 export default function MyTables() {
   const { discordUser, playerToken, loginWithDiscord, loginWithGoogle } = useViewerAuth();
-  const [tablesFor, setTablesFor] = useState<{ token: string; rows: OwnedTable[] } | null>(null);
-  const [loadFailed, setLoadFailed] = useState(false);
+  const [rows, setRows] = useState<OwnedTable[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -88,32 +88,22 @@ export default function MyTables() {
   // A14.1: list order.
   const [sortMode, setSortMode] = useState<'name' | 'rating'>('name');
 
-  const tables = useMemo(
-    () => (playerToken && tablesFor?.token === playerToken ? tablesFor.rows : null),
-    [playerToken, tablesFor],
-  );
+  const authHeaders = (extra?: Record<string, string>): Record<string, string> => ({
+    ...(extra ?? {}),
+    ...(playerToken ? { Authorization: `Bearer ${playerToken}` } : {}),
+  });
 
-  const authHeaders = useCallback(
-    (extra?: Record<string, string>): Record<string, string> => ({
-      ...(extra ?? {}),
-      ...(playerToken ? { Authorization: `Bearer ${playerToken}` } : {}),
-    }),
-    [playerToken],
+  // A load that fails for now tries again by itself; the empty text waits for an answer (G31).
+  const { load, phase } = useRetryingLoad(
+    () => fetch('/api/me/tables', { headers: { Authorization: `Bearer ${playerToken}` } }),
+    async res => {
+      const body = await res.json();
+      if (!Array.isArray(body?.tables)) throw new Error('shape');
+      setRows(body.tables);
+    },
+    playerToken,
   );
-
-  useEffect(() => {
-    if (!playerToken) return;
-    let cancelled = false;
-    fetch('/api/me/tables', { headers: { Authorization: `Bearer ${playerToken}` } })
-      .then(r => (r.ok ? r.json() : Promise.reject(new Error('load failed'))))
-      .then(body => {
-        if (cancelled) return;
-        setTablesFor({ token: playerToken, rows: Array.isArray(body?.tables) ? body.tables : [] });
-        setLoadFailed(false);
-      })
-      .catch(() => { if (!cancelled) setLoadFailed(true); });
-    return () => { cancelled = true; };
-  }, [playerToken]);
+  useEffect(() => { if (playerToken) load(); }, [playerToken, load]);
 
   useEffect(() => {
     if (debounced.length < 2) return;
@@ -123,32 +113,26 @@ export default function MyTables() {
       .then(body => {
         if (cancelled) return;
         // The route answers `{ data, nextCursor, hasMore }`; `games` tolerated too.
-        const rows = Array.isArray(body?.data) ? body.data : Array.isArray(body?.games) ? body.games : [];
-        setHitsFor({ q: debounced, rows });
+        const found = Array.isArray(body?.data) ? body.data : Array.isArray(body?.games) ? body.games : [];
+        setHitsFor({ q: debounced, rows: found });
       })
       .catch(() => { if (!cancelled) setHitsFor({ q: debounced, rows: [] }); });
     return () => { cancelled = true; };
   }, [debounced]);
 
   const hits = debounced.length >= 2 && hitsFor?.q === debounced ? hitsFor.rows : null;
-  const ownedIdSet = useMemo(() => new Set((tables ?? []).map(t => t.global_game_id)), [tables]);
+  const ownedIdSet = useMemo(() => new Set(rows.map(t => t.global_game_id)), [rows]);
   const sorted = useMemo(
-    () => [...(tables ?? [])].sort(
+    () => [...rows].sort(
       sortMode === 'rating'
         ? compareByRating
         : (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
     ),
-    [tables, sortMode],
+    [rows, sortMode],
   );
 
   const upsertLocal = (table: OwnedTable) => {
-    if (!playerToken) return;
-    setTablesFor(prev => {
-      const rows = prev && prev.token === playerToken ? prev.rows : [];
-      const next = rows.filter(r => r.global_game_id !== table.global_game_id);
-      next.push(table);
-      return { token: playerToken, rows: next };
-    });
+    setRows(prev => [...prev.filter(r => r.global_game_id !== table.global_game_id), table]);
   };
 
   const save = async (globalGameId: string, platforms: string[]) => {
@@ -180,7 +164,7 @@ export default function MyTables() {
         headers: authHeaders(),
       });
       if (!res.ok) throw new Error('remove failed');
-      setTablesFor(prev => (prev ? { ...prev, rows: prev.rows.filter(r => r.global_game_id !== globalGameId) } : prev));
+      setRows(prev => prev.filter(r => r.global_game_id !== globalGameId));
     } catch {
       setError('Could not remove that table. Try again.');
     }
@@ -195,7 +179,7 @@ export default function MyTables() {
 
   if (!discordUser) {
     return (
-      <div className="min-h-screen bg-deep flex items-center justify-center">
+      <ArcaidPage title="My Tables" bare>
         <div className="text-center px-6">
           <Library size={40} className="text-muted/30 mx-auto mb-3" />
           <p className="text-muted mb-4">Log in to manage your tables.</p>
@@ -205,17 +189,18 @@ export default function MyTables() {
             className="justify-center"
           />
         </div>
-      </div>
+      </ArcaidPage>
     );
   }
 
+  const noAnswerYet = phase !== 'ready' && rows.length === 0;
+
   return (
-    <div className="min-h-screen bg-deep text-primary">
-      <nav className="border-b border-border bg-surface/80 backdrop-blur-sm">
-        <div
-          className="max-w-xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between"
-          style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}
-        >
+    <ArcaidPage
+      title="My Tables"
+      width="wide"
+      actions={
+        <>
           <Link to="/account/settings" className="flex items-center gap-1.5 text-sm text-muted hover:text-neon-cyan transition-colors no-underline">
             <ArrowLeft size={16} />
             Account
@@ -224,167 +209,144 @@ export default function MyTables() {
             <Home size={16} />
             Home
           </Link>
-        </div>
-      </nav>
-
-      <main className="max-w-xl mx-auto px-4 sm:px-6 py-6">
-        <h1 className="text-xl font-semibold mb-1">My Tables</h1>
-        <p className="text-sm text-muted mb-6">
-          Mark the tables you own. Your inventory is private; only a count is shown to others.
-        </p>
-
-        {/* Search the catalogue to add a table. */}
-        <section className="mb-8">
-          <div className="relative">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint pointer-events-none" />
-            <input
-              type="text"
-              value={query}
-              onChange={e => setQuery(e.target.value)}
-              placeholder="Search the catalogue to add a table"
-              aria-label="Search the catalogue"
-              className="w-full bg-surface border border-border rounded-lg pl-9 pr-4 py-2 text-sm text-primary placeholder:text-faint focus:outline-none focus:border-neon-cyan/50"
-            />
-          </div>
+        </>
+      }
+    >
+      <PanelGroup
+        id="tables-add"
+        tone="cyan"
+        title="Add a table"
+        sub="Mark the tables you own. Your inventory is private; only a count is shown to others."
+      >
+        <Panel wide title="Search the catalogue">
+          <SearchInput
+            id="tables-search"
+            label="Find a table"
+            placeholder="Search the catalogue to add a table"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            onClear={() => setQuery('')}
+          />
           {hits && (
-            <ul className="mt-2 bg-surface border border-border rounded-lg overflow-hidden" data-testid="my-tables-search-results">
-              {hits.length === 0 && <li className="px-4 py-3 text-sm text-muted">No catalogue tables match.</li>}
-              {hits.map(hit => {
-                const owned = ownedIdSet.has(hit.id);
-                return (
-                  <li key={hit.id} className="flex items-center gap-3 px-3 py-2 border-b border-border/30 last:border-0">
-                    <Thumb src={catalogueImageFor(hit)} name={hit.name} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium break-words leading-tight">{hit.name}</p>
-                      {mfgYear(hit.manufacturer, hit.year) && (
-                        <p className="text-[11px] text-muted break-words">{mfgYear(hit.manufacturer, hit.year)}</p>
-                      )}
-                    </div>
-                    {owned ? (
-                      <span className="text-xs font-medium text-neon-green flex-shrink-0">Owned</span>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => save(hit.id, [])}
-                        disabled={busyId === hit.id}
-                        aria-label={`Add ${hit.name}`}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-neon-cyan/40 bg-neon-cyan/10 text-neon-cyan text-xs font-medium hover:bg-neon-cyan/20 disabled:opacity-50 cursor-pointer flex-shrink-0"
-                      >
-                        <Plus size={12} />
-                        Add
-                      </button>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
+            hits.length === 0 ? (
+              <p className="text-sm text-muted mt-3">No catalogue tables match.</p>
+            ) : (
+              <div className="mt-3">
+                <ListRows label="Catalogue matches" testId="my-tables-search-results">
+                  {hits.map(hit => {
+                    const owned = ownedIdSet.has(hit.id);
+                    const img = catalogueImageFor(hit);
+                    return (
+                      <ListRow
+                        key={hit.id}
+                        name={hit.name}
+                        tile={img ? <img src={img} alt="" /> : <Library size={18} />}
+                        caption={mfgYear(hit.manufacturer, hit.year) || undefined}
+                        trailing={owned ? (
+                          <span className="text-xs font-medium text-neon-cyan">Owned</span>
+                        ) : (
+                          <Button size="xs" aria-label={`Add ${hit.name}`} disabled={busyId === hit.id} onClick={() => save(hit.id, [])}>
+                            Add
+                          </Button>
+                        )}
+                      />
+                    );
+                  })}
+                </ListRows>
+              </div>
+            )
           )}
-        </section>
+        </Panel>
+        {error && <p className="text-xs ink-danger lg:col-span-2" role="alert">{error}</p>}
+      </PanelGroup>
 
-        {error && <p className="text-xs text-neon-red mb-3" role="alert">{error}</p>}
-
-        <section>
-          <h2 className="text-sm font-medium mb-2">
-            Owned{tables ? ` (${tables.length})` : ''}
-          </h2>
-          {tables === null ? (
-            <p className="text-sm text-muted">{loadFailed ? 'Could not load your tables.' : 'Loading...'}</p>
+      <PanelGroup id="tables-owned" tone="pink" title="Owned">
+        <Panel wide title={`Owned (${rows.length})`}>
+          {noAnswerYet ? (
+            phase === 'retrying'
+              ? <LoadFailedNotice what="your tables" onRetry={load} className="py-8" />
+              : <SkeletonRows count={4} label="Loading your tables" />
           ) : sorted.length === 0 ? (
-            <p className="text-sm text-muted">No tables yet. Search above to add the ones you own.</p>
+            <EmptyState title="No tables yet." tone="pink">Search above to add the ones you own.</EmptyState>
           ) : (
             <>
-            <div data-testid="my-tables-sort" className="flex items-center justify-end gap-2 flex-wrap mb-3">
-              <span className="text-faint text-[10px] uppercase tracking-wider">Sort</span>
-              {([['name', 'Name'], ['rating', 'Top rated']] as const).map(([mode, label]) => (
-                <button
-                  key={mode}
-                  type="button"
-                  onClick={() => setSortMode(mode)}
-                  aria-pressed={sortMode === mode}
-                  className={`px-3 py-1 text-[10px] rounded-full border cursor-pointer transition-colors ${
-                    sortMode === mode
-                      ? 'bg-neon-cyan/20 border-neon-cyan text-neon-cyan'
-                      : 'border-border text-muted hover:text-primary bg-transparent'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            <ul className="space-y-3" data-testid="my-tables-list">
-              {sorted.map(table => {
-                const busy = busyId === table.global_game_id;
-                const options = engineOptionsFor(table.catalogue_platforms, table.platforms);
-                const img = table.image_url ? toCatalogueUrl(table.image_url) : null;
-                return (
-                  <li key={table.global_game_id} className="bg-surface border border-border rounded-lg p-3" data-testid={`owned-${table.global_game_id}`}>
-                    <div className="flex items-start gap-3">
-                      <Thumb src={img} name={table.name} />
-                      <div className="flex-1 min-w-0">
-                        <Link
-                          to={`/games/${table.global_game_id}`}
-                          className="text-sm font-medium break-words leading-tight text-primary hover:text-neon-cyan no-underline"
-                        >
-                          {table.name}
-                        </Link>
-                        {mfgYear(table.manufacturer, table.year) && (
-                          <p className="text-[11px] text-muted break-words">{mfgYear(table.manufacturer, table.year)}</p>
-                        )}
-                        {(table.rating_count ?? 0) > 0 && (
-                          <div className="mt-0.5">
-                            <RatingBadge
-                              avg={table.avg_rating}
-                              count={table.rating_count}
-                              to={`/games/${table.global_game_id}#ratings`}
-                            />
+              <div data-testid="my-tables-sort" className="flex items-center justify-end gap-2 flex-wrap mb-3">
+                <span className="text-xs text-muted">Sort</span>
+                {([['name', 'Name'], ['rating', 'Top rated']] as const).map(([mode, label]) => (
+                  <Button
+                    key={mode}
+                    size="xs"
+                    variant={sortMode === mode ? 'primary' : 'secondary'}
+                    aria-pressed={sortMode === mode}
+                    onClick={() => setSortMode(mode)}
+                  >
+                    {label}
+                  </Button>
+                ))}
+              </div>
+              <ListRows label="Owned tables" testId="my-tables-list">
+                {sorted.map(table => {
+                  const busy = busyId === table.global_game_id;
+                  const options = engineOptionsFor(table.catalogue_platforms, table.platforms);
+                  const img = table.image_url ? toCatalogueUrl(table.image_url) : null;
+                  return (
+                    <ListRow
+                      key={table.global_game_id}
+                      testId={`owned-${table.global_game_id}`}
+                      href={`/games/${table.global_game_id}`}
+                      name={table.name}
+                      tile={img ? <img src={img} alt="" /> : <Library size={18} />}
+                      caption={mfgYear(table.manufacturer, table.year) || undefined}
+                      trailing={
+                        <Button variant="secondary" size="xs" aria-label={`Remove ${table.name}`} disabled={busy} onClick={() => remove(table.global_game_id)}>
+                          Remove
+                        </Button>
+                      }
+                      below={
+                        <>
+                          {(table.rating_count ?? 0) > 0 && (
+                            <div className="mb-1.5">
+                              <RatingBadge
+                                avg={table.avg_rating}
+                                count={table.rating_count}
+                                to={`/games/${table.global_game_id}#ratings`}
+                              />
+                            </div>
+                          )}
+                          <p className="text-xs text-muted mb-1.5">
+                            {table.platforms.length === 0 ? 'Owned on: any platform' : 'Owned on:'}
+                          </p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {options.map(engine => {
+                              const on = table.platforms.includes(engine);
+                              return (
+                                <button
+                                  key={engine}
+                                  type="button"
+                                  onClick={() => toggleEngine(table, engine)}
+                                  disabled={busy}
+                                  aria-pressed={on}
+                                  className={`part-focus px-2.5 py-0.5 rounded-full border text-xs transition-colors cursor-pointer disabled:opacity-50 ${
+                                    on
+                                      ? 'border-neon-cyan/60 bg-neon-cyan/15 text-neon-cyan'
+                                      : 'border-border text-muted hover:text-primary'
+                                  }`}
+                                >
+                                  {getEngineShortLabel(engine)}
+                                </button>
+                              );
+                            })}
                           </div>
-                        )}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => remove(table.global_game_id)}
-                        disabled={busy}
-                        aria-label={`Remove ${table.name}`}
-                        className="inline-flex items-center gap-1 px-2 py-1 rounded border border-border text-xs text-muted hover:text-neon-red hover:border-neon-red/40 disabled:opacity-50 cursor-pointer bg-transparent flex-shrink-0"
-                      >
-                        <Trash2 size={12} />
-                        Remove
-                      </button>
-                    </div>
-                    <div className="mt-2.5">
-                      <p className="text-[11px] text-faint mb-1.5">
-                        {table.platforms.length === 0 ? 'Owned on: any platform' : 'Owned on:'}
-                      </p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {options.map(engine => {
-                          const on = table.platforms.includes(engine);
-                          return (
-                            <button
-                              key={engine}
-                              type="button"
-                              onClick={() => toggleEngine(table, engine)}
-                              disabled={busy}
-                              aria-pressed={on}
-                              className={`px-2 py-0.5 rounded-full border text-[11px] transition-colors cursor-pointer disabled:opacity-50 ${
-                                on
-                                  ? 'bg-neon-cyan/15 border-neon-cyan/60 text-neon-cyan'
-                                  : 'border-border text-muted hover:text-primary'
-                              }`}
-                            >
-                              {getEngineShortLabel(engine)}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
+                        </>
+                      }
+                    />
+                  );
+                })}
+              </ListRows>
             </>
           )}
-        </section>
-      </main>
-    </div>
+        </Panel>
+      </PanelGroup>
+    </ArcaidPage>
   );
 }
