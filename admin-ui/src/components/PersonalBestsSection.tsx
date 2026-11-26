@@ -5,6 +5,7 @@ import { formatScore, scoreTitle } from '../lib/format';
 import { compareByRank } from '../lib/searchRank';
 import { gameArtFor } from '../lib/gameArt';
 import GameArt from './GameArt';
+import { usePartSkin } from './parts/skin';
 
 /**
  * A Personal Best row. Two call sites share this shape (v2.82.0 — moved from
@@ -125,6 +126,7 @@ export function PersonalBestsSection({
   showRoomCaption = false,
   wrapTitles = false,
   gameArt,
+  heading = true,
 }: {
   personalBests?: PersonalBestRow[];
   /** Room slug to link into when a row doesn't carry its own `room_slug`
@@ -149,7 +151,13 @@ export function PersonalBestsSection({
    *  page's `gameArt`). When given, each row leads with the table's art;
    *  omitted (My Stats) the rows are unchanged. */
   gameArt?: Record<string, string>;
+  /** G22: false drops the "Personal Bests" h2 and the top margin, for a page whose
+   *  own panel title says it. Default true (PlayerDetail unchanged). */
+  heading?: boolean;
 }) {
+  // On the Arcaid look (My Stats) the site's gold maps to the kit's red, which means a problem there:
+  // a score is drawn in the kit's ice instead, as the kit draws scores. Themed pages keep gold.
+  const scoreInk = usePartSkin() === 'arcaid' ? 'text-primary' : 'text-neon-amber';
   const [query, setQuery] = useState('');
   const [showAll, setShowAll] = useState(false);
 
@@ -172,8 +180,8 @@ export function PersonalBestsSection({
   const showSearch = all.length > PERSONAL_BESTS_SEARCH_THRESHOLD;
 
   return (
-    <div className="mt-8">
-      <h2 className="font-display text-sm text-muted uppercase tracking-wider mb-3">Personal Bests</h2>
+    <div className={heading ? "mt-8" : undefined}>
+      {heading && <h2 className="font-display text-sm text-muted uppercase tracking-wider mb-3">Personal Bests</h2>}
 
       {showSearch && (
         <div className="relative mb-3 max-w-sm">
@@ -294,7 +302,7 @@ export function PersonalBestsSection({
                   </span>
                 </span>
                 <span
-                  className={`${lineTwo} justify-end pr-5 sm:pr-4 font-display font-bold text-neon-amber whitespace-nowrap tabular-nums`}
+                  className={`${lineTwo} justify-end pr-5 sm:pr-4 font-display font-bold ${scoreInk} whitespace-nowrap tabular-nums`}
                   title={scoreTitle(pb.best_score)}
                 >
                   {formatScore(pb.best_score)}

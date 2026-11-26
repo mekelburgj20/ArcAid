@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { createRef } from 'react';
-import Button from '../Button';
+import { MemoryRouter } from 'react-router-dom';
+import Button, { ButtonLink } from '../Button';
 
 /**
  * G21 - the shared button: three variants, three sizes, site tokens only (so
@@ -70,5 +71,13 @@ describe('Button', () => {
         render(<Button onClick={onClick}>Go</Button>);
         fireEvent.click(screen.getByRole('button', { name: 'Go' }));
         expect(onClick).toHaveBeenCalledTimes(1);
+    });
+
+    it('ButtonLink is a router link drawn like a button', () => {
+        render(<MemoryRouter><ButtonLink to="/my-rooms" variant="secondary" size="xs">Open</ButtonLink></MemoryRouter>);
+        const link = screen.getByRole('link', { name: 'Open' });
+        expect(link).toHaveAttribute('href', '/my-rooms');
+        expect(link.className).toContain('px-2 py-1 text-xs');
+        expect(link.className).toContain('no-underline');
     });
 });

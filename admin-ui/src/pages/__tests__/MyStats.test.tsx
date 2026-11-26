@@ -196,4 +196,33 @@ describe('MyStats', () => {
     renderMyStats();
     expect(await screen.findByText('Could not load your stats.')).toBeInTheDocument();
   });
+
+  it('a 5xx on the stats read shows the load-failed notice (it retries by itself)', async () => {
+    signInAs('user-1', 'Justin');
+    const fetchMock = vi.fn((url: string) => {
+      if (url.startsWith('/api/me/stats')) {
+        return Promise.resolve({ ok: false, status: 503, headers: new Headers(), json: () => Promise.resolve(null) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+    });
+    vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+
+    renderMyStats();
+    expect(await screen.findByTestId('load-failed')).toBeInTheDocument();
+    expect(screen.queryByText('Could not load your stats.')).toBeNull();
+  });
+
+  it('a 401 on the stats read is an answer: Could not load your stats.', async () => {
+    signInAs('user-1', 'Justin');
+    const fetchMock = vi.fn((url: string) => {
+      if (url.startsWith('/api/me/stats')) {
+        return Promise.resolve({ ok: false, status: 401, headers: new Headers(), json: () => Promise.resolve(null) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+    });
+    vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+
+    renderMyStats();
+    expect(await screen.findByText('Could not load your stats.')).toBeInTheDocument();
+  });
 });

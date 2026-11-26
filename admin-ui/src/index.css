@@ -2442,6 +2442,9 @@ span.part-row__name { cursor: default; }
 a.part-row__name::after, button.part-row__name::after { content: ""; position: absolute; inset: 0; border-radius: 4px; }
 .part-row__name:focus-visible { outline: none; }
 .part-row__cap { margin-top: 2px; font-size: 12px; line-height: 1.35; font-weight: 600; letter-spacing: .2em; text-transform: uppercase; color: var(--part-row-tone); }
+.part-row__below { position: relative; z-index: 1; margin-top: .375rem; }
+/* A row with controls under its caption is tall: tile and trailing button align to the top, not the middle. */
+.part-row:has(.part-row__below) { align-items: start; }
 .part-row__end { grid-area: end; display: flex; align-items: center; justify-content: flex-end; gap: 10px; position: relative; z-index: 1; pointer-events: none; }
 .part-row__end :is(button, a, input, select) { pointer-events: auto; }
 .part-row__chev { flex: none; width: 16px; height: 16px; color: var(--color-muted); }

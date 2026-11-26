@@ -10,8 +10,8 @@ import { Link } from 'react-router-dom';
  * sits above that cover, so a small secondary `Button` there stays clickable.
  * Min height 56 px. The tone is the panel's (cyan elsewhere).
  */
-export function ListRows({ children, label }: { children: ReactNode; label?: string }) {
-    return <div className="part-rows" role="list" aria-label={label}>{children}</div>;
+export function ListRows({ children, label, testId }: { children: ReactNode; label?: string; testId?: string }) {
+    return <div className="part-rows" role="list" aria-label={label} data-testid={testId}>{children}</div>;
 }
 
 const CHEV = (
@@ -20,13 +20,16 @@ const CHEV = (
     </svg>
 );
 
-export function ListRow({ tile, name, caption, href, onClick, trailing }: {
+export function ListRow({ tile, name, caption, href, onClick, trailing, below, testId }: {
     tile: ReactNode;
     name: string;
     caption?: ReactNode;
     href?: string;
     onClick?: () => void;
     trailing?: ReactNode;
+    /** Controls under the caption (chips, a badge); the whole area sits above the row's link cover. */
+    below?: ReactNode;
+    testId?: string;
 }) {
     const interactive = Boolean(href || onClick);
     const nameEl = href
@@ -35,12 +38,13 @@ export function ListRow({ tile, name, caption, href, onClick, trailing }: {
             ? <button type="button" className="part-row__name" onClick={onClick}>{name}</button>
             : <span className="part-row__name">{name}</span>;
     return (
-        <div className={`part-row${interactive ? ' part-row--link' : ''}${trailing ? ' part-row--trail' : ''}`} role="listitem">
+        <div className={`part-row${interactive ? ' part-row--link' : ''}${trailing ? ' part-row--trail' : ''}`} role="listitem" data-testid={testId}>
             <span className="part-row__tile" aria-hidden="true">{tile}</span>
-            <span className="part-row__text">
+            <div className="part-row__text">
                 {nameEl}
                 {caption && <span className="part-row__cap">{caption}</span>}
-            </span>
+                {below && <div className="part-row__below">{below}</div>}
+            </div>
             {(trailing || interactive) && (
                 <span className="part-row__end">
                     {trailing}

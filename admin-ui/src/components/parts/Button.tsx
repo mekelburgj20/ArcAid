@@ -1,4 +1,5 @@
 import { forwardRef, type ButtonHTMLAttributes } from 'react';
+import { Link, type LinkProps } from 'react-router-dom';
 
 /**
  * G21 - the shared button, taken from the G20 Account Settings page.
@@ -51,5 +52,21 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
         />
     );
 });
+
+/**
+ * A router `Link` drawn exactly like a `Button` (G22): for a button that goes
+ * to another page. Same variants and sizes; no underline.
+ */
+export function ButtonLink({ to, variant = 'primary', size = 'md', className = '', children, ...rest }: Omit<LinkProps, 'to'> & {
+    to: string;
+    variant?: NonNullable<ButtonProps['variant']>;
+    size?: NonNullable<ButtonProps['size']>;
+}) {
+    return (
+        <Link to={to} className={`${BASE} ${SIZES[size]} ${VARIANTS[variant]} no-underline ${className}`.trim()} {...rest}>
+            {children}
+        </Link>
+    );
+}
 
 export default Button;
