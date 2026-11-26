@@ -6,6 +6,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.273.0] - 2026-11-26 - The rest of the player pop-ups wear the Arcaid look (G23e)
+
+### Changed
+- **Pick a game** (Picks page) is the Arcaid dialog, a bottom sheet on a phone. The tournament chooser is the shared dropdown.
+- **Report this room / name / score / comment** is the Arcaid dialog in pink, with the same Cancel and Submit Report buttons and the same thank-you and "already reported" messages.
+- **Report a problem** on a game page is the Arcaid dialog, a bottom sheet on a phone.
+- **Display settings** is the Arcaid dialog. The Desktop / Mobile switch sits at the top of the settings; Cancel and Save Preferences are at the bottom.
+- **Join on AtGames** is the Arcaid dialog. A signed-out player gets Cancel and Log in as its buttons.
+- **Login cancelled** (after backing out of Discord mid-score) is the Arcaid dialog. Discard deletes the saved draft as before; Escape or a press outside only puts the notice away.
+- **Delete your account?** is the Arcaid dialog in red, a bottom sheet on a phone. You still type DELETE before the button works.
+- **Asking to join an approval room** (landing page) and **reporting a score on the Global game page** no longer use the browser's own boxes: the first is a "Request to join?" confirm, the second the same report dialog as the room game page. Nothing is sent until you confirm.
+- The score sheet's cooldown, photo, error and "Thanks!" lines use the Arcaid colours (cyan for fine, pink for attention, red for a problem).
+
+### Technical
+- Six tests wait for the real dialog (`waitForRealDialog`) before they read or click inside it:
+  `ScoreboardWysiwygParity` failed every whole-suite run on a loaded machine (the stand-in it found was
+  swapped for the real dialog before the assertion). `GameNameReconcile` now looks inside the dialog: the
+  real dialog hides the page behind it from the accessibility tree, which the stand-in did not.
+- `PickGameModal`, `ReportContentModal`, `ReportProblemModal`, `ScoreboardPreferencesModal`, `useRoomAtGamesJoin`, `PendingSubmissionWatcher` and the AccountSettings delete overlay are on `parts/Dialog`; their footers use `parts/Button`, their fields `parts/Field`.
+- `LandingPage` asks through `ConfirmModal` (tone pink) instead of `window.confirm`; `GlobalGameDetail` opens `ReportContentModal` (endpoint `/global/scores/:id/report`, same body) instead of `window.prompt`.
+- Tests: `LandingPage.test` now confirms through the dialog; new dialog tests for each pop-up (open by title, Escape, main action); `GlobalGameDetailPlayerHistory.test` gains the report flow.
+
 ## [2.272.0] - 2026-11-26 - The score entry pop-up wears the Arcaid look (G23d)
 
 ### Changed

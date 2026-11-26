@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Users, Gamepad2, ChevronRight, Plus, Building2, BookmarkPlus, BookmarkCheck, Clock, Trophy } from 'lucide-react';
 import LoadingState from '../components/LoadingState';
+import ConfirmModal from '../components/ConfirmModal';
 import { formatCompactNumber, relativeTimeFrom } from '../lib/format';
 import { PlayerAvatar } from '../components/ScoreboardComponents';
 import { useTheme } from '../components/ThemeProvider';
@@ -92,6 +93,8 @@ export default function LandingPage() {
   // reflects a pending request immediately after clicking without waiting on
   // a fresh /api/rooms fetch (that list doesn't carry per-viewer request state).
   const [pendingRequests, setPendingRequests] = useState<Set<string>>(new Set());
+  // The approval room whose "Request to join?" confirm is open.
+  const [askJoin, setAskJoin] = useState<RoomCardData | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -119,8 +122,9 @@ export default function LandingPage() {
 
   // v2.39.0 — approval rooms: the bookmark toggle becomes a "Request to
   // join" confirm + request instead of an instant join.
-  const handleRequestJoin = async (room: RoomCardData) => {
-    if (!window.confirm(`This room requires approval to join — request?`)) return;
+  const handleRequestJoin = (room: RoomCardData) => setAskJoin(room);
+
+  const sendRequestJoin = async (room: RoomCardData) => {
     const status = await requestJoin(room.id);
     if (status === 'pending') {
       setPendingRequests(prev => new Set(prev).add(room.id));
@@ -306,6 +310,17 @@ export default function LandingPage() {
           </div>
         )}
       </div>
+
+      {askJoin && (
+        <ConfirmModal
+          tone="pink"
+          title="Request to join?"
+          message="This room requires approval to join — request?"
+          confirmLabel="Request to join"
+          onCancel={() => setAskJoin(null)}
+          onConfirm={() => { const room = askJoin; setAskJoin(null); void sendRequestJoin(room); }}
+        />
+      )}
 
       {/* Scanline overlay */}
       <div className="fixed inset-0 pointer-events-none z-50 scanlines" />

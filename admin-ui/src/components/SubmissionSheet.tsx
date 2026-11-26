@@ -1160,7 +1160,7 @@ export default function SubmissionSheet({
                             /* Best-effort fallback — BE returned null or an
                                all-null result (rank couldn't be computed).
                                Preserve the suffixed-name message text. */
-                            <p className="text-neon-green font-display text-sm">{message?.text ?? 'Score submitted!'}</p>
+                            <p className="text-neon-cyan font-display text-sm">{message?.text ?? 'Score submitted!'}</p>
                         ) : submitRank.rank === 1 ? (
                             /* New high score — amber/gold treatment. */
                             <div className="space-y-2">
@@ -1213,7 +1213,7 @@ export default function SubmissionSheet({
                                     , synced from iScored. Is that you?
                                 </p>
                                 {claimMsg ? (
-                                    <p className={`text-xs ${claimMsg.ok ? 'text-neon-green' : 'text-neon-amber'}`}>
+                                    <p className={`text-xs ${claimMsg.ok ? 'text-neon-cyan' : 'ink-danger'}`}>
                                         {claimMsg.text}
                                     </p>
                                 ) : (
@@ -1260,11 +1260,11 @@ export default function SubmissionSheet({
 
                                 {commentState === 'closed' && (
                                     <div className="flex items-center justify-between gap-2">
-                                        <p className="text-[11px] leading-tight min-w-0">
+                                        <p className="text-xs leading-tight min-w-0">
                                             {ratingError ? (
-                                                <span className="text-neon-amber">{ratingError}</span>
+                                                <span className="ink-danger">{ratingError}</span>
                                             ) : ratingThanks ? (
-                                                <span className="text-neon-green">Thanks!</span>
+                                                <span className="text-neon-cyan">Thanks!</span>
                                             ) : ratingInfo.rating_count > 0 && gamePagePath ? (
                                                 <Link
                                                     to={`${gamePagePath}#ratings`}
@@ -1331,13 +1331,13 @@ export default function SubmissionSheet({
                                             </div>
                                         </div>
                                         {commentError && (
-                                            <p className="text-[11px] text-neon-amber">{commentError}</p>
+                                            <p className="text-xs ink-danger">{commentError}</p>
                                         )}
                                     </div>
                                 )}
 
                                 {commentState === 'posted' && (
-                                    <p className="text-[11px] text-neon-green">
+                                    <p className="text-xs text-neon-cyan">
                                         Posted —{' '}
                                         {gamePagePath ? (
                                             <Link to={gamePagePath} onClick={onClose} className="text-neon-cyan hover:underline">
@@ -1405,7 +1405,7 @@ export default function SubmissionSheet({
                     </div>
                 ) : phase === 'error' ? (
                     <div className="sheet-phase py-6 text-center space-y-4" data-base-ui-swipe-ignore="">
-                        <p className="text-neon-amber text-sm">{message?.text ?? 'Submission failed.'}</p>
+                        <p className="ink-danger text-sm">{message?.text ?? 'Submission failed.'}</p>
                         {joinNeeded && claimRoomId && playerToken && (
                             <NeonButton
                                 onClick={joinRoomThenRetry}
@@ -1475,9 +1475,9 @@ export default function SubmissionSheet({
                             sibling). */}
                         <div className="sheet-phase pt-2 pb-4 space-y-4" data-base-ui-swipe-ignore="">
                             {cooldown && (
-                                <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-neon-amber/10 border border-neon-amber/30">
-                                    <AlertTriangle size={14} className="text-neon-amber flex-shrink-0 mt-0.5" />
-                                    <p className="text-xs text-neon-amber leading-relaxed">
+                                <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-neon-magenta/10 border border-neon-magenta/30">
+                                    <AlertTriangle size={14} className="text-neon-magenta flex-shrink-0 mt-0.5" />
+                                    <p className="text-xs text-neon-magenta leading-relaxed">
                                         This score won't count toward the active tournament (cooldown). It still posts to the room leaderboard.
                                     </p>
                                 </div>
@@ -1585,7 +1585,7 @@ export default function SubmissionSheet({
                                         Loading…
                                     </div>
                                 ) : engineOptions.length === 0 ? (
-                                    <div className="px-3 py-2 bg-neon-amber/10 border border-neon-amber/30 rounded text-neon-amber text-xs">
+                                    <div className="px-3 py-2 bg-neon-coral/10 border border-neon-coral/30 rounded ink-danger text-xs">
                                         Nothing is configured for this game yet. Submission is blocked — ask an admin.
                                     </div>
                                 ) : engineOptions.length === 1 ? (
@@ -1646,7 +1646,7 @@ export default function SubmissionSheet({
 
                             <div>
                                 <label className="text-xs text-faint block mb-1">
-                                    Photo {needsPhoto ? <span className="text-neon-amber">(required)</span> : '(optional)'}
+                                    Photo {needsPhoto ? <span className="text-neon-magenta">(required)</span> : '(optional)'}
                                 </label>
                                 {/* Two inputs, one handler (v2.141.1). A single
                                     capture-less input reads as "Take or choose"
@@ -1679,7 +1679,7 @@ export default function SubmissionSheet({
                                             type="button"
                                             onClick={clearPhoto}
                                             aria-label="Remove photo"
-                                            className="absolute top-1 right-1 bg-deep/80 rounded-full p-1 text-muted hover:text-neon-amber transition-colors cursor-pointer"
+                                            className="absolute top-1 right-1 bg-deep/80 rounded-full p-1 text-muted hover:text-neon-magenta transition-colors cursor-pointer"
                                         >
                                             <Trash2 size={16} />
                                         </button>
@@ -1705,10 +1705,10 @@ export default function SubmissionSheet({
                                     </div>
                                 )}
                                 {needsPhoto && !photoFile && (
-                                    <p className="text-xs text-neon-amber mt-1">A photo is required to submit your score.</p>
+                                    <p className="text-xs text-neon-magenta mt-1">A photo is required to submit your score.</p>
                                 )}
                                 {photoError && (
-                                    <p className="text-xs text-neon-amber mt-1">{photoError}</p>
+                                    <p className="text-xs ink-danger mt-1">{photoError}</p>
                                 )}
                             </div>
 

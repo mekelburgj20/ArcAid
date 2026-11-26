@@ -3,6 +3,7 @@ import { render, screen, waitFor, within, fireEvent } from '@testing-library/rea
 import { MemoryRouter } from 'react-router-dom';
 import LandingPage from '../LandingPage';
 import { ViewerAuthProvider } from '../../contexts/ViewerAuthContext';
+import { waitForRealDialog } from '../../test/dialogTestUtils';
 import { ThemeProvider } from '../../components/ThemeProvider';
 
 // D1/D2 (v2.37.0) — landing page login + "My Game Rooms". Regression coverage:
@@ -82,6 +83,12 @@ function renderLanding() {
       </ThemeProvider>
     </MemoryRouter>,
   );
+}
+
+/** The approval-room "Request to join?" dialog: wait for it, then confirm. */
+async function confirmRequest() {
+  await waitForRealDialog();
+  fireEvent.click(screen.getByRole('button', { name: 'Request to join' }));
 }
 
 describe('LandingPage', () => {
@@ -200,14 +207,12 @@ describe('LandingPage', () => {
       signInAs('user-1', 'Justin');
       const APPROVAL_ROOM = { ...PUBLIC_ROOM_2, join_policy: 'approval' };
       const fetchMock = mockFetch({ rooms: [PUBLIC_ROOM_1, APPROVAL_ROOM], meRooms: [] });
-      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
       renderLanding();
       await waitFor(() => expect(screen.getByText('Other Room')).toBeInTheDocument());
 
       const requestBtn = screen.getByLabelText('Add Other Room to My Game Rooms');
       fireEvent.click(requestBtn);
-
-      expect(confirmSpy).toHaveBeenCalled();
+      await confirmRequest();
       await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
         '/api/me/rooms/room-2/join-request',
         expect.objectContaining({ method: 'POST' }),
@@ -215,7 +220,6 @@ describe('LandingPage', () => {
       // Pending state — not an instant join, no My Game Rooms section.
       await waitFor(() => expect(screen.getByLabelText('Request pending for Other Room')).toBeInTheDocument());
       expect(screen.queryByText('My Game Rooms')).not.toBeInTheDocument();
-      confirmSpy.mockRestore();
     });
 
     // v2.80.0 — AUTO_APPROVE_GUILD_MEMBERS can resolve the join-request
@@ -226,35 +230,36 @@ describe('LandingPage', () => {
       signInAs('user-1', 'Justin');
       const APPROVAL_ROOM = { ...PUBLIC_ROOM_2, join_policy: 'approval' };
       const fetchMock = mockFetch({ rooms: [PUBLIC_ROOM_1, APPROVAL_ROOM], meRooms: [], joinRequestStatus: 'member' });
-      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
       renderLanding();
       await waitFor(() => expect(screen.getByText('Other Room')).toBeInTheDocument());
 
       const requestBtn = screen.getByLabelText('Add Other Room to My Game Rooms');
       fireEvent.click(requestBtn);
-
-      expect(confirmSpy).toHaveBeenCalled();
+      await confirmRequest();
       await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
         '/api/me/rooms/room-2/join-request',
         expect.objectContaining({ method: 'POST' }),
       ));
       // Never shows a pending badge for an already-resolved auto-approve.
       expect(screen.queryByLabelText('Request pending for Other Room')).not.toBeInTheDocument();
-      confirmSpy.mockRestore();
     });
 
-    it('signed-in, declines the confirm dialog: no request sent', async () => {
+    it('signed-in, cancels the Request to join dialog: no request sent', async () => {
       signInAs('user-1', 'Justin');
       const APPROVAL_ROOM = { ...PUBLIC_ROOM_2, join_policy: 'approval' };
       const fetchMock = mockFetch({ rooms: [PUBLIC_ROOM_1, APPROVAL_ROOM], meRooms: [] });
-      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
       renderLanding();
       await waitFor(() => expect(screen.getByText('Other Room')).toBeInTheDocument());
 
       fireEvent.click(screen.getByLabelText('Add Other Room to My Game Rooms'));
-      expect(confirmSpy).toHaveBeenCalled();
+      await waitForRealDialog();
+      expect(screen.getByRole('dialog', { name: 'Request to join?' })).toBeInTheDocument();
+      // Nothing is sent while the dialog is open ...
       expect(fetchMock).not.toHaveBeenCalledWith('/api/me/rooms/room-2/join-request', expect.anything());
-      confirmSpy.mockRestore();
+      // ... and Cancel closes it without a request.
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+      expect(fetchMock).not.toHaveBeenCalledWith('/api/me/rooms/room-2/join-request', expect.anything());
     });
   });
 });

@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import RoomScoresView from '../RoomScoresView';
 import { ViewerAuthProvider } from '../../contexts/ViewerAuthContext';
 import type { GameLeaderboard } from '../ScoreboardComponents';
+import { waitForRealDialog } from '../../test/dialogTestUtils';
 
 /**
  * Owner field report (2026-08-11): submitting from Room Scores showed "This
@@ -99,7 +100,8 @@ describe('RoomScoresView — cooldown caption suppression', () => {
         const submitBtn = await screen.findByRole('button', { name: /submit score for who dunnit/i });
         fireEvent.click(submitBtn);
 
-        expect(await screen.findByRole('dialog')).toBeInTheDocument();
+        await waitForRealDialog();
+        expect(screen.getByRole('dialog')).toBeInTheDocument();
         expect(screen.queryByText(/won't count toward the active tournament/i)).not.toBeInTheDocument();
     });
 });

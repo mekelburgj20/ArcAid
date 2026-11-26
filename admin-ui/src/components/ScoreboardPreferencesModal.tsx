@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
-import { X, RotateCcw, Monitor, Smartphone, ChevronDown, ChevronRight } from 'lucide-react';
+import { RotateCcw, Monitor, Smartphone, ChevronDown, ChevronRight } from 'lucide-react';
 import { useTheme } from './ThemeProvider';
+import { Dialog } from './parts/Dialog';
+import Button from './parts/Button';
 import type { ThemeId } from '../lib/themeIds';
 import AppearanceControl from './AppearanceControl';
 import ThemePicker from './ThemePicker';
@@ -491,50 +493,63 @@ export default function ScoreboardPreferencesModal({
     return renderNumber(def);
   };
 
+  const footer = (
+    // Appearance and My theme save themselves the moment they are clicked, so
+    // off-room there is nothing for a Save button to do — and pressing one
+    // would clear the scoreboard prefs (see `roomScoped`). Close is then the
+    // only action.
+    <>
+      <Button variant="secondary" onClick={onClose}>{roomScoped ? 'Cancel' : 'Close'}</Button>
+      {roomScoped && (
+        <Button onClick={() => handleSave()} disabled={saving}>
+          {saving ? 'Saving...' : 'Save Preferences'}
+        </Button>
+      )}
+    </>
+  );
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
-      <div
-        className="bg-surface border border-border rounded-xl shadow-2xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto"
-        onClick={e => e.stopPropagation()}
-      >
-        {/* Header with device toggle */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-          <h2 className="text-lg font-display font-bold text-primary">Display settings</h2>
-          <div className="flex items-center gap-2">
-            {/* Device toggle — scoreboard prefs are stored per device, so it
-                only means anything while the "This room" section is shown. */}
-            <div className={`flex items-center bg-raised border border-border rounded-lg p-0.5 ${roomScoped ? '' : 'hidden'}`}>
-              <button
-                onClick={() => setDevice('desktop')}
-                className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
-                  device === 'desktop' ? 'bg-neon-cyan/20 text-neon-cyan' : 'text-muted hover:text-primary'
-                }`}
-                title="Desktop preferences"
-              >
-                <Monitor size={14} />
-                <span className="hidden sm:inline">Desktop</span>
-              </button>
-              <button
-                onClick={() => setDevice('mobile')}
-                className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
-                  device === 'mobile' ? 'bg-neon-cyan/20 text-neon-cyan' : 'text-muted hover:text-primary'
-                }`}
-                title="Mobile preferences"
-              >
-                <Smartphone size={14} />
-                <span className="hidden sm:inline">Mobile</span>
-              </button>
-            </div>
-            <button onClick={onClose} className="p-1 text-muted hover:text-primary cursor-pointer">
-              <X size={20} />
-            </button>
-          </div>
+    <Dialog
+      open
+      onOpenChange={o => { if (!o) onClose(); }}
+      tone="cyan"
+      label="Display"
+      title="Display settings"
+      size="md"
+      sheet
+      footer={footer}
+    >
+      <div>
+        {/* Device toggle: scoreboard prefs are stored per device, so it only
+            means anything while the "This room" section is shown. It is a tab
+            switch for that section, so it heads the body. */}
+        <div className={`flex items-center bg-raised border border-border rounded-lg p-0.5 w-fit mb-3 ${roomScoped ? '' : 'hidden'}`}>
+          <button
+            onClick={() => setDevice('desktop')}
+            className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
+              device === 'desktop' ? 'bg-neon-cyan/20 text-neon-cyan' : 'text-muted hover:text-primary'
+            }`}
+            title="Desktop preferences"
+          >
+            <Monitor size={14} />
+            <span className="hidden sm:inline">Desktop</span>
+          </button>
+          <button
+            onClick={() => setDevice('mobile')}
+            className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
+              device === 'mobile' ? 'bg-neon-cyan/20 text-neon-cyan' : 'text-muted hover:text-primary'
+            }`}
+            title="Mobile preferences"
+          >
+            <Smartphone size={14} />
+            <span className="hidden sm:inline">Mobile</span>
+          </button>
         </div>
 
         {!loaded ? (
-          <div className="px-5 py-8 text-center text-muted text-sm">Loading...</div>
+          <div className="py-8 text-center text-muted text-sm">Loading...</div>
         ) : (
-          <div className="px-5 py-4 space-y-1">
+          <div className="space-y-1">
             {/* ══ 1. Appearance (v2.130.0) ═══════════════════════════════
                 Site-wide, NOT a scoreboard override: it lives in the viewer's
                 own preferences (localStorage + /me/preferences), so it is
@@ -674,7 +689,7 @@ export default function ScoreboardPreferencesModal({
                       }`}
                     >
                       <div className="font-semibold">{s.label}</div>
-                      <div className="text-[10px] mt-0.5 opacity-70">{s.description}</div>
+                      <div className="text-xs mt-0.5 opacity-70">{s.description}</div>
                     </button>
                   );
                 })}
@@ -702,7 +717,7 @@ export default function ScoreboardPreferencesModal({
                         }`}
                       >
                         <div className="font-semibold">{t.label}</div>
-                        {t.description && <div className="text-[10px] mt-0.5 opacity-70">{t.description}</div>}
+                        {t.description && <div className="text-xs mt-0.5 opacity-70">{t.description}</div>}
                       </button>
                     );
                   })}
@@ -756,7 +771,7 @@ export default function ScoreboardPreferencesModal({
                         .filter(k => !(k === 'SCOREBOARD_RANKINGS_POSITION' && rankingsIsTicker))
                         .map(k => renderPref(PREF_BY_KEY[k]))}
                       {group.id === 'rankings' && rankingsIsTicker && (
-                        <p className="text-[10px] text-faint py-1">Ticker pins to the top — position doesn't apply</p>
+                        <p className="text-xs text-faint py-1">Ticker pins to the top — position doesn't apply</p>
                       )}
                     </div>
                   ))}
@@ -774,28 +789,7 @@ export default function ScoreboardPreferencesModal({
           </div>
         )}
 
-        {/* Footer. Appearance and My theme save themselves the moment they are
-            clicked, so off-room there is nothing for a Save button to do —
-            and pressing one would clear the scoreboard prefs (see
-            `roomScoped`). Close is then the only action. */}
-        <div className="px-5 py-4 border-t border-border flex justify-end gap-3">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm text-muted hover:text-primary rounded border border-border cursor-pointer"
-          >
-            {roomScoped ? 'Cancel' : 'Close'}
-          </button>
-          {roomScoped && (
-            <button
-              onClick={() => handleSave()}
-              disabled={saving}
-              className="px-4 py-2 text-sm bg-neon-cyan text-deep font-medium rounded hover:bg-neon-cyan/80 disabled:opacity-50 cursor-pointer"
-            >
-              {saving ? 'Saving...' : 'Save Preferences'}
-            </button>
-          )}
-        </div>
       </div>
-    </div>
+    </Dialog>
   );
 }

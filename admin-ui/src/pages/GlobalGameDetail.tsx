@@ -12,6 +12,7 @@ import { useScrollToHash } from '../hooks/useScrollToHash';
 import LoadingState from '../components/LoadingState';
 import SubmissionSheet from '../components/SubmissionSheet';
 import ReportProblemModal from '../components/ReportProblemModal';
+import ReportContentModal from '../components/ReportContentModal';
 import ConfirmModal from '../components/ConfirmModal';
 import { deleteConfirmText } from '../lib/scoreDelete';
 import RoomTag from '../components/RoomTag';
@@ -176,8 +177,10 @@ export default function GlobalGameDetail() {
   const [page, setPage] = useState(0);
   const [total, setTotal] = useState(0);
   const [showSubmit, setShowSubmit] = useState(false);
-  const [reportingId, setReportingId] = useState<string | null>(null);
+  // The score whose report dialog is open (same ReportContentModal flow as the room game page).
+  const [reportScore, setReportScore] = useState<{ id: string; label: string } | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
+  // The "Score deleted." banner (a score report's own outcome is shown in its dialog).
   const [reportMessage, setReportMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   // s20: confirm-before-delete for self-delete score, replacing native confirm().
   const [pendingDeleteScoreId, setPendingDeleteScoreId] = useState<string | null>(null);
@@ -448,32 +451,9 @@ export default function GlobalGameDetail() {
     setShowSubmit(true);
   };
 
-  const handleReport = async (scoreId: string) => {
+  const handleReport = (scoreId: string, label: string) => {
     if (!playerToken) { handleLogin(); return; }
-    const reason = window.prompt('Why are you reporting this score? (optional)');
-    if (reason === null) return; // user cancelled
-    setReportingId(scoreId);
-    setReportMessage(null);
-    try {
-      const res = await fetch(`/api/global/scores/${scoreId}/report`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${playerToken}`,
-        },
-        body: JSON.stringify({ reason: reason || null }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: 'Failed to report' }));
-        throw new Error(err.error || 'Failed to report');
-      }
-      setReportMessage({ text: 'Score reported — an admin will review it.', type: 'success' });
-    } catch (err) {
-      setReportMessage({ text: err instanceof Error ? err.message : 'Failed to report', type: 'error' });
-    } finally {
-      setReportingId(null);
-      setTimeout(() => setReportMessage(null), 4000);
-    }
+    setReportScore({ id: scoreId, label });
   };
 
   /** Fetch one player's history. Sends the viewer token so own rows are marked. */
@@ -661,7 +641,16 @@ export default function GlobalGameDetail() {
                   {game.subtype ? ` · ${game.subtype.toUpperCase()}` : ''}
                   {game.players ? ` · ${game.players}P` : ''}
                 </span>
-                {/* v2.25.0 report-a-problem */}
+                {reportScore && (
+        <ReportContentModal
+          title="Report this score"
+          targetLabel={reportScore.label}
+          endpoint={`/global/scores/${reportScore.id}/report`}
+          onClose={() => setReportScore(null)}
+        />
+      )}
+
+      {/* v2.25.0 report-a-problem */}
                 <button
                   onClick={() => setReportOpen(true)}
                   className="inline-flex items-center gap-1 text-xs text-faint hover:text-muted transition-colors cursor-pointer"
@@ -941,9 +930,8 @@ export default function GlobalGameDetail() {
                             </button>
                           )}
                           <button
-                            onClick={() => handleReport(entry.score_id)}
-                            disabled={reportingId === entry.score_id}
-                            className="p-4 -m-2 text-muted hover:text-red-400 disabled:opacity-50"
+                            onClick={() => handleReport(entry.score_id, `${entry.score.toLocaleString()} — ${playerLabel}`)}
+                            className="p-4 -m-2 text-muted hover:text-red-400"
                             title="Report this score"
                             aria-label="Report this score"
                           >

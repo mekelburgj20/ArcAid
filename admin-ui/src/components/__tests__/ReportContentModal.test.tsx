@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import ReportContentModal from '../ReportContentModal';
 import { ViewerAuthProvider } from '../../contexts/ViewerAuthContext';
+import { waitForRealDialog } from '../../test/dialogTestUtils';
 
 /**
  * S22 Phase 1 content moderation (v2.43.0) — shared report modal. One
@@ -118,5 +119,31 @@ describe('ReportContentModal', () => {
     expect(url).toBe('/api/global/report-name');
     const body = JSON.parse((options as RequestInit).body as string);
     expect(body).toEqual({ reason: undefined, roomId: 'room-1', targetName: 'TrollName' });
+  });
+});
+
+describe('ReportContentModal — the Arcaid dialog (G23e)', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    localStorage.clear();
+  });
+
+  it('opens with its title, and Escape closes it', async () => {
+    signInAs('discord-1');
+    const { onClose } = renderModal();
+    await waitForRealDialog();
+    expect(screen.getByRole('dialog', { name: 'Report this room' })).toBeInTheDocument();
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+  });
+
+  it('Submit Report still sends the report', async () => {
+    signInAs('discord-1');
+    const fetchMock = vi.fn(() => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ ok: true }) }));
+    vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+    renderModal();
+    await waitForRealDialog();
+    fireEvent.click(screen.getByRole('button', { name: 'Submit Report' }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
   });
 });
