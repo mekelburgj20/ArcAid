@@ -6,6 +6,50 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.271.0] - 2026-11-26 - The game, player and score-photo pop-ups and the score correction wear the Arcaid look (G23c)
+
+### Changed
+- **The game pop-up** (tap a table's title on the scoreboard, or a game in Picks) is now the dark Arcaid
+  slab, the same one as the "are you sure?" pop-ups, and looks the same on every room theme. The
+  tournament's name is the small label at the top and the table's name is the title, with the maker, year
+  and platforms under it. Then come the table art as a banner, the top scores (first place is still gold)
+  and two buttons: View full info and Global Scoreboard.
+- **The player pop-up** (tap a player's name) is the same slab: "Player" over the name, then the picture,
+  the stats and the recent scores as before, Follow and Compare under them, and All Players and View full
+  player page as the two buttons. A long name wraps instead of being cut off, and so does a long game name
+  under Best Game and Recent Scores. While the stats load you see placeholder tiles, not a spinner.
+- **The score photo** (tap a score with the camera mark) is the slab with the player as the title and the
+  score under it, then the photo, with Share as a button under it.
+- **Correcting a score** (the pencil) is the slab too: the player as the title, the old score under it
+  ("was 4,200,000 (4.2 million)"), the big score field with the size in words under it, then Cancel and
+  Save correction.
+- **Escape, a press outside the pop-up and its corner × close only the pop-up on top.** A photo, a delete
+  question or a correction opened from the game pop-up now closes back to the game pop-up instead of
+  closing both. Keyboard focus stays in the top pop-up and goes back to what you tapped when it closes.
+- **On a phone the game pop-up, the player pop-up and the correction rise from the bottom as a sheet** that
+  you can drag down to close. The photo stays in the middle of the screen.
+
+### Technical
+- `ScorePhotoModal`, `CorrectScoreModal`, `GameQuickView` and the modal in `contexts/PlayerQuickViewContext.tsx`
+  are on `parts/Dialog`; their own Escape listeners, Tab loops, focus code, scroll lock and `fixed inset-0`
+  backdrops are gone (the player modal's own `createPortal` too). `GameQuickView` renders the delete confirm,
+  the correction and the photo INSIDE its dialog's children, so base-ui nests them (`data-nested` on the
+  inner popup). The stand-in that `Dialog` draws until its chunk arrives now answers Escape and Tab only
+  while its slab is the last `.arc-dialog` in the document, so two nested stand-ins behave the same way.
+- The game pop-up's accessible name is now the table's name (it was "<name> preview"); the art banner keeps
+  the old header's dark wash, from `--arc-canvas` instead of an `rgba()` literal. `CorrectScoreModal` uses
+  `parts/Field`'s score `TextInput` (`id="correct-score-input"` kept), with focus starting in it.
+- `parts/buttonClasses.ts` holds `Button`'s classes (`buttonClasses(variant, size)`, used by `Button` and
+  `ButtonLink`), so the photo's `ShareButton` wears a `secondary` button. `index.css`: a dialog's actions row
+  sizes links drawn as buttons (`ButtonLink`) like its buttons (44 px).
+- Tests: `src/test/dialogTestUtils.ts` `waitForRealDialog()` waits out the stand-in to real swap before a
+  test clicks inside a dialog (the quick-view, Picks and Game Detail correction tests use it). New nested
+  cases in `Dialog.test.tsx` (base-ui: a confirm over a dialog, over a sheet, and a sheet over a sheet; and
+  two stand-ins) and `GameQuickView.delete.test.tsx` (the real delete confirm over the quick view); new
+  `CorrectScoreModal.test.tsx` and `contexts/__tests__/PlayerQuickView.test.tsx`.
+
+---
+
 ## [2.270.0] - 2026-11-25 - My Rooms, My Tables, My Stats, Friends and Create Room wear the Arcaid look (G22)
 
 ### Changed

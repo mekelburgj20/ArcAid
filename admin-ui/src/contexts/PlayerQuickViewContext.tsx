@@ -4,14 +4,14 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
 } from 'react';
-import { createPortal } from 'react-dom';
-import { Link } from 'react-router-dom';
-import { X, ExternalLink, Flame, Users, Trophy, Target, Medal, UserPlus, UserCheck, GitCompare } from 'lucide-react';
+import { Flame, Users, Trophy, Target, Medal, UserPlus, UserCheck, GitCompare } from 'lucide-react';
 import { PlayerAvatar, playerName } from '../components/ScoreboardComponents';
+import { Dialog } from '../components/parts/Dialog';
+import Button, { ButtonLink } from '../components/parts/Button';
+import { SkeletonTiles } from '../components/parts/Skeleton';
 import { useViewerAuth } from './ViewerAuthContext';
 import { roomFetch } from '../lib/roomFetch';
 
@@ -29,6 +29,11 @@ import { roomFetch } from '../lib/roomFetch';
  * Best Game, recent scores list — plus footer links to the full player
  * page (carrying ?from + ?tab for the back link) and the room's All Players
  * page.
+ *
+ * G23c (v2.271.0): the modal is the Arcaid dialog (`components/parts/Dialog`),
+ * a bottom sheet on a phone. The player's name is the title (and the dialog's
+ * name); Follow and Compare sit at the end of the body, the two page links are
+ * the actions. Escape, a press outside, the × and the sheet's drag close it.
  */
 export interface PlayerEntryLike {
   iscored_username: string;
@@ -115,7 +120,6 @@ function PlayerQuickViewModal({ slug, entry, fromTab, onClose }: OpenArgs & { on
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
-  const backdropMouseDown = useRef(false);
   const { discordUser, playerToken } = useViewerAuth();
   const [friendIds, setFriendIds] = useState<Set<string>>(new Set());
   const [followPending, setFollowPending] = useState(false);
@@ -198,18 +202,6 @@ function PlayerQuickViewModal({ slug, entry, fromTab, onClose }: OpenArgs & { on
     }
   };
 
-  // Esc to close + lock background scroll while modal is open.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      window.removeEventListener('keydown', onKey);
-      document.body.style.overflow = prevOverflow;
-    };
-  }, [onClose]);
-
   const display = playerName(entry);
   // Thread ?from + ?tab into the full-page link so PlayerDetail's back link
   // returns to the originating leaderboard view.
@@ -235,193 +227,159 @@ function PlayerQuickViewModal({ slug, entry, fromTab, onClose }: OpenArgs & { on
     viewerCompareIdentifier ? `&b=${encodeURIComponent(viewerCompareIdentifier)}` : ''
   }`;
 
-  return createPortal(
-    <div
-      className="fixed inset-0 z-50 flex items-start sm:items-center justify-center bg-deep/80 backdrop-blur-sm p-3 sm:p-4 overflow-y-auto"
-      onMouseDown={e => { backdropMouseDown.current = e.target === e.currentTarget; }}
-      onClick={e => { if (e.target === e.currentTarget && backdropMouseDown.current) onClose(); }}
+  return (
+    <Dialog
+      open
+      onOpenChange={next => { if (!next) onClose(); }}
+      tone="cyan"
+      size="md"
+      sheet
+      label="Player"
+      title={display}
+      footer={(
+        <>
+          <ButtonLink to={allPlayersHref} variant="secondary" onClick={onClose}>
+            <Users size={14} aria-hidden="true" />
+            All Players
+          </ButtonLink>
+          <ButtonLink to={fullPlayerHref} variant="secondary" onClick={onClose}>View full player page</ButtonLink>
+        </>
+      )}
     >
-      <div
-        className="bg-surface border border-border rounded-xl shadow-2xl w-full max-w-md my-3 sm:my-8 max-h-[90vh] overflow-y-auto"
-        onClick={e => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="px-5 py-4 border-b border-border flex items-center gap-3">
-          <PlayerAvatar
-            username={display}
-            discordUserId={entry.discord_user_id || null}
-            avatarHash={entry.avatar_hash || null}
-            avatarUrl={entry.avatar_url || null}
-            size={42}
-          />
-          <div className="flex-1 min-w-0">
-            <h2 className="font-display text-lg font-bold text-primary truncate">{display}</h2>
-            {entry.iscored_username && display !== entry.iscored_username && (
-              <p className="text-faint text-xs truncate">iScored: {entry.iscored_username}</p>
-            )}
-          </div>
-          <button
-            onClick={onClose}
-            aria-label="Close"
-            className="text-muted hover:text-primary bg-transparent border-0 cursor-pointer p-1 flex-shrink-0"
-          >
-            <X size={20} />
-          </button>
-        </div>
-
-        {/* Body */}
-        <div className="px-5 py-4">
-          {loading ? (
-            <div className="flex items-center justify-center py-8">
-              <div className="w-6 h-6 border-2 border-neon-cyan/30 border-t-neon-cyan rounded-full animate-spin" />
-            </div>
-          ) : notFound ? (
-            <p className="text-muted text-sm text-center py-6">Player not found in this room.</p>
-          ) : stats ? (
-            <>
-              <div className="grid grid-cols-3 gap-2 mb-4">
-                <Stat label="Games" value={String(stats.totalGamesPlayed)} color="text-neon-cyan" />
-                <Stat label="Wins" value={String(stats.totalWins)} color="text-neon-green" />
-                <Stat label="Win %" value={`${stats.winPercentage}%`} color="text-neon-amber" />
-                <Stat label="Avg Finish" value={stats.avg_finish_position.toFixed(1)} color="text-muted" />
-                <Stat label="Top 5 %" value={`${Math.round(stats.top5_rate * 100)}%`} color="text-neon-magenta" />
-                <div className="bg-raised border border-border/50 rounded p-2 text-center">
-                  <p className="text-faint text-[10px] uppercase tracking-wider mb-0.5">Streak</p>
-                  <div className="flex items-center justify-center gap-1">
-                    {stats.champion_streak > 0 && <Flame size={14} className="text-neon-amber" />}
-                    <p className={`font-display font-bold text-base ${stats.champion_streak > 0 ? 'text-neon-amber' : 'text-faint'}`}>
-                      {stats.champion_streak}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {stats.participationStreak && (
-                <p className="text-[10px] text-faint text-center -mt-2 mb-3">
-                  Weekly streak <span className="text-neon-blue font-bold">{stats.participationStreak.currentWeeks}</span>
-                  <span className="text-faint"> · best {stats.participationStreak.bestWeeks}</span>
-                </p>
-              )}
-
-              {stats.achievements && (
-                stats.achievements.tournamentWins > 0 ||
-                stats.achievements.milestones > 0 ||
-                stats.achievements.roomRecords > 0
-              ) && (
-                <div className="flex items-center justify-center gap-4 mb-3 py-2 border-y border-border/30">
-                  <span className="inline-flex items-center gap-1 text-sm font-display font-bold text-neon-amber">
-                    <Trophy size={14} />
-                    {stats.achievements.tournamentWins}
-                  </span>
-                  <span className="inline-flex items-center gap-1 text-sm font-display font-bold text-neon-magenta">
-                    <Target size={14} />
-                    {stats.achievements.milestones}
-                  </span>
-                  <span className="inline-flex items-center gap-1 text-sm font-display font-bold text-neon-green">
-                    <Medal size={14} />
-                    {stats.achievements.roomRecords}
-                  </span>
-                </div>
-              )}
-
-              {stats.bestGame && (
-                <div className="mb-3">
-                  <p className="font-display text-[10px] text-muted uppercase tracking-wider mb-1">Best Game</p>
-                  <p className="text-sm text-primary font-medium truncate">{stats.bestGame}</p>
-                </div>
-              )}
-
-              {stats.recentScores.length > 0 && (
-                <div>
-                  <p className="font-display text-[10px] text-muted uppercase tracking-wider mb-1">Recent Scores</p>
-                  <div className="bg-raised/40 border border-border/30 rounded overflow-hidden">
-                    {stats.recentScores.slice(0, 5).map((s, i) => (
-                      <div
-                        key={i}
-                        className="flex items-center justify-between px-3 py-1.5 border-b border-border/20 last:border-0"
-                      >
-                        <span className="text-sm text-muted truncate flex-1 mr-2">{s.game_name}</span>
-                        <span className="text-sm font-bold tabular-nums text-neon-amber flex-shrink-0">
-                          {s.score.toLocaleString()}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </>
-          ) : null}
-        </div>
-
-        {/* Footer */}
-        <div className="px-5 py-3 border-t border-border flex flex-col gap-2">
-          {/* WP2 — S14 social loops: Follow + Compare */}
-          <div className="flex items-center gap-2">
-            {canFollow && (
-              <button
-                onClick={toggleFollow}
-                disabled={followPending}
-                className={`flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded border text-sm font-medium transition-colors cursor-pointer disabled:opacity-50 ${
-                  isFollowing
-                    ? 'border-neon-green/40 bg-neon-green/10 text-neon-green hover:bg-neon-green/20'
-                    : 'border-neon-cyan/40 bg-neon-cyan/10 text-neon-cyan hover:bg-neon-cyan/20'
-                }`}
-              >
-                {isFollowing ? <UserCheck size={14} /> : <UserPlus size={14} />}
-                {isFollowing ? 'Following' : 'Follow'}
-              </button>
-            )}
-            {!canFollow && showDisabledFollow && (
-              <button
-                type="button"
-                disabled
-                title="This player hasn't linked Discord yet"
-                aria-label="Follow — unavailable, this player hasn't linked Discord yet"
-                className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded border border-border text-sm text-faint cursor-not-allowed opacity-60"
-              >
-                <UserPlus size={14} />
-                Follow
-              </button>
-            )}
-            <Link
-              to={compareHref}
-              onClick={onClose}
-              className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded border border-border text-sm text-muted hover:text-primary hover:border-neon-cyan/40 no-underline transition-colors"
-            >
-              <GitCompare size={14} />
-              Compare
-            </Link>
-          </div>
-          <Link
-            to={fullPlayerHref}
-            onClick={onClose}
-            className="inline-flex items-center justify-between gap-1 px-3 py-2 rounded border border-neon-cyan/40 text-sm text-neon-cyan hover:bg-neon-cyan/10 no-underline transition-colors"
-          >
-            <span>View full player page</span>
-            <ExternalLink size={14} />
-          </Link>
-          <Link
-            to={allPlayersHref}
-            onClick={onClose}
-            className="inline-flex items-center justify-between gap-1 px-3 py-2 rounded border border-border text-sm text-muted hover:text-primary hover:border-neon-cyan/40 no-underline transition-colors"
-          >
-            <span className="inline-flex items-center gap-1.5">
-              <Users size={14} />
-              All Players
-            </span>
-            <ExternalLink size={14} />
-          </Link>
+      {/* The avatar row: the name wraps, never cut short. */}
+      <div className="flex items-center gap-3 mb-4">
+        <PlayerAvatar
+          username={display}
+          discordUserId={entry.discord_user_id || null}
+          avatarHash={entry.avatar_hash || null}
+          avatarUrl={entry.avatar_url || null}
+          size={42}
+        />
+        <div className="flex-1 min-w-0">
+          <p className="font-display text-lg font-bold text-primary [overflow-wrap:anywhere]">{display}</p>
+          {entry.iscored_username && display !== entry.iscored_username && (
+            <p className="text-faint text-xs [overflow-wrap:anywhere]">iScored: {entry.iscored_username}</p>
+          )}
         </div>
       </div>
-    </div>,
-    document.body
+
+      {loading ? (
+        <SkeletonTiles count={3} label="Loading player" />
+      ) : notFound ? (
+        <p className="text-muted text-sm text-center py-6">Player not found in this room.</p>
+      ) : stats ? (
+        <>
+          <div className="grid grid-cols-3 gap-2 mb-4">
+            <Stat label="Games" value={String(stats.totalGamesPlayed)} color="text-neon-cyan" />
+            <Stat label="Wins" value={String(stats.totalWins)} color="text-neon-green" />
+            <Stat label="Win %" value={`${stats.winPercentage}%`} color="text-neon-amber" />
+            <Stat label="Avg Finish" value={stats.avg_finish_position.toFixed(1)} color="text-muted" />
+            <Stat label="Top 5 %" value={`${Math.round(stats.top5_rate * 100)}%`} color="text-neon-magenta" />
+            <div className="bg-raised border border-border/50 rounded p-2 text-center">
+              <p className="text-faint text-xs uppercase tracking-wider mb-0.5">Streak</p>
+              <div className="flex items-center justify-center gap-1">
+                {stats.champion_streak > 0 && <Flame size={14} className="text-neon-amber" />}
+                <p className={`font-display font-bold text-base ${stats.champion_streak > 0 ? 'text-neon-amber' : 'text-faint'}`}>
+                  {stats.champion_streak}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {stats.participationStreak && (
+            <p className="text-xs text-faint text-center -mt-2 mb-3">
+              Weekly streak <span className="text-neon-blue font-bold">{stats.participationStreak.currentWeeks}</span>
+              <span className="text-faint"> · best {stats.participationStreak.bestWeeks}</span>
+            </p>
+          )}
+
+          {stats.achievements && (
+            stats.achievements.tournamentWins > 0 ||
+            stats.achievements.milestones > 0 ||
+            stats.achievements.roomRecords > 0
+          ) && (
+            <div className="flex items-center justify-center gap-4 mb-3 py-2 border-y border-border/30">
+              <span className="inline-flex items-center gap-1 text-sm font-display font-bold text-neon-amber">
+                <Trophy size={14} />
+                {stats.achievements.tournamentWins}
+              </span>
+              <span className="inline-flex items-center gap-1 text-sm font-display font-bold text-neon-magenta">
+                <Target size={14} />
+                {stats.achievements.milestones}
+              </span>
+              <span className="inline-flex items-center gap-1 text-sm font-display font-bold text-neon-green">
+                <Medal size={14} />
+                {stats.achievements.roomRecords}
+              </span>
+            </div>
+          )}
+
+          {stats.bestGame && (
+            <div className="mb-3">
+              <p className="font-display text-xs text-muted uppercase tracking-wider mb-1">Best Game</p>
+              <p className="text-sm text-primary font-medium">{stats.bestGame}</p>
+            </div>
+          )}
+
+          {stats.recentScores.length > 0 && (
+            <div>
+              <p className="font-display text-xs text-muted uppercase tracking-wider mb-1">Recent Scores</p>
+              <div className="bg-raised/40 border border-border/30 rounded overflow-hidden">
+                {stats.recentScores.slice(0, 5).map((s, i) => (
+                  <div
+                    key={i}
+                    className="flex items-center justify-between px-3 py-1.5 border-b border-border/20 last:border-0"
+                  >
+                    <span className="text-sm text-muted flex-1 min-w-0 mr-2">{s.game_name}</span>
+                    <span className="text-sm font-bold tabular-nums text-neon-amber flex-shrink-0">
+                      {s.score.toLocaleString()}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      ) : null}
+
+      {/* WP2 — S14 social loops: Follow + Compare */}
+      <div className="flex items-center gap-2 mt-4">
+        {canFollow && (
+          <Button
+            variant={isFollowing ? 'secondary' : 'primary'}
+            onClick={toggleFollow}
+            disabled={followPending}
+            className="flex-1"
+          >
+            {isFollowing ? <UserCheck size={14} aria-hidden="true" /> : <UserPlus size={14} aria-hidden="true" />}
+            {isFollowing ? 'Following' : 'Follow'}
+          </Button>
+        )}
+        {!canFollow && showDisabledFollow && (
+          <Button
+            variant="secondary"
+            disabled
+            title="This player hasn't linked Discord yet"
+            aria-label="Follow — unavailable, this player hasn't linked Discord yet"
+            className="flex-1"
+          >
+            <UserPlus size={14} aria-hidden="true" />
+            Follow
+          </Button>
+        )}
+        <ButtonLink to={compareHref} variant="secondary" onClick={onClose} className="flex-1">
+          <GitCompare size={14} aria-hidden="true" />
+          Compare
+        </ButtonLink>
+      </div>
+    </Dialog>
   );
 }
 
 function Stat({ label, value, color }: { label: string; value: string; color: string }) {
   return (
     <div className="bg-raised border border-border/50 rounded p-2 text-center">
-      <p className="text-faint text-[10px] uppercase tracking-wider mb-0.5">{label}</p>
+      <p className="text-faint text-xs uppercase tracking-wider mb-0.5">{label}</p>
       <p className={`font-display font-bold text-base ${color}`}>{value}</p>
     </div>
   );

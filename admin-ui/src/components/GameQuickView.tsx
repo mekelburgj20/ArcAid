@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { X, ExternalLink, Crown, Trash2, Pencil, Plus, Minus, Camera } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Crown, Trash2, Pencil, Plus, Minus, Camera } from 'lucide-react';
+import { Dialog } from './parts/Dialog';
+import { ButtonLink } from './parts/Button';
 import type { RankedEntry } from './ScoreboardComponents';
 import { PlayerAvatar, playerName } from './ScoreboardComponents';
 import { getLegacyPlatformLabel } from '../lib/scoreProvenance';
@@ -24,6 +25,13 @@ import ScorePhotoModal from './ScorePhotoModal';
  * Middle-click / ctrl-click / cmd-click on the card title still navigates
  * directly (the click handler that opens this modal preventDefaults only
  * plain left-click — see Scoreboard.tsx).
+ *
+ * G23c (v2.271.0): the Arcaid dialog (`parts/Dialog`), a bottom sheet on a
+ * phone. The tournament is the label, the table the title (and the dialog's
+ * name), the maker, year and platforms the line under it; the table art is a
+ * banner at the top of the body. The delete confirm, the score correction and
+ * the photo open INSIDE this dialog's children, so base-ui nests them: Escape,
+ * a press outside and the × close the top one only.
  */
 interface GlobalGameMeta {
   manufacturer: string | null;
@@ -106,10 +114,6 @@ interface Props {
 
 export default function GameQuickView({ lb, slug, fromTab, highlightStat, roomId, onScoreDeleted, onClose }: Props) {
   const [meta, setMeta] = useState<GlobalGameMeta | null>(null);
-  const backdropMouseDown = useRef(false);
-  const dialogRef = useRef<HTMLDivElement>(null);
-  const closeBtnRef = useRef<HTMLButtonElement>(null);
-  const previouslyFocused = useRef<HTMLElement | null>(null);
 
   // v2.108.0 (F4) — delete plumbing. All of it is inert without `roomId`:
   // `canDeleteRow` returns false for an undefined room, and `useScoreExpand`
@@ -167,37 +171,6 @@ export default function GameQuickView({ lb, slug, fromTab, highlightStat, roomId
     onScoreDeleted?.();
   };
 
-  // s20: initial focus into the dialog + focus-return to the trigger on close.
-  useEffect(() => {
-    previouslyFocused.current = document.activeElement as HTMLElement | null;
-    closeBtnRef.current?.focus();
-    return () => {
-      previouslyFocused.current?.focus?.();
-    };
-  }, []);
-
-  // s20: minimal Tab focus loop — keeps focus inside the dialog while open.
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== 'Tab' || !dialogRef.current) return;
-      const focusables = Array.from(
-        dialogRef.current.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'),
-      );
-      if (focusables.length === 0) return;
-      const first = focusables[0];
-      const last = focusables[focusables.length - 1];
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, []);
-
   // Pull catalogue metadata for the subtitle. Optional — if there's no
   // globalGameId or the fetch fails, the modal just shows the tournament name.
   useEffect(() => {
@@ -217,13 +190,6 @@ export default function GameQuickView({ lb, slug, fromTab, highlightStat, roomId
       .catch(() => { /* swallow */ });
     return () => { cancelled = true; };
   }, [lb.globalGameId]);
-
-  // Esc closes.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
 
   // Compose links so GameDetail's back link returns to the originating tab.
   const tabSuffix = fromTab && fromTab !== 'tournaments'
@@ -253,58 +219,41 @@ export default function GameQuickView({ lb, slug, fromTab, highlightStat, roomId
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-deep/80 backdrop-blur-sm p-4"
-      // mousedown-on-backdrop + mouseup-on-backdrop required to dismiss; prevents
-      // accidental close when text-selection drags off the inner card.
-      onMouseDown={(e) => { backdropMouseDown.current = e.target === e.currentTarget; }}
-      onClick={(e) => { if (e.target === e.currentTarget && backdropMouseDown.current) onClose(); }}
+    <Dialog
+      open
+      onOpenChange={next => { if (!next) onClose(); }}
+      tone="cyan"
+      size="md"
+      sheet
+      label={lb.tournamentName || 'Table'}
+      title={lb.gameName}
+      description={subtitleParts.join(' · ') || undefined}
+      footer={(
+        <>
+          <ButtonLink to={fullInfoHref} variant="secondary" onClick={onClose}>View full info</ButtonLink>
+          {globalHref && <ButtonLink to={globalHref} onClick={onClose}>Global Scoreboard</ButtonLink>}
+        </>
+      )}
     >
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label={lb.gameName ? `${lb.gameName} preview` : 'Game preview'}
-        className="bg-surface border border-border rounded-xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header with optional image background */}
-        <div
-          className="relative px-5 py-5 border-b border-border"
-          style={lb.imageUrl ? {
-            backgroundImage: `linear-gradient(180deg, rgba(0,0,0,0.45), rgba(0,0,0,0.85)), url(${lb.imageUrl})`,
-            backgroundSize: 'cover',
-            backgroundPosition: 'top center',
-          } : undefined}
-        >
-          <button
-            ref={closeBtnRef}
-            onClick={onClose}
-            aria-label="Close"
-            className="absolute top-3 right-3 text-white/80 hover:text-white bg-black/40 hover:bg-black/60 rounded-full p-1.5 backdrop-blur-sm border-0 cursor-pointer transition-colors"
-          >
-            <X size={16} />
-          </button>
-          <h2 className={`font-display text-lg font-bold pr-8 leading-tight ${lb.imageUrl ? 'text-white' : 'text-primary'}`}>
-            {lb.gameName}
-          </h2>
-          {subtitleParts.length > 0 && (
-            <p className={`text-xs mt-1.5 ${lb.imageUrl ? 'text-white/70' : 'text-muted'}`}>
-              {subtitleParts.join(' · ')}
-            </p>
-          )}
-          {lb.tournamentName && (
-            <p className={`text-[10px] uppercase tracking-wider mt-1.5 ${lb.imageUrl ? 'text-white/50' : 'text-faint'}`}>
-              {lb.tournamentName}
-            </p>
-          )}
-        </div>
+      <div className="flex flex-col gap-3">
+        {/* The table art, as a banner (no text on it). The canvas-dark wash is the old header's. */}
+        {lb.imageUrl && (
+          <div
+            className="h-28 rounded"
+            aria-hidden="true"
+            style={{
+              backgroundImage: `linear-gradient(180deg, color-mix(in srgb, var(--arc-canvas) 45%, transparent), color-mix(in srgb, var(--arc-canvas) 85%, transparent)), url(${lb.imageUrl})`,
+              backgroundSize: 'cover',
+              backgroundPosition: 'top center',
+            }}
+          />
+        )}
 
         {/* Body: one headline stat in presentational mode, else the top-10. */}
         {highlightStat !== undefined ? (
           highlightStat.value != null && (
-            <div className="px-5 py-4">
-              <p className="text-[10px] uppercase tracking-wider text-faint">{highlightStat.label}</p>
+            <div>
+              <p className="text-xs uppercase tracking-wider text-faint">{highlightStat.label}</p>
               <div className="flex items-baseline gap-2 mt-1.5">
                 <Crown size={14} className="text-neon-amber flex-shrink-0 self-center" aria-hidden="true" />
                 <span className="font-display text-xl font-bold text-neon-amber tabular-nums">
@@ -317,7 +266,7 @@ export default function GameQuickView({ lb, slug, fromTab, highlightStat, roomId
             </div>
           )
         ) : (
-        <div className="px-5 py-3">
+        <div>
           {topScores.length === 0 ? (
             <p className="text-sm text-faint text-center py-6">No scores yet</p>
           ) : (
@@ -418,7 +367,7 @@ export default function GameQuickView({ lb, slug, fromTab, highlightStat, roomId
                 {isExpanded && (
                   <div className="ml-8 mr-1 mb-2 rounded bg-deep/50 px-2 py-1.5">
                     {historyLoading ? (
-                      <p className="text-[11px] text-faint py-1">Loading…</p>
+                      <p className="text-xs text-faint py-1">Loading…</p>
                     ) : playerHistory.length > 0 ? (
                       <div className="space-y-1">
                         {playerHistory.map(h => {
@@ -428,7 +377,7 @@ export default function GameQuickView({ lb, slug, fromTab, highlightStat, roomId
                           return (
                             <div
                               key={h.id}
-                              className={`flex items-center gap-2 text-[11px] ${hPhotoUrl ? 'cursor-pointer' : ''}`}
+                              className={`flex items-center gap-2 text-xs ${hPhotoUrl ? 'cursor-pointer' : ''}`}
                               onClick={hPhotoUrl ? () => setPhotoModal({ playerName: playerName(entry), score: h.score, photoUrl: hPhotoUrl, historyId: h.id }) : undefined}
                             >
                               <span className="text-muted tabular-nums">{h.score.toLocaleString()}</span>
@@ -466,7 +415,7 @@ export default function GameQuickView({ lb, slug, fromTab, highlightStat, roomId
                         })}
                       </div>
                     ) : (
-                      <p className="text-[11px] text-faint py-1">No additional scores.</p>
+                      <p className="text-xs text-faint py-1">No additional scores.</p>
                     )}
                   </div>
                 )}
@@ -475,34 +424,14 @@ export default function GameQuickView({ lb, slug, fromTab, highlightStat, roomId
             })
           )}
           {deleteError && (
-            <p role="alert" className="text-[11px] text-red-400 pt-2">{deleteError}</p>
+            <p role="alert" className="text-xs ink-danger pt-2">{deleteError}</p>
           )}
         </div>
         )}
-
-        {/* Footer links */}
-        <div className="px-5 py-3 border-t border-border flex flex-col gap-2">
-          <Link
-            to={fullInfoHref}
-            onClick={onClose}
-            className="inline-flex items-center justify-between gap-1 px-3 py-2 rounded border border-border text-sm text-muted hover:text-primary hover:border-neon-cyan/40 no-underline transition-colors"
-          >
-            <span>View full info</span>
-            <ExternalLink size={14} />
-          </Link>
-          {globalHref && (
-            <Link
-              to={globalHref}
-              onClick={onClose}
-              className="inline-flex items-center justify-between gap-1 px-3 py-2 rounded border border-neon-cyan/40 text-sm text-neon-cyan hover:bg-neon-cyan/10 no-underline transition-colors"
-            >
-              <span>Global Scoreboard</span>
-              <ExternalLink size={14} />
-            </Link>
-          )}
-        </div>
       </div>
 
+      {/* The pop-ups this one opens are rendered INSIDE its children, so base-ui
+          nests them: Escape, a press outside and the × close the top one only. */}
       {pendingCorrect && (
         <CorrectScoreModal
           playerLabel={pendingCorrect.label}
@@ -544,6 +473,6 @@ export default function GameQuickView({ lb, slug, fromTab, highlightStat, roomId
           onClose={() => setPhotoModal(null)}
         />
       )}
-    </div>
+    </Dialog>
   );
 }

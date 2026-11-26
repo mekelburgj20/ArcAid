@@ -2745,8 +2745,9 @@ a.part-row__name::after, button.part-row__name::after { content: ""; position: a
   background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--arc-chrome) 28%, transparent) 12%, color-mix(in srgb, var(--arc-chrome) 28%, transparent) 88%, transparent);
 }
 .arc-dialog__acts { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 10px; }
-/* A pop-up's actions are the large touch size (44 px), on every screen. */
-.arc-dialog__acts > button { min-height: 44px; padding: 10px 18px; font-size: 15px; line-height: 20px; }
+/* A pop-up's actions are the large touch size (44 px), on every screen: buttons and the links drawn as
+   buttons (`ButtonLink`, G23c). */
+.arc-dialog__acts > :is(button, a) { min-height: 44px; padding: 10px 18px; font-size: 15px; line-height: 20px; }
 
 /* The sheet's grab handle: a short lit rail with the chrome pinball resting at its centre (phones only). */
 .arc-dialog__grab {

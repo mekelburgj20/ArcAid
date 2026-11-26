@@ -342,6 +342,8 @@ describe.each([
         expect(isReal(inner)).toBe(true);
         // base-ui sees it nested (its Root is inside the parent's popup in the React tree).
         expect(inner).toHaveAttribute('data-nested');
+        // It draws its own backdrop (`forceRender`), so the dialog under it dims, as under a nested stand-in.
+        expect(document.querySelectorAll('.arc-dialog-backdrop')).toHaveLength(2);
         // Focus goes into the top dialog (Cancel for a confirm, the first field or button for a form).
         await waitFor(() => expect(inner.contains(document.activeElement)).toBe(true));
         return { inner, opener, onOuterChange, onInnerCancel };
