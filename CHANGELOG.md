@@ -14,7 +14,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
   tournament's name is the small label at the top and the table's name is the title, with the maker, year
   and platforms under it. Then come the table art as a banner, the top scores (first place is still gold)
   and two buttons: View full info and Global Scoreboard.
-- **The player pop-up** (tap a player's name) is the same slab: "Player" over the name, then the picture,
+- **The player pop-up** (tap a player's name) is the same slab: "Player" over the picture and name (once),
   the stats and the recent scores as before, Follow and Compare under them, and All Players and View full
   player page as the two buttons. A long name wraps instead of being cut off, and so does a long game name
   under Best Game and Recent Scores. While the stats load you see placeholder tiles, not a spinner.

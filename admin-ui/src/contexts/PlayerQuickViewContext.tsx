@@ -235,7 +235,24 @@ function PlayerQuickViewModal({ slug, entry, fromTab, onClose }: OpenArgs & { on
       size="md"
       sheet
       label="Player"
-      title={display}
+      // The avatar sits beside the name in the title (hidden from the accessible
+      // name, which is the player's name once); the iScored alias, when it
+      // differs, is the line under it. No second name row in the body.
+      title={(
+        <span className="flex items-center gap-3">
+          <span aria-hidden="true" className="shrink-0">
+            <PlayerAvatar
+              username={display}
+              discordUserId={entry.discord_user_id || null}
+              avatarHash={entry.avatar_hash || null}
+              avatarUrl={entry.avatar_url || null}
+              size={40}
+            />
+          </span>
+          <span className="min-w-0">{display}</span>
+        </span>
+      )}
+      description={entry.iscored_username && display !== entry.iscored_username ? `iScored: ${entry.iscored_username}` : undefined}
       footer={(
         <>
           <ButtonLink to={allPlayersHref} variant="secondary" onClick={onClose}>
@@ -246,23 +263,6 @@ function PlayerQuickViewModal({ slug, entry, fromTab, onClose }: OpenArgs & { on
         </>
       )}
     >
-      {/* The avatar row: the name wraps, never cut short. */}
-      <div className="flex items-center gap-3 mb-4">
-        <PlayerAvatar
-          username={display}
-          discordUserId={entry.discord_user_id || null}
-          avatarHash={entry.avatar_hash || null}
-          avatarUrl={entry.avatar_url || null}
-          size={42}
-        />
-        <div className="flex-1 min-w-0">
-          <p className="font-display text-lg font-bold text-primary [overflow-wrap:anywhere]">{display}</p>
-          {entry.iscored_username && display !== entry.iscored_username && (
-            <p className="text-faint text-xs [overflow-wrap:anywhere]">iScored: {entry.iscored_username}</p>
-          )}
-        </div>
-      </div>
-
       {loading ? (
         <SkeletonTiles count={3} label="Loading player" />
       ) : notFound ? (
