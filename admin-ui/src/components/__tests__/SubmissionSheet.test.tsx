@@ -3,6 +3,7 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import SubmissionSheet, { type SubmissionTarget } from '../SubmissionSheet';
 import { ViewerAuthProvider } from '../../contexts/ViewerAuthContext';
+import { waitForRealDialog } from '../../test/dialogTestUtils';
 import * as photoNormalize from '../../lib/photoNormalize';
 
 /**
@@ -77,7 +78,7 @@ interface RenderOpts {
     claimResponse?: { ok?: boolean; body?: object };
 }
 
-function renderSheet(opts: RenderOpts = {}) {
+async function renderSheet(opts: RenderOpts = {}) {
     const target: SubmissionTarget = {
         kind: 'tournament',
         roomId: 'room-1',
@@ -120,6 +121,8 @@ function renderSheet(opts: RenderOpts = {}) {
             </ViewerAuthProvider>
         </MemoryRouter>,
     );
+    // The sheet is the Arcaid dialog: wait until its real half has replaced the stand-in.
+    await waitForRealDialog();
     return { ...rendered, fetchMock };
 }
 
@@ -132,7 +135,7 @@ describe('SubmissionSheet — engine/device derivation', () => {
     it('v2.95.1 regression: a remembered device the tournament EXCLUDES is not shown or held', async () => {
         signIn();
         localStorage.setItem('arcaid_last_device', 'atgames');
-        renderSheet({
+        await renderSheet({
             platformsResponse: platformsPayload({
                 submittable: ['vpx'],
                 excludedDevices: ['atgames'],
@@ -157,7 +160,7 @@ describe('SubmissionSheet — engine/device derivation', () => {
     it('restores a remembered device that IS allowed', async () => {
         signIn();
         localStorage.setItem('arcaid_last_device', 'pc');
-        renderSheet({
+        await renderSheet({
             platformsResponse: platformsPayload({ submittable: ['vpx'] }),
         });
 
@@ -177,7 +180,7 @@ describe('SubmissionSheet — engine/device derivation', () => {
     it('restores a remembered ENGINE when the game offers more than one', async () => {
         signIn();
         localStorage.setItem('arcaid_last_engine', 'fx');
-        renderSheet({
+        await renderSheet({
             platformsResponse: platformsPayload({ submittable: ['vpx', 'fx'] }),
         });
 
@@ -189,7 +192,7 @@ describe('SubmissionSheet — engine/device derivation', () => {
     it('does NOT restore a remembered engine the tournament excludes', async () => {
         signIn();
         localStorage.setItem('arcaid_last_engine', 'fx');
-        renderSheet({
+        await renderSheet({
             platformsResponse: platformsPayload({
                 platforms: ['vpx', 'fx', 'fp'],
                 submittable: ['vpx', 'fp'],
@@ -210,7 +213,7 @@ describe('SubmissionSheet — engine/device derivation', () => {
             'arcaid_last_provenance:room-1:attack from mars',
             JSON.stringify({ engine: 'vpx', device: 'atgames' }),
         );
-        renderSheet({
+        await renderSheet({
             platformsResponse: platformsPayload({ submittable: ['vpx', 'fx'] }),
         });
 
@@ -226,7 +229,7 @@ describe('SubmissionSheet — engine/device derivation', () => {
             'arcaid_last_provenance:room-1:some other table',
             JSON.stringify({ engine: 'vpx' }),
         );
-        renderSheet({
+        await renderSheet({
             platformsResponse: platformsPayload({ submittable: ['vpx', 'fx'] }),
         });
 
@@ -238,7 +241,7 @@ describe('SubmissionSheet — engine/device derivation', () => {
         signIn();
         localStorage.setItem('arcaid_last_engine', 'fx');
         localStorage.setItem('arcaid_last_provenance:room-1:attack from mars', 'not json');
-        renderSheet({
+        await renderSheet({
             platformsResponse: platformsPayload({ submittable: ['vpx', 'fx'] }),
         });
 
@@ -248,7 +251,7 @@ describe('SubmissionSheet — engine/device derivation', () => {
 
     it('single-engine payload auto-locks the engine to a read-only chip', async () => {
         signIn();
-        renderSheet({
+        await renderSheet({
             platformsResponse: platformsPayload({ submittable: ['vpx'] }),
         });
 
@@ -261,7 +264,7 @@ describe('SubmissionSheet — engine/device derivation', () => {
     it('single allowed device auto-selects (no dropdown needed)', async () => {
         signIn();
         // engine 'real' → ENGINE_DEVICE_COMPAT.real === ['real_cabinet'] only.
-        renderSheet({
+        await renderSheet({
             platformsResponse: platformsPayload({ submittable: ['real'] }),
         });
 
@@ -272,7 +275,7 @@ describe('SubmissionSheet — engine/device derivation', () => {
 
     it('survives a platforms-fetch failure without crashing — empty-safe engine/device lists', async () => {
         signIn();
-        renderSheet({ fail: true });
+        await renderSheet({ fail: true });
 
         expect(await screen.findByRole('dialog')).toBeInTheDocument();
         expect(await screen.findByText(/Nothing is configured for this game yet/)).toBeInTheDocument();
@@ -303,7 +306,7 @@ describe('SubmissionSheet — identity claim offer (P2)', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Submit Score' }));
     }
 
-    function renderWithOffer(opts: Omit<RenderOpts, 'platformsResponse' | 'submitResponse'> = {}) {
+    async function renderWithOffer(opts: Omit<RenderOpts, 'platformsResponse' | 'submitResponse'> = {}) {
         return renderSheet({
             ...opts,
             platformsResponse: platformsPayload({ submittable: ['real'] }),
@@ -313,7 +316,7 @@ describe('SubmissionSheet — identity claim offer (P2)', () => {
 
     it('prompts with the synced name when the submit response carries an offer', async () => {
         signIn();
-        renderWithOffer();
+        await renderWithOffer();
         await submitScore();
 
         expect(await screen.findByText(/There are already scores here under/)).toBeInTheDocument();
@@ -323,7 +326,7 @@ describe('SubmissionSheet — identity claim offer (P2)', () => {
 
     it('no prompt when the response carries no offer', async () => {
         signIn();
-        renderSheet({
+        await renderSheet({
             platformsResponse: platformsPayload({ submittable: ['real'] }),
             submitResponse: { displayName: 'Tester', claimOffer: null },
         });
@@ -335,7 +338,7 @@ describe('SubmissionSheet — identity claim offer (P2)', () => {
 
     it('"Yes" posts the claim and reports the auto-approval', async () => {
         signIn();
-        const { fetchMock } = renderWithOffer({
+        const { fetchMock } = await renderWithOffer({
             claimResponse: { body: { result: 'auto_approved', matchedOn: 'your account username' } },
         });
         await submitScore();
@@ -353,7 +356,7 @@ describe('SubmissionSheet — identity claim offer (P2)', () => {
 
     it('a refused claim shows the server message', async () => {
         signIn();
-        renderWithOffer({ claimResponse: { ok: false, body: { error: 'That name is already linked to another account.' } } });
+        await renderWithOffer({ claimResponse: { ok: false, body: { error: 'That name is already linked to another account.' } } });
         await submitScore();
 
         fireEvent.click(await screen.findByRole('button', { name: /Yes — link it to my account/ }));
@@ -363,7 +366,7 @@ describe('SubmissionSheet — identity claim offer (P2)', () => {
 
     it('"Not me" hides the prompt and remembers the refusal', async () => {
         signIn();
-        renderWithOffer();
+        await renderWithOffer();
         await submitScore();
 
         fireEvent.click(await screen.findByRole('button', { name: 'Not me' }));
@@ -376,7 +379,7 @@ describe('SubmissionSheet — identity claim offer (P2)', () => {
     it('a previously dismissed name never prompts again', async () => {
         signIn();
         localStorage.setItem('arcaid_claim_offer_dismissed:room-1:chalatalove', new Date().toISOString());
-        renderWithOffer();
+        await renderWithOffer();
         await submitScore();
 
         expect(await screen.findByText('Score submitted!')).toBeInTheDocument();
@@ -401,7 +404,8 @@ describe('SubmissionSheet — photo format handling', () => {
     });
 
     function selectPhoto(container: HTMLElement, file: File) {
-        const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+        // The sheet is portalled to <body>, outside `container`.
+        const input = container.ownerDocument.querySelector('input[type="file"]') as HTMLInputElement;
         fireEvent.change(input, { target: { files: [file] } });
         return input;
     }
@@ -410,7 +414,7 @@ describe('SubmissionSheet — photo format handling', () => {
         signIn();
         const jpeg = new File(['x'], 'photo.jpg', { type: 'image/jpeg' });
         vi.spyOn(photoNormalize, 'normalizePhotoFile').mockResolvedValue(jpeg);
-        const { container } = renderSheet({
+        const { container } = await renderSheet({
             platformsResponse: platformsPayload({ submittable: ['real'] }),
         });
         await screen.findByText('Real Cabinet');
@@ -424,7 +428,7 @@ describe('SubmissionSheet — photo format handling', () => {
     it('a photo that fails normalization shows the inline unsupported-format error, not a preview', async () => {
         signIn();
         vi.spyOn(photoNormalize, 'normalizePhotoFile').mockResolvedValue(null);
-        const { container } = renderSheet({
+        const { container } = await renderSheet({
             platformsResponse: platformsPayload({ submittable: ['real'] }),
         });
         await screen.findByText('Real Cabinet');
@@ -457,7 +461,7 @@ describe('SubmissionSheet — gameId threading (v2.155.1)', () => {
 
     it('sends gameId in the FormData when the target carries one', async () => {
         signIn();
-        const { fetchMock } = renderSheet({
+        const { fetchMock } = await renderSheet({
             target: { gameId: 'game-123' },
             platformsResponse: platformsPayload({ submittable: ['real'] }),
             submitResponse: { displayName: 'Tester', claimOffer: null },
@@ -473,7 +477,7 @@ describe('SubmissionSheet — gameId threading (v2.155.1)', () => {
 
     it('omits gameId entirely when the target has none', async () => {
         signIn();
-        const { fetchMock } = renderSheet({
+        const { fetchMock } = await renderSheet({
             platformsResponse: platformsPayload({ submittable: ['real'] }),
             submitResponse: { displayName: 'Tester', claimOffer: null },
         });
@@ -494,7 +498,7 @@ describe('SubmissionSheet — gameId threading (v2.155.1)', () => {
      */
     it('sends gameId as a query param on the platforms fetch when the target carries one', async () => {
         signIn();
-        const { fetchMock } = renderSheet({
+        const { fetchMock } = await renderSheet({
             target: { gameId: 'game-456' },
             platformsResponse: platformsPayload({ submittable: ['real'] }),
         });
@@ -508,7 +512,7 @@ describe('SubmissionSheet — gameId threading (v2.155.1)', () => {
 
     it('omits gameId from the platforms fetch when the target has none', async () => {
         signIn();
-        const { fetchMock } = renderSheet({
+        const { fetchMock } = await renderSheet({
             platformsResponse: platformsPayload({ submittable: ['real'] }),
         });
         await screen.findByText('Real Cabinet');
@@ -528,7 +532,7 @@ describe('SubmissionSheet — kept-off-Global note (B27)', () => {
 
     async function submit(tick: boolean) {
         signIn();
-        renderSheet({
+        await renderSheet({
             platformsResponse: platformsPayload({ submittable: ['real'] }),
             submitResponse: { displayName: 'Tester' },
         });

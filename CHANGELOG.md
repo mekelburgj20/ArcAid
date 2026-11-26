@@ -6,6 +6,46 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.272.0] - 2026-11-26 - The score entry pop-up wears the Arcaid look (G23d)
+
+### Changed
+- **Submitting a score** (the + on a scoreboard card, Submit on a Global Scoreboard card, or the page a
+  card's QR code opens) now opens the dark Arcaid slab, the same one as the other pop-ups, on every room
+  theme. "Submit a score" (or "Global Scoreboard") is the small label at the top and the table's name is the
+  title; a long name wraps instead of being cut off. Submit Score is the slab's pink button.
+- **On a phone it rises from the bottom as a sheet, with the lit rail at the top: drag the rail or the title
+  down to close it.** A short drag springs back. A drag that starts on the form, on the result card or on the
+  number pad never moves the sheet, so typing a score one-handed cannot close it.
+- **On a computer, Escape or a click outside closes it**, as the corner × does, and the cursor starts in
+  the score field so you can type straight away.
+- Nothing else about submitting changes: the same fields in the same order, the number pad under the form
+  (its Done key still cannot submit by accident), the photo, the remembered platform and device, and the
+  result card with your place, the rating and the comment.
+
+### Technical
+- `SubmissionSheet` is on `parts/Dialog` (`sheet`, `size="md"`, tone cyan; label "Submit a score" or
+  "Global Scoreboard"; the title is the game name, so `getByRole('dialog', { name: <game> })` finds it). The
+  `fixed inset-0` overlay, its backdrop mouse-down/click logic and the header row with the × are gone.
+  Focus starts in the score field on a desktop; on a touch screen it does not (focusing that field opens the
+  keypad), so the dialog's default (its first control, the ×) takes it and the keypad stays down until the
+  field is tapped, as before.
+- The on-screen keypad is the dialog's footer (`.sheet-keypad`, only while it is open), pinned under the
+  scrolling body; `index.css` lets that footer hold it flush (no padding or divider, the slab's bottom
+  corners). Each phase of the body (`.sheet-phase`) and the keypad carry `data-base-ui-swipe-ignore`, and
+  the phase takes the body's side and bottom padding, so on a phone only the grab handle and the title start
+  base-ui's drag. Checked in Chromium at 390x844 with touch: a 200 px drag from a digit types that digit and
+  leaves the sheet where it was; from the score field, the platform select or beside a field nothing moves;
+  from the rail past half the sheet it closes, a 60 px one springs back.
+- The form's message line is `text-neon-cyan` / `ink-danger` / `text-muted`, its Submit is `parts/Button`
+  (primary, full width), and a draft being committed shows `SkeletonRows` above its line.
+- Tests: the three `SubmissionSheet` test files wait for the real dialog (`waitForRealDialog`) before they
+  touch the form, and find the photo input in the document (the dialog is portalled to `<body>`). New
+  `SubmissionSheet.dialog.test.tsx`: the name and label; Escape, a press outside and the × call `onClose`;
+  where focus starts on a desktop and on a touch screen; the swipe-ignore regions; and the stand-in (chunk
+  held back) submitting a score end to end.
+
+---
+
 ## [2.271.0] - 2026-11-26 - The game, player and score-photo pop-ups and the score correction wear the Arcaid look (G23c)
 
 ### Changed
