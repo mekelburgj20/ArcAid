@@ -1,5 +1,4 @@
-import { useEffect, useRef } from 'react';
-import NeonButton from './NeonButton';
+import { ConfirmDialog } from './parts/Dialog';
 
 interface ConfirmModalProps {
   title: string;
@@ -7,34 +6,28 @@ interface ConfirmModalProps {
   confirmLabel?: string;
   onConfirm: () => void;
   onCancel: () => void;
+  /** `red` (default) for harm (Delete), `pink` for attention (Leave room). */
+  tone?: 'pink' | 'red';
 }
 
-export default function ConfirmModal({ title, message, confirmLabel = 'Confirm', onConfirm, onCancel }: ConfirmModalProps) {
-  const confirmBtnRef = useRef<HTMLButtonElement>(null);
-
-  // s20: initial focus lands on the confirm action — this modal is adopted
-  // widely for destructive-but-common actions, so defaulting focus here (not
-  // cancel) matches the existing keyboard-power-user flow of Enter-to-confirm.
-  useEffect(() => {
-    confirmBtnRef.current?.focus();
-  }, []);
-
+/**
+ * "Are you sure?" for a page that shows it only while asking (it is mounted
+ * while open). Since v2.269.0 (G23) it is the Arcaid confirm,
+ * `parts/Dialog`'s `ConfirmDialog`: the fixed dark slab in the tone, focus
+ * starting on Cancel (the owner's pick; it was the action before), and
+ * Escape, a press outside or the corner x cancelling. Its label repeats the
+ * action's words, so a test finds the action by its role, not its text.
+ */
+export default function ConfirmModal({ title, message, confirmLabel = 'Confirm', onConfirm, onCancel, tone = 'red' }: ConfirmModalProps) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-deep/80 backdrop-blur-sm" onClick={onCancel}>
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        className="bg-surface border border-border rounded-lg p-6 w-full max-w-md shadow-2xl"
-        onClick={e => e.stopPropagation()}
-      >
-        <h3 className="font-display text-lg font-bold text-primary mb-2">{title}</h3>
-        <p className="text-muted mb-6">{message}</p>
-        <div className="flex justify-end gap-3">
-          <NeonButton variant="ghost" onClick={onCancel}>Cancel</NeonButton>
-          <NeonButton ref={confirmBtnRef} variant="danger" onClick={onConfirm}>{confirmLabel}</NeonButton>
-        </div>
-      </div>
-    </div>
+    <ConfirmDialog
+      open
+      title={title}
+      message={message}
+      confirmLabel={confirmLabel}
+      onConfirm={onConfirm}
+      onCancel={onCancel}
+      tone={tone}
+    />
   );
 }
