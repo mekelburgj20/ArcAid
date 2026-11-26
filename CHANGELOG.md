@@ -6,6 +6,41 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.270.0] - 2026-11-25 - My Rooms, My Tables, My Stats, Friends and Create Room wear the Arcaid look (G22)
+
+### Changed
+- **My Rooms** now looks like Account Settings: the dark Arcaid page with a neon header, one panel of rooms,
+  and each room as a row with its logo (or first letter), when you last played there and how you joined.
+  Tap a row to open the room; Leave is a small button on the row that still asks first. With no rooms yet,
+  you get a short "Find a room" prompt instead of bare text.
+- **Friends** has an "Add a friend" panel (type their username, press Enter or Add) and a "Your friends"
+  panel of rows, each with a Remove button that names the friend. A friend whose picture will not load shows
+  their first letter, and a long name wraps instead of being cut off.
+- **My Stats** shows your three totals as lit tiles and your personal bests in a panel under them. The room
+  switcher is now a row of tabs above the panels. While the numbers load you see placeholder shapes, and a
+  player with no bests yet gets a button to My Rooms.
+- **My Tables** has one panel to search the catalogue and one for the tables you own. Each owned table is a
+  row with its picture, its rating, and small buttons for the platforms you own it on; Remove sits on the row.
+  Sort by Name or Top rated is now two small buttons.
+- **Create a Game Room** is one panel with proper fields: room name, a web address that fills itself in as
+  you type (with a plain error if it has a character it cannot use), and an optional description.
+- All five pages draw the same header and footer as the rest of the Arcaid look, with a Back and Home link
+  in the header, and nothing on them is smaller than 12 px any more.
+
+### Fixed
+- **Friends no longer shows "No friends added yet" when the list simply failed to load.** It says it could
+  not load your friends and keeps trying by itself, like the lobby does. My Stats and My Tables retry the
+  same way.
+
+### Technical
+- `parts/Button` exports `ButtonLink` (a router link drawn as a Button). `ListRow` and `ListRows` take a
+  `testId`, and `ListRow` takes `below` (controls under the caption, above the row's link cover).
+  `PersonalBestsSection` takes `heading` (default true; My Stats passes false). The Style Guide has samples.
+- Friends, My Stats and My Tables load through `useRetryingLoad`; `Friends.test.tsx` and `CreateRoom.test.tsx`
+  are new, `MyStats.test.tsx` gains a 5xx (retries) and a 401 (answer) case.
+
+---
+
 ## [2.269.0] - 2026-11-25 - Every "are you sure?" pop-up wears the Arcaid look
 
 ### Changed
