@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import GlobalScoreboard from '../GlobalScoreboard';
 import { ViewerAuthProvider } from '../../contexts/ViewerAuthContext';
 import { ThemeProvider } from '../../components/ThemeProvider';
+import { waitForRealDialog } from '../../test/dialogTestUtils';
 
 // v2.50.0 (A2) — the rebuilt global-scoreboard card. These lock the four
 // behaviours the redesign actually changed, all of which are easy to silently
@@ -202,7 +203,8 @@ describe('GlobalScoreboard card (v2.50.0 A2)', () => {
 
     fireEvent.click(within(card).getByRole('button', { name: 'Claim 1st place' }));
 
-    const dialog = await screen.findByRole('dialog');
+    await waitForRealDialog();
+    const dialog = screen.getByRole('dialog');
     expect(within(dialog).getByText('Claimable Game')).toBeInTheDocument();
   });
 
@@ -252,7 +254,8 @@ describe('GlobalScoreboard card (v2.50.0 A2)', () => {
     // matched both buttons.
     fireEvent.click(within(card).getByRole('button', { name: 'Submit' }));
 
-    const dialog = await screen.findByRole('dialog');
+    await waitForRealDialog();
+    const dialog = screen.getByRole('dialog');
     expect(within(dialog).getByText('Submittable Game')).toBeInTheDocument();
   });
 

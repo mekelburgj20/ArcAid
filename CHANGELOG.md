@@ -20,6 +20,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 - The score sheet's cooldown, photo, error and "Thanks!" lines use the Arcaid colours (cyan for fine, pink for attention, red for a problem).
 
 ### Technical
+- Six tests wait for the real dialog (`waitForRealDialog`) before they read or click inside it:
+  `ScoreboardWysiwygParity` failed every whole-suite run on a loaded machine (the stand-in it found was
+  swapped for the real dialog before the assertion). `GameNameReconcile` now looks inside the dialog: the
+  real dialog hides the page behind it from the accessibility tree, which the stand-in did not.
 - `PickGameModal`, `ReportContentModal`, `ReportProblemModal`, `ScoreboardPreferencesModal`, `useRoomAtGamesJoin`, `PendingSubmissionWatcher` and the AccountSettings delete overlay are on `parts/Dialog`; their footers use `parts/Button`, their fields `parts/Field`.
 - `LandingPage` asks through `ConfirmModal` (tone pink) instead of `window.confirm`; `GlobalGameDetail` opens `ReportContentModal` (endpoint `/global/scores/:id/report`, same body) instead of `window.prompt`.
 - Tests: `LandingPage.test` now confirms through the dialog; new dialog tests for each pop-up (open by title, Escape, main action); `GlobalGameDetailPlayerHistory.test` gains the report flow.

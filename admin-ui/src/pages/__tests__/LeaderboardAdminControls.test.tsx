@@ -5,6 +5,7 @@ import Leaderboard from '../Leaderboard';
 import { RoomContext } from '../../contexts/RoomContext';
 import { ToastProvider } from '../../components/Toast';
 import { stubResizeObserver } from '../../test/stubResizeObserver';
+import { waitForRealDialog } from '../../test/dialogTestUtils';
 
 stubResizeObserver();
 
@@ -405,7 +406,8 @@ describe('Leaderboard card reorder', () => {
     renderLeaderboard();
 
     fireEvent.click(within(await screen.findByTestId('card-order-chip')).getByRole('button', { name: 'Reset' }));
-    const dialog = await screen.findByRole('dialog', { name: 'Reset card order' });
+    await waitForRealDialog();
+    const dialog = screen.getByRole('dialog', { name: 'Reset card order' });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Reset' }));
 
     await waitFor(() => {

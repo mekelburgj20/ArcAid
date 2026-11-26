@@ -6,6 +6,7 @@ import { ToastProvider } from '../../components/Toast';
 import Scoreboard from '../Scoreboard';
 import Leaderboard from '../Leaderboard';
 import { stubResizeObserver } from '../../test/stubResizeObserver';
+import { waitForRealDialog } from '../../test/dialogTestUtils';
 
 stubResizeObserver();
 
@@ -387,7 +388,10 @@ describe('admin Leaderboard mirrors the public Scoreboard', () => {
 
       // Plain left-click previews rather than navigating.
       fireEvent.click(title, { button: 0 });
-      expect(await screen.findByRole('dialog')).toBeInTheDocument();
+      // The stand-in can be swapped for the real dialog between finding it and the
+      // assertion (whole-suite runs only), so wait for the real one first.
+      await waitForRealDialog();
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
       expect(screen.getAllByText('Medieval Madness').length).toBeGreaterThan(0);
       view.unmount();
     }

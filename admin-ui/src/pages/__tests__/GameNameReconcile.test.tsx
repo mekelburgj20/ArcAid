@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { waitForRealDialog } from '../../test/dialogTestUtils';
 
 /**
  * A35 (v2.235.0) — the super-admin Game Names page: an unmatched name shows its
@@ -56,9 +57,10 @@ describe('Game Names page', () => {
 
     await waitFor(() => expect(merge.disabled).toBe(false));
     fireEvent.click(merge);
-    // The confirm dialog adds a second Merge button; it is the last one.
-    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Merge' }).length).toBe(2));
-    fireEvent.click(screen.getAllByRole('button', { name: 'Merge' }).at(-1)!);
+    // The confirm's own Merge: the real dialog hides the page behind it from the
+    // accessibility tree (the stand-in did not), so look inside the dialog.
+    await waitForRealDialog();
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Merge' }));
     await waitFor(() => expect(apiMock.post).toHaveBeenCalledWith('/admin/game-names/reconcile', { roomId: 'r1', fromName: 'Arkanoid', toGlobalGameId: 'gg-ark' }));
   });
 
@@ -74,8 +76,8 @@ describe('Game Names page', () => {
   it('undoes a past merge after confirming', async () => {
     render(<GameNameReconcile />);
     fireEvent.click(await screen.findByRole('button', { name: 'Undo' }));
-    const buttons = await screen.findAllByRole('button', { name: 'Undo' });
-    fireEvent.click(buttons.at(-1)!);
+    await waitForRealDialog();
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Undo' }));
     await waitFor(() => expect(apiMock.post).toHaveBeenCalledWith('/admin/game-names/reconciles/rec-1/undo', {}));
   });
 });

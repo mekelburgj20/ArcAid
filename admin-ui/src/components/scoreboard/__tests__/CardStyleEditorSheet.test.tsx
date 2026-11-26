@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import CardStyleEditorSheet from '../CardStyleEditorSheet';
 import type { SyntheticCardSource } from '../SyntheticCardPreview';
 import { stubResizeObserver } from '../../../test/stubResizeObserver';
+import { waitForRealDialog } from '../../../test/dialogTestUtils';
 
 stubResizeObserver();
 
@@ -213,7 +214,8 @@ describe('CardStyleEditorSheet — GameLibrary (room default)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
 
     expect(onClose).not.toHaveBeenCalled();
-    const dialog = await screen.findByRole('dialog', { name: 'Discard card changes' });
+    await waitForRealDialog();
+    const dialog = screen.getByRole('dialog', { name: 'Discard card changes' });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Discard' }));
 
     expect(onClose).toHaveBeenCalled();
