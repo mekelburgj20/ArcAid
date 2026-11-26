@@ -22,7 +22,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
   (its Done key still cannot submit by accident), the photo, the remembered platform and device, and the
   result card with your place, the rating and the comment.
 
+### Fixed
+- **On a phone, tapping in the middle of a typed score moves the cursor there again** (the v2.128.0 fix),
+  in this pop-up and in the score correction. The phone sheet's keyboard helper (base-ui) cancelled the tap
+  that places the cursor, so the next digit went to the end; 2.271.0 shipped that in the correction. The
+  helper is gone; the old pop-ups never had it.
+
 ### Technical
+- `DialogImpl` no longer wraps a sheet in `Drawer.VirtualKeyboardProvider`: on a tap in a text field it
+  prevents the touch's default to refocus the field itself, which also cancels the caret placement. Measured
+  at 390x844 with touch: 500,999, tap after "500,", press 5 gives 5,005,999 again (5,009,995 with it).
 - `SubmissionSheet` is on `parts/Dialog` (`sheet`, `size="md"`, tone cyan; label "Submit a score" or
   "Global Scoreboard"; the title is the game name, so `getByRole('dialog', { name: <game> })` finds it). The
   `fixed inset-0` overlay, its backdrop mouse-down/click logic and the header row with the × are gone.
@@ -37,7 +46,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
   leaves the sheet where it was; from the score field, the platform select or beside a field nothing moves;
   from the rail past half the sheet it closes, a 60 px one springs back.
 - The form's message line is `text-neon-cyan` / `ink-danger` / `text-muted`, its Submit is `parts/Button`
-  (primary, full width), and a draft being committed shows `SkeletonRows` above its line.
+  (primary, full width, 44 px tall), and a draft being committed shows `SkeletonRows` above its line.
 - Tests: the three `SubmissionSheet` test files wait for the real dialog (`waitForRealDialog`) before they
   touch the form, and find the photo input in the document (the dialog is portalled to `<body>`). New
   `SubmissionSheet.dialog.test.tsx`: the name and label; Escape, a press outside and the × call `onClose`;

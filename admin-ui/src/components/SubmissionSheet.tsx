@@ -1743,7 +1743,7 @@ export default function SubmissionSheet({
                                 </p>
                             )}
 
-                            <Button onClick={handleSubmitClick} disabled={!canSubmit} className="w-full">
+                            <Button onClick={handleSubmitClick} disabled={!canSubmit} className="w-full min-h-11">
                                 {submitting ? 'Submitting…' : 'Submit Score'}
                             </Button>
                         </div>
