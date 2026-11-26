@@ -260,7 +260,7 @@ export default function MyTables() {
         {error && <p className="text-xs ink-danger lg:col-span-2" role="alert">{error}</p>}
       </PanelGroup>
 
-      <PanelGroup id="tables-owned" tone="pink" title="Owned">
+      <PanelGroup id="tables-owned" tone="pink" title="Your tables">
         <Panel wide title={`Owned (${rows.length})`}>
           {noAnswerYet ? (
             phase === 'retrying'

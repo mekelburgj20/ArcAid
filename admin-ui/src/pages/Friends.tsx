@@ -126,7 +126,7 @@ export default function Friends() {
               onKeyDown={e => e.key === 'Enter' && addFriend()}
               error={error || undefined}
             />
-            <Button className="self-start sm:self-auto" onClick={addFriend} disabled={adding || !username.trim()}>Add</Button>
+            <Button className="self-start sm:self-auto min-h-11" onClick={addFriend} disabled={adding || !username.trim()}>Add</Button>
           </div>
         </Panel>
       </PanelGroup>

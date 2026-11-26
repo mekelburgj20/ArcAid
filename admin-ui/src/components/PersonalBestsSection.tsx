@@ -5,6 +5,7 @@ import { formatScore, scoreTitle } from '../lib/format';
 import { compareByRank } from '../lib/searchRank';
 import { gameArtFor } from '../lib/gameArt';
 import GameArt from './GameArt';
+import { usePartSkin } from './parts/skin';
 
 /**
  * A Personal Best row. Two call sites share this shape (v2.82.0 — moved from
@@ -154,6 +155,9 @@ export function PersonalBestsSection({
    *  own panel title says it. Default true (PlayerDetail unchanged). */
   heading?: boolean;
 }) {
+  // On the Arcaid look (My Stats) the site's gold maps to the kit's red, which means a problem there:
+  // a score is drawn in the kit's ice instead, as the kit draws scores. Themed pages keep gold.
+  const scoreInk = usePartSkin() === 'arcaid' ? 'text-primary' : 'text-neon-amber';
   const [query, setQuery] = useState('');
   const [showAll, setShowAll] = useState(false);
 
@@ -298,7 +302,7 @@ export function PersonalBestsSection({
                   </span>
                 </span>
                 <span
-                  className={`${lineTwo} justify-end pr-5 sm:pr-4 font-display font-bold text-neon-amber whitespace-nowrap tabular-nums`}
+                  className={`${lineTwo} justify-end pr-5 sm:pr-4 font-display font-bold ${scoreInk} whitespace-nowrap tabular-nums`}
                   title={scoreTitle(pb.best_score)}
                 >
                   {formatScore(pb.best_score)}

@@ -25,7 +25,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 - **Create a Game Room** is one panel with proper fields: room name, a web address that fills itself in as
   you type (with a plain error if it has a character it cannot use), and an optional description.
 - All five pages draw the same header and footer as the rest of the Arcaid look, with a Back and Home link
-  in the header, and nothing on them is smaller than 12 px any more.
+  in the header. The pages' own text is at least 12 px; the personal-bests table on My Stats is shared
+  with the room's player page and keeps its small column labels until the room pages are redone.
+- **On these pages a score is white and a rating star is pink.** The Arcaid look turns the site's gold into
+  its red, which means a problem there, so personal bests and rating stars take the kit's own colours
+  (scores in ice white, as the kit draws them). Room pages keep their gold scores and stars.
 
 ### Fixed
 - **Friends no longer shows "No friends added yet" when the list simply failed to load.** It says it could

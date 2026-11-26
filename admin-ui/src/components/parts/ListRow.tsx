@@ -40,11 +40,11 @@ export function ListRow({ tile, name, caption, href, onClick, trailing, below, t
     return (
         <div className={`part-row${interactive ? ' part-row--link' : ''}${trailing ? ' part-row--trail' : ''}`} role="listitem" data-testid={testId}>
             <span className="part-row__tile" aria-hidden="true">{tile}</span>
-            <span className="part-row__text">
+            <div className="part-row__text">
                 {nameEl}
                 {caption && <span className="part-row__cap">{caption}</span>}
                 {below && <div className="part-row__below">{below}</div>}
-            </span>
+            </div>
             {(trailing || interactive) && (
                 <span className="part-row__end">
                     {trailing}

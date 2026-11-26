@@ -1,5 +1,6 @@
 import { Star } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { usePartSkin } from './parts/skin';
 
 /**
  * A14.1 - the one compact rating badge every list renders: a filled star, the
@@ -21,13 +22,16 @@ export default function RatingBadge({
   className?: string;
   to?: string;
 }) {
+  // On the Arcaid look (My Tables) the site's gold maps to the kit's red, which means a problem
+  // there, so the star takes the kit's pink. Themed pages keep the gold star.
+  const starInk = usePartSkin() === 'arcaid' ? 'text-neon-magenta' : 'text-neon-amber';
   if (!(count != null && count > 0)) return null;
   const average = (avg ?? 0).toFixed(1);
   const title = `Average rating ${average} from ${count} player${count === 1 ? '' : 's'}`;
   const base = `inline-flex items-center gap-1 whitespace-nowrap text-xs ${className ?? ''}`;
   const body = (
     <>
-      <Star size={11} fill="currentColor" className="text-neon-amber flex-shrink-0" aria-hidden="true" />
+      <Star size={11} fill="currentColor" className={`${starInk} flex-shrink-0`} aria-hidden="true" />
       <span className={`text-primary font-medium tabular-nums${to ? ' group-hover:text-neon-cyan transition-colors' : ''}`}>{average}</span>
       <span className="text-muted tabular-nums">({count})</span>
     </>
