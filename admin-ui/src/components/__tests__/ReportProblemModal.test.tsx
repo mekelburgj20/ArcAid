@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import ReportProblemModal from '../ReportProblemModal';
+import { waitForRealDialog } from '../../test/dialogTestUtils';
 
 /**
  * Contract §5 — the "not score-eligible" reason on the game report-a-problem
@@ -83,5 +84,31 @@ describe('ReportProblemModal — not-score-eligible reason (§5)', () => {
         renderModal(null);
         expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
         expect(screen.getByText(/Log in with Discord/)).toBeInTheDocument();
+    });
+});
+
+describe('ReportProblemModal — the Arcaid dialog (G23e)', () => {
+    beforeEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    it('opens as "Report a problem" and Escape closes it', async () => {
+        const { onClose } = renderModal();
+        await waitForRealDialog();
+        expect(screen.getByRole('dialog', { name: 'Report a problem' })).toBeInTheDocument();
+        fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+        await waitFor(() => expect(onClose).toHaveBeenCalled());
+    });
+
+    it('Send report still posts, and the done phase offers Done', async () => {
+        const fetchMock = vi.fn(() => ok(201, { id: 'fb-1' }));
+        vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+        const { onClose } = renderModal();
+        await waitForRealDialog();
+        selectReason('not_score_eligible');
+        fireEvent.click(screen.getByRole('button', { name: 'Send report' }));
+        await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+        fireEvent.click(await screen.findByRole('button', { name: 'Done' }));
+        expect(onClose).toHaveBeenCalled();
     });
 });

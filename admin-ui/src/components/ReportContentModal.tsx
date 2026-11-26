@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { Flag } from 'lucide-react';
-import NeonButton from './NeonButton';
+import { Dialog } from './parts/Dialog';
+import Button from './parts/Button';
+import { TextArea } from './parts/Field';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 
 /**
@@ -63,61 +64,49 @@ export default function ReportContentModal({ title, targetLabel, endpoint, extra
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-deep/80 backdrop-blur-sm" onClick={onClose}>
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        className="bg-surface border border-border rounded-lg p-6 w-full max-w-md shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h3 className="font-display text-lg font-bold text-primary mb-1 flex items-center gap-2">
-          <Flag size={18} className="text-neon-magenta" />
-          {title}
-        </h3>
-        <p className="text-muted text-sm mb-4">{targetLabel}</p>
+  const done = outcome === 'success' || outcome === 'duplicate';
 
-        {outcome === 'success' ? (
-          <>
-            <p className="text-neon-green text-sm mb-6">Thanks — a moderator will review this.</p>
-            <div className="flex justify-end">
-              <NeonButton variant="ghost" onClick={onClose}>Close</NeonButton>
-            </div>
-          </>
-        ) : outcome === 'duplicate' ? (
-          <>
-            <p className="text-neon-amber text-sm mb-6">You've already reported this — it's still pending review.</p>
-            <div className="flex justify-end">
-              <NeonButton variant="ghost" onClick={onClose}>Close</NeonButton>
-            </div>
-          </>
-        ) : (
-          <>
-            <label htmlFor="report-reason" className="block text-xs text-faint mb-1">
-              Reason (optional)
-            </label>
-            <textarea
-              id="report-reason"
-              value={reason}
-              onChange={(e) => setReason(e.target.value.slice(0, 500))}
-              placeholder="What's wrong?"
-              rows={3}
-              maxLength={500}
-              className="w-full bg-raised border border-border rounded px-3 py-2 text-sm text-primary placeholder-faint focus:outline-none focus:border-neon-cyan/50 resize-none mb-2"
-            />
-            {outcome === 'error' && errorMessage && (
-              <p className="text-neon-coral text-xs mb-2">{errorMessage}</p>
-            )}
-            <div className="flex justify-end gap-3 mt-4">
-              <NeonButton variant="ghost" onClick={onClose} disabled={submitting}>Cancel</NeonButton>
-              <NeonButton variant="danger" onClick={handleSubmit} disabled={submitting}>
-                {submitting ? 'Submitting…' : 'Submit Report'}
-              </NeonButton>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
+  return (
+    <Dialog
+      open
+      onOpenChange={o => { if (!o) onClose(); }}
+      tone="pink"
+      label="Report"
+      title={title}
+      description={targetLabel}
+      sheet
+      footer={done ? (
+        <Button variant="secondary" onClick={onClose}>Close</Button>
+      ) : (
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={submitting}>Cancel</Button>
+          <Button variant="danger" onClick={handleSubmit} disabled={submitting}>
+            {submitting ? 'Submitting…' : 'Submit Report'}
+          </Button>
+        </>
+      )}
+    >
+      {outcome === 'success' ? (
+        <p className="text-neon-cyan text-sm">Thanks — a moderator will review this.</p>
+      ) : outcome === 'duplicate' ? (
+        <p className="text-neon-magenta text-sm">You've already reported this — it's still pending review.</p>
+      ) : (
+        <>
+          <TextArea
+            id="report-reason"
+            label="Reason"
+            optional
+            value={reason}
+            onChange={(e) => setReason(e.target.value.slice(0, 500))}
+            placeholder="What's wrong?"
+            rows={3}
+            maxLength={500}
+          />
+          {outcome === 'error' && errorMessage && (
+            <p className="ink-danger text-xs mt-2">{errorMessage}</p>
+          )}
+        </>
+      )}
+    </Dialog>
   );
 }

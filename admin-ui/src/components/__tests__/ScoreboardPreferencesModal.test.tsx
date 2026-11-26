@@ -3,6 +3,7 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import ScoreboardPreferencesModal from '../ScoreboardPreferencesModal';
 import { ThemeProvider } from '../ThemeProvider';
+import { waitForRealDialog } from '../../test/dialogTestUtils';
 
 /**
  * Style-system revamp P3 — viewer preferences tiering.
@@ -402,5 +403,26 @@ describe('ScoreboardPreferencesModal — Display settings sections', () => {
     // The key is still enumerated (so the retired per-device value keeps
     // getting deleted) but is never a value the sheet can set.
     expect(payload['UI_THEME']).toBeNull();
+  });
+});
+
+describe('ScoreboardPreferencesModal — the Arcaid dialog (G23e)', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    mockFetch();
+  });
+
+  it('opens as "Display settings" and Escape closes it', async () => {
+    const { onClose } = await renderModal();
+    await waitForRealDialog();
+    expect(screen.getByRole('dialog', { name: 'Display settings' })).toBeInTheDocument();
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+  });
+
+  it('keeps Save Preferences as the main action in the footer', async () => {
+    await renderModal();
+    await waitForRealDialog();
+    await savedPayload();
   });
 });

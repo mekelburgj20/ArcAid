@@ -1,5 +1,7 @@
 import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import { useToast } from '../components/Toast';
+import { Dialog } from '../components/parts/Dialog';
+import Button from '../components/parts/Button';
 import { AtGamesAlreadyJoined, AtGamesJoinForm } from '../components/AtGamesJoinPanel';
 import type { AtGamesJoinable, AtGamesJoinedVia, CardAtGamesJoinValue } from '../components/scoreboard/cardAtGamesJoinContext';
 
@@ -53,51 +55,43 @@ export function useRoomAtGamesJoin(roomId: string | null | undefined, playerToke
   ), [games]);
 
   const dialog = active && roomId ? (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-deep/80 backdrop-blur-sm p-4"
-      onClick={() => setActive(null)}
-    >
-      <div
-        role="dialog" aria-modal="true" aria-label={`Join ${active.tournamentName} on AtGames`}
-        className="w-full max-w-sm rounded border border-border bg-surface p-5 shadow-xl shadow-black/40"
-        onClick={e => e.stopPropagation()}
-      >
-        <h2 className="font-display text-sm font-bold uppercase tracking-wider text-primary mb-1">Join on AtGames</h2>
-        <p className="text-xs text-muted mb-4 break-words">
+    <Dialog
+      open
+      onOpenChange={o => { if (!o) setActive(null); }}
+      tone="cyan"
+      label="AtGames"
+      title="Join on AtGames"
+      description={(
+        <span className="break-words">
           {active.tournamentName}
           {active.code && <> · or join on the cabinet with code <span className="font-mono font-bold text-neon-cyan">{active.code}</span></>}
-        </p>
-        {playerToken ? (
-          <div className="grid gap-4">
-            <AtGamesJoinForm
+        </span>
+      )}
+      footer={playerToken ? undefined : (
+        <>
+          <Button variant="secondary" onClick={() => setActive(null)}>Cancel</Button>
+          <Button onClick={() => { setActive(null); onLogin(); }}>Log in</Button>
+        </>
+      )}
+    >
+      {playerToken ? (
+        <div className="grid gap-4">
+          <AtGamesJoinForm
+            roomId={roomId} eventId={active.tournamentId} playerToken={playerToken}
+            onJoined={(msg, via) => { markJoined(active.tournamentId, via); setActive(null); toast(msg, 'success'); }}
+            onCancel={() => setActive(null)}
+          />
+          <div className="pt-3 border-t border-border/40">
+            <AtGamesAlreadyJoined
               roomId={roomId} eventId={active.tournamentId} playerToken={playerToken}
-              onJoined={(msg, via) => { markJoined(active.tournamentId, via); setActive(null); toast(msg, 'success'); }}
-              onCancel={() => setActive(null)}
+              onMarked={via => { markJoined(active.tournamentId, via); setActive(null); toast('Marked as joined on AtGames.', 'success'); }}
             />
-            <div className="pt-3 border-t border-border/40">
-              <AtGamesAlreadyJoined
-                roomId={roomId} eventId={active.tournamentId} playerToken={playerToken}
-                onMarked={via => { markJoined(active.tournamentId, via); setActive(null); toast('Marked as joined on AtGames.', 'success'); }}
-              />
-            </div>
           </div>
-        ) : (
-          <div className="grid gap-3">
-            <p className="text-sm text-primary">Log in to Arcaid first, then join.</p>
-            <div className="flex gap-2">
-              <button
-                type="button" onClick={() => { setActive(null); onLogin(); }}
-                className="px-4 py-2 rounded border border-neon-cyan bg-neon-cyan/15 text-neon-cyan text-sm hover:bg-neon-cyan/25 transition-colors"
-              >Log in</button>
-              <button
-                type="button" onClick={() => setActive(null)}
-                className="px-4 py-2 rounded border border-border bg-raised text-primary text-sm"
-              >Cancel</button>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
+        </div>
+      ) : (
+        <p className="text-sm text-primary">Log in to Arcaid first, then join.</p>
+      )}
+    </Dialog>
   ) : null;
 
   return { value, reload, dialog };

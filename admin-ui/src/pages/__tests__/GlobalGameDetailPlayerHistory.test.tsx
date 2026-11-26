@@ -4,6 +4,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import GlobalGameDetail from '../GlobalGameDetail';
 import { ViewerAuthProvider } from '../../contexts/ViewerAuthContext';
 import { ThemeProvider } from '../../components/ThemeProvider';
+import { waitForRealDialog } from '../../test/dialogTestUtils';
 
 /**
  * v2.157.0 — the Global game page's per-player drill-in.
@@ -226,5 +227,44 @@ describe('GlobalGameDetail — per-player history drill-in (v2.157.0)', () => {
     // Collapsing the row hides the chart with it.
     fireEvent.click(screen.getByText('Alice'));
     await waitFor(() => expect(screen.queryByTestId('score-history-chart')).not.toBeInTheDocument());
+  });
+});
+
+describe('GlobalGameDetail — report a score (G23e)', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    localStorage.clear();
+    historyRequests = [];
+    document.documentElement.className = '';
+  });
+
+  it('opens the report dialog, and sends nothing until Submit Report', async () => {
+    signInAs('d-Carol');
+    const fetchMock = mockFetch();
+    renderDetail();
+
+    const flags = await screen.findAllByRole('button', { name: 'Report this score' });
+    fireEvent.click(flags[0]!);
+    await waitForRealDialog();
+    expect(screen.getByRole('dialog', { name: 'Report this score' })).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalledWith('/api/global/scores/s-Alice/report', expect.anything());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Submit Report' }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      '/api/global/scores/s-Alice/report',
+      expect.objectContaining({ method: 'POST' }),
+    ));
+  });
+
+  it('Cancel sends no report', async () => {
+    signInAs('d-Carol');
+    const fetchMock = mockFetch();
+    renderDetail();
+
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Report this score' }))[0]!);
+    await waitForRealDialog();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Report this score' })).not.toBeInTheDocument());
+    expect(fetchMock).not.toHaveBeenCalledWith('/api/global/scores/s-Alice/report', expect.anything());
   });
 });

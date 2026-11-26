@@ -21,6 +21,8 @@ import WitnessKitDownload from '../components/WitnessKitDownload';
 import ArcaidPage from '../components/parts/ArcaidPage';
 import Panel, { PanelGroup } from '../components/parts/Panel';
 import Button from '../components/parts/Button';
+import { Dialog } from '../components/parts/Dialog';
+import { TextInput } from '../components/parts/Field';
 import type { PartTone } from '../components/parts/skin';
 import { AW_BADGE_SRC, AW_BADGE_SRCSET } from '../lib/awTheme';
 import { roomFetch } from '../lib/roomFetch';
@@ -163,7 +165,7 @@ export default function AccountSettings() {
   const [confirmText, setConfirmText] = useState('');
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const backdropMouseDown = useRef(false);
+  const deleteConfirmRef = useRef<HTMLInputElement>(null);
 
   // Connected accounts (v2.36.0 — Google<->Discord identity linking).
   // A google:*-identity viewer sees a "Link Discord account" button; a
@@ -955,41 +957,16 @@ export default function AccountSettings() {
       title="Account Settings"
       jump={Object.values(SETTINGS_GROUPS)}
       overlays={showDeleteModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-deep/80 backdrop-blur-sm p-4"
-          onMouseDown={e => { backdropMouseDown.current = e.target === e.currentTarget; }}
-          onClick={e => { if (e.target === e.currentTarget && backdropMouseDown.current) closeDeleteModal(); }}
-        >
-          <div
-            className="bg-surface border border-border rounded-lg shadow-2xl w-full max-w-md p-6"
-            onClick={e => e.stopPropagation()}
-          >
-            <h2 className="text-base font-semibold mb-2 inline-flex items-center gap-2 text-rose-400">
-              <AlertTriangle size={18} /> Delete your account?
-            </h2>
-            <p className="text-sm text-muted mb-3">
-              This permanently removes your profile, avatar, display name, proof photos,
-              comments, ratings, and friends, and unlinks Discord. Your scores stay on the
-              leaderboards under your handle but are de-identified. This can't be undone.
-            </p>
-            <label htmlFor="delete-confirm" className="block text-xs text-muted mb-1.5">
-              Type <span className="font-mono font-semibold text-primary">DELETE</span> to confirm.
-            </label>
-            <input
-              id="delete-confirm"
-              type="text"
-              autoFocus
-              value={confirmText}
-              onChange={e => { setConfirmText(e.target.value); setDeleteError(null); }}
-              placeholder="DELETE"
-              className="w-full bg-deep border border-border rounded px-3 py-2 text-sm text-primary placeholder-faint focus:border-rose-500 focus:outline-none"
-            />
-            {deleteError && (
-              <p className="mt-2 text-xs text-rose-400 inline-flex items-center gap-1">
-                <AlertCircle size={12} /> {deleteError}
-              </p>
-            )}
-            <div className="mt-4 flex items-center justify-end gap-2">
+        <Dialog
+          open
+          onOpenChange={o => { if (!o) closeDeleteModal(); }}
+          tone="red"
+          label="Delete account"
+          title="Delete your account?"
+          sheet
+          initialFocusRef={deleteConfirmRef}
+          footer={(
+            <>
               <Button variant="secondary" onClick={closeDeleteModal} disabled={deleting}>
                 Cancel
               </Button>
@@ -1000,9 +977,29 @@ export default function AccountSettings() {
               >
                 {deleting ? 'Deleting…' : <><Trash2 size={14} /> Delete account</>}
               </Button>
-            </div>
-          </div>
-        </div>
+            </>
+          )}
+        >
+          <p className="text-sm text-muted mb-3">
+            This permanently removes your profile, avatar, display name, proof photos,
+            comments, ratings, and friends, and unlinks Discord. Your scores stay on the
+            leaderboards under your handle but are de-identified. This can't be undone.
+          </p>
+          <TextInput
+            ref={deleteConfirmRef}
+            id="delete-confirm"
+            label={<>Type <span className="font-mono font-semibold text-primary">DELETE</span> to confirm.</>}
+            value={confirmText}
+            onChange={e => { setConfirmText(e.target.value); setDeleteError(null); }}
+            placeholder="DELETE"
+            autoComplete="off"
+          />
+          {deleteError && (
+            <p className="mt-2 text-xs ink-danger inline-flex items-center gap-1">
+              <AlertCircle size={12} /> {deleteError}
+            </p>
+          )}
+        </Dialog>
       )}
     >
             <PanelGroup {...SETTINGS_GROUPS.personal}>

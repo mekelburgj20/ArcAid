@@ -5,6 +5,8 @@ import SubmissionSheet, {
     type SubmissionTarget,
 } from './SubmissionSheet';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
+import { Dialog } from './parts/Dialog';
+import Button from './parts/Button';
 
 /**
  * Sprint 10 + 13 — resumes or cancels a server-stored submission draft after
@@ -167,39 +169,29 @@ export default function PendingSubmissionWatcher({ roomSlug }: { roomSlug?: stri
             )}
 
             {cancelDraft && (
-                <div
-                    role="dialog"
-                    aria-modal="true"
-                    aria-labelledby="oauth-cancel-title"
-                    className="fixed inset-0 z-50 flex items-center justify-center bg-deep/80 backdrop-blur-sm px-4"
+                // A notice with one action. Escape, a press outside and the x
+                // only put it away (the saved draft expires by itself);
+                // Discard also deletes the draft on the server.
+                <Dialog
+                    open
+                    onOpenChange={o => { if (!o) clearCancel(); }}
+                    tone="red"
+                    label="Score not sent"
+                    title="Login cancelled"
+                    footer={(
+                        <Button variant="danger" onClick={handleDiscard} disabled={cancelBusy}>
+                            Discard
+                        </Button>
+                    )}
                 >
-                    <div className="bg-surface border border-border rounded-lg shadow-2xl w-full max-w-md overflow-hidden">
-                        <div className="px-4 py-3 border-b border-border/30">
-                            <h3 id="oauth-cancel-title" className="font-display text-sm font-bold text-primary">
-                                Login cancelled
-                            </h3>
-                        </div>
-                        <div className="px-4 py-4 text-xs text-muted space-y-3">
-                            <p>
-                                You cancelled the Discord login. Your score for{' '}
-                                <span className="text-primary font-medium">
-                                    {cancelDraft.target.gameName}
-                                </span>{' '}
-                                was not submitted — scores require login.
-                            </p>
-                        </div>
-                        <div className="px-4 py-3 border-t border-border/30 flex items-center justify-end gap-2">
-                            <button
-                                type="button"
-                                onClick={handleDiscard}
-                                disabled={cancelBusy}
-                                className="px-3 py-1.5 text-xs rounded border border-border text-muted hover:text-neon-amber hover:border-neon-amber/40 transition-colors cursor-pointer disabled:opacity-50"
-                            >
-                                Discard
-                            </button>
-                        </div>
-                    </div>
-                </div>
+                    <p className="text-sm text-muted">
+                        You cancelled the Discord login. Your score for{' '}
+                        <span className="text-primary font-medium">
+                            {cancelDraft.target.gameName}
+                        </span>{' '}
+                        was not submitted — scores require login.
+                    </p>
+                </Dialog>
             )}
         </>
     );
