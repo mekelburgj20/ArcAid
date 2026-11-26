@@ -2766,6 +2766,20 @@ a.part-row__name::after, button.part-row__name::after { content: ""; position: a
   box-shadow: 0 1px 3px var(--arc-shade-ball), 0 0 6px color-mix(in srgb, var(--t) 50%, transparent);
 }
 
+/* The score entry sheet's footer is its on-screen keypad (components/SubmissionSheet.tsx, G23d):
+   full width and flush to the slab's edges, with its own top line, padding and safe-area inset. */
+.arc-dialog__foot:has(> .arc-dialog__acts > .sheet-keypad) {
+  padding: 0; overflow: hidden;
+  border-bottom-left-radius: inherit; border-bottom-right-radius: inherit;
+}
+.arc-dialog__foot:has(> .arc-dialog__acts > .sheet-keypad)::before { display: none; }
+.arc-dialog__acts:has(> .sheet-keypad) { display: block; }
+
+/* Only the score sheet's top drags: each of its phases (`.sheet-phase`) ignores the drag, so the phase,
+   not the body, carries the side and bottom padding, and a drag from beside a field never moves the sheet. */
+.arc-dialog__body:has(> .sheet-phase) { padding-left: 0; padding-right: 0; padding-bottom: 0; }
+.arc-dialog__body > .sheet-phase { padding-left: 18px; padding-right: 18px; }
+
 @media (max-width: 600px) {
   .arc-dialog__acts { flex-direction: column-reverse; align-items: stretch; }
   .arc-dialog__desc { margin-left: 0; }

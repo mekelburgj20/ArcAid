@@ -3,6 +3,7 @@ import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom';
 import SubmissionSheet, { type SubmissionTarget } from '../SubmissionSheet';
 import { ViewerAuthProvider } from '../../contexts/ViewerAuthContext';
+import { waitForRealDialog } from '../../test/dialogTestUtils';
 import * as photoNormalize from '../../lib/photoNormalize';
 
 /**
@@ -97,7 +98,7 @@ function respond(stub: StubbedResponse | undefined, fallback: unknown) {
     return Promise.resolve(make());
 }
 
-function renderSheet(opts: RenderOpts = {}) {
+async function renderSheet(opts: RenderOpts = {}) {
     const target = opts.target ?? ROOM_TARGET;
 
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
@@ -147,6 +148,8 @@ function renderSheet(opts: RenderOpts = {}) {
             </ViewerAuthProvider>
         </MemoryRouter>,
     );
+    // The sheet is the Arcaid dialog: wait until its real half has replaced the stand-in.
+    await waitForRealDialog();
     return { ...rendered, fetchMock };
 }
 
@@ -161,7 +164,8 @@ async function submitScore(container: HTMLElement, opts: { withPhoto?: boolean }
     if (opts.withPhoto) {
         const jpeg = new File(['x'], 'photo.jpg', { type: 'image/jpeg' });
         vi.spyOn(photoNormalize, 'normalizePhotoFile').mockResolvedValue(jpeg);
-        const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+        // The sheet is portalled to <body>, outside `container`.
+        const input = container.ownerDocument.querySelector('input[type="file"]') as HTMLInputElement;
         fireEvent.change(input, { target: { files: [jpeg] } });
         await screen.findByAltText('Score photo');
     }
@@ -198,7 +202,7 @@ describe('SubmissionSheet — success-card rating', () => {
 
     it('renders the block with the stars pre-filled from the GET, plus the average caption', async () => {
         signIn();
-        const { container, fetchMock } = renderSheet();
+        const { container, fetchMock } = await renderSheet();
         await submitScore(container);
 
         expect(await screen.findByText(/How was/)).toBeInTheDocument();
@@ -213,7 +217,7 @@ describe('SubmissionSheet — success-card rating', () => {
 
     it('A14.2 - the average caption links to the game page ratings when a slug is known', async () => {
         signIn();
-        const { container } = renderSheet();
+        const { container } = await renderSheet();
         await submitScore(container);
 
         const caption = await screen.findByText(/avg . 4.2 . 9 ratings/);
@@ -224,7 +228,7 @@ describe('SubmissionSheet — success-card rating', () => {
 
     it('A14.2 - without a slug the average caption stays plain text', async () => {
         signIn();
-        const { container } = renderSheet({ roomSlug: '' });
+        const { container } = await renderSheet({ roomSlug: '' });
         await submitScore(container);
 
         const caption = await screen.findByText(/avg . 4.2 . 9 ratings/);
@@ -233,7 +237,7 @@ describe('SubmissionSheet — success-card rating', () => {
 
     it('a star tap POSTs the room rating with the viewer headers, then says thanks', async () => {
         signIn();
-        const { container, fetchMock } = renderSheet();
+        const { container, fetchMock } = await renderSheet();
         await submitScore(container);
         await screen.findByText(/How was/);
 
@@ -254,7 +258,7 @@ describe('SubmissionSheet — success-card rating', () => {
 
     it('a global target rates the global game on the submitted engine, not a room', async () => {
         signIn();
-        const { container, fetchMock } = renderSheet({ target: GLOBAL_TARGET });
+        const { container, fetchMock } = await renderSheet({ target: GLOBAL_TARGET });
         await submitScore(container, { withPhoto: true });
         await screen.findByText(/How was/);
         expect(questionText()).toBe('How was Medieval Madness on Real?');
@@ -273,7 +277,7 @@ describe('SubmissionSheet — success-card rating', () => {
 
     it('C3 - a unified room payload rates the submitted engine', async () => {
         signIn();
-        const { container, fetchMock } = renderSheet({
+        const { container, fetchMock } = await renderSheet({
             ratingGet: { body: { avg_rating: 4.2, rating_count: 9, user_rating: 4, user_ratings: { '': 4, real: 2 }, unified: true, global_game_id: 'gg-afm' } },
             ratingPost: { body: { avg_rating: 4.3, rating_count: 9, user_rating: 4, user_ratings: { '': 4, real: 5 }, unified: true, global_game_id: 'gg-afm' } },
         });
@@ -292,7 +296,7 @@ describe('SubmissionSheet — success-card rating', () => {
 
     it('C3 - a room-only legacy payload keeps the overall question', async () => {
         signIn();
-        const { container } = renderSheet();
+        const { container } = await renderSheet();
         await submitScore(container);
         await screen.findByText(/How was/);
         expect(questionText()).toBe('How was Attack from Mars?');
@@ -300,7 +304,7 @@ describe('SubmissionSheet — success-card rating', () => {
 
     it('a rejected rating POST reverts the stars and says so inline', async () => {
         signIn();
-        const { container } = renderSheet({ ratingPost: { ok: false, status: 403, body: {} } });
+        const { container } = await renderSheet({ ratingPost: { ok: false, status: 403, body: {} } });
         await submitScore(container);
         await screen.findByText(/How was/);
         await waitFor(() => expect(filledStarCount()).toBe(4));
@@ -314,7 +318,7 @@ describe('SubmissionSheet — success-card rating', () => {
     it('a 401 on the rating GET hides the whole block — Done still works', async () => {
         signIn();
         const onSubmitted = vi.fn();
-        const { container } = renderSheet({ ratingGet: { ok: false, status: 401, body: {} }, onSubmitted });
+        const { container } = await renderSheet({ ratingGet: { ok: false, status: 401, body: {} }, onSubmitted });
         await submitScore(container);
 
         expect(screen.queryByText(/How was/)).not.toBeInTheDocument();
@@ -342,7 +346,7 @@ describe('SubmissionSheet — success-card comment', () => {
 
     it('posts the comment under the resolved submit name and collapses to a game-page link', async () => {
         signIn();
-        const { container, fetchMock } = renderSheet({ submitResponse: { displayName: 'Tester_2' } });
+        const { container, fetchMock } = await renderSheet({ submitResponse: { displayName: 'Tester_2' } });
         const textarea = await openEditor(container);
 
         fireEvent.change(textarea, { target: { value: 'Ramps are brutal on this one.' } });
@@ -373,7 +377,7 @@ describe('SubmissionSheet — success-card comment', () => {
 
     it('a global target posts to the global comments endpoint', async () => {
         signIn();
-        const { container, fetchMock } = renderSheet({ target: GLOBAL_TARGET });
+        const { container, fetchMock } = await renderSheet({ target: GLOBAL_TARGET });
         await submitScore(container, { withPhoto: true });
         fireEvent.click(await screen.findByRole('button', { name: 'Add a comment' }));
 
@@ -389,7 +393,7 @@ describe('SubmissionSheet — success-card comment', () => {
 
     it('a rejected comment stays in the editor and shows the server message', async () => {
         signIn();
-        const { container } = renderSheet({
+        const { container } = await renderSheet({
             commentPost: { ok: false, status: 400, body: { error: 'Comment is too spicy.' } },
         });
         const textarea = await openEditor(container);
@@ -404,7 +408,7 @@ describe('SubmissionSheet — success-card comment', () => {
 
     it('the editor expands in place of the caption row (Done stays put)', async () => {
         signIn();
-        const { container } = renderSheet();
+        const { container } = await renderSheet();
         await submitScore(container);
 
         expect(await screen.findByText(/avg ★ 4\.2 · 9 ratings/)).toBeInTheDocument();
@@ -433,7 +437,7 @@ describe('SubmissionSheet — success-card lifecycle', () => {
         const onSubmitted = vi.fn();
         const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-        const { container, unmount } = renderSheet({ ratingPost: { gate }, onSubmitted });
+        const { container, unmount } = await renderSheet({ ratingPost: { gate }, onSubmitted });
         await submitScore(container);
         await screen.findByText(/How was/);
 
@@ -456,7 +460,7 @@ describe('SubmissionSheet — success-card lifecycle', () => {
         const onSubmitted = vi.fn();
         const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-        const { container, unmount } = renderSheet({ commentPost: { gate }, onSubmitted });
+        const { container, unmount } = await renderSheet({ commentPost: { gate }, onSubmitted });
         await submitScore(container);
         fireEvent.click(await screen.findByRole('button', { name: 'Add a comment' }));
         fireEvent.change(screen.getByLabelText('Comment'), { target: { value: 'later' } });

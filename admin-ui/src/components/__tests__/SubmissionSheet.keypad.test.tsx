@@ -3,6 +3,7 @@ import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom';
 import SubmissionSheet, { type SubmissionTarget } from '../SubmissionSheet';
 import { ViewerAuthProvider } from '../../contexts/ViewerAuthContext';
+import { waitForRealDialog } from '../../test/dialogTestUtils';
 
 /**
  * v2.128.0 — the two Android score-entry bugs, at the component seam.
@@ -47,7 +48,7 @@ function platformsPayload() {
     };
 }
 
-function renderSheet() {
+async function renderSheet() {
     const target: SubmissionTarget = {
         kind: 'tournament',
         roomId: 'room-1',
@@ -71,6 +72,8 @@ function renderSheet() {
             </ViewerAuthProvider>
         </MemoryRouter>,
     );
+    // The sheet is the Arcaid dialog: wait until its real half has replaced the stand-in.
+    await waitForRealDialog();
     return { ...rendered, fetchMock };
 }
 
@@ -106,7 +109,7 @@ describe('SubmissionSheet — keypad caret handling (bug 2)', () => {
 
     it('is a text field with no OS keypad on touch (the precondition for a native caret)', async () => {
         signIn();
-        renderSheet();
+        await renderSheet();
         const input = await openKeypad();
         expect(input.type).toBe('text');
         expect(input.getAttribute('inputmode')).toBe('none');
@@ -114,7 +117,7 @@ describe('SubmissionSheet — keypad caret handling (bug 2)', () => {
 
     it('splices a digit at the caret instead of appending, and leaves the caret after it', async () => {
         signIn();
-        renderSheet();
+        await renderSheet();
         const input = await openKeypad();
 
         for (const d of ['5', '0', '0', '9', '9', '9']) pressKey(d);
@@ -131,7 +134,7 @@ describe('SubmissionSheet — keypad caret handling (bug 2)', () => {
 
     it('backspace deletes the character before the caret, not the last one', async () => {
         signIn();
-        renderSheet();
+        await renderSheet();
         const input = await openKeypad();
 
         for (const d of ['5', '0', '0', '9', '9', '9']) pressKey(d);
@@ -146,7 +149,7 @@ describe('SubmissionSheet — keypad caret handling (bug 2)', () => {
 
     it('a digit replaces a selected range', async () => {
         signIn();
-        renderSheet();
+        await renderSheet();
         const input = await openKeypad();
 
         for (const d of ['5', '0', '0', '9', '9', '9']) pressKey(d);
@@ -161,7 +164,7 @@ describe('SubmissionSheet — keypad caret handling (bug 2)', () => {
 
     it('still appends when the caret sits at the end (the ordinary case)', async () => {
         signIn();
-        renderSheet();
+        await renderSheet();
         const input = await openKeypad();
 
         for (const d of ['1', '2', '3']) pressKey(d);
@@ -192,7 +195,7 @@ describe('SubmissionSheet — grouped score entry', () => {
 
     it('groups digits as they are typed', async () => {
         signIn();
-        renderSheet();
+        await renderSheet();
         const input = await openKeypad();
         for (const d of ['6', '6', '6', '6', '1', '5', '8', '9', '8', '0']) pressKey(d);
         await waitFor(() => expect(input.value).toBe('6,666,158,980'));
@@ -200,7 +203,7 @@ describe('SubmissionSheet — grouped score entry', () => {
 
     it('echoes the magnitude in words — the check that actually catches a stray digit', async () => {
         signIn();
-        renderSheet();
+        await renderSheet();
         const input = await openKeypad();
         for (const d of ['6', '6', '6', '6', '1', '5', '8', '9', '8', '0']) pressKey(d);
         await waitFor(() => expect(input.value).toBe('6,666,158,980'));
@@ -215,7 +218,7 @@ describe('SubmissionSheet — grouped score entry', () => {
 
     it('backspacing onto a separator removes the digit in front of it, not the comma', async () => {
         signIn();
-        renderSheet();
+        await renderSheet();
         const input = await openKeypad();
         for (const d of ['1', '2', '3', '4']) pressKey(d);
         await waitFor(() => expect(input.value).toBe('1,234'));
@@ -230,7 +233,7 @@ describe('SubmissionSheet — grouped score entry', () => {
 
     it('submits the ungrouped number, never the formatted string', async () => {
         signIn();
-        const { fetchMock } = renderSheet();
+        const { fetchMock } = await renderSheet();
         await screen.findByText('Real Cabinet');
         const input = await openKeypad();
         for (const d of ['1', '2', '3', '4', '5', '6', '7']) pressKey(d);
@@ -266,7 +269,7 @@ describe('SubmissionSheet — keyboard-close submit latch (bug 1)', () => {
 
     async function primeSubmittableSheet() {
         signIn();
-        const { fetchMock } = renderSheet();
+        const { fetchMock } = await renderSheet();
         // Both provenance chips auto-lock, so the form only needs a score.
         await screen.findByText('Real Cabinet');
         const input = await openKeypad();

@@ -13,8 +13,7 @@ import type { DialogFrameParts, DialogImplProps } from './Dialog';
  * enter and exit states CSS animates (`data-starting-style`,
  * `data-ending-style`). A `sheet` is base-ui's Drawer, so on a phone the
  * swipe down to close (follow the finger, then close past half the sheet or
- * on a flick, else spring back) and keeping a focused field above the
- * keyboard are the library's too. Above 600 px the sheet is a centred dialog
+ * on a flick, else spring back) is the library's too. Above 600 px the sheet is a centred dialog
  * and does not swipe. The slab itself is `DialogFrame`, the same markup the
  * stand-in draws, handed in as `Frame` (this chunk imports nothing back from
  * the main bundle).
@@ -77,9 +76,14 @@ export default function DialogImpl({ handoff, Frame, ...dialog }: DialogImplProp
     const popupProps: Record<string, unknown> = { ref: popupRef, initialFocus, finalFocus, 'aria-modal': 'true' };
 
     if (sheet) {
+        // No Drawer.VirtualKeyboardProvider (G23d): on a tap in a text field it
+        // cancels the touch's default action to refocus the field itself, which
+        // also cancels the browser placing the caret where the finger landed, so
+        // a digit typed after tapping mid-score went to the end (the v2.128.0
+        // caret fix undone, in the score sheet and the correction). The old
+        // overlays never had its keyboard help either.
         return (
             <Drawer.Root open={open} onOpenChange={onChange} onOpenChangeComplete={onChangeComplete} swipeDirection="down">
-                <Drawer.VirtualKeyboardProvider>
                     <Drawer.Portal>
                         <Drawer.Backdrop className="arc-dialog-backdrop" forceRender />
                         <Drawer.Viewport className="arc-dialog-vp arc-dialog-vp--sheet">
@@ -92,7 +96,6 @@ export default function DialogImpl({ handoff, Frame, ...dialog }: DialogImplProp
                             />
                         </Drawer.Viewport>
                     </Drawer.Portal>
-                </Drawer.VirtualKeyboardProvider>
             </Drawer.Root>
         );
     }

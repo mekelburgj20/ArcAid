@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { X, Camera, Image as ImageIcon, Trash2, Keyboard, AlertTriangle, LogIn, UserCheck, Trophy } from 'lucide-react';
+import { Camera, Image as ImageIcon, Trash2, Keyboard, AlertTriangle, LogIn, UserCheck, Trophy } from 'lucide-react';
 import NeonButton from './NeonButton';
+import { Dialog } from './parts/Dialog';
+import Button from './parts/Button';
+import { SkeletonRows } from './parts/Skeleton';
 import OnScreenKeyboard from './OnScreenKeyboard';
 import ShareButton from './ShareButton';
 import StarRating from './StarRating';
@@ -57,6 +60,15 @@ import { joinErrorMessage } from '../lib/joinErrors';
  * The server-side draft/commit endpoints (`/api/submission-drafts/...`)
  * still exist for `PendingSubmissionWatcher` to resolve any in-flight draft
  * from before this change, but nothing in this file creates new ones.
+ *
+ * G23d (v2.272.0) — the shell is the Arcaid dialog (`parts/Dialog` with
+ * `sheet`): a centred slab on a desktop, a bottom sheet on a phone that drags
+ * down to close. Only its top (the grab handle and the title) drags: each
+ * phase of the body (`.sheet-phase`: the form, the success card, the others)
+ * and the keypad carry `data-base-ui-swipe-ignore`, so a drag that starts on
+ * a field, beside one or on a key never moves the sheet. The keypad is the
+ * dialog's footer, pinned under the scrolling form. Escape and a press
+ * outside close it, as the × does. The form's logic is unchanged.
  */
 
 export type SubmissionTarget =
@@ -462,7 +474,6 @@ export default function SubmissionSheet({
     const cameraInputRef = useRef<HTMLInputElement>(null);
     const nameRef = useRef<HTMLInputElement>(null);
     const scoreRef = useRef<HTMLInputElement>(null);
-    const backdropMouseDown = useRef(false);
     const draftCommittedRef = useRef(false);
     /** Timestamp of the last on-screen-keyboard close — see KEYBOARD_CLOSE_LATCH_MS. */
     const keyboardClosedAt = useRef(0);
@@ -957,7 +968,8 @@ export default function SubmissionSheet({
     // that only works if these handler identities are stable across renders.
     const handleKeyPress = useCallback((key: string) => {
         // { preventScroll: true } (v2.102.1, tester field report round 3):
-        // this sheet is a `fixed inset-0` overlay, and iOS Safari's response
+        // this sheet is a fixed layer (a `fixed inset-0` overlay then, the
+        // Arcaid dialog's fixed viewport since G23d), and iOS Safari's response
         // to focusing an input inside a fixed layer is to scroll the PAGE
         // BEHIND it to the top — so every keypress yanked the view to the
         // top of the page and the player had to scroll back down between
@@ -1097,44 +1109,53 @@ export default function SubmissionSheet({
     const canSubmit = scoreDigits !== '' && !isNaN(parseInt(scoreDigits, 10)) && parseInt(scoreDigits, 10) >= 0
         && (!needsPhoto || !!photoFile) && platformsResolved && provenanceChosen && !submitting;
     const nameLabel = target.kind === 'global' ? 'Display Name' : 'Player Name';
+    // The form is the phase that renders when none of the others does.
+    const formPhase = phase === 'form' || phase === 'submitting';
+    /**
+     * Where focus starts: the score field, the thing a player came to type.
+     * Not on a touch screen, where focusing it opens the on-screen keypad
+     * (its `onFocus`): the sheet opens as it always did there, with the
+     * keypad down until the player taps the field (the dialog then focuses
+     * its first control, the ×). No score field in the other phases, so
+     * those take the dialog's default too.
+     */
+    const initialFocusRef = isTouchDevice ? undefined : scoreRef;
 
     return (
-        <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="submission-sheet-title"
-            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-deep/80 backdrop-blur-sm"
-            onMouseDown={e => { backdropMouseDown.current = e.target === e.currentTarget; }}
-            onClick={e => { if (e.target === e.currentTarget && backdropMouseDown.current) onClose(); }}
-        >
-            <div
-                className="bg-surface border border-border rounded-t-xl sm:rounded-lg shadow-2xl w-full sm:max-w-md overflow-hidden flex flex-col max-h-[90vh]"
-                onClick={e => e.stopPropagation()}
-            >
-                <div className="flex items-center justify-between px-4 py-3 border-b border-border/30">
-                    <h3 id="submission-sheet-title" className="font-display font-bold text-primary truncate">
-                        {target.gameName}
-                    </h3>
-                    <button
-                        type="button"
-                        onClick={onClose}
-                        aria-label="Close"
-                        className="text-muted hover:text-primary transition-colors cursor-pointer"
-                    >
-                        <X size={20} />
-                    </button>
+        <Dialog
+            open
+            onOpenChange={o => { if (!o) onClose(); }}
+            tone="cyan"
+            size="md"
+            sheet
+            label={target.kind === 'global' ? 'Global Scoreboard' : 'Submit a score'}
+            title={target.gameName}
+            initialFocusRef={initialFocusRef}
+            // The keypad is the footer, so it stays pinned under the
+            // scrolling form (no footer at all while it is down). A drag that
+            // starts on it never moves the sheet: keys act on pointerdown and
+            // a thumb slides.
+            footer={formPhase && showKeyboard && activeField ? (
+                <div className="w-full sheet-keypad" data-base-ui-swipe-ignore="">
+                    <OnScreenKeyboard
+                        mode={activeField === 'score' ? 'numeric' : 'alpha'}
+                        onKeyPress={handleKeyPress}
+                        onBackspace={handleBackspace}
+                        onDone={handleDone}
+                    />
                 </div>
-
+            ) : undefined}
+        >
                 {phase === 'committingDraft' ? (
-                    <div className="px-4 py-10 text-center space-y-3">
-                        <div className="w-8 h-8 border-2 border-neon-cyan/30 border-t-neon-cyan rounded-full animate-spin mx-auto" />
+                    <div className="sheet-phase py-4 text-center space-y-3" data-base-ui-swipe-ignore="">
+                        <SkeletonRows count={2} label="Submitting your score" />
                         <p className="text-muted text-sm">Submitting your score as {discordUser?.username ?? 'you'}…</p>
                     </div>
                 ) : phase === 'success' ? (
                     /* v2.131.0: the rate/comment block can push this past a
-                       short viewport when a claim offer is also showing, so the
-                       success card scrolls rather than clipping Done. */
-                    <div className="px-4 py-6 text-center space-y-4 overflow-y-auto overscroll-contain">
+                       short viewport when a claim offer is also showing; the
+                       dialog's body scrolls rather than clipping Done. */
+                    <div className="sheet-phase py-4 text-center space-y-4" data-base-ui-swipe-ignore="">
                         {submitRank === null || submitRank.rank == null ? (
                             /* Best-effort fallback — BE returned null or an
                                all-null result (rank couldn't be computed).
@@ -1383,7 +1404,7 @@ export default function SubmissionSheet({
                         </div>
                     </div>
                 ) : phase === 'error' ? (
-                    <div className="px-4 py-8 text-center space-y-4">
+                    <div className="sheet-phase py-6 text-center space-y-4" data-base-ui-swipe-ignore="">
                         <p className="text-neon-amber text-sm">{message?.text ?? 'Submission failed.'}</p>
                         {joinNeeded && claimRoomId && playerToken && (
                             <NeonButton
@@ -1400,7 +1421,7 @@ export default function SubmissionSheet({
                         </NeonButton>
                     </div>
                 ) : phase === 'loginRequired' ? (
-                    <div className="px-4 py-6 space-y-4">
+                    <div className="sheet-phase py-4 space-y-4" data-base-ui-swipe-ignore="">
                         <div className="flex items-start gap-3">
                             <div className="w-10 h-10 rounded-full bg-neon-cyan/10 border border-neon-cyan/30 text-neon-cyan flex items-center justify-center flex-shrink-0">
                                 <LogIn size={18} />
@@ -1446,11 +1467,13 @@ export default function SubmissionSheet({
                     </div>
                 ) : (
                     <>
-                        {/* overscroll-contain (v2.101.1): without it, a drag
-                            that starts on the sheet can chain into the page
-                            behind it and trigger iOS pull-to-refresh mid-entry
-                            (tester field report — the keyboard fix's sibling). */}
-                        <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-4 space-y-4">
+                        {/* The dialog's body scrolls this, with
+                            `overscroll-behavior: contain` (v2.101.1): without
+                            it, a drag that starts on the sheet can chain into
+                            the page behind it and trigger iOS pull-to-refresh
+                            mid-entry (tester field report — the keyboard fix's
+                            sibling). */}
+                        <div className="sheet-phase pt-2 pb-4 space-y-4" data-base-ui-swipe-ignore="">
                             {cooldown && (
                                 <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-neon-amber/10 border border-neon-amber/30">
                                     <AlertTriangle size={14} className="text-neon-amber flex-shrink-0 mt-0.5" />
@@ -1715,27 +1738,17 @@ export default function SubmissionSheet({
                             )}
 
                             {message && (
-                                <p className={`text-sm text-center ${message.type === 'success' ? 'text-neon-green' : message.type === 'error' ? 'text-neon-amber' : 'text-muted'}`}>
+                                <p className={`text-sm text-center ${message.type === 'success' ? 'text-neon-cyan' : message.type === 'error' ? 'ink-danger' : 'text-muted'}`}>
                                     {message.text}
                                 </p>
                             )}
 
-                            <NeonButton onClick={handleSubmitClick} disabled={!canSubmit} className="w-full">
+                            <Button onClick={handleSubmitClick} disabled={!canSubmit} className="w-full min-h-11">
                                 {submitting ? 'Submitting…' : 'Submit Score'}
-                            </NeonButton>
+                            </Button>
                         </div>
-
-                        {showKeyboard && activeField && (
-                            <OnScreenKeyboard
-                                mode={activeField === 'score' ? 'numeric' : 'alpha'}
-                                onKeyPress={handleKeyPress}
-                                onBackspace={handleBackspace}
-                                onDone={handleDone}
-                            />
-                        )}
                     </>
                 )}
-            </div>
-        </div>
+        </Dialog>
     );
 }

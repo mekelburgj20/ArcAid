@@ -57,6 +57,7 @@ Loads when you touch any front-end file under `admin-ui/`. Cross-cutting invaria
   - Caret positions are carried across a re-group as a DIGIT COUNT (`reformatScoreEdit`), because inserting a digit into `999,999` also shifts every separator.
   - The field is `type="text"` on desktop too — `type="number"` refuses a value containing separators and is the one input type whose `selectionStart` throws.
   - `formatMagnitude` prints the plain-language echo ("6.66 billion", truncated never rounded) that is the actual defence against an extra digit.
+- **The sheet is `Dialog` with `sheet` (G23d, v2.272.0):** only its top drags; each phase (`.sheet-phase`) and the keypad footer carry `data-base-ui-swipe-ignore`.
 
 ## Themes
 - **Themes:** 11 themes in CSS variables (10 `.theme-*` classes + the no-class default `dark`, labelled "Arcaid" and drawn in the logo's colours since v2.263.0, G29) — the ONE list is `THEME_IDS` in `admin-ui/src/lib/themeIds.ts`, which `THEMES` (picker), `ALL_THEME_CLASSES` (class stripper) and the API's Zod enum are all derived from. Every dark theme sits on a real colour, not near-black; High contrast is black on purpose (no glow, no background image).
