@@ -35,3 +35,36 @@ export interface DisplaySettingsLiveDetail {
 export function dispatchDisplaySettingsLive(detail: DisplaySettingsLiveDetail): void {
   window.dispatchEvent(new CustomEvent<DisplaySettingsLiveDetail>(DISPLAY_SETTINGS_LIVE_EVENT, { detail }));
 }
+
+/**
+ * G34c - a signed-out visitor's card settings live in this browser, one JSON
+ * object per device set under `arcaid-scoreboard-prefs-<device>` (the same
+ * keys a signed-in viewer's set holds; an unset key is absent). Blocked or
+ * private storage never throws out of here: a read gives nothing, a write
+ * reports false and the change applies for the session only.
+ */
+export const GUEST_PREFS_KEY_PREFIX = 'arcaid-scoreboard-prefs-';
+
+export function readGuestPrefs(device: DisplayPrefsDevice): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(GUEST_PREFS_KEY_PREFIX + device);
+    const data: unknown = raw ? JSON.parse(raw) : null;
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return {};
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(data)) if (typeof v === 'string') out[k] = v;
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+export function writeGuestPrefs(device: DisplayPrefsDevice, prefs: Record<string, string>): boolean {
+  try {
+    const key = GUEST_PREFS_KEY_PREFIX + device;
+    if (Object.keys(prefs).length === 0) localStorage.removeItem(key);
+    else localStorage.setItem(key, JSON.stringify(prefs));
+    return true;
+  } catch {
+    return false;
+  }
+}

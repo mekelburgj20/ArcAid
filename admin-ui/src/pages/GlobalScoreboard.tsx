@@ -8,6 +8,7 @@ import SubmissionSheet from '../components/SubmissionSheet';
 import UserMenu from '../components/UserMenu';
 import LoginButtons from '../components/LoginButtons';
 import GlobalThemeToggle from '../components/GlobalThemeToggle';
+import DisplaySettingsButton from '../components/DisplaySettingsButton';
 import BrandWordmark from '../components/BrandWordmark';
 import RoomSwitcher, { type SwitcherCurrentRoom } from '../components/RoomSwitcher';
 import { useMyRooms } from '../hooks/useMyRooms';
@@ -607,6 +608,7 @@ export default function GlobalScoreboard() {
             )}
             {/* v2.50.0 (A1): per-visitor light/dark, left of the login/user area. */}
             <GlobalThemeToggle />
+            {!discordUser && <DisplaySettingsButton />}
             {discordUser ? (
               /* v2.2.6: shared UserMenu so My Rooms / Friends are reachable here too. */
               <UserMenu user={discordUser} onLogout={logoutPlayer} />

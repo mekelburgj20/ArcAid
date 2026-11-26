@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.276.0] - 2026-11-26 - Display settings for visitors who are not signed in (G34c)
+
+### Added
+- **A Display button for signed-out visitors.** A small sliders button sits beside the sun/moon button in the room's top bar (on a phone it sits to the right of the room name, one row down, so the top bar is unchanged), on the Global Scoreboard and on the home page. It opens the same Display settings panel, so a venue computer nobody signs in to can still have its cards set the way you want. Signed-in people keep it in their user menu and do not see the button.
+- **Your choices stay in this browser.** The panel says "Saved in this browser only." Card settings, colours, theme and the floor are kept on this computer or phone, with Undo changes and Room defaults working as before. The phone and the computer keep their own card settings. Copy to my phone / computer is not shown (a browser has no account to copy through).
+- **Signing in later does not carry them over.** Your account's own settings apply; the browser's are left alone and unused while you are signed in.
+
+### Technical
+- `components/DisplaySettingsButton.tsx` (lucide `SlidersHorizontal`, same classes as `GlobalThemeToggle`) focuses itself and dispatches `open-scoreboard-prefs`; mounted after the toggle in `PublicLayout`, `GlobalScoreboard` and `LandingPage` when there is no `discordUser`. The admin shells are untouched (an admin login is required there).
+- `DisplaySettingsHost` no longer needs a player token; `DisplaySettingsPanel` takes `playerToken: string | null` and a null token is guest mode: the card set is read and written through `readGuestPrefs` / `writeGuestPrefs` (`lib/displaySettingsLive.ts`, key `arcaid-scoreboard-prefs-<device>`, try/catch around storage, an empty map removes the key) at once on each change; no request to `/api/me/scoreboard-preferences`. Blocked storage shows "Couldn't save" and the change still applies for the session.
+- `pages/Scoreboard.tsx`: with no player token the viewer overrides come from the guest key for `prefsDevice()`; the live and saved listeners attach for any viewer with a `roomId`.
+- Tests: new `DisplaySettingsGuest.test.tsx` and `DisplaySettingsButton.test.tsx`; `ScoreboardDisplayLive.test.tsx` gained the guest cases; `DisplaySettingsHost.test.tsx` "opens nothing for a signed-out visitor" became "opens for a signed-out visitor too" (the old behaviour is the one removed).
+
 ## [2.275.0] - 2026-11-26 - Three additions to Display settings (G34b)
 
 ### Added
