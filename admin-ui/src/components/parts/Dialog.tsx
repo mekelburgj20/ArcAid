@@ -28,6 +28,13 @@ import { lazyPart } from '../../lib/lazyPart';
  *
  * Callers that keep the part mounted and flip `open` get the exit animation;
  * callers that unmount it on close do not (accepted).
+ *
+ * A dialog opened from inside another (a confirm over the game quick view) is
+ * rendered INSIDE its parent's children, never beside it: base-ui then sees a
+ * nested dialog, so Escape, a press outside and the × close the top one only,
+ * a press inside the top one never closes the one under it, and Tab stays in
+ * the top one. The stand-in does the same by acting only while its slab is the
+ * last in the document.
  */
 
 export type DialogTone = 'cyan' | 'pink' | 'red';
@@ -78,6 +85,17 @@ const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]):not([ty
 function focusablesIn(root: HTMLElement | null): HTMLElement[] {
     if (!root) return [];
     return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(el => !el.closest('[inert]'));
+}
+
+/**
+ * Whether `slab` is the top open dialog: the last slab in the document. A
+ * nested dialog (rendered inside its parent's children) portals to <body>
+ * after its parent, so the last one is the one on top.
+ */
+function isTopmost(slab: HTMLElement | null): boolean {
+    if (!slab) return false;
+    const slabs = document.querySelectorAll('.arc-dialog');
+    return slabs[slabs.length - 1] === slab;
 }
 
 /** The element types a `DialogFrame` is drawn with: plain HTML here, base-ui's parts in `DialogImpl`. */
@@ -161,7 +179,8 @@ const STAND_IN_PARTS: DialogFrameParts = { Popup: 'div', Title: 'h2', Descriptio
  * The hand-drawn dialog, while the chunk is late or missing: no base-ui, the
  * same slab. Escape and a press outside cancel, Tab stays inside, the page
  * behind does not scroll, and focus goes back where it was on close (but not
- * when the real dialog takes over: that one has it then).
+ * when the real dialog takes over: that one has it then). With a stand-in
+ * nested in another, only the top one answers Escape and Tab.
  */
 function StandInDialog({ dialog, slabRef, returnToRef, isSwapping }: {
     dialog: DialogProps;
@@ -183,6 +202,10 @@ function StandInDialog({ dialog, slabRef, returnToRef, isSwapping }: {
         (initialFocusRef?.current ?? focusablesIn(slab)[0] ?? slab)?.focus({ preventScroll: true });
 
         const onKey = (e: KeyboardEvent) => {
+            // Every open stand-in hears the document's keys; only the top one
+            // acts, or an Escape in a nested confirm would close its parent too
+            // and Tab would pull focus back into the parent.
+            if (!isTopmost(slab)) return;
             if (e.key === 'Escape') {
                 // As base-ui does: the dialog's Escape is not also a page's (a modal under it, say).
                 e.preventDefault();

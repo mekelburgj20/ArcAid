@@ -4,6 +4,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import Picks from '../Picks';
 import { ViewerAuthProvider } from '../../contexts/ViewerAuthContext';
 import { ToastProvider } from '../../components/Toast';
+import { waitForRealDialog } from '../../test/dialogTestUtils';
 
 /**
  * v2.84.0 — Picks list filtering: engine pills, chips, multi-field search.
@@ -202,7 +203,8 @@ describe('Picks page — engine pills, chips and multi-field search', () => {
     fireEvent.click(titles[0]!);
 
     const dialog = await screen.findByRole('dialog');
-    expect(dialog).toHaveAccessibleName('Attack from Mars preview');
+    // G23c: the Arcaid dialog is named by its title, the table (it was "<name> preview").
+    expect(dialog).toHaveAccessibleName('Attack from Mars');
     // The list is still mounted behind the popup — nothing navigated, so the
     // player's scroll position and active filters are untouched.
     expect(screen.queryAllByText('Medieval Madness').length).toBeGreaterThan(0);
@@ -210,7 +212,9 @@ describe('Picks page — engine pills, chips and multi-field search', () => {
     expect(within(dialog).getByText('View full info').closest('a'))
       .toHaveAttribute('href', '/quickview_room/games/Attack%20from%20Mars');
 
-    fireEvent.click(within(dialog).getByLabelText('Close'));
+    // The real dialog replaces the stand-in when its chunk arrives; click on that one.
+    await waitForRealDialog();
+    fireEvent.click(within(screen.getByRole('dialog')).getByLabelText('Close'));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 
@@ -240,7 +244,8 @@ describe('Picks page — engine pills, chips and multi-field search', () => {
     expect(within(dialog).queryByText('No scores yet')).not.toBeInTheDocument();
     expect(within(dialog).queryByText('All-Time High')).not.toBeInTheDocument();
     // The popup still does its job: it names the game and shows its identity.
-    expect(dialog).toHaveAccessibleName('Attack from Mars preview');
+    // G23c: the Arcaid dialog is named by its title, the table (it was "<name> preview").
+    expect(dialog).toHaveAccessibleName('Attack from Mars');
     expect(await within(dialog).findByText(/Bally/)).toBeInTheDocument();
   });
 

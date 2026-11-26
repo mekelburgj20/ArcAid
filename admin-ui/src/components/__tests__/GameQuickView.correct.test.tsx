@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import GameQuickView from '../GameQuickView';
 import { ViewerAuthProvider } from '../../contexts/ViewerAuthContext';
 import type { RankedEntry } from '../ScoreboardComponents';
+import { waitForRealDialog } from '../../test/dialogTestUtils';
 
 /**
  * v2.150.1 — score correction inside the game quick popup.
@@ -61,8 +62,12 @@ function stubFetch() {
   return fetchMock;
 }
 
-function renderPopup(props: Partial<React.ComponentProps<typeof GameQuickView>> = {}, gameStatus = 'ACTIVE') {
-  return render(
+/**
+ * G23c: the popup is the Arcaid dialog; wait until its real (base-ui) half has
+ * replaced the stand-in, or a click found on the stand-in lands on a detached node.
+ */
+async function renderPopup(props: Partial<React.ComponentProps<typeof GameQuickView>> = {}, gameStatus = 'ACTIVE') {
+  const utils = render(
     <MemoryRouter>
       <ViewerAuthProvider>
         <GameQuickView
@@ -74,6 +79,8 @@ function renderPopup(props: Partial<React.ComponentProps<typeof GameQuickView>> 
       </ViewerAuthProvider>
     </MemoryRouter>,
   );
+  await waitForRealDialog();
+  return utils;
 }
 
 describe('GameQuickView — per-row score correction', () => {
@@ -82,7 +89,7 @@ describe('GameQuickView — per-row score correction', () => {
 
   it('shows the pencil on the viewer\'s OWN row while the card is unlocked', async () => {
     signInAs('disc-ada');
-    renderPopup({ roomId: 'room-1' });
+    await renderPopup({ roomId: 'room-1' });
 
     await waitFor(() => {
       expect(screen.getByLabelText('Correct this score (4,200)')).toBeInTheDocument();
@@ -92,7 +99,7 @@ describe('GameQuickView — per-row score correction', () => {
 
   it('hides it on their own row once the card is LOCKED, keeping the delete', async () => {
     signInAs('disc-ada');
-    renderPopup({ roomId: 'room-1' }, 'COMPLETED');
+    await renderPopup({ roomId: 'room-1' }, 'COMPLETED');
 
     await waitFor(() => {
       expect(screen.getByLabelText('Delete this score (4,200)')).toBeInTheDocument();
@@ -102,7 +109,7 @@ describe('GameQuickView — per-row score correction', () => {
 
   it('shows it on EVERY row for an admin, locked or not', async () => {
     signInAs('disc-admin', { role: 'room_admin', gameRoomIds: ['room-1'] });
-    renderPopup({ roomId: 'room-1' }, 'COMPLETED');
+    await renderPopup({ roomId: 'room-1' }, 'COMPLETED');
 
     await waitFor(() => {
       expect(screen.getByLabelText('Correct this score (4,200)')).toBeInTheDocument();
@@ -112,14 +119,14 @@ describe('GameQuickView — per-row score correction', () => {
 
   it('renders nothing extra without a roomId (the Global tab and Picks)', async () => {
     signInAs('disc-admin', { role: 'super_admin', gameRoomIds: [] });
-    renderPopup({});
+    await renderPopup({});
 
     await screen.findByText('Ada');
     expect(screen.queryByLabelText('Correct this score (4,200)')).not.toBeInTheDocument();
   });
 
   it('a signed-out viewer sees no pencil', async () => {
-    renderPopup({ roomId: 'room-1' });
+    await renderPopup({ roomId: 'room-1' });
     await screen.findByText('Ada');
     expect(screen.queryByLabelText('Correct this score (4,200)')).not.toBeInTheDocument();
   });
@@ -128,7 +135,7 @@ describe('GameQuickView — per-row score correction', () => {
     signInAs('disc-ada');
     const fetchMock = stubFetch();
     const onScoreDeleted = vi.fn();
-    renderPopup({ roomId: 'room-1', onScoreDeleted });
+    await renderPopup({ roomId: 'room-1', onScoreDeleted });
 
     fireEvent.click(await screen.findByLabelText('Correct this score (4,200)'));
 

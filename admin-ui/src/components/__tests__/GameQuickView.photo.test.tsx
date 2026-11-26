@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import GameQuickView from '../GameQuickView';
 import { ViewerAuthProvider } from '../../contexts/ViewerAuthContext';
 import type { RankedEntry } from '../ScoreboardComponents';
+import { waitForRealDialog } from '../../test/dialogTestUtils';
 
 /**
  * v2.109.0 (score-gesture-photos) — photo evidence inside the game quick
@@ -63,8 +64,12 @@ function stubFetch() {
   return fetchMock;
 }
 
-function renderPopup(props: Partial<React.ComponentProps<typeof GameQuickView>> = {}) {
-  return render(
+/**
+ * G23c: the popup is the Arcaid dialog; wait until its real (base-ui) half has
+ * replaced the stand-in, or a click found on the stand-in lands on a detached node.
+ */
+async function renderPopup(props: Partial<React.ComponentProps<typeof GameQuickView>> = {}) {
+  const utils = render(
     <MemoryRouter>
       <ViewerAuthProvider>
         <GameQuickView
@@ -76,6 +81,8 @@ function renderPopup(props: Partial<React.ComponentProps<typeof GameQuickView>> 
       </ViewerAuthProvider>
     </MemoryRouter>,
   );
+  await waitForRealDialog();
+  return utils;
 }
 
 describe('GameQuickView — photo evidence on main ranked rows', () => {
@@ -83,7 +90,7 @@ describe('GameQuickView — photo evidence on main ranked rows', () => {
   afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
   it('shows the camera glyph only on the row that has a photo', async () => {
-    renderPopup({ roomId: 'room-1' });
+    await renderPopup({ roomId: 'room-1' });
     await waitFor(() => expect(screen.getByText('Ada')).toBeInTheDocument());
 
     // lucide-react renders an <svg> with no accessible name; assert via the
@@ -96,7 +103,7 @@ describe('GameQuickView — photo evidence on main ranked rows', () => {
   });
 
   it('opens the photo lightbox when a photo-carrying row body is clicked', async () => {
-    renderPopup({ roomId: 'room-1' });
+    await renderPopup({ roomId: 'room-1' });
     await waitFor(() => expect(screen.getByText('Ada')).toBeInTheDocument());
 
     fireEvent.click(screen.getByText('Ada').closest('div') as HTMLElement);
@@ -105,7 +112,7 @@ describe('GameQuickView — photo evidence on main ranked rows', () => {
   });
 
   it('does nothing when a photo-less row body is clicked (no dead click)', async () => {
-    renderPopup({ roomId: 'room-1' });
+    await renderPopup({ roomId: 'room-1' });
     await waitFor(() => expect(screen.getByText('Ben')).toBeInTheDocument());
 
     fireEvent.click(screen.getByText('Ben').closest('div') as HTMLElement);
@@ -115,7 +122,7 @@ describe('GameQuickView — photo evidence on main ranked rows', () => {
 
   it('clicking the expand or delete control does NOT also open the lightbox', async () => {
     signInAs('disc-ada');
-    renderPopup({ roomId: 'room-1' });
+    await renderPopup({ roomId: 'room-1' });
 
     fireEvent.click(await screen.findByLabelText('Show score history'));
     expect(screen.queryByAltText(/photo evidence/)).not.toBeInTheDocument();
@@ -126,14 +133,33 @@ describe('GameQuickView — photo evidence on main ranked rows', () => {
     expect(screen.queryByAltText(/photo evidence/)).not.toBeInTheDocument();
   });
 
-  it('Esc and clicking the backdrop both close the lightbox', async () => {
-    renderPopup({ roomId: 'room-1' });
+  // G23c: the lightbox is a dialog nested in the quick view's, so Escape and a
+  // press outside close the photo only and leave the quick view open. Escape is
+  // pressed where focus is (the dialog listens on the document; the old
+  // hand-built viewer listened on window).
+  it('Esc and clicking the backdrop both close the lightbox, and only the lightbox', async () => {
+    await renderPopup({ roomId: 'room-1' });
     await waitFor(() => expect(screen.getByText('Ada')).toBeInTheDocument());
     fireEvent.click(screen.getByText('Ada').closest('div') as HTMLElement);
     await screen.findByAltText('Ada — 4,200 photo evidence');
+    await waitFor(() => expect(screen.getByRole('dialog', { name: 'Ada' })).toContainElement(document.activeElement as HTMLElement));
 
-    fireEvent.keyDown(window, { key: 'Escape' });
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByAltText(/photo evidence/)).not.toBeInTheDocument());
+    expect(screen.getByRole('dialog', { name: 'Whirlwind' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Ada').closest('div') as HTMLElement);
+    await screen.findByAltText('Ada — 4,200 photo evidence');
+    // A press on the lightbox's own backdrop: its viewport, the last one in the document.
+    const viewports = document.querySelectorAll<HTMLElement>('.arc-dialog-vp');
+    const vp = viewports[viewports.length - 1]!;
+    fireEvent.pointerDown(vp);
+    fireEvent.mouseDown(vp);
+    fireEvent.pointerUp(vp);
+    fireEvent.mouseUp(vp);
+    fireEvent.click(vp);
+    await waitFor(() => expect(screen.queryByAltText(/photo evidence/)).not.toBeInTheDocument());
+    expect(screen.getByRole('dialog', { name: 'Whirlwind' })).toBeInTheDocument();
   });
 });
 
@@ -142,7 +168,7 @@ describe('GameQuickView — photo evidence on nested per-player history rows', (
   afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
   it('shows the camera glyph and opens the lightbox for a photo-carrying history row', async () => {
-    renderPopup({ roomId: 'room-1' });
+    await renderPopup({ roomId: 'room-1' });
 
     fireEvent.click(await screen.findByLabelText('Show score history'));
     await waitFor(() => expect(screen.getByText('900')).toBeInTheDocument());
@@ -156,7 +182,7 @@ describe('GameQuickView — photo evidence on nested per-player history rows', (
   });
 
   it('does nothing for a photo-less history row', async () => {
-    renderPopup({ roomId: 'room-1' });
+    await renderPopup({ roomId: 'room-1' });
 
     fireEvent.click(await screen.findByLabelText('Show score history'));
     await waitFor(() => expect(screen.getByText('900')).toBeInTheDocument());

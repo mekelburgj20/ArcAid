@@ -18,6 +18,10 @@ import type { DialogFrameParts, DialogImplProps } from './Dialog';
  * and does not swipe. The slab itself is `DialogFrame`, the same markup the
  * stand-in draws, handed in as `Frame` (this chunk imports nothing back from
  * the main bundle).
+ *
+ * A nested dialog (one rendered inside another's children, G23c) draws its own
+ * backdrop too (`forceRender`; base-ui leaves it out by default), so the dialog
+ * under it dims as the stand-in's does and as it did before the pop-ups nested.
  */
 
 const DIALOG_PARTS: DialogFrameParts = {
@@ -77,7 +81,7 @@ export default function DialogImpl({ handoff, Frame, ...dialog }: DialogImplProp
             <Drawer.Root open={open} onOpenChange={onChange} onOpenChangeComplete={onChangeComplete} swipeDirection="down">
                 <Drawer.VirtualKeyboardProvider>
                     <Drawer.Portal>
-                        <Drawer.Backdrop className="arc-dialog-backdrop" />
+                        <Drawer.Backdrop className="arc-dialog-backdrop" forceRender />
                         <Drawer.Viewport className="arc-dialog-vp arc-dialog-vp--sheet">
                             <Frame
                                 dialog={dialog}
@@ -96,7 +100,7 @@ export default function DialogImpl({ handoff, Frame, ...dialog }: DialogImplProp
     return (
         <BaseDialog.Root open={open} onOpenChange={onChange} onOpenChangeComplete={onChangeComplete}>
             <BaseDialog.Portal>
-                <BaseDialog.Backdrop className="arc-dialog-backdrop" />
+                <BaseDialog.Backdrop className="arc-dialog-backdrop" forceRender />
                 <BaseDialog.Viewport className="arc-dialog-vp">
                     <Frame dialog={dialog} parts={DIALOG_PARTS} stage={stage} popupProps={popupProps} />
                 </BaseDialog.Viewport>

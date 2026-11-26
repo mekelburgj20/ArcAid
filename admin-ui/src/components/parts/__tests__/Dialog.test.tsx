@@ -290,6 +290,180 @@ describe('Dialog - the real dialog (base-ui)', () => {
     });
 });
 
+/**
+ * G23c - a dialog opened from inside another (the delete confirm, the score
+ * correction or the photo over the game quick view) is rendered inside its
+ * parent's children, so base-ui sees it nested: Escape, the x, Cancel and a
+ * press outside close the top one only, and a press inside it never closes the
+ * one under it.
+ */
+function NestedHost({ outerSheet = false, innerSheet = false, onOuterChange, onInnerCancel }: {
+    outerSheet?: boolean;
+    innerSheet?: boolean;
+    onOuterChange: (open: boolean) => void;
+    onInnerCancel: () => void;
+}) {
+    const [inner, setInner] = useState(false);
+    const close = () => { onInnerCancel(); setInner(false); };
+    return (
+        <Dialog open onOpenChange={onOuterChange} sheet={outerSheet} size="md" label="Table" title="Whirlwind">
+            <p>Top scores</p>
+            <button type="button" onClick={() => setInner(true)}>Delete this score</button>
+            {inner && (innerSheet ? (
+                <Dialog open onOpenChange={o => { if (!o) close(); }} sheet label="Correct score" title="Ada" footer={<button type="button" onClick={close}>Cancel</button>}>
+                    <p>Changes the value in place.</p>
+                    <label htmlFor="nested-score">Corrected score</label>
+                    <input id="nested-score" />
+                </Dialog>
+            ) : (
+                <ConfirmDialog open onCancel={close} onConfirm={close} title="Delete score" message="Gone for good." confirmLabel="Delete" />
+            ))}
+        </Dialog>
+    );
+}
+
+const innerName = (innerSheet: boolean) => (innerSheet ? 'Ada' : 'Delete score');
+
+describe.each([
+    { outerSheet: false, innerSheet: false, name: 'a confirm over a dialog' },
+    { outerSheet: true, innerSheet: false, name: 'a confirm over a sheet (the game quick view)' },
+    { outerSheet: true, innerSheet: true, name: 'a sheet over a sheet (the correction over the quick view)' },
+])('Dialog - nested: $name (base-ui)', ({ outerSheet, innerSheet }) => {
+    async function openNested() {
+        setPartImporterForTests('dialog', realChunk);
+        const onOuterChange = vi.fn();
+        const onInnerCancel = vi.fn();
+        render(<NestedHost outerSheet={outerSheet} innerSheet={innerSheet} onOuterChange={onOuterChange} onInnerCancel={onInnerCancel} />);
+        await waitFor(() => expect(isReal(screen.getByRole('dialog', { name: 'Whirlwind' }))).toBe(true));
+        const opener = screen.getByRole('button', { name: 'Delete this score' });
+        opener.focus();
+        fireEvent.click(opener);
+        const inner = await screen.findByRole('dialog', { name: innerName(innerSheet) });
+        expect(isReal(inner)).toBe(true);
+        // base-ui sees it nested (its Root is inside the parent's popup in the React tree).
+        expect(inner).toHaveAttribute('data-nested');
+        // It draws its own backdrop (`forceRender`), so the dialog under it dims, as under a nested stand-in.
+        expect(document.querySelectorAll('.arc-dialog-backdrop')).toHaveLength(2);
+        // Focus goes into the top dialog (Cancel for a confirm, the first field or button for a form).
+        await waitFor(() => expect(inner.contains(document.activeElement)).toBe(true));
+        return { inner, opener, onOuterChange, onInnerCancel };
+    }
+
+    const outerOpen = () => Array.from(document.querySelectorAll('.arc-dialog__title')).some(t => t.textContent === 'Whirlwind');
+    const innerGone = () => Array.from(document.querySelectorAll('.arc-dialog__title')).every(t => t.textContent !== innerName(innerSheet));
+
+    it('(a) Escape in the nested one closes only it, and focus goes back to what opened it', async () => {
+        const { onOuterChange, onInnerCancel, opener } = await openNested();
+        fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Escape' });
+        await waitFor(() => expect(innerGone()).toBe(true));
+        expect(onInnerCancel).toHaveBeenCalledTimes(1);
+        expect(onOuterChange).not.toHaveBeenCalled();
+        expect(outerOpen()).toBe(true);
+        await waitFor(() => expect(opener).toHaveFocus());
+        // The parent is the top one again: its own Escape closes it.
+        fireEvent.keyDown(opener, { key: 'Escape' });
+        expect(onOuterChange).toHaveBeenCalledWith(false);
+    });
+
+    it('(b) Cancel and the x in the nested one leave the parent open', async () => {
+        const first = await openNested();
+        fireEvent.click(within(first.inner).getByRole('button', { name: 'Cancel' }));
+        await waitFor(() => expect(innerGone()).toBe(true));
+        expect(first.onOuterChange).not.toHaveBeenCalled();
+        expect(outerOpen()).toBe(true);
+
+        fireEvent.click(first.opener);
+        const again = await screen.findByRole('dialog', { name: innerName(innerSheet) });
+        fireEvent.click(within(again).getByRole('button', { name: 'Close' }));
+        await waitFor(() => expect(innerGone()).toBe(true));
+        expect(first.onOuterChange).not.toHaveBeenCalled();
+        expect(outerOpen()).toBe(true);
+    });
+
+    it('(c) a press inside the nested one closes neither; a press outside it closes only it', async () => {
+        const { inner, onOuterChange, onInnerCancel } = await openNested();
+        const text = within(inner).getByText(innerSheet ? 'Changes the value in place.' : 'Gone for good.');
+        fireEvent.pointerDown(text);
+        fireEvent.mouseDown(text);
+        fireEvent.pointerUp(text);
+        fireEvent.mouseUp(text);
+        fireEvent.click(text);
+        await act(async () => { await Promise.resolve(); });
+        expect(onInnerCancel).not.toHaveBeenCalled();
+        expect(onOuterChange).not.toHaveBeenCalled();
+        expect(innerGone()).toBe(false);
+
+        // Outside the nested slab: on its own viewport, the last one in the document.
+        const viewports = document.querySelectorAll<HTMLElement>('.arc-dialog-vp');
+        const vp = viewports[viewports.length - 1]!;
+        fireEvent.pointerDown(vp);
+        fireEvent.mouseDown(vp);
+        fireEvent.pointerUp(vp);
+        fireEvent.mouseUp(vp);
+        fireEvent.click(vp);
+        await waitFor(() => expect(onInnerCancel).toHaveBeenCalledTimes(1));
+        await waitFor(() => expect(innerGone()).toBe(true));
+        expect(onOuterChange).not.toHaveBeenCalled();
+        expect(outerOpen()).toBe(true);
+    });
+});
+
+describe('Dialog - nested stand-ins, before the chunk arrives', () => {
+    it('only the top stand-in answers Escape and Tab', () => {
+        setPartImporterForTests('dialog', never);
+        const onOuterChange = vi.fn();
+        const onInnerCancel = vi.fn();
+        render(<NestedHost onOuterChange={onOuterChange} onInnerCancel={onInnerCancel} />);
+        const outer = screen.getByRole('dialog', { name: 'Whirlwind' });
+        expect(outer.className).toContain('arc-dialog--stand-in');
+        const opener = screen.getByRole('button', { name: 'Delete this score' });
+        opener.focus();
+        fireEvent.click(opener);
+        const inner = screen.getByRole('dialog', { name: 'Delete score' });
+        expect(inner.className).toContain('arc-dialog--stand-in');
+        const cancel = within(inner).getByRole('button', { name: 'Cancel' });
+        expect(cancel).toHaveFocus();
+
+        // Tab from the last button in the top one wraps inside it, not into the parent.
+        const action = within(inner).getByRole('button', { name: 'Delete' });
+        action.focus();
+        fireEvent.keyDown(action, { key: 'Tab' });
+        expect(within(inner).getByRole('button', { name: 'Close' })).toHaveFocus();
+        // Tab from inside the top one is not pulled back into the parent.
+        cancel.focus();
+        fireEvent.keyDown(cancel, { key: 'Tab' });
+        expect(inner.contains(document.activeElement)).toBe(true);
+
+        // Escape closes the top one only, and focus goes back to its opener.
+        fireEvent.keyDown(cancel, { key: 'Escape' });
+        expect(onInnerCancel).toHaveBeenCalledTimes(1);
+        expect(onOuterChange).not.toHaveBeenCalled();
+        expect(screen.queryByRole('dialog', { name: 'Delete score' })).toBeNull();
+        expect(screen.getByRole('dialog', { name: 'Whirlwind' })).toBeInTheDocument();
+        expect(opener).toHaveFocus();
+
+        // Now the parent is the top one.
+        fireEvent.keyDown(opener, { key: 'Escape' });
+        expect(onOuterChange).toHaveBeenCalledWith(false);
+    });
+
+    it('a press inside the top stand-in closes neither; a press on its viewport closes only it', () => {
+        setPartImporterForTests('dialog', never);
+        const onOuterChange = vi.fn();
+        const onInnerCancel = vi.fn();
+        render(<NestedHost onOuterChange={onOuterChange} onInnerCancel={onInnerCancel} />);
+        fireEvent.click(screen.getByRole('button', { name: 'Delete this score' }));
+        fireEvent.click(screen.getByText('Gone for good.'));
+        expect(onInnerCancel).not.toHaveBeenCalled();
+        expect(onOuterChange).not.toHaveBeenCalled();
+        const viewports = document.querySelectorAll<HTMLElement>('.arc-dialog-vp');
+        fireEvent.click(viewports[viewports.length - 1]!);
+        expect(onInnerCancel).toHaveBeenCalledTimes(1);
+        expect(onOuterChange).not.toHaveBeenCalled();
+        expect(screen.getByRole('dialog', { name: 'Whirlwind' })).toBeInTheDocument();
+    });
+});
+
 describe('ConfirmModal on the Arcaid confirm', () => {
     it('is red by default and pink when asked, with its words on the action', () => {
         setPartImporterForTests('dialog', never);

@@ -5,6 +5,7 @@ import GameDetail from '../GameDetail';
 import { ViewerAuthProvider } from '../../contexts/ViewerAuthContext';
 import { RoomContext } from '../../contexts/RoomContext';
 import { ToastProvider } from '../../components/Toast';
+import { waitForRealDialog } from '../../test/dialogTestUtils';
 
 /**
  * v2.149.1 — score correction on the CURRENT LEADERBOARD row.
@@ -198,6 +199,8 @@ describe('GameDetail — leaderboard-row score correction', () => {
     expect(input.value).toBe('6,666,158,980');
     await screen.findByText('6.66 billion');
 
+    // G23c: the correction is the Arcaid dialog; click Save on the real one, not a stand-in it replaced.
+    await waitForRealDialog();
     fireEvent.click(screen.getByRole('button', { name: 'Save correction' }));
 
     await waitFor(() => {

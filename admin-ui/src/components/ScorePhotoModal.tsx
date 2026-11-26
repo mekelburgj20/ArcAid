@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react';
-import { X } from 'lucide-react';
+import { Dialog } from './parts/Dialog';
+import { buttonClasses } from './parts/buttonClasses';
 import ShareButton from './ShareButton';
 
 interface ScorePhotoModalProps {
@@ -21,55 +21,42 @@ interface ScorePhotoModalProps {
  * per-player history expand (`ScoreboardComponents.tsx`) and, as of v2.109.0
  * (score-gesture-photos), the game quick popup's row-body click
  * (`GameQuickView.tsx`) — one lightbox idiom, not a second one.
+ *
+ * G23c (v2.271.0): the Arcaid dialog (`parts/Dialog`), centred on every
+ * width: the player is the title, the score the line under it, the photo the
+ * body and Share the one action. Escape, a press outside and the × close it;
+ * opened over the game quick view it is rendered inside that dialog, so they
+ * close the photo only.
  */
 export default function ScorePhotoModal({ playerName, score, photoUrl, onClose, sharePath }: ScorePhotoModalProps) {
-  const backdropMouseDown = useRef(false);
-
-  // v2.109.0 — Esc closes, matching every other modal in the app (GameQuickView,
-  // ConfirmModal's dialog neighbors).
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
+  const scoreText = score.toLocaleString();
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-deep/80 backdrop-blur-sm" onMouseDown={e => { backdropMouseDown.current = e.target === e.currentTarget; }} onClick={e => { if (e.target === e.currentTarget && backdropMouseDown.current) onClose(); }}>
-      <div className="bg-surface border border-border rounded-lg shadow-2xl max-w-lg w-full mx-4 overflow-hidden" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border/30">
-          <div>
-            <p className="font-display font-bold text-primary">{playerName}</p>
-            <p className="text-neon-amber text-sm font-medium">{score.toLocaleString()}</p>
-          </div>
-          <div className="flex items-center gap-1">
-            {sharePath && (
-              <ShareButton
-                title={`${playerName} on Arcaid`}
-                text={`${playerName} — ${score.toLocaleString()}`}
-                path={sharePath}
-                showLabel={false}
-                className="p-1.5 rounded text-muted hover:text-neon-cyan transition-colors cursor-pointer"
-              />
-            )}
-            <button onClick={onClose} className="text-muted hover:text-primary transition-colors cursor-pointer">
-              <X size={20} />
-            </button>
-          </div>
-        </div>
-        <div className="p-4">
-          {photoUrl ? (
-            <img
-              src={photoUrl}
-              alt={`${playerName} — ${score.toLocaleString()} photo evidence`}
-              className="w-full rounded-lg object-contain max-h-[70vh]"
-            />
-          ) : (
-            <div className="text-center py-12 text-muted">
-              <p>No photo submitted</p>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
+    <Dialog
+      open
+      onOpenChange={next => { if (!next) onClose(); }}
+      tone="cyan"
+      label="Score photo"
+      title={playerName}
+      description={scoreText}
+      size="md"
+      footer={sharePath ? (
+        <ShareButton
+          title={`${playerName} on Arcaid`}
+          text={`${playerName} — ${scoreText}`}
+          path={sharePath}
+          className={buttonClasses('secondary')}
+        />
+      ) : undefined}
+    >
+      {photoUrl ? (
+        <img
+          src={photoUrl}
+          alt={`${playerName} — ${scoreText} photo evidence`}
+          className="max-h-[70vh] object-contain w-full rounded"
+        />
+      ) : (
+        <p className="text-muted">No photo submitted</p>
+      )}
+    </Dialog>
   );
 }

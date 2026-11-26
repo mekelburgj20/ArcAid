@@ -1,5 +1,6 @@
 import { forwardRef, type ButtonHTMLAttributes } from 'react';
 import { Link, type LinkProps } from 'react-router-dom';
+import { buttonClasses, type ButtonSize, type ButtonVariant } from './buttonClasses';
 
 /**
  * G21 - the shared button, taken from the G20 Account Settings page.
@@ -21,22 +22,8 @@ import { Link, type LinkProps } from 'react-router-dom';
  * base layer), and `part-focus` adds the parts' faint halo.
  */
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
-    variant?: 'primary' | 'secondary' | 'danger';
-    size?: 'md' | 'sm' | 'xs';
-};
-
-const BASE = 'part-focus inline-flex items-center justify-center gap-1.5 rounded border font-medium cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed';
-
-const SIZES: Record<NonNullable<ButtonProps['size']>, string> = {
-    md: 'px-4 py-1.5 text-sm',
-    sm: 'px-3 py-1.5 text-xs',
-    xs: 'px-2 py-1 text-xs',
-};
-
-const VARIANTS: Record<NonNullable<ButtonProps['variant']>, string> = {
-    primary: 'border-lead/40 bg-lead/10 ink-lead hover:bg-lead/20',
-    secondary: 'border-border bg-transparent text-muted hover:text-primary hover:border-muted',
-    danger: 'border-neon-coral/40 bg-neon-coral/10 ink-danger hover:bg-neon-coral/20',
+    variant?: ButtonVariant;
+    size?: ButtonSize;
 };
 
 const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
@@ -47,7 +34,7 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
         <button
             ref={ref}
             type={type}
-            className={`${BASE} ${SIZES[size]} ${VARIANTS[variant]} ${className}`.trim()}
+            className={`${buttonClasses(variant, size)} ${className}`.trim()}
             {...rest}
         />
     );
@@ -59,11 +46,11 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
  */
 export function ButtonLink({ to, variant = 'primary', size = 'md', className = '', children, ...rest }: Omit<LinkProps, 'to'> & {
     to: string;
-    variant?: NonNullable<ButtonProps['variant']>;
-    size?: NonNullable<ButtonProps['size']>;
+    variant?: ButtonVariant;
+    size?: ButtonSize;
 }) {
     return (
-        <Link to={to} className={`${BASE} ${SIZES[size]} ${VARIANTS[variant]} no-underline ${className}`.trim()} {...rest}>
+        <Link to={to} className={`${buttonClasses(variant, size)} no-underline ${className}`.trim()} {...rest}>
             {children}
         </Link>
     );

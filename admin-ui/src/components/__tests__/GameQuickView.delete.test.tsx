@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import GameQuickView from '../GameQuickView';
 import { ViewerAuthProvider } from '../../contexts/ViewerAuthContext';
 import type { RankedEntry } from '../ScoreboardComponents';
+import { waitForRealDialog } from '../../test/dialogTestUtils';
 
 /**
  * v2.108.0 (F4) — delete affordances inside the game quick popup.
@@ -65,8 +66,12 @@ function stubFetch(over: (url: string) => unknown | undefined = () => undefined)
   return fetchMock;
 }
 
-function renderPopup(props: Partial<React.ComponentProps<typeof GameQuickView>> = {}) {
-  return render(
+/**
+ * G23c: the popup is the Arcaid dialog; wait until its real (base-ui) half has
+ * replaced the stand-in, or a click found on the stand-in lands on a detached node.
+ */
+async function renderPopup(props: Partial<React.ComponentProps<typeof GameQuickView>> = {}) {
+  const utils = render(
     <MemoryRouter>
       <ViewerAuthProvider>
         <GameQuickView
@@ -78,6 +83,8 @@ function renderPopup(props: Partial<React.ComponentProps<typeof GameQuickView>> 
       </ViewerAuthProvider>
     </MemoryRouter>,
   );
+  await waitForRealDialog();
+  return utils;
 }
 
 describe('GameQuickView — per-row delete', () => {
@@ -86,7 +93,7 @@ describe('GameQuickView — per-row delete', () => {
 
   it('shows a delete control on the viewer\'s OWN row only', async () => {
     signInAs('disc-ada');
-    renderPopup({ roomId: 'room-1' });
+    await renderPopup({ roomId: 'room-1' });
 
     await waitFor(() => {
       expect(screen.getByLabelText('Delete this score (4,200)')).toBeInTheDocument();
@@ -96,7 +103,7 @@ describe('GameQuickView — per-row delete', () => {
 
   it('shows delete on EVERY row for an admin of this room', async () => {
     signInAs('disc-admin', { role: 'room_admin', gameRoomIds: ['room-1'] });
-    renderPopup({ roomId: 'room-1' });
+    await renderPopup({ roomId: 'room-1' });
 
     await waitFor(() => {
       expect(screen.getByLabelText('Delete this score (4,200)')).toBeInTheDocument();
@@ -106,7 +113,7 @@ describe('GameQuickView — per-row delete', () => {
 
   it('renders NO delete affordance without a roomId (Global tab / Picks)', async () => {
     signInAs('disc-ada');
-    renderPopup();
+    await renderPopup();
 
     await waitFor(() => expect(screen.getByText('Ada')).toBeInTheDocument());
     expect(screen.queryByLabelText(/Delete this score/)).not.toBeInTheDocument();
@@ -114,7 +121,7 @@ describe('GameQuickView — per-row delete', () => {
   });
 
   it('renders NO delete affordance for a signed-out viewer', async () => {
-    renderPopup({ roomId: 'room-1' });
+    await renderPopup({ roomId: 'room-1' });
     await waitFor(() => expect(screen.getByText('Ada')).toBeInTheDocument());
     expect(screen.queryByLabelText(/Delete this score/)).not.toBeInTheDocument();
   });
@@ -123,7 +130,7 @@ describe('GameQuickView — per-row delete', () => {
     signInAs('disc-ada');
     const fetchMock = stubFetch();
     const onScoreDeleted = vi.fn();
-    renderPopup({ roomId: 'room-1', onScoreDeleted });
+    await renderPopup({ roomId: 'room-1', onScoreDeleted });
 
     fireEvent.click(await screen.findByLabelText('Delete this score (4,200)'));
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
@@ -143,7 +150,7 @@ describe('GameQuickView — per-row delete', () => {
     stubFetch((url) => url.includes('/score-history/11')
       ? Promise.resolve({ ok: false, json: () => Promise.resolve({ error: 'Nope' }) })
       : undefined);
-    renderPopup({ roomId: 'room-1' });
+    await renderPopup({ roomId: 'room-1' });
 
     fireEvent.click(await screen.findByLabelText('Delete this score (4,200)'));
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
@@ -170,7 +177,7 @@ describe('GameQuickView — auto-posted rows (v2.156.0, ADR 0024)', () => {
 
   it('offers the owner the trash on their own cabinet score, and says the cabinet will not re-post it', async () => {
     signInAs('disc-ada');
-    renderPopup({ roomId: 'room-1', lb: { gameName: 'Bad Cats', gameId: 'game-1', rankings: CABINET } });
+    await renderPopup({ roomId: 'room-1', lb: { gameName: 'Bad Cats', gameId: 'game-1', rankings: CABINET } });
 
     fireEvent.click(await screen.findByLabelText('Delete this score (8,366,650)'));
     expect(screen.getByRole('dialog', { name: 'Delete score' })).toHaveTextContent(
@@ -182,7 +189,7 @@ describe('GameQuickView — auto-posted rows (v2.156.0, ADR 0024)', () => {
 
   it('keeps a typed score\'s confirmation exactly as it was', async () => {
     signInAs('disc-ada');
-    renderPopup({ roomId: 'room-1' });
+    await renderPopup({ roomId: 'room-1' });
 
     fireEvent.click(await screen.findByLabelText('Delete this score (4,200)'));
     expect(screen.getByRole('dialog', { name: 'Delete score' })).not.toHaveTextContent(/cabinet/);
@@ -195,7 +202,7 @@ describe('GameQuickView — nested per-player history', () => {
 
   it('expands a multi-score row and gives each history row its own delete', async () => {
     signInAs('disc-ada');
-    renderPopup({ roomId: 'room-1' });
+    await renderPopup({ roomId: 'room-1' });
 
     fireEvent.click(await screen.findByLabelText('Show score history'));
 
@@ -206,7 +213,7 @@ describe('GameQuickView — nested per-player history', () => {
   it('deletes a nested history row by its own id', async () => {
     signInAs('disc-ada');
     const fetchMock = stubFetch();
-    renderPopup({ roomId: 'room-1' });
+    await renderPopup({ roomId: 'room-1' });
 
     fireEvent.click(await screen.findByLabelText('Show score history'));
     fireEvent.click(await screen.findByLabelText('Delete this score (900)'));
@@ -217,5 +224,58 @@ describe('GameQuickView — nested per-player history', () => {
       expect.objectContaining({ method: 'DELETE' }),
     ));
     await waitFor(() => expect(screen.queryByText('900')).not.toBeInTheDocument());
+  });
+});
+
+/**
+ * G23c — the delete confirm opens INSIDE the quick view's dialog, so base-ui
+ * nests it: Escape, Cancel and a press inside the confirm touch the confirm
+ * only; the quick view stays open behind it.
+ */
+describe('GameQuickView — the delete confirm is nested in the quick view', () => {
+  beforeEach(() => { localStorage.clear(); stubFetch(); });
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+  async function openConfirm() {
+    signInAs('disc-ada');
+    const onClose = vi.fn();
+    await renderPopup({ roomId: 'room-1', onClose });
+    const trash = await screen.findByLabelText('Delete this score (4,200)');
+    trash.focus();
+    fireEvent.click(trash);
+    const confirm = await screen.findByRole('dialog', { name: 'Delete score' });
+    await waitFor(() => expect(within(confirm).getByRole('button', { name: 'Cancel' })).toHaveFocus());
+    return { onClose, confirm, trash };
+  }
+
+  it('(a) Escape in the confirm closes only the confirm, and focus goes back to the trash button', async () => {
+    const { onClose, trash } = await openConfirm();
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Delete score' })).not.toBeInTheDocument());
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog', { name: 'Whirlwind' })).toBeInTheDocument();
+    await waitFor(() => expect(trash).toHaveFocus());
+  });
+
+  it('(b) Cancel in the confirm leaves the quick view open', async () => {
+    const { onClose, confirm } = await openConfirm();
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Delete score' })).not.toBeInTheDocument());
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog', { name: 'Whirlwind' })).toBeInTheDocument();
+  });
+
+  it('(c) a press inside the confirm closes neither dialog', async () => {
+    const { onClose, confirm } = await openConfirm();
+    const text = within(confirm).getByText(/Delete this score \(4,200\)\?/);
+    fireEvent.pointerDown(text);
+    fireEvent.mouseDown(text);
+    fireEvent.pointerUp(text);
+    fireEvent.mouseUp(text);
+    fireEvent.click(text);
+    await act(async () => { await Promise.resolve(); });
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog', { name: 'Delete score' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Whirlwind', hidden: true })).toBeInTheDocument();
   });
 });

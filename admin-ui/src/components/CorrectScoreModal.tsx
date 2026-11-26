@@ -1,4 +1,7 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import { Dialog } from './parts/Dialog';
+import Button from './parts/Button';
+import { TextInput } from './parts/Field';
 import { digitsOnly, formatMagnitude, formatScoreInput } from '../lib/scoreInput';
 
 /**
@@ -19,6 +22,10 @@ import { digitsOnly, formatMagnitude, formatScoreInput } from '../lib/scoreInput
  *
  * Knows nothing about how the correction is sent — the caller owns the request
  * and the refresh, because the two pages reconcile different lists afterwards.
+ *
+ * G23c (v2.271.0): the Arcaid dialog (`parts/Dialog`), a bottom sheet on a
+ * phone, focus starting in the score field. The player is the title and the
+ * old value the line under it; the field is the shared score `TextInput`.
  */
 export default function CorrectScoreModal({ playerLabel, currentScore, onConfirm, onCancel }: {
   /** Who the score belongs to, already display-name resolved. */
@@ -27,6 +34,7 @@ export default function CorrectScoreModal({ playerLabel, currentScore, onConfirm
   onConfirm: (score: number) => void | Promise<void>;
   onCancel: () => void;
 }) {
+  const inputRef = useRef<HTMLInputElement>(null);
   const [value, setValue] = useState(() => formatScoreInput(String(currentScore)));
   const [busy, setBusy] = useState(false);
   const digits = digitsOnly(value);
@@ -39,62 +47,51 @@ export default function CorrectScoreModal({ playerLabel, currentScore, onConfirm
   const unchanged = parsed !== null && parsed === currentScore;
   const canSave = parsed !== null && !tooLarge && !unchanged && !busy;
 
+  const save = async () => {
+    if (parsed === null) return;
+    setBusy(true);
+    try {
+      await onConfirm(parsed);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-deep/80 backdrop-blur-sm p-4" onClick={onCancel}>
-      <div className="bg-surface border border-border rounded-lg w-full max-w-sm" onClick={e => e.stopPropagation()}>
-        <div className="px-5 py-4 border-b border-border/50">
-          <h2 className="font-display text-lg font-bold mb-0.5">Correct score</h2>
-          <p className="text-xs text-muted">
-            {playerLabel} · was {currentScore.toLocaleString()}
-            {oldMagnitude ? ` (${oldMagnitude})` : ''}
-          </p>
-        </div>
-        <div className="px-5 py-4 space-y-2">
-          <label htmlFor="correct-score-input" className="text-xs text-faint block">Corrected score</label>
-          <input
-            id="correct-score-input"
-            type="text"
-            inputMode="numeric"
-            autoComplete="off"
-            autoFocus
-            value={value}
-            onChange={e => setValue(formatScoreInput(e.target.value))}
-            className="w-full px-3 py-2 bg-raised border border-border rounded text-primary text-sm focus:outline-none focus:border-neon-cyan transition-colors"
-          />
-          {magnitude && <p className="text-xs text-faint">{magnitude}</p>}
-          {tooLarge && <p className="text-xs text-neon-coral">That number is too large to record exactly.</p>}
-          {unchanged && <p className="text-xs text-faint">That is already the recorded score.</p>}
-          <p className="text-xs text-muted pt-1">
-            Changes the value in place — the score, its photo and its place in the player&apos;s
-            history all stay. Nothing is announced.
-          </p>
-        </div>
-        <div className="px-5 py-3 border-t border-border/50 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="px-3 py-1.5 text-sm text-muted hover:text-primary transition-colors cursor-pointer"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            disabled={!canSave}
-            onClick={async () => {
-              if (parsed === null) return;
-              setBusy(true);
-              try {
-                await onConfirm(parsed);
-              } finally {
-                setBusy(false);
-              }
-            }}
-            className="px-3 py-1.5 text-sm rounded bg-neon-cyan/15 text-neon-cyan border border-neon-cyan/40 hover:bg-neon-cyan/25 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
-          >
+    <Dialog
+      open
+      onOpenChange={next => { if (!next) onCancel(); }}
+      tone="cyan"
+      label="Correct score"
+      title={playerLabel}
+      description={`was ${currentScore.toLocaleString()}${oldMagnitude ? ` (${oldMagnitude})` : ''}`}
+      sheet
+      initialFocusRef={inputRef}
+      footer={(
+        <>
+          <Button variant="secondary" onClick={onCancel}>Cancel</Button>
+          <Button onClick={save} disabled={!canSave}>
             {busy ? 'Saving…' : 'Save correction'}
-          </button>
-        </div>
-      </div>
-    </div>
+          </Button>
+        </>
+      )}
+    >
+      <TextInput
+        ref={inputRef}
+        id="correct-score-input"
+        label="Corrected score"
+        size="score"
+        inputMode="numeric"
+        value={value}
+        onChange={e => setValue(formatScoreInput(e.target.value))}
+        hint={magnitude || undefined}
+        error={tooLarge ? 'That number is too large to record exactly.' : undefined}
+      />
+      {unchanged && <p className="text-xs text-muted mt-2">That is already the recorded score.</p>}
+      <p className="text-xs text-muted mt-3">
+        Changes the value in place — the score, its photo and its place in the player&apos;s
+        history all stay. Nothing is announced.
+      </p>
+    </Dialog>
   );
 }
