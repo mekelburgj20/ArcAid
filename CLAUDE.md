@@ -105,6 +105,7 @@ Each line is the rule; the named rule file has the detail and the why.
 | 2026-11-22 | Shared UI parts wear Arcaid's own look, never a library default; base-ui and Sonner carry behaviour only | ADR 0042, `admin-ui.md` |
 | 2026-11-23 | The room name in the nav is one standard Arcaid button (it switches rooms), never a per-room Title Style or the pixel font | `docs/style-guide-plan.md` decision 7, `admin-ui.md` |
 | 2026-11-24 | Practice mode: each player pauses their own attempts; the allowance is per table for its whole run and ends the pause when used up; off by default; no host "count this practice play" | ADR 0043, `attempts.md` |
+| 2026-11-27 | Global Standings: Arcaid Points = 100 × (N − r + 1) ÷ max(N, 10), best 20 cards; All scores / Witness only (flagged = no Witness-only points, counts in All; photos never promote); appeals need Witness logs; country + state only, birth decade only (no year stored); no teams | ADR 0044, `docs/global-standings-plan.md` (B32) |
 | ADR 0018 | Personal rooms were REJECTED; Throwdowns are room-less | `events.md` |
 | ADR 0034 | The room owner decides whether a room is listed | `rooms-tournaments.md` |
 

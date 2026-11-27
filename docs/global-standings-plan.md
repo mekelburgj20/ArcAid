@@ -86,7 +86,7 @@ Why this and not Leon's two candidates:
   stops mattering for first place but still grades the rest of the field.
 - Best 20 caps the volume advantage: past 20 cards a player climbs by improving, not by posting more.
 
-The formula, the cap (20) and the floor (10) are one ADR (new), written in B32.2. They are constants in one
+The formula, the cap (20) and the floor (10) are ADR 0044 (with the rulings in section 2). They are constants in one
 place (new, beside the service), never literals at call sites.
 
 ### 3.2 Categories
