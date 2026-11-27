@@ -13,6 +13,7 @@ import { useToast } from '../components/Toast';
 import UserMenu from '../components/UserMenu';
 import LoginButtons from '../components/LoginButtons';
 import GlobalThemeToggle from '../components/GlobalThemeToggle';
+import DisplaySettingsButton from '../components/DisplaySettingsButton';
 import BrandWordmark from '../components/BrandWordmark';
 import ArcaidLogoAnimated from '../components/ArcaidLogoAnimated';
 import { splitLandingRooms, type PublicRoom, type RoomCardData } from '../lib/landingRooms';
@@ -176,6 +177,7 @@ export default function LandingPage() {
             {/* v2.50.0 (A1): the landing page is a global page, so it gets the
                 same per-visitor light/dark toggle as /scoreboard. */}
             <GlobalThemeToggle />
+            {!discordUser && <DisplaySettingsButton />}
             {discordUser ? (
               <UserMenu user={discordUser} onLogout={logoutPlayer} />
             ) : (

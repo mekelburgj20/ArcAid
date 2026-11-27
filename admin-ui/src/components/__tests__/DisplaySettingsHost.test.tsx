@@ -52,12 +52,15 @@ describe('DisplaySettingsHost', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 
-  it('opens nothing for a signed-out visitor', async () => {
+  it('opens for a signed-out visitor too (G34c), saved in this browser, with no account request', async () => {
     localStorage.removeItem('arcaid_player_token');
     renderHost();
     open();
-    await new Promise(r => setTimeout(r, 50));
-    expect(screen.queryByRole('dialog')).toBeNull();
+    await waitForRealDialog();
+    const dialog = await screen.findByRole('dialog', { name: 'Display settings' });
+    expect(dialog).toHaveTextContent('Saved in this browser only.');
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).startsWith('/api/me/'))).toHaveLength(0);
   });
 
   it('a panel chunk that cannot load says so, and Try again asks for it again', async () => {

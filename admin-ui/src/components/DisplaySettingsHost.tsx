@@ -58,7 +58,9 @@ export default function DisplaySettingsHost() {
     const handler = () => {
       // Read the token at open time, not at mount: this component outlives
       // every login/logout in the session.
-      setPlayerToken(localStorage.getItem(PLAYER_TOKEN_KEY));
+      let token: string | null = null;
+      try { token = localStorage.getItem(PLAYER_TOKEN_KEY); } catch { /* private mode */ }
+      setPlayerToken(token);
       setLoadFailed(false);
       setOpen(true);
     };
@@ -106,9 +108,9 @@ export default function DisplaySettingsHost() {
     return () => { cancelled = true; };
   }, [open, slug]);
 
-  // Guests have no player token and therefore no stored preferences; the user
-  // menu that opens this only exists for signed-in viewers anyway.
-  if (!open || !playerToken) return null;
+  // No player token is guest mode (G34c): the panel keeps the card settings in
+  // this browser instead of the account.
+  if (!open) return null;
 
   const close = () => setOpen(false);
 

@@ -17,7 +17,7 @@ import GlobalScoresView from '../components/GlobalScoresView';
 import GameQuickView from '../components/GameQuickView';
 import SubmissionSheet from '../components/SubmissionSheet';
 import {
-  DISPLAY_SETTINGS_LIVE_EVENT, DISPLAY_SETTINGS_SAVED_EVENT, prefsDevice, type DisplaySettingsLiveDetail,
+  DISPLAY_SETTINGS_LIVE_EVENT, DISPLAY_SETTINGS_SAVED_EVENT, prefsDevice, readGuestPrefs, type DisplaySettingsLiveDetail,
 } from '../lib/displaySettingsLive';
 import { TAB_LABELS } from '../lib/scoresCopy';
 import { SeasonPollLobbyNudge } from '../components/SeasonPollCard';
@@ -180,7 +180,8 @@ export default function Scoreboard() {
     () => fetch(`/api/rooms/${roomId}/scoreboard-config`, { headers: viewerHeaders }),
     async res => {
       const cfg: Record<string, string> = (await res.json()) || {};
-      const prefs = playerToken ? await readUserPrefs(playerToken) : 'none';
+      // G34c: a signed-out visitor's choices are this browser's copy.
+      const prefs = playerToken ? await readUserPrefs(playerToken) : readGuestPrefs(prefsDevice());
       // Both together, so the room's own look never shows for a moment first.
       setRoomConfig(cfg);
       setViewerPrefs(typeof prefs === 'object' ? prefs : {});
@@ -225,15 +226,15 @@ export default function Scoreboard() {
   // page no longer owns it; it only reacts to a save, re-merging the viewer's
   // overrides over the room config exactly as the old `onSaved` callback did.
   useEffect(() => {
-    if (!roomId || !playerToken) return;
+    if (!roomId) return;
     window.addEventListener(DISPLAY_SETTINGS_SAVED_EVENT, loadConfig);
     return () => window.removeEventListener(DISPLAY_SETTINGS_SAVED_EVENT, loadConfig);
-  }, [roomId, playerToken, loadConfig]);
+  }, [roomId, loadConfig]);
 
   // G34a: every change in the open panel, before it is saved. Only this
   // window's set of card settings applies (the panel edits the device in hand).
   useEffect(() => {
-    if (!roomId || !playerToken) return;
+    if (!roomId) return;
     const onLive = (e: Event) => {
       const detail = (e as CustomEvent<DisplaySettingsLiveDetail>).detail;
       if (!detail || detail.device !== prefsDevice()) return;
@@ -241,7 +242,7 @@ export default function Scoreboard() {
     };
     window.addEventListener(DISPLAY_SETTINGS_LIVE_EVENT, onLive);
     return () => window.removeEventListener(DISPLAY_SETTINGS_LIVE_EVENT, onLive);
-  }, [roomId, playerToken]);
+  }, [roomId]);
 
   useEffect(() => {
     if (!roomId) return;

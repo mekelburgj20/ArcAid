@@ -19,6 +19,7 @@ import { decodeJwtPayload, isExpiredOrInvalid } from '../lib/adminSlotSeed';
 import { parseServerDate } from '../lib/format';
 import UserMenu from './UserMenu';
 import GlobalThemeToggle from './GlobalThemeToggle';
+import DisplaySettingsButton from './DisplaySettingsButton';
 import LoginButtons from './LoginButtons';
 import PendingSubmissionWatcher from './PendingSubmissionWatcher';
 import ScoreboardTicker from './ScoreboardTicker';
@@ -489,6 +490,8 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
                 the affordance. The 3-way form lives one click deeper, in the
                 display-settings sheet and account settings. */}
             <GlobalThemeToggle />
+            {/* G34c: signed-out visitors open Display settings here; signed-in ones use the user menu. */}
+            {!discordUser && <span className="hidden sm:inline-flex" data-testid="display-button-bar"><DisplaySettingsButton /></span>}
             {/* Discord login / user menu */}
             {discordUser ? (
               <UserMenu
@@ -519,8 +522,10 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
             switcher, the same button as the sm+ inline one (the room's
             Leaderboard Branding logo + its SCOREBOARD_TITLE, Arcaid
             standard style), opening the same menu of the viewer's rooms. */}
-        <div className="sm:hidden flex justify-center px-4 pb-2 -mt-0.5 min-w-0">
+        <div className="sm:hidden relative flex justify-center px-4 pb-2 -mt-0.5 min-w-0" data-testid="brandrow">
           <RoomSwitcher variant="brandrow" current={switcherRoom} rooms={myRooms} loading={myRoomsLoading} signedIn={!!discordUser} />
+          {/* G34c: on a phone the signed-out Display button sits here, right of the room name, so the top bar stays as it was. */}
+          {!discordUser && <DisplaySettingsButton className="absolute right-4 top-1/2 -translate-y-[60%]" />}
         </div>
       </nav>
 

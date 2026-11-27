@@ -14,7 +14,7 @@ import { useIsWideViewport } from '../../lib/useIsWideViewport';
 import { useRetryingLoad } from '../../hooks/useRetryingLoad';
 import { decodeJwtPayload, isExpiredOrInvalid } from '../../lib/adminSlotSeed';
 import {
-  DISPLAY_SETTINGS_SAVED_EVENT, dispatchDisplaySettingsLive, prefsDevice, type DisplayPrefsDevice,
+  DISPLAY_SETTINGS_SAVED_EVENT, dispatchDisplaySettingsLive, prefsDevice, readGuestPrefs, writeGuestPrefs, type DisplayPrefsDevice,
 } from '../../lib/displaySettingsLive';
 import {
   CardSetContext, applyChanges, buildPayload, cardModel, copyOver, hasCardSettings, samePrefs, withoutCardSettings, type Prefs,
@@ -47,7 +47,8 @@ import { CardsSection, ColoursSection, MoreRows, MoreSection } from './sections'
 
 export interface DisplaySettingsPanelProps {
   onClose: () => void;
-  playerToken: string;
+  /** The signed-in viewer's token; null is guest mode (G34c): card settings are kept in this browser. */
+  playerToken: string | null;
   /** The room page's slug, or null off room pages. */
   slug: string | null;
   roomId?: string;
@@ -63,7 +64,7 @@ type TabId = 'colours' | 'cards' | 'more';
 const SAVE_DELAY_MS = 500;
 
 /** Whether the signed-in viewer runs this room (read from the tokens this browser already holds). */
-function administersRoom(roomId: string | undefined, playerToken: string): boolean {
+function administersRoom(roomId: string | undefined, playerToken: string | null): boolean {
   if (!roomId) return false;
   let adminSlot: string | null = null;
   try { adminSlot = localStorage.getItem('arcaid_token'); } catch { /* private mode */ }
@@ -90,18 +91,22 @@ export default function DisplaySettingsPanel({ onClose, playerToken, slug, roomI
 
   // ── The card settings of the device in hand ────────────────────────────
   const [device] = useState<DisplayPrefsDevice>(prefsDevice);
-  const [prefs, setPrefs] = useState<Prefs>({});
-  const [loaded, setLoaded] = useState(false);
-  const [snapPrefs, setSnapPrefs] = useState<Prefs | null>(null);
+  // A guest (no token) reads and writes this browser's copy, which is there at once.
+  const [guest] = useState(() => !playerToken);
+  const [guestStart] = useState<Prefs | null>(() => (guest ? readGuestPrefs(device) : null));
+  const [prefs, setPrefs] = useState<Prefs>(guestStart ?? {});
+  const [loaded, setLoaded] = useState(guest);
+  const [snapPrefs, setSnapPrefs] = useState<Prefs | null>(guestStart);
   const [status, setStatus] = useState<SaveStatus>('idle');
-  const prefsRef = useRef<Prefs>({});
-  const loadedRef = useRef(false);
+  const prefsRef = useRef<Prefs>(guestStart ?? {});
+  const loadedRef = useRef(guest);
   const statusRef = useRef<SaveStatus>('idle');
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const chainRef = useRef<Promise<void>>(Promise.resolve());
   const seqRef = useRef(0);
   const postedRef = useRef(false);
   const closedRef = useRef(false);
+  const guestSavedRef = useRef(true);
   const tokenRef = useRef(playerToken);
   useEffect(() => { tokenRef.current = playerToken; }, [playerToken]);
 
@@ -128,13 +133,20 @@ export default function DisplaySettingsPanel({ onClose, playerToken, slug, roomI
     device,
   );
   useEffect(() => {
-    if (roomScoped && !loadedRef.current) loadPrefs();
-  }, [roomScoped, loadPrefs]);
+    if (roomScoped && !guest && !loadedRef.current) loadPrefs();
+  }, [roomScoped, guest, loadPrefs]);
 
   /** POST this map, after any POST still on its way (so the last change is the one stored). */
   const post = useCallback((source: Prefs): Promise<void> => {
     const seq = ++seqRef.current;
     postedRef.current = true;
+    if (guest) {
+      // This browser's copy: written at once, no request. Blocked storage keeps the change for the session.
+      const ok = writeGuestPrefs(device, source);
+      guestSavedRef.current = ok;
+      showStatus(ok ? 'saved' : 'failed');
+      return Promise.resolve();
+    }
     const run = async () => {
       try {
         const res = await fetch(`/api/me/scoreboard-preferences?device=${device}`, {
@@ -151,7 +163,7 @@ export default function DisplaySettingsPanel({ onClose, playerToken, slug, roomI
     const next = chainRef.current.then(run);
     chainRef.current = next;
     return next;
-  }, [device, showStatus]);
+  }, [device, guest, showStatus]);
 
   /** A change: on the page at once, saved once the changes stop for a moment. */
   const commit = useCallback((next: Prefs) => {
@@ -159,13 +171,17 @@ export default function DisplaySettingsPanel({ onClose, playerToken, slug, roomI
     prefsRef.current = next;
     setPrefs(next);
     dispatchDisplaySettingsLive({ device, prefs: next });
+    if (guest) {
+      void post(next);
+      return;
+    }
     if (timerRef.current !== null) clearTimeout(timerRef.current);
     showStatus('saving');
     timerRef.current = setTimeout(() => {
       timerRef.current = null;
       void post(prefsRef.current);
     }, SAVE_DELAY_MS);
-  }, [device, post, showStatus]);
+  }, [device, guest, post, showStatus]);
 
   const setCards = useCallback((changes: Record<string, string | null>) => {
     commit(applyChanges(prefsRef.current, changes));
@@ -181,13 +197,18 @@ export default function DisplaySettingsPanel({ onClose, playerToken, slug, roomI
   const flush = useCallback(() => {
     if (closedRef.current) return;
     closedRef.current = true;
+    if (guest) {
+      // Nothing waits: the page already has every change. Re-read only what is really stored.
+      if (postedRef.current && guestSavedRef.current) window.dispatchEvent(new Event(DISPLAY_SETTINGS_SAVED_EVENT));
+      return;
+    }
     const pending = timerRef.current !== null || statusRef.current === 'failed';
     if (timerRef.current !== null) { clearTimeout(timerRef.current); timerRef.current = null; }
     const done = pending && loadedRef.current ? post(prefsRef.current) : chainRef.current;
     if (pending || postedRef.current) {
       void done.then(() => window.dispatchEvent(new Event(DISPLAY_SETTINGS_SAVED_EVENT)));
     }
-  }, [post]);
+  }, [post, guest]);
   useEffect(() => {
     closedRef.current = false;
     return () => flush();
@@ -311,6 +332,7 @@ export default function DisplaySettingsPanel({ onClose, playerToken, slug, roomI
   const copyToOther = async () => {
     if (copying) return;
     setCopying(true);
+    if (guest) return;
     const headers = { Authorization: `Bearer ${tokenRef.current}` };
     try {
       const got = await fetch(`/api/me/scoreboard-preferences?device=${other}`, { headers });
@@ -374,7 +396,7 @@ export default function DisplaySettingsPanel({ onClose, playerToken, slug, roomI
     ? <p className="dset-note" role="status">Couldn't load your card settings. <button type="button" className="dset-reset" onClick={() => loadPrefs()}>Try again</button></p>
     : <SkeletonRows count={4} label="Loading your card settings" />;
   const cards = cardsReady
-    ? <CardsSection model={model} headingId={`${ids}-cards`} showHead notOnScoreboard={!onScoreboard} onOpenScoreboard={openScoreboard} slug={slug} copyRow={copyRow} />
+    ? <CardsSection model={model} headingId={`${ids}-cards`} showHead notOnScoreboard={!onScoreboard} onOpenScoreboard={openScoreboard} slug={slug} copyRow={guest ? undefined : copyRow} />
     : cardsWaiting;
 
   // A phone gets the sections as tabs: Cards first on the scoreboard, else Colours.
@@ -431,7 +453,7 @@ export default function DisplaySettingsPanel({ onClose, playerToken, slug, roomI
   const admin = roomScoped && roomId && administersRoom(roomId, playerToken);
   const description = (
     <>
-      Only you see these.
+      {guest ? 'Saved in this browser only.' : 'Only you see these.'}
       {admin && (
         <span className="dset-admin">
           <Link to={`/${slug}/admin/leaderboard`} onClick={close}>Room admin? Change it for everyone &#8594;</Link>

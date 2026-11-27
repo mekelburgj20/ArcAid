@@ -80,6 +80,55 @@ function renderPage() {
 const card = () => screen.getByTestId('card');
 const innerWidth = window.innerWidth;
 
+describe('Scoreboard - a signed-out visitor\'s Display settings (G34c)', () => {
+  const guestViewer = { ...viewer, playerToken: null };
+  const renderGuest = () => render(
+    <MemoryRouter initialEntries={['/rtx']}>
+      <ToastProvider>
+        <ViewerAuthContext.Provider value={guestViewer}>
+          <RoomContext.Provider value={{ roomId: 'room-1', roomSlug: 'rtx', roomName: 'RTX Pinball' }}>
+            <Routes>
+              <Route path="/:slug" element={<Scoreboard />} />
+            </Routes>
+          </RoomContext.Provider>
+        </ViewerAuthContext.Provider>
+      </ToastProvider>
+    </MemoryRouter>,
+  );
+  beforeEach(() => {
+    localStorage.clear();
+    stubFetch();
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1280 });
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    localStorage.clear();
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: innerWidth });
+  });
+
+  it('merges the browser key over the room config, and asks the account for nothing', async () => {
+    localStorage.setItem('arcaid-scoreboard-prefs-desktop', JSON.stringify({ SCOREBOARD_MAX_SCORES: '9' }));
+    renderGuest();
+    await waitFor(() => expect(card()).toHaveAttribute('data-max', '9'));
+    expect(card()).toHaveAttribute('data-style', 'arcade');
+    const asked = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.map(([u]) => String(u));
+    expect(asked.some(u => u.includes('/scoreboard-preferences'))).toBe(false);
+  });
+
+  it('a live event changes it, and a saved event re-reads the key (a cleared key falls back to the room)', async () => {
+    localStorage.setItem('arcaid-scoreboard-prefs-desktop', JSON.stringify({ SCOREBOARD_MAX_SCORES: '9' }));
+    renderGuest();
+    await waitFor(() => expect(card()).toHaveAttribute('data-max', '9'));
+    act(() => dispatchDisplaySettingsLive({ device: 'desktop', prefs: { SCOREBOARD_STYLE: 'banner' } }));
+    expect(card()).toHaveAttribute('data-style', 'banner');
+    expect(card()).toHaveAttribute('data-max', '5');
+    localStorage.removeItem('arcaid-scoreboard-prefs-desktop');
+    act(() => { window.dispatchEvent(new Event('display-settings-saved')); });
+    await waitFor(() => expect(card()).toHaveAttribute('data-style', 'arcade'));
+    expect(card()).toHaveAttribute('data-max', '5');
+  });
+});
+
 describe('Scoreboard - the Display settings panel, live', () => {
   beforeEach(() => {
     stored = { SCOREBOARD_MAX_SCORES: '8' };
