@@ -98,6 +98,7 @@ import { TournamentScoresService } from '../../services/TournamentScoresService.
 import { ScoreProvenanceService } from '../../services/ScoreProvenanceService.js';
 import { AuditService } from '../../services/AuditService.js';
 import { ActivityLogService, fmtScore } from '../../services/ActivityLogService.js';
+import { activityRequestContext } from '../../utils/activityRequestContext.js';
 import { AtGamesJoinService } from '../../services/AtGamesJoinService.js';
 import { describeChanges, diffSettings, diffTournament, tournamentSnapshotForDiff, ROOM_TOGGLES_DEFAULT_ON } from '../../utils/activityDiff.js';
 import { checkEventSubmission, checkAttemptLimitSubmission } from '../../services/EventSubmissionGate.js';
@@ -7447,6 +7448,81 @@ router.delete('/:roomId/admins/invites/:inviteId', requireAuth, requireRoomAcces
         res.json({ success: true });
     } catch (error) {
         logError('API Error (DELETE rooms/:roomId/admins/invites/:inviteId):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
+ * DELETE /:roomId/admin/room — the room owner deletes their own room (Room
+ * Settings → Danger zone). Same teardown as the super-admin
+ * `DELETE /api/admin/rooms/:roomId` (`GameRoomService.delete`): room rows go,
+ * players' Global Scoreboard history stays (origin unlinked). iScored boards
+ * are NOT touched, as on the super-admin path.
+ *
+ * Who: the room's OWNER (`game_room_admins.role = 'owner'`) or a super admin.
+ * A co-admin, a password (local) admin or an invited admin is refused
+ * (403 OWNER_REQUIRED) — they were handed the room, not the right to end it.
+ * A SUSPENDED room never reaches this handler for anyone but a super admin:
+ * `roomVisibilityGate` (mounted on `/:roomId`) answers 403 ROOM_SUSPENDED, so
+ * an owner cannot delete a room that is held for review.
+ *
+ * Body `{ confirm }` must equal the room's slug (case-insensitive): the
+ * type-to-confirm the page asks for, re-checked here so no stray call deletes.
+ */
+router.delete('/:roomId/admin/room', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const room = await GameRoomService.getById(roomId);
+        if (!room) return res.status(404).json({ error: 'Room not found' });
+
+        const isSuper = req.user!.role === 'super_admin';
+        if (!isSuper) {
+            const discordId = req.user!.discordId;
+            const db = await getDatabase();
+            const row = discordId
+                ? await db.get<{ role: string }>(
+                    'SELECT role FROM game_room_admins WHERE game_room_id = ? AND discord_user_id = ?',
+                    roomId, discordId,
+                )
+                : undefined;
+            if (row?.role !== 'owner') {
+                return res.status(403).json({ error: 'Only the room owner can delete this room.', code: 'OWNER_REQUIRED' });
+            }
+        }
+
+        const confirm = typeof req.body?.confirm === 'string' ? req.body.confirm.trim().toLowerCase() : '';
+        if (confirm !== room.slug.toLowerCase()) {
+            return res.status(400).json({ error: 'Type the room URL name to confirm.', code: 'CONFIRM_MISMATCH' });
+        }
+
+        // The room's activity log is deleted with it, so the generic admin-write
+        // row (activityAdminMiddleware) has nowhere to go: mark it written. The
+        // audit_log row below is the durable record.
+        const activityStore = activityRequestContext.getStore();
+        if (activityStore) activityStore.wrote = true;
+
+        const deleted = await GameRoomService.delete(roomId);
+        if (!deleted) return res.status(404).json({ error: 'Room not found' });
+
+        // Its tournaments' maintenance crons are gone from the DB; drop them
+        // from the live Scheduler too (as the tournament DELETE does).
+        const { Scheduler } = await import('../../engine/Scheduler.js');
+        await Scheduler.getInstance().reload();
+
+        await AuditService.log({
+            actor: req.user!.discordId || req.user!.username || req.user!.localAdminId || 'admin',
+            action: 'room.delete',
+            target_type: 'room',
+            target_id: roomId,
+            details: JSON.stringify({ name: room.name, slug: room.slug, by: isSuper ? 'super_admin' : 'owner' }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+        logInfo(`Room deleted by ${isSuper ? 'super admin' : 'owner'}: ${room.name} (${room.slug})`);
+
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (DELETE rooms/:roomId/admin/room):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
