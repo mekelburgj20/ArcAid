@@ -41,22 +41,22 @@ export default function SeasonRecapView({ roomId, slug, tournamentId }: { roomId
     load();
   }, [roomId, tournamentId, load]);
 
-  if (phase === 'retrying') return <LoadFailedNotice what="the season recap" onRetry={load} testId="season-recap-load-failed" />;
+  if (phase === 'retrying') return <LoadFailedNotice what="the tournament recap" onRetry={load} testId="season-recap-load-failed" />;
   if (!recap) {
     if (phase === 'ready') {
       return (
         <EmptyState title="No recap here">
-          This season's numbers are not available to you, or the tournament was not found.
+          This tournament's recap is not available to you, or the tournament was not found.
         </EmptyState>
       );
     }
-    return <LoadingState message="Loading the season..." />;
+    return <LoadingState message="Loading the tournament recap..." />;
   }
 
   if (recap.runs === 0 && recap.live_runs === 0) {
     return (
       <EmptyState title="No finished runs yet">
-        The season's numbers appear here once a run has finished.
+        The tournament's recap appears here once a run has finished.
       </EmptyState>
     );
   }
@@ -66,7 +66,7 @@ export default function SeasonRecapView({ roomId, slug, tournamentId }: { roomId
 
   return (
     <div className="grid gap-5" data-testid="season-recap">
-      <Panel wide title="The season">
+      <Panel wide title="All runs">
         <StatTiles
           tiles={[
             { label: recap.runs === 1 ? 'Run' : 'Runs', value: recap.runs.toLocaleString() },
@@ -82,7 +82,7 @@ export default function SeasonRecapView({ roomId, slug, tournamentId }: { roomId
 
       {recap.awards.length > 0 && (
         <Panel wide title="Awards">
-          <ListRows label="Season awards" testId="season-awards">
+          <ListRows label="Tournament awards" testId="season-awards">
             {recap.awards.map(a => {
               const who = namesOf(a.player_keys, recap.players);
               const caption = [who, a.detail, a.run?.game_name].filter(Boolean).join(' · ');

@@ -14,7 +14,7 @@ paths:
 ---
 # Run recaps, "Arcaid Recap" (B31) — rules
 
-Names (owner, 2026-11-27): the brand is **Arcaid Recap** (Discord text header, forum post title, settings copy); in context a run's is **Run Recap** (run card button, recap page title) and a tournament's is **Season Recap** (its tab). The URL stays `?view=numbers` / `&recap=1` so shared links keep working.
+Names (owner, 2026-11-27): the brand is **Arcaid Recap** (Discord text header, forum post title, settings copy); in context a run's is **Run Recap** (run card button, recap page title) and a tournament's is **Tournament Recap** (its tab, first panel "All runs"; never "Season", which is the Seasons format, ADR 0025). The URL stays `?view=numbers` / `&recap=1` so shared links keep working.
 
 Loads when you touch run recaps: `RunRecapService`, the recap routes, the Discord recap text, the recap preferences, the recap UI. Plan (the contract, with every name and rule): `docs/run-recap-plan.md`. Cross-cutting invariants live in the root CLAUDE.md. One section per slice; a slice writes only inside its own section.
 

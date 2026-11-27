@@ -280,7 +280,7 @@ export default function TournamentDetail() {
           By table
         </button>
         <button type="button" aria-pressed={view === 'numbers'} onClick={() => setView('numbers')} className={tabClass(view === 'numbers')}>
-          Season Recap
+          Tournament Recap
         </button>
       </div>
 
