@@ -1,5 +1,6 @@
 import { getDatabase } from '../database/database.js';
 import { getRecapPrefsVersion } from './PreferencesService.js';
+import { sqliteLower } from '../utils/sqliteLower.js';
 import { RunRecapService } from './RunRecapService.js';
 import { resolveProfiles } from './PlayerProfileResolver.js';
 import type { ComputedRunRecap } from '../utils/runRecapCompute.js';
@@ -91,7 +92,7 @@ export async function resolveRefs(roomId: string, keys: string[]): Promise<Map<s
             `SELECT submitted_by_user_id, discord_user_id, iscored_username, LOWER(iscored_username) AS lname
                FROM score_history WHERE game_room_id = ? AND submitted_by_user_id IS NULL
                 AND LOWER(iscored_username) IN (${chunk.map(() => '?').join(',')})
-              GROUP BY LOWER(iscored_username)`, roomId, ...chunk.map(n => n.toLowerCase()));
+              GROUP BY LOWER(iscored_username)`, roomId, ...chunk.map(n => sqliteLower(n)));
         for (const r of rows as Array<Row & { lname: string }>) found.set(`iscored:${r.lname}`, r);
     }
     // Event-round keys can be a mapped Discord id with no row of their own: fall back to an alias.

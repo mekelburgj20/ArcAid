@@ -157,6 +157,29 @@ describe('resolveAnnouncementChannelId precedence with tournament routes', () =>
     });
 });
 
+describe('recaps ride the tournament own Tournament posts route (B31.5)', () => {
+    let roomId: string;
+    beforeEach(async () => {
+        await setupTestDb();
+        roomId = await createTestRoom();
+        delete process.env.DISCORD_ANNOUNCEMENT_CHANNEL_ID;
+        const db = await getDatabase();
+        await db.run(`INSERT OR REPLACE INTO game_room_settings (game_room_id, key, value) VALUES (?, ?, ?)`,
+            roomId, DISCORD_ANNOUNCE_ROUTES_KEY, tr({ tournament: R_TOURN }));
+    });
+
+    it("a tournament 'none' Tournament route silences recaps; an id routes them; its own recaps route wins", async () => {
+        expect(await resolveAnnouncementChannelId(roomId, null, 'recaps', tr({ tournament: 'none' }))).toBeNull();
+        expect(await resolveAnnouncementChannelId(roomId, null, 'recaps', tr({ tournament: T_TOURN }))).toBe(T_TOURN);
+        expect(await resolveAnnouncementChannelId(roomId, null, 'recaps', tr({ tournament: 'none', recaps: T_SCORES }))).toBe(T_SCORES);
+        expect(await resolveAnnouncementChannelId(roomId, null, 'recaps', tr({ picks: T_SCORES }))).toBe(R_TOURN);
+    });
+
+    it('scores is unchanged: the tournament Tournament route does not carry it', async () => {
+        expect(await resolveAnnouncementChannelId(roomId, null, 'scores', tr({ tournament: 'none' }))).toBe(R_TOURN);
+    });
+});
+
 describe('API + service round-trip of discord_announce_routes', () => {
     it("the schema canonicalises the value, garbage becomes '', and 'none' is a valid catch-all", () => {
         const base = {

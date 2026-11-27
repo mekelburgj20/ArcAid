@@ -1,6 +1,7 @@
 import { getDatabase } from '../database/database.js';
 import { isGoogleUserId, isDiscordUserId } from '../utils/identityProvider.js';
 import { containsBlockedTerm } from '../utils/contentBlocklist.js';
+import { bumpRecapPrefsVersion } from './PreferencesService.js';
 
 /**
  * Google<->Discord canonical-identity linking (v2.36.0).
@@ -99,6 +100,7 @@ export class IdentityLinkService {
             'DELETE FROM user_identity_links WHERE provider_user_id = ?',
             providerUserId,
         );
+        if ((result.changes ?? 0) > 0) bumpRecapPrefsVersion();
         return (result.changes ?? 0) > 0;
     }
 
@@ -343,6 +345,7 @@ export class IdentityLinkService {
             }
 
             await db.exec('COMMIT');
+            bumpRecapPrefsVersion();
         } catch (err) {
             await db.exec('ROLLBACK');
             throw err;

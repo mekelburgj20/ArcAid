@@ -1,5 +1,6 @@
 import { isProviderUserId } from '../utils/identityProvider.js';
 import { getDatabase } from '../database/database.js';
+import { sqliteLower } from '../utils/sqliteLower.js';
 import { PreferencesService } from './PreferencesService.js';
 import { RunRecapService } from './RunRecapService.js';
 import type {
@@ -52,7 +53,7 @@ export class RunRollupService {
             );
             keys = [];
             if (mapping?.discord_user_id) keys.push(mapping.discord_user_id);
-            keys.push(`iscored:${identifier.toLowerCase()}`);
+            keys.push(`iscored:${sqliteLower(identifier)}`);
         }
 
         const { runs, refs } = await RunRecapService.summarizeRuns(roomId, { keys });

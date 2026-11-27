@@ -42,7 +42,16 @@ export default function SeasonRecapView({ roomId, slug, tournamentId }: { roomId
   }, [roomId, tournamentId, load]);
 
   if (phase === 'retrying') return <LoadFailedNotice what="the season recap" onRetry={load} testId="season-recap-load-failed" />;
-  if (!recap) return <LoadingState message="Loading the season..." />;
+  if (!recap) {
+    if (phase === 'ready') {
+      return (
+        <EmptyState title="No recap here">
+          This season's numbers are not available to you, or the tournament was not found.
+        </EmptyState>
+      );
+    }
+    return <LoadingState message="Loading the season..." />;
+  }
 
   if (recap.runs === 0 && recap.live_runs === 0) {
     return (

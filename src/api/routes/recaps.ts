@@ -53,9 +53,8 @@ router.get('/rooms/:roomId/tournaments/:tournamentId/runs/live', roomVisibilityG
 // ===== B31.3: player and table runs (B31.3 inserts here) =====
 router.get('/rooms/:roomId/players/:identifier/runs', roomVisibilityGate, async (req, res) => {
     try {
-        let identifier: string;
-        try { identifier = decodeURIComponent(req.params.identifier as string); } catch { return res.status(404).json({ error: 'Player not found' }); }
-        res.json(await RunRollupService.playerRuns(req.params.roomId as string, identifier));
+        // Express 5 has already decoded the segment; decoding again turns a literal "100% Pin" into a 404.
+        res.json(await RunRollupService.playerRuns(req.params.roomId as string, req.params.identifier as string));
     } catch (error) {
         logError('API Error (GET rooms/:roomId/players/:identifier/runs):', error);
         res.status(500).json({ error: 'Internal Server Error' });
@@ -64,9 +63,7 @@ router.get('/rooms/:roomId/players/:identifier/runs', roomVisibilityGate, async 
 
 router.get('/rooms/:roomId/tables/:gameName/runs', roomVisibilityGate, async (req, res) => {
     try {
-        let gameName: string;
-        try { gameName = decodeURIComponent(req.params.gameName as string); } catch { return res.status(404).json({ error: 'Table not found' }); }
-        res.json(await RunRollupService.tableRuns(req.params.roomId as string, gameName));
+        res.json(await RunRollupService.tableRuns(req.params.roomId as string, req.params.gameName as string));
     } catch (error) {
         logError('API Error (GET rooms/:roomId/tables/:gameName/runs):', error);
         res.status(500).json({ error: 'Internal Server Error' });

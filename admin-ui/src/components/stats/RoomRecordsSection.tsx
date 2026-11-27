@@ -32,7 +32,16 @@ export default function RoomRecordsSection({ roomId, slug }: { roomId: string; s
   }, [roomId, load]);
 
   if (phase === 'retrying') return <LoadFailedNotice what="the records" onRetry={load} testId="room-records-load-failed" />;
-  if (!data) return <LoadingState message="Loading the records..." />;
+  if (!data) {
+    if (phase === 'ready') {
+      return (
+        <EmptyState title="No records available">
+          This room's records are not available to you right now.
+        </EmptyState>
+      );
+    }
+    return <LoadingState message="Loading the records..." />;
+  }
 
   if (data.records.length === 0) {
     return (
