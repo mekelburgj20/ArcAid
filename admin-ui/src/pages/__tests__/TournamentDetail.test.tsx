@@ -71,6 +71,12 @@ const WEEK = {
   has_newer: false, has_older: false,
 };
 
+/** The By the numbers view's season recap (SeasonRecapView.test.tsx pins its content). */
+const SEASON = {
+  tournament: { id: 't-1', name: 'Daily Grind', type: 'DG', format: 'rotation', is_active: true },
+  runs: 1, live_runs: 0, players: [], standings: [], awards: [],
+};
+
 const TOURNAMENTS = [
   { id: 't-old', name: 'Spring Cup', is_active: 0 },
   { id: 't-1', name: 'Daily Grind', is_active: 1 },
@@ -95,6 +101,8 @@ function stubFetch() {
     });
     if (url.includes('/scores')) return j(scores.body, scores.status);
     if (url.includes('/history?')) return j(WEEK);
+    // Only the season recap; a run's recap (`/runs/:id/recap`) falls through to 404.
+    if (url.includes('/tournaments/t-1/recap')) return j(SEASON);
     if (url.endsWith('/tournaments')) return j(TOURNAMENTS);
     return j(null, 404);
   });
@@ -183,6 +191,15 @@ describe('TournamentDetail', () => {
       expect(screen.getByRole('button', { name: 'Runs' })).toHaveAttribute('aria-pressed', 'true');
     });
 
+    it('?run=x&recap=1 shows the run recap in place of the feed; its back link drops recap', async () => {
+      renderPage('?run=g-who-2&recap=1');
+      await screen.findByText('This run has no recap');
+      expect(fetched('/runs/g-who-2/recap')).toHaveLength(1);
+      expect(fetched('/history?')).toHaveLength(0);
+      fireEvent.click(screen.getByRole('link', { name: /All runs/ }));
+      await waitFor(() => expect(location()).toBe('/test-room/tournaments/t-1?run=g-who-2'));
+    });
+
     it('a ?run= deep link reaches the feed', async () => {
       renderPage('?run=g-who-2');
       await screen.findAllByTestId('run-card');
@@ -238,6 +255,15 @@ describe('TournamentDetail', () => {
       expect(location()).toBe('/test-room/tournaments/t-1?view=tables');
       fireEvent.click(screen.getByRole('button', { name: 'Runs' }));
       expect(location()).toBe('/test-room/tournaments/t-1');
+    });
+
+    it('the By the numbers tab opens the season recap (?view=numbers)', async () => {
+      renderPage();
+      await screen.findAllByTestId('run-card');
+      fireEvent.click(screen.getByRole('button', { name: 'By the numbers' }));
+      expect(location()).toBe('/test-room/tournaments/t-1?view=numbers');
+      expect(await screen.findByTestId('season-recap')).toBeInTheDocument();
+      expect(fetched('/recap')).toEqual(['/api/rooms/room-1/tournaments/t-1/recap']);
     });
   });
 });

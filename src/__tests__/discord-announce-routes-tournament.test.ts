@@ -33,8 +33,11 @@ const T_SCORES = '777777777777777777';
 const tr = (routes: Record<string, unknown>) => JSON.stringify({ version: 1, routes });
 
 describe('ANNOUNCE_KINDS', () => {
-    it('has the fourth kind, Top-score posts', () => {
-        expect(ANNOUNCE_KINDS.map(k => k.kind)).toEqual(['tournament', 'picks', 'polls', 'scores']);
+    it('has the fourth and fifth kinds, Top-score posts and Run recaps', () => {
+        expect(ANNOUNCE_KINDS.map(k => k.kind)).toEqual(['tournament', 'picks', 'polls', 'scores', 'recaps']);
+        expect(ANNOUNCE_KINDS.find(k => k.kind === 'recaps')).toMatchObject({
+            label: 'Run recaps', description: 'By-the-numbers recap when a run ends',
+        });
         expect(ANNOUNCE_KINDS.find(k => k.kind === 'scores')).toMatchObject({
             label: 'Top-score posts', description: 'Glory and dethrone posts for top-N scores',
         });
@@ -42,18 +45,18 @@ describe('ANNOUNCE_KINDS', () => {
 
     it("the room parser reads a scores route and never accepts 'none'", () => {
         expect(parseAnnounceRoutes(tr({ scores: R_SCORES, picks: 'none' })))
-            .toEqual({ tournament: null, picks: null, polls: null, scores: R_SCORES });
+            .toEqual({ tournament: null, picks: null, polls: null, scores: R_SCORES, recaps: null });
     });
 });
 
 describe('parseTournamentAnnounceRoutes / serializeTournamentAnnounceRoutes', () => {
     it("accepts snowflakes and 'none'", () => {
         expect(parseTournamentAnnounceRoutes(tr({ tournament: T_TOURN, picks: 'none', scores: ' none ' })))
-            .toEqual({ tournament: T_TOURN, picks: 'none', polls: null, scores: 'none' });
+            .toEqual({ tournament: T_TOURN, picks: 'none', polls: null, scores: 'none', recaps: null });
     });
 
     it('tolerant: garbage is empty, never a throw', () => {
-        const empty = { tournament: null, picks: null, polls: null, scores: null };
+        const empty = { tournament: null, picks: null, polls: null, scores: null, recaps: null };
         for (const raw of [null, undefined, '', '{oops', '[]', '"x"', tr({ picks: 'general' }),
             JSON.stringify({ version: 2, routes: { picks: T_TOURN } }), JSON.stringify({ version: 1, routes: [T_TOURN] })]) {
             expect(parseTournamentAnnounceRoutes(raw as string | null | undefined)).toEqual(empty);
@@ -125,6 +128,15 @@ describe('resolveAnnouncementChannelId precedence with tournament routes', () =>
         }
     });
 
+    it('recaps: own room route, else the room tournament route, else room default', async () => {
+        expect(await resolveAnnouncementChannelId(roomId, null, 'recaps')).toBe(R_TOURN);
+        await setSetting(DISCORD_ANNOUNCE_ROUTES_KEY, tr({ tournament: R_TOURN, recaps: R_SCORES }));
+        expect(await resolveAnnouncementChannelId(roomId, null, 'recaps')).toBe(R_SCORES);
+        await setSetting(DISCORD_ANNOUNCE_ROUTES_KEY, tr({ picks: R_PICKS }));
+        expect(await resolveAnnouncementChannelId(roomId, null, 'recaps')).toBe(DEFAULT);
+        expect(await resolveAnnouncementChannelId(roomId, 'none', 'recaps')).toBeNull();
+    });
+
     it('scores: room scores route, else the room tournament route, else room default, else env', async () => {
         expect(await resolveAnnouncementChannelId(roomId, null, 'scores')).toBe(R_TOURN);
         await setSetting(DISCORD_ANNOUNCE_ROUTES_KEY, tr({ tournament: R_TOURN, scores: R_SCORES }));
@@ -142,6 +154,29 @@ describe('resolveAnnouncementChannelId precedence with tournament routes', () =>
     it('scores: a tournament catch-all beats the room routes; a per-kind tournament route does not leak to scores', async () => {
         expect(await resolveAnnouncementChannelId(roomId, CATCH, 'scores')).toBe(CATCH);
         expect(await resolveAnnouncementChannelId(roomId, null, 'scores', tr({ tournament: T_TOURN }))).toBe(R_TOURN);
+    });
+});
+
+describe('recaps ride the tournament own Tournament posts route (B31.5)', () => {
+    let roomId: string;
+    beforeEach(async () => {
+        await setupTestDb();
+        roomId = await createTestRoom();
+        delete process.env.DISCORD_ANNOUNCEMENT_CHANNEL_ID;
+        const db = await getDatabase();
+        await db.run(`INSERT OR REPLACE INTO game_room_settings (game_room_id, key, value) VALUES (?, ?, ?)`,
+            roomId, DISCORD_ANNOUNCE_ROUTES_KEY, tr({ tournament: R_TOURN }));
+    });
+
+    it("a tournament 'none' Tournament route silences recaps; an id routes them; its own recaps route wins", async () => {
+        expect(await resolveAnnouncementChannelId(roomId, null, 'recaps', tr({ tournament: 'none' }))).toBeNull();
+        expect(await resolveAnnouncementChannelId(roomId, null, 'recaps', tr({ tournament: T_TOURN }))).toBe(T_TOURN);
+        expect(await resolveAnnouncementChannelId(roomId, null, 'recaps', tr({ tournament: 'none', recaps: T_SCORES }))).toBe(T_SCORES);
+        expect(await resolveAnnouncementChannelId(roomId, null, 'recaps', tr({ picks: T_SCORES }))).toBe(R_TOURN);
+    });
+
+    it('scores is unchanged: the tournament Tournament route does not carry it', async () => {
+        expect(await resolveAnnouncementChannelId(roomId, null, 'scores', tr({ tournament: 'none' }))).toBe(R_TOURN);
     });
 });
 

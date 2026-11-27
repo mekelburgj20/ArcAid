@@ -26,7 +26,7 @@
 
 export const DISCORD_ANNOUNCE_ROUTES_KEY = 'DISCORD_ANNOUNCE_ROUTES';
 
-export type AnnounceKind = 'tournament' | 'picks' | 'polls' | 'scores';
+export type AnnounceKind = 'tournament' | 'picks' | 'polls' | 'scores' | 'recaps';
 
 /** Label + description per kind; the Room Settings rows and the tournament form mirror this copy. */
 export const ANNOUNCE_KINDS: ReadonlyArray<{ kind: AnnounceKind; label: string; description: string }> = [
@@ -34,6 +34,7 @@ export const ANNOUNCE_KINDS: ReadonlyArray<{ kind: AnnounceKind; label: string; 
     { kind: 'picks', label: 'Pick prompts and warnings', description: 'Pick Needed, reminders, timeouts, nothing queued' },
     { kind: 'polls', label: 'Polls', description: 'Season polls and their notices' },
     { kind: 'scores', label: 'Top-score posts', description: 'Glory and dethrone posts for top-N scores' },
+    { kind: 'recaps', label: 'Run recaps', description: 'By-the-numbers recap when a run ends' },
 ];
 
 export type AnnounceRoutes = Record<AnnounceKind, string | null>;
@@ -44,7 +45,7 @@ export const ANNOUNCE_ROUTE_NONE = 'none';
 /** Same snowflake shape `discordCommandPolicy.ts` accepts. */
 const SNOWFLAKE_RE = /^\d{5,25}$/;
 
-const EMPTY: AnnounceRoutes = { tournament: null, picks: null, polls: null, scores: null };
+const EMPTY: AnnounceRoutes = { tournament: null, picks: null, polls: null, scores: null, recaps: null };
 
 function readRoutes(raw: string | null | undefined, allowNone: boolean): AnnounceRoutes {
     const out: AnnounceRoutes = { ...EMPTY };

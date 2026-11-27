@@ -67,6 +67,10 @@ let recapPrefsVersion = 0;
 export function getRecapPrefsVersion(): number {
     return recapPrefsVersion;
 }
+/** Also bump on any identity change (account link/unlink, alias link/unlink): it moves who a recap's privacy applies to. */
+export function bumpRecapPrefsVersion(): void {
+    recapPrefsVersion++;
+}
 
 export class PreferencesService {
     static async getTheme(discordUserId: string): Promise<ThemeId | null> {
@@ -224,7 +228,7 @@ export class PreferencesService {
              ON CONFLICT(discord_user_id) DO UPDATE SET recap_play_stats = excluded.recap_play_stats`,
             userId, shown ? 1 : 0,
         );
-        recapPrefsVersion++;
+        bumpRecapPrefsVersion();
     }
 
     /** Run recaps: time-of-day figures (Night owl, per-game clock times). Off by default. */
@@ -241,7 +245,7 @@ export class PreferencesService {
              ON CONFLICT(discord_user_id) DO UPDATE SET recap_time_of_day = excluded.recap_time_of_day`,
             userId, on ? 1 : 0,
         );
-        recapPrefsVersion++;
+        bumpRecapPrefsVersion();
     }
 
     /**

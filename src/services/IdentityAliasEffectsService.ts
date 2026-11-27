@@ -1,6 +1,7 @@
 import { getDatabase } from '../database/database.js';
 import { logError, logInfo } from '../utils/logger.js';
 import { trackBackground } from '../utils/backgroundTasks.js';
+import { bumpRecapPrefsVersion } from './PreferencesService.js';
 
 /**
  * The ONE place that knows what happens when an iScored alias becomes — or
@@ -74,6 +75,9 @@ const FREEZE_GATE = `(submitted_during_tournament_id IS NULL
  * rows for the same reason.
  */
 export async function invalidateIdentityCaches(): Promise<void> {
+    // B31: the room-records cache watermark is over counts/sums too; re-attribution
+    // (an AtGames link, a merge, any caller here) must invalidate it as well.
+    bumpRecapPrefsVersion();
     try {
         const { LeaderboardService } = await import('./LeaderboardService.js');
         LeaderboardService.invalidateAll();
@@ -137,6 +141,7 @@ export class IdentityAliasEffectsService {
             throw err;
         }
 
+        bumpRecapPrefsVersion();
         if (result.rowsAttributed > 0) await invalidateIdentityCaches();
 
         if (result.membersFolded > 0 || result.rowsAttributed > 0) {
@@ -222,6 +227,7 @@ export class IdentityAliasEffectsService {
             throw err;
         }
 
+        bumpRecapPrefsVersion();
         if (rowsReanonymized > 0) {
             await invalidateIdentityCaches();
             logInfo(

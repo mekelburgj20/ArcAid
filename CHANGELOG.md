@@ -6,6 +6,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.282.0] - 2026-11-27 - Run recaps, part 2: "By the numbers" on the run, player, table, season and Stats pages, and in Discord (B31.2 to B31.5)
+
+### Added
+- **Every run has a "By the numbers" page.** A run card in History or on a tournament's Runs view has a "By the numbers" button. The page shows who won and with which game, a "Who led" chart with every lead change, a player table you can sort (games, average, median, best), the awards, games per day, and a Copy for Discord button that copies the recap ready to paste. Press a player for their own run: every game in order with personal bests marked, their sessions, and (if they turned on "Show when I play") the time of each game. A run still going shows the same page "so far", reached from the chips above the run cards. On a phone the table keeps Games and Best; the average and median are in each player's sheet.
+- **Player pages have a "Runs" list:** each run they played, with games, average, best and which game it was, and where they finished ("1st of 11"). Each line opens that run's recap.
+- **Table pages have "Runs of this table":** how many runs, the typical winning score, the median game, the most games anyone played in one run, and the recent runs.
+- **A tournament's "By the numbers" tab** sums up the season: runs finished, awards (most runs won, played every table, most games, closest finish, most lead changes, biggest comeback, biggest winning margin, each linking to its run) and a standings table of runs played, won, podiums and games.
+- **Stats has a "Room" tab** with the room's records: longest streak, most games in one run, most lead changes, biggest comeback and closest finish, each linking to its run.
+- **Run recaps can post themselves to Discord.** Room Settings → Discord → "Post run recaps to Discord", off by default. About ten minutes after a run ends (so late Witness reports count), the bot posts its recap once, to a new "Run recaps" row under Announcement channels or, if that isn't set, wherever the tournament's own posts go; a tournament set to "Don't post" stays quiet. A long recap goes out as up to three messages split between sections; in a forum it is one post titled "<table> by the numbers" with the rest in its thread. Nothing pings. A run that ended more than six hours before the switch was turned on is not posted.
+
+### Changed
+- Players who keep their play stats private show only their best score and finishing place everywhere above, and their games never count in a total, a median, a record or an award.
+
+### Technical
+- `RunRollupService` (`GET /api/rooms/:roomId/players/:identifier/runs`, `/tables/:gameName/runs`) and `SeasonRecapService` (`/tournaments/:tournamentId/recap`, `/stats/records`) reduce `RunRecapService.summarizeRuns`; a player's runs pre-select only the runs their keys played. Room records are cached per room behind a watermark (scores, closed runs, and `getRecapPrefsVersion()`, which every preference change and every identity change through `invalidateIdentityCaches`, link and unlink now bump), names resolved after the cache read. `src/utils/sqliteLower.ts` folds names exactly like SQLite's ASCII-only `LOWER()`.
+- `RunRecapPostService.sweep` runs every minute from `Scheduler` (claim in `run_recap_posts` with `INSERT OR IGNORE`, settle 10 min, max age 6 h); `'recaps'` is the fifth announce kind (`discordAnnounceRoutes.ts` ≡ `lib/announceRoutes.ts`), falling back to the tournament's own Tournament posts route, then the room's. Setting `DISCORD_RUN_RECAPS_ENABLED`. A failed send is an Activity row through `sendChannelMessage`; posts and skips live in the ledger.
+- Front end: `components/recap/` (RunRecapView and its parts, PlayerRunsList, TableRunsPanel, SeasonRecapView), `components/stats/RoomStatsView` (B7's Room Stats sections go below Records), `lib/chartScale.ts` (moved out of ScoreHistoryChart, no change). `TournamentDetail`: `?run=<id>&recap=1` and `?view=numbers`; `PublicStats`: `?view=room`.
+
+---
+
 ## [2.281.0] - 2026-11-26 - Run recaps, part 1: the numbers behind "By the numbers" (B31.1)
 
 ### Added

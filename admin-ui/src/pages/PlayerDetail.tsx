@@ -16,6 +16,7 @@ import { PlayerAvatar } from '../components/ScoreboardComponents';
 import { gameArtFor } from '../lib/gameArt';
 import { roomFetch } from '../lib/roomFetch';
 import RoomNoticeSlot from '../components/RoomNoticeSlot';
+import PlayerRunsList from '../components/recap/PlayerRunsList';
 
 interface Achievements {
   tournamentWins: number;
@@ -518,6 +519,8 @@ export default function PlayerDetail() {
             </div>
           </div>
         )}
+
+        {roomId && slug && id && <PlayerRunsList roomId={roomId} slug={slug} identifier={id} />}
 
         {/* Personal Bests */}
         <PersonalBestsSection personalBests={stats.personalBests} slug={slug} gameArt={stats.gameArt} />

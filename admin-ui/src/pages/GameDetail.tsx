@@ -42,6 +42,7 @@ import {
 } from '../lib/attemptStarts';
 import { roomFetch } from '../lib/roomFetch';
 import { useRetryingLoad } from '../hooks/useRetryingLoad';
+import TableRunsPanel from '../components/recap/TableRunsPanel';
 import { isTransientStatus } from '../lib/loadRetry';
 import LoadFailedNotice from '../components/LoadFailedNotice';
 import RoomNoticeSlot from '../components/RoomNoticeSlot';
@@ -1819,6 +1820,8 @@ export default function GameDetail() {
                 <p className="text-muted text-sm">{stats.allTimeHigh.toLocaleString()} points</p>
               </div>
             )}
+
+            {roomId && slug && name && <TableRunsPanel roomId={roomId} slug={slug} gameName={name} />}
 
             {/* Past Results */}
             {stats && stats.recentResults.length > 0 && (

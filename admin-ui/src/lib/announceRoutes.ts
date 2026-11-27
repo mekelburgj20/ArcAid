@@ -6,13 +6,14 @@
  * through its own parser on save, so this side only has to be shape-correct.
  */
 
-export type AnnounceKind = 'tournament' | 'picks' | 'polls' | 'scores';
+export type AnnounceKind = 'tournament' | 'picks' | 'polls' | 'scores' | 'recaps';
 
 export const ANNOUNCE_KINDS: ReadonlyArray<{ kind: AnnounceKind; label: string; description: string }> = [
   { kind: 'tournament', label: 'Tournament posts', description: 'Now Active, winners, season standings, event rounds' },
   { kind: 'picks', label: 'Pick prompts and warnings', description: 'Pick Needed, reminders, timeouts, nothing queued' },
   { kind: 'polls', label: 'Polls', description: 'Season polls and their notices' },
   { kind: 'scores', label: 'Top-score posts', description: 'Glory and dethrone posts for top-N scores' },
+  { kind: 'recaps', label: 'Run recaps', description: 'By-the-numbers recap when a run ends' },
 ];
 
 /** The per-kind "don't post" value, and the whole-tournament one in `discord_channel_id`. */

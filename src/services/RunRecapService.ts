@@ -3,6 +3,7 @@ import { logWarn } from '../utils/logger.js';
 import { gameRunWindowByIdSql, gameRunWindowSql } from '../utils/gameRunWindow.js';
 import { openCardSql } from '../utils/openCard.js';
 import { nextRotationIso } from '../utils/cronUtils.js';
+import { sqliteLower } from '../utils/sqliteLower.js';
 import { resolveTimezone, roomTimezone, roomTimezonesFor } from '../utils/roomTimezone.js';
 import { normalizeWitnessFlagMode, type WitnessFlagMode } from '../utils/witnessFlagMode.js';
 import { tournamentRunRecapUrl } from '../utils/publicLinks.js';
@@ -134,7 +135,7 @@ function standingsFrom(entries: RankedEntry[], rows: RecapScoreRow[]): { standin
     const refs = new Map<string, RecapPlayerRef>();
     for (const e of entries) {
         const row = e.history_id != null ? byHistory.get(e.history_id) : undefined;
-        const key = row?.key ?? e.submitted_by_user_id ?? `iscored:${e.iscored_username.toLowerCase()}`;
+        const key = row?.key ?? e.submitted_by_user_id ?? `iscored:${sqliteLower(e.iscored_username)}`;
         if (refs.has(key)) continue;
         refs.set(key, refOf(key, e));
         standings.push({ key, rank: e.rank, history_id: e.history_id ?? null, score: e.score, created_at: row?.created_at ?? null });
@@ -335,7 +336,35 @@ export class RunRecapService {
         const rowsByRun = new Map<string, RecapScoreRow[]>();
 
         // Rotation runs: one query for every run's rows (the board's join, RankingService.computeRankings).
-        const rotation = ctxs.filter(c => !c.isEventRound);
+        let rotation = ctxs.filter(c => !c.isEventRound);
+        let runIdSql = '';
+        const runIdParams: string[] = [];
+        if (filter.keys?.length && rotation.length > 0) {
+            // Pre-select the runs where any wanted key has a row (the row key is built exactly as in the
+            // rows query below); each matching run is then computed from ALL of its rows.
+            const hit = await db.all<Array<{ run_id: string }>>(
+                `SELECT DISTINCT g.id AS run_id
+                   FROM games g
+                   JOIN tournaments t ON t.id = g.tournament_id
+                   JOIN score_history sh
+                     ON sh.game_room_id = t.game_room_id
+                    AND sh.submitted_during_tournament_id = g.tournament_id
+                    AND LOWER(sh.game_name) = LOWER(g.name)
+                    AND sh.orphaned_at IS NULL
+                    AND ${gameRunWindowSql('sh', 'g')}
+                  WHERE t.game_room_id = ?
+                    AND g.status IN (${statuses.map(() => '?').join(',')})
+                    AND NOT (t.format = 'event' AND g.round_no IS NOT NULL)${extra}
+                    AND COALESCE(sh.submitted_by_user_id, 'iscored:' || LOWER(sh.iscored_username)) IN (${filter.keys.map(() => '?').join(',')})`,
+                ...params, ...filter.keys,
+            );
+            const ids = new Set(hit.map(h => h.run_id));
+            rotation = rotation.filter(c => ids.has(c.gameId));
+            if (rotation.length > 0) {
+                runIdSql = ` AND g.id IN (${rotation.map(() => '?').join(',')})`;
+                runIdParams.push(...rotation.map(c => c.gameId));
+            }
+        }
         if (rotation.length > 0) {
             const all = await db.all<RawRow[]>(
                 `SELECT g.id AS run_id, sh.id AS history_id,
@@ -351,8 +380,8 @@ export class RunRecapService {
                     AND ${gameRunWindowSql('sh', 'g')}
                   WHERE t.game_room_id = ?
                     AND g.status IN (${statuses.map(() => '?').join(',')})
-                    AND NOT (t.format = 'event' AND g.round_no IS NOT NULL)${extra}`,
-                ...params,
+                    AND NOT (t.format = 'event' AND g.round_no IS NOT NULL)${extra}${runIdSql}`,
+                ...params, ...runIdParams,
             );
             for (const r of all) {
                 const list = rowsByRun.get(r.run_id!);

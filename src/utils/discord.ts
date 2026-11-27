@@ -560,6 +560,7 @@ export async function guildInteractionBlockReason(guildId: string): Promise<stri
  *      `parseTournamentAnnounceRoutes`): `'none'` → null, a snowflake → it;
  *   3. the tournament's catch-all `discord_channel_id`: `'none'` → null
  *      (v2.140.0), a snowflake → it;
+ *      for `recaps` with no route of its own, the tournament's own `tournament` route first (B31.5);
  *   4. the room's `DISCORD_ANNOUNCE_ROUTES` route for `kind` (v2.221.0, E8);
  *      for `scores` with no route, the room's `tournament` route;
  *   5. per-room `DISCORD_ANNOUNCEMENT_CHANNEL_ID`;
@@ -583,6 +584,13 @@ export async function resolveAnnouncementChannelId(
     const perKind = parseTournamentAnnounceRoutes(tournamentRoutes)[kind];
     if (perKind === ANNOUNCE_NONE) return null;
     if (perKind) return perKind;
+    // B31.5 — a run recap with no route of its own rides the tournament's OWN Tournament posts route
+    // (so a tournament set to "Don't post" / its own channel keeps its recaps there). `scores` does not (owner ruling).
+    if (kind === 'recaps') {
+        const own = parseTournamentAnnounceRoutes(tournamentRoutes).tournament;
+        if (own === ANNOUNCE_NONE) return null;
+        if (own) return own;
+    }
     // v2.140.0 — 'none' is the per-tournament "don't announce" sentinel. It
     // exists because an EMPTY channel id means "fall back to the room's
     // announcement channel", so before this there was no way to run a quiet
@@ -596,8 +604,8 @@ export async function resolveAnnouncementChannelId(
     if (tournamentChannelId) return tournamentChannelId;
     if (gameRoomId) {
         const roomRoutes = parseAnnounceRoutes(await GameRoomSettingsService.get(gameRoomId, DISCORD_ANNOUNCE_ROUTES_KEY));
-        // Top-score posts ride the Tournament posts route unless given their own.
-        const route = roomRoutes[kind] ?? (kind === 'scores' ? roomRoutes.tournament : null);
+        // Top-score posts and run recaps ride the Tournament posts route unless given their own.
+        const route = roomRoutes[kind] ?? ((kind === 'scores' || kind === 'recaps') ? roomRoutes.tournament : null);
         if (route) return route;
         const perRoom = await GameRoomSettingsService.get(gameRoomId, 'DISCORD_ANNOUNCEMENT_CHANNEL_ID');
         if (perRoom) return perRoom;

@@ -85,7 +85,10 @@ describe('DiscordAnnounceRoutes', () => {
     expect(scores.value).toBe('');
     expect(within(scores).getAllByRole('option')[0]).toHaveTextContent('Same as Tournament posts');
     expect(screen.getByText('Glory and dethrone posts for top-N scores')).toBeInTheDocument();
-    expect(screen.getByText('Same as Tournament posts unless set.')).toBeInTheDocument();
+    expect(screen.getAllByText('Same as Tournament posts unless set.')).toHaveLength(2);
+    const recaps = screen.getByLabelText('Run recaps') as HTMLSelectElement;
+    expect(recaps.value).toBe('');
+    expect(screen.getByText('By-the-numbers recap when a run ends')).toBeInTheDocument();
     await within(scores).findByRole('option', { name: '#lu-tourney-talk' });
     fireEvent.change(scores, { target: { value: TALK } });
     expect(JSON.parse((onSaveNow.mock.calls[0][0] as Record<string, string>)[DISCORD_ANNOUNCE_ROUTES_KEY]))

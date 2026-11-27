@@ -13,6 +13,7 @@ import { useRetryingLoad } from '../hooks/useRetryingLoad';
 import { isTransientStatus } from '../lib/loadRetry';
 import LoadFailedNotice from '../components/LoadFailedNotice';
 import RoomNoticeSlot from '../components/RoomNoticeSlot';
+import RoomStatsView from '../components/stats/RoomStatsView';
 
 interface PlayerSummary {
   /** Arcaid profile username (v2.141.1) — searchable, never displayed here. */
@@ -53,7 +54,7 @@ interface TournamentOption {
   type: string;
 }
 
-type View = 'players' | 'games';
+type View = 'players' | 'games' | 'room';
 
 function abbreviateScore(n: number): string {
   if (n >= 1_000_000_000_000) return `${(n / 1_000_000_000_000).toFixed(1)}T`;
@@ -72,7 +73,8 @@ function formatRelative(iso: string | null): string {
 export default function PublicStats() {
   const { slug } = useParams<{ slug: string }>();
   const [params, setParams] = useSearchParams();
-  const view: View = params.get('view') === 'games' ? 'games' : 'players';
+  const viewParam = params.get('view');
+  const view: View = viewParam === 'games' ? 'games' : viewParam === 'room' ? 'room' : 'players';
 
   // v2.9x — tournament-type + time-window filters. URL-stated (shareable,
   // survives reload): `type` is a single tournament type (e.g. "DG") or
@@ -174,11 +176,11 @@ export default function PublicStats() {
     loadOverview();
   }, [roomId, suffix, loadPlayers, loadGames, loadOverview]);
   // The spinner belongs to the view on screen; the other view's read keeps going.
-  const loading = (view === 'players' ? playersPhase : gamesPhase) === 'loading';
+  const loading = view !== 'room' && (view === 'players' ? playersPhase : gamesPhase) === 'loading';
 
   const setView = (v: View) => {
     const next = new URLSearchParams(params);
-    if (v === 'games') next.set('view', 'games');
+    if (v !== 'players') next.set('view', v);
     else next.delete('view');
     setParams(next, { replace: true });
   };
@@ -300,6 +302,17 @@ export default function PublicStats() {
               <Gamepad2 size={12} />
               Games
             </button>
+            <button
+              role="tab"
+              aria-selected={view === 'room'}
+              onClick={() => setView('room')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs transition-colors cursor-pointer ${
+                view === 'room' ? 'bg-lead/10 ink-lead' : 'text-muted hover:text-primary'
+              }`}
+            >
+              <Trophy size={12} />
+              Room
+            </button>
             <Link
               to={`/${slug}/history`}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs transition-colors text-muted hover:text-primary no-underline"
@@ -309,13 +322,15 @@ export default function PublicStats() {
             </Link>
           </div>
         </div>
-        <input
-          type="text"
-          placeholder={view === 'players' ? 'Search players...' : 'Search games...'}
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          className="bg-raised border border-border rounded px-3 py-2 text-sm text-primary placeholder-faint focus:border-neon-cyan focus:outline-none w-full sm:w-60"
-        />
+        {view !== 'room' && (
+          <input
+            type="text"
+            placeholder={view === 'players' ? 'Search players...' : 'Search games...'}
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="bg-raised border border-border rounded px-3 py-2 text-sm text-primary placeholder-faint focus:border-neon-cyan focus:outline-none w-full sm:w-60"
+          />
+        )}
       </div>
 
       <RoomNoticeSlot className="px-4 sm:px-6 lg:px-10" />
@@ -323,6 +338,7 @@ export default function PublicStats() {
       {/* v2.9x — tournament-type + time-window filters. Applies to both
           Players and Games views (composes: type AND window). URL-stated —
           see the param handling above. */}
+      {view !== 'room' && (
       <div className="px-4 sm:px-6 lg:px-10 pb-4 flex flex-col gap-2">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-[10px] uppercase tracking-wider text-faint mr-1">Type</span>
@@ -380,9 +396,12 @@ export default function PublicStats() {
           )}
         </div>
       </div>
+      )}
 
       <main className="px-4 sm:px-6 lg:px-10 py-6">
-        {loading ? (
+        {view === 'room' ? (
+          <RoomStatsView roomId={roomId} slug={slug || ''} />
+        ) : loading ? (
           <div className="flex justify-center py-12">
             <div className="w-8 h-8 border-2 border-neon-cyan/30 border-t-neon-cyan rounded-full animate-spin" />
           </div>
