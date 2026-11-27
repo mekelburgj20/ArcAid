@@ -75,6 +75,9 @@ const FREEZE_GATE = `(submitted_during_tournament_id IS NULL
  * rows for the same reason.
  */
 export async function invalidateIdentityCaches(): Promise<void> {
+    // B31: the room-records cache watermark is over counts/sums too; re-attribution
+    // (an AtGames link, a merge, any caller here) must invalidate it as well.
+    bumpRecapPrefsVersion();
     try {
         const { LeaderboardService } = await import('./LeaderboardService.js');
         LeaderboardService.invalidateAll();
