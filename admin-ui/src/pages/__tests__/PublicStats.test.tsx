@@ -15,11 +15,21 @@ const GAMES = [
   { name: 'Funhouse', submissions: 2, players: 2, top_score: 10, last_activity: null, image_url: null },
 ];
 
+const RECORDS = {
+  players: [{ key: 'u1', iscored_username: 'PeteG', display_name: 'Pete', discord_user_id: null, avatar_hash: null, avatar_url: null }],
+  records: [{
+    id: 'longest_streak', label: 'Longest streak', player_keys: ['u1'], value: 12, detail: '12 games in 55 minutes',
+    run: { game_id: 'g1', game_name: 'Godzilla', tournament_id: 't1', tournament_name: 'Weekly', end_date: null },
+  }],
+  generated_at: '2026-11-26T00:00:00.000Z',
+};
+
 beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn((url: string) => {
     const body = url.includes('/stats/enhanced/players') ? PLAYERS
       : url.includes('/stats/games-activity') ? GAMES
       : url.includes('/stats/overview') ? null
+      : url.includes('/stats/records') ? RECORDS
       : [];
     return Promise.resolve({ ok: true, json: () => Promise.resolve(body) });
   }) as unknown as typeof fetch);
@@ -55,5 +65,17 @@ describe('PublicStats â€” avatars and table art', () => {
     expect(within(row).getByTestId('game-art')).toHaveAttribute('src', '/api/catalogue-images/godzilla.png');
     const other = screen.getByText('Funhouse').closest('a')!;
     expect(within(other).getByTestId('game-art-fallback')).toHaveTextContent('FU');
+  });
+});
+
+describe('PublicStats — Room tab (B31.4)', () => {
+  it('the Room tab shows the records, hides the search box, and links each to its run recap', async () => {
+    renderStats();
+    await screen.findByAltText('Pete');
+    fireEvent.click(screen.getByRole('tab', { name: /Room/ }));
+    expect(await screen.findByTestId('room-record-longest_streak')).toBeInTheDocument();
+    expect(screen.getByText(/Pete/, { selector: '.part-row__cap' })).toHaveTextContent('12 games in 55 minutes');
+    expect(screen.queryByPlaceholderText(/Search/)).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Longest streak' })).toHaveAttribute('href', '/rtx/tournaments/t1?run=g1&recap=1');
   });
 });

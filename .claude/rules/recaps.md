@@ -47,7 +47,10 @@ Loads when you touch run recaps: `RunRecapService`, the recap routes, the Discor
 
 ## B31.4 — season recap and room records
 
-(placeholder: B31.4 fills this section)
+- **`SeasonRecapService` only REDUCES `RunRecapService.summarizeRuns`** (`seasonRecap(roomId, tournamentId)`, `roomRecords(roomId)`); it never queries score rows to compute a figure. Completed runs only. Hidden players already carry null games and are out of every run aggregate, so no volume award names them and their games are in no total; a standings line with a hidden player has `games: null`.
+- **Season awards** (`SEASON_MIN`): Most runs won (>= 2), Played every table (>= 3 runs; more than 3 players: empty `player_keys`, detail "N players"), Most games (>= 10 shown), Closest finish, Most lead changes (>= 3), Biggest comeback (>= 25%), Biggest winning margin. Player ties share up to 3, 4 or more omit the award. Run-level awards pick one run (a tie goes to the earliest finished) and carry a `run` link. Biggest margin is the same ratio as Closest finish read from the other end, so it is skipped when it would name the same run (owner Q2 default). `detail` never holds a name.
+- **Room records cache** is `Map<roomId, { watermark, value }>` and stores ids only. The watermark is `COUNT/MAX(id)/SUM(score)` of the room's `score_history` + count/last end of finished games + `getRecapPrefsVersion()` (a delete moves COUNT, a correction SUM, an opt-out the version). `resolveRefs` attaches names AFTER the cache read (one small lookup by key: `submitted_by_user_id`, else the `iscored:` alias row, else a `user_mappings` alias, then `resolveProfiles`), so a rename never needs a recompute. `clearRoomRecordsCache()` is for tests.
+- **UI:** `components/recap/SeasonRecapView.tsx` (tournament page, `?view=numbers`; also exports `namesOf`), `components/stats/RoomStatsView.tsx` (the Stats "Room" tab, `?view=room`; WORK.md B7 adds its sections BELOW `RoomRecordsSection`) and `RoomRecordsSection.tsx`. Names come from the response's `players` by key; a key is never rendered.
 
 ## B31.5 — post the recap to Discord when a run ends
 

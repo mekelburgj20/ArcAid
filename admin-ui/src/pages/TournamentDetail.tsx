@@ -10,6 +10,7 @@ import { RESULTS_PAGE } from '../lib/pageLayout';
 import { useRoom } from '../contexts/RoomContext';
 import { roomFetch } from '../lib/roomFetch';
 import RoomNoticeSlot from '../components/RoomNoticeSlot';
+import SeasonRecapView from '../components/recap/SeasonRecapView';
 
 /**
  * `/:slug/tournaments/:tournamentId` — one tournament's results.
@@ -151,7 +152,8 @@ export default function TournamentDetail() {
   const { tournamentId } = useParams<{ tournamentId: string }>();
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
-  const view: 'runs' | 'tables' = params.get('view') === 'tables' ? 'tables' : 'runs';
+  const viewParam = params.get('view');
+  const view: 'runs' | 'tables' | 'numbers' = viewParam === 'tables' ? 'tables' : viewParam === 'numbers' ? 'numbers' : 'runs';
   const [data, setData] = useState<TournamentScores | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
@@ -221,9 +223,9 @@ export default function TournamentDetail() {
 
   const { tournament, boards } = data;
   const range = dateRange(tournament.first_start, tournament.last_end);
-  const setView = (next: 'runs' | 'tables') => {
+  const setView = (next: 'runs' | 'tables' | 'numbers') => {
     // Switching views drops the run/week of the other one.
-    setParams(next === 'tables' ? new URLSearchParams({ view: 'tables' }) : new URLSearchParams());
+    setParams(next === 'runs' ? new URLSearchParams() : new URLSearchParams({ view: next }));
   };
   const tabClass = (on: boolean) =>
     `px-3 py-1.5 text-sm rounded-md transition-colors cursor-pointer ${
@@ -256,7 +258,7 @@ export default function TournamentDetail() {
           <select
             aria-label="Tournament"
             value={tournament.id}
-            onChange={e => navigate(`/${roomSlug}/tournaments/${encodeURIComponent(e.target.value)}${view === 'tables' ? '?view=tables' : ''}`)}
+            onChange={e => navigate(`/${roomSlug}/tournaments/${encodeURIComponent(e.target.value)}${view !== 'runs' ? `?view=${view}` : ''}`)}
             className="bg-raised border border-border rounded px-3 py-2 text-sm text-primary focus:outline-none focus:border-neon-cyan/60 w-full sm:w-auto sm:max-w-[16rem] flex-shrink-0"
           >
             {tournaments.map(t => (
@@ -273,13 +275,18 @@ export default function TournamentDetail() {
         <button type="button" aria-pressed={view === 'tables'} onClick={() => setView('tables')} className={tabClass(view === 'tables')}>
           By table
         </button>
+        <button type="button" aria-pressed={view === 'numbers'} onClick={() => setView('numbers')} className={tabClass(view === 'numbers')}>
+          By the numbers
+        </button>
       </div>
 
       <RoomNoticeSlot />
 
       {view === 'runs'
         ? <RunFeed key={tournamentId} roomId={roomId} slug={roomSlug} tournamentId={tournamentId} showTournament={false} />
-        : <TablesView slug={roomSlug} boards={boards} />}
+        : view === 'numbers'
+          ? <SeasonRecapView key={tournamentId} roomId={roomId} slug={roomSlug} tournamentId={tournamentId} />
+          : <TablesView slug={roomSlug} boards={boards} />}
     </main>
   );
 }
