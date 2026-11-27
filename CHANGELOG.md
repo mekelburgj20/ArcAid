@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.285.2] - 2026-11-27 - A tournament's recap is the "Tournament Recap"
+
+### Changed
+- **"Season Recap" is now "Tournament Recap".** The tab on a tournament's page (next to Runs and By table) says **Tournament Recap**, its first panel says **All runs**, and its awards list is **Tournament awards**. "Season" belongs to the Seasons format, and a Daily Grind with 99 runs is not a season (owner, 2026-11-27). The link is unchanged (`?view=numbers`).
+
+---
+
 ## [2.285.1] - 2026-11-27 - Run recaps are now "Arcaid Recap"
 
 ### Changed

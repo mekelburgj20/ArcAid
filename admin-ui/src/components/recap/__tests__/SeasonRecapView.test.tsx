@@ -73,6 +73,6 @@ describe('SeasonRecapView', () => {
     vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: false, status: 404, json: () => Promise.resolve({}) })) as unknown as typeof fetch);
     renderView();
     expect(await screen.findByText('No recap here')).toBeInTheDocument();
-    expect(screen.queryByText(/Loading the season/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Loading the tournament recap/)).not.toBeInTheDocument();
   });
 });
