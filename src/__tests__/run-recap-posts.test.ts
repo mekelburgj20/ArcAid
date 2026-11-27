@@ -166,12 +166,12 @@ describe('RunRecapPostService.sweep', () => {
         expect(post.mock.calls[0][0]).toBe(Routes.channelMessages(ROOM_RECAPS));
     });
 
-    it('forum: one post titled "<game> by the numbers", the rest into its thread', async () => {
+    it('forum: one post titled "<game> · Arcaid Recap", the rest into its thread', async () => {
         const db = await getDatabase();
         await db.run('UPDATE tournaments SET discord_channel_id = ? WHERE id = ?', FORUM, tournamentId);
         await RunRecapPostService.sweep(NOW);
         expect(post.mock.calls[0][0]).toBe(Routes.threads(FORUM));
-        expect(post.mock.calls[0][1].body.name).toBe('Pizza Time by the numbers');
+        expect(post.mock.calls[0][1].body.name).toBe('Pizza Time · Arcaid Recap');
         expect(post.mock.calls[1][0]).toBe(Routes.channelMessages(NEW_THREAD));
         expect(post.mock.calls[1][1].body.content).toBe('chunk two');
     });

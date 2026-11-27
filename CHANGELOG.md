@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.285.1] - 2026-11-27 - Run recaps are now "Arcaid Recap"
+
+### Changed
+- **"By the numbers" is renamed.** The feature is **Arcaid Recap**; a run card's button and the recap page say **Run Recap** (live runs: **Run Recap · So far**), a tournament's tab says **Season Recap**. The Discord copy text and the bot's post start "<game> ▸ Arcaid Recap"; a forum post is titled "<game> · Arcaid Recap". Links are unchanged (`?view=numbers`, `&recap=1`), so shared links keep working (owner, 2026-11-27).
+
+---
+
 ## [2.285.0] - 2026-11-27 - A room owner can delete their own room
 
 ### Added

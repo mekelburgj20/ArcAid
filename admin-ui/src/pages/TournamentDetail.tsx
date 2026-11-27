@@ -156,7 +156,7 @@ export default function TournamentDetail() {
   const navigate = useNavigate();
   const viewParam = params.get('view');
   const view: 'runs' | 'tables' | 'numbers' = viewParam === 'tables' ? 'tables' : viewParam === 'numbers' ? 'numbers' : 'runs';
-  // B31.2: `?run=<gameId>&recap=1` shows that run's "By the numbers" in place of the feed.
+  // B31.2: `?run=<gameId>&recap=1` shows that run's Run Recap in place of the feed.
   const recapRun = params.get('recap') === '1' ? params.get('run') : null;
   const [data, setData] = useState<TournamentScores | null>(null);
   const [loading, setLoading] = useState(true);
@@ -280,7 +280,7 @@ export default function TournamentDetail() {
           By table
         </button>
         <button type="button" aria-pressed={view === 'numbers'} onClick={() => setView('numbers')} className={tabClass(view === 'numbers')}>
-          By the numbers
+          Season Recap
         </button>
       </div>
 

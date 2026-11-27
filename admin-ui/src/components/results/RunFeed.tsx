@@ -331,7 +331,7 @@ function RunCard({ run, slug, showTournament, open, highlight, onToggle }: {
           {run.tournament_id && slug && run.players > 0 && (
             <div className="mt-1">
               <ButtonLink to={tournamentRecapPath(slug, run.tournament_id, run.game_id)} variant="secondary" size="xs">
-                By the numbers
+                Run Recap
               </ButtonLink>
             </div>
           )}

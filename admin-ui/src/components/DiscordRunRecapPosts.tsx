@@ -27,7 +27,7 @@ export default function DiscordRunRecapPosts({ settings, onSaveNow }: Props) {
         <div>
           <p className="text-sm font-medium text-primary">Post run recaps to Discord</p>
           <p className="text-xs text-muted">
-            When a run ends, the bot posts its By the numbers recap to the Run recaps channel (or the
+            When a run ends, the bot posts its Arcaid Recap to the Run recaps channel (or the
             Tournament posts channel).
           </p>
           <p className="text-xs text-faint" data-testid="run-recaps-where">
