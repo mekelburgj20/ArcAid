@@ -101,7 +101,8 @@ function stubFetch() {
     });
     if (url.includes('/scores')) return j(scores.body, scores.status);
     if (url.includes('/history?')) return j(WEEK);
-    if (url.includes('/recap')) return j(SEASON);
+    // Only the season recap; a run's recap (`/runs/:id/recap`) falls through to 404.
+    if (url.includes('/tournaments/t-1/recap')) return j(SEASON);
     if (url.endsWith('/tournaments')) return j(TOURNAMENTS);
     return j(null, 404);
   });
