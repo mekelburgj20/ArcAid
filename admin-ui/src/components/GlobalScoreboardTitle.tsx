@@ -80,11 +80,17 @@ interface GlobalScoreboardTitleProps {
    */
   children?: ReactNode;
   className?: string;
+  /**
+   * G36 (v2.278.0): the Global Scoreboard is always dark, so it passes
+   * `"dark"` and the lockup takes its dark treatment whatever the viewer's
+   * Light / Dark choice. Omitted, it follows that choice.
+   */
+  polarity?: 'light' | 'dark';
 }
 
-export default function GlobalScoreboardTitle({ children, className = '' }: GlobalScoreboardTitleProps) {
+export default function GlobalScoreboardTitle({ children, className = '', polarity }: GlobalScoreboardTitleProps) {
   const { globalPageTheme } = useTheme();
-  const themeClass = globalPageTheme === 'light' ? 'gs-light' : 'gs-dark';
+  const themeClass = (polarity ?? globalPageTheme) === 'light' ? 'gs-light' : 'gs-dark';
 
   return (
     <div className={`gs-fit ${className}`.trim()}>

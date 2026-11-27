@@ -53,11 +53,20 @@ const LIGHT_SRC = '/arcaid-logo-light-v1.png';
  * `noLink` on a page that IS `/` already (LandingPage) to avoid a
  * self-referential link, or on any surface that must not navigate.
  */
-export default function BrandWordmark({ className = 'h-[88px] w-auto', noLink = false }: { className?: string; noLink?: boolean }) {
+/**
+ * `polarity` (G36, v2.278.0): a page that is always dark whatever the viewer's
+ * Light / Dark choice (the Global Scoreboard) passes `"dark"`, so the mark
+ * matches the page and not the preference. Omitted, it follows the preference.
+ */
+export default function BrandWordmark({ className = 'h-[88px] w-auto', noLink = false, polarity }: {
+    className?: string;
+    noLink?: boolean;
+    polarity?: 'light' | 'dark';
+}) {
     const { globalPageTheme } = useTheme();
     const img = (
         <img
-            src={globalPageTheme === 'light' ? LIGHT_SRC : DARK_SRC}
+            src={(polarity ?? globalPageTheme) === 'light' ? LIGHT_SRC : DARK_SRC}
             alt="Arcaid"
             className={className}
         />

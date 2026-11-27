@@ -137,6 +137,16 @@ the kit does.
      toasts, the room menu). Inside it the content takes the default Arcaid theme's colours (first place and
      scores stay gold). Not chosen: content pop-ups in the room's theme (two pop-up looks).
 
+9. **The Global Scoreboard takes the Arcaid look, around and on the cards** (owner 2026-11-26, variant 2 of the
+   Global Scoreboard mockup, https://claude.ai/artifact/4mLgDwoPwpNc56QFmSg5mr, from
+   https://claude.ai/artifact/MeniZDPbDxkTQY86PVuFRK): always dark on the arcade carpet whatever Light / Dark is
+   set to; the header, search, room dropdown, category chips, Top 6 / My Score and the sort in the parts' look;
+   each grid card's outer frame takes the kit panel's double neon edge and lit top rail. Everything inside a card,
+   the HOTTEST BOARD hero with its shimmering border sweep, and the cards' own shimmer stay as they are ("I also
+   like the 'Hero' card and the gleaming shimmering border animation"). An exception to decision 1's protected
+   surfaces, limited to the cards' outer frame. Shipped in v2.278.0 (G36). Not chosen: variant 1 (around the
+   cards only, frames untouched).
+
 ## The guide (G21, shipped v2.261.0)
 
 Three parts, so it cannot drift the way a document alone does. As built:

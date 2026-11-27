@@ -275,15 +275,16 @@ describe('GlobalScoreboard — sort pills + rail visibility', () => {
     it('offers "Pinned first" and defaults to it only when logged in', async () => {
         mockFetch([game({ top_scores: [] })]);
         const { unmount } = renderPage('tok');
-        const pinnedPill = await screen.findByText('Pinned first');
-        expect(pinnedPill).toHaveAttribute('aria-pressed', 'true');
+        // G36: the sort choices are rail tabs, so "selected" is `aria-selected`.
+        const pinnedTab = await screen.findByRole('tab', { name: 'Pinned first' });
+        expect(pinnedTab).toHaveAttribute('aria-selected', 'true');
         unmount();
 
         mockFetch([game({ top_scores: [] })]);
         renderPage(null);
         await screen.findByText('Medieval Madness');
         expect(screen.queryByText('Pinned first')).not.toBeInTheDocument();
-        expect(screen.getByText('Popular')).toHaveAttribute('aria-pressed', 'true');
+        expect(screen.getByRole('tab', { name: 'Popular' })).toHaveAttribute('aria-selected', 'true');
     });
 
     it('hides the rail entirely when the logged-in viewer has no pins', async () => {

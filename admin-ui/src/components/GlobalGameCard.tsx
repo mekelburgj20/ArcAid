@@ -459,6 +459,12 @@ export default function GlobalGameCard({ game, onSubmit, onTogglePin, badge, den
       style={glitchVars(game.card_id ?? game.global_game_id)}
       className="gg-card group relative flex h-full min-h-[var(--sb-card-min-h)] flex-col rounded-[10px] bg-surface"
     >
+      {/* G36 (v2.278.0, owner 2026-11-26) - the frame's lit top rail, as the
+          Arcaid kit's panels wear it. Frame only: absolutely placed over the
+          top border, no hit area, nothing inside the card moves. The kit's
+          double edge is `.gg-card` itself in index.css; the glitch rings stay
+          the card's ::before / ::after. */}
+      <span className="gg-card__rail" aria-hidden="true" />
       {/*
         1. Art — the top REGION of the card, not a panel below a header, and
            the surface the title is set on.

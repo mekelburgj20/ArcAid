@@ -135,24 +135,109 @@ async function findCard(title: string): Promise<HTMLElement> {
   return card as HTMLElement;
 }
 
-describe('GlobalScoreboard carpet (G35a)', () => {
+// G36 (v2.278.0): the page is always dark on the carpet (G35a's carpet was
+// dark-only). Light / Dark still applies to <html>, so every other page follows
+// it; this page's root re-scopes the default "Arcaid" palette over it.
+describe('GlobalScoreboard is always dark (G36)', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     localStorage.clear();
     document.documentElement.className = '';
   });
 
-  it('the root wears the carpet in dark and not in light', async () => {
-    localStorage.setItem('arcaid-global-theme', 'dark');
+  it.each(['dark', 'light'] as const)('with Appearance %s: the dark scope on the carpet, and the dark title and wordmark', async (appearance) => {
+    localStorage.setItem('arcaid-appearance', appearance);
     mockFetch([]);
-    const dark = renderScoreboard();
-    expect(dark.getByTestId('global-scoreboard-root')).toHaveClass('gs-carpet');
-    dark.unmount();
+    const { getByTestId, container } = renderScoreboard();
 
+    // The preference really is in force on the document.
+    expect(document.documentElement.classList.contains('theme-light')).toBe(appearance === 'light');
+
+    const root = getByTestId('global-scoreboard-root');
+    expect(root).toHaveClass('sb-theme-scope', 'gs-carpet', 'gs-page');
+    // No theme class beside the scope: it is the default "Arcaid" palette.
+    expect([...root.classList].filter(c => c.startsWith('theme-'))).toEqual([]);
+
+    const title = container.querySelector('.gs-title');
+    expect(title).toHaveClass('gs-dark');
+    expect(title).not.toHaveClass('gs-light');
+    expect(screen.getByAltText('Arcaid')).toHaveAttribute('src', '/arcaid-logo-wide-v2.png');
+  });
+});
+
+// G36: Top 6 / My Score and the sort are rail tabs (parts/Tabs.tsx), with the
+// same values and the same handlers the pill buttons had.
+describe('GlobalScoreboard rail tabs (G36)', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
     localStorage.clear();
-    localStorage.setItem('arcaid-global-theme', 'light');
-    const light = renderScoreboard();
-    expect(light.getByTestId('global-scoreboard-root')).not.toHaveClass('gs-carpet');
+    document.documentElement.className = '';
+  });
+
+  const sortRequests = (fetchMock: ReturnType<typeof mockFetch>) => fetchMock.mock.calls
+    .map(([url]) => String(url))
+    .filter(url => url.startsWith('/api/global/scoreboard?'))
+    .map(url => new URLSearchParams(url.split('?')[1]).get('sort'));
+
+  it('signed in: two labelled tab lists with the old values, Pinned first and Top 6 selected', async () => {
+    signInAs('viewer-1');
+    mockFetch([makeGame('g1', 'Medieval Madness', [makeScore(1)])]);
+    renderScoreboard();
+    await screen.findByText('Medieval Madness');
+
+    const density = screen.getByRole('tablist', { name: 'Leaderboard density' });
+    expect(within(density).getAllByRole('tab').map(t => t.textContent)).toEqual(['Top 6', 'My Score']);
+    expect(within(density).getByRole('tab', { name: 'Top 6' })).toHaveAttribute('aria-selected', 'true');
+
+    const sort = screen.getByRole('tablist', { name: 'Sort leaderboards' });
+    expect(within(sort).getAllByRole('tab').map(t => t.textContent))
+      .toEqual(['Pinned first', 'Popular', 'Recent activity', 'Top rated', 'Most scores', 'A–Z']);
+    expect(within(sort).getByRole('tab', { name: 'Pinned first' })).toHaveAttribute('aria-selected', 'true');
+
+    // Both lists control the board, which is labelled by each list's active tab.
+    const panel = screen.getByRole('tabpanel');
+    expect(within(sort).getByRole('tab', { name: 'Popular' })).toHaveAttribute('aria-controls', panel.id);
+    expect(within(density).getByRole('tab', { name: 'Top 6' })).toHaveAttribute('aria-controls', panel.id);
+    expect(panel.getAttribute('aria-labelledby')?.split(' ')).toEqual(['gs-board-tab-top6', 'gs-board-tab-pinned']);
+  });
+
+  it('signed out: the sort list only, without Pinned first', async () => {
+    mockFetch([makeGame('g1', 'Medieval Madness', [makeScore(1)])]);
+    renderScoreboard();
+    await screen.findByText('Medieval Madness');
+
+    expect(screen.queryByRole('tablist', { name: 'Leaderboard density' })).not.toBeInTheDocument();
+    const sort = screen.getByRole('tablist', { name: 'Sort leaderboards' });
+    expect(within(sort).getAllByRole('tab').map(t => t.textContent))
+      .toEqual(['Popular', 'Recent activity', 'Top rated', 'Most scores', 'A–Z']);
+    expect(within(sort).getByRole('tab', { name: 'Popular' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('choosing a sort tab, by click or by arrow key, asks for that sort', async () => {
+    const fetchMock = mockFetch([makeGame('g1', 'Medieval Madness', [makeScore(1)])]);
+    renderScoreboard();
+    await screen.findByText('Medieval Madness');
+    const sort = screen.getByRole('tablist', { name: 'Sort leaderboards' });
+
+    fireEvent.click(within(sort).getByRole('tab', { name: 'Top rated' }));
+    await waitFor(() => expect(sortRequests(fetchMock)).toContain('highest_rated'));
+    expect(within(sort).getByRole('tab', { name: 'Top rated' })).toHaveAttribute('aria-selected', 'true');
+
+    // The part's keyboard: Right moves focus AND selection to the next tab.
+    fireEvent.keyDown(within(sort).getByRole('tab', { name: 'Top rated' }), { key: 'ArrowRight' });
+    await waitFor(() => expect(sortRequests(fetchMock)).toContain('most_scores'));
+    const mostScores = within(sort).getByRole('tab', { name: 'Most scores' });
+    expect(mostScores).toHaveAttribute('aria-selected', 'true');
+    expect(mostScores).toHaveFocus();
+  });
+
+  it('the category chips keep their pressed state and the room select its label', async () => {
+    mockFetch([makeGame('g1', 'Medieval Madness', [makeScore(1)])]);
+    renderScoreboard();
+    await screen.findByText('Medieval Madness');
+    expect(screen.getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('combobox', { name: 'Show scores from' })).toHaveValue('global');
+    expect(screen.getByRole('combobox', { name: 'Search games' })).toBeInTheDocument();
   });
 });
 

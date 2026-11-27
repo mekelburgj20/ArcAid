@@ -74,6 +74,8 @@ interface Props {
      * what it is — the page passes the node in.
      */
     emptySlot?: ReactNode;
+    /** G36: classes for the field's well (the page's type face); the dropdown never takes them. */
+    fieldClassName?: string;
 }
 
 /** A palette shows a handful of rows; the grid behind is the "full results". */
@@ -90,6 +92,7 @@ export default function GlobalSearchPalette({
     loggedIn,
     onSubmitGame,
     emptySlot,
+    fieldClassName,
 }: Props) {
     const navigate = useNavigate();
     const containerRef = useRef<HTMLDivElement>(null);
@@ -274,10 +277,14 @@ export default function GlobalSearchPalette({
     const remaining = active ? Math.max(total - rows.length, 0) : 0;
 
     return (
-        <div className="relative flex-1" ref={containerRef}>
-            <Search
-                className={`pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 ${open ? 'text-neon-cyan' : 'text-muted'}`}
-            />
+        <div className="part-field gsp-field relative flex-1" ref={containerRef}>
+            {/* G36 (v2.278.0) - the field is the Field part's well (`part-field__box`,
+                `__icon`, `__input`; parts/Field.tsx), as every field on the Arcaid
+                look is. It lights cyan while the palette is open by the part's own
+                focus rule; open, the input keeps the palette's typing look (the
+                `.gsp-input--open` rule below). The dropdown is outside the well. */}
+            <div className={`part-field__box${fieldClassName ? ` ${fieldClassName}` : ''}`}>
+            <Search className="part-field__icon pointer-events-none" aria-hidden="true" />
             <input
                 ref={inputRef}
                 type="text"
@@ -299,15 +306,11 @@ export default function GlobalSearchPalette({
                 onKeyUp={syncCaret}
                 onSelect={syncCaret}
                 onKeyDown={onInputKeyDown}
-                className={`w-full rounded-lg border py-2 pl-10 text-primary placeholder:text-muted focus:outline-none ${
-                    open
-                        ? 'border-neon-cyan pr-24 font-mono text-[14px] caret-transparent'
-                        : 'border-border bg-surface pr-3'
-                }`}
-                style={open ? { background: 'var(--sb-palette-field-bg)', boxShadow: 'var(--sb-palette-glow)' } : undefined}
+                className={`part-field__input${open ? ' gsp-input--open' : ''}`}
             />
 
-            {/* Caret overlay — `left-10` matches the input's pl-10 text origin. */}
+            {/* Caret overlay — `left-10` is the input's text origin in the well
+                (the icon's 12px margin + 18px + the input's 10px). */}
             {open && (
                 <div className="pointer-events-none absolute inset-y-0 left-10 right-24 overflow-hidden" aria-hidden="true">
                     <span
@@ -326,9 +329,10 @@ export default function GlobalSearchPalette({
             {open && (
                 <div className="pointer-events-none absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-2">
                     {loading && <Loader2 className="h-3.5 w-3.5 animate-spin text-neon-cyan" aria-label="Searching" />}
-                    <span className="text-[11px] text-muted">esc to close</span>
+                    <span className="text-xs text-muted">esc to close</span>
                 </div>
             )}
+            </div>
 
             {showDropdown && (
                 <div
@@ -410,6 +414,15 @@ export default function GlobalSearchPalette({
             {/* Scoped caret animation. The blink is decorative, so it is nulled
                 under prefers-reduced-motion (same convention as TourOverlay). */}
             <style>{`
+                /* G36 - open, the well's input keeps the palette's typing look: the
+                   monospace the fake caret is measured in, the native caret hidden,
+                   room on the right for the hint. A touch screen keeps 16 px. */
+                .gsp-field .part-field__input.gsp-input--open,
+                .gsp-field .part-field__input.gsp-input--open:focus { font-family: var(--font-mono); font-size: 14px; caret-color: transparent; padding-right: 96px; }
+                @media (pointer: coarse) {
+                    .gsp-field .part-field__input.gsp-input--open,
+                    .gsp-field .part-field__input.gsp-input--open:focus { font-size: 16px; }
+                }
                 @keyframes gsp-caret-blink { 50% { opacity: 0; } }
                 .gsp-caret { animation: gsp-caret-blink 1s step-end infinite; }
                 @media (prefers-reduced-motion: reduce) {
