@@ -60,9 +60,13 @@ export function wordsScore(n: number): string {
 
 // ---- helpers ----
 
-/** Copy of `escapeMd` in DiscordScorePostService (module-private there). */
+/**
+ * `escapeMd` of DiscordScorePostService (module-private there), widened for text built
+ * from player names: `[`, `]` and `<` are escaped (masked links, `<@id>` / `<@&role>`),
+ * and a zero-width space follows every `@` so `@everyone` / `@here` cannot ping.
+ */
 function escapeMd(s: string): string {
-    return s.replace(/([\\*_~|`])/g, '\\$1');
+    return s.replace(/([\\*_~|`[\]<])/g, '\\$1').replace(/@/g, '@\u200B');
 }
 
 const cpLen = (s: string) => Array.from(s).length;
@@ -325,7 +329,19 @@ export function buildRunRecapText(
 /** Split at section boundaries ('\n## ') into <= maxChars chunks, never inside a code block; at most 3 chunks. */
 export function splitRecapForBot(text: string, maxChars: number = DISCORD_BOT_MAX): string[] {
     if (text.length <= maxChars) return [text];
-    const sections = text.split(/\n(?=## )/);
+    // Sections start at a '## ' line that is OUTSIDE a code fence (a player's name may begin with '## ').
+    const sections: string[] = [];
+    let open = false;
+    let current: string[] = [];
+    for (const line of text.split('\n')) {
+        if (!open && line.startsWith('## ') && current.length > 0) {
+            sections.push(current.join('\n'));
+            current = [];
+        }
+        current.push(line);
+        if (line.startsWith('```')) open = !open;
+    }
+    sections.push(current.join('\n'));
     // A section longer than the limit is cut at line breaks, closing and reopening a code fence.
     const pieces: string[] = [];
     for (const section of sections) {

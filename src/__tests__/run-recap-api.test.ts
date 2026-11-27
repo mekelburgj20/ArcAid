@@ -191,6 +191,18 @@ describe('GET /rooms/:roomId/runs/:gameId/recap', () => {
         expect(d.player).toMatchObject({ play_stats: 'hidden', best: 1250 });
     });
 
+    it('a player key containing a percent sign resolves (decoded once, never twice)', async () => {
+        const app = await appWith();
+        const fx = await rotation();
+        await seedBoard(fx);
+        const odd = 'we%rd 100%';
+        await addScore({ ...base(fx), user: 'Dee', userId: odd, score: 5000, ms: BASE + 3 * MIN });
+        await addScore({ ...base(fx), user: 'Dee', userId: odd, score: 5100, ms: BASE + 9 * MIN });
+        const res = await request(app).get(url(fx, `/players/${encodeURIComponent(odd)}`));
+        expect(res.status).toBe(200);
+        expect(res.body.player).toMatchObject({ key: odd, best: 5100 });
+    });
+
     it('limited tournaments add attempts_used', async () => {
         const app = await appWith();
         const fx = await rotation();

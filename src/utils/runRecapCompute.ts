@@ -390,7 +390,9 @@ function buildAwards(
 export function computeRunRecap(input: ComputeInput): ComputedRunRecap {
     const { timezone: tz, state } = input;
     const standingKeys = new Set(input.standings.map(s => s.key));
-    const sorted = sortRows(standingKeys.size ? input.rows.filter(r => standingKeys.has(r.key)) : input.rows);
+    // No standings = no players: the rows are ignored, so a lead change can never name a key
+    // with no player row.
+    const sorted = sortRows(input.rows.filter(r => standingKeys.has(r.key)));
     const byKey = new Map<string, RecapScoreRow[]>();
     for (const r of sorted) {
         const list = byKey.get(r.key);
@@ -450,11 +452,15 @@ export function computeRunRecap(input: ComputeInput): ComputedRunRecap {
     const shownGames = shown.flatMap(a => a.games);
     if (shownGames.length > 0) {
         const firstMs = Math.min(...shownGames.map(g => g.ms));
-        const lastRowMs = sorted.length ? dbTimeMs(sorted[sorted.length - 1]!.created_at) : firstMs;
-        const endMs = Math.min(input.end_date ? dbTimeMs(input.end_date) : input.now.getTime(), lastRowMs);
+        // The span ends at the LATER of the run's end (now while active) and the last shown
+        // Witness game, so a game logged after end_date still lands in a bucket and per_day
+        // always sums to totals.witness_games.
+        const lastGameMs = Math.max(...shownGames.map(g => g.ms));
+        const runEndMs = input.end_date ? dbTimeMs(input.end_date)
+            : state === 'active' ? input.now.getTime() : lastGameMs;
+        const endMs = Math.max(runEndMs, lastGameMs);
         const firstDay = localDayKey(firstMs, tz);
-        let lastDay = localDayKey(Math.max(endMs, firstMs), tz);
-        if (lastDay < firstDay) lastDay = firstDay;
+        const lastDay = localDayKey(endMs, tz);
         spanDays = daysBetween(firstDay, lastDay);
         if (spanDays.length > 1) {
             const counts = new Map<string, number>();

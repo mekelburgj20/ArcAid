@@ -237,6 +237,35 @@ describe('computeRunRecap', () => {
     });
 });
 
+describe('edge guards', () => {
+    it('empty standings: the rows are ignored (no players, no lead changes, no awards)', () => {
+        const rows = [...games('a', 6, 0, 3), ...games('b', 6, 1, 3)];
+        const r = compute(rows, { standings: [] });
+        expect(r.players).toEqual([]);
+        expect(r.lead_changes).toEqual([]);
+        expect(r.lead_steps).toEqual([]);
+        expect(r.awards).toEqual([]);
+        expect(r.totals).toMatchObject({ players: 0, witness_games: 0 });
+        expect(r.per_day).toBeNull();
+        expect(r.hero.winner_key).toBeNull();
+    });
+
+    it('a game after end_date still lands in per_day, which sums to witness_games', () => {
+        // Run ends Fri 11/20 23:00 CST (2026-11-21 05:00Z); a game is logged Sun 11/22 (late sync).
+        const day = 24 * 60;
+        const rows = [row('a', 1, 0), row('a', 2, 30), row('b', 3, 5), row('b', 4, 2 * day)];
+        const r = compute(rows, { end_date: '2026-11-21T05:00:00.000Z' });
+        expect(r.per_day!.map(b => [b.label, b.games])).toEqual([['Fri 11/20', 3], ['Sat 11/21', 0], ['Sun 11/22', 1]]);
+        expect(r.per_day!.reduce((s, b) => s + b.games, 0)).toBe(r.totals.witness_games);
+    });
+
+    it('a quiet tail after the last game is listed up to end_date', () => {
+        const rows = [row('a', 1, 0), row('b', 3, 5)];
+        const r = compute(rows, { end_date: '2026-11-22T05:00:00.000Z' });
+        expect(r.per_day!.map(b => b.games)).toEqual([2, 0]);
+    });
+});
+
 describe('privacy', () => {
     it('a hidden player leaves totals, per-day, awards and facts, but not standings or the lead', () => {
         const rows = [...games('a', 12, 0, 3), ...games('b', 8, 1, 3, 900, 5), ...games('c', 4, 2, 3, 10, 1)];

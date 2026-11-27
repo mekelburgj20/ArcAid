@@ -24,8 +24,8 @@ router.get('/rooms/:roomId/runs/:gameId/recap', roomVisibilityGate, async (req, 
 
 router.get('/rooms/:roomId/runs/:gameId/recap/players/:playerKey', roomVisibilityGate, async (req, res) => {
     try {
-        let playerKey: string;
-        try { playerKey = decodeURIComponent(req.params.playerKey as string); } catch { return res.status(404).json({ error: 'Run not found' }); }
+        // Express 5 has already decoded the param; decoding again throws on a key with a '%'.
+        const playerKey = req.params.playerKey as string;
         const detail = await RunRecapService.getPlayerRunDetail(req.params.roomId as string, req.params.gameId as string, playerKey);
         if (!detail) return res.status(404).json({ error: 'Run not found' });
         res.json(detail);

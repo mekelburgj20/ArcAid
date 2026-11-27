@@ -175,6 +175,56 @@ describe('run recap text edge cases', () => {
     });
 });
 
+describe('mentions and links in names', () => {
+    const evil: Record<string, string> = {
+        'Player G': '@everyone', 'Player L': '<@123456789012345678>', 'Player B': '[free](https://x.y)', 'Player R': '@here <@&99>',
+    };
+    const t = buildRunRecapText(
+        recapOf(rows, { nameOf: (_k, u) => (evil[u] ?? null) as unknown as string }),
+        { maxChars: DISCORD_COPY_MAX },
+    );
+    const prose = t.split('```').filter((_, i) => i % 2 === 0).join('\n');
+
+    it('cannot ping: every @ is followed by a zero-width space', () => {
+        expect(prose).not.toMatch(/@(?!\u200B)/);
+        expect(prose).toContain('@\u200Beveryone');
+        // Inside code blocks nothing pings, so only prose is checked; the winner and award names are prose.
+        expect(t).toContain('@\u200Beveryone wins with');
+    });
+
+    it('cannot mention or link: <, [ and ] are escaped', () => {
+        expect(prose).not.toMatch(/(?<!\\)</);
+        expect(prose).toContain('\\<@\u200B123456789012345678>');
+        expect(prose).toContain('\\[free\\](https://x.y)');
+        expect(prose).not.toMatch(/(?<!\\)\[free/);
+    });
+
+    it('keeps the footer link in angle brackets', () => {
+        const withLink = buildRunRecapText(recapOf(rows), { maxChars: DISCORD_COPY_MAX, link: 'https://example.test/x' });
+        expect(withLink).toContain('-# Full recap: <https://example.test/x>');
+    });
+});
+
+describe('splitRecapForBot fences', () => {
+    it('does not split at a "## " line inside a code block', () => {
+        const names = (_k: string, u: string) => (u === 'Player L' ? '## Evil' : null) as unknown as string;
+        const text = buildRunRecapText(recapOf(rows, { nameOf: names }), { maxChars: DISCORD_COPY_MAX });
+        expect(text).toContain('\n## Evil');
+        const chunks = splitRecapForBot(text, 700);
+        expect(chunks.length).toBeGreaterThan(1);
+        for (const c of chunks) {
+            expect((c.match(/^```/gm) ?? []).length % 2).toBe(0);
+            expect(c.length).toBeLessThanOrEqual(700);
+        }
+        for (const c of chunks.slice(1)) expect(c.startsWith('## \u25B8')).toBe(true);
+    });
+
+    it('splits sections on a "## " line outside a fence only', () => {
+        const text = `# t\n## \u25B8 A\n\`\`\`\n## inside\nrow\n\`\`\`\n## \u25B8 B\nbody`;
+        expect(splitRecapForBot(text, 30)).toEqual([`# t`, `## \u25B8 A\n\`\`\`\n## inside\nrow\n\`\`\``, `## \u25B8 B\nbody`]);
+    });
+});
+
 describe('splitRecapForBot', () => {
     const recap = recapOf(rows);
     const text = buildRunRecapText(recap, { maxChars: DISCORD_COPY_MAX });
