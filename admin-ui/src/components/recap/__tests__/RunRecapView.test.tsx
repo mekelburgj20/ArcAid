@@ -97,7 +97,9 @@ describe('RunRecapView', () => {
     renderView();
     const table = await screen.findByTestId('recap-player-table');
     fireEvent.click(within(table).getByRole('button', { name: /cy/ }));
-    expect(await screen.findByText(/keeps play stats private\. Their best/)).toBeInTheDocument();
+    // The sheet swaps its stand-in for the lazily loaded dialog and remounts its content, so a node
+    // found once can be detached before the assertion: wait on the live DOM instead.
+    await waitFor(() => expect(screen.getByText(/keeps play stats private\. Their best/)).toBeInTheDocument());
     expect(fetchMock.mock.calls.some(c => String(c[0]).includes('/recap/players/'))).toBe(false);
   });
 
