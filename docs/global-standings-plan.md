@@ -239,6 +239,10 @@ counting in All scores (R8), and earns nothing in Witness only; the next clean g
 - One table (new, `player_attributes`, keyed on the canonical user id), not columns on `user_profiles`: it is
   personal data with its own deletion and export rules.
 - `AccountDeletionService` erases the row; the Privacy page lists the fields and why they exist.
+- **Account linking merges the fields stricter-wins**, the rule B31 applied in `IdentityLinkService.createLink`
+  for `recap_play_stats` / `share_to_global`: a visibility switch stays on only if both accounts had it on; a
+  value set on only one account is kept; when both set one, the canonical account's wins. Without this a
+  Google-only player's choice is lost when they link Discord (the bug B31 found).
 
 ## 7. Friends
 
@@ -279,7 +283,9 @@ In order of expected value:
 6. **Titles on the player page**: "#1 Alabama · Born in the 70s · Witness only". Claimed only when the slice has
    at least 5 players; the board itself still shows small fields, labelled ("1 of 1: invite someone").
 7. **Discord**: a `/standings` command (room-scoped reads like every command, `resolveGuildReadScope`; the
-   command policy applies) and a monthly champions post a room switches on (off by default).
+   command policy applies) and a monthly champions post a room switches on (off by default). Player names in
+   any posted text go through B31's escaping in `src/utils/runRecapText.ts` (`@` + U+200B, `[`, `]`, `<`
+   outside code blocks, so a name cannot ping or mask a link); export it from there rather than copy it.
 8. **Suggested rival**: the player just above you in points who plays your tables.
 9. **Activity boards** (later, optional): most Witness games played this month. Reads B31's figures through
    `machinePlaySql`, and honours B31's play-stats opt-out (`user_preferences.recap_play_stats = 0`, resolved
@@ -296,7 +302,12 @@ In order of expected value:
   resolve at read through `resolveProfiles` / `resolveUserLabels`; the invariant). Invalidated when a Global
   score is added, deleted, restored or has its `exclude_from_global` flipped, and when an appeal is decided;
   recomputed lazily on the next read. Build-time decision: a watermark (like the room rankings' cache) vs
-  explicit invalidation at `GlobalScoreService`'s writers.
+  explicit invalidation at `GlobalScoreService`'s writers. Either way the watermark includes
+  `getRecapPrefsVersion()` (`PreferencesService`): from B31.2–B31.5 (PR #542) it bumps on every recap-pref
+  change AND every identity change (`invalidateIdentityCaches` calls it), so a link, merge or alias change
+  re-partitions players without a second hook.
+- JS that builds a `player_key` (`'iscored:' + lower(name)`) uses `src/utils/sqliteLower.ts` (PR #542), which
+  folds A–Z only like SQLite's `LOWER()`; `toLowerCase()` mismatches non-ASCII names ("Éric").
 - `player_attributes`, appeal decisions, the flag-alert sent marker, groups + members, `standings_champions`
   (all new). One migration per phase that needs one, numbers claimed at build time (B31 holds 224).
 - Routes (new, `global.ts` or a new router file): the Standings read with `window`, `view`, `category`,
@@ -329,9 +340,10 @@ Agreed with the B31 session, 2026-11-26/27:
 - **Preferences.** B31's two switches are columns on `user_preferences` (migration 224:
   `recap_play_stats`, `recap_time_of_day`). Standings' profile fields are a separate table and a separate
   migration.
-- **Shared pages, B31 first.** B31 adds a privacy section to Account Settings (`RecapPrivacySection`), a "Room"
-  tab on Stats (`PublicStats.tsx`) and a "Runs" section on the player page (`PlayerDetail.tsx`). Standings'
-  edits to those pages come after B31.3 / B31.4 land and build on them.
+- **Shared pages, B31 first.** B31 adds a privacy section to Account Settings (`RecapPrivacySection`, on main
+  since 2.281.0), a "Room" tab on Stats (`PublicStats.tsx`, `?view=room`, `components/stats/RoomStatsView.tsx`)
+  and a "Runs" section on the player page (`PlayerDetail.tsx`); the last two are in PR #542 (v2.282.0).
+  Standings' edits to those pages come after #542 lands and build on it.
 - **Naming.** Global windows are Year / Month / All-time; "season" stays B31's and the rooms'.
 - **One stats family.** Recaps live on the run, tournament, table and room; standings live on the Global
   Standings page and the player page's points line. A player's page shows both, B31's runs and the standings'
