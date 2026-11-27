@@ -1207,3 +1207,88 @@ describe('Settings page — Arcaid Chat Responses, one response at a time', () =
       .toEqual({ version: 1, only: { help: ['action:active_games', 'action:pick_status'] } });
   });
 });
+
+describe('Settings page — Danger zone: delete this room', () => {
+  const OWNER = '222222222222222222';
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    localStorage.clear();
+    document.documentElement.className = '';
+    window.HTMLElement.prototype.scrollIntoView = vi.fn();
+  });
+  afterEach(() => setToken(null));
+
+  /** stubFetch plus the room DELETE, answered by `deleteAnswer`. */
+  function stubWithDelete(viewerRole: 'owner' | 'admin', deleteAnswer: { status: number; body: unknown }) {
+    const base = stubFetch({}, {
+      discordAdmins: [{ discord_user_id: OWNER, role: viewerRole, display_name: 'Me', username: 'me' }],
+    });
+    const fetchMock = vi.fn((...args: FetchArgs) => {
+      const [url, init] = args;
+      if (url.includes('/admin/room') && (init?.method || '').toUpperCase() === 'DELETE') {
+        return Promise.resolve({
+          ok: deleteAnswer.status < 300,
+          status: deleteAnswer.status,
+          json: () => Promise.resolve(deleteAnswer.body),
+        });
+      }
+      return base(...args);
+    });
+    vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+    return fetchMock;
+  }
+
+  it('is hidden from a co-admin who is not the owner', async () => {
+    setToken(fakeAdminJwt(OWNER));
+    stubWithDelete('admin', { status: 200, body: { success: true } });
+    renderSettings();
+    await waitForLoaded();
+    // The admins list has loaded (the viewer is listed) before we assert absence.
+    await waitFor(() => expect(screen.getAllByText('Me').length).toBeGreaterThan(0));
+    expect(screen.queryByRole('region', { name: 'Danger zone' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Delete this room/ })).not.toBeInTheDocument();
+  });
+
+  it('lets the owner delete only after typing the room slug, and sends it to the server', async () => {
+    setToken(fakeAdminJwt(OWNER));
+    const fetchMock = stubWithDelete('owner', { status: 200, body: { success: true } });
+    renderSettings();
+    await waitForLoaded();
+
+    const zone = await screen.findByRole('region', { name: 'Danger zone' });
+    fireEvent.click(within(zone).getByRole('button', { name: /Delete this room/ }));
+
+    const confirmBtn = await screen.findByRole('button', { name: /^Delete room$/ });
+    expect(confirmBtn).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText(/to confirm/), { target: { value: 'wrong' } });
+    expect(confirmBtn).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText(/to confirm/), { target: { value: ROOM_SLUG } });
+    expect(confirmBtn).toBeEnabled();
+    fireEvent.click(confirmBtn);
+
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(c => c[0].includes(`/rooms/${ROOM_ID}/admin/room`));
+      expect(call).toBeTruthy();
+      expect((call![1]?.method || '').toUpperCase()).toBe('DELETE');
+      expect(JSON.parse(call![1]!.body as string)).toEqual({ confirm: ROOM_SLUG });
+    });
+  });
+
+  it("shows the server's refusal in the dialog", async () => {
+    setToken(fakeAdminJwt(OWNER));
+    stubWithDelete('owner', { status: 403, body: { error: 'Only the room owner can delete this room.', code: 'OWNER_REQUIRED' } });
+    renderSettings();
+    await waitForLoaded();
+
+    const zone = await screen.findByRole('region', { name: 'Danger zone' });
+    fireEvent.click(within(zone).getByRole('button', { name: /Delete this room/ }));
+    await screen.findByRole('button', { name: /^Delete room$/ });
+    fireEvent.change(screen.getByLabelText(/to confirm/), { target: { value: ROOM_SLUG } });
+    fireEvent.click(screen.getByRole('button', { name: /^Delete room$/ }));
+
+    expect(await screen.findByText('Only the room owner can delete this room.')).toBeInTheDocument();
+  });
+});

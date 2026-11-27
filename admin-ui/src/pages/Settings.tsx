@@ -1,7 +1,11 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Search, SlidersHorizontal } from 'lucide-react';
-import { api, getToken, getTokenDiscordId } from '../lib/api';
+import { AlertCircle, AlertTriangle, Search, SlidersHorizontal, Trash2 } from 'lucide-react';
+import { api, getToken, getTokenDiscordId, getTokenRole } from '../lib/api';
+import Panel, { PanelGroup } from '../components/parts/Panel';
+import Button from '../components/parts/Button';
+import { Dialog } from '../components/parts/Dialog';
+import { TextInput } from '../components/parts/Field';
 import { useRoom } from '../contexts/RoomContext';
 import { useToast } from '../components/Toast';
 import { useTheme } from '../components/ThemeProvider';
@@ -731,6 +735,41 @@ export default function Settings() {
       fetchAdmins();
     } catch {
       toast('Failed to remove Discord admin', 'error');
+    }
+  };
+
+  // Danger zone — delete this room. Only the OWNER (game_room_admins role
+  // 'owner') or a super admin may; the server re-checks both that and the typed
+  // slug (DELETE /:roomId/admin/room).
+  const isSuperAdmin = useMemo(() => getTokenRole() === 'super_admin', []);
+  const isRoomOwner = !!viewerDiscordId
+    && discordAdmins.some(a => a.role === 'owner' && a.discord_user_id === viewerDiscordId);
+  const canDeleteRoom = isSuperAdmin || isRoomOwner;
+  const [showDeleteRoom, setShowDeleteRoom] = useState(false);
+  const [deleteRoomConfirm, setDeleteRoomConfirm] = useState('');
+  const [deletingRoom, setDeletingRoom] = useState(false);
+  const [deleteRoomError, setDeleteRoomError] = useState<string | null>(null);
+  const deleteRoomInputRef = useRef<HTMLInputElement>(null);
+  const deleteRoomConfirmed = deleteRoomConfirm.trim().toLowerCase() === room.roomSlug.toLowerCase();
+
+  const closeDeleteRoom = () => {
+    if (deletingRoom) return;
+    setShowDeleteRoom(false);
+    setDeleteRoomConfirm('');
+    setDeleteRoomError(null);
+  };
+
+  const handleDeleteRoom = async () => {
+    if (!deleteRoomConfirmed || deletingRoom) return;
+    setDeletingRoom(true);
+    setDeleteRoomError(null);
+    try {
+      await api.delete(`/rooms/${room.roomId}/admin/room`, { confirm: deleteRoomConfirm.trim() });
+      toast(`Deleted ${room.roomName}`, 'success');
+      navigate(isSuperAdmin ? '/admin' : '/', { replace: true });
+    } catch (err) {
+      setDeleteRoomError((err instanceof Error && err.message) || 'Could not delete the room. Please try again.');
+      setDeletingRoom(false);
     }
   };
 
@@ -1758,6 +1797,77 @@ export default function Settings() {
             })}
           </div>
         </NeonCard>
+      )}
+
+      {canDeleteRoom && (
+        <div className="mt-8">
+          <PanelGroup id="room-danger" tone="red" title="Danger zone" sub="This cannot be undone.">
+            <Panel wide title={<><AlertTriangle size={14} /> Delete this room</>}>
+              <p className="text-xs text-muted mb-1.5">
+                Deletes {room.roomName} for everyone: its tournaments, tables, boards, rankings,
+                members, admins and settings. The room's page and link stop working.
+              </p>
+              <p className="text-xs text-muted mb-4">
+                Scores already on the Global Scoreboard stay there. Boards on iScored are not
+                touched; remove them there if you want them gone.
+              </p>
+              <Button
+                variant="danger"
+                onClick={() => { setDeleteRoomConfirm(''); setDeleteRoomError(null); setShowDeleteRoom(true); }}
+              >
+                <Trash2 size={14} /> Delete this room
+              </Button>
+            </Panel>
+          </PanelGroup>
+        </div>
+      )}
+
+      {canDeleteRoom && (
+      <Dialog
+        open={showDeleteRoom}
+        onOpenChange={o => { if (!o) closeDeleteRoom(); }}
+        tone="red"
+        label="Delete room"
+        title={`Delete ${room.roomName}?`}
+        sheet
+        initialFocusRef={deleteRoomInputRef}
+        footer={(
+          <>
+            <Button variant="secondary" onClick={closeDeleteRoom} disabled={deletingRoom}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              onClick={handleDeleteRoom}
+              disabled={deletingRoom || !deleteRoomConfirmed}
+            >
+              {deletingRoom ? 'Deleting…' : <><Trash2 size={14} /> Delete room</>}
+            </Button>
+          </>
+        )}
+      >
+        <p className="text-sm text-muted mb-3">
+          Everything in this room is removed for every player and admin. Scores already on the
+          Global Scoreboard stay there. This can't be undone.
+        </p>
+        <TextInput
+          ref={deleteRoomInputRef}
+          id="delete-room-confirm"
+          label={<>Type <span className="font-mono font-semibold text-primary">{room.roomSlug}</span> to confirm.</>}
+          value={deleteRoomConfirm}
+          onChange={e => { setDeleteRoomConfirm(e.target.value); setDeleteRoomError(null); }}
+          onKeyDown={e => { if (e.key === 'Enter') handleDeleteRoom(); }}
+          placeholder={room.roomSlug}
+          autoComplete="off"
+          autoCapitalize="off"
+          spellCheck={false}
+        />
+        {deleteRoomError && (
+          <p className="mt-2 text-xs ink-danger inline-flex items-center gap-1">
+            <AlertCircle size={12} /> {deleteRoomError}
+          </p>
+        )}
+      </Dialog>
       )}
 
       {deleteAdminTarget && (

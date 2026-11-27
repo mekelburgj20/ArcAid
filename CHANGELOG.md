@@ -6,6 +6,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.285.0] - 2026-11-27 - A room owner can delete their own room
+
+### Added
+- **Room owners can delete their room** from Room Admin → Settings → Danger zone → Delete this room. The dialog asks them to type the room's URL name before the Delete button works. It removes the room for everyone: its tournaments, tables, boards, rankings, members, admins and settings, and the room's page and link stop working. Scores already on the Global Scoreboard stay. Boards on iScored are not touched. Only the owner (whoever created the room) or a super admin sees the section; co-admins and password admins do not, and the server refuses them. A suspended room cannot be deleted by its owner.
+
+### Technical
+- `DELETE /api/rooms/:roomId/admin/room` with body `{ confirm: <slug> }` (trimmed, case-insensitive): `requireAuth` + `requireRoomAccess`, then the caller must be `super_admin` or hold the `owner` row in `game_room_admins` (403 `OWNER_REQUIRED`); a mismatch is 400 `CONFIRM_MISMATCH`; a suspended room is held by `roomVisibilityGate` (403 `ROOM_SUSPENDED`). It runs the same `GameRoomService.delete` as the super-admin route, reloads the `Scheduler`, writes an `audit_log` row (`room.delete`, `by: owner | super_admin`) and marks the activity store written (the room's activity log goes with the room).
+- `rooms-tournaments.md`: "Deleting a room".
+
+---
+
 ## [2.284.0] - 2026-11-27 - A poll tie chosen after the rotation starts the table; Activate never leaves a queued copy behind (A46, A47)
 
 ### Changed
