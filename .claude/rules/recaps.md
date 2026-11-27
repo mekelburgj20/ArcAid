@@ -35,7 +35,10 @@ Loads when you touch run recaps: `RunRecapService`, the recap routes, the Discor
 
 ## B31.2 — the recap on the run view
 
-(placeholder: B31.2 fills this section)
+- **Placement:** `TournamentDetail` shows `RunRecapView` instead of `RunFeed` when `?recap=1&run=<gameId>` (Runs view only); the view draws its own "All runs" link back to `?run=<gameId>`. `LiveRunsStrip` sits above the feed; `RunFeed`'s card has a "By the numbers" `ButtonLink` only with `tournament_id` and `players > 0`. B31.4's tab edits the same page: keep this block small.
+- **Parts and rules:** shared parts only (`PanelGroup`/`Panel`, `StatTiles`, `ListRow`, `Dialog sheet`, `EmptyState`, `Skeleton`, `LoadFailedNotice`), no colour literals, names via `playerName` / `nameForKey`, game titles wrap. The load is `useRetryingLoad` + `roomFetch`; a 404 is the "no recap" empty state; Refresh (active runs) is `load()`.
+- **Never render `RecapPlayerRow.key`.** A `null` stat is `—` with a marker (typed-only vs private), never zero. The detail sheet fetches `/recap/players/:key` only for `play_stats === 'shown'`; its game strip is index-scaled (never time-scaled, so a non-opted-in player's times are not drawn) and clock times show only when the server sent `time` / `hours`.
+- **`WhoLedChart`:** one segment per `lead_steps` entry, gold for `players[0]` (the winner), other leaders cycle cyan, magenta, green, purple, blue (coral is danger, never). `lib/chartScale.ts` (`formatAxisScore`, `niceStep`, `yScaleFor`) is shared with `ScoreHistoryChart`.
 
 ## B31.3 — a player's runs and a table's runs
 

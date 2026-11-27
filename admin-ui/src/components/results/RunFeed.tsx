@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import { formatScore, scoreTitle } from '../../lib/format';
-import { tournamentResultsPath } from '../../lib/tournamentLinks';
+import { tournamentRecapPath, tournamentResultsPath } from '../../lib/tournamentLinks';
+import { ButtonLink } from '../parts/Button';
 import { PlayerAvatar, playerName } from '../ScoreboardComponents';
 import { TournamentTypeBadge } from '../TournamentTypeBadge';
 import GameArt from '../GameArt';
@@ -327,6 +328,13 @@ function RunCard({ run, slug, showTournament, open, highlight, onToggle }: {
               <span className="text-sm text-faint">No scores</span>
             )}
           </div>
+          {run.tournament_id && slug && run.players > 0 && (
+            <div className="mt-1">
+              <ButtonLink to={tournamentRecapPath(slug, run.tournament_id, run.game_id)} variant="secondary" size="xs">
+                By the numbers
+              </ButtonLink>
+            </div>
+          )}
         </div>
       </header>
       {open && (

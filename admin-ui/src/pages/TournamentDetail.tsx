@@ -11,6 +11,8 @@ import { useRoom } from '../contexts/RoomContext';
 import { roomFetch } from '../lib/roomFetch';
 import RoomNoticeSlot from '../components/RoomNoticeSlot';
 import SeasonRecapView from '../components/recap/SeasonRecapView';
+import RunRecapView from '../components/recap/RunRecapView';
+import LiveRunsStrip from '../components/recap/LiveRunsStrip';
 
 /**
  * `/:slug/tournaments/:tournamentId` — one tournament's results.
@@ -154,6 +156,8 @@ export default function TournamentDetail() {
   const navigate = useNavigate();
   const viewParam = params.get('view');
   const view: 'runs' | 'tables' | 'numbers' = viewParam === 'tables' ? 'tables' : viewParam === 'numbers' ? 'numbers' : 'runs';
+  // B31.2: `?run=<gameId>&recap=1` shows that run's "By the numbers" in place of the feed.
+  const recapRun = params.get('recap') === '1' ? params.get('run') : null;
   const [data, setData] = useState<TournamentScores | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
@@ -282,11 +286,18 @@ export default function TournamentDetail() {
 
       <RoomNoticeSlot />
 
-      {view === 'runs'
-        ? <RunFeed key={tournamentId} roomId={roomId} slug={roomSlug} tournamentId={tournamentId} showTournament={false} />
-        : view === 'numbers'
-          ? <SeasonRecapView key={tournamentId} roomId={roomId} slug={roomSlug} tournamentId={tournamentId} />
-          : <TablesView slug={roomSlug} boards={boards} />}
+      {view === 'runs' && recapRun
+        ? <RunRecapView key={recapRun} roomId={roomId} slug={roomSlug} tournamentId={tournamentId} gameId={recapRun} />
+        : view === 'runs'
+          ? (
+            <>
+              <LiveRunsStrip roomId={roomId} slug={roomSlug} tournamentId={tournamentId} />
+              <RunFeed key={tournamentId} roomId={roomId} slug={roomSlug} tournamentId={tournamentId} showTournament={false} />
+            </>
+          )
+          : view === 'numbers'
+            ? <SeasonRecapView key={tournamentId} roomId={roomId} slug={roomSlug} tournamentId={tournamentId} />
+            : <TablesView slug={roomSlug} boards={boards} />}
     </main>
   );
 }

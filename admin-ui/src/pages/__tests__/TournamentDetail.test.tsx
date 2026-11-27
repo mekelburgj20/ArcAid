@@ -190,6 +190,15 @@ describe('TournamentDetail', () => {
       expect(screen.getByRole('button', { name: 'Runs' })).toHaveAttribute('aria-pressed', 'true');
     });
 
+    it('?run=x&recap=1 shows the run recap in place of the feed; its back link drops recap', async () => {
+      renderPage('?run=g-who-2&recap=1');
+      await screen.findByText('This run has no recap');
+      expect(fetched('/runs/g-who-2/recap')).toHaveLength(1);
+      expect(fetched('/history?')).toHaveLength(0);
+      fireEvent.click(screen.getByRole('link', { name: /All runs/ }));
+      await waitFor(() => expect(location()).toBe('/test-room/tournaments/t-1?run=g-who-2'));
+    });
+
     it('a ?run= deep link reaches the feed', async () => {
       renderPage('?run=g-who-2');
       await screen.findAllByTestId('run-card');
