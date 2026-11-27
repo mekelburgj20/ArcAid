@@ -57,7 +57,7 @@ You do **not** need an ADR for routine bug fixes, code style preferences, or any
 | 0023 | [Every score reaches the Global Scoreboard, unless the player opts out](0023-every-score-reaches-the-global-scoreboard.md) | accepted | 2026-09-01 |
 | 0024 | [Auto-posted scores are deletable, and the delete survives the replay](0024-auto-posted-scores-are-deletable.md) | accepted | 2026-09-28 |
 | 0025 | [A Season is a rotation option with a poll queue, and Arcaid owns the poll](0025-season-is-a-rotation-option-with-a-poll-queue.md) | accepted | 2026-10-17 |
-| 0026 | [Pick by poll is a rotation method, and "admin decides" holds](0026-pick-by-poll-is-a-rotation-method.md) | accepted | 2026-10-18 |
+| 0026 | [Pick by poll is a rotation method, and "admin decides" holds](0026-pick-by-poll-is-a-rotation-method.md) | accepted (amended 2026-11-27, v2.284.0: a tie chosen after its rotation starts the table) | 2026-10-18 |
 | 0027 | [Integrity mode: Open play and Sanctioned play, and the one place evidence gates](0027-integrity-mode-open-and-sanctioned-play.md) | accepted | 2026-10-20 |
 | 0028 | [One live work tracker: `WORK.md`, lanes, claims, a board](0028-one-live-work-tracker.md) | accepted | 2026-10-21 |
 | 0029 | [Limited attempts: N game starts per player per table, witnessed by Castcade](0029-limited-attempts.md) | accepted | 2026-10-22 |
