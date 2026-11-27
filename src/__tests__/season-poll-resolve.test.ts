@@ -31,7 +31,7 @@ process.env.DISCORD_BOT_TOKEN = 'test-token';
 const { setupTestDb } = await import('./helpers.js');
 const { getDatabase } = await import('../database/database.js');
 const { SeasonPollService } = await import('../services/SeasonPollService.js');
-const { createSeason, addCatalogueGame, openPollDirect } = await import('./seasonHelpers.js');
+const { createSeason, addCatalogueGame, openPollDirect, refreshSeason } = await import('./seasonHelpers.js');
 
 const VOTER_A = '100000000000000001';
 const VOTER_B = '100000000000000002';
@@ -198,12 +198,13 @@ describe('closeAndResolve', () => {
         expect(notice).toContain('Attack from Mars and Medieval Madness');
         expect(notice).toContain('An admin must choose');
         expect(notice).toContain('no table starts until then');
+        expect(notice).toContain('Choosing after the rotation starts it straight away');
         expect(notice).not.toMatch(/fallback/i);
 
-        let listed = (await SeasonPollService.adminList(season)).polls.find(p => p.id === pollId)!;
-        expect(listed).toMatchObject({ tied: true, tied_positions: [1, 2], can_choose: true, result_game_name: null });
+        let listed = (await SeasonPollService.adminList(season, AFTER_CLOSE)).polls.find(p => p.id === pollId)!;
+        expect(listed).toMatchObject({ tied: true, tied_positions: [1, 2], can_choose: true, choose_starts_now: false, result_game_name: null });
 
-        poll = await SeasonPollService.choose(season, pollId, 2);
+        poll = await SeasonPollService.choose(season, pollId, 2, AFTER_CLOSE);
         expect(poll).toMatchObject({ result_game_name: 'Medieval Madness', tied: 1 });
         expect(poll.result_queued_game_id).toBeTruthy();
         expect(await queuedNames(tournamentId)).toEqual(['Medieval Madness']);
@@ -212,7 +213,7 @@ describe('closeAndResolve', () => {
 
         // Changing the mind while it is still QUEUED swaps the row.
         const firstQueued = poll.result_queued_game_id;
-        poll = await SeasonPollService.choose(season, pollId, 1);
+        poll = await SeasonPollService.choose(season, pollId, 1, AFTER_CLOSE);
         expect(poll.result_game_name).toBe('Attack from Mars');
         expect(poll.result_queued_game_id).not.toBe(firstQueued);
         expect(await queuedNames(tournamentId)).toEqual(['Attack from Mars']);
@@ -223,6 +224,70 @@ describe('closeAndResolve', () => {
         listed = (await SeasonPollService.adminList(season)).polls.find(p => p.id === pollId)!;
         expect(listed.can_choose).toBe(false);
         await expect(SeasonPollService.choose(season, pollId, 2)).rejects.toMatchObject({ code: 'ALREADY_STARTED' });
+    });
+
+    describe('A46: a tie chosen after its rotation has passed', () => {
+        // The poll closes Thu 21:00 ET; the rotation it fed is Fri 00:00 ET (04:00Z).
+        const AFTER_ROTATION = new Date('2026-10-16T11:33:00.000Z');
+
+        async function heldTie(names = ['Attack from Mars', 'Medieval Madness']) {
+            const ctx = await seasonWithPoll(names, { tieRule: 'admin' });
+            await SeasonPollService.vote(ctx.roomId, ctx.pollId, VOTER_A, 1);
+            await SeasonPollService.vote(ctx.roomId, ctx.pollId, VOTER_B, 2);
+            await SeasonPollService.closeAndResolve(ctx.season, (await SeasonPollService.getPoll(ctx.pollId))!, AFTER_CLOSE);
+            return ctx;
+        }
+
+        async function rowsNamed(tournamentId: string, name: string) {
+            const db = await getDatabase();
+            return db.all('SELECT id, status, queue_order FROM games WHERE tournament_id = ? AND name = ?', tournamentId, name);
+        }
+
+        it('starts the chosen table now from the row the poll links, announces it, and leaves nothing queued', async () => {
+            const { pollId, tournamentId, season } = await heldTie();
+            let listed = (await SeasonPollService.adminList(season, AFTER_ROTATION)).polls.find(p => p.id === pollId)!;
+            expect(listed).toMatchObject({ can_choose: true, choose_starts_now: true });
+
+            post.mockClear();
+            const poll = await SeasonPollService.choose(season, pollId, 1, AFTER_ROTATION, 'admin:42');
+            expect(poll.result_game_name).toBe('Attack from Mars');
+            expect(await queuedNames(tournamentId)).toEqual([]);
+            const rows = await rowsNamed(tournamentId, 'Attack from Mars');
+            expect(rows).toEqual([{ id: poll.result_queued_game_id, status: 'ACTIVE', queue_order: null }]);
+
+            // "Now Active", not a "Next up ... Starts <next week>".
+            await vi.waitFor(() => {
+                const titles = post.mock.calls.filter(c => c[1]?.body?.embeds).map(c => c[1].body.embeds[0].title);
+                expect(titles).toContain('Now Active: Attack from Mars');
+            });
+            const titles = post.mock.calls.filter(c => c[1]?.body?.embeds).map(c => c[1].body.embeds[0].title as string);
+            expect(titles.some(t => t.startsWith('Next up'))).toBe(false);
+
+            const db = await getDatabase();
+            const audit = await db.get(`SELECT actor, source FROM rotation_events WHERE game_id = ? AND event_type = 'game_activated'`, poll.result_queued_game_id);
+            expect(audit).toMatchObject({ actor: 'admin:42', source: 'admin_manual' });
+
+            listed = (await SeasonPollService.adminList(season, AFTER_ROTATION)).polls.find(p => p.id === pollId)!;
+            expect(listed).toMatchObject({ can_choose: false, choose_starts_now: false, result_queued_status: 'ACTIVE' });
+        });
+
+        it('queues as before when a table is already live', async () => {
+            const { pollId, tournamentId, season } = await heldTie();
+            const { TournamentEngine } = await import('../engine/TournamentEngine.js');
+            await TournamentEngine.getInstance().activateGame(tournamentId, 'Something Else', undefined, undefined, false);
+
+            expect((await SeasonPollService.adminList(season, AFTER_ROTATION)).polls.find(p => p.id === pollId)!.choose_starts_now).toBe(false);
+            await SeasonPollService.choose(season, pollId, 2, AFTER_ROTATION, 'admin:42');
+            expect(await queuedNames(tournamentId)).toEqual(['Medieval Madness']);
+        });
+
+        it('queues as before while the season is paused', async () => {
+            const { pollId, tournamentId, season } = await heldTie();
+            await SeasonPollService.setPaused(season, true);
+            const paused = await refreshSeason(tournamentId);
+            await SeasonPollService.choose(paused, pollId, 2, AFTER_ROTATION, 'admin:42');
+            expect(await queuedNames(tournamentId)).toEqual(['Medieval Madness']);
+        });
     });
 
     it('first_nominated tie queues the lowest position without a hold', async () => {

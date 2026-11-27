@@ -5525,7 +5525,7 @@ router.post('/:roomId/tournaments/:tournamentId/season/polls/:pollId/:action', r
             case 'choose': {
                 const parsed = validate(SeasonPollPositionSchema, req.body ?? {});
                 if ('error' in parsed) return res.status(400).json({ error: parsed.error });
-                poll = await SeasonPollService.choose(t, pollId, parsed.data.position);
+                poll = await SeasonPollService.choose(t, pollId, parsed.data.position, new Date(), adminActor(req));
                 details = { pollId, position: parsed.data.position, game: poll.result_game_name };
                 break;
             }
@@ -6216,10 +6216,12 @@ router.post('/:roomId/tournaments/:id/activate-game', requireAuth, requireRoomAc
         try {
             let game;
             try {
+                // A47: a table already waiting in the queue goes live from its
+                // queued row rather than as a second copy beside it.
                 game = await engine.activateGame(tournamentId, gameName, styleId, undefined, false, {
                     actor: adminActor(req),
                     source: 'admin_manual',
-                });
+                }, { promoteQueued: true });
             } catch (err) {
                 // v2.103.0 — duplicate-activation guard: surface the friendly
                 // message instead of a 500 (the admin can Deactivate the twin
@@ -6245,8 +6247,9 @@ router.post('/:roomId/tournaments/:id/activate-game', requireAuth, requireRoomAc
                 logWarn('Failed to send activation announcement:', err)
             );
 
-            // Builds, links, then reorders the lineup; never throws.
-            if (creds) {
+            // Builds, links, then reorders the lineup; never throws. A promoted
+            // queued row (A47) may already carry a board.
+            if (creds && !game.iscoredId) {
                 void createIScoredBoardAfterActivation({
                     roomId: req.params.roomId as string,
                     tournamentId,

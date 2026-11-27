@@ -748,7 +748,7 @@ export class SeasonPollService {
             if (channelId) {
                 const adminUrl = t.room_slug ? `${roomUrl(t.room_slug)}/admin/tournaments` : '';
                 await sendChannelMessage(channelId,
-                    `**${t.name}** — the week ${week} vote tied between ${names.join(' and ')}. An admin must choose the table on the admin page${adminUrl ? ` (${adminUrl})` : ''}; no table starts until then.`);
+                    `**${t.name}** — the week ${week} vote tied between ${names.join(' and ')}. An admin must choose the table on the admin page${adminUrl ? ` (${adminUrl})` : ''}; no table starts until then. Choosing after the rotation starts it straight away.`);
             }
             return;
         }
@@ -802,8 +802,15 @@ export class SeasonPollService {
      * holds with nothing queued until an admin picks one of the TIED
      * candidates here. Choosing again while the chosen row is still QUEUED
      * swaps it — the engine removes the queued row, `queueGame` adds the new one.
+     *
+     * A46 (v2.284.0): once the rotation the tie held has passed with nothing
+     * live (`chooseStartsNow`), the choice STARTS the table instead of queuing
+     * it a whole cadence out. It is queued first (so the poll keeps its
+     * `result_queued_game_id` link), then promoted through the admin Activate
+     * path, announced "Now Active" and runs to the next normal rotation.
+     * `actor` is the admin, for the Rotation Log.
      */
-    static async choose(t: SeasonTournamentRow, pollId: string, position: number, now: Date = new Date()): Promise<SeasonPollRow> {
+    static async choose(t: SeasonTournamentRow, pollId: string, position: number, now: Date = new Date(), actor: string = 'admin:unknown'): Promise<SeasonPollRow> {
         const poll = await this.requirePoll(t, pollId);
         if (poll.status !== 'resolved' || !poll.tied) {
             throw new SeasonPollError('POLL_NOT_TIED', 'Only a poll that tied under "Admin decides" can be chosen.', 409);
@@ -828,13 +835,21 @@ export class SeasonPollService {
                 throw new SeasonPollError('ALREADY_STARTED', 'The queued table has already started — it can no longer be swapped.', 409);
             }
         }
+        // Decided after the swap's removal: a still-QUEUED earlier choice is
+        // not live, so it never blocks the start.
+        const startNow = await this.chooseStartsNow(t, poll, now);
         const game = await engine.queueGame(t.id, pick.game_name);
         const db = await getDatabase();
         await db.run(
             'UPDATE season_polls SET result_game_name = ?, result_queued_game_id = ? WHERE id = ?',
             pick.game_name, game.id, pollId,
         );
-        logInfo(`Season '${t.name}' week ${poll.slot_no}: admin chose ${pick.game_name}${poll.result_game_name ? ` over ${poll.result_game_name}` : ' (nothing was queued)'}.`);
+        logInfo(`Season '${t.name}' week ${poll.slot_no}: admin chose ${pick.game_name}${poll.result_game_name ? ` over ${poll.result_game_name}` : ' (nothing was queued)'}${startNow ? ' — its rotation has passed, starting it now' : ''}.`);
+        if (startNow) {
+            await this.startChosenNow(t, engine, pick.game_name, actor);
+            this.emit(t, pollId);
+            return (await this.getPoll(pollId))!;
+        }
         const channelId = await resolveAnnouncementChannelId(t.game_room_id, t.discord_channel_id, 'tournament', t.discord_announce_routes);
         if (channelId) {
             const rotationIso = nextRotationIso(t.cadence, now);
@@ -848,6 +863,53 @@ export class SeasonPollService {
         }
         this.emit(t, pollId);
         return (await this.getPoll(pollId))!;
+    }
+
+    /**
+     * A46: a choice on this held tie starts the table now — the rotation the
+     * poll fed (the next one after its close, the same rule the scheduler's
+     * hold uses) has passed, the tournament has nothing live, and it is
+     * running (not paused, not finished). Otherwise a choice queues.
+     */
+    static async chooseStartsNow(t: SeasonTournamentRow, poll: SeasonPollRow, now: Date = new Date()): Promise<boolean> {
+        if (!t.is_active || t.season_paused_at || t.season_finished_at || !poll.closes_at) return false;
+        const fed = nextRotationIso(t.cadence, new Date(poll.closes_at));
+        if (!fed || now.getTime() < Date.parse(fed)) return false;
+        const db = await getDatabase();
+        const live = await db.get(`SELECT 1 FROM games WHERE tournament_id = ? AND status = 'ACTIVE' LIMIT 1`, t.id);
+        return !live;
+    }
+
+    /**
+     * A46: promote the just-queued choice through the admin Activate path
+     * (A47's `promoteQueued`, so the row and the poll's link stay one), then
+     * do what that route does after it: the "Now Active" post and, in a room
+     * bridged to iScored, the board.
+     */
+    private static async startChosenNow(
+        t: SeasonTournamentRow,
+        engine: import('../engine/TournamentEngine.js').TournamentEngine,
+        gameName: string,
+        actor: string,
+    ): Promise<void> {
+        const game = await engine.activateGame(t.id, gameName, undefined, undefined, false,
+            { actor, source: 'admin_manual' }, { promoteQueued: true });
+        engine.announceGameActivated({ tournamentId: t.id, gameName: game.name }).catch(err =>
+            logWarn('Failed to announce the chosen tie winner:', err));
+        if (!t.game_room_id || game.iscoredId) return;
+        if ((await GameRoomSettingsService.get(t.game_room_id, 'ISCORED_ENABLED')) === 'false') return;
+        const { getIScoredCredsForRoom } = await import('../utils/iscoredCreds.js');
+        const creds = await getIScoredCredsForRoom(t.game_room_id);
+        if (!creds) return;
+        const { createIScoredBoardAfterActivation } = await import('../engine/iscoredBoardAfterActivation.js');
+        void createIScoredBoardAfterActivation({
+            roomId: t.game_room_id,
+            tournamentId: t.id,
+            tournamentType: t.type,
+            gameId: game.id,
+            gameName: game.name,
+            creds,
+        });
     }
 
     // ------------------------------------------------------------------
@@ -1152,7 +1214,7 @@ export class SeasonPollService {
     }
 
     /** Admin poll queue (`GET /tournaments/:id/season/polls`). */
-    static async adminList(t: SeasonTournamentRow) {
+    static async adminList(t: SeasonTournamentRow, now: Date = new Date()) {
         const db = await getDatabase();
         const polls = await db.all<SeasonPollRow[]>(
             'SELECT * FROM season_polls WHERE tournament_id = ? ORDER BY slot_no ASC', t.id,
@@ -1181,6 +1243,8 @@ export class SeasonPollService {
                 && (resolvedCount + openCount + draftIndex++) >= t.season_table_count;
             // "Admin decides" held this poll: choosable until a chosen table starts.
             const canChoose = !!poll.tied && (!poll.result_queued_game_id || queued?.status === 'QUEUED');
+            // A46: the panel words the button by what a choice will do.
+            const chooseStartsNow = canChoose && await this.chooseStartsNow(t, poll, now);
             out.push({
                 id: poll.id,
                 slot_no: poll.slot_no,
@@ -1201,6 +1265,7 @@ export class SeasonPollService {
                 tied: !!poll.tied,
                 tied_positions: poll.tied ? ranked.tiedPositions : [],
                 can_choose: canChoose,
+                choose_starts_now: chooseStartsNow,
                 resolved_at: poll.resolved_at,
                 created_at: poll.created_at,
                 beyond_bound: beyondBound,

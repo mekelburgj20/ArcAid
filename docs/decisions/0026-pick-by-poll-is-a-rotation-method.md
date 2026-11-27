@@ -62,3 +62,25 @@ what it says: when the vote ties, an admin decides — nothing is chosen for the
 - **Keep a fallback for `admin`.** A fallback that picks a table means the admin did not decide; the
   "never stuck" property it bought is already provided by the rotation's existing empty-queue hold,
   and `random` / `first_nominated` remain for hosts who want an automatic answer.
+
+## Amendment 2026-11-27: a tie chosen after its rotation starts the table (v2.284.0, A46/A47)
+
+Field case (Mox's Game Room, week 4): the tie held at the Thursday 21:05 ET close, nobody chose before
+the 00:05 rotation, so the rotation closed week 3's table and started nothing. The admin chose the next
+morning; `choose` queued the table for the NEXT rotation, a week away, so the admin pressed Activate,
+which inserted a second row beside the queued one. That queued copy would have run a second week and,
+being the poll's `result_queued_game_id` and still QUEUED, kept the next poll from opening.
+
+1. **`choose` after the fed rotation starts the table now.** When the rotation the tied poll fed (the
+   next rotation after its close, the same rule the scheduler's hold uses) has passed, the tournament
+   has nothing ACTIVE, and it is running (active, not paused, not finished), `choose` queues the
+   choice (keeping the poll's link) and promotes it at once through the admin Activate path, posts
+   "Now Active", and the table runs until the next normal rotation. Otherwise `choose` queues as
+   before. `SeasonPollService.chooseStartsNow` is the one test; the admin list carries it as
+   `choose_starts_now`, and SeasonPanel words the buttons "Start <table> now". The hold itself and the
+   no-fallback decision above stand: nothing starts until an admin chooses.
+2. **Admin Activate promotes a same-name QUEUED row instead of inserting a copy.**
+   `TournamentEngine.activateGame(..., { promoteQueued: true })` flips the tournament's queued row of
+   that name to ACTIVE in place (same id, positions and hold cleared, owner's queue compacted). The
+   admin page's Activate and Discord `/activate-game` pass it; player picks do not (a player's pick
+   must not consume somebody else's queue row).
