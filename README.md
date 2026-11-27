@@ -96,7 +96,7 @@ npm run dev            # Vite dev server with HMR
 
 | URL | Page |
 |-----|------|
-| `/` | Public landing (game room directory) |
+| `/` | Public landing: the Global Scoreboard panel, your rooms (signed in), what every other room is playing, and the quiet rooms |
 | `/login` | Super-admin login (password or Discord OAuth) |
 | `/admin/*` | Super-admin panel (dashboard, rooms, library, backups, logs, settings) |
 | `/invite/:token` | Admin invite acceptance (public) |
@@ -109,7 +109,7 @@ npm run dev            # Vite dev server with HMR
 | `/:slug/mystery-award` | Mystery Award random-game picker (canvas DMD + pinball cabinet aesthetic). |
 | `/:slug/lobby` | Live activity feed + announcements + community shelf. Default post-login landing page. |
 | `/friends` | Friends list (global, requires Discord login). |
-| `/my-rooms` | Rooms you've submitted in (global, requires Discord login). |
+| `/my-rooms` | Retired (v2.280.0): redirects to `/`, where your rooms are in the room switcher and "Your rooms". |
 | `/account/settings` | Account settings — pick your global display name, view linked iScored aliases (global, requires Discord login). |
 | `/:slug/freeplay` | Freeplay (browse catalogue, submit scores for any game) |
 | `/:slug/submit/:gameId` | Standalone score submission (QR code target) |
