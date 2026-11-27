@@ -52,6 +52,7 @@ export const SETTING_LABELS: Record<string, string> = {
     DISCORD_INVITE_URL: 'Discord invite URL',
     DISCORD_SCORE_POSTS_ENABLED: 'Post top scores to Discord',
     DISCORD_SCORE_POSTS_TOP_N: 'Top-score posts cutoff',
+    DISCORD_RUN_RECAPS_ENABLED: 'Post run recaps to Discord',
     CHAT_RESPONSES_ENABLED: 'Arcaid chat responses',
     CHAT_RESPONSES_CATEGORIES: 'Chat response categories',
     CHAT_RESPONSES_CHANNEL_IDS: 'Chat response channels',

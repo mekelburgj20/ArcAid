@@ -596,8 +596,8 @@ export async function resolveAnnouncementChannelId(
     if (tournamentChannelId) return tournamentChannelId;
     if (gameRoomId) {
         const roomRoutes = parseAnnounceRoutes(await GameRoomSettingsService.get(gameRoomId, DISCORD_ANNOUNCE_ROUTES_KEY));
-        // Top-score posts ride the Tournament posts route unless given their own.
-        const route = roomRoutes[kind] ?? (kind === 'scores' ? roomRoutes.tournament : null);
+        // Top-score posts and run recaps ride the Tournament posts route unless given their own.
+        const route = roomRoutes[kind] ?? ((kind === 'scores' || kind === 'recaps') ? roomRoutes.tournament : null);
         if (route) return route;
         const perRoom = await GameRoomSettingsService.get(gameRoomId, 'DISCORD_ANNOUNCEMENT_CHANNEL_ID');
         if (perRoom) return perRoom;

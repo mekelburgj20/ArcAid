@@ -126,6 +126,9 @@ export class Scheduler {
         // knocked off the podium / quiet for a few days (every 15 minutes)
         this.startEngagementReminderSweep();
 
+        // Run recaps: post the By the numbers recap of a finished run (every minute)
+        this.startRunRecapPostSweep();
+
         // S9: scheduled DB+assets backup (driven by global settings)
         await this.startBackupCron();
 
@@ -716,6 +719,7 @@ export class Scheduler {
 
     /** True while an engagement-reminder sweep is running (reentrancy guard). */
     private engagementSweepRunning = false;
+    private runRecapSweepRunning = false;
 
     /**
      * Engagement reminders. Every 15 minutes `EngagementReminderService.sweep`
@@ -739,6 +743,30 @@ export class Scheduler {
 
         this.tasks.set('__engagement_reminders__', task);
         logInfo('Engagement reminder sweep scheduled (every 15 minutes).');
+    }
+
+    /**
+     * Run recap posts (B31.5): every minute, post the recap of each run that
+     * ended 10 min to 6 h ago in a room with DISCORD_RUN_RECAPS_ENABLED on.
+     * The ledger (run_recap_posts) makes it once-only; a sweep still running
+     * when the next tick fires makes that tick a no-op.
+     */
+    private startRunRecapPostSweep(): void {
+        const task = cron.schedule('* * * * *', async () => {
+            if (this.runRecapSweepRunning) return;
+            this.runRecapSweepRunning = true;
+            try {
+                const { RunRecapPostService } = await import('../services/RunRecapPostService.js');
+                await RunRecapPostService.sweep();
+            } catch (error) {
+                logError('Run recap post sweep error:', error);
+            } finally {
+                this.runRecapSweepRunning = false;
+            }
+        });
+
+        this.tasks.set('__run_recap_posts__', task);
+        logInfo('Run recap post sweep scheduled (every minute).');
     }
 
     /**

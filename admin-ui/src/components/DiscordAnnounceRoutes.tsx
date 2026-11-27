@@ -28,7 +28,7 @@ const KINDS = ANNOUNCE_KINDS;
 type Routes = Record<Kind, string | null>;
 
 function parseRoutes(raw: string | undefined): Routes {
-  const out: Routes = { tournament: null, picks: null, polls: null, scores: null };
+  const out: Routes = { tournament: null, picks: null, polls: null, scores: null, recaps: null };
   if (!raw) return out;
   let parsed: unknown;
   try { parsed = JSON.parse(raw); } catch { return out; }
@@ -95,7 +95,7 @@ export default function DiscordAnnounceRoutes({ roomId, settings, onSaveNow }: P
                 {kind === 'polls' && (
                   <p className="text-xs text-faint">A forum gets a new post per poll, titled with the poll question.</p>
                 )}
-                {kind === 'scores' && (
+                {(kind === 'scores' || kind === 'recaps') && (
                   <p className="text-xs text-faint">Same as Tournament posts unless set.</p>
                 )}
               </div>
@@ -106,7 +106,7 @@ export default function DiscordAnnounceRoutes({ roomId, settings, onSaveNow }: P
                 onChange={e => change(kind, e.target.value)}
                 className="min-h-[44px] w-full sm:w-64 rounded border border-border bg-raised px-2 text-sm text-primary"
               >
-                <option value="">{kind === 'scores' ? 'Same as Tournament posts' : 'Room default channel'}</option>
+                <option value="">{kind === 'scores' || kind === 'recaps' ? 'Same as Tournament posts' : 'Room default channel'}</option>
                 {unknown && <option value={selected}>Unknown channel (no longer in the server)</option>}
                 {groups.map((g, i) => g.parent ? (
                   <optgroup key={`${g.parent}-${i}`} label={g.parent}>

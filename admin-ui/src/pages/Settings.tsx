@@ -22,6 +22,7 @@ import { TIMEZONES } from '../components/ScheduleBuilder';
 import DiscordJoinRolePicker from '../components/DiscordJoinRolePicker';
 import DiscordCommandPolicy, { DISCORD_COMMAND_POLICY_KEY } from '../components/DiscordCommandPolicy';
 import DiscordAnnounceRoutes, { DISCORD_ANNOUNCE_ROUTES_KEY } from '../components/DiscordAnnounceRoutes';
+import DiscordRunRecapPosts, { DISCORD_RUN_RECAPS_ENABLED_KEY } from '../components/DiscordRunRecapPosts';
 import DiscordScorePosts, { DISCORD_SCORE_POSTS_ENABLED_KEY, DISCORD_SCORE_POSTS_TOP_N_KEY } from '../components/DiscordScorePosts';
 import { DEFAULT_TIMEZONE, ROOM_TIMEZONE_KEY, zoneLabel } from '../lib/timezone';
 // v2.116.0 (C1) — the Leaderboard Display controls moved to the admin
@@ -984,6 +985,8 @@ export default function Settings() {
     DISCORD_ANNOUNCE_ROUTES_KEY,
     // v2.225.0 (E13) - rendered by DiscordScorePosts inside the Discord card.
     DISCORD_SCORE_POSTS_ENABLED_KEY, DISCORD_SCORE_POSTS_TOP_N_KEY,
+    // B31.5 - rendered by DiscordRunRecapPosts inside the Discord card.
+    DISCORD_RUN_RECAPS_ENABLED_KEY,
     // Scoreboard branding (managed in inline card)
     'SCOREBOARD_BG_URL', 'SCOREBOARD_BG_MODE', 'SCOREBOARD_BG_OPACITY',
     'LOGO_URL', 'LOGO_POSITION', 'LOGO_MAX_HEIGHT', 'SCOREBOARD_LOGO_ENABLED',
@@ -1583,6 +1586,14 @@ export default function Settings() {
                   Top-score posts channel (v2.226.0). Instant-save; linked guild only. */}
               {category === 'Discord' && !!settings.DISCORD_GUILD_ID?.trim() && (
                 <DiscordScorePosts
+                  settings={settings}
+                  onSaveNow={saveSettingsNow}
+                />
+              )}
+
+              {/* B31.5 - the By the numbers recap when a run ends. Instant-save; linked guild only. */}
+              {category === 'Discord' && !!settings.DISCORD_GUILD_ID?.trim() && (
+                <DiscordRunRecapPosts
                   settings={settings}
                   onSaveNow={saveSettingsNow}
                 />

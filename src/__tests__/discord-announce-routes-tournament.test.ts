@@ -33,8 +33,11 @@ const T_SCORES = '777777777777777777';
 const tr = (routes: Record<string, unknown>) => JSON.stringify({ version: 1, routes });
 
 describe('ANNOUNCE_KINDS', () => {
-    it('has the fourth kind, Top-score posts', () => {
-        expect(ANNOUNCE_KINDS.map(k => k.kind)).toEqual(['tournament', 'picks', 'polls', 'scores']);
+    it('has the fourth and fifth kinds, Top-score posts and Run recaps', () => {
+        expect(ANNOUNCE_KINDS.map(k => k.kind)).toEqual(['tournament', 'picks', 'polls', 'scores', 'recaps']);
+        expect(ANNOUNCE_KINDS.find(k => k.kind === 'recaps')).toMatchObject({
+            label: 'Run recaps', description: 'By-the-numbers recap when a run ends',
+        });
         expect(ANNOUNCE_KINDS.find(k => k.kind === 'scores')).toMatchObject({
             label: 'Top-score posts', description: 'Glory and dethrone posts for top-N scores',
         });
@@ -42,18 +45,18 @@ describe('ANNOUNCE_KINDS', () => {
 
     it("the room parser reads a scores route and never accepts 'none'", () => {
         expect(parseAnnounceRoutes(tr({ scores: R_SCORES, picks: 'none' })))
-            .toEqual({ tournament: null, picks: null, polls: null, scores: R_SCORES });
+            .toEqual({ tournament: null, picks: null, polls: null, scores: R_SCORES, recaps: null });
     });
 });
 
 describe('parseTournamentAnnounceRoutes / serializeTournamentAnnounceRoutes', () => {
     it("accepts snowflakes and 'none'", () => {
         expect(parseTournamentAnnounceRoutes(tr({ tournament: T_TOURN, picks: 'none', scores: ' none ' })))
-            .toEqual({ tournament: T_TOURN, picks: 'none', polls: null, scores: 'none' });
+            .toEqual({ tournament: T_TOURN, picks: 'none', polls: null, scores: 'none', recaps: null });
     });
 
     it('tolerant: garbage is empty, never a throw', () => {
-        const empty = { tournament: null, picks: null, polls: null, scores: null };
+        const empty = { tournament: null, picks: null, polls: null, scores: null, recaps: null };
         for (const raw of [null, undefined, '', '{oops', '[]', '"x"', tr({ picks: 'general' }),
             JSON.stringify({ version: 2, routes: { picks: T_TOURN } }), JSON.stringify({ version: 1, routes: [T_TOURN] })]) {
             expect(parseTournamentAnnounceRoutes(raw as string | null | undefined)).toEqual(empty);
@@ -123,6 +126,15 @@ describe('resolveAnnouncementChannelId precedence with tournament routes', () =>
         for (const kind of ['tournament', 'picks', 'polls'] as const) {
             expect(await resolveAnnouncementChannelId(roomId, ANNOUNCE_NONE, kind, routes)).toBeNull();
         }
+    });
+
+    it('recaps: own room route, else the room tournament route, else room default', async () => {
+        expect(await resolveAnnouncementChannelId(roomId, null, 'recaps')).toBe(R_TOURN);
+        await setSetting(DISCORD_ANNOUNCE_ROUTES_KEY, tr({ tournament: R_TOURN, recaps: R_SCORES }));
+        expect(await resolveAnnouncementChannelId(roomId, null, 'recaps')).toBe(R_SCORES);
+        await setSetting(DISCORD_ANNOUNCE_ROUTES_KEY, tr({ picks: R_PICKS }));
+        expect(await resolveAnnouncementChannelId(roomId, null, 'recaps')).toBe(DEFAULT);
+        expect(await resolveAnnouncementChannelId(roomId, 'none', 'recaps')).toBeNull();
     });
 
     it('scores: room scores route, else the room tournament route, else room default, else env', async () => {
