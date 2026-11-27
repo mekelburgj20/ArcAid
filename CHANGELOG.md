@@ -6,6 +6,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.279.0] - 2026-11-26 - The room list can now say what each room is playing (G35b)
+
+### Added
+- **The room list can now say what each room is playing.** For every listed room, the room list the home page reads now carries up to three of the tables being played there right now: the table's name and picture, who is in first place, and their score. The table with the newest score comes first; a table nobody has scored on yet comes last. Nothing on screen changes in this release: the new home page (G35c) is what will show it.
+- **First place is named as the room's scoreboard names it:** the player's chosen display name, else the name they played under. Never an account number.
+- **Rooms you need approval to join list no tables**, just as they already show no game or player counts.
+- **Event rounds are not listed.** A live event's round is ranked from the event's own standings, which costs too much to work out for every visitor of the home page; rotation tables only.
+
+### Technical
+- `GET /api/rooms`: each room gains `activeTables: Array<{ gameId, name, imageUrl, leaderName, topScore }>` from the new `RoomActiveTablesService.forRooms`, called ONCE for every listed non-`approval` room. An `approval` room gets `[]` and is not read; unlisted and suspended rooms are still dropped; counts, `discordInviteUrl` and `join_policy` are unchanged (the join policies are now read before the per-room map, the same reads).
+- Which tables: `LeaderboardService.getLiveCards(roomId)`, the room board's own card read narrowed to the open (ACTIVE) cards. That read is `loadBoardCards`, split out of `getActiveLeaderboards` with no behaviour change (open cards, retained COMPLETED cards, the dedupe, the admin's manual card order), so the list cannot pick a card set or order the board does not show. Event rounds are left out: `eventRoundSql` (now shared with `loadEventRounds`) marks them as `is_event_round` on the card rows, and their board (`getEventRoundOverlays`) costs queries per round and per player. Pinned boards are not on a room's board read (it room-filters on the tournament), so they are not listed either.
+- Order: `LeaderboardService.getLastScoreTimes(gameIds)`, one query: the newest `score_history.created_at` inside each board's own window (the `queryRankedRows` room / tournament stamp / table name / `orphaned_at` filter plus `gameRunWindowSql`, so a previous run's score never counts). Newest first, no-score boards last, ties in board order; at most `ROOM_ACTIVE_TABLES_MAX` (3).
+- The #1: `LeaderboardService.getRunSummaries` (the board's cached ranked rows, recalculated only on a miss) with ONE hydrate for every room, so names resolve at read through `resolveProfiles`; `leaderName` is the board's `display_name ?? iscored_username`. Art: `GameArtService.artForNames`, one query.
+- Cost, measured on a seeded on-disk test DB (6 rooms x 8 boards x 20 scores, warm, median of 30 calls, several runs): 26 queries and 2.6-4.3 ms before, 51 queries and 11.7-20.2 ms after (3 card reads per room plus 7 shared). Under the 50 ms line, so there is no response cache.
+- Tests: new `room-active-tables.test.ts` (5 live boards give 3, newest first, with name, catalogue art and the same #1 and score as `getActiveLeaderboards`; display name, alias, an attributed player with no profile and a linked alias, never a raw id; no-score boards last with nulls, a previous run's score not counted; `approval` room `[]` with counts 0 beside a `discord_role` room that lists; no retained COMPLETED card, no event round, unlisted room dropped; the query count does not grow with boards, and each extra room adds only its card reads).
+
 ## [2.278.0] - 2026-11-26 - The Global Scoreboard on the Arcaid look, around and on the cards (G36)
 
 ### Changed
