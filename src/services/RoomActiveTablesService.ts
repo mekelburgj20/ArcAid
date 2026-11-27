@@ -19,7 +19,7 @@ export interface RoomActiveTable {
 export const ROOM_ACTIVE_TABLES_MAX = 3;
 
 /**
- * G35b (v2.278.0) — what each listed room is playing, for the landing page's
+ * G35b (v2.279.0) — what each listed room is playing, for the landing page's
  * room cards ("What's on", owner 2026-11-26).
  *
  * The rules, each read from the room board rather than restated:

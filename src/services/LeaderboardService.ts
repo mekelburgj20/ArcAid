@@ -993,7 +993,7 @@ export class LeaderboardService {
      * then the room admin's manual card order. Ranking-free: the rows carry the
      * card's columns only.
      *
-     * Split out of `getActiveLeaderboards` (G35b, v2.278.0) so the public room
+     * Split out of `getActiveLeaderboards` (G35b, v2.279.0) so the public room
      * list (`getLiveCards`) reads the SAME card set in the SAME order as the
      * room's board, rather than a second card query that could drift from it.
      * `activeGames` is the open-card rows alone (the cadence step reads them).
@@ -1161,7 +1161,7 @@ export class LeaderboardService {
     }
 
     /**
-     * G35b (v2.278.0) — a room's LIVE cards for the public room list, in the
+     * G35b (v2.279.0) — a room's LIVE cards for the public room list, in the
      * board's order: `loadBoardCards` (the room board's own card read) narrowed
      * to the open (ACTIVE) cards, so a retained COMPLETED card is never listed
      * as being played. `isEventRound` marks the cards `getEventRoundOverlays`
@@ -1192,7 +1192,7 @@ export class LeaderboardService {
     }
 
     /**
-     * G35b (v2.278.0) — when each board last took a score: the newest
+     * G35b (v2.279.0) — when each board last took a score: the newest
      * `created_at` (epoch ms) among the `score_history` rows the board ranks,
      * keyed by game id; a board with none is absent. The window is the one
      * `queryRankedRows` reads — the tournament's room, the tournament stamp,

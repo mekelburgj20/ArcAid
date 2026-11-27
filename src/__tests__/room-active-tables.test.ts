@@ -9,7 +9,7 @@ import { LeaderboardService } from '../services/LeaderboardService.js';
 import { RoomActiveTablesService, ROOM_ACTIVE_TABLES_MAX } from '../services/RoomActiveTablesService.js';
 
 /**
- * G35b (v2.278.0) — `GET /api/rooms` carries each listed room's `activeTables`:
+ * G35b (v2.279.0) — `GET /api/rooms` carries each listed room's `activeTables`:
  * the board's live tables (at most 3, newest score first, no-score boards
  * last), each with its art, its #1's label (resolved at read, never a raw id)
  * and the #1 score; `[]` for an approval room.

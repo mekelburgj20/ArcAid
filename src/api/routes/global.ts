@@ -2691,7 +2691,7 @@ router.get('/rooms', async (req, res) => {
         // branch the bookmark toggle into "Request to join" with no second fetch.
         const joinPolicies = await Promise.all(rooms.map((room) => RoomAccessService.getJoinPolicy(room.id)));
 
-        // G35b (v2.278.0) — the tables each room is playing now, read off its
+        // G35b (v2.279.0) — the tables each room is playing now, read off its
         // board (RoomActiveTablesService has the rules), in ONE batch for the
         // whole list so the leaders' names resolve in one call. Approval rooms
         // are not asked: their activeTables is [] like the counts below.
