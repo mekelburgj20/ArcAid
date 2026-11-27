@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { splitLandingRooms, type PublicRoom, type MemberRoom } from '../landingRooms';
+import { isQuietRoom, normalizeMemberRoom, normalizePublicRoom, splitLandingRooms, type PublicRoom, type MemberRoom } from '../landingRooms';
 
 function publicRoom(overrides: Partial<PublicRoom> = {}): PublicRoom {
   return {
@@ -69,5 +69,29 @@ describe('splitLandingRooms', () => {
 
     expect(myRooms).toHaveLength(0);
     expect(publicRooms).toHaveLength(2);
+  });
+});
+
+describe('isQuietRoom (G35d)', () => {
+  const card = (overrides: Partial<PublicRoom>) => normalizePublicRoom(publicRoom(overrides));
+
+  it('is quiet with 0 players, 0 active games and no tables (an empty list or none sent)', () => {
+    expect(isQuietRoom(card({ activePlayers: 0, activeGames: 0, activeTables: [] }))).toBe(true);
+    expect(isQuietRoom(card({ activePlayers: 0, activeGames: 0 }))).toBe(true);
+  });
+
+  it('is not quiet with players, active games or a table on', () => {
+    expect(isQuietRoom(card({ activePlayers: 1, activeGames: 0, activeTables: [] }))).toBe(false);
+    expect(isQuietRoom(card({ activePlayers: 0, activeGames: 2, activeTables: [] }))).toBe(false);
+    const round = { gameId: 'g-1', name: 'Cactus Canyon', imageUrl: null, leaderName: null, topScore: null };
+    expect(isQuietRoom(card({ activePlayers: 0, activeGames: 0, activeTables: [round] }))).toBe(false);
+  });
+
+  it('an approval room is never quiet (the listing withholds its counts)', () => {
+    expect(isQuietRoom(card({ activePlayers: 0, activeGames: 0, activeTables: [], join_policy: 'approval' }))).toBe(false);
+  });
+
+  it('a member-only card with no counts is not quiet', () => {
+    expect(isQuietRoom(normalizeMemberRoom(memberRoom()))).toBe(false);
   });
 });

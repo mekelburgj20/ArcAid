@@ -2667,106 +2667,149 @@ router.get('/global/config', async (_req, res) => {
     }
 });
 
+/**
+ * G35d (v2.283.0) — `GET /api/rooms` remembers its whole answer for
+ * `ROOM_LIST_CACHE_MS` (owner 2026-11-27: the round boards behind "What's on"
+ * then run at most twice a minute). The route is unauthenticated and its
+ * answer is the same for every caller, which is the ONLY reason a shared
+ * cache is safe here: **never add a per-viewer field to this answer while it
+ * is cached** (it would be served to everyone for 30 s). No invalidation
+ * besides the clock: a listing change, a new score or a new round shows on
+ * the landing page within 30 seconds. Requests that arrive while the answer
+ * is being built share that one build; a failed build is not remembered.
+ */
+const ROOM_LIST_CACHE_MS = 30_000;
+let roomListCache: { at: number; body: unknown } | null = null;
+let roomListInFlight: Promise<unknown> | null = null;
+
+/** Test hook: forget the remembered `GET /api/rooms` answer (route tests clear it in `beforeEach`). */
+export function __clearRoomListCache(): void {
+    roomListCache = null;
+    roomListInFlight = null;
+}
+
+async function cachedRoomList(): Promise<unknown> {
+    if (roomListCache && Date.now() - roomListCache.at < ROOM_LIST_CACHE_MS) return roomListCache.body;
+    if (roomListInFlight) return roomListInFlight;
+    const startedAt = Date.now();
+    const build = buildRoomList()
+        .then((body) => {
+            // A clear that ran during the build (a test hook) drops this answer too.
+            if (roomListInFlight === build) roomListCache = { at: startedAt, body };
+            return body;
+        })
+        .finally(() => {
+            if (roomListInFlight === build) roomListInFlight = null;
+        });
+    roomListInFlight = build;
+    return build;
+}
+
 // Public room listing with stats
-router.get('/rooms', async (req, res) => {
+router.get('/rooms', async (_req, res) => {
     try {
-        const allRooms = await GameRoomService.getPublic();
-        const db = await getDatabase();
-        const { GameRoomSettingsService } = await import('../../services/GameRoomSettingsService.js');
-
-        // v2.80.0 — ROOM_LISTED (unlisted rooms). Default-on idiom: absent or
-        // 'true' stays listed, only an explicit 'false' drops it. This route is
-        // deliberately unauthenticated (see the security-review comment below)
-        // so an unlisted room is dropped for EVERY caller, not per-viewer — the
-        // room stays reachable via its direct URL (getBySlug/portal) and to its
-        // members (GET /api/me/rooms reads room_members, not this endpoint).
-        const listedFlags = await GameRoomSettingsService.getManyForRooms(
-            allRooms.map((r) => r.id),
-            ['ROOM_LISTED'],
-        );
-        const rooms = allRooms.filter((room) => listedFlags.get(room.id)?.ROOM_LISTED !== 'false');
-
-        const [{ RoomAccessService }, { RoomActiveTablesService }] = await Promise.all([
-            import('../../services/RoomAccessService.js'),
-            import('../../services/RoomActiveTablesService.js'),
-        ]);
-        // v2.39.0 — join_policy is safe/non-secret: it lets landing-page cards
-        // branch the bookmark toggle into "Request to join" with no second fetch.
-        const joinPolicies = await Promise.all(rooms.map((room) => RoomAccessService.getJoinPolicy(room.id)));
-
-        // G35b (v2.279.0) — the tables each room is playing now, read off its
-        // board (RoomActiveTablesService has the rules), in ONE batch for the
-        // whole list so the leaders' names resolve in one call. Approval rooms
-        // are not asked: their activeTables is [] like the counts below.
-        const activeTablesByRoom = await RoomActiveTablesService.forRooms(
-            rooms.filter((_room, i) => joinPolicies[i] !== 'approval').map((room) => room.id),
-        );
-
-        const enriched = await Promise.all(rooms.map(async (room, i) => {
-            const logoUrl = room.logo_url || null;
-            const joinPolicy = joinPolicies[i]!;
-
-            // Security review fix (pre-merge, v2.39.0) — this endpoint is
-            // fully unauthenticated (no requireAuth/optional-decode today), so
-            // per-viewer membership would mean adding auth decoding to a route
-            // that's never needed it. Simplest-correct + safest default: an
-            // 'approval'-policy room strips activity counts + the Discord
-            // invite link for EVERY caller of this public list, unconditionally
-            // (not just guests) — those are exactly the "stats"/contact-info
-            // categories the contract bars for non-members, and a member
-            // browsing the landing page has other ways to see the room's real
-            // numbers (the room's own pages, once inside). name/slug/logo/
-            // description/join_policy stay so the "Request to join" card is
-            // still discoverable and renders normally. Skips the two count
-            // queries entirely for approval rooms — nothing computes them just
-            // to throw them away. G35b: the same holds for activeTables.
-            if (joinPolicy === 'approval') {
-                return {
-                    ...room,
-                    logo_url: logoUrl,
-                    activeGames: 0,
-                    activePlayers: 0,
-                    discordInviteUrl: null,
-                    join_policy: joinPolicy,
-                    activeTables: [],
-                };
-            }
-
-            // Count active games (games → tournaments → room)
-            const activeGames = await db.get(
-                `SELECT COUNT(*) as count FROM games g
-                 JOIN tournaments t ON g.tournament_id = t.id
-                 WHERE t.game_room_id = ? AND g.status = 'ACTIVE'`,
-                room.id
-            );
-            // Count unique players
-            const activePlayers = await db.get(
-                `SELECT COUNT(DISTINCT LOWER(s.iscored_username)) as count FROM submissions s
-                 JOIN games g ON s.game_id = g.id
-                 JOIN tournaments t ON g.tournament_id = t.id
-                 WHERE t.game_room_id = ?
-                   AND s.orphaned_at IS NULL`,
-                room.id
-            );
-            const discordInvite = await GameRoomSettingsService.get(room.id, 'DISCORD_INVITE_URL');
-
-            return {
-                ...room,
-                logo_url: logoUrl,
-                activeGames: activeGames?.count || 0,
-                activePlayers: activePlayers?.count || 0,
-                discordInviteUrl: discordInvite || null,
-                join_policy: joinPolicy,
-                activeTables: activeTablesByRoom.get(room.id) ?? [],
-            };
-        }));
-
-        res.json(enriched);
+        res.json(await cachedRoomList());
     } catch (error) {
         logError('API Error (GET /api/rooms):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
+
+/** The `GET /api/rooms` answer (cached above: nothing here may depend on who asks). */
+async function buildRoomList(): Promise<unknown[]> {
+    const allRooms = await GameRoomService.getPublic();
+    const db = await getDatabase();
+    const { GameRoomSettingsService } = await import('../../services/GameRoomSettingsService.js');
+
+    // v2.80.0 — ROOM_LISTED (unlisted rooms). Default-on idiom: absent or
+    // 'true' stays listed, only an explicit 'false' drops it. This route is
+    // deliberately unauthenticated (see the security-review comment below)
+    // so an unlisted room is dropped for EVERY caller, not per-viewer — the
+    // room stays reachable via its direct URL (getBySlug/portal) and to its
+    // members (GET /api/me/rooms reads room_members, not this endpoint).
+    const listedFlags = await GameRoomSettingsService.getManyForRooms(
+        allRooms.map((r) => r.id),
+        ['ROOM_LISTED'],
+    );
+    const rooms = allRooms.filter((room) => listedFlags.get(room.id)?.ROOM_LISTED !== 'false');
+
+    const [{ RoomAccessService }, { RoomActiveTablesService }] = await Promise.all([
+        import('../../services/RoomAccessService.js'),
+        import('../../services/RoomActiveTablesService.js'),
+    ]);
+    // v2.39.0 — join_policy is safe/non-secret: it lets landing-page cards
+    // branch the bookmark toggle into "Request to join" with no second fetch.
+    const joinPolicies = await Promise.all(rooms.map((room) => RoomAccessService.getJoinPolicy(room.id)));
+
+    // G35b (v2.279.0) — the tables each room is playing now, read off its
+    // board (RoomActiveTablesService has the rules), in ONE batch for the
+    // whole list so the leaders' names resolve in one call. Approval rooms
+    // are not asked: their activeTables is [] like the counts below.
+    const activeTablesByRoom = await RoomActiveTablesService.forRooms(
+        rooms.filter((_room, i) => joinPolicies[i] !== 'approval').map((room) => room.id),
+    );
+
+    const enriched = await Promise.all(rooms.map(async (room, i) => {
+        const logoUrl = room.logo_url || null;
+        const joinPolicy = joinPolicies[i]!;
+
+        // Security review fix (pre-merge, v2.39.0) — this endpoint is
+        // fully unauthenticated (no requireAuth/optional-decode today), so
+        // per-viewer membership would mean adding auth decoding to a route
+        // that's never needed it. Simplest-correct + safest default: an
+        // 'approval'-policy room strips activity counts + the Discord
+        // invite link for EVERY caller of this public list, unconditionally
+        // (not just guests) — those are exactly the "stats"/contact-info
+        // categories the contract bars for non-members, and a member
+        // browsing the landing page has other ways to see the room's real
+        // numbers (the room's own pages, once inside). name/slug/logo/
+        // description/join_policy stay so the "Request to join" card is
+        // still discoverable and renders normally. Skips the two count
+        // queries entirely for approval rooms — nothing computes them just
+        // to throw them away. G35b: the same holds for activeTables.
+        if (joinPolicy === 'approval') {
+            return {
+                ...room,
+                logo_url: logoUrl,
+                activeGames: 0,
+                activePlayers: 0,
+                discordInviteUrl: null,
+                join_policy: joinPolicy,
+                activeTables: [],
+            };
+        }
+
+        // Count active games (games → tournaments → room)
+        const activeGames = await db.get(
+            `SELECT COUNT(*) as count FROM games g
+             JOIN tournaments t ON g.tournament_id = t.id
+             WHERE t.game_room_id = ? AND g.status = 'ACTIVE'`,
+            room.id
+        );
+        // Count unique players
+        const activePlayers = await db.get(
+            `SELECT COUNT(DISTINCT LOWER(s.iscored_username)) as count FROM submissions s
+             JOIN games g ON s.game_id = g.id
+             JOIN tournaments t ON g.tournament_id = t.id
+             WHERE t.game_room_id = ?
+               AND s.orphaned_at IS NULL`,
+            room.id
+        );
+        const discordInvite = await GameRoomSettingsService.get(room.id, 'DISCORD_INVITE_URL');
+
+        return {
+            ...room,
+            logo_url: logoUrl,
+            activeGames: activeGames?.count || 0,
+            activePlayers: activePlayers?.count || 0,
+            discordInviteUrl: discordInvite || null,
+            join_policy: joinPolicy,
+            activeTables: activeTablesByRoom.get(room.id) ?? [],
+        };
+    }));
+
+    return enriched;
+}
 
 /**
  * POST /api/rooms — public self-serve room creation (v2.33.0).

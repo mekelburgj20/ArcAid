@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import crypto from 'crypto';
 import express from 'express';
 import request from 'supertest';
@@ -222,6 +222,12 @@ describe('RoomAccessService.canViewRoom — unit', () => {
 // invite link are exactly the "stats"/contact-info categories the contract
 // bars for non-members — those must be stripped, not just left ungated.
 describe('GET /api/rooms — approval rooms do not leak activity counts', () => {
+    // G35d: GET /api/rooms remembers its answer for 30 s; no test may see another's.
+    beforeEach(async () => {
+        const { __clearRoomListCache } = await import('../api/routes/global.js');
+        __clearRoomListCache();
+    });
+
     async function createTestApp() {
         await setupTestDb();
         const app = express();
