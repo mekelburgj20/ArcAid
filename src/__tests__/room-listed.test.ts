@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { setupTestDb, createTestRoom } from './helpers.js';
@@ -7,6 +7,10 @@ import { RoomMembershipService } from '../services/RoomMembershipService.js';
 import { signToken } from '../api/auth.js';
 import { getDatabase } from '../database/database.js';
 import { GameRoomService } from '../services/GameRoomService.js';
+import { __clearRoomListCache } from '../api/routes/global.js';
+
+// G35d: GET /api/rooms remembers its answer for 30 s; no test may see another's.
+beforeEach(() => { __clearRoomListCache(); });
 
 // v2.80.0 — ROOM_LISTED (unlisted rooms). Default-on idiom: absent/'true'
 // stays listed on the public landing-page room list, only an explicit
@@ -98,8 +102,12 @@ describe('ROOM_LISTED is the only listing switch', () => {
     }
     const adminToken = (roomId: string) =>
         signToken({ role: 'room_admin', gameRoomIds: [roomId], username: 'ra', discordId: '111' } as never);
-    const listed = async (a: express.Express, roomId: string) =>
-        (await request(a).get('/api/rooms')).body.some((r: any) => r.id === roomId);
+    // Each read follows a toggle in the same test, so it forgets the cached answer
+    // first (the cache itself is room-active-tables.test.ts's subject).
+    const listed = async (a: express.Express, roomId: string) => {
+        __clearRoomListCache();
+        return (await request(a).get('/api/rooms')).body.some((r: any) => r.id === roomId);
+    };
 
     it("the owner's toggle lists a room that is_public had hidden", async () => {
         await setupTestDb();

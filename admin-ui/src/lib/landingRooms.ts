@@ -93,6 +93,21 @@ export function normalizePublicRoom(room: PublicRoom): RoomCardData {
   };
 }
 
+/**
+ * G35d - a listed room with nothing going on (owner 2026-11-27): the listing
+ * says 0 active players AND 0 active games, and it lists no `activeTables`.
+ * The landing page moves these out of the room panels into one compact
+ * "Quiet rooms" list. Never an `approval` room: the listing withholds its
+ * counts (they always read 0), so it keeps its panel and its "approves its
+ * members" line. Missing counts (a member-only card) are not zeros.
+ */
+export function isQuietRoom(room: RoomCardData): boolean {
+  return room.joinPolicy !== 'approval'
+    && room.activePlayers === 0
+    && room.activeGames === 0
+    && (room.activeTables?.length ?? 0) === 0;
+}
+
 const SMALL_WORDS = /^(the|of|a|an)$/i;
 
 /** First letters of up to two words, skipping "the", "of", "a" (a room or table with no picture). */

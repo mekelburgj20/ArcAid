@@ -434,6 +434,94 @@ describe('LandingPage (G35c)', () => {
     });
   });
 
+  describe('quiet rooms (G35d): no players, no games, nothing on', () => {
+    const QUIET_A = ROOM('room-5', 'Neon Alley', 'neon_alley', 0, { activeGames: 0, activeTables: [], description: 'Neon-lit rotation play every night, a description long enough to wrap onto a second line on a phone.' });
+    // A server from before G35b sends no activeTables at all: with zero counts it is quiet too.
+    const QUIET_B = ROOM('room-6', 'Flipper Cove', 'flipper_cove', 0, { activeGames: 0, description: '' });
+    // Zero counts but a live table (an event round counts no players yet): it keeps its panel.
+    const ROUND_ROOM = ROOM('room-7', 'The Wizard Room', 'wizard_room', 0, {
+      activeGames: 0,
+      activeTables: [{ gameId: 'g-cc', name: 'Cactus Canyon', imageUrl: null, leaderName: 'Bee', topScore: 700 }],
+    });
+    const quietRows = () => screen.queryAllByTestId('landing-quiet-room');
+    const quietRow = (name: string) => quietRows().find(r => within(r).queryByText(name))!;
+
+    it('quiet rooms leave the panels for one list under them, "No games running right now.", then Create a room', async () => {
+      mockFetch({ rooms: [RTX, QUIET_A, BACK_GLASS, QUIET_B, ROUND_ROOM, OTHER] });
+      const { container } = renderLanding();
+      await waitFor(() => expect(quietRows()).toHaveLength(2));
+
+      // The panels: busiest first as before; the approval room (its counts always 0) and the room
+      // with a table but zero counts stay panels.
+      expect(panelNames()).toEqual(['Other Room', 'RTX Pinball', 'The Back Glass Bar', 'The Wizard Room']);
+      expect(panelFor('The Back Glass Bar')).toHaveTextContent('This room approves its members.');
+      expect(within(panelFor('The Wizard Room')).getByTestId('landing-on-now')).toHaveTextContent('Cactus Canyon');
+
+      const quiet = screen.getByTestId('landing-quiet-rooms');
+      expect(within(quiet).getByRole('heading', { name: 'Quiet rooms' })).toBeInTheDocument();
+      expect(quiet).toHaveTextContent('No games running right now.');
+      expect(quietRows().map(r => within(r).getByText(/Neon Alley|Flipper Cove/).textContent)).toEqual(['Neon Alley', 'Flipper Cove']);
+      // The description in full (wrapped, never cut off); none for a room without one.
+      expect(quietRow('Neon Alley')).toHaveTextContent('Neon-lit rotation play every night, a description long enough to wrap onto a second line on a phone.');
+      expect(quietRow('Flipper Cove').querySelector('.lp-quiet__desc')).toBeNull();
+      // Initials where there is no logo; never "0 players" or a table note.
+      expect(quietRow('Neon Alley').querySelector('.part-row__tile')).toHaveTextContent('NA');
+      expect(quiet).not.toHaveTextContent('0 players');
+      expect(quiet).not.toHaveTextContent('No tables running right now');
+
+      // After every panel, and before the Create a room panel.
+      const lastPanel = panels().at(-1)!;
+      expect(lastPanel.compareDocumentPosition(quiet) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      const create = screen.getByRole('link', { name: 'Create a room' });
+      expect(quiet.compareDocumentPosition(create) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(container.querySelectorAll('.lp-won__new')).toHaveLength(1);
+    });
+
+    it('signed out, a quiet row offers View to the room', async () => {
+      mockFetch({ rooms: [RTX, QUIET_A] });
+      renderLanding();
+      await waitFor(() => expect(quietRows()).toHaveLength(1));
+      const row = quietRow('Neon Alley');
+      expect(within(row).getByRole('link', { name: 'View Neon Alley' })).toHaveAttribute('href', '/neon_alley');
+      expect(within(row).queryByRole('button', { name: /Join/ })).toBeNull();
+    });
+
+    it('signed in, a quiet row offers View and Join; Join adds it to Your rooms', async () => {
+      signInAs('user-1', 'Justin');
+      const fetchMock = mockFetch({ rooms: [RTX, QUIET_A, QUIET_B], meRooms: MINE });
+      renderLanding();
+      await waitFor(() => expect(quietRows()).toHaveLength(2));
+      const row = quietRow('Flipper Cove');
+      expect(within(row).getByRole('link', { name: 'View Flipper Cove' })).toHaveAttribute('href', '/flipper_cove');
+      fireEvent.click(within(row).getByRole('button', { name: 'Join Flipper Cove' }));
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/me/rooms/room-6', expect.objectContaining({ method: 'POST' })));
+      await waitFor(() => expect(myCards()).toHaveLength(4));
+      expect(quietRows()).toHaveLength(1);
+      expect(myCards().some(c => c.textContent?.includes('Flipper Cove'))).toBe(true);
+    });
+
+    it('with no quiet room there is no "Quiet rooms" heading and Create a room closes the panels', async () => {
+      mockFetch();
+      const { container } = renderLanding();
+      await waitFor(() => expect(panels()).toHaveLength(4));
+      expect(screen.queryByRole('heading', { name: 'Quiet rooms' })).toBeNull();
+      expect(screen.queryByTestId('landing-quiet-rooms')).toBeNull();
+      expect(screen.queryByText('No games running right now.')).toBeNull();
+      const grids = container.querySelectorAll('.lp-won');
+      expect(grids).toHaveLength(1);
+      expect(grids[0]!.lastElementChild).toHaveClass('lp-won__new');
+    });
+
+    it('when every room is quiet, only the list and Create a room show', async () => {
+      mockFetch({ rooms: [QUIET_A, QUIET_B] });
+      renderLanding();
+      await waitFor(() => expect(quietRows()).toHaveLength(2));
+      expect(panels()).toHaveLength(0);
+      expect(screen.getByText('Create a game room')).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Create a room' })).toHaveAttribute('href', '/create-room');
+    });
+  });
+
   describe('a failed read shows LoadFailedNotice in its own section while the others render', () => {
     it('the room list', async () => {
       mockFetch({ fail: ['rooms'] });

@@ -25,25 +25,33 @@ export const ROOM_ACTIVE_TABLES_MAX = 3;
  * The rules, each read from the room board rather than restated:
  * - **Which tables:** the board's live cards, `LeaderboardService.getLiveCards`
  *   (the board's own card read, narrowed to the open cards), in the board's
- *   order. Event rounds are left OUT: their board is the round board
- *   (`getEventRoundOverlays`), whose witness join costs queries per round and
- *   per player, too much for an unauthenticated list every visitor loads.
+ *   order. A live EVENT ROUND is listed like any other card (G35d, v2.283.0,
+ *   owner 2026-11-27: "rounds with their leaders"; before it The Wizard Room
+ *   read "No tables running right now" while it played two rounds).
  * - **Order:** the board with the newest score first
- *   (`LeaderboardService.getLastScoreTimes`, the board's own window), boards
- *   with no score yet last, ties in the board's order; at most
- *   `ROOM_ACTIVE_TABLES_MAX`.
+ *   (`LeaderboardService.getLastScoreTimes`: a rotation board's own run
+ *   window, a round's own round-board rows), boards with no score yet last,
+ *   ties in the board's order; at most `ROOM_ACTIVE_TABLES_MAX`.
  * - **The #1:** `LeaderboardService.getRunSummaries` — the board's own ranked
  *   rows (cache, recalculate on a miss), one hydrate for every room, so the
  *   name resolves at READ through `resolveProfiles` and the label is the
- *   board's `display_name ?? iscored_username`, never a raw id.
+ *   board's `display_name ?? iscored_username`, never a raw id. For an event
+ *   round it is the round board's rank 1 (`getEventRoundOverlays` →
+ *   `EventResultService.getRoundBoardDetail`), exactly what the room board
+ *   shows, so under `witness_flag_mode = 'prevent'` a flagged best never leads.
  * - **Art:** `GameArtService` (the ONE art rule), one query.
  *
  * The CALLER withholds the field for `approval` rooms (pass only the rooms the
  * list may describe). Cost for the whole list: the board's card reads per room
- * (two or three queries plus the card-order settings read), then one
- * last-score query, the run-summary batch (a handful of queries, plus one
- * recalculate per board whose cache was just invalidated) and one art query,
- * however many rooms there are.
+ * (two or three queries plus the card-order settings read), then the
+ * last-score read (two queries, a third when a round is live), the run-summary
+ * batch (a handful of queries, plus one recalculate per board whose cache was
+ * just invalidated) and one art query, however many rooms there are. A round
+ * costs its round board, ONLY for the round cards picked (at most three per
+ * room), batched across rooms in one `getEventRoundOverlays` call: about 8
+ * queries plus 3 per player with a Witness score on it (the witness join's
+ * identity lookup). `GET /api/rooms` caches its whole answer for 30 seconds,
+ * so that runs at most twice a minute.
  */
 export class RoomActiveTablesService {
     static async forRooms(roomIds: string[]): Promise<Map<string, RoomActiveTable[]>> {
@@ -52,12 +60,11 @@ export class RoomActiveTablesService {
         if (ids.length === 0) return out;
 
         const liveByRoom = await Promise.all(ids.map(id => LeaderboardService.getLiveCards(id)));
-        const candidates = liveByRoom.map(cards => cards.filter(card => !card.isEventRound));
         const lastScoreAt = await LeaderboardService.getLastScoreTimes(
-            candidates.flatMap(cards => cards.map(card => card.gameId)),
+            liveByRoom.flatMap(cards => cards.map(card => card.gameId)),
         );
 
-        const picked = candidates.map(cards => cards
+        const picked = liveByRoom.map(cards => cards
             .map((card, boardIndex) => ({ card, boardIndex, last: lastScoreAt.get(card.gameId) ?? null }))
             .sort((a, b) => {
                 if (a.last !== null && b.last !== null && a.last !== b.last) return b.last - a.last;
@@ -69,6 +76,7 @@ export class RoomActiveTablesService {
 
         const pickedCards = picked.flat();
         const [summaries, art] = await Promise.all([
+            // Rounds among these are read from their round board inside.
             LeaderboardService.getRunSummaries(pickedCards.map(card => card.gameId)),
             GameArtService.artForNames(pickedCards.map(card => card.gameName)),
         ]);

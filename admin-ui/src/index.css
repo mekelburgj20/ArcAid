@@ -3294,6 +3294,12 @@ a.part-row__name::after, button.part-row__name::after { content: ""; position: a
 .lp-won__foot { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; margin-top: auto; padding-top: 14px; }
 /* The room's Discord invite: on the left of the footer, quieter than View / Join. */
 .lp-won__discord { margin-right: auto; }
+/* G35d: the quiet rooms (no players, no games, nothing on) in one compact list under the panels,
+   two columns wide with Create a room beside it on a desktop; each row's description wraps, never cut off. */
+.lp-won + .lp-won { margin-top: 22px; }
+@media (min-width: 768px) { .aw-panel.lp-won__quiet { grid-column: span 2; } }
+.lp-quiet__line { margin-bottom: 6px; }
+.lp-quiet__desc { margin: 0; font-size: 14px; line-height: 1.45; color: var(--aw-chrome); overflow-wrap: anywhere; }
 
 /* W27.3: where each paired Witness device sends its scores, under the Your rooms heading in the kit's caption size
    (the lines keep their own colours: chrome for fine, the kit's red for a device that needs a look). */

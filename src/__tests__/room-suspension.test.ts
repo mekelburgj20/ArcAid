@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { setupTestDb, createTestRoom, createTestTournament, createTestGame, createTestSubmission } from './helpers.js';
@@ -120,6 +120,12 @@ describe('roomVisibilityGate — suspended room blocks everyone except super_adm
 });
 
 describe('GET /api/rooms — suspended rooms excluded from the public listing', () => {
+    // G35d: GET /api/rooms remembers its answer for 30 s; no test may see another's.
+    beforeEach(async () => {
+        const { __clearRoomListCache } = await import('../api/routes/global.js');
+        __clearRoomListCache();
+    });
+
     it('omits a suspended room but includes an open one', async () => {
         const app = await createGlobalApp();
         const openRoomId = await createTestRoom('list-open-room', 'Open Room');

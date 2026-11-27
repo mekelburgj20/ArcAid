@@ -12,8 +12,10 @@ import { playerName } from '../ScoreboardComponents';
 import { buttonClasses } from '../parts/buttonClasses';
 import { lazyPart } from '../../lib/lazyPart';
 import { formatScore, relativeTimeFrom, scoreTitle } from '../../lib/format';
-import { roomInitials, type MemberRoom, type RoomCardData } from '../../lib/landingRooms';
+import { isQuietRoom, roomInitials, type MemberRoom, type RoomCardData } from '../../lib/landingRooms';
 import type { LoadPhase } from '../../lib/loadRetry';
+import type { ButtonSize } from '../parts/buttonClasses';
+import Panel from '../parts/Panel';
 import type { RoomMenuProps } from './RoomMenu';
 
 /**
@@ -26,7 +28,10 @@ import type { RoomMenuProps } from './RoomMenu';
  *   This is what the retired My Rooms page did.
  * - `MoreRooms`: one kit panel per listed room you have not joined (all of
  *   them signed out), with up to three of the tables being played there now
- *   (`activeTables`, G35b) and View / Join, then a panel to create a room.
+ *   (`activeTables`, G35b) and View / Join; then (G35d, owner 2026-11-27) the
+ *   QUIET rooms (`isQuietRoom`: no players, no games, nothing on) as one
+ *   compact "Quiet rooms" list of `ListRow`s with the same View / Join; then
+ *   a panel to create a room.
  *
  * Colours are the kit's (`--aw-*`, `index.css` "The landing page"); the
  * panels, lists, buttons, empty states and skeletons are the shared parts.
@@ -214,20 +219,53 @@ export function YourRooms({ rooms, listedById, listedReady, phase, onRetry, onLe
 
 // ── More game rooms (concept D, "What's on") ──
 
-function RoomPanel({ room, signedIn, pending, onJoin, onAskJoin }: {
+// A phone's touch target is 44 px; the button keeps its own size above that.
+const TOUCH = 'max-sm:min-h-11';
+
+interface RoomJoinProps {
     room: RoomCardData;
     signedIn: boolean;
+    /** An approval room asked to join in this visit. */
     pending: boolean;
     onJoin: (room: RoomCardData) => void;
     onAskJoin: (room: RoomCardData) => void;
-}) {
+}
+
+/**
+ * View and Join (Ask to join for an approval room, "Request sent" once asked);
+ * signed out, View alone. The ONE set a room panel and a quiet room's row both
+ * wear, so the two can never answer a press differently.
+ */
+function RoomActions({ room, signedIn, pending, onJoin, onAskJoin, size }: RoomJoinProps & { size?: ButtonSize }) {
+    const approval = room.joinPolicy === 'approval';
+    if (!signedIn) {
+        return <ButtonLink to={`/${room.slug}`} size={size} className={TOUCH} aria-label={`View ${room.name}`}>View</ButtonLink>;
+    }
+    return (
+        <>
+            <ButtonLink to={`/${room.slug}`} variant="secondary" size={size} className={TOUCH} aria-label={`View ${room.name}`}>View</ButtonLink>
+            {approval && pending ? (
+                <Button disabled size={size} className={TOUCH} aria-label={`Request sent to ${room.name}`}>Request sent</Button>
+            ) : (
+                <Button
+                    size={size}
+                    className={TOUCH}
+                    aria-label={`${approval ? 'Ask to join' : 'Join'} ${room.name}`}
+                    onClick={() => (approval ? onAskJoin(room) : onJoin(room))}
+                >
+                    {approval ? 'Ask to join' : 'Join'}
+                </Button>
+            )}
+        </>
+    );
+}
+
+function RoomPanel({ room, signedIn, pending, onJoin, onAskJoin }: RoomJoinProps) {
     const approval = room.joinPolicy === 'approval';
     // The listing withholds an approval room's counts (they read 0), so it says how to get in instead.
     const caption = roomStats(room) ?? (approval ? 'Approval to join' : null);
     const tables = (room.activeTables ?? []).slice(0, 3);
     const titleId = `lp-room-${room.id}`;
-    // A phone's touch target is 44 px; the button keeps its own size above that.
-    const touch = 'max-sm:min-h-11';
     return (
         <article className="aw-panel lp-won__room" aria-labelledby={titleId} data-testid="landing-room-panel">
             <div className="lp-won__head">
@@ -270,33 +308,60 @@ function RoomPanel({ room, signedIn, pending, onJoin, onAskJoin }: {
                         href={room.discordInviteUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className={`${buttonClasses('secondary', 'sm')} no-underline lp-won__discord ${touch}`}
+                        className={`${buttonClasses('secondary', 'sm')} no-underline lp-won__discord ${TOUCH}`}
                         aria-label={`Join Discord for ${room.name} (opens in a new tab)`}
                     >
                         Join Discord
                         <ExternalLink aria-hidden="true" size={13} />
                     </a>
                 )}
-                {signedIn ? (
-                    <>
-                        <ButtonLink to={`/${room.slug}`} variant="secondary" className={touch} aria-label={`View ${room.name}`}>View</ButtonLink>
-                        {approval && pending ? (
-                            <Button disabled className={touch} aria-label={`Request sent to ${room.name}`}>Request sent</Button>
-                        ) : (
-                            <Button
-                                className={touch}
-                                aria-label={`${approval ? 'Ask to join' : 'Join'} ${room.name}`}
-                                onClick={() => (approval ? onAskJoin(room) : onJoin(room))}
-                            >
-                                {approval ? 'Ask to join' : 'Join'}
-                            </Button>
-                        )}
-                    </>
-                ) : (
-                    <ButtonLink to={`/${room.slug}`} className={touch} aria-label={`View ${room.name}`}>View</ButtonLink>
-                )}
+                <RoomActions room={room} signedIn={signedIn} pending={pending} onJoin={onJoin} onAskJoin={onAskJoin} />
             </div>
         </article>
+    );
+}
+
+/** A quiet room's logo in its row's tile, or its initials when it has none (or it fails to load). */
+function QuietRoomTile({ src, name }: { src: string | null; name: string }) {
+    const [broken, setBroken] = useState(false);
+    return src && !broken ? <img src={src} alt="" onError={() => setBroken(true)} /> : <>{roomInitials(name)}</>;
+}
+
+/**
+ * G35d - the rooms with nothing going on, as one compact list under the
+ * panels: logo, name, the room's description (wrapped, never cut off), and
+ * the panels' own View / Join. On a phone each row's buttons drop under its
+ * name, as `ListRow` does in a narrow list.
+ */
+function QuietRooms({ rooms, signedIn, pending, onJoin, onAskJoin }: Omit<RoomJoinProps, 'room' | 'pending'> & {
+    rooms: RoomCardData[];
+    pending: Set<string>;
+}) {
+    return (
+        <Panel title="Quiet rooms" testId="landing-quiet-rooms" className="lp-won__room lp-won__quiet">
+            <p className="lp-won__note lp-quiet__line">No games running right now.</p>
+            <ListRows label="Quiet rooms" testId="landing-quiet-list">
+                {rooms.map(room => (
+                    <ListRow
+                        key={room.id}
+                        testId="landing-quiet-room"
+                        tile={<QuietRoomTile src={room.logoUrl} name={room.name} />}
+                        name={room.name}
+                        below={room.description ? <p className="lp-quiet__desc">{room.description}</p> : undefined}
+                        trailing={(
+                            <RoomActions
+                                room={room}
+                                signedIn={signedIn}
+                                pending={pending.has(room.id)}
+                                onJoin={onJoin}
+                                onAskJoin={onAskJoin}
+                                size="sm"
+                            />
+                        )}
+                    />
+                ))}
+            </ListRows>
+        </Panel>
     );
 }
 
@@ -336,6 +401,20 @@ export function MoreRooms({ signedIn, rooms, listedCount, phase, onRetry, pendin
     onAskJoin: (room: RoomCardData) => void;
 }) {
     const empty = rooms.length === 0;
+    // G35d: rooms with nothing going on leave the panels for the compact list, in the same order.
+    const quiet = rooms.filter(isQuietRoom);
+    const busy = quiet.length === 0 ? rooms : rooms.filter(room => !isQuietRoom(room));
+    const createPanel = (
+        <div className="aw-panel lp-won__room lp-won__new">
+            <EmptyState
+                tone="pink"
+                title={!empty ? 'Create a game room' : signedIn && listedCount > 0 ? "You're in every listed game room." : 'No game rooms are listed yet.'}
+                action={<ButtonLink to="/create-room" className="max-sm:min-h-11">Create a room</ButtonLink>}
+            >
+                {empty ? 'Start one for your crew: your own tournaments and leaderboards.' : 'Run your own tournaments and leaderboards for your crew.'}
+            </EmptyState>
+        </div>
+    );
     return (
         <PanelGroup
             id="more-rooms"
@@ -349,27 +428,30 @@ export function MoreRooms({ signedIn, rooms, listedCount, phase, onRetry, pendin
                 ) : phase === 'retrying' ? (
                     <LoadFailedNotice what="the game rooms" onRetry={onRetry} testId="more-rooms-failed" />
                 ) : (
-                    <div className="lp-won">
-                        {rooms.map(room => (
-                            <RoomPanel
-                                key={room.id}
-                                room={room}
-                                signedIn={signedIn}
-                                pending={pending.has(room.id)}
-                                onJoin={onJoin}
-                                onAskJoin={onAskJoin}
-                            />
-                        ))}
-                        <div className="aw-panel lp-won__room lp-won__new">
-                            <EmptyState
-                                tone="pink"
-                                title={!empty ? 'Create a game room' : signedIn && listedCount > 0 ? "You're in every listed game room." : 'No game rooms are listed yet.'}
-                                action={<ButtonLink to="/create-room" className="max-sm:min-h-11">Create a room</ButtonLink>}
-                            >
-                                {empty ? 'Start one for your crew: your own tournaments and leaderboards.' : 'Run your own tournaments and leaderboards for your crew.'}
-                            </EmptyState>
-                        </div>
-                    </div>
+                    <>
+                        {(busy.length > 0 || quiet.length === 0) && (
+                            <div className="lp-won">
+                                {busy.map(room => (
+                                    <RoomPanel
+                                        key={room.id}
+                                        room={room}
+                                        signedIn={signedIn}
+                                        pending={pending.has(room.id)}
+                                        onJoin={onJoin}
+                                        onAskJoin={onAskJoin}
+                                    />
+                                ))}
+                                {quiet.length === 0 && createPanel}
+                            </div>
+                        )}
+                        {quiet.length > 0 && (
+                            // The quiet list, then Create a game room beside it on a wide screen.
+                            <div className="lp-won">
+                                <QuietRooms rooms={quiet} signedIn={signedIn} pending={pending} onJoin={onJoin} onAskJoin={onAskJoin} />
+                                {createPanel}
+                            </div>
+                        )}
+                    </>
                 )}
             </div>
         </PanelGroup>

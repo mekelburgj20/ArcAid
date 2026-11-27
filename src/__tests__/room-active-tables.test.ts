@@ -1,19 +1,31 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import crypto from 'crypto';
 import { setupTestDb, createTestRoom, createTestTournament } from './helpers.js';
 import { getDatabase } from '../database/database.js';
 import { GameRoomSettingsService } from '../services/GameRoomSettingsService.js';
+import { GameRoomService } from '../services/GameRoomService.js';
 import { LeaderboardService } from '../services/LeaderboardService.js';
+import { EventResultService } from '../services/EventResultService.js';
 import { RoomActiveTablesService, ROOM_ACTIVE_TABLES_MAX } from '../services/RoomActiveTablesService.js';
+import { __clearRoomListCache } from '../api/routes/global.js';
 
 /**
  * G35b (v2.279.0) — `GET /api/rooms` carries each listed room's `activeTables`:
  * the board's live tables (at most 3, newest score first, no-score boards
  * last), each with its art, its #1's label (resolved at read, never a raw id)
  * and the #1 score; `[]` for an approval room.
+ *
+ * G35d (v2.283.0) — a live EVENT ROUND is listed too, its #1 read from its
+ * round board exactly as the room board shows it (under `witness_flag_mode =
+ * 'prevent'` a flagged best does not lead), ordered by its own rows' newest
+ * score; and the whole answer is remembered for 30 seconds.
  */
+
+// The answer is cached for 30 s: no test may see another's.
+beforeEach(() => { __clearRoomListCache(); });
+afterEach(() => { vi.restoreAllMocks(); });
 
 const START = '2026-11-20T00:00:00.000Z';
 
@@ -74,6 +86,68 @@ async function addProfile(discordUserId: string, displayName: string | null) {
         `INSERT INTO user_profiles (discord_user_id, display_name) VALUES (?, ?)`,
         discordUserId, displayName,
     );
+}
+
+/** SQLite's own UTC shape, what `score_history.created_at` holds. */
+const sqliteTs = (ms: number) => new Date(ms).toISOString().replace('T', ' ').slice(0, 19);
+const MINUTE = 60_000;
+
+/** A Live Event tournament in a room (`format = 'event'`). */
+async function addEvent(roomId: string, flagMode: 'prevent' | 'flag' = 'prevent') {
+    const db = await getDatabase();
+    const id = crypto.randomUUID();
+    await db.run(
+        `INSERT INTO tournaments (id, name, type, mode, cadence, is_active, game_room_id, format, witness_flag_mode)
+         VALUES (?, 'Wizard Night', 'DG', 'pinball', '{"timezone":"UTC"}', 1, ?, 'event', ?)`,
+        id, roomId, flagMode,
+    );
+    return id;
+}
+
+interface Round { id: string; eventId: string; roomId: string; name: string }
+
+/** One round of an event: a `games` row with a `round_no` and its window (what EventService writes, started). */
+async function addRound(eventId: string, roomId: string, name: string, roundNo: number, startMs: number, endMs: number, status = 'ACTIVE'): Promise<Round> {
+    const db = await getDatabase();
+    const id = crypto.randomUUID();
+    await db.run(
+        `INSERT INTO games (id, tournament_id, game_room_id, name, status, start_date, round_no, scheduled_start_at, scheduled_end_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        id, eventId, roomId, name, status, new Date(startMs).toISOString(), roundNo,
+        new Date(startMs).toISOString(), new Date(endMs).toISOString(),
+    );
+    return { id, eventId, roomId, name };
+}
+
+/**
+ * A score on a round. Stamped with the round's `game_id` (what the event gate
+ * and the witness ingest write) unless `stamped: false` (a synced row, which
+ * the round board places by name + window). `launchMs` files the witness game
+ * observation for a `vpx` score: a launch before the round opened is `flagged`.
+ */
+async function addRoundScore(round: Round, opts: {
+    username: string; score: number; atMs: number; ownerId?: string;
+    source?: 'tournament' | 'vpx'; stamped?: boolean; launchMs?: number;
+}) {
+    const db = await getDatabase();
+    await db.run(
+        `INSERT INTO score_history (game_name, game_room_id, game_id, iscored_username, discord_user_id,
+            submitted_by_user_id, score, source, submitted_from_room_id, submitted_during_tournament_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        round.name, round.roomId, opts.stamped === false ? null : round.id, opts.username,
+        opts.ownerId ?? `iscored:${opts.username}`, opts.ownerId ?? null, opts.score, opts.source ?? 'tournament',
+        round.roomId, round.eventId, sqliteTs(opts.atMs),
+    );
+    if (opts.launchMs !== undefined) {
+        const launch = Math.floor(opts.launchMs / 1000);
+        const exit = Math.floor(opts.atMs / 1000);
+        await db.run(
+            `INSERT INTO witness_observations
+                (atgames_unique_id, canonical_user_id, table_name, launch_ts, exit_ts, duration_sec, via, kind)
+             VALUES (?, ?, 'table_rom', ?, ?, ?, 'live', 'game')`,
+            `dev-${opts.ownerId}`, opts.ownerId, launch, exit, exit - launch,
+        );
+    }
 }
 
 /** A raw id in any of the shapes a player label must never be. */
@@ -250,7 +324,9 @@ describe('GET /api/rooms — activeTables (G35b)', () => {
         ]);
     });
 
-    it('lists live cards only: no retained COMPLETED card, no event round, nothing for an unlisted room', async () => {
+    // G35d changed this test: before it, the live event round was left OUT
+    // (G35b); now it is listed like any other live card (owner 2026-11-27).
+    it('lists live cards only: no retained COMPLETED card, nothing for an unlisted room; a live event round IS listed', async () => {
         const app = await appWithGlobalRouter();
         const db = await getDatabase();
         const roomId = await createTestRoom('live-only', 'Live Only');
@@ -261,14 +337,9 @@ describe('GET /api/rooms — activeTables (G35b)', () => {
         await addScore(live, { username: 'Now', score: 10, createdAt: '2026-11-21 10:00:00' });
         await addScore(done, { username: 'Then', score: 20, createdAt: '2026-11-25 10:00:00' });
 
-        const eventId = crypto.randomUUID();
-        await db.run(
-            `INSERT INTO tournaments (id, name, type, mode, cadence, is_active, game_room_id, format)
-             VALUES (?, 'Live Event', 'DG', 'pinball', '{}', 1, ?, 'event')`,
-            eventId, roomId,
-        );
-        const round = await addGame(eventId, roomId, 'Event Round Table', { roundNo: 1 });
-        await addScore(round, { username: 'Eventful', score: 30, createdAt: '2026-11-26 10:00:00' });
+        const eventId = await addEvent(roomId);
+        const round = await addRound(eventId, roomId, 'Event Round Table', 1, Date.parse('2026-11-26T09:00:00.000Z'), Date.parse('2026-11-26T12:00:00.000Z'));
+        await addRoundScore(round, { username: 'Eventful', score: 30, atMs: Date.parse('2026-11-26T10:00:00.000Z') });
 
         const unlisted = await createTestRoom('unlisted-tables', 'Unlisted Tables');
         await GameRoomSettingsService.set(unlisted, 'ROOM_LISTED', 'false');
@@ -277,12 +348,14 @@ describe('GET /api/rooms — activeTables (G35b)', () => {
 
         const res = await request(app).get('/api/rooms');
         const room = res.body.find((r: any) => r.id === roomId);
-        expect(room.activeTables.map((t: any) => t.gameId)).toEqual([live]);
+        // The round's score (11-26) is newer than the live table's (11-21).
+        expect(room.activeTables.map((t: any) => t.gameId)).toEqual([round.id, live]);
+        expect(room.activeTables[0]).toMatchObject({ name: 'Event Round Table', leaderName: 'Eventful', topScore: 30 });
         expect(res.body.find((r: any) => r.id === unlisted)).toBeUndefined();
 
         // The retained card IS on the board; it is just not being played.
         const boards = await LeaderboardService.getActiveLeaderboards(roomId);
-        expect(boards.map(b => b.gameId)).toEqual(expect.arrayContaining([live, done]));
+        expect(boards.map(b => b.gameId)).toEqual(expect.arrayContaining([live, done, round.id]));
     });
 
     it('costs the same number of queries for 2 boards or 8, and one batch however many rooms', async () => {
@@ -333,5 +406,166 @@ describe('GET /api/rooms — activeTables (G35b)', () => {
         // Each further room adds only its own card reads; the batch is shared.
         expect(three - two).toBe(two - oneSmall);
         expect(two - oneSmall).toBeLessThanOrEqual(4);
+    });
+});
+
+describe('GET /api/rooms — event rounds in activeTables (G35d)', () => {
+    const BASE = Date.parse('2026-11-26T20:00:00.000Z');
+    const BEE = '222222222222222201';
+    const ACE = '222222222222222202';
+
+    /** The room board's #1 for a game, as the board renders it. */
+    async function boardTop(roomId: string, gameId: string) {
+        const board = (await LeaderboardService.getActiveLeaderboards(roomId)).find(b => b.gameId === gameId);
+        expect(board).toBeDefined();
+        const top = board!.rankings[0];
+        return top ? { leaderName: top.display_name ?? top.iscored_username, topScore: top.score } : { leaderName: null, topScore: null };
+    }
+
+    it("lists a live round with its round board's #1 and score, the room board's #1; under prevent a flagged best does not lead", async () => {
+        const app = await appWithGlobalRouter();
+        const db = await getDatabase();
+        const roomId = await createTestRoom('wizard-room', 'The Wizard Room');
+        const eventId = await addEvent(roomId, 'prevent');
+        const round = await addRound(eventId, roomId, 'Cactus Canyon', 1, BASE, BASE + 30 * MINUTE);
+        await addProfile(ACE, 'Ace Display');
+        await addProfile(BEE, 'Bee Display');
+        // Ace geared up (launched 5 minutes before the round opened) for 900: flagged.
+        await addRoundScore(round, { username: 'ace_cab', ownerId: ACE, source: 'vpx', score: 900, atMs: BASE + 10 * MINUTE, launchMs: BASE - 5 * MINUTE });
+        // Bee's clean 700, launched inside the round.
+        await addRoundScore(round, { username: 'bee_cab', ownerId: BEE, source: 'vpx', score: 700, atMs: BASE + 12 * MINUTE, launchMs: BASE + 8 * MINUTE });
+        // A rotation table in the same room, last scored before the round.
+        const tId = await createTestTournament(roomId);
+        const afm = await addGame(tId, roomId, 'Attack From Mars');
+        await addScore(afm, { username: 'Rotator', score: 5000, createdAt: sqliteTs(BASE - 60 * MINUTE) });
+
+        const room = await roomFrom(app, roomId);
+        expect(room.activeTables.map((t: any) => t.gameId)).toEqual([round.id, afm]);
+        expect(room.activeTables[0]).toEqual({ gameId: round.id, name: 'Cactus Canyon', imageUrl: null, leaderName: 'Bee Display', topScore: 700 });
+        expect(room.activeTables[0]).toMatchObject(await boardTop(roomId, round.id));
+        for (const table of room.activeTables) expect(looksLikeRawId(table.leaderName)).toBe(false);
+
+        // The same rows under 'flag': the flagged 900 is a badge, not a gate, and leads.
+        await db.run(`UPDATE tournaments SET witness_flag_mode = 'flag' WHERE id = ?`, eventId);
+        __clearRoomListCache();
+        const flagged = await roomFrom(app, roomId);
+        expect(flagged.activeTables[0]).toMatchObject({ gameId: round.id, leaderName: 'Ace Display', topScore: 900 });
+        expect(flagged.activeTables[0]).toMatchObject(await boardTop(roomId, round.id));
+    });
+
+    it("orders a round by its own rows: an earlier round's late score does not count; a synced row in its window does", async () => {
+        const app = await appWithGlobalRouter();
+        const roomId = await createTestRoom('two-rounds', 'Two Rounds');
+        const eventId = await addEvent(roomId);
+        // Back to back, one table: round 1 ended at +30 min, round 2 runs now.
+        const round1 = await addRound(eventId, roomId, 'Congo', 1, BASE, BASE + 30 * MINUTE, 'COMPLETED');
+        const round2 = await addRound(eventId, roomId, 'Congo', 2, BASE + 30 * MINUTE, BASE + 60 * MINUTE);
+        // Round 1's last score landed inside its end grace, after round 2 opened.
+        await addRoundScore(round1, { username: 'Late', score: 999, atMs: BASE + 30 * MINUTE + 45_000 });
+        const tId = await createTestTournament(roomId);
+        const afm = await addGame(tId, roomId, 'Attack From Mars');
+        await addScore(afm, { username: 'Rotator', score: 5000, createdAt: sqliteTs(BASE + 20 * MINUTE) });
+
+        let room = await roomFrom(app, roomId);
+        // Round 2 has no score of its own: last, with no leader.
+        expect(room.activeTables.map((t: any) => t.gameId)).toEqual([afm, round2.id]);
+        expect(room.activeTables[1]).toMatchObject({ name: 'Congo', leaderName: null, topScore: null });
+        expect(room.activeTables[1]).toMatchObject(await boardTop(roomId, round2.id));
+
+        // A synced row (no game_id) inside round 2's window is on its board, and is its newest score.
+        await addRoundScore(round2, { username: 'Synced', score: 321, atMs: BASE + 40 * MINUTE, stamped: false });
+        __clearRoomListCache();
+        room = await roomFrom(app, roomId);
+        expect(room.activeTables.map((t: any) => t.gameId)).toEqual([round2.id, afm]);
+        expect(room.activeTables[0]).toMatchObject({ leaderName: 'Synced', topScore: 321 });
+        expect(room.activeTables[0]).toMatchObject(await boardTop(roomId, round2.id));
+    });
+
+    it('reads a round board only for the round cards picked: five live rounds, three boards', async () => {
+        await setupTestDb();
+        const roomId = await createTestRoom('many-rounds', 'Many Rounds');
+        const eventId = await addEvent(roomId);
+        const rounds: Round[] = [];
+        for (let n = 0; n < 5; n++) {
+            const round = await addRound(eventId, roomId, `Round Table ${n}`, n + 1, BASE, BASE + 60 * MINUTE);
+            await addRoundScore(round, { username: `p${n}`, score: 100 + n, atMs: BASE + (n + 1) * MINUTE });
+            rounds.push(round);
+        }
+        const spy = vi.spyOn(EventResultService, 'getRoundBoardDetail');
+        const tables = (await RoomActiveTablesService.forRooms([roomId])).get(roomId)!;
+        // Newest score first: rounds 4, 3, 2.
+        expect(tables.map(t => t.gameId)).toEqual([rounds[4]!.id, rounds[3]!.id, rounds[2]!.id]);
+        expect(tables.map(t => [t.leaderName, t.topScore])).toEqual([['p4', 104], ['p3', 103], ['p2', 102]]);
+        expect(spy).toHaveBeenCalledTimes(3);
+        expect(spy.mock.calls.map(([, round]) => round.id).sort()).toEqual([rounds[2]!.id, rounds[3]!.id, rounds[4]!.id].sort());
+    });
+});
+
+describe('GET /api/rooms — the 30-second cache (G35d)', () => {
+    it('two calls inside 30 s build the answer once; after the clear hook, or 30 s later, it is built again', async () => {
+        const app = await appWithGlobalRouter();
+        const roomId = await createTestRoom('cached-room', 'Cached Room');
+        const getPublic = vi.spyOn(GameRoomService, 'getPublic');
+        const forRooms = vi.spyOn(RoomActiveTablesService, 'forRooms');
+
+        const first = await request(app).get('/api/rooms');
+        expect(first.status).toBe(200);
+        expect(getPublic).toHaveBeenCalledTimes(1);
+        expect(forRooms).toHaveBeenCalledTimes(1);
+
+        // A room listed after the answer was built is not in the remembered answer.
+        const later = await createTestRoom('later-room', 'Later Room');
+        const db = await getDatabase();
+        let queries = 0;
+        for (const m of ['all', 'get'] as const) {
+            const original = (db as any)[m].bind(db);
+            vi.spyOn(db as any, m).mockImplementation((async (...args: any[]) => { queries++; return original(...args); }) as any);
+        }
+        const second = await request(app).get('/api/rooms');
+        expect(second.status).toBe(200);
+        expect(second.body).toEqual(first.body);
+        expect(second.body.map((r: any) => r.id)).toContain(roomId);
+        expect(second.body.map((r: any) => r.id)).not.toContain(later);
+        expect(queries).toBe(0);
+        expect(getPublic).toHaveBeenCalledTimes(1);
+        expect(forRooms).toHaveBeenCalledTimes(1);
+
+        __clearRoomListCache();
+        const third = await request(app).get('/api/rooms');
+        expect(third.body.map((r: any) => r.id)).toContain(later);
+        expect(queries).toBeGreaterThan(0);
+        expect(getPublic).toHaveBeenCalledTimes(2);
+
+        // 30 seconds on, the answer is built again.
+        const now = Date.now();
+        vi.spyOn(Date, 'now').mockReturnValue(now + 29_000);
+        await request(app).get('/api/rooms');
+        expect(getPublic).toHaveBeenCalledTimes(2);
+        vi.spyOn(Date, 'now').mockReturnValue(now + 31_000);
+        await request(app).get('/api/rooms');
+        expect(getPublic).toHaveBeenCalledTimes(3);
+    });
+
+    it('requests that arrive while the answer is being built share that one build', async () => {
+        const app = await appWithGlobalRouter();
+        await createTestRoom('shared-build', 'Shared Build');
+        const getPublic = vi.spyOn(GameRoomService, 'getPublic');
+        const answers = await Promise.all([1, 2, 3].map(() => request(app).get('/api/rooms')));
+        expect(answers.map(a => a.status)).toEqual([200, 200, 200]);
+        expect(getPublic).toHaveBeenCalledTimes(1);
+        expect(answers[1]!.body).toEqual(answers[0]!.body);
+        expect(answers[2]!.body).toEqual(answers[0]!.body);
+    });
+
+    it('a failed build is not remembered: the next request builds again', async () => {
+        const app = await appWithGlobalRouter();
+        const roomId = await createTestRoom('after-failure', 'After Failure');
+        const getPublic = vi.spyOn(GameRoomService, 'getPublic').mockRejectedValueOnce(new Error('database is locked'));
+        const failed = await request(app).get('/api/rooms');
+        expect(failed.status).toBe(500);
+        const ok = await request(app).get('/api/rooms');
+        expect(ok.status).toBe(200);
+        expect(ok.body.map((r: any) => r.id)).toContain(roomId);
+        expect(getPublic).toHaveBeenCalledTimes(2);
     });
 });

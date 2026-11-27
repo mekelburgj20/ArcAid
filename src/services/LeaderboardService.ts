@@ -15,6 +15,7 @@ import { gameRunWindowByIdSql, gameRunWindowSql } from '../utils/gameRunWindow.j
 import { selfCorrectionLockedSql } from '../utils/scoreCorrectionPolicy.js';
 import { EventService, type EventRoundRow, type EventTournamentRow } from './EventService.js';
 import { EventResultService, type EventScoreRow } from './EventResultService.js';
+import { eventEndGraceSec } from './EventSubmissionGate.js';
 import type { WitnessVerdict } from './WitnessVerifyService.js';
 import type { WitnessFlagMode } from '../utils/witnessFlagMode.js';
 
@@ -151,7 +152,7 @@ export function eventOverlayExtras(overlay: EventRoundOverlay | undefined): Part
  * row with a `round_no` in a `format = 'event'` tournament, the boards
  * `getEventRoundOverlays` derives from the round board (W22). Safe under a LEFT
  * JOIN of `tournaments` (a pinned game is never a round). Shared by
- * `loadEventRounds` and the card read's `is_event_round` (G35b).
+ * `loadEventRounds` and `getLastScoreTimes` (G35d).
  */
 function eventRoundSql(g = 'g', t = 't'): string {
     return `(${g}.round_no IS NOT NULL AND ${t}.format = 'event')`;
@@ -1037,8 +1038,6 @@ export class LeaderboardService {
                    -- 2026-10-25: Sanctioned / Limited-attempts tournaments close
                    -- self-correction, so the board tells the FE not to offer it.
                    ${selfCorrectionLockedSql('t')} as self_correction_locked,
-                   -- G35b: the cards getEventRoundOverlays ranks from a round board.
-                   CASE WHEN ${eventRoundSql('g', 't')} THEN 1 ELSE 0 END as is_event_round,
                    sc_bg.has_background as bg_has_bg, sc_logo.has_header as logo_has_header,
                    sc_cat.has_background as cat_has_bg, sc_cat.has_header as cat_has_header
             FROM games g
@@ -1164,10 +1163,10 @@ export class LeaderboardService {
      * G35b (v2.279.0) — a room's LIVE cards for the public room list, in the
      * board's order: `loadBoardCards` (the room board's own card read) narrowed
      * to the open (ACTIVE) cards, so a retained COMPLETED card is never listed
-     * as being played. `isEventRound` marks the cards `getEventRoundOverlays`
-     * would rank from their round board (W22) — the caller decides what to do
-     * with them. A pinned board (no tournament) is not here because the room
-     * board's read does not show one (it room-filters on the tournament).
+     * as being played. A live event round is here like any other card (G35d,
+     * v2.283.0); `getLastScoreTimes` and `getRunSummaries` each read it from
+     * its round board. A pinned board (no tournament) is not here because the
+     * room board's read does not show one (it room-filters on the tournament).
      *
      * Queries: the board's card reads (two, a third when a tournament retains
      * completed cards) plus the card-order settings read.
@@ -1177,7 +1176,6 @@ export class LeaderboardService {
         gameName: string;
         displayName: string | null;
         tournamentId: string | null;
-        isEventRound: boolean;
     }>> {
         const { cards } = await this.loadBoardCards(gameRoomId);
         return cards
@@ -1187,7 +1185,6 @@ export class LeaderboardService {
                 gameName: card.game_name,
                 displayName: card.display_name || null,
                 tournamentId: card.tournament_id || null,
-                isEventRound: card.is_event_round === 1,
             }));
     }
 
@@ -1199,14 +1196,32 @@ export class LeaderboardService {
      * the table name, `orphaned_at IS NULL` and this RUN only (`gameRunWindowSql`)
      * — so a previous run's score never makes a board look active. Not a
      * ranking: who leads stays `getRunSummaries`' (the board's own rows).
-     * One query for every id.
+     *
+     * G35d (v2.283.0) — an EVENT ROUND is answered from the rows its round
+     * board reads (`EventResultService.getRoundBoardDetail`'s WHERE, restated
+     * below: the event's tournament stamp, `orphaned_at IS NULL`, and the
+     * round's own `game_id`, else the table name inside the round's window
+     * plus the event's end grace), so two rounds of one table never borrow
+     * each other's scores. Every score of the round counts, a flagged one
+     * included: it is when the round last took a score, not who leads.
+     *
+     * Queries: two for any set of ids (the run-window read and the round
+     * lookup), a third when one of them is an event round.
      */
     static async getLastScoreTimes(gameIds: string[]): Promise<Map<string, number>> {
         const out = new Map<string, number>();
         const ids = [...new Set(gameIds)];
         if (ids.length === 0) return out;
         const db = await getDatabase();
-        const rows = await db.all<Array<{ game_id: string; last_jd: number | null }>>(`
+        const placeholders = ids.map(() => '?').join(',');
+        const toEpochMs = (rows: Array<{ game_id: string; last_jd: number | null }>) => {
+            for (const r of rows) {
+                if (r.last_jd == null) continue;
+                out.set(r.game_id, Math.round((r.last_jd - 2440587.5) * 86400000));
+            }
+        };
+
+        toEpochMs(await db.all<Array<{ game_id: string; last_jd: number | null }>>(`
             SELECT g.id AS game_id, MAX(julianday(sh.created_at)) AS last_jd
             FROM games g
             JOIN tournaments t ON t.id = g.tournament_id
@@ -1214,15 +1229,41 @@ export class LeaderboardService {
               ON sh.game_room_id = t.game_room_id
              AND sh.submitted_during_tournament_id = g.tournament_id
              AND LOWER(sh.game_name) = LOWER(g.name)
-            WHERE g.id IN (${ids.map(() => '?').join(',')})
+            WHERE g.id IN (${placeholders})
+              AND NOT ${eventRoundSql('g', 't')}
               AND sh.orphaned_at IS NULL
               AND ${gameRunWindowSql('sh', 'g')}
             GROUP BY g.id
+        `, ...ids));
+
+        const rounds = await db.all<Array<{ id: string; end_grace_sec: number | null }>>(`
+            SELECT g.id, t.end_grace_sec
+            FROM games g
+            JOIN tournaments t ON t.id = g.tournament_id
+            WHERE g.id IN (${placeholders})
+              AND ${eventRoundSql('g', 't')}
         `, ...ids);
-        for (const r of rows) {
-            if (r.last_jd == null) continue;
-            out.set(r.game_id, Math.round((r.last_jd - 2440587.5) * 86400000));
-        }
+        if (rounds.length === 0) return out;
+
+        // The grace per round through `eventEndGraceSec`, the ONE grace rule.
+        toEpochMs(await db.all<Array<{ game_id: string; last_jd: number | null }>>(`
+            WITH r(game_id, grace_sec) AS (VALUES ${rounds.map(() => '(?, ?)').join(', ')})
+            SELECT g.id AS game_id, MAX(julianday(sh.created_at)) AS last_jd
+            FROM r
+            JOIN games g ON g.id = r.game_id
+            JOIN score_history sh ON sh.submitted_during_tournament_id = g.tournament_id
+            WHERE sh.orphaned_at IS NULL
+              AND (
+                   sh.game_id = g.id
+                   OR (sh.game_id IS NULL
+                       AND LOWER(sh.game_name) = LOWER(g.name)
+                       AND CAST(strftime('%s', sh.created_at) AS INTEGER)
+                             >= CAST(strftime('%s', g.scheduled_start_at) AS INTEGER)
+                       AND CAST(strftime('%s', sh.created_at) AS INTEGER)
+                             <= CAST(strftime('%s', g.scheduled_end_at) AS INTEGER) + r.grace_sec)
+              )
+            GROUP BY g.id
+        `, ...rounds.flatMap(r => [r.id, eventEndGraceSec(r)])));
         return out;
     }
 
