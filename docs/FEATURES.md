@@ -26,6 +26,7 @@ roadmap/future/deferred bucket — see `ROADMAP.md` for what's planned next. Aud
 - **Three-tier auth** — Super-admin (server-wide password or Discord OAuth), room admin (per-room password, invite link, or Discord OAuth), and player (Discord-authenticated, non-admin) — plus guest access with no login at all on public pages.
 - **Admin invite system** [Room Admin] — One-time invite links (optionally delivered via Discord DM) for onboarding new room admins without sharing a password.
 - **Game Room Manager** [Super Admin] — Create, edit, and delete game rooms from a dedicated admin page, including each room's public/private visibility toggle (private rooms are hidden from the public directory) and a custom `short_tag` badge abbreviation used wherever a compact room label renders.
+- **Owner deletes their room** [Room Owner] — Room Admin → Settings → Danger zone → Delete this room, confirmed by typing the room's URL name. Only the room's owner (or a super admin) sees it; a suspended room cannot be deleted by its owner. Global Scoreboard scores stay; iScored boards are untouched (v2.285.0).
 - **Public room directory / landing page** [Player] — `arcaid.app/` lists every room with a clickable card (whole card navigates, not just a small link) linking to that room's scoreboard, plus a Join Discord shortcut.
 - **Audit logging** [Super/Room Admin] — Every admin write action is automatically tracked with actor, target, and timestamp; surfaced on a searchable Activity Log page per room and server-wide.
 
