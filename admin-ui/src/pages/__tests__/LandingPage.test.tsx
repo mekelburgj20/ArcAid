@@ -80,7 +80,13 @@ const HOT = {
 
 type Fail = 'rooms' | 'recent' | 'hot' | 'me';
 
-function mockFetch(opts: { rooms?: unknown[]; meRooms?: unknown[]; joinRequestStatus?: string; fail?: Fail[]; deleteOk?: boolean } = {}) {
+/** Two paired Witness devices: a cabinet sent to one tournament, a PC to every room. */
+const DEVICES = [
+  { atgamesUniqueId: 'dev-1', deviceType: 'atgames', targetRoomId: 'room-1', targetRoomName: 'RTX Pinball', targetTournamentId: 't-1', targetTournamentName: 'Weekly Rotation', globalOnly: false },
+  { atgamesUniqueId: 'dev-2', deviceType: 'desktop', targetRoomId: null, targetRoomName: null, targetTournamentId: null, targetTournamentName: null, globalOnly: false },
+];
+
+function mockFetch(opts: { rooms?: unknown[]; meRooms?: unknown[]; joinRequestStatus?: string; fail?: Fail[]; deleteOk?: boolean; devices?: unknown[] } = {}) {
   const fail = new Set(opts.fail ?? []);
   const down = () => Promise.resolve({ ok: false, status: 503, headers: new Headers(), json: () => Promise.resolve({ error: 'down' }) });
   const ok = (body: unknown) => Promise.resolve({ ok: true, status: 200, headers: new Headers(), json: () => Promise.resolve(body) });
@@ -95,6 +101,7 @@ function mockFetch(opts: { rooms?: unknown[]; meRooms?: unknown[]; joinRequestSt
     if (url === '/api/rooms') return fail.has('rooms') ? down() : ok(opts.rooms ?? LISTED);
     if (url.startsWith('/api/global/recent-scores')) return fail.has('recent') ? down() : ok(RECENT);
     if (url.startsWith('/api/global/scoreboard')) return fail.has('hot') ? down() : ok(HOT);
+    if (url === '/api/me/witness/devices') return ok(opts.devices ?? []);
     return Promise.resolve({ ok: false, status: 404, headers: new Headers(), json: () => Promise.resolve(null) });
   });
   vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
@@ -157,6 +164,8 @@ describe('LandingPage (G35c)', () => {
 
       expect(screen.queryByRole('button', { name: /switch game room/ })).toBeNull();
       expect(screen.queryByRole('heading', { name: 'Your rooms' })).toBeNull();
+      // The Witness device lines are for a signed-in viewer only.
+      expect(screen.queryByTestId('witness-scores-go-to')).toBeNull();
       expect(myCards()).toHaveLength(0);
       expect(screen.getAllByText('Login').length).toBeGreaterThan(0);
       expect(screen.getByRole('button', { name: 'Display settings' })).toBeInTheDocument();
@@ -212,6 +221,22 @@ describe('LandingPage (G35c)', () => {
       expect(within(panelFor('Other Room')).getByRole('button', { name: 'Join Other Room' })).toBeInTheDocument();
     });
 
+    it('W27.3: under the Your rooms heading, where each paired Witness device sends its scores, with Change', async () => {
+      signInAs('user-1', 'Justin');
+      const fetchMock = mockFetch({ meRooms: MINE, devices: DEVICES });
+      renderLanding();
+      const lines = await screen.findByTestId('witness-scores-go-to');
+      expect(lines).toHaveTextContent('Your cabinet sends its scores to "Weekly Rotation" in RTX Pinball only.');
+      expect(lines).toHaveTextContent('Your PC sends its scores to every room you belong to.');
+      expect(within(lines).getByRole('link', { name: 'Change' })).toHaveAttribute('href', '/account/settings#witness-devices');
+      // In the Your rooms group, above its cards.
+      const group = screen.getByRole('heading', { name: 'Your rooms' }).closest('section')!;
+      expect(group).toContainElement(lines);
+      await waitFor(() => expect(myCards()).toHaveLength(3));
+      expect(lines.compareDocumentPosition(myCards()[0]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(fetchMock).toHaveBeenCalledWith('/api/me/witness/devices', expect.objectContaining({ headers: expect.any(Object) }));
+    });
+
     it('with no rooms of your own the section is skipped', async () => {
       signInAs('user-1', 'Justin');
       mockFetch({ meRooms: [] });
@@ -237,7 +262,8 @@ describe('LandingPage (G35c)', () => {
         const fetchMock = mockFetch({ meRooms: MINE });
         renderLanding();
         const dialog = await openLeave();
-        expect(within(dialog).getByText(/You can rejoin any time/)).toBeInTheDocument();
+        expect(within(dialog).getByText('Leaving takes this room off Your rooms and the room switcher; your scores stay on its boards. You can join again any time.')).toBeInTheDocument();
+        expect(dialog).not.toHaveTextContent('My Game Rooms');
         fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
         await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
         expect(myCards()).toHaveLength(3);
@@ -383,6 +409,18 @@ describe('LandingPage (G35c)', () => {
         expect(panel).toHaveTextContent('No tables running right now');
         expect(within(panel).queryByTestId('landing-on-now')).toBeNull();
       }
+    });
+
+    it('a room with a Discord invite offers Join Discord in a new tab; a room without one does not', async () => {
+      mockFetch({ rooms: [{ ...OTHER, discordInviteUrl: 'https://discord.gg/fake-other' }, RTX] });
+      renderLanding();
+      await waitFor(() => expect(panels()).toHaveLength(2));
+      const link = within(panelFor('Other Room')).getByRole('link', { name: /Join Discord/ });
+      expect(link).toHaveAttribute('href', 'https://discord.gg/fake-other');
+      expect(link).toHaveAttribute('target', '_blank');
+      expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+      expect(link).toHaveAccessibleName('Join Discord for Other Room (opens in a new tab)');
+      expect(within(panelFor('RTX Pinball')).queryByRole('link', { name: /Join Discord/ })).toBeNull();
     });
 
     it('an approval room says it approves its members, and shows no withheld counts', async () => {

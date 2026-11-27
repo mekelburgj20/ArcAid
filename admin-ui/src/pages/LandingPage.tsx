@@ -86,7 +86,7 @@ export default function LandingPage() {
   // Signed in, the list waits for your rooms (or it would show yours for a moment); a failing read of them does not hold it up.
   const othersPhase = roomsPhase === 'ready' && signedIn && myPhase === 'loading' ? 'loading' : roomsPhase;
 
-  // Leave room (a card's ⋯ menu), with the retired My Rooms page's confirm and words.
+  // Leave room (a card's ⋯ menu): the room page's leave confirm, in the same words (PublicLayout).
   const [confirmLeave, setConfirmLeave] = useState<MemberRoom | null>(null);
   const leaveConfirmed = async () => {
     const room = confirmLeave;
@@ -171,7 +171,7 @@ export default function LandingPage() {
               open
               tone="pink"
               title={`Leave ${confirmLeave.name}?`}
-              message="You can rejoin any time. Leaving takes this room off My Game Rooms; your scores stay on its boards."
+              message="Leaving takes this room off Your rooms and the room switcher; your scores stay on its boards. You can join again any time."
               confirmLabel="Leave room"
               onConfirm={() => { void leaveConfirmed(); }}
               onCancel={() => setConfirmLeave(null)}

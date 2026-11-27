@@ -652,7 +652,7 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
       {confirmLeave && (
         <ConfirmModal
           title={`Leave ${roomName}?`}
-          message="You can rejoin any time. Leaving takes this room off My Game Rooms; your scores stay on its boards."
+          message="Leaving takes this room off Your rooms and the room switcher; your scores stay on its boards. You can join again any time."
           confirmLabel="Leave room"
           tone="pink"
           onConfirm={leaveConfirmed}

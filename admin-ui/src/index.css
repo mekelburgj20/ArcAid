@@ -3292,6 +3292,13 @@ a.part-row__name::after, button.part-row__name::after { content: ""; position: a
 .lp-won__note { display: flex; align-items: flex-start; gap: 8px; margin: 0; font-size: 14px; line-height: 1.45; color: var(--aw-chrome); }
 .lp-won__lock { flex: none; width: 16px; height: 16px; margin-top: 2px; color: var(--aw-pink); }
 .lp-won__foot { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; margin-top: auto; padding-top: 14px; }
+/* The room's Discord invite: on the left of the footer, quieter than View / Join. */
+.lp-won__discord { margin-right: auto; }
+
+/* W27.3: where each paired Witness device sends its scores, under the Your rooms heading in the kit's caption size
+   (the lines keep their own colours: chrome for fine, the kit's red for a device that needs a look). */
+.lp-witness p { font-weight: 500; font-size: 14px; line-height: 1.45; overflow-wrap: anywhere; }
+.lp-witness svg { margin-top: 3px; }
 
 /* === Carpet floor (G29, v2.264.0) ==========================================
    A faint arcade-carpet pattern behind themed pages, in the theme's own

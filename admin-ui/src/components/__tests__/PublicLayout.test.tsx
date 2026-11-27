@@ -344,6 +344,8 @@ describe('PublicLayout', () => {
     fireEvent.click(await screen.findByText('Leave RTX Pinball'));
     // W21 — a confirm, not an instant leave.
     expect(await screen.findByText('Leave RTX Pinball?')).toBeInTheDocument();
+    // G35c: the words name Your rooms (the My Game Rooms page is gone), and the scores stay.
+    expect(screen.getByText('Leaving takes this room off Your rooms and the room switcher; your scores stay on its boards. You can join again any time.')).toBeInTheDocument();
     expect(deleted()).toBe(false);
     // G23: the dialog's own code arrives while this first confirm is open and the
     // real dialog takes the stand-in's place. Wait for that, so the second open is

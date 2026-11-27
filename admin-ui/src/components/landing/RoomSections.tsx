@@ -1,13 +1,15 @@
 import { startTransition, useCallback, useEffect, useRef, useState, type ComponentType } from 'react';
 import { Link } from 'react-router-dom';
-import { Lock, MoreHorizontal } from 'lucide-react';
+import { ExternalLink, Lock, MoreHorizontal } from 'lucide-react';
 import { PanelGroup } from '../parts/Panel';
 import Button, { ButtonLink } from '../parts/Button';
 import { ListRow, ListRows } from '../parts/ListRow';
 import { Skeleton, SkeletonRows } from '../parts/Skeleton';
 import EmptyState from '../parts/EmptyState';
 import LoadFailedNotice from '../LoadFailedNotice';
+import WitnessScoresGoTo from '../WitnessScoresGoTo';
 import { playerName } from '../ScoreboardComponents';
+import { buttonClasses } from '../parts/buttonClasses';
 import { lazyPart } from '../../lib/lazyPart';
 import { formatScore, relativeTimeFrom, scoreTitle } from '../../lib/format';
 import { roomInitials, type MemberRoom, type RoomCardData } from '../../lib/landingRooms';
@@ -173,6 +175,8 @@ export function YourRooms({ rooms, listedById, listedReady, phase, onRetry, onLe
     if (phase === 'ready' && rooms.length === 0) return null;
     return (
         <PanelGroup id="your-rooms" tone="cyan" title="Your rooms">
+            {/* W27.3 - where each paired Arcaid Witness device sends its scores (`/api/me/witness/devices`), with Change. */}
+            <WitnessScoresGoTo className="lp-witness lg:col-span-2" />
             <div className="lg:col-span-2 min-w-0">
                 {phase === 'loading' ? (
                     <div className="lp-mine" role="status" aria-busy="true">
@@ -260,6 +264,19 @@ function RoomPanel({ room, signedIn, pending, onJoin, onAskJoin }: {
                 </ListRows>
             )}
             <div className="lp-won__foot">
+                {room.discordInviteUrl && (
+                    // The room's Discord server, as the cards before G35c had it: quieter than View / Join, on the left.
+                    <a
+                        href={room.discordInviteUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={`${buttonClasses('secondary', 'sm')} no-underline lp-won__discord ${touch}`}
+                        aria-label={`Join Discord for ${room.name} (opens in a new tab)`}
+                    >
+                        Join Discord
+                        <ExternalLink aria-hidden="true" size={13} />
+                    </a>
+                )}
                 {signedIn ? (
                     <>
                         <ButtonLink to={`/${room.slug}`} variant="secondary" className={touch} aria-label={`View ${room.name}`}>View</ButtonLink>
