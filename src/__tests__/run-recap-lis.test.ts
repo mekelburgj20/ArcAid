@@ -140,9 +140,11 @@ describe('run recap, reference run', () => {
         const hours = opted.detail.get(owl)!.hours!;
         expect(hours[0]).toBe(24);
         expect(hours.slice(0, 5).reduce((s, n) => s + n, 0)).toBe(34);
-        // Seven awards already qualify, and the payload keeps seven in catalogue order: Night owl is cut.
-        expect(opted.awards).toHaveLength(7);
-        expect(opted.awards.find(a => a.id === 'night_owl')).toBeUndefined();
+        // Seven awards already qualify; the opt-in Night owl is never squeezed out (every award id fits).
+        expect(opted.awards).toHaveLength(8);
+        const owlAward = opted.awards.find(a => a.id === 'night_owl');
+        expect(owlAward?.player_keys).toEqual([owl]);
+        expect(owlAward?.value).toBe(34);
         // Only opted-in players carry clock times.
         expect(opted.detail.get(owl)!.games.every(g => g.time !== null)).toBe(true);
         expect(opted.detail.get(byGames(85).key)!.games.every(g => g.time === null)).toBe(true);

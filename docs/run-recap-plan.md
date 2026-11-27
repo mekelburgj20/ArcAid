@@ -510,7 +510,7 @@ Algorithm notes (tests pin each):
   = leader → step only. `wins_it` = last change AND state `completed`. The final leader MUST equal standings rank 1;
   if not (cache drift), log WARN once and trust the standings for hero/players, the timeline as computed.
 - Personal bests: count of the player's Witness games that beat every earlier Witness game of theirs, **game #1
-  included** (matches the reference: Bosstull 8, Shaver 8) — Q8.
+  included** (matches the reference run: two players with 8 each) — Q8.
 - `days_played`, per-day: Witness games of visible players only. Per-day span = local day of the first Witness game
   → local day of `min(end_date ?? now, last row)`; zero days in between are listed; > 14 days → weeks; one day → null.
 - `facts.comeback_ratio`: walk lead steps; from the eventual winner's first row on, track
@@ -522,7 +522,7 @@ Algorithm notes (tests pin each):
 ### Awards catalogue (B31.1 computes; B31.2 renders; Discord text prints)
 Eligibility for every award: the player's `play_stats === 'shown'`, the stat is over Witness games only, and the
 run has **>= 2 players with shown Witness games**. Ties: every tied player shares it (`player_keys` up to 3); **4 or
-more tied → the award is omitted**. Order of the list = the order below; at most 7 in the payload.
+more tied → the award is omitted**. Order of the list = the order below; every qualifying award is in the payload (at most 9, one per id); the Discord text prints at most 9 and trims to 4 under its budget.
 
 | id | label | rule | minimum | detail (no names) |
 |---|---|---|---|---|
@@ -715,7 +715,7 @@ weeks past 14 days) · DST: a run across 2026-11-01 in America/Chicago buckets d
 | File (new) | Covers | Copy setup from |
 |---|---|---|
 | `run-recap-compute.test.ts` | pure: session gap boundary (20:00 same, 20:01 new), median odd/even, lead timeline (strict >, self-improvement = step only, takes_back), PB count incl. game #1, per-day/zero days/DST/weeks, every award's minimum, 3-way tie shared, 4-way omitted, night owl only for opted-in, hidden excluded from totals/per_day, `none` rows | — |
-| `run-recap-lis.test.ts` | an ANONYMIZED fixture of the reference run (`src/__tests__/fixtures/run-recap-lis.json`: names → Player A…, ids → fake snowflakes, scores and times kept; Q3) reproduces 335 games / 11 players, LeonSpeegle-equivalent 22 games avg 116,170,221 median 84,578,100, 7 lead changes in the reference order and annotations, the reference per-day counts (79, 43, 43, 80, 9, 42, 39), Bosstull-equivalent streak 19 in 47 min, Shaver-equivalent session 98 min | `history-weeks.test.ts` (seeding) |
+| `run-recap-lis.test.ts` | an ANONYMIZED fixture of the reference run (`src/__tests__/fixtures/run-recap-lis.json`: names → Player A…, ids → fake snowflakes, scores and times kept; Q3) reproduces 335 games / 11 players, winner-equivalent 22 games avg 116,170,221 median 84,578,100, 7 lead changes in the reference order and annotations, the reference per-day counts (79, 43, 43, 80, 9, 42, 39), streak-player-equivalent streak 19 in 47 min, session-player-equivalent session 98 min | `history-weeks.test.ts` (seeding) |
 | `run-recap-api.test.ts` | supertest on the router: 404 wrong room / pinned / QUEUED / unknown key; recap ranks == `getRunStandings` ranks; re-run window; a `deleteEvent` removes a row from the next read; a correction changes best; JSON of an opted-out player has `null` stats AND their games are absent from `totals`/`per_day`; time-of-day opt-in shows `time` + night owl; limited tournament `attempts_used`; event round `prevent` vs `flag`; approval room refuses a signed-out read | `history-weeks.test.ts`, `game-run-window.test.ts`, `witness-event-board-verdicts.test.ts` (prevent setup) |
 | `run-recap-text.test.ts` | LIS fixture text matches the section shape of lis_discord.md (title, subtitle, sections, annotations, bars); synthetic 60-player / 40-change / long-name run ≤ 4000; `splitRecapForBot` chunks ≤ 2000 and never split a code block; no emoji (`/\p{Extended_Pictographic}/u` finds nothing); no key/snowflake appears in the text; markdown in names escaped | — |
 | `recap-preferences.test.ts` | GET/POST `/me/preferences` round-trip both keys, defaults (true/false), only-what-was-sent, `getRecapPrefsFor` canonical/raw union | `global-sharing-preference.test.ts` |
@@ -781,7 +781,7 @@ CopyForDiscordButton({ text }: { text: string })
   (`--color-border`). Colours: the eventual winner = `--color-neon-amber`; other leaders in order of first lead:
   `neon-cyan`, `neon-magenta`, `neon-green`, `neon-purple`, `neon-blue`, then cycling (coral is danger: never).
   Direct labels (leader name at the start of a segment when >= 64 px wide), a dot per lead change with a tooltip on
-  hover/tap/focus (`<g tabIndex=0 role="img" aria-label="Fri 8:04 am, GamerDad89 takes first with 31.4M">`), and
+  hover/tap/focus (`<g tabIndex=0 role="img" aria-label="Fri 8:04 am, Player A takes first with 31.4M">`), and
   `LeadChangeList` underneath as the text equivalent (`<ol>`). One step (single leader) still draws; zero → no chart.
 - **Player table:** semantic `<table>`; columns Player, Games, Avg, Median, Best; default order = rank; header
   buttons sort (aria-sort; numeric desc first; nulls last); cells `formatRecapScore` with full value in `title`;
@@ -1029,7 +1029,7 @@ Each worktree: `npm run build`, admin-ui `npm ci` + `npm run build` + `npx vites
    the Run recaps row silences one tournament]
 7. **Bot posts are limited to 2,000 characters** (Nitro's 4,000 does not apply to bots): the auto-post goes out as up
    to 3 messages split at section boundaries. [split; the alternative is one shortened message]
-8. **Personal bests count game #1** (reference: Bosstull and Shaver 8 each). [count it]
+8. **Personal bests count game #1** (reference run: two players with 8 each). [count it]
 9. **Night owl window**: the reference named the peak hour ("midnight and 1 am"); the plan uses fixed windows
    (night owl 00:00–05:00, early bird 05:00–09:00). [fixed windows]
 10. **Lead-change times** stay public for every player (standings facts in the owner's own format), while per-game

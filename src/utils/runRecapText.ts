@@ -300,7 +300,7 @@ export function buildRunRecapText(
     recap: Omit<RunRecap, 'discord_text'>,
     opts: { maxChars: number; link?: string | null },
 ): string {
-    const lim: Limits = { leaderboard: 10, lead: 10, awards: 7, bullets: true, perDay: true, sections: 4 };
+    const lim: Limits = { leaderboard: 10, lead: 10, awards: 9, bullets: true, perDay: true, sections: 4 };
     const steps: Array<(l: Limits) => void> = [
         l => { l.leaderboard = 7; },
         l => { l.lead = 6; },

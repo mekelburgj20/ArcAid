@@ -50,7 +50,7 @@ export interface ComputedRunRecap {
 const DEFAULT_PREFS: RecapPrefs = { playStats: true, timeOfDay: false };
 const MIN = 60_000;
 const DAY_MS = 86_400_000;
-const AWARD_MAX = 7;
+const AWARD_MAX = 9; // every award id; the opt-in time-of-day awards come last and must never be squeezed out
 const TIE_MAX = 3;
 
 // ---- time helpers ----
