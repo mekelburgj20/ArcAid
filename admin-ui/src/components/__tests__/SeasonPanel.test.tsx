@@ -241,6 +241,27 @@ describe('SeasonPanel', () => {
     expect(within(card).getByRole('button', { name: 'Play Medieval Madness' })).toBeTruthy();
   });
 
+  it('a tie whose rotation has passed says the choice starts now (A46)', async () => {
+    const late = poll({
+      id: 'p-late', slot_no: 4, status: 'resolved', tied: true, tied_positions: [1, 2], can_choose: true,
+      choose_starts_now: true,
+      candidates: [
+        { position: 1, game_name: 'Viper Night Drivin\'', global_game_id: 'g1', discord_answer_id: 1, votes: 2 },
+        { position: 2, game_name: 'Medieval Madness', global_game_id: 'g2', discord_answer_id: 2, votes: 2 },
+      ],
+      total_votes: 4,
+    });
+    apiMock.get.mockImplementation((path: string) =>
+      path === `${BASE}/polls` ? Promise.resolve({ ...QUEUE, polls: [late] }) : Promise.reject(new Error(path)));
+    renderPanel();
+    const card = await screen.findByTestId('poll-p-late');
+    expect(within(card).getByText(/The rotation has passed with no table/)).toBeTruthy();
+    expect(within(card).queryByText(/The rotation waits until you do/)).toBeNull();
+    expect(within(card).queryByRole('button', { name: /^Play / })).toBeNull();
+    fireEvent.click(within(card).getByRole('button', { name: 'Start Viper Night Drivin\' now' }));
+    await waitFor(() => expect(apiMock.post).toHaveBeenCalledWith(`${BASE}/polls/p-late/choose`, { position: 1 }));
+  });
+
   it('a poll-only tournament shows the queue but no season progress or pause', async () => {
     apiMock.get.mockImplementation((path: string) =>
       path === `${BASE}/polls`

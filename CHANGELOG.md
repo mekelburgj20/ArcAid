@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.284.0] - 2026-11-27 - A poll tie chosen after the rotation starts the table; Activate never leaves a queued copy behind (A46, A47)
+
+### Changed
+- **Choosing a tied poll's table after its rotation has passed starts it right away.** With the tie-breaker on "Admin decides", nothing starts until an admin chooses. If the rotation has already gone by (and nothing else is running), the table you choose now goes live at once, posts "Now Active", and runs until the next normal rotation. Before, it was queued for the rotation after that, a week away on a weekly cadence. The Polls panel says which will happen: "Start <table> now" once the rotation has passed, "Play <table>" before it. The tie notice in Discord adds "Choosing after the rotation starts it straight away."
+- **Activating a table that is already in the queue starts the queued one** instead of adding a second copy (Tournaments → Activate, and `/activate-game`). The copy used to stay queued and run again at the next rotation; for a poll winner it also stopped the next poll from opening.
+
+### Technical
+- `SeasonPollService.chooseStartsNow(t, poll, now)` is the one test (the rotation after the poll's close has passed, nothing ACTIVE, tournament active, not paused or finished), shown as `choose_starts_now` in the admin poll list; `choose(t, pollId, position, now, actor)` queues the choice (the poll keeps `result_queued_game_id`), then promotes it with `activateGame(..., { promoteQueued: true })`, announces through `announceGameActivated` and, in an iScored room, builds the board with `createIScoredBoardAfterActivation`.
+- `TournamentEngine.activateGame` takes `opts.promoteQueued`: the tournament's QUEUED row of that name (case-insensitive, `queueOrderSql` order) flips to ACTIVE in place (`queue_order`/`queue_held_at` cleared, guarded on `status = 'QUEUED'`), gets the library defaults, compacts its owner's queue, and logs `game_activated` with `promotedQueued`. The admin Activate route and Discord `/activate-game` pass it; player picks do not. The admin route skips the post-activation iScored build when the promoted row already has a board.
+- ADR 0026 amendment; `events.md`.
+
+---
+
 ## [2.283.0] - 2026-11-27 - Event rounds show on the home page; quiet rooms move to a short list (G35d)
 
 ### Changed

@@ -68,6 +68,8 @@ export interface SeasonPoll {
     tied: boolean;
     tied_positions: number[];
     can_choose: boolean;
+    /** A46: the rotation this tie held has passed with nothing live, so a choice starts the table now. */
+    choose_starts_now?: boolean;
     resolved_at: string | null;
     created_at: string;
     beyond_bound: boolean;
@@ -534,7 +536,8 @@ export default function SeasonPanel({ roomId, tournament, onClose, onChanged, to
 
     const choose = (poll: SeasonPoll, position: number) => {
         const name = poll.candidates.find(c => c.position === position)?.game_name ?? 'that table';
-        void run(`${poll.id}-choose`, () => api.post(`${base}/polls/${poll.id}/choose`, { position }), `${name} is queued instead`);
+        const done = poll.choose_starts_now ? `${name} has started` : `${name} is queued instead`;
+        void run(`${poll.id}-choose`, () => api.post(`${base}/polls/${poll.id}/choose`, { position }), done);
     };
 
     const setPaused = (pause: boolean) =>
@@ -760,7 +763,9 @@ function PollCard({ poll, tz, busy, prev, next, onEdit, onAction, onReorder, onC
                     <p className="text-xs text-neon-amber">
                         Tie between {poll.tied_positions.map(nameAt).join(', ')}.
                         {!poll.result_game_name
-                            ? ' No table queued — choose one. The rotation waits until you do.'
+                            ? poll.choose_starts_now
+                                ? ' The rotation has passed with no table. The one you choose starts now and runs until the next rotation.'
+                                : ' No table queued — choose one. The rotation waits until you do.'
                             : poll.can_choose
                                 ? ` You chose ${poll.result_game_name}; you can switch to another tied table until it starts.`
                                 : ` You chose ${poll.result_game_name}; it has started, so it can no longer be changed.`}
@@ -775,7 +780,7 @@ function PollCard({ poll, tz, busy, prev, next, onEdit, onAction, onReorder, onC
                                         disabled={current || isBusy('choose')}
                                         onClick={() => onChoose(poll, pos)}
                                     >
-                                        {current ? `${nameAt(pos)} (queued)` : `Play ${nameAt(pos)}`}
+                                        {current ? `${nameAt(pos)} (queued)` : poll.choose_starts_now ? `Start ${nameAt(pos)} now` : `Play ${nameAt(pos)}`}
                                     </NeonButton>
                                 );
                             })}

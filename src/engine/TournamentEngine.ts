@@ -178,8 +178,17 @@ export class TournamentEngine {
      * `announceGameActivated()` AFTER their transaction commits (v2.155.7) —
      * a new interactive caller that forgets it is the silent-web-pick bug
      * (rtx_pinball Daily Grind, 2026-09-07) reborn.
+     *
+     * `opts.promoteQueued` (v2.284.0, A47): when the tournament already has a
+     * QUEUED row of this name, that row goes live (same id) instead of a new
+     * row being inserted beside it. The admin Activate paths pass it: without
+     * it, activating a table that was waiting in the queue left the queued
+     * copy behind to run again at the next rotation (Mox's Game Room,
+     * 2026-11-27 — a poll winner, so the poll's `result_queued_game_id` also
+     * kept the next poll from opening). Player picks do not pass it: a
+     * player's pick must not consume somebody else's queue row.
      */
-    public async activateGame(tournamentId: string, gameName: string, styleId?: string, iscoredId?: string, completeExisting: boolean = true, audit?: ActivationAudit): Promise<Game> {
+    public async activateGame(tournamentId: string, gameName: string, styleId?: string, iscoredId?: string, completeExisting: boolean = true, audit?: ActivationAudit, opts?: { promoteQueued?: boolean }): Promise<Game> {
         const db = await getDatabase();
         const game: Game = {
             id: uuidv4(),
@@ -223,6 +232,11 @@ export class TournamentEngine {
         // directly (denormalized, see migration 102) and not only via tournament_id.
         const tournament = await db.get('SELECT game_room_id, name FROM tournaments WHERE id = ?', tournamentId);
 
+        if (opts?.promoteQueued) {
+            const promoted = await this.promoteQueuedTwin(db, tournamentId, tournament, game, completeExisting, audit);
+            if (promoted) return promoted;
+        }
+
         // Insert the new game
         await db.run(
             'INSERT INTO games (id, tournament_id, name, iscored_id, style_id, status, start_date, game_room_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
@@ -248,6 +262,63 @@ export class TournamentEngine {
         });
 
         return game;
+    }
+
+    /**
+     * `activateGame`'s `promoteQueued` branch (A47): flip the tournament's
+     * queued row of this name to ACTIVE in place — the same promotion the
+     * rotation does (positions and hold cleared, owner's queue compacted) —
+     * and return it. Null when there is no such row or it moved meanwhile
+     * (the UPDATE is guarded on `status = 'QUEUED'`), so the caller inserts.
+     */
+    private async promoteQueuedTwin(
+        db: any,
+        tournamentId: string,
+        tournament: { game_room_id?: string | null; name?: string | null } | undefined,
+        game: Game,
+        completeExisting: boolean,
+        audit: ActivationAudit | undefined,
+    ): Promise<Game | null> {
+        const queued = await db.get(
+            `SELECT * FROM games
+              WHERE tournament_id = ? AND status = 'QUEUED' AND name != '[Pending Pick]' AND LOWER(name) = LOWER(?)
+              ORDER BY ${QUEUE_ORDER_SQL} LIMIT 1`,
+            tournamentId, game.name,
+        );
+        if (!queued) return null;
+        const res = await db.run(
+            `UPDATE games SET status = 'ACTIVE', start_date = ?, end_date = NULL,
+                    iscored_id = COALESCE(?, iscored_id), style_id = COALESCE(?, style_id),
+                    queue_order = NULL, queue_held_at = NULL
+              WHERE id = ? AND status = 'QUEUED'`,
+            game.startDate!.toISOString(), game.iscoredId ?? null, game.styleId ?? null, queued.id,
+        );
+        if (res?.changes !== 1) return null;
+        logInfo(`   -> Promoted the queued "${queued.name}" (${queued.id}) instead of adding a second copy.`);
+
+        await applyLibraryDefaults(db, tournament?.game_room_id, queued.id, queued.name);
+        await this.afterQueueConsumed(tournamentId, queued.picker_discord_id);
+
+        await RotationAuditService.log({
+            gameRoomId: tournament?.game_room_id ?? null,
+            tournamentId,
+            tournamentName: tournament?.name ?? null,
+            eventType: 'game_activated',
+            actor: audit?.actor ?? 'system:cron',
+            source: audit?.source ?? 'unknown',
+            queueOwner: audit?.queueOwner ?? queued.picker_discord_id ?? null,
+            gameId: queued.id,
+            gameName: queued.name,
+            details: { completedExisting: completeExisting, iscoredId: game.iscoredId ?? queued.iscored_id ?? null, promotedQueued: true },
+        });
+
+        return {
+            ...game,
+            id: queued.id,
+            name: queued.name,
+            iscoredId: game.iscoredId ?? queued.iscored_id ?? undefined,
+            styleId: game.styleId ?? queued.style_id ?? undefined,
+        };
     }
 
     /**

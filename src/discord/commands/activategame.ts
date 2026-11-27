@@ -168,10 +168,11 @@ export const activategame: Command = {
             // Activate in DB without completing existing active games
             await db.exec('BEGIN TRANSACTION');
             try {
+                // A47: a queued copy of this table goes live instead of staying behind.
                 await engine.activateGame(tournament.id, gameName, styleId, iscoredId, false, {
                     actor: `admin:${interaction.user.id}`,
                     source: 'admin_manual',
-                });
+                }, { promoteQueued: true });
                 await db.exec('COMMIT');
             } catch (dbError) {
                 await db.exec('ROLLBACK');
