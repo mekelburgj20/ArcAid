@@ -362,10 +362,14 @@ export const UpdatePreferencesSchema = z.object({
     share_to_global: z.boolean().optional(),
     /** G29 (v2.264.0): the carpet floor switch; null = follow the room. */
     ui_floor: z.enum(FLOOR_CHOICES).nullable().optional(),
+    /** B31.1: whether play stats show in run recaps (default on). */
+    recap_play_stats: z.boolean().optional(),
+    /** B31.1: whether time-of-day figures show in run recaps (default off). */
+    recap_time_of_day: z.boolean().optional(),
 }).refine(
     body => body.ui_theme !== undefined || body.appearance !== undefined || body.share_to_global !== undefined
-        || body.ui_floor !== undefined,
-    { message: 'Provide ui_theme, appearance, ui_floor and/or share_to_global' },
+        || body.ui_floor !== undefined || body.recap_play_stats !== undefined || body.recap_time_of_day !== undefined,
+    { message: 'Provide ui_theme, appearance, ui_floor, share_to_global, recap_play_stats and/or recap_time_of_day' },
 );
 
 // PATCH /api/me/global-scores/:scoreId — a player posts a score they kept private

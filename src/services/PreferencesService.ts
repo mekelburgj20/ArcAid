@@ -59,6 +59,15 @@ const PINNED_PILE_ID_MAX_LEN = 100;
 /** Stored format: { desktop: {...}, mobile: {...}, roomThemes: {...}, pinnedPiles: [...] } */
 type DevicePrefs = { desktop: ScoreboardPrefs; mobile: ScoreboardPrefs; roomThemes: RoomThemes; pinnedPiles: PinnedPiles };
 
+/**
+ * Run recaps (B31): bumped by every recap-pref write so a cache keyed on the
+ * recap's inputs (B31.4's room records) can tell a prefs change from no change.
+ */
+let recapPrefsVersion = 0;
+export function getRecapPrefsVersion(): number {
+    return recapPrefsVersion;
+}
+
 export class PreferencesService {
     static async getTheme(discordUserId: string): Promise<ThemeId | null> {
         const db = await getDatabase();
@@ -197,11 +206,107 @@ export class PreferencesService {
         return !(await PreferencesService.getShareToGlobal(discordUserId));
     }
 
-    static async getAll(discordUserId: string): Promise<{ ui_theme: ThemeId | null; appearance: Appearance | null; ui_floor: FloorChoice | null; share_to_global: boolean }> {
+    /**
+     * Run recaps (B31.1): whether this player's play stats (games, averages,
+     * sessions, streaks, per-day counts) show in run recaps. NULL = shown (the
+     * default), 0 = hidden. Best score and finish place always show.
+     */
+    static async getRecapPlayStats(userId: string): Promise<boolean> {
+        const db = await getDatabase();
+        const row = await db.get('SELECT recap_play_stats FROM user_preferences WHERE discord_user_id = ?', userId);
+        return row?.recap_play_stats !== 0;
+    }
+
+    static async setRecapPlayStats(userId: string, shown: boolean): Promise<void> {
+        const db = await getDatabase();
+        await db.run(
+            `INSERT INTO user_preferences (discord_user_id, recap_play_stats) VALUES (?, ?)
+             ON CONFLICT(discord_user_id) DO UPDATE SET recap_play_stats = excluded.recap_play_stats`,
+            userId, shown ? 1 : 0,
+        );
+        recapPrefsVersion++;
+    }
+
+    /** Run recaps: time-of-day figures (Night owl, per-game clock times). Off by default. */
+    static async getRecapTimeOfDay(userId: string): Promise<boolean> {
+        const db = await getDatabase();
+        const row = await db.get('SELECT recap_time_of_day FROM user_preferences WHERE discord_user_id = ?', userId);
+        return row?.recap_time_of_day === 1;
+    }
+
+    static async setRecapTimeOfDay(userId: string, on: boolean): Promise<void> {
+        const db = await getDatabase();
+        await db.run(
+            `INSERT INTO user_preferences (discord_user_id, recap_time_of_day) VALUES (?, ?)
+             ON CONFLICT(discord_user_id) DO UPDATE SET recap_time_of_day = excluded.recap_time_of_day`,
+            userId, on ? 1 : 0,
+        );
+        recapPrefsVersion++;
+    }
+
+    /**
+     * Batched, privacy-safe resolution for recap reads (plan 0.5). Each key's
+     * canonical id comes from `user_identity_links` (one IN query); prefs are read
+     * for the union of raw + canonical ids. Play stats are HIDDEN if ANY of them
+     * says 0; time-of-day is on only if the canonical (else raw) id says 1.
+     * `iscored:*` keys have no account, so they get the defaults.
+     */
+    static async getRecapPrefsFor(keys: string[]): Promise<Map<string, { playStats: boolean; timeOfDay: boolean }>> {
+        const out = new Map<string, { playStats: boolean; timeOfDay: boolean }>();
+        const real = [...new Set(keys.filter(k => k && !k.toLowerCase().startsWith('iscored:')))];
+        for (const k of keys) out.set(k, { playStats: true, timeOfDay: false });
+        if (real.length === 0) return out;
+
+        const db = await getDatabase();
+        const canonicalOf = new Map<string, string>();
+        const CHUNK = 400;
+        for (let i = 0; i < real.length; i += CHUNK) {
+            const chunk = real.slice(i, i + CHUNK);
+            const rows = await db.all<Array<{ provider_user_id: string; canonical_user_id: string }>>(
+                `SELECT provider_user_id, canonical_user_id FROM user_identity_links
+                  WHERE provider_user_id IN (${chunk.map(() => '?').join(',')})`,
+                ...chunk,
+            );
+            for (const r of rows) canonicalOf.set(r.provider_user_id, r.canonical_user_id);
+        }
+
+        const ids = new Set<string>(real);
+        for (const c of canonicalOf.values()) ids.add(c);
+        const idList = [...ids];
+        const prefs = new Map<string, { play: number | null; tod: number | null }>();
+        for (let i = 0; i < idList.length; i += CHUNK) {
+            const chunk = idList.slice(i, i + CHUNK);
+            const rows = await db.all<Array<{ discord_user_id: string; recap_play_stats: number | null; recap_time_of_day: number | null }>>(
+                `SELECT discord_user_id, recap_play_stats, recap_time_of_day FROM user_preferences
+                  WHERE discord_user_id IN (${chunk.map(() => '?').join(',')})`,
+                ...chunk,
+            );
+            for (const r of rows) prefs.set(r.discord_user_id, { play: r.recap_play_stats, tod: r.recap_time_of_day });
+        }
+
+        for (const key of real) {
+            const canonical = canonicalOf.get(key) ?? key;
+            const raw = prefs.get(key);
+            const can = prefs.get(canonical);
+            const hidden = raw?.play === 0 || can?.play === 0;
+            const tod = (can ? can.tod : raw?.tod) === 1;
+            out.set(key, { playStats: !hidden, timeOfDay: tod });
+        }
+        return out;
+    }
+
+    static async getAll(discordUserId: string): Promise<{
+        ui_theme: ThemeId | null; appearance: Appearance | null; ui_floor: FloorChoice | null; share_to_global: boolean;
+        recap_play_stats: boolean; recap_time_of_day: boolean;
+    }> {
         const theme = await this.getTheme(discordUserId);
         const appearance = await this.getAppearance(discordUserId);
         const floor = await this.getFloor(discordUserId);
-        return { ui_theme: theme, appearance, ui_floor: floor, share_to_global: await this.getShareToGlobal(discordUserId) };
+        return {
+            ui_theme: theme, appearance, ui_floor: floor, share_to_global: await this.getShareToGlobal(discordUserId),
+            recap_play_stats: await this.getRecapPlayStats(discordUserId),
+            recap_time_of_day: await this.getRecapTimeOfDay(discordUserId),
+        };
     }
 
     /**

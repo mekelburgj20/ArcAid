@@ -129,12 +129,15 @@ router.post('/me/preferences', requireAuth, async (req, res) => {
         // independently optional (schema rejects a body carrying neither), so
         // the Appearance control never has to round-trip, and possibly clobber,
         // the admin's theme choice and vice versa.
-        const { ui_theme, appearance, share_to_global, ui_floor } = validationResult.data;
+        const { ui_theme, appearance, share_to_global, ui_floor, recap_play_stats, recap_time_of_day } = validationResult.data;
         if (ui_theme !== undefined) await PreferencesService.setTheme(userId, ui_theme);
         if (appearance !== undefined) await PreferencesService.setAppearance(userId, appearance);
         if (share_to_global !== undefined) await PreferencesService.setShareToGlobal(userId, share_to_global);
         // G29 (v2.264.0): the carpet floor switch, same rule: only when sent.
         if (ui_floor !== undefined) await PreferencesService.setFloor(userId, ui_floor);
+        // B31.1: the two run-recap privacy switches, same rule: only when sent.
+        if (recap_play_stats !== undefined) await PreferencesService.setRecapPlayStats(userId, recap_play_stats);
+        if (recap_time_of_day !== undefined) await PreferencesService.setRecapTimeOfDay(userId, recap_time_of_day);
         res.json({ success: true });
     } catch (error) {
         logError('API Error (POST /api/me/preferences):', error);
