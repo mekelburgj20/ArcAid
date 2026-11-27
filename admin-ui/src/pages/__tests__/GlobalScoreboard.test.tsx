@@ -135,6 +135,27 @@ async function findCard(title: string): Promise<HTMLElement> {
   return card as HTMLElement;
 }
 
+describe('GlobalScoreboard carpet (G35a)', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    localStorage.clear();
+    document.documentElement.className = '';
+  });
+
+  it('the root wears the carpet in dark and not in light', async () => {
+    localStorage.setItem('arcaid-global-theme', 'dark');
+    mockFetch([]);
+    const dark = renderScoreboard();
+    expect(dark.getByTestId('global-scoreboard-root')).toHaveClass('gs-carpet');
+    dark.unmount();
+
+    localStorage.clear();
+    localStorage.setItem('arcaid-global-theme', 'light');
+    const light = renderScoreboard();
+    expect(light.getByTestId('global-scoreboard-root')).not.toHaveClass('gs-carpet');
+  });
+});
+
 describe('GlobalScoreboard card (v2.50.0 A2)', () => {
   beforeEach(() => {
     vi.restoreAllMocks();

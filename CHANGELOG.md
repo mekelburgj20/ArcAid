@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.277.0] - 2026-11-26 - The Global Scoreboard gets the arcade carpet (G35a)
+
+### Changed
+- **The Global Scoreboard now sits on the Arcaid arcade carpet when the page is dark.** The same faint carpet the account pages wear shows behind the board, softened with a light wash so the text on top stays as easy to read as before. Light mode looks exactly as it did. The header, filters, cards and title are untouched.
+
+### Technical
+- `GlobalScoreboard.tsx` adds `gs-carpet` (and `data-testid="global-scoreboard-root"`) to its root unless `globalPageTheme === 'light'`, the page's existing polarity signal. `index.css` ("The Global Scoreboard's carpet") paints the four `public/carpet/` tiles at 16% in `::before` and `color-mix(in srgb, var(--color-deep) 45%, transparent)` in `::after`, both fixed, `z-index: -1` inside the root's own stacking context, `pointer-events: none`, hidden in print. Not `ThemeFloor` and not `.carpet-floor`. Test: the dark root carries the class, the light one does not.
+
 ## [2.276.0] - 2026-11-26 - Display settings for visitors who are not signed in (G34c)
 
 ### Added

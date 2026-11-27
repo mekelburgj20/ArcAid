@@ -10,6 +10,7 @@ import LoginButtons from '../components/LoginButtons';
 import GlobalThemeToggle from '../components/GlobalThemeToggle';
 import DisplaySettingsButton from '../components/DisplaySettingsButton';
 import BrandWordmark from '../components/BrandWordmark';
+import { useTheme } from '../components/ThemeProvider';
 import RoomSwitcher, { type SwitcherCurrentRoom } from '../components/RoomSwitcher';
 import { useMyRooms } from '../hooks/useMyRooms';
 import GlobalSearchPalette, { type PaletteGame } from '../components/GlobalSearchPalette';
@@ -148,6 +149,8 @@ function formatAgo(seconds: number): string {
 
 export default function GlobalScoreboard() {
   const { discordUser, playerToken, loginWithDiscord, loginWithGoogle, logoutPlayer } = useViewerAuth();
+  // The page's one light/dark signal (also picks the title lockup and the wordmark).
+  const { globalPageTheme } = useTheme();
   /** The signed-in viewer's rooms, for the room switcher in the header (empty and fetch-free for a guest). */
   const { rooms: myRooms, loading: myRoomsLoading } = useMyRooms();
   const [games, setGames] = useState<TopGame[]>([]);
@@ -577,7 +580,10 @@ export default function GlobalScoreboard() {
   const raPanel = paletteOpen ? null : raSearch('card');
 
   return (
-    <div className="min-h-screen bg-deep text-primary">
+    <div
+      className={`min-h-screen bg-deep text-primary${globalPageTheme === 'light' ? '' : ' gs-carpet'}`}
+      data-testid="global-scoreboard-root"
+    >
       {/* Header */}
       <div className="border-b border-border bg-surface/80 backdrop-blur-sm sticky top-0 z-20">
         <div

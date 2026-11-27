@@ -3124,3 +3124,33 @@ a.part-row__name::after, button.part-row__name::after { content: ""; position: a
 .carpet-floor .cm { stop-color: var(--color-muted); }
 .carpet-floor .cb { stop-color: var(--color-border); }
 .carpet-floor .cd { stop-color: var(--color-deep); }
+
+/* === The Global Scoreboard's carpet (G35a, v2.277.0) ========================
+   The Arcaid carpet (the four tiles in public/carpet/, as .aw-screen--arcaid
+   paints them, at 16%) behind the Global Scoreboard, with the page's own deep
+   ground over it at 45% so the header, filters and cards keep their contrast.
+   The page adds .gs-carpet to its root only while its polarity is dark; in
+   Light it renders as before. Not ThemeFloor and not .carpet-floor: this page
+   stays out of the themed floor. Both layers sit under every child (z-index
+   -1 inside the root's own stacking context) and never take a click. */
+.gs-carpet { isolation: isolate; }
+.gs-carpet::before,
+.gs-carpet::after {
+  content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+}
+.gs-carpet::before {
+  background-image:
+    url("/carpet/arcaid-carpet-specks-v1.svg"),
+    url("/carpet/arcaid-carpet-motifs-a-v1.svg"),
+    url("/carpet/arcaid-carpet-motifs-b-v1.svg"),
+    url("/carpet/arcaid-carpet-marks-v1.svg");
+  background-size: 293px, 1013px, 1279px, 1597px;
+  opacity: .16;
+}
+.gs-carpet::after { background: color-mix(in srgb, var(--color-deep) 45%, transparent); }
+@media (max-width: 640px) {
+  .gs-carpet::before { background-size: 234px, 810px, 1023px, 1278px; }
+}
+@media print {
+  .gs-carpet::before, .gs-carpet::after { display: none; }
+}
