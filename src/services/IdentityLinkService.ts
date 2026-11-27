@@ -246,7 +246,25 @@ export class IdentityLinkService {
             );
             await db.run(`DELETE FROM room_members WHERE user_id = ?`, googleUserId);
 
-            // --- user_preferences: PK discord_user_id. Same re-key/keep-snowflake rule.
+            // --- user_preferences: PK discord_user_id. Same re-key/keep-snowflake rule,
+            // except the PRIVACY columns, which merge to the stricter value before
+            // the google row is dropped (an opt-out must survive the link, an
+            // opt-in must not be inferred): `recap_play_stats` / `share_to_global`
+            // are 0 if either row says 0; `recap_time_of_day` stays on only if
+            // BOTH say 1.
+            await db.run(
+                `UPDATE user_preferences SET
+                    recap_play_stats = CASE WHEN recap_play_stats = 0
+                        OR (SELECT g.recap_play_stats FROM user_preferences g WHERE g.discord_user_id = ?) = 0 THEN 0 ELSE recap_play_stats END,
+                    share_to_global = CASE WHEN share_to_global = 0
+                        OR (SELECT g.share_to_global FROM user_preferences g WHERE g.discord_user_id = ?) = 0 THEN 0 ELSE share_to_global END,
+                    recap_time_of_day = CASE WHEN recap_time_of_day = 1
+                        AND COALESCE((SELECT g.recap_time_of_day FROM user_preferences g WHERE g.discord_user_id = ?), 0) = 1 THEN 1
+                        WHEN recap_time_of_day = 1 THEN 0 ELSE recap_time_of_day END
+                   WHERE discord_user_id = ?
+                     AND EXISTS (SELECT 1 FROM user_preferences WHERE discord_user_id = ?)`,
+                googleUserId, googleUserId, googleUserId, discordUserId, googleUserId,
+            );
             await db.run(
                 `UPDATE user_preferences SET discord_user_id = ?
                    WHERE discord_user_id = ?

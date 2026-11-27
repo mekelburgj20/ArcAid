@@ -12,6 +12,7 @@ import { isGoogleUserId } from '../lib/identityProvider';
 import { buildPushErrorMessage } from '../lib/pushError';
 import ThrowdownsSection from '../components/ThrowdownsSection';
 import GlobalSharingSection from '../components/GlobalSharingSection';
+import RecapPrivacySection from '../components/RecapPrivacySection';
 import WitnessRecentPlays from '../components/WitnessRecentPlays';
 import WitnessBuildChip from '../components/WitnessBuildChip';
 import WitnessModelLabel from '../components/WitnessModelLabel';
@@ -1160,6 +1161,7 @@ export default function AccountSettings() {
               <>
             <PanelGroup {...SETTINGS_GROUPS.scores}>
             <GlobalSharingSection />
+            <RecapPrivacySection />
 
             <Panel title="Linked iScored aliases">
               <p className="text-xs text-muted mb-3">

@@ -39,6 +39,14 @@ export function tournamentRunUrl(slug: string, tournamentId: string, gameId: str
     return `${publicBaseUrl()}/${slug}/tournaments/${encodeURIComponent(tournamentId)}?run=${encodeURIComponent(gameId)}`;
 }
 
+/**
+ * A run's "By the numbers" recap (B31): the run link plus `&recap=1`. Change
+ * with `tournamentRecapPath` in admin-ui/src/lib/tournamentLinks.ts.
+ */
+export function tournamentRunRecapUrl(slug: string, tournamentId: string, gameId: string): string {
+    return `${tournamentRunUrl(slug, tournamentId, gameId)}&recap=1`;
+}
+
 /** A room's Lobby - where the season/poll voting card lives. */
 export function roomLobbyUrl(slug: string): string {
     return `${publicBaseUrl()}/${slug}/lobby`;

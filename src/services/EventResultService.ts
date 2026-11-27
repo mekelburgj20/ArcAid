@@ -194,8 +194,44 @@ interface RawScoreRow {
  * — the canonical identity partition. Kept as one constant so the round board
  * and the standings can never drift apart on who counts as the same player.
  */
-const IDENTITY_KEY_SQL =
+export const IDENTITY_KEY_SQL =
     `COALESCE(sh.submitted_by_user_id, um.discord_user_id, 'iscored:' || LOWER(sh.iscored_username))`;
+
+/**
+ * The row predicate of ONE event round's board (alias `sh`, `um` joined for
+ * `IDENTITY_KEY_SQL`): the round's own rows by tournament stamp, then
+ * `game_id` or, for rows without one, the (name, window + end grace)
+ * fallback. Shared by `getRoundBoardDetail` and the run recap (B31) so the
+ * recap's rows are exactly the board's rows. The window fallback is generous by
+ * the same grace the gate allows, so a score the gate ACCEPTED at end+30s can
+ * never be invisible on the board that accepted it.
+ */
+export function roundRowsWhere(
+    event: EventTournamentRow,
+    round: EventRoundRow,
+): { sql: string; params: unknown[] } {
+    return {
+        sql: `sh.submitted_during_tournament_id = ?
+                       AND sh.orphaned_at IS NULL
+                       AND (
+                            sh.game_id = ?
+                            OR (sh.game_id IS NULL
+                                AND LOWER(sh.game_name) = LOWER(?)
+                                AND CAST(strftime('%s', sh.created_at) AS INTEGER)
+                                      >= CAST(strftime('%s', ?) AS INTEGER)
+                                AND CAST(strftime('%s', sh.created_at) AS INTEGER)
+                                      <= CAST(strftime('%s', ?) AS INTEGER) + ?)
+                       )`,
+        params: [
+            event.id,
+            round.id,
+            round.name,
+            round.scheduled_start_at,
+            round.scheduled_end_at,
+            eventEndGraceSec(event),
+        ],
+    };
+}
 
 export class EventResultService {
     /**
@@ -227,7 +263,7 @@ export class EventResultService {
     ): Promise<EventRoundBoardDetail> {
         const db = await getDatabase();
         const roster = participants ?? await EventResultService.loadParticipantSet(event.id);
-        const graceSec = eventEndGraceSec(event);
+        const where = roundRowsWhere(event, round);
 
         // The window fallback is deliberately generous by the same grace the
         // gate allows, so a score the gate ACCEPTED at end+30s can never be
@@ -259,26 +295,11 @@ export class EventResultService {
                       FROM score_history sh
                       LEFT JOIN user_mappings um
                              ON um.iscored_username = sh.iscored_username COLLATE NOCASE
-                     WHERE sh.submitted_during_tournament_id = ?
-                       AND sh.orphaned_at IS NULL
-                       AND (
-                            sh.game_id = ?
-                            OR (sh.game_id IS NULL
-                                AND LOWER(sh.game_name) = LOWER(?)
-                                AND CAST(strftime('%s', sh.created_at) AS INTEGER)
-                                      >= CAST(strftime('%s', ?) AS INTEGER)
-                                AND CAST(strftime('%s', sh.created_at) AS INTEGER)
-                                      <= CAST(strftime('%s', ?) AS INTEGER) + ?)
-                       )
+                     WHERE ${where.sql}
                )
               ORDER BY score DESC, created_at ASC`,
             round.scheduled_start_at,
-            event.id,
-            round.id,
-            round.name,
-            round.scheduled_start_at,
-            round.scheduled_end_at,
-            graceSec,
+            ...where.params,
         );
 
         // The witness verify-join, batched for the whole board (v2.145.0, P8).

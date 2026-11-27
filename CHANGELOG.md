@@ -6,6 +6,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.281.0] - 2026-11-26 - Run recaps, part 1: the numbers behind "By the numbers" (B31.1)
+
+### Added
+- **Every run of a table now has a recap behind it**, built from its scores when someone asks: the winner and which of their games won it, who held first place and when it changed hands, each player's games, average, median and best, awards (most games, longest streak, longest session, busiest day, most personal bests, best first game, most consistent, and Night owl / Early bird), the field's games per day, and a ready-to-paste Discord text with no emoji. A running run gets the same recap "so far". Nothing on the run page shows it yet; the recap page, the player and table pages, the season recap and the Discord post follow (B31.2 to B31.5).
+- **Only games recorded by Arcaid Witness count as games played.** Games, averages, medians, sessions, streaks, personal bests and games per day count Witness games only. Typed-in and synced scores (including AtGames, which keeps only each player's best) still count for the best score, the standings and who led. A player with typed scores only shows "—" for the play figures.
+- **Account Settings → Run recaps** has two switches: "Show my play stats in run recaps" (on by default) and "Show when I play" (off by default; needed for Night owl and Early bird and for the time of each of your games). With play stats off, your games leave every total, the games-per-day chart and the awards, so they can't be worked out by subtraction; your best score and finishing place always show.
+
+### Fixed
+- **Linking a Google sign-in to a Discord account that already had saved settings no longer undoes a privacy choice.** The Google account's settings were dropped, so a "don't share my scores to Global" choice reverted to sharing. The merged account now keeps the stricter choice for sharing to Global and for play stats, and "Show when I play" stays on only if both accounts had it on.
+
+### Technical
+- New `RunRecapService` (`getRunRecap`, `getPlayerRunDetail`, `listLiveRuns`, and `summarizeRuns`, the bulk reader the later slices use), pure `runRecapCompute.ts` and `runRecapText.ts` (4,000-character copy text; `splitRecapForBot` makes up to three 2,000-character bot messages split between sections), shared types `src/types/runRecap.ts` ≡ `admin-ui/src/lib/runRecapTypes.ts` (parity test). A run's rows are exactly its board's rows (rotation: `gameRunWindowByIdSql`; event round: `EventResultService.roundRowsWhere`, now exported, with `IDENTITY_KEY_SQL`) grouped by the board's own identity key, so recap places always equal the board's; an event round under `prevent` drops flagged rows everywhere. Days and times through `resolveTimezone`.
+- `src/utils/machinePlay.ts` (`MACHINE_PLAY_SOURCES = ['vpx']`, `isMachinePlay`, `machinePlaySql`) is the one definition of a machine-recorded game; nothing else lists play sources.
+- Routes in the new `src/api/routes/recaps.ts` (public reads behind `roomVisibilityGate`): `GET /api/rooms/:roomId/runs/:gameId/recap`, `.../runs/:gameId/recap/players/:playerKey`, `.../tournaments/:tournamentId/runs/live`. Pinned boards, queued/scheduled games and Throwdowns answer 404.
+- Migration `224_run_recaps`: `user_preferences.recap_play_stats` (NULL shown, 0 hidden) and `recap_time_of_day` (1 on), and the `run_recap_posts` ledger for B31.5. `PreferencesService.getRecapPrefsFor(keys)` applies the switches server-side (hidden if any linked id says so); `POST /api/me/preferences` takes `recap_play_stats` / `recap_time_of_day`.
+- New rule file `.claude/rules/recaps.md`; the design contract is `docs/run-recap-plan.md`. Tests: compute, text, API, preferences, migration, parity, and an anonymized fixture of a real finished run (335 Witness games) that reproduces the hand-built recap figures.
+
+---
+
 ## [2.280.0] - 2026-11-26 - The landing page on the Arcaid look; My Game Rooms retires (G35c)
 
 ### Changed

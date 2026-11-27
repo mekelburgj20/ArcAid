@@ -3912,6 +3912,10 @@ async function doInitDatabase(): Promise<Database> {
                     ON attempt_pauses(game_id, canonical_user_id, paused_ts);
             `);
         } },
+        { name: '224_run_recaps', handler: async (db) => {
+            const { runRecaps } = await import('./migrations/runRecaps.js');
+            await runRecaps(db);
+        } },
     ];
 
     for (const migration of migrations) {

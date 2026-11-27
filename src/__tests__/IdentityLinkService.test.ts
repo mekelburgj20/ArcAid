@@ -380,3 +380,59 @@ describe('IdentityLinkService — misc', () => {
         expect(deleted).toBe(false);
     });
 });
+
+describe('IdentityLinkService.createLink — privacy preferences merge to the stricter value', () => {
+    beforeEach(async () => { await setupTestDb(); });
+
+    async function seed(google: Record<string, number | null> | null, discord: Record<string, number | null> | null) {
+        const db = await getDatabase();
+        for (const [id, prefs] of [[GOOGLE_ID, google], [DISCORD_ID, discord]] as const) {
+            if (!prefs) continue;
+            await db.run(
+                `INSERT INTO user_preferences (discord_user_id, recap_play_stats, share_to_global, recap_time_of_day) VALUES (?, ?, ?, ?)`,
+                id, prefs.recap_play_stats ?? null, prefs.share_to_global ?? null, prefs.recap_time_of_day ?? null,
+            );
+        }
+        await IdentityLinkService.createLink(GOOGLE_ID, DISCORD_ID);
+        return {
+            row: await db.get('SELECT recap_play_stats, share_to_global, recap_time_of_day FROM user_preferences WHERE discord_user_id = ?', DISCORD_ID),
+            googleLeft: await db.get('SELECT 1 AS x FROM user_preferences WHERE discord_user_id = ?', GOOGLE_ID),
+        };
+    }
+
+    it('a google opt-out survives onto an existing Discord row', async () => {
+        const { row, googleLeft } = await seed({ recap_play_stats: 0, share_to_global: 0 }, { recap_play_stats: null, share_to_global: null });
+        expect(row.recap_play_stats).toBe(0);
+        expect(row.share_to_global).toBe(0);
+        expect(googleLeft).toBeUndefined();
+    });
+
+    it('a Discord opt-out is kept when the google row has none', async () => {
+        const { row } = await seed({ recap_play_stats: null, share_to_global: 1 }, { recap_play_stats: 0, share_to_global: 0 });
+        expect(row.recap_play_stats).toBe(0);
+        expect(row.share_to_global).toBe(0);
+    });
+
+    it('both shown stays shown', async () => {
+        const { row } = await seed({ recap_play_stats: 1, share_to_global: 1 }, { recap_play_stats: null, share_to_global: null });
+        expect(row.recap_play_stats).toBeNull();
+        expect(row.share_to_global).toBeNull();
+    });
+
+    it('time of day stays on only if BOTH rows opted in', async () => {
+        expect((await seed({ recap_time_of_day: 1 }, { recap_time_of_day: 1 })).row.recap_time_of_day).toBe(1);
+    });
+
+    it('time of day goes off when only the Discord row opted in', async () => {
+        expect((await seed({ recap_time_of_day: null }, { recap_time_of_day: 1 })).row.recap_time_of_day).toBe(0);
+    });
+
+    it('time of day is not inferred from the google row alone', async () => {
+        expect((await seed({ recap_time_of_day: 1 }, { recap_time_of_day: null })).row.recap_time_of_day).toBeNull();
+    });
+
+    it('a google-only row still re-keys with its values', async () => {
+        const { row } = await seed({ recap_play_stats: 0, recap_time_of_day: 1 }, null);
+        expect(row).toMatchObject({ recap_play_stats: 0, recap_time_of_day: 1 });
+    });
+});

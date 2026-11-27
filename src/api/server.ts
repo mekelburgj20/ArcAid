@@ -20,6 +20,7 @@ import roomsRouter from './routes/rooms.js';
 import adminRouter from './routes/admin.js';
 import globalRouter from './routes/global.js';
 import integrityRouter from './routes/integrity.js';
+import recapsRouter from './routes/recaps.js';
 import witnessAdminRouter from './routes/witnessAdmin.js';
 import entryRouter from './routes/entry.js';
 import usersRouter from './routes/users.js';
@@ -170,6 +171,7 @@ export function startApiServer(port: number = 3001) {
     // v2.165.0 (ADR 0027) — integrity mode: the runner's evidence trail and
     // per-game requirements, the public verdict map, the catalogue's tables.
     app.use('/api', integrityRouter);
+    app.use('/api', recapsRouter);
     // v2.187.0 (W5) — the room admin's live Witness device view.
     app.use('/api', witnessAdminRouter);
     // v2.179.0 (W39, ADR 0033 §6) — tournament entry: roster, invite link, requests.

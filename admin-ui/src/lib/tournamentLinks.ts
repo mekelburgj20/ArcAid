@@ -9,3 +9,12 @@ export function tournamentResultsPath(slug: string, tournamentId: string, runGam
   const base = `/${slug}/tournaments/${encodeURIComponent(tournamentId)}`;
   return runGameId ? `${base}?run=${encodeURIComponent(runGameId)}` : base;
 }
+
+/**
+ * A run's "By the numbers" recap (B31): the run's results link plus `&recap=1`.
+ * The server's copy (Discord recap text) is `tournamentRunRecapUrl` in
+ * `src/utils/publicLinks.ts`: change both together.
+ */
+export function tournamentRecapPath(slug: string, tournamentId: string, gameId: string): string {
+  return `${tournamentResultsPath(slug, tournamentId, gameId)}&recap=1`;
+}
