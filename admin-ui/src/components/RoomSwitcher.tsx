@@ -1,8 +1,7 @@
 import { lazy, startTransition, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type FocusEvent, type KeyboardEvent, type MouseEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ChevronDown, Trophy } from 'lucide-react';
-import type { MemberRoom } from '../lib/landingRooms';
-import { parseServerDate } from '../lib/format';
+import { ChevronDown, LayoutGrid, Trophy } from 'lucide-react';
+import { byActivityThenName, roomInitials as initialsOf, type MemberRoom } from '../lib/landingRooms';
 import type { EarlyPress, RoomSwitcherMenuProps, SwitcherMenuModel } from './RoomSwitcherMenu';
 
 /**
@@ -12,10 +11,10 @@ import type { EarlyPress, RoomSwitcherMenuProps, SwitcherMenuModel } from './Roo
  *
  * The menu lists the room you are in first ("You are here", the logo's pink
  * triangle; it is never a link), then your other rooms, most recently active
- * first, then two quieter links: all game rooms and Manage my rooms. Signed
- * out, it says to sign in instead; with no other room, it says so and points
- * at the room list. A room is opened with a router link, so the page never
- * reloads.
+ * first, then a quieter link to all game rooms (the landing page; G35c retired
+ * the My Rooms page and its "Manage my rooms" link). Signed out, it says to
+ * sign in instead; with no other room, it says so and points at the room
+ * list. A room is opened with a router link, so the page never reloads.
  *
  * The trigger sits in the themed nav, so it takes the room theme's tokens; the
  * menu is the fixed-dark Arcaid look on every theme.
@@ -30,19 +29,27 @@ import type { EarlyPress, RoomSwitcherMenuProps, SwitcherMenuModel } from './Roo
  * press, focus moving to something else, a press anywhere else, a route change,
  * unmounting or 5 seconds each forget it. If the chunk cannot load (offline, a
  * stale deploy), the button stays; it tries again on the next hover, focus,
- * touch, press or route change, and a press whose load fails goes to My Rooms
- * (signed in) or the room list instead.
+ * touch, press or route change, and a press whose load fails goes to the
+ * room list (the landing page) instead.
  *
  * The Global Scoreboard is a place in the same list (owner 2026-11-23): on a
  * room, a "Global Scoreboard" row follows the rooms, for every viewer. The
  * Global Scoreboard's own header shows this switcher to a signed-in viewer
  * with Global as the current place (`kind: 'global'`); its tile is the trophy
  * icon, as Global has no logo.
+ *
+ * The landing page is a third kind of place (`kind: 'home'`, G35c): the button
+ * reads "Your rooms" with the grid icon, and the menu lists your rooms (none of
+ * them "You are here") then the Global Scoreboard row, with no footer links,
+ * since the room list is the page it sits on.
  */
 
 export interface SwitcherCurrentRoom {
-    /** `global`: the Global Scoreboard, a place with no room (an empty slug and no room id). Absent means a room. */
-    kind?: 'room' | 'global';
+    /**
+     * `global`: the Global Scoreboard, a place with no room (an empty slug and no room id).
+     * `home`: the landing page, also no room. Absent means a room.
+     */
+    kind?: 'room' | 'global' | 'home';
     slug: string;
     /** The room's own name (the menu row). */
     name: string;
@@ -122,49 +129,27 @@ function whenIdle(run: () => void): () => void {
     return () => window.clearTimeout(id);
 }
 
-const SMALL_WORDS = /^(the|of|a|an)$/i;
-
-/** First letters of up to two words, skipping "the", "of", "a". */
-function initialsOf(name: string): string {
-    const words = name.split(/\s+/).filter(Boolean);
-    const picked = words.filter(w => !SMALL_WORDS.test(w)).slice(0, 2);
-    const letters = (picked.length ? picked : words.slice(0, 2)).map(w => Array.from(w)[0] ?? '');
-    return letters.join('').toUpperCase() || '?';
-}
-
-function activityTime(room: MemberRoom): number | null {
-    return parseServerDate(room.lastActivityAt)?.getTime() ?? null;
-}
-
-/** Newest activity first, rooms with none last, then by name. */
-function byActivityThenName(a: MemberRoom, b: MemberRoom): number {
-    const ta = activityTime(a);
-    const tb = activityTime(b);
-    if (ta !== tb) {
-        if (ta == null) return 1;
-        if (tb == null) return -1;
-        return tb - ta;
-    }
-    return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
-}
-
 export default function RoomSwitcher({ current, rooms, loading, signedIn, variant }: RoomSwitcherProps) {
     const navigate = useNavigate();
     const location = useLocation();
 
     const isGlobal = current.kind === 'global';
+    const isHome = current.kind === 'home';
+    /** Global and the landing page are places with no room. */
+    const isPlace = isGlobal || isHome;
+    const kind = isGlobal ? 'global' : isHome ? 'home' : 'room';
     const model = useMemo((): SwitcherMenuModel => {
-        // Global is no room, and an empty slug never names one.
-        const currentSlug = isGlobal ? '' : current.slug.toLowerCase();
+        // Global and home are no room, and an empty slug never names one.
+        const currentSlug = isPlace ? '' : current.slug.toLowerCase();
         const isCurrent = (r: MemberRoom) =>
-            !isGlobal && ((!!current.roomId && r.roomId === current.roomId) || (!!currentSlug && r.slug.toLowerCase() === currentSlug));
+            !isPlace && ((!!current.roomId && r.roomId === current.roomId) || (!!currentSlug && r.slug.toLowerCase() === currentSlug));
         // A row with no slug (an optimistic join still in flight) has nowhere to link to.
         const listed = rooms.filter(r => r.slug);
         const others = listed.filter(r => !isCurrent(r)).sort(byActivityThenName);
         const isMember = listed.some(isCurrent);
         const listLoading = signedIn && loading;
         return {
-            current: { kind: isGlobal ? 'global' : 'room', name: current.name, logoUrl: current.logoUrl, initials: initialsOf(current.name) },
+            current: { kind, name: current.name, logoUrl: current.logoUrl, initials: initialsOf(current.name) },
             others: others.map(r => ({ roomId: r.roomId, slug: r.slug, name: r.name, logoUrl: r.logoUrl, initials: initialsOf(r.name) })),
             showGlobal: !isGlobal,
             signedIn,
@@ -174,7 +159,7 @@ export default function RoomSwitcher({ current, rooms, loading, signedIn, varian
             // Rooms only: the Global row is a place, not one of your rooms.
             count: others.length + (isMember ? 1 : 0),
         };
-    }, [rooms, loading, signedIn, isGlobal, current.roomId, current.slug, current.name, current.logoUrl]);
+    }, [rooms, loading, signedIn, isGlobal, isPlace, kind, current.roomId, current.slug, current.name, current.logoUrl]);
 
     // 'button' until the menu chunk is in; 'failed' after a load failed (and until a retry succeeds).
     const [phase, setPhase] = useState<'button' | 'menu' | 'failed'>(() => (menuReady ? 'menu' : 'button'));
@@ -182,9 +167,6 @@ export default function RoomSwitcher({ current, rooms, loading, signedIn, varian
     const loadingRef = useRef(false);
     const buttonElRef = useRef<HTMLButtonElement | null>(null);
     const focusHandOffRef = useRef(false);
-    const fallbackPath = signedIn ? '/my-rooms' : '/';
-    const fallbackRef = useRef(fallbackPath);
-    useEffect(() => { fallbackRef.current = fallbackPath; }, [fallbackPath]);
 
     // The waiting press, and how to forget it (its timer and its outside-press listeners go with it).
     const pressRef = useRef<EarlyPress | null>(null);
@@ -234,7 +216,8 @@ export default function RoomSwitcher({ current, rooms, loading, signedIn, varian
                 // Only a press that is still waiting for this load goes elsewhere instead.
                 if (pressRef.current) {
                     forgetPress();
-                    navigate(fallbackRef.current);
+                    // The room list, where your rooms are too (G35c retired /my-rooms).
+                    navigate('/');
                 }
             },
         );
@@ -280,14 +263,17 @@ export default function RoomSwitcher({ current, rooms, loading, signedIn, varian
         };
     }, []);
 
-    // `room-switch--global`: Global's name is never capped (its header has no nav items to make room for).
-    const triggerClassName = `room-switch room-switch--${variant}${isGlobal ? ' room-switch--global' : ''}`;
+    // `room-switch--global` / `--home`: the name is never capped (those headers have no nav items to make room for).
+    const triggerClassName = `room-switch room-switch--${variant}${isPlace ? ` room-switch--${kind}` : ''}`;
     const triggerLabel = `${current.title}, switch game room`;
     const face = (
         <>
             {isGlobal ? (
                 // Global has no logo: the trophy, the icon the room nav's "Global" item wears.
                 <span className="room-switch__tile room-switch__tile--icon" aria-hidden="true"><Trophy /></span>
+            ) : isHome ? (
+                // The landing page: the grid of your rooms.
+                <span className="room-switch__tile room-switch__tile--icon" aria-hidden="true"><LayoutGrid /></span>
             ) : current.logoUrl ? (
                 <span className="room-switch__tile" aria-hidden="true"><img src={current.logoUrl} alt="" /></span>
             ) : (

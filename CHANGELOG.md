@@ -6,6 +6,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.280.0] - 2026-11-26 - The landing page on the Arcaid look; My Game Rooms retires (G35c)
+
+### Changed
+- **The home page wears the Arcaid look.** The front page (arcaid.app) is now the fixed dark page on the arcade carpet, like Account Settings and My Stats. It no longer turns light with the sun/moon button (the button still sets the Global Scoreboard and the other global pages).
+- **Your room switcher is in the header.** Signed in, a "Your rooms" button sits beside the Arcaid logo (on a phone, on its own row under it). It lists your rooms, most recently played first, then the Global Scoreboard.
+- **The Global Scoreboard has its own panel near the top.** It replaces the small "View All Scores" button: the trophy, a LIVE lamp saying when the latest score came in, a large "Open the Global Scoreboard" button, the three most-played tables with whoever leads each, and the floating score cards along the bottom, about a third bigger than before. Each score card opens its table. The cards stop moving while you point at them or tab to them, and stay still for anyone whose device asks for reduced motion (the row can then be scrolled by hand).
+- **Your rooms are cards near the top.** Each shows the room's logo, players and active games, when you last played there and how you joined. Tap a card to open the room. Its ⋯ button holds Leave room, which asks first ("Leave RTX Pinball?") and then removes the card.
+- **The other rooms show what is on.** Rooms you have not joined (every listed room when you are signed out) are panels three across on a computer, busiest first: the room's description, up to three of the tables being played there now with who leads each and the score, then View and Join. A room that approves its members says "This room approves its members. Ask to join to see its tables." and its Ask to join button asks first, as before. Until the server sends the tables (G35b), each room says "No tables running right now". A last panel offers to create a game room.
+- **Loading and failures stay in their own place.** Each part of the page shows grey placeholders in its own shape while it loads, and if one part cannot load it says so there and keeps trying, while the rest of the page shows.
+
+### Removed
+- **The My Game Rooms page.** Everything it did is on the home page now: your rooms are the cards (and the switcher), and Leave room is in each card's ⋯ menu. Old links and bookmarks to /my-rooms open the home page. The "My Rooms" item left the user menu (the Arcaid logo and "All Game Rooms" open the home page), "Manage my rooms" left the room switcher's menu, and My Stats' empty state now offers "Open your rooms".
+
+### Technical
+- `pages/LandingPage.tsx` rewritten on `parts/ArcaidPage` (`width="wide"`), with `components/landing/GlobalPanel.tsx` (the Global panel: `/api/global/recent-scores?limit=20` for the cards and the lamp, `/api/global/scoreboard?sort=popular&limit=8` for the hot tables, deduped by table, each row linking `/games/<id>?category=<board>` like the Global Scoreboard's cards) and `components/landing/RoomSections.tsx` (`YourRooms`, `MoreRooms`). Every read is its own `useRetryingLoad`; a failure shows `LoadFailedNotice` in its section. The page's layout is the "The landing page" block in `index.css` (`lp-*`, kit tokens only); the floating cards loop only under `prefers-reduced-motion: no-preference` (no new `reduce` block).
+- `parts/ArcaidPage` takes `header`, a page's own header row in place of the ARCAID title row (the landing page's logo, switcher, Global, sun/moon and user menu or Log in + Display).
+- `RoomSwitcher` has a third place, `kind: 'home'`: the button reads "Your rooms" on a `LayoutGrid` tile (`room-switch--home`, name not capped); the menu lists your rooms with no "You are here" row, then Global, and no footer. "Manage my rooms" is gone from every menu, and a press whose menu chunk fails now goes to `/` for everyone.
+- The ⋯ menu on a "Your rooms" card is `components/landing/RoomMenu.tsx` (`parts/Menu`), a lazy chunk loaded through `lib/lazyPart.ts`: the card draws the same button until it arrives, replays a press made before, and if the chunk cannot load the press opens the leave confirm directly. Leave uses `ConfirmDialog` (pink) with the retired page's words and `useMyRooms().leave`.
+- `useMyRooms({ retry: true })` reads `/api/me/rooms` through `useRetryingLoad` and exposes `phase`; the other callers keep the single read.
+- `lib/landingRooms.ts`: `ActiveTable` and `activeTables` (G35b's `{ gameId, name, imageUrl, leaderName, topScore }`, missing or `[]` read as none), plus `roomInitials` and `byActivityThenName`, now shared with `RoomSwitcher`.
+- `/my-rooms` is `<Navigate to="/" replace />`; `pages/MyRooms.tsx` is deleted. The `my-rooms` slug stays reserved.
+- Tests: `LandingPage.test.tsx` rewritten (signed out and in, the switcher, card order, the ⋯ Leave flow with Cancel and a failed leave, Join and Ask to join, the Global panel's links, the score cards, `activeTables` shown / missing / empty / approval, each section's failed read); `MyRooms.test.tsx` and `LandingPage.polarity.test.tsx` deleted (the page is gone; the landing page no longer follows light/dark); new `myRoomsRedirect.test.tsx`; `RoomSwitcher` tests gained the `home` place and lost "Manage my rooms"; `RoomSwitcher.fallback`, `UserMenu` and `ArcaidPage` tests updated.
+
 ## [2.279.0] - 2026-11-26 - The room list can now say what each room is playing (G35b)
 
 ### Added

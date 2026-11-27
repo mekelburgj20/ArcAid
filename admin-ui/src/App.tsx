@@ -69,7 +69,6 @@ import EventDetail from './pages/EventDetail';
 import ThrowdownDetail from './pages/ThrowdownDetail';
 import RankingsFullStandings from './pages/RankingsFullStandings';
 import ComparePlayers from './pages/ComparePlayers';
-import MyRooms from './pages/MyRooms';
 import CreateRoom from './pages/CreateRoom';
 import RoomMembers from './pages/RoomMembers';
 
@@ -231,8 +230,8 @@ function App() {
         {/* C2 - My Tables (global, requires login) */}
         <Route path="/account/tables" element={<ViewerAuthProvider><MyTables /></ViewerAuthProvider>} />
 
-        {/* My Rooms (global, requires Discord login) */}
-        <Route path="/my-rooms" element={<ViewerAuthProvider><MyRooms /></ViewerAuthProvider>} />
+        {/* My Rooms retired (G35c): your rooms are on the landing page. Old links and bookmarks land there. */}
+        <Route path="/my-rooms" element={<Navigate to="/" replace />} />
 
         {/* My Stats (global, requires Discord login; v2.82.0) */}
         <Route path="/my-stats" element={<ViewerAuthProvider><MyStats /></ViewerAuthProvider>} />

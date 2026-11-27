@@ -234,4 +234,42 @@ describe('useMyRooms', () => {
       expect(status).toBeNull();
     });
   });
+
+  // G35c - the landing page's "Your rooms" asks again by itself, and says it could not load meanwhile.
+  describe('{ retry: true }', () => {
+    it('a failing read is "retrying" (never an empty answer) until a try answers', async () => {
+      signInAs('discord-9');
+      let calls = 0;
+      const fetchMock = vi.fn(() => {
+        calls += 1;
+        if (calls === 1) return Promise.resolve({ ok: false, status: 503, headers: new Headers(), json: () => Promise.resolve({}) });
+        return Promise.resolve({
+          ok: true, status: 200, headers: new Headers(),
+          json: () => Promise.resolve([{ roomId: 'room-1', name: 'Room 1', slug: 'room_1', logoUrl: null, joinedAt: '2026-01-01', source: 'self_join', lastActivityAt: null }]),
+        });
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const { result } = renderHook(() => useMyRooms({ retry: true }), { wrapper });
+      expect(result.current.phase).toBe('loading');
+      await waitFor(() => expect(result.current.phase).toBe('retrying'));
+      expect(result.current.loading).toBe(true);
+      expect(result.current.rooms).toEqual([]);
+
+      // The loader's first wait is a second; "Try now" (`refetch`) asks at once.
+      await act(async () => { await result.current.refetch(); });
+      await waitFor(() => expect(result.current.phase).toBe('ready'));
+      expect(result.current.loading).toBe(false);
+      expect(result.current.isMember('room-1')).toBe(true);
+    });
+
+    it('a guest is ready at once, with no fetch', async () => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+      const { result } = renderHook(() => useMyRooms({ retry: true }), { wrapper });
+      expect(result.current.phase).toBe('ready');
+      expect(result.current.loading).toBe(false);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+  });
 });

@@ -2535,10 +2535,10 @@ a.part-row__name::after, button.part-row__name::after { content: ""; position: a
 .room-switch--inline .room-switch__name { max-width: 9rem; }
 @media (min-width: 1280px) { .room-switch--inline .room-switch__name { max-width: 17rem; } }
 @media (min-width: 1536px) { .room-switch--inline .room-switch__name { max-width: 25rem; } }
-/* The Global Scoreboard's header has no nav items beside the switcher, so
-   Global's name is not capped (just above a phone's width the row can still
+/* The Global Scoreboard's header (and the landing page's, `home`) has no nav
+   items beside the switcher, so the name is not capped (just above a phone's width the row can still
    run short of room, and then it is cut like any other name). */
-.room-switch--global .room-switch__name { max-width: none; }
+.room-switch--global .room-switch__name, .room-switch--home .room-switch__name { max-width: none; }
 .room-switch__chev { width: 14px; height: 14px; flex: none; color: var(--color-muted); }
 .room-switch:hover .room-switch__name, .room-switch:focus-visible .room-switch__name, .room-switch[data-popup-open] .room-switch__name,
 .room-switch:hover .room-switch__chev, .room-switch:focus-visible .room-switch__chev, .room-switch[data-popup-open] .room-switch__chev {
@@ -3080,6 +3080,218 @@ a.part-row__name::after, button.part-row__name::after { content: ""; position: a
   .dset-switch__knob { transition: transform .15s; }
   .dset-more__btn svg { transition: transform .16s ease-out; }
 }
+
+/* ─── The landing page (G35c; pages/LandingPage.tsx, components/landing/) ───
+   The landing page on the Arcaid look (owner 2026-11-26, from the approved
+   mockup). It sits inside `ArcaidPage`, so the kit's `--aw-*` tokens are
+   loaded and the site tokens point at the kit (`.aw-island`). Its panels,
+   lists, buttons, empty states and skeletons are the shared parts; this block
+   is the page's own layout: the header, the hero, the Global Scoreboard panel
+   with its floating score cards, the "Your rooms" cards and the grid of room
+   panels. Kit classes load after this file and win a tie, so a rule that
+   changes a kit panel names it too (`.aw-panel.lp-gs`). Motion is opt-in
+   (`prefers-reduced-motion: no-preference`); never a `reduce` block here. */
+
+/* Header: the logo and the room switcher on the left; Global, the sun/moon and you on the right. */
+.lp-head { position: relative; z-index: 40; padding-bottom: 12px; border-bottom: 1px solid color-mix(in srgb, var(--aw-cyan) 22%, transparent); }
+.lp-head::after {
+  content: ""; position: absolute; left: 0; right: 40%; bottom: -1px; height: 1px; pointer-events: none;
+  background: linear-gradient(90deg, var(--aw-pink), var(--aw-cyan) 40%, transparent); opacity: .7;
+}
+.lp-head__row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.lp-head__l, .lp-head__r { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.lp-head__r { flex: none; }
+.lp-head__mark { display: block; flex: none; width: auto; height: 50px; }
+.lp-head__row2 { padding-top: 10px; }
+.lp-navlink {
+  display: inline-flex; align-items: center; gap: 7px; min-height: 44px; padding: 0 10px; border-radius: 4px;
+  font-weight: 600; font-size: 15px; letter-spacing: .1em; text-transform: uppercase; text-decoration: none;
+  color: var(--aw-chrome); transition: color .15s;
+}
+.lp-navlink:hover { color: var(--aw-ice); }
+.lp-navlink svg { width: 18px; height: 18px; flex: none; color: var(--aw-cyan); }
+/* The sun/moon and Display settings: a 44 px target, like the switcher beside them. */
+.lp-iconbtn { width: 44px; height: 44px; }
+@media (max-width: 639px) {
+  .lp-head__l { gap: 10px; }
+  .lp-head__r { gap: 4px; }
+  .lp-head__mark { height: 40px; }
+}
+
+/* The hero: the animated logo, smaller than before, and the motto. */
+.lp-hero { display: flex; flex-direction: column; align-items: center; padding-top: 4px; }
+.lp-hero__motto {
+  margin: 4px 0 0; text-align: center; font-weight: 600; font-size: 14px; line-height: 1.4;
+  letter-spacing: .32em; text-transform: uppercase; color: var(--aw-chrome);
+}
+@media (max-width: 639px) { .lp-hero__motto { font-size: 12px; letter-spacing: .22em; } }
+
+/* The Global Scoreboard panel: one kit panel, the intro beside the hot tables, the score cards under both. */
+.aw-panel.lp-gs { padding: 20px 28px; }
+.lp-gs__top { display: grid; gap: 24px 36px; }
+@media (min-width: 1200px) { .lp-gs__top { grid-template-columns: minmax(0, 1fr) minmax(0, 40rem); align-items: start; } }
+.lp-gs__intro { display: grid; grid-template-columns: 84px minmax(0, 1fr); column-gap: 22px; align-items: start; }
+.lp-gs__tile {
+  display: grid; place-items: center; width: 84px; height: 84px; border-radius: 10px;
+  color: color-mix(in srgb, var(--aw-pink) 55%, var(--aw-ice));
+  background: color-mix(in srgb, var(--aw-cyan) 8%, var(--aw-canvas));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--aw-cyan) 55%, transparent), 0 0 18px -4px color-mix(in srgb, var(--aw-cyan) 60%, transparent);
+}
+.lp-gs__tile svg { width: 46px; height: 46px; stroke-width: 1.6; filter: drop-shadow(0 0 6px color-mix(in srgb, var(--aw-pink) 60%, transparent)); }
+.lp-gs__head { min-width: 0; }
+.lp-gs__title {
+  margin: 0; font-family: var(--aw-font-display); font-weight: 900; font-size: 38px; line-height: 1.05;
+  letter-spacing: .03em; text-transform: uppercase; color: var(--aw-ice); overflow-wrap: anywhere;
+}
+.lp-gs__sub { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 20px; margin-top: 10px; }
+.lp-gs__line { margin: 0; font-weight: 500; font-size: 18px; line-height: 1.4; color: var(--aw-chrome); }
+.lp-gs__act { grid-column: 2; margin-top: 18px; }
+.lp-gs__hot { min-width: 0; }
+/* The LIVE lamp: the kit's live pill (`.aw-live`) at the page's size, naming when the newest score came in. */
+.lp-lamp {
+  display: inline-flex; align-items: center; gap: 9px; min-height: 32px; padding: 4px 14px;
+  border: 1px solid var(--aw-pink); border-radius: 999px;
+  font-weight: 700; font-size: 13px; line-height: 1.3; letter-spacing: .18em; text-transform: uppercase; color: var(--aw-pink);
+  box-shadow: 0 0 16px color-mix(in srgb, var(--aw-pink) 35%, transparent);
+}
+.lp-lamp::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--aw-pink); box-shadow: 0 0 10px var(--aw-pink); }
+/* A hot table's leader and score, at the end of its row (under the name in a narrow list). */
+.lp-hot__lead { display: flex; flex-direction: column; align-items: flex-end; text-align: right; }
+.lp-hot__who { font-weight: 600; font-size: 14px; line-height: 1.35; color: var(--aw-chrome); overflow-wrap: anywhere; }
+@container (max-width: 520px) {
+  .lp-hot__lead { flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 0 10px; text-align: left; }
+}
+.lp-score { font-family: var(--font-mono); font-weight: 500; font-size: 16px; font-variant-numeric: tabular-nums; color: var(--aw-ice); white-space: nowrap; }
+@media (max-width: 639px) {
+  .aw-panel.lp-gs { padding: 18px 16px; }
+  .lp-gs__intro { grid-template-columns: 60px minmax(0, 1fr); column-gap: 14px; }
+  .lp-gs__tile { width: 60px; height: 60px; }
+  .lp-gs__tile svg { width: 34px; height: 34px; }
+  /* The title beside the tile; the line, the lamp and the button under both. */
+  .lp-gs__head { display: contents; }
+  .lp-gs__title { align-self: center; font-size: 25px; }
+  .lp-gs__sub, .lp-gs__act { grid-column: 1 / -1; }
+  .lp-gs__sub { margin-top: 12px; }
+  .lp-gs__act { margin-top: 14px; }
+  .lp-gs__act > a { width: 100%; }
+  .lp-gs__line { font-size: 16px; }
+  .lp-lamp { letter-spacing: .14em; }
+}
+
+/* The floating score cards along the panel's bottom (380 x 250, 140 px art), each a link to its table. */
+.lp-tk { margin-top: 14px; }
+.lp-tk__head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.lp-tk__hint { font-size: 14px; color: var(--aw-chrome); }
+/* Still, the row scrolls by hand and shows each score once; moving (below), it loops the list twice. */
+.lp-tk__view {
+  position: relative; overflow-x: auto; margin: 0 -28px; padding: 6px 28px 10px; scrollbar-width: thin;
+  -webkit-mask-image: linear-gradient(90deg, transparent, black 4%, black 96%, transparent);
+  mask-image: linear-gradient(90deg, transparent, black 4%, black 96%, transparent);
+}
+/* The trailing padding equals the gap, so half the row is exactly one copy and the loop has no jump. */
+.lp-tk__track { display: flex; gap: 20px; width: max-content; padding-right: 20px; }
+.lp-tk__card[data-copy] { display: none; }
+.lp-tk__card {
+  flex: none; display: flex; flex-direction: column; width: 380px; max-width: 80vw; min-height: 250px;
+  border: 1px solid var(--aw-panel-border); border-radius: 9px; overflow: hidden; text-decoration: none; color: var(--aw-ice);
+  background: color-mix(in srgb, var(--aw-canvas) 88%, transparent);
+  box-shadow: 0 8px 24px -8px color-mix(in srgb, black 70%, transparent);
+}
+.lp-tk__card:hover, .lp-tk__card:focus-visible { border-color: color-mix(in srgb, var(--aw-cyan) 80%, transparent); box-shadow: var(--aw-glow-cyan); }
+.lp-tk__art {
+  position: relative; flex: none; display: grid; place-items: center; height: 140px; overflow: hidden;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--aw-gunmetal) 30%, var(--aw-canvas)), var(--aw-canvas));
+}
+.lp-tk__art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: .8; }
+.lp-tk__noart { width: 44px; height: 44px; stroke-width: 1.6; color: var(--aw-gunmetal); }
+.lp-tk__score {
+  position: absolute; right: 12px; bottom: 10px; padding: 4px 12px; border-radius: 6px;
+  font-family: var(--aw-font-display); font-weight: 900; font-size: 22px; letter-spacing: .02em; color: var(--aw-ice);
+  text-shadow: 0 0 14px color-mix(in srgb, var(--aw-cyan) 70%, transparent);
+  background: color-mix(in srgb, var(--aw-canvas) 76%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--aw-cyan) 40%, transparent);
+}
+.lp-tk__body { flex: 1; display: flex; flex-direction: column; justify-content: space-between; gap: 10px; min-height: 0; padding: 12px 16px 14px; }
+.lp-tk__game { font-family: var(--aw-font-display); font-weight: 700; font-size: 17px; line-height: 1.2; letter-spacing: .04em; text-transform: uppercase; overflow-wrap: anywhere; }
+.lp-tk__meta { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.lp-tk__player { min-width: 0; font-weight: 600; font-size: 15px; color: var(--aw-chrome); overflow-wrap: anywhere; }
+.lp-tk__ago { flex: none; margin-left: auto; font-weight: 600; font-size: 13px; letter-spacing: .14em; text-transform: uppercase; color: var(--color-faint); }
+.lp-tk__card--skel .lp-tk__body { justify-content: flex-start; }
+@keyframes lp-tk-run { to { transform: translateX(-50%); } }
+@media (prefers-reduced-motion: no-preference) {
+  .lp-tk__view { overflow: hidden; }
+  .lp-tk__card[data-copy] { display: flex; }
+  .lp-tk__track { animation: lp-tk-run var(--lp-tk-dur, 80s) linear infinite; }
+  /* Pointed at or focused: the row holds still so a card can be read and opened. */
+  .lp-tk__view:hover .lp-tk__track, .lp-tk__view:focus-within .lp-tk__track { animation-play-state: paused; }
+  .lp-tk__card { transition: transform .2s, border-color .2s, box-shadow .2s; }
+  .lp-tk__card:hover, .lp-tk__card:focus-visible { transform: translateY(-3px); }
+}
+@media (max-width: 639px) {
+  .lp-tk__view { margin: 0 -16px; padding: 6px 16px 10px; }
+  .lp-tk__card { width: 300px; min-height: 232px; }
+  .lp-tk__art { height: 120px; }
+  .lp-tk__hint { display: none; }
+}
+
+/* A room's logo tile (Your rooms, the room panels), or its initials. */
+.lp-logo { display: grid; place-items: center; flex: none; width: 52px; height: 52px; overflow: hidden; border-radius: 7px; }
+.lp-logo img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.lp-logo--init {
+  font: 700 16px/1 var(--aw-font-display); color: var(--aw-chrome);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--aw-chrome) 9%, var(--aw-canvas)), var(--aw-canvas));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--aw-chrome) 22%, transparent);
+}
+
+/* Your rooms: a row of cards. The name's link covers the card; the ⋯ button sits above it. */
+.lp-mine { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; margin: 0; padding: 0; list-style: none; }
+@media (min-width: 640px) { .lp-mine { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1200px) { .lp-mine { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (min-width: 1400px) { .lp-mine { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.lp-room {
+  position: relative; display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; column-gap: 14px; align-items: center;
+  min-height: 88px; padding: 12px 10px 12px 16px; border-radius: 9px;
+  background: var(--aw-panel); border: 1px solid color-mix(in srgb, var(--aw-cyan) 30%, transparent);
+  transition: border-color .15s, box-shadow .15s;
+}
+.lp-room::before { /* the kit panel's top light bar, short */
+  content: ""; position: absolute; left: 16px; right: 40%; top: -1px; height: 2px; border-radius: 2px; pointer-events: none;
+  background: linear-gradient(90deg, var(--aw-cyan), color-mix(in srgb, var(--aw-cyan) 10%, transparent));
+  box-shadow: 0 0 12px color-mix(in srgb, var(--aw-cyan) 55%, transparent);
+}
+.lp-room:hover, .lp-room:has(.lp-room__name:focus-visible) { border-color: var(--aw-cyan); box-shadow: 0 0 18px -4px color-mix(in srgb, var(--aw-cyan) 60%, transparent); }
+/* Keyboard focus on the name rings the whole card it opens. */
+.lp-room:has(.lp-room__name:focus-visible) { outline: 2px solid var(--aw-cyan); outline-offset: 2px; }
+.lp-room__name:focus-visible { outline: none; }
+.lp-room__text { min-width: 0; display: flex; flex-direction: column; }
+.lp-room__name { font-weight: 600; font-size: 17px; line-height: 1.25; color: var(--aw-ice); text-decoration: none; overflow-wrap: anywhere; }
+.lp-room__name::after { content: ""; position: absolute; inset: 0; border-radius: 9px; }
+.lp-room__stats { margin-top: 2px; font-size: 14px; line-height: 1.4; color: var(--aw-chrome); }
+.lp-room__cap { margin-top: 4px; font-weight: 600; font-size: 12px; line-height: 1.35; letter-spacing: .18em; text-transform: uppercase; color: var(--aw-cyan); }
+.lp-room__more {
+  position: relative; z-index: 1; align-self: start; display: grid; place-items: center; width: 36px; height: 36px; padding: 0;
+  border: 1px solid transparent; border-radius: 4px; background: none; color: var(--aw-chrome); cursor: pointer;
+  transition: color .15s, border-color .15s;
+}
+.lp-room__more svg { width: 18px; height: 18px; }
+.lp-room__more:hover, .lp-room__more[data-popup-open] { color: var(--aw-cyan); border-color: color-mix(in srgb, var(--aw-cyan) 45%, transparent); }
+.lp-room--skel .lp-room__text { gap: 0; }
+@media (max-width: 639px) { .lp-room__more { width: 44px; height: 44px; } }
+
+/* The rooms you have not joined (concept D, "What's on"): a kit panel per room, three across on a desktop. */
+.lp-won { display: grid; grid-template-columns: minmax(0, 1fr); gap: 22px; align-items: stretch; }
+@media (min-width: 768px) { .lp-won { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1280px) { .lp-won { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.aw-panel.lp-won__room { display: flex; flex-direction: column; min-width: 0; }
+.aw-panel.lp-won__new { align-items: center; justify-content: center; }
+.lp-won__head { display: grid; grid-template-columns: 52px minmax(0, 1fr); column-gap: 14px; align-items: center; }
+.lp-won__name { margin: 0; font-weight: 600; font-size: 18px; line-height: 1.25; color: var(--aw-ice); overflow-wrap: anywhere; }
+.lp-won__cap { margin: 2px 0 0; font-weight: 600; font-size: 12px; line-height: 1.35; letter-spacing: .2em; text-transform: uppercase; color: var(--aw-group, var(--aw-pink)); }
+.lp-won__desc { margin: 12px 0 0; font-size: 15px; line-height: 1.45; color: var(--aw-chrome); overflow-wrap: anywhere; }
+.aw-label.lp-won__label { margin: 16px 0 6px; }
+.lp-won__note { display: flex; align-items: flex-start; gap: 8px; margin: 0; font-size: 14px; line-height: 1.45; color: var(--aw-chrome); }
+.lp-won__lock { flex: none; width: 16px; height: 16px; margin-top: 2px; color: var(--aw-pink); }
+.lp-won__foot { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; margin-top: auto; padding-top: 14px; }
 
 /* === Carpet floor (G29, v2.264.0) ==========================================
    A faint arcade-carpet pattern behind themed pages, in the theme's own

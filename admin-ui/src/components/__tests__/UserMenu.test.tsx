@@ -26,18 +26,22 @@ describe('UserMenu', () => {
     expect(item.getAttribute('href')).toBe('/my-stats');
   });
 
-  it('places "My Stats" between "My Rooms" and "All Game Rooms"', () => {
+  // G35c retired the My Rooms page: its item went, and "All Game Rooms" (the
+  // landing page, where your rooms are now) follows "My Stats".
+  it('has no "My Rooms" item; "My Stats" comes before "All Game Rooms", which opens the landing page', () => {
     renderMenu();
     fireEvent.click(screen.getByLabelText('User menu'));
 
-    const items = screen.getAllByRole('menuitem').map(el => el.textContent || '');
-    const myRoomsIdx = items.findIndex(t => t.includes('My Rooms'));
-    const myStatsIdx = items.findIndex(t => t.includes('My Stats'));
-    const allRoomsIdx = items.findIndex(t => t.includes('All Game Rooms'));
+    const items = screen.getAllByRole('menuitem');
+    const texts = items.map(el => el.textContent || '');
+    const myStatsIdx = texts.findIndex(t => t.includes('My Stats'));
+    const allRoomsIdx = texts.findIndex(t => t.includes('All Game Rooms'));
 
-    expect(myRoomsIdx).toBeGreaterThanOrEqual(0);
-    expect(myStatsIdx).toBeGreaterThan(myRoomsIdx);
+    expect(texts.some(t => t.includes('My Rooms'))).toBe(false);
+    expect(items.some(el => el.getAttribute('href') === '/my-rooms')).toBe(false);
+    expect(myStatsIdx).toBeGreaterThanOrEqual(0);
     expect(allRoomsIdx).toBeGreaterThan(myStatsIdx);
+    expect(items[allRoomsIdx]).toHaveAttribute('href', '/');
   });
 
   it('closes the menu after clicking "My Stats"', () => {

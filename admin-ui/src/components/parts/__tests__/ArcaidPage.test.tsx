@@ -93,6 +93,16 @@ describe('ArcaidPage', () => {
         expect(screen.getByText('custom footer').parentElement!.className).toBe('aw-footer');
     });
 
+    it("takes a page's own header in place of the title row (the landing page, G35c)", () => {
+        const { container } = renderPage({ header: <header data-testid="own-header">own</header> });
+        const layout = container.firstElementChild!.firstElementChild as HTMLElement;
+        expect(layout.firstElementChild).toBe(screen.getByTestId('own-header'));
+        expect(container.querySelector('.aw-header')).toBeNull();
+        expect(screen.queryByText('ACCOUNT SETTINGS')).toBeNull();
+        expect(screen.getByRole('main')).toHaveTextContent('A panel');
+        expect(screen.getByRole('link', { name: 'ARCAID.APP' })).toHaveAttribute('href', '/');
+    });
+
     it('bare: the carpet, the children centred above it, no header or main', () => {
         const { container } = renderPage({ bare: true, children: <p>Log in</p> });
         const root = container.firstElementChild as HTMLElement;

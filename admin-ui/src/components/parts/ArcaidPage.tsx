@@ -18,13 +18,16 @@ const SAFE_AREA_TOP: CSSProperties = { paddingTop: 'max(1.5rem, env(safe-area-in
  * `bare` is the signed-out state: no header, footer or main, the children
  * centred on the same background. `embedded` is the shell shown inside a box
  * on another page (a preview): it fills the box, not the screen, and its main
- * wrapper is not a second `<main>` landmark.
+ * wrapper is not a second `<main>` landmark. `header` (G35c, the landing
+ * page) is a page's own header row in place of the title row.
  */
 export default function ArcaidPage({
-    title, width = 'wide', jump, actions, footer, overlays, bare = false, embedded = false, children,
+    title, header, width = 'wide', jump, actions, footer, overlays, bare = false, embedded = false, children,
 }: {
     /** Shown under ARCAID in the header. */
     title: string;
+    /** The page's own header in place of the ARCAID title row (`title` and `actions` are then unused). */
+    header?: ReactNode;
     /** 'wide' = 1600 px like the results pages (`aw-web--wide`); 'column' = the kit's 52rem column. */
     width?: 'wide' | 'column';
     /** A jump list beside the children (the children are then `PanelGroup`s). */
@@ -79,7 +82,7 @@ export default function ArcaidPage({
                     className={`aw-layout aw-web${width === 'wide' ? ' aw-web--wide' : ''} px-4 sm:px-6`}
                     style={embedded ? EMBEDDED_LAYOUT : SAFE_AREA_TOP}
                 >
-                    <PageTitle title={title} actions={actions === undefined ? <PageNavLinks /> : actions} />
+                    {header ?? <PageTitle title={title} actions={actions === undefined ? <PageNavLinks /> : actions} />}
 
                     {jump ? (
                         <Main className="aw-settings">

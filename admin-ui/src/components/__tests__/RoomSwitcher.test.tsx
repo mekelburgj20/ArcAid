@@ -104,7 +104,9 @@ describe('RoomSwitcher', () => {
         expect(global.querySelector('.arc-menu__tile--init')).toBeNull();
 
         expect(within(menu).getByRole('menuitem', { name: /All game rooms/ })).toHaveAttribute('href', '/');
-        expect(within(menu).getByRole('menuitem', { name: /Manage my rooms/ })).toHaveAttribute('href', '/my-rooms');
+        // G35c retired the My Rooms page: no "Manage my rooms" link anywhere, and nothing leads to /my-rooms.
+        expect(within(menu).queryByRole('menuitem', { name: /Manage my rooms/ })).toBeNull();
+        expect(menu.querySelector('a[href="/my-rooms"]')).toBeNull();
     });
 
     it('picking a room navigates in the app and closes the menu', async () => {
@@ -136,7 +138,7 @@ describe('RoomSwitcher', () => {
         expect(within(menu).queryByRole('menuitem', { name: /Manage my rooms/ })).toBeNull();
     });
 
-    it('signed in with only this room: says so, offers more rooms and Manage my rooms', async () => {
+    it('signed in with only this room: says so and offers more rooms', async () => {
         renderSwitcher({ rooms: [ROOMS[0]!] });
         const menu = await openMenu();
         expect(within(menu).getByText('1', { selector: '.arc-menu__count' })).toBeInTheDocument();
@@ -145,7 +147,7 @@ describe('RoomSwitcher', () => {
         const more = within(menu).getByRole('menuitem', { name: /Find more rooms/ });
         expect(more).toHaveAttribute('href', '/');
         expect(more).toHaveAttribute('aria-describedby', note.id);
-        expect(within(menu).getByRole('menuitem', { name: /Manage my rooms/ })).toHaveAttribute('href', '/my-rooms');
+        expect(within(menu).queryByRole('menuitem', { name: /Manage my rooms/ })).toBeNull();
     });
 
     it('a visitor (this room is not one of theirs) still sees it first, then their rooms', async () => {
@@ -196,8 +198,8 @@ describe('RoomSwitcher', () => {
         expect(rows[4]).toHaveTextContent('Tilt Club After Dark');
 
         fireEvent.keyDown(document.activeElement!, { key: 'End' });
-        const manage = within(menu).getByRole('menuitem', { name: /Manage my rooms/ });
-        await waitFor(() => expect(manage).toHaveAttribute('data-highlighted'));
+        const allRooms = within(menu).getByRole('menuitem', { name: /All game rooms/ });
+        await waitFor(() => expect(allRooms).toHaveAttribute('data-highlighted'));
         // A footer link is not on the rail: the pinball steps off.
         expect(ball).not.toHaveAttribute('data-on');
 
@@ -242,16 +244,59 @@ describe('RoomSwitcher with Global as the current place (the Global Scoreboard h
 
         expect(roomRows(menu)[3]).toHaveAttribute('href', '/rtx_pinball');
         expect(within(menu).getByRole('menuitem', { name: /All game rooms/ })).toHaveAttribute('href', '/');
-        expect(within(menu).getByRole('menuitem', { name: /Manage my rooms/ })).toHaveAttribute('href', '/my-rooms');
+        expect(within(menu).queryByRole('menuitem', { name: /Manage my rooms/ })).toBeNull();
     });
 
-    it('with no rooms yet: says so, offers more rooms and Manage my rooms', async () => {
+    it('with no rooms yet: says so and offers more rooms', async () => {
         renderSwitcher({ current: GLOBAL, rooms: [] });
         const menu = await openMenu(globalTrigger());
         expect(within(menu).getByText('0', { selector: '.arc-menu__count' })).toBeInTheDocument();
         expect(rowNames(menu)).toEqual(['Global Scoreboard']);
         const note = within(menu).getByText('You have not joined a game room yet.');
         expect(within(menu).getByRole('menuitem', { name: /Find more rooms/ })).toHaveAttribute('aria-describedby', note.id);
-        expect(within(menu).getByRole('menuitem', { name: /Manage my rooms/ })).toHaveAttribute('href', '/my-rooms');
+        expect(within(menu).queryByRole('menuitem', { name: /Manage my rooms/ })).toBeNull();
+    });
+});
+
+/** G35c: the landing page as the current place. */
+const HOME: SwitcherCurrentRoom = { kind: 'home', slug: '', name: 'Your rooms', title: 'Your rooms', logoUrl: null, roomId: null };
+
+describe('RoomSwitcher on the landing page (the `home` place, G35c)', () => {
+    const homeTrigger = () => screen.getByRole('button', { name: 'Your rooms, switch game room' });
+
+    it('reads "Your rooms" with the grid tile, its name never capped', () => {
+        renderSwitcher({ current: HOME });
+        const button = homeTrigger();
+        expect(button).toHaveTextContent('Your rooms');
+        expect(button).toHaveAttribute('title', 'Your rooms');
+        expect(button.className).toBe('room-switch room-switch--inline room-switch--home');
+        expect(button.querySelector('.room-switch__tile--icon svg')).not.toBeNull();
+        expect(button.querySelector('.room-switch__tile--init')).toBeNull();
+    });
+
+    it('lists your rooms (none of them "You are here"), then the Global Scoreboard, with no footer links', async () => {
+        renderSwitcher({ current: HOME });
+        const menu = await openMenu(homeTrigger());
+        expect(within(menu).getByRole('group', { name: /Your game rooms/ })).toBeInTheDocument();
+        expect(within(menu).getByText('5', { selector: '.arc-menu__count' })).toBeInTheDocument();
+        expect(rowNames(menu)).toEqual([
+            'Neon Alley Pinball', 'Flipper Cove', 'RTX Pinball', 'Arcade Annex', 'Tilt Club After Dark', 'Global Scoreboard',
+        ]);
+        expect(within(menu).queryByText('You are here')).toBeNull();
+        expect(menu.querySelector('[aria-current]')).toBeNull();
+        expect(roomRows(menu)[0]).toHaveAttribute('href', '/neon_alley_pinball');
+        expect(roomRows(menu)[5]).toHaveAttribute('href', '/scoreboard');
+        // The landing page is the room list: no link back to it, and no Manage my rooms.
+        expect(within(menu).queryByRole('menuitem', { name: /All game rooms/ })).toBeNull();
+        expect(within(menu).queryByRole('menuitem', { name: /Manage my rooms/ })).toBeNull();
+        expect(menu.querySelector('a[href="/"]')).toBeNull();
+    });
+
+    it('with no rooms yet: Global and a line saying so', async () => {
+        renderSwitcher({ current: HOME, rooms: [] });
+        const menu = await openMenu(homeTrigger());
+        expect(rowNames(menu)).toEqual(['Global Scoreboard']);
+        expect(within(menu).getByText('You have not joined a game room yet.')).toBeInTheDocument();
+        expect(within(menu).queryByRole('menuitem', { name: /Find more rooms/ })).toBeNull();
     });
 });
