@@ -5,12 +5,14 @@ import type { RecapPlayerRow } from '../../lib/runRecapTypes';
 import { PlayerAvatar, playerName } from '../ScoreboardComponents';
 
 type Col = 'rank' | 'games' | 'average' | 'median' | 'best';
-const COLS: Array<{ id: Exclude<Col, 'rank'>; label: string }> = [
+/** `wide` columns drop below 640 px so Games and Best stay on a phone (the detail sheet has the rest). */
+const COLS: Array<{ id: Exclude<Col, 'rank'>; label: string; wide?: boolean }> = [
   { id: 'games', label: 'Games' },
-  { id: 'average', label: 'Avg' },
-  { id: 'median', label: 'Median' },
+  { id: 'average', label: 'Avg', wide: true },
+  { id: 'median', label: 'Median', wide: true },
   { id: 'best', label: 'Best' },
 ];
+const WIDE = 'hidden sm:table-cell';
 
 const REASON = {
   none: 'Typed in or synced only',
@@ -74,7 +76,7 @@ export default function RecapPlayerTable({ players, onOpen }: {
                 </button>
               </th>
               {COLS.map(c => (
-                <th key={c.id} scope="col" aria-sort={ariaSort(c.id)} className="py-1.5 px-1 text-right font-medium">
+                <th key={c.id} scope="col" aria-sort={ariaSort(c.id)} className={`py-1.5 px-1 text-right font-medium ${c.wide ? WIDE : ''}`}>
                   <button type="button" onClick={() => press(c.id)} className="part-focus cursor-pointer text-faint hover:text-primary">
                     {c.label}{arrow(c.id)}
                   </button>
@@ -104,7 +106,7 @@ export default function RecapPlayerTable({ players, onOpen }: {
                       avatarUrl={p.avatar_url}
                       size={24}
                     />
-                    <span className={`min-w-0 break-words ${p.rank === 1 ? 'text-neon-amber font-medium' : 'text-primary'}`}>
+                    <span className={`min-w-0 [overflow-wrap:anywhere] ${p.rank === 1 ? 'text-neon-amber font-medium' : 'text-primary'}`}>
                       {playerName(p)}
                     </span>
                   </button>
@@ -112,7 +114,7 @@ export default function RecapPlayerTable({ players, onOpen }: {
                 {COLS.map(c => (
                   <td
                     key={c.id}
-                    className={`py-2 px-1 text-right tabular-nums whitespace-nowrap ${c.id === 'best' ? (p.rank === 1 ? 'text-neon-amber font-medium' : 'text-primary font-medium') : 'text-muted'}`}
+                    className={`py-2 px-1 text-right tabular-nums whitespace-nowrap ${c.wide ? WIDE + ' ' : ''}${c.id === 'best' ? (p.rank === 1 ? 'text-neon-amber font-medium' : 'text-primary font-medium') : 'text-muted'}`}
                   >
                     {cell(p, c.id)}
                   </td>

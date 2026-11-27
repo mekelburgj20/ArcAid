@@ -71,6 +71,11 @@ export default function PlayerRunDetail({ roomId, gameId, player, open, onClose,
               {formatScore(player.best)}
             </div>
             <div className="text-sm text-muted">Finished #{player.rank}</div>
+            {shown && player.games != null && player.average != null && player.median != null && (
+              <div className="text-sm text-muted" data-testid="player-summary">
+                {player.games} {player.games === 1 ? 'game' : 'games'} · avg {formatRecapScore(player.average)} · median {formatRecapScore(player.median)}
+              </div>
+            )}
           </div>
         </div>
 

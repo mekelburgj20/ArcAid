@@ -12,7 +12,7 @@ export default function RecapAwards({ awards, players }: { awards: RecapAward[];
           key={a.id}
           tile={<Trophy size={18} aria-hidden="true" />}
           name={a.label}
-          caption={joinNames(a.player_keys.map(k => nameForKey(players, k)))}
+          caption={<span className="[overflow-wrap:anywhere]">{joinNames(a.player_keys.map(k => nameForKey(players, k)))}</span>}
           below={<p className="m-0 text-sm text-muted break-words">{a.detail}</p>}
         />
       ))}

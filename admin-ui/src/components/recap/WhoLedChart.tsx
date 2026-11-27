@@ -13,6 +13,15 @@ import { LEAD_VERB, leaderColors, nameForKey } from './recapNames';
  * tokens. `LeadChangeList` under it is the text equivalent.
  */
 
+/** Axis ends: 'Fri 11/20' once the run spans more than two days (a weekday alone repeats a week apart), else 'Fri 8:04 am'. */
+function axisTimeLabel(ms: number, spanMs: number, timeZone: string): string {
+  const iso = new Date(ms).toISOString();
+  if (spanMs <= 2 * 86_400_000) return formatRecapTime(iso, timeZone);
+  const parts: Record<string, string> = {};
+  for (const p of new Intl.DateTimeFormat('en-US', { timeZone, weekday: 'short', month: 'numeric', day: 'numeric' }).formatToParts(new Date(ms))) parts[p.type] = p.value;
+  return `${parts.weekday} ${parts.month}/${parts.day}`;
+}
+
 const HEIGHT = 220;
 const MARGIN = { top: 22, right: 14, bottom: 26, left: 52 };
 const DEFAULT_WIDTH = 600;
@@ -103,10 +112,10 @@ export default function WhoLedChart({ steps, changes, players, run }: {
           </g>
         ))}
         <text x={MARGIN.left} y={HEIGHT - 8} textAnchor="start" fontSize={12} fill="currentColor">
-          {formatRecapTime(new Date(tMin).toISOString(), run.timezone)}
+          {axisTimeLabel(tMin, tSpan, run.timezone)}
         </text>
         <text x={MARGIN.left + plotW} y={HEIGHT - 8} textAnchor="end" fontSize={12} fill="currentColor">
-          {formatRecapTime(new Date(tMax).toISOString(), run.timezone)}
+          {axisTimeLabel(tMax, tSpan, run.timezone)}
         </text>
 
         {/* Risers: neutral */}
