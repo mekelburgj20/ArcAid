@@ -86,12 +86,12 @@ const cards = () => screen.getAllByTestId('run-card');
 const lastFetch = () => new URL(String(fetchMock.mock.calls.at(-1)![0]), 'http://x');
 
 describe('RunFeed', () => {
-  it('links each run with players to its "By the numbers" recap, and none without', async () => {
+  it('links each run with players to its Run Recap, and none without', async () => {
     renderFeed();
     const all = await screen.findAllByTestId('run-card');
-    expect(within(all[0]!).getByRole('link', { name: 'By the numbers' }))
+    expect(within(all[0]!).getByRole('link', { name: 'Run Recap' }))
       .toHaveAttribute('href', '/rtx/tournaments/t-dg?run=g-godzilla&recap=1');
-    expect(within(all[2]!).queryByRole('link', { name: 'By the numbers' })).not.toBeInTheDocument();
+    expect(within(all[2]!).queryByRole('link', { name: 'Run Recap' })).not.toBeInTheDocument();
   });
 
   it('asks for the latest week with standings, and draws one card per run, newest first', async () => {

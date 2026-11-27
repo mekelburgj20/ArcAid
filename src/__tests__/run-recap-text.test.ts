@@ -53,7 +53,7 @@ describe('run recap Discord text, reference run', () => {
 
     it('has the section shape of the hand-built recap', () => {
         const lines = text.split('\n');
-        expect(lines[0]).toBe('# Lost in Space ▸ by the numbers');
+        expect(lines[0]).toBe('# Lost in Space ▸ Arcaid Recap');
         expect(lines[1]).toBe('-# Test Season · Fri Nov 20 – Thu Nov 26 · 335 games from 11 players on Arcaid Witness');
         expect(text).toContain('## ▸ Lead changes');
         expect(text).toContain('## ▸ Leaderboard');

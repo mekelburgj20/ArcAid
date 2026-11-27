@@ -12,7 +12,9 @@ paths:
   - "admin-ui/src/lib/recap*.ts"
   - "admin-ui/src/lib/runRecapTypes.ts"
 ---
-# Run recaps, "By the numbers" (B31) — rules
+# Run recaps, "Arcaid Recap" (B31) — rules
+
+Names (owner, 2026-11-27): the brand is **Arcaid Recap** (Discord text header, forum post title, settings copy); in context a run's is **Run Recap** (run card button, recap page title) and a tournament's is **Season Recap** (its tab). The URL stays `?view=numbers` / `&recap=1` so shared links keep working.
 
 Loads when you touch run recaps: `RunRecapService`, the recap routes, the Discord recap text, the recap preferences, the recap UI. Plan (the contract, with every name and rule): `docs/run-recap-plan.md`. Cross-cutting invariants live in the root CLAUDE.md. One section per slice; a slice writes only inside its own section.
 
@@ -35,7 +37,7 @@ Loads when you touch run recaps: `RunRecapService`, the recap routes, the Discor
 
 ## B31.2 — the recap on the run view
 
-- **Placement:** `TournamentDetail` shows `RunRecapView` instead of `RunFeed` when `?recap=1&run=<gameId>` (Runs view only); the view draws its own "All runs" link back to `?run=<gameId>`. `LiveRunsStrip` sits above the feed; `RunFeed`'s card has a "By the numbers" `ButtonLink` only with `tournament_id` and `players > 0`. B31.4's tab edits the same page: keep this block small.
+- **Placement:** `TournamentDetail` shows `RunRecapView` instead of `RunFeed` when `?recap=1&run=<gameId>` (Runs view only); the view draws its own "All runs" link back to `?run=<gameId>`. `LiveRunsStrip` sits above the feed; `RunFeed`'s card has a "Run Recap" `ButtonLink` only with `tournament_id` and `players > 0`. B31.4's tab edits the same page: keep this block small.
 - **Parts and rules:** shared parts only (`PanelGroup`/`Panel`, `StatTiles`, `ListRow`, `Dialog sheet`, `EmptyState`, `Skeleton`, `LoadFailedNotice`), no colour literals, names via `playerName` / `nameForKey`, game titles wrap. The load is `useRetryingLoad` + `roomFetch`; a 404 is the "no recap" empty state; Refresh (active runs) is `load()`.
 - **Never render `RecapPlayerRow.key`.** A `null` stat is `—` with a marker (typed-only vs private), never zero. The detail sheet fetches `/recap/players/:key` only for `play_stats === 'shown'`; its game strip is index-scaled (never time-scaled, so a non-opted-in player's times are not drawn) and clock times show only when the server sent `time` / `hours`.
 - **`WhoLedChart`:** one segment per `lead_steps` entry, gold for `players[0]` (the winner), other leaders cycle cyan, magenta, green, purple, blue (coral is danger, never). `lib/chartScale.ts` (`formatAxisScore`, `niceStep`, `yScaleFor`) is shared with `ScoreHistoryChart`.
@@ -58,5 +60,5 @@ Loads when you touch run recaps: `RunRecapService`, the recap routes, the Discor
 ## B31.5 — post the recap to Discord when a run ends
 
 - **A run's recap is posted by a SWEEP, never a hook in the close paths** (five places close a run; `TournamentEngine` / `EventScheduler` are untouched). `RunRecapPostService.sweep` (Scheduler `startRunRecapPostSweep`, every minute, reentrancy flag) takes COMPLETED / ARCHIVED rotation and event-round runs of a room whose `end_date` is 10 min to 6 h old (`RECAP_POST_SETTLE_MS`, `RECAP_POST_MAX_AGE_MS`) with no `run_recap_posts` row, and for rooms with `DISCORD_RUN_RECAPS_ENABLED` on (read only through `parseRunRecapsEnabled`, `src/utils/discordRunRecaps.ts`; off = NO ledger row, so turning it on later still posts runs inside the window).
-- **The ledger is the idempotency:** `INSERT OR IGNORE` the claim, act only on `changes === 1`; the row ends `posted` (channel, message ids), `skipped` (`no_channel`: Discord off / a `none` route; `no_scores`: no players) or `failed` (`send_failed` / `exception`), and a failed run is never retried. Channel = kind `recaps` through `resolveAnnouncementChannelId` (the tournament's `recaps` route, else its own `tournament` route (`none` = quiet), else the catch-all, then the room route, else the room Tournament posts route, else the room default). Text = `splitRecapForBot(buildRunRecapText(recap, {maxChars: DISCORD_COPY_MAX, link}), DISCORD_BOT_MAX)`; chunk 1 to the channel (a forum makes a post titled "<game> by the numbers"), the rest into its thread, `allowed_mentions: {parse: []}`.
+- **The ledger is the idempotency:** `INSERT OR IGNORE` the claim, act only on `changes === 1`; the row ends `posted` (channel, message ids), `skipped` (`no_channel`: Discord off / a `none` route; `no_scores`: no players) or `failed` (`send_failed` / `exception`), and a failed run is never retried. Channel = kind `recaps` through `resolveAnnouncementChannelId` (the tournament's `recaps` route, else its own `tournament` route (`none` = quiet), else the catch-all, then the room route, else the room Tournament posts route, else the room default). Text = `splitRecapForBot(buildRunRecapText(recap, {maxChars: DISCORD_COPY_MAX, link}), DISCORD_BOT_MAX)`; chunk 1 to the channel (a forum makes a post titled "<game> · Arcaid Recap"), the rest into its thread, `allowed_mentions: {parse: []}`.
 - **Activity:** like score posts, only a FAILED send is an activity row (`sendChannelMessage` -> `recordBotPostFailure`); a success or skip is read from `run_recap_posts`, not the Activity tab.

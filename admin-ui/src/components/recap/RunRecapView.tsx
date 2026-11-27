@@ -21,7 +21,7 @@ import RecapPlayerTable from './RecapPlayerTable';
 import WhoLedChart from './WhoLedChart';
 
 /**
- * "By the numbers" for one run (B31.2): `/:slug/tournaments/:tid?run=<gameId>&recap=1`.
+ * The Run Recap (an Arcaid Recap) for one run (B31.2): `/:slug/tournaments/:tid?run=<gameId>&recap=1`.
  * Reads `GET /api/rooms/:roomId/runs/:gameId/recap`. An active run is "So far"
  * with a Refresh button (the page joins no socket, so `useLiveRefresh` does
  * not apply).
@@ -117,7 +117,7 @@ export default function RunRecapView({ roomId, slug, tournamentId, gameId }: {
       <PanelGroup
         id="run-recap"
         tone="cyan"
-        title={active ? 'By the numbers · So far' : 'By the numbers'}
+        title={active ? 'Run Recap · So far' : 'Run Recap'}
         sub={active ? 'This run is still going; the numbers move as scores come in.' : undefined}
       >
         <Panel title="Result" wide>

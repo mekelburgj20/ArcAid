@@ -160,7 +160,7 @@ function build(recap: Omit<RunRecap, 'discord_text'>, link: string | null | unde
     const lines: string[] = [];
     const active = recap.run.state === 'active';
 
-    lines.push(`# ${escapeMd(recap.run.game_name)} ▸ by the numbers`);
+    lines.push(`# ${escapeMd(recap.run.game_name)} ▸ Arcaid Recap`);
 
     // subtitle
     const parts: string[] = [escapeMd(recap.run.tournament_name)];

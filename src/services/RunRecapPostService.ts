@@ -8,7 +8,7 @@ import { tournamentRunRecapUrl } from '../utils/publicLinks.js';
 import { logInfo, logError } from '../utils/logger.js';
 
 /**
- * Posts a run's "By the numbers" recap to Discord once the run has ended (B31.5).
+ * Posts a run's Arcaid Recap to Discord once the run has ended (B31.5).
  *
  * A per-minute SWEEP (Scheduler.startRunRecapPostSweep), not a hook in the five
  * places a run can close: it is after COMMIT by construction, covers every close
@@ -115,7 +115,7 @@ export class RunRecapPostService {
 
         const ids: Array<string | null> = [];
         const first: ChannelSendResult | void = await sendChannelMessage(channelId, head, {
-            threadName: `${c.game_name} by the numbers`, noMentions: true,
+            threadName: `${c.game_name} · Arcaid Recap`, noMentions: true,
         });
         if (!first) { await finish(c.game_id, 'failed', { reason: 'send_failed', channelId }); return 'failed'; }
         ids.push(first.messageId);

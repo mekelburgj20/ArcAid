@@ -71,7 +71,7 @@ const WEEK = {
   has_newer: false, has_older: false,
 };
 
-/** The By the numbers view's season recap (SeasonRecapView.test.tsx pins its content). */
+/** The Season Recap view's season recap (SeasonRecapView.test.tsx pins its content). */
 const SEASON = {
   tournament: { id: 't-1', name: 'Daily Grind', type: 'DG', format: 'rotation', is_active: true },
   runs: 1, live_runs: 0, players: [], standings: [], awards: [],
@@ -257,10 +257,10 @@ describe('TournamentDetail', () => {
       expect(location()).toBe('/test-room/tournaments/t-1');
     });
 
-    it('the By the numbers tab opens the season recap (?view=numbers)', async () => {
+    it('the Season Recap tab opens the season recap (?view=numbers)', async () => {
       renderPage();
       await screen.findAllByTestId('run-card');
-      fireEvent.click(screen.getByRole('button', { name: 'By the numbers' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Season Recap' }));
       expect(location()).toBe('/test-room/tournaments/t-1?view=numbers');
       expect(await screen.findByTestId('season-recap')).toBeInTheDocument();
       expect(fetched('/recap')).toEqual(['/api/rooms/room-1/tournaments/t-1/recap']);
