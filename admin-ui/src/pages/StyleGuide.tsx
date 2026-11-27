@@ -405,8 +405,8 @@ export default function StyleGuide() {
                 </Panel>
                 <Panel title="Which look goes where">
                     <p className="text-sm text-primary mb-2">
-                        The Arcaid look (fixed dark, arcade carpet) is for personal and global pages: Account Settings,
-                        My Rooms, My Tables, My Stats, Friends, Create Room.
+                        The Arcaid look (fixed dark, arcade carpet) is for personal and global pages: the landing page,
+                        Account Settings, My Tables, My Stats, Friends, Create Room.
                     </p>
                     <p className="text-sm text-primary mb-2">
                         Room pages and admin pages keep the room&apos;s theme (11 themes) and get the same parts in

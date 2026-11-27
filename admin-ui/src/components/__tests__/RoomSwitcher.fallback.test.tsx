@@ -5,8 +5,9 @@ import RoomSwitcher, { type SwitcherCurrentRoom } from '../RoomSwitcher';
 
 /**
  * G26 - when the menu chunk cannot load (offline, a stale deploy), the nav
- * still works: the hand-drawn button stays and takes the viewer to My Rooms
- * (signed in) or the room list (signed out). Nothing reloads the page.
+ * still works: the hand-drawn button stays and takes the viewer to the room
+ * list, the landing page (where your rooms are too since G35c retired My
+ * Rooms). Nothing reloads the page.
  */
 
 vi.mock('../RoomSwitcherMenu', () => {
@@ -31,10 +32,10 @@ function renderSwitcher(signedIn: boolean) {
 const trigger = () => screen.getByRole('button', { name: 'RTX PINBALL, switch game room' });
 
 describe('RoomSwitcher when its menu chunk fails to load', () => {
-    it('signed in: a press made while it was loading goes to My Rooms', async () => {
+    it('signed in: a press made while it was loading goes to the room list, where your rooms are', async () => {
         renderSwitcher(true);
         fireEvent.click(trigger());
-        await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('/my-rooms'));
+        await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent(/^\/$/));
         // While the menu cannot load, the button does not claim a pop-up.
         expect(trigger()).not.toHaveAttribute('aria-haspopup');
         expect(trigger()).not.toHaveAttribute('aria-expanded');

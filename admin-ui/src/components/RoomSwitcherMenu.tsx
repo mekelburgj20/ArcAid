@@ -1,6 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, type ReactNode } from 'react';
 import { useLocation } from 'react-router-dom';
-import { LayoutGrid, SlidersHorizontal, Trophy } from 'lucide-react';
+import { LayoutGrid, Trophy } from 'lucide-react';
 import {
     Menu, MenuFooter, MenuGroup, MenuHeading, MenuItem, MenuNote, MenuPopup, MenuSeparator,
     MenuSkeletonRow, MenuStaticRow, MenuTile, MenuTrigger, type MenuActions,
@@ -36,8 +36,11 @@ export interface SwitcherMenuRoom {
 
 /** What the menu shows, worked out by `RoomSwitcher`. */
 export interface SwitcherMenuModel {
-    /** Where the viewer is: a room, or the Global Scoreboard (its tile is the trophy). */
-    current: { kind: 'room' | 'global'; name: string; logoUrl: string | null; initials: string };
+    /**
+     * Where the viewer is: a room, the Global Scoreboard (its tile is the trophy),
+     * or the landing page (`home`: not listed, as it is no room and not a row of its own).
+     */
+    current: { kind: 'room' | 'global' | 'home'; name: string; logoUrl: string | null; initials: string };
     /** The viewer's other rooms, already in order. */
     others: SwitcherMenuRoom[];
     /** The Global Scoreboard's row after the rooms: on a room, never on Global itself. */
@@ -139,6 +142,8 @@ export default function RoomSwitcherMenu({
     }, []);
 
     const { current, others, showGlobal, signedIn, listLoading, noOtherRoom, isMember, count } = model;
+    // The landing page is the room list: no "You are here" row, and no footer link back to it.
+    const home = current.kind === 'home';
 
     return (
         <Menu actionsRef={actionsRef}>
@@ -154,16 +159,18 @@ export default function RoomSwitcherMenu({
                         />
                     )}
                 >
-                    <MenuStaticRow
-                        media={current.kind === 'global'
-                            ? <MenuTile icon={<Trophy />} />
-                            : <MenuTile src={current.logoUrl} initials={current.initials} />}
-                        caption="You are here"
-                        mark
-                        aria-current="page"
-                    >
-                        {current.name}
-                    </MenuStaticRow>
+                    {!home && (
+                        <MenuStaticRow
+                            media={current.kind === 'global'
+                                ? <MenuTile icon={<Trophy />} />
+                                : <MenuTile src={current.logoUrl} initials={current.initials} />}
+                            caption="You are here"
+                            mark
+                            aria-current="page"
+                        >
+                            {current.name}
+                        </MenuStaticRow>
+                    )}
                     {listLoading ? (
                         <MenuSkeletonRow label="Loading your rooms" />
                     ) : others.map(room => (
@@ -182,9 +189,17 @@ export default function RoomSwitcherMenu({
                         </MenuItem>
                     )}
                 </MenuGroup>
-                <MenuSeparator />
-                {!signedIn ? (
+                {home ? (
+                    // On the room list itself: only the note when there is no room to list.
+                    noOtherRoom && (
+                        <>
+                            <MenuSeparator />
+                            <MenuNote>You have not joined a game room yet.</MenuNote>
+                        </>
+                    )
+                ) : !signedIn ? (
                     <>
+                        <MenuSeparator />
                         <MenuNote id={noteId}>Sign in to see your rooms</MenuNote>
                         <MenuFooter stack>
                             <MenuItem variant="link" to="/" media={<LayoutGrid aria-hidden="true" />} aria-describedby={noteId}>
@@ -194,6 +209,7 @@ export default function RoomSwitcherMenu({
                     </>
                 ) : noOtherRoom ? (
                     <>
+                        <MenuSeparator />
                         <MenuNote id={noteId}>
                             {isMember ? 'This is your only room so far.' : 'You have not joined a game room yet.'}
                         </MenuNote>
@@ -201,16 +217,15 @@ export default function RoomSwitcherMenu({
                             <MenuItem variant="cta" to="/" media={<LayoutGrid aria-hidden="true" />} aria-describedby={noteId}>
                                 Find more rooms
                             </MenuItem>
-                            <MenuItem variant="link" to="/my-rooms" media={<SlidersHorizontal aria-hidden="true" />}>
-                                Manage my rooms
-                            </MenuItem>
                         </MenuFooter>
                     </>
                 ) : (
-                    <MenuFooter>
-                        <MenuItem variant="link" to="/" media={<LayoutGrid aria-hidden="true" />}>All game rooms</MenuItem>
-                        <MenuItem variant="link" to="/my-rooms" media={<SlidersHorizontal aria-hidden="true" />}>Manage my rooms</MenuItem>
-                    </MenuFooter>
+                    <>
+                        <MenuSeparator />
+                        <MenuFooter>
+                            <MenuItem variant="link" to="/" media={<LayoutGrid aria-hidden="true" />}>All game rooms</MenuItem>
+                        </MenuFooter>
+                    </>
                 )}
             </MenuPopup>
         </Menu>

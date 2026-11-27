@@ -15,6 +15,21 @@
  * stats-less card built from whatever `/api/me/rooms` provided.
  */
 
+import { parseServerDate } from './format';
+
+/**
+ * G35b - one of a room's tables being played now, with its leader (up to three
+ * per room on `GET /api/rooms`; `[]` for an approval room). Absent on a server
+ * from before G35b, so every reader treats a missing list as "none known".
+ */
+export interface ActiveTable {
+  gameId: string;
+  name: string;
+  imageUrl: string | null;
+  leaderName: string | null;
+  topScore: number | null;
+}
+
 /** Matches the enriched shape returned by `GET /api/rooms`. */
 export interface PublicRoom {
   id: string;
@@ -28,6 +43,8 @@ export interface PublicRoom {
   discordInviteUrl: string | null;
   /** v2.39.0 (approval rooms) — 'open' (default) | 'approval'. */
   join_policy?: 'open' | 'approval' | 'discord_role';
+  /** G35b; missing before it is deployed. */
+  activeTables?: ActiveTable[];
 }
 
 /** Matches `RoomForUser` from `GET /api/me/rooms`. */
@@ -57,6 +74,8 @@ export interface RoomCardData {
    * (already-joined) don't carry this — a member's relationship to the room
    * is settled, the bookmark toggle there is always a plain "leave". */
   joinPolicy?: 'open' | 'approval' | 'discord_role';
+  /** G35b: the tables being played now; undefined when the server sent none (before G35b, or unlisted). */
+  activeTables?: ActiveTable[];
 }
 
 export function normalizePublicRoom(room: PublicRoom): RoomCardData {
@@ -70,7 +89,34 @@ export function normalizePublicRoom(room: PublicRoom): RoomCardData {
     activeGames: room.activeGames,
     activePlayers: room.activePlayers,
     joinPolicy: room.join_policy,
+    activeTables: Array.isArray(room.activeTables) ? room.activeTables : undefined,
   };
+}
+
+const SMALL_WORDS = /^(the|of|a|an)$/i;
+
+/** First letters of up to two words, skipping "the", "of", "a" (a room or table with no picture). */
+export function roomInitials(name: string): string {
+  const words = name.split(/\s+/).filter(Boolean);
+  const picked = words.filter(w => !SMALL_WORDS.test(w)).slice(0, 2);
+  const letters = (picked.length ? picked : words.slice(0, 2)).map(w => Array.from(w)[0] ?? '');
+  return letters.join('').toUpperCase() || '?';
+}
+
+function activityTime(room: MemberRoom): number | null {
+  return parseServerDate(room.lastActivityAt)?.getTime() ?? null;
+}
+
+/** The viewer's rooms, newest activity first, rooms with none last, then by name (the switcher and the landing page). */
+export function byActivityThenName(a: MemberRoom, b: MemberRoom): number {
+  const ta = activityTime(a);
+  const tb = activityTime(b);
+  if (ta !== tb) {
+    if (ta == null) return 1;
+    if (tb == null) return -1;
+    return tb - ta;
+  }
+  return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
 }
 
 export function normalizeMemberRoom(room: MemberRoom): RoomCardData {

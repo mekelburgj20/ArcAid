@@ -2683,12 +2683,25 @@ router.get('/rooms', async (req, res) => {
         );
         const rooms = allRooms.filter((room) => listedFlags.get(room.id)?.ROOM_LISTED !== 'false');
 
-        const enriched = await Promise.all(rooms.map(async (room) => {
+        const [{ RoomAccessService }, { RoomActiveTablesService }] = await Promise.all([
+            import('../../services/RoomAccessService.js'),
+            import('../../services/RoomActiveTablesService.js'),
+        ]);
+        // v2.39.0 — join_policy is safe/non-secret: it lets landing-page cards
+        // branch the bookmark toggle into "Request to join" with no second fetch.
+        const joinPolicies = await Promise.all(rooms.map((room) => RoomAccessService.getJoinPolicy(room.id)));
+
+        // G35b (v2.279.0) — the tables each room is playing now, read off its
+        // board (RoomActiveTablesService has the rules), in ONE batch for the
+        // whole list so the leaders' names resolve in one call. Approval rooms
+        // are not asked: their activeTables is [] like the counts below.
+        const activeTablesByRoom = await RoomActiveTablesService.forRooms(
+            rooms.filter((_room, i) => joinPolicies[i] !== 'approval').map((room) => room.id),
+        );
+
+        const enriched = await Promise.all(rooms.map(async (room, i) => {
             const logoUrl = room.logo_url || null;
-            // v2.39.0 — safe/non-secret: lets landing-page cards branch the
-            // bookmark toggle into "Request to join" without a second fetch.
-            const { RoomAccessService } = await import('../../services/RoomAccessService.js');
-            const joinPolicy = await RoomAccessService.getJoinPolicy(room.id);
+            const joinPolicy = joinPolicies[i]!;
 
             // Security review fix (pre-merge, v2.39.0) — this endpoint is
             // fully unauthenticated (no requireAuth/optional-decode today), so
@@ -2703,7 +2716,7 @@ router.get('/rooms', async (req, res) => {
             // description/join_policy stay so the "Request to join" card is
             // still discoverable and renders normally. Skips the two count
             // queries entirely for approval rooms — nothing computes them just
-            // to throw them away.
+            // to throw them away. G35b: the same holds for activeTables.
             if (joinPolicy === 'approval') {
                 return {
                     ...room,
@@ -2712,6 +2725,7 @@ router.get('/rooms', async (req, res) => {
                     activePlayers: 0,
                     discordInviteUrl: null,
                     join_policy: joinPolicy,
+                    activeTables: [],
                 };
             }
 
@@ -2740,6 +2754,7 @@ router.get('/rooms', async (req, res) => {
                 activePlayers: activePlayers?.count || 0,
                 discordInviteUrl: discordInvite || null,
                 join_policy: joinPolicy,
+                activeTables: activeTablesByRoom.get(room.id) ?? [],
             };
         }));
 

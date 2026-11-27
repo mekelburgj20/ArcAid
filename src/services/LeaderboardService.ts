@@ -11,7 +11,7 @@ import {
 import { resolveProfiles } from './PlayerProfileResolver.js';
 import { CardOrderService } from './CardOrderService.js';
 import { openCardSql } from '../utils/openCard.js';
-import { gameRunWindowByIdSql } from '../utils/gameRunWindow.js';
+import { gameRunWindowByIdSql, gameRunWindowSql } from '../utils/gameRunWindow.js';
 import { selfCorrectionLockedSql } from '../utils/scoreCorrectionPolicy.js';
 import { EventService, type EventRoundRow, type EventTournamentRow } from './EventService.js';
 import { EventResultService, type EventScoreRow } from './EventResultService.js';
@@ -144,6 +144,17 @@ export function eventOverlayExtras(overlay: EventRoundOverlay | undefined): Part
         witnessFlagMode: overlay.witnessFlagMode,
         witnessByHistoryId: overlay.witnessByHistoryId,
     };
+}
+
+/**
+ * SQL: the game under alias `g` (tournament `t`) is an EVENT ROUND — a `games`
+ * row with a `round_no` in a `format = 'event'` tournament, the boards
+ * `getEventRoundOverlays` derives from the round board (W22). Safe under a LEFT
+ * JOIN of `tournaments` (a pinned game is never a round). Shared by
+ * `loadEventRounds` and the card read's `is_event_round` (G35b).
+ */
+function eventRoundSql(g = 'g', t = 't'): string {
+    return `(${g}.round_no IS NOT NULL AND ${t}.format = 'event')`;
 }
 
 /**
@@ -679,8 +690,7 @@ export class LeaderboardService {
             FROM games g
             JOIN tournaments t ON t.id = g.tournament_id
             WHERE g.id IN (${placeholders})
-              AND g.round_no IS NOT NULL
-              AND t.format = 'event'
+              AND ${eventRoundSql('g', 't')}
         `, ...gameIds);
         const events = new Map<string, EventTournamentRow | null>();
         for (const round of rounds) {
@@ -978,9 +988,17 @@ export class LeaderboardService {
     }
 
     /**
-     * Get leaderboards for all active games, optionally filtered by game room.
+     * The cards a board shows, in the board's order: the open (ACTIVE) cards,
+     * the COMPLETED cards a tournament's cleanup rule retains, deduplicated,
+     * then the room admin's manual card order. Ranking-free: the rows carry the
+     * card's columns only.
+     *
+     * Split out of `getActiveLeaderboards` (G35b, v2.279.0) so the public room
+     * list (`getLiveCards`) reads the SAME card set in the SAME order as the
+     * room's board, rather than a second card query that could drift from it.
+     * `activeGames` is the open-card rows alone (the cadence step reads them).
      */
-    static async getActiveLeaderboards(gameRoomId?: string): Promise<Array<{ gameId: string; gameName: string; displayName: string | null; tournamentName: string; tournamentType: string; imageUrl: string | null; gameStatus: string; catalogueStyleId: string | null; logoStyleId: string | null; bgStyleId: string | null; styleHeaderDisabled: boolean; bgZoom: number | null; bgPosX: number | null; bgPosY: number | null; externalUrl: string | null; notes: string | null; rankings: RankedEntry[]; nextMaintenanceAt: string | null; globalGameId: string | null; selfCorrectionLocked: boolean; tournamentId: string | null; endedAt: string | null }>> {
+    private static async loadBoardCards(gameRoomId?: string): Promise<{ activeGames: any[]; cards: any[] }> {
         const db = await getDatabase();
 
         const roomFilter = gameRoomId ? ' AND t.game_room_id = ?' : '';
@@ -1019,6 +1037,8 @@ export class LeaderboardService {
                    -- 2026-10-25: Sanctioned / Limited-attempts tournaments close
                    -- self-correction, so the board tells the FE not to offer it.
                    ${selfCorrectionLockedSql('t')} as self_correction_locked,
+                   -- G35b: the cards getEventRoundOverlays ranks from a round board.
+                   CASE WHEN ${eventRoundSql('g', 't')} THEN 1 ELSE 0 END as is_event_round,
                    sc_bg.has_background as bg_has_bg, sc_logo.has_header as logo_has_header,
                    sc_cat.has_background as cat_has_bg, sc_cat.has_header as cat_has_header
             FROM games g
@@ -1137,6 +1157,81 @@ export class LeaderboardService {
         const deduped = gameRoomId
             ? await CardOrderService.applyStored(gameRoomId, defaultOrder)
             : defaultOrder;
+        return { activeGames, cards: deduped };
+    }
+
+    /**
+     * G35b (v2.279.0) — a room's LIVE cards for the public room list, in the
+     * board's order: `loadBoardCards` (the room board's own card read) narrowed
+     * to the open (ACTIVE) cards, so a retained COMPLETED card is never listed
+     * as being played. `isEventRound` marks the cards `getEventRoundOverlays`
+     * would rank from their round board (W22) — the caller decides what to do
+     * with them. A pinned board (no tournament) is not here because the room
+     * board's read does not show one (it room-filters on the tournament).
+     *
+     * Queries: the board's card reads (two, a third when a tournament retains
+     * completed cards) plus the card-order settings read.
+     */
+    static async getLiveCards(gameRoomId: string): Promise<Array<{
+        gameId: string;
+        gameName: string;
+        displayName: string | null;
+        tournamentId: string | null;
+        isEventRound: boolean;
+    }>> {
+        const { cards } = await this.loadBoardCards(gameRoomId);
+        return cards
+            .filter(card => (card.status || 'ACTIVE') === 'ACTIVE')
+            .map(card => ({
+                gameId: card.id,
+                gameName: card.game_name,
+                displayName: card.display_name || null,
+                tournamentId: card.tournament_id || null,
+                isEventRound: card.is_event_round === 1,
+            }));
+    }
+
+    /**
+     * G35b (v2.279.0) — when each board last took a score: the newest
+     * `created_at` (epoch ms) among the `score_history` rows the board ranks,
+     * keyed by game id; a board with none is absent. The window is the one
+     * `queryRankedRows` reads — the tournament's room, the tournament stamp,
+     * the table name, `orphaned_at IS NULL` and this RUN only (`gameRunWindowSql`)
+     * — so a previous run's score never makes a board look active. Not a
+     * ranking: who leads stays `getRunSummaries`' (the board's own rows).
+     * One query for every id.
+     */
+    static async getLastScoreTimes(gameIds: string[]): Promise<Map<string, number>> {
+        const out = new Map<string, number>();
+        const ids = [...new Set(gameIds)];
+        if (ids.length === 0) return out;
+        const db = await getDatabase();
+        const rows = await db.all<Array<{ game_id: string; last_jd: number | null }>>(`
+            SELECT g.id AS game_id, MAX(julianday(sh.created_at)) AS last_jd
+            FROM games g
+            JOIN tournaments t ON t.id = g.tournament_id
+            JOIN score_history sh
+              ON sh.game_room_id = t.game_room_id
+             AND sh.submitted_during_tournament_id = g.tournament_id
+             AND LOWER(sh.game_name) = LOWER(g.name)
+            WHERE g.id IN (${ids.map(() => '?').join(',')})
+              AND sh.orphaned_at IS NULL
+              AND ${gameRunWindowSql('sh', 'g')}
+            GROUP BY g.id
+        `, ...ids);
+        for (const r of rows) {
+            if (r.last_jd == null) continue;
+            out.set(r.game_id, Math.round((r.last_jd - 2440587.5) * 86400000));
+        }
+        return out;
+    }
+
+    /**
+     * Get leaderboards for all active games, optionally filtered by game room.
+     */
+    static async getActiveLeaderboards(gameRoomId?: string): Promise<Array<{ gameId: string; gameName: string; displayName: string | null; tournamentName: string; tournamentType: string; imageUrl: string | null; gameStatus: string; catalogueStyleId: string | null; logoStyleId: string | null; bgStyleId: string | null; styleHeaderDisabled: boolean; bgZoom: number | null; bgPosX: number | null; bgPosY: number | null; externalUrl: string | null; notes: string | null; rankings: RankedEntry[]; nextMaintenanceAt: string | null; globalGameId: string | null; selfCorrectionLocked: boolean; tournamentId: string | null; endedAt: string | null }>> {
+        const db = await getDatabase();
+        const { activeGames, cards: deduped } = await this.loadBoardCards(gameRoomId);
 
         // Batch-load cached leaderboards (avoid N+1 per-game queries)
         const gameIds = deduped.map(g => g.id);

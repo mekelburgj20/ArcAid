@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Building2, LayoutGrid, User as UserIcon, Users, Settings2, Settings as SettingsIcon, LogOut, ChevronDown, Link2, BookmarkPlus, BookmarkCheck, BarChart3 } from 'lucide-react';
+import { LayoutGrid, User as UserIcon, Users, Settings2, Settings as SettingsIcon, LogOut, ChevronDown, Link2, BookmarkPlus, BookmarkCheck, BarChart3 } from 'lucide-react';
 import { isGoogleUserId } from '../lib/identityProvider';
 
 interface DiscordUser {
@@ -190,16 +190,8 @@ export default function UserMenu({ user, hasAdminToken, slug, roomMembership, on
                 {roomMembership.isMember ? `Leave ${roomMembership.roomName}` : `Add ${roomMembership.roomName} to My Rooms`}
               </button>
             )}
-            <Link
-              role="menuitem"
-              tabIndex={-1}
-              to="/my-rooms"
-              onClick={() => setOpen(false)}
-              className={menuItemClass}
-            >
-              <Building2 size={14} />
-              My Rooms
-            </Link>
+            {/* G35c: "My Rooms" went with its page. Your rooms are on the landing
+                page ("All Game Rooms" below, and the Arcaid logo on every page). */}
             {/* v2.82.0 — My Stats (Identity arc Phase 3). Entry point is this
                 menu ONLY (no global-nav item, per plan). Unconditional —
                 every signed-in viewer has a My Stats page even with zero

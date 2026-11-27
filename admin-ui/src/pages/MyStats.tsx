@@ -112,7 +112,7 @@ export default function MyStats() {
             ) : data.personalBests.length === 0 ? (
               <EmptyState
                 title="No personal bests yet."
-                action={<ButtonLink to="/my-rooms" variant="secondary">Open My Rooms</ButtonLink>}
+                action={<ButtonLink to="/" variant="secondary">Open your rooms</ButtonLink>}
               >
                 Submit a score in a room to see it here.
               </EmptyState>

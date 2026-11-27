@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import type { MemberRoom } from '../lib/landingRooms';
 import { joinErrorMessage } from '../lib/joinErrors';
+import { useRetryingLoad } from './useRetryingLoad';
+import type { LoadPhase } from '../lib/loadRetry';
 
 /** v2.213.0 - the full answer of a self-join: joined, queued for an admin
  * (a "Discord role required" room whose role check could not be made), or
@@ -14,6 +16,13 @@ export interface UseMyRoomsResult {
   /** Rooms the signed-in user belongs to (empty, static for guests). */
   rooms: MemberRoom[];
   loading: boolean;
+  /**
+   * G35c: the read's phase (`lib/loadRetry.ts`). With `{ retry: true }` a read
+   * that fails for now is `retrying` and asks again by itself; without it the
+   * read is the old single try and the phase is `loading` then `ready`.
+   * A guest is `ready` at once.
+   */
+  phase: LoadPhase;
   isMember: (roomId: string) => boolean;
   /** POST /api/me/rooms/:roomId (source='self_join'). Optimistic — reverts on
    * failure. `meta` fills in the card fields for the optimistic row; omit if
@@ -46,8 +55,14 @@ export interface UseMyRoomsResult {
  * Guests (no playerToken) get a static empty list — callers must gate
  * rendering of any join/leave UI on `discordUser` from useViewerAuth()
  * directly (this hook doesn't hide itself, it just has nothing to show).
+ *
+ * `{ retry: true }` (G35c, the landing page's "Your rooms"): the first read
+ * goes through `useRetryingLoad`, so a failure for now is `phase: 'retrying'`
+ * (the page shows `LoadFailedNotice`) and is asked again by itself, never an
+ * empty list. The other callers keep the single best-effort read.
  */
-export function useMyRooms(): UseMyRoomsResult {
+export function useMyRooms(options?: { retry?: boolean }): UseMyRoomsResult {
+  const retry = options?.retry === true;
   const { playerToken } = useViewerAuth();
   const [rooms, setRooms] = useState<MemberRoom[]>([]);
   const [loading, setLoading] = useState(true);
@@ -68,7 +83,24 @@ export function useMyRooms(): UseMyRoomsResult {
     }
   }, [playerToken]);
 
-  useEffect(() => { load(); }, [load]);
+  const patient = useRetryingLoad(
+    () => fetch('/api/me/rooms', { headers: { Authorization: `Bearer ${playerToken}` } }),
+    async res => {
+      const json: unknown = await res.json();
+      if (!Array.isArray(json)) throw new Error('shape');
+      setRooms(json as MemberRoom[]);
+    },
+    playerToken,
+  );
+  const patientLoad = patient.load;
+
+  useEffect(() => {
+    if (retry && playerToken) patientLoad();
+    else void load();
+  }, [retry, playerToken, load, patientLoad]);
+
+  // A definite refusal (401) answers with no rooms; the list stays as it was.
+  const phase: LoadPhase = !playerToken ? 'ready' : retry ? patient.phase : loading ? 'loading' : 'ready';
 
   const isMember = useCallback(
     (roomId: string) => rooms.some(r => r.roomId === roomId),
@@ -185,5 +217,11 @@ export function useMyRooms(): UseMyRoomsResult {
     }
   }, [playerToken, load]);
 
-  return { rooms, loading, isMember, join, joinDetailed, leave, requestJoin, refetch: load };
+  // With `retry`, asking again goes through the patient read, so its phase follows ("Try now").
+  const refetch = useCallback(async () => {
+    if (retry && playerToken) patientLoad();
+    else await load();
+  }, [retry, playerToken, patientLoad, load]);
+
+  return { rooms, loading: phase !== 'ready', phase, isMember, join, joinDetailed, leave, requestJoin, refetch };
 }
