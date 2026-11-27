@@ -147,11 +147,11 @@ function renderPage(playerToken: string | null) {
     );
 }
 
-/** Flip to My Score and wait for the cards to re-plan. */
+/** Flip to My Score and wait for the cards to re-plan. G36: a rail tab (`aria-selected`), no longer a pressed pill. */
 async function selectMyScore() {
-    fireEvent.click(await screen.findByText('My Score'));
+    fireEvent.click(await screen.findByRole('tab', { name: 'My Score' }));
     await waitFor(() => {
-        expect(screen.getByText('My Score').closest('button')).toHaveAttribute('aria-pressed', 'true');
+        expect(screen.getByRole('tab', { name: 'My Score' })).toHaveAttribute('aria-selected', 'true');
     });
 }
 
@@ -336,7 +336,7 @@ describe('GlobalScoreboard — Top 6 / My Score toggle', () => {
         mockFetch([game({ top_scores: nine, my_rank: 8, my_score: 200, neighbors: [] })]);
         renderPage('tok');
         await screen.findByText('Medieval Madness');
-        expect(screen.getByText('Top 6').closest('button')).toHaveAttribute('aria-pressed', 'true');
+        expect(screen.getByRole('tab', { name: 'Top 6' })).toHaveAttribute('aria-selected', 'true');
         expect(screen.getByText('P6')).toBeInTheDocument();
         expect(screen.queryByText('P7')).not.toBeInTheDocument();
     });
@@ -371,7 +371,7 @@ describe('GlobalScoreboard — Top 6 / My Score toggle', () => {
         expect(dataCalls()).toBe(before);
 
         // And back again, still with no fetch.
-        fireEvent.click(screen.getByText('Top 6'));
+        fireEvent.click(screen.getByRole('tab', { name: 'Top 6' }));
         await waitFor(() => expect(screen.getByText('P4')).toBeInTheDocument());
         expect(dataCalls()).toBe(before);
     });
@@ -399,7 +399,7 @@ describe('GlobalScoreboard — Top 6 / My Score toggle', () => {
         });
         renderPage('tok');
         await waitFor(() => {
-            expect(screen.getByText('My Score').closest('button')).toHaveAttribute('aria-pressed', 'true');
+            expect(screen.getByRole('tab', { name: 'My Score' })).toHaveAttribute('aria-selected', 'true');
         });
     });
 

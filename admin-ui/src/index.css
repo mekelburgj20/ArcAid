@@ -186,6 +186,12 @@
      reads as a blur; splitting one toward the page's own extreme is what
      makes a burst read as chromatic misregistration. */
   --sb-neon-ghost: color-mix(in oklab, var(--gg-neon) 45%, #ffffff);
+  /* The Global Scoreboard card's frame is the Arcaid kit panel's edge (G36,
+     v2.278.0): an outer neon line, this dark band, then a faint inner line,
+     with the kit's deep drop shadow round it. Dark values only: that page is
+     always dark, so no theme restates them. */
+  --sb-card-edge-gap: rgba(7, 9, 15, 0.9);
+  --sb-card-edge-drop: 0 0 60px rgba(0, 0, 0, 0.5);
   /* Floor height for a card (v2.67.0). ~1.5x the pre-v2.67 zero-score
      minimum (218px measured): the always-on three-row podium supplies most
      of it, and this keeps a card WITH art but no scores the same height as
@@ -1337,17 +1343,23 @@ select option {
   70.0% { transform: translate(-1px, -1px); opacity: .65; }
 }
 
+/* G36 (v2.278.0, owner 2026-11-26, the "Around and on the cards" mockup): the
+   resting frame is the Arcaid kit panel's edge, in the card's category neon: a
+   1px line, a dark band, a faint inner line (`--gg-edge`, inset, so it paints
+   under every child), a glow, and the kit's deep drop shadow; plus the lit top
+   rail, `.gg-card__rail` below. The border went from 2px to 1px and the card
+   took 1px of padding, so every child sits exactly where the 2px border left
+   it. One elevation at every width now: the kit's drop shadow carries the edge
+   on a phone too. The glitch rings (`::before` / `::after`) are unchanged and
+   still run; with the thinner border they rest 2px clear of the line, not 1px,
+   as in the approved mockup. */
 .gg-card {
   --gg-neon: var(--sb-neon-none);
-  border: 2px solid color-mix(in oklab, var(--gg-neon) var(--sb-neon-border-mix), transparent);
-  box-shadow: var(--sb-neon-glow), var(--sb-card-shadow-strong);
+  --gg-edge: inset 0 0 0 3px var(--sb-card-edge-gap), inset 0 0 0 4px color-mix(in srgb, var(--gg-neon) 30%, transparent);
+  border: 1px solid color-mix(in srgb, var(--gg-neon) 70%, transparent);
+  padding: 1px;
+  box-shadow: var(--gg-edge), 0 0 16px -2px color-mix(in srgb, var(--gg-neon) 55%, transparent), var(--sb-card-edge-drop);
   transition: box-shadow 150ms ease, border-color 150ms ease;
-}
-
-@media (min-width: 640px) {
-  /* Sub-`sm` keeps the stronger elevation: at one column there is no
-     neighbouring card to imply an edge (v2.65.0's reasoning, unchanged). */
-  .gg-card { box-shadow: var(--sb-neon-glow), var(--sb-card-shadow); }
 }
 
 .gg-card[data-neon="real"]         { --gg-neon: var(--sb-neon-real); }
@@ -1358,7 +1370,19 @@ select option {
 
 .gg-card:hover {
   border-color: var(--gg-neon);
-  box-shadow: var(--sb-neon-glow-hover), var(--sb-card-shadow);
+  box-shadow: var(--gg-edge), 0 0 22px -2px color-mix(in srgb, var(--gg-neon) 70%, transparent), var(--sb-card-edge-drop);
+}
+
+/* The lit top rail (pink to cyan, as the kit's panels): over the top border,
+   inset 24px from each corner, static (nothing new animates). No z-index, and
+   it is the card's first child: it paints over the border but UNDER every
+   child after it, so its glow never lies on the art (or the title over it). The
+   rings (z 4) stay on top. */
+.gg-card__rail {
+  position: absolute; left: 24px; right: 24px; top: -1px; height: 3px;
+  border-radius: 4px; pointer-events: none;
+  background: linear-gradient(90deg, var(--color-neon-magenta), var(--color-neon-cyan));
+  box-shadow: 0 0 18px color-mix(in srgb, var(--color-neon-cyan) 60%, transparent);
 }
 
 /* The two glitch rings — displaced copies of the FRAME, hugging it from the
@@ -3127,10 +3151,11 @@ a.part-row__name::after, button.part-row__name::after { content: ""; position: a
 
 /* === The Global Scoreboard's carpet (G35a, v2.277.0) ========================
    The Arcaid carpet (the four tiles in public/carpet/, as .aw-screen--arcaid
-   paints them, at 16%) behind the Global Scoreboard, with the page's own deep
+   paints them, at 16%) behind the Global Scoreboard, with the page's own
    ground over it at 45% so the header, filters and cards keep their contrast.
-   The page adds .gs-carpet to its root only while its polarity is dark; in
-   Light it renders as before. Not ThemeFloor and not .carpet-floor: this page
+   Since G36 (v2.278.0) the page is always dark and its root always wears
+   .gs-carpet; the ground is `--gs-ground` (the G36 block below), the site's
+   deep where that is not set. Not ThemeFloor and not .carpet-floor: this page
    stays out of the themed floor. Both layers sit under every child (z-index
    -1 inside the root's own stacking context) and never take a click. */
 .gs-carpet { isolation: isolate; }
@@ -3147,10 +3172,98 @@ a.part-row__name::after, button.part-row__name::after { content: ""; position: a
   background-size: 293px, 1013px, 1279px, 1597px;
   opacity: .16;
 }
-.gs-carpet::after { background: color-mix(in srgb, var(--color-deep) 45%, transparent); }
+.gs-carpet::after { background: color-mix(in srgb, var(--gs-ground, var(--color-deep)) 45%, transparent); }
 @media (max-width: 640px) {
   .gs-carpet::before { background-size: 234px, 810px, 1023px, 1278px; }
 }
 @media print {
   .gs-carpet::before, .gs-carpet::after { display: none; }
+}
+
+/* === The Global Scoreboard on the Arcaid look (G36, v2.278.0) ==============
+   Owner 2026-11-26, the "Around and on the cards" mockup. The page is always
+   dark: its root is `sb-theme-scope` with no theme class, so every token in it
+   is the default "Arcaid" palette, whose ink, chrome, cyan and pink are the
+   kit's own, whatever Light / Dark says; `.gs-carpet` above is always on. Not
+   `ArcaidPage` / `.aw-island`: the island points the site tokens at the kit
+   (amber to the kit's red), which would repaint first place on the cards.
+   Every colour here is a `--color-*` token.
+   - `.gs-page`: the kit's canvas (the site's deep pulled toward black, as
+     `--gs-ground`) and its two glows, under the carpet.
+   - `.gs-ui`: the kit's UI face (Chakra Petch, declared with the toast above)
+     on the header, the lines under the title, the fields, chips, tabs and the
+     count. Never on a card: the cards keep the page's type.
+   - `.gs-head`: the header bar; `.gs-navlink`, `.gs-iconbtn` and the user
+     menu's trigger (`[data-tour="user-menu"]`) at the kit's sizes.
+   - `.gs-lede` / `.gs-live`: the subtitle and the LIVE line.
+   - `.gs-chip`: the category filter in the kit's chip (Account Settings' jump
+     chip: tracked caps and a dot, cyan when on). A page rule, not a part: no
+     other page filters with chips like these.
+   - `.gs-tabs`: the two rail-tab rows sit side by side sized to their tabs,
+     so the part's inline-size containment (which would size them to nothing)
+     is off here, its narrow-row tightening with it; a row never grows past
+     the gutter (it scrolls inside it).
+   - `.gs-count`: "Showing N of N leaderboards", the kit's tracked label. */
+.gs-page {
+  --gs-ground: color-mix(in srgb, var(--color-deep) 40%, black);
+  background-color: var(--gs-ground);
+  background-image:
+    radial-gradient(ellipse 60% 900px at 12% 0%, color-mix(in srgb, var(--color-neon-cyan) 10%, transparent), transparent),
+    radial-gradient(ellipse 60% 900px at 88% 100%, color-mix(in srgb, var(--color-neon-magenta) 10%, transparent), transparent);
+  background-repeat: no-repeat;
+}
+.gs-ui { font-family: "Chakra Petch", var(--font-body), system-ui, sans-serif; }
+
+.gs-head {
+  background: color-mix(in srgb, var(--gs-ground) 72%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-neon-cyan) 22%, transparent);
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+}
+.gs-head::after { /* the pink-to-cyan rule along the bottom edge, inside the page gutter */
+  content: ""; position: absolute; left: 40px; right: 40px; bottom: -1px; height: 1px; pointer-events: none; opacity: .7;
+  background: linear-gradient(90deg, var(--color-neon-magenta), var(--color-neon-cyan) 40%, transparent);
+}
+@media (max-width: 1023px) { .gs-head::after { left: 24px; right: 24px; } }
+@media (max-width: 639px) { .gs-head::after { left: 16px; right: 16px; } }
+.gs-navlink {
+  gap: 7px; min-width: 44px; min-height: 44px; padding: 0 10px; border-radius: 4px;
+  font-size: 15px; line-height: 1.2; font-weight: 600; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--color-muted); text-decoration: none; transition: color .15s;
+}
+.gs-navlink:hover { color: var(--color-primary); }
+.gs-navlink svg { flex: none; width: 18px; height: 18px; color: var(--color-neon-cyan); }
+@media (max-width: 639px) { .gs-navlink { padding: 0 8px; } }
+.gs-iconbtn { width: 44px; height: 44px; border-radius: 4px; color: var(--color-muted); }
+.gs-iconbtn:hover { color: var(--color-neon-cyan); }
+.gs-iconbtn svg { width: 18px; height: 18px; }
+.gs-head [data-tour="user-menu"] > :is(img, div) { width: 28px; height: 28px; }
+.gs-head [data-tour="user-menu"] > span {
+  max-width: 14rem; font-family: "Chakra Petch", var(--font-body), system-ui, sans-serif;
+  font-size: 15px; font-weight: 600; color: var(--color-primary);
+}
+
+.gs-lede { margin: 0; font-size: 18px; line-height: 1.45; font-weight: 500; color: var(--color-muted); }
+.gs-live {
+  display: flex; align-items: center; gap: 8px; margin-top: 4px;
+  font-size: 12.5px; line-height: 1.3; font-weight: 600; letter-spacing: .2em; text-transform: uppercase; color: var(--color-muted);
+}
+.gs-live__dot { width: 9px; height: 9px; filter: drop-shadow(0 0 4px var(--color-neon-magenta)); }
+
+.gs-chip {
+  gap: 9px; min-height: 38px; padding: 7px 12px; border-radius: 5px; cursor: pointer;
+  font-size: 12.8px; line-height: 1.2; font-weight: 600; letter-spacing: .16em; text-transform: uppercase;
+  color: var(--color-muted); background: color-mix(in srgb, var(--gs-ground) 55%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-neon-cyan) 32%, transparent);
+  transition: color .15s, border-color .15s, background-color .15s;
+}
+.gs-chip::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: color-mix(in srgb, var(--color-neon-cyan) 35%, transparent); }
+.gs-chip:hover { color: var(--color-primary); border-color: color-mix(in srgb, var(--color-neon-cyan) 65%, transparent); }
+.gs-chip[aria-pressed="true"] { color: var(--color-primary); border-color: var(--color-neon-cyan); background: color-mix(in srgb, var(--color-neon-cyan) 10%, transparent); }
+.gs-chip[aria-pressed="true"]::before { background: var(--color-neon-cyan); box-shadow: 0 0 10px var(--color-neon-cyan); }
+
+.gs-tabs > .part-tabs { container-type: normal; min-width: 0; max-width: 100%; }
+
+.gs-count {
+  margin-bottom: 18px; font-size: 13.44px; line-height: 1.3; font-weight: 600;
+  letter-spacing: .32em; text-transform: uppercase; color: var(--color-neon-cyan);
 }

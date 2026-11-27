@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Trophy, Filter, Circle, MapPin } from 'lucide-react';
+import { Filter, Circle, LayoutGrid } from 'lucide-react';
 import { getSocket } from '../lib/websocket';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import LoadingState from '../components/LoadingState';
@@ -10,7 +10,9 @@ import LoginButtons from '../components/LoginButtons';
 import GlobalThemeToggle from '../components/GlobalThemeToggle';
 import DisplaySettingsButton from '../components/DisplaySettingsButton';
 import BrandWordmark from '../components/BrandWordmark';
-import { useTheme } from '../components/ThemeProvider';
+import { Select } from '../components/parts/Field';
+import { RailTabs, type TabItem } from '../components/parts/Tabs';
+import { tabPanelProps } from '../components/parts/tabPanel';
 import RoomSwitcher, { type SwitcherCurrentRoom } from '../components/RoomSwitcher';
 import { useMyRooms } from '../hooks/useMyRooms';
 import GlobalSearchPalette, { type PaletteGame } from '../components/GlobalSearchPalette';
@@ -79,6 +81,19 @@ const SORT_PILLS: Array<[SortMode, string]> = [
 const PINNED_PILL: [SortMode, string] = ['pinned', 'Pinned first'];
 
 /**
+ * G36 (v2.278.0): the sort choices and Top 6 / My Score are two rows of the
+ * shared rail tabs (`parts/Tabs.tsx`), same values and handlers as the pills
+ * they replace. Built once here so the tab lists keep one identity across the
+ * page's once-a-second re-render (the part re-measures when its list changes).
+ * Both rows share one id prefix (no value appears in both) and so control the
+ * one panel below them, the board.
+ */
+const SORT_TABS: TabItem[] = SORT_PILLS.map(([id, label]) => ({ id, label }));
+const SORT_TABS_SIGNED_IN: TabItem[] = [PINNED_PILL, ...SORT_PILLS].map(([id, label]) => ({ id, label }));
+const DENSITY_TABS: TabItem[] = [{ id: 'top6', label: 'Top 6' }, { id: 'mine', label: 'My Score' }];
+const BOARD_TABS = 'gs-board';
+
+/**
  * v2.57.0 (A5a) — where the density choice lives.
  *
  * `localStorage` paints instantly on the next visit; the server preference is
@@ -112,6 +127,9 @@ const CATEGORY_CHIPS: Array<[string, string]> = [
 const GLOBAL_PLACE: SwitcherCurrentRoom = {
   kind: 'global', slug: '', name: 'Global Scoreboard', title: 'Global Scoreboard', logoUrl: null, roomId: null,
 };
+
+/** G36: the header's mark at the kit header's height (50px; it was 88px). */
+const WORDMARK_CLASS = 'h-[50px] w-auto';
 
 const DENSITY_STORAGE_KEY = 'arcaid-scoreboard-density';
 const DENSITY_PREF_KEY = 'global_density';
@@ -149,8 +167,6 @@ function formatAgo(seconds: number): string {
 
 export default function GlobalScoreboard() {
   const { discordUser, playerToken, loginWithDiscord, loginWithGoogle, logoutPlayer } = useViewerAuth();
-  // The page's one light/dark signal (also picks the title lockup and the wordmark).
-  const { globalPageTheme } = useTheme();
   /** The signed-in viewer's rooms, for the room switcher in the header (empty and fetch-free for a guest). */
   const { rooms: myRooms, loading: myRoomsLoading } = useMyRooms();
   const [games, setGames] = useState<TopGame[]>([]);
@@ -580,12 +596,20 @@ export default function GlobalScoreboard() {
   const raPanel = paletteOpen ? null : raSearch('card');
 
   return (
+    /* G36 (v2.278.0, owner 2026-11-26): the page is ALWAYS dark, on the Arcaid
+       carpet. `sb-theme-scope` with no theme class puts every token inside on the
+       default "Arcaid" palette whatever Light / Dark says (the sun/moon still
+       changes every other page), `gs-carpet` (G35a) is always on, and `gs-page`
+       lays the kit's canvas and glows under it. Deliberately not `ArcaidPage`:
+       its `.aw-island` re-points the site tokens at the kit (amber to the kit's
+       red), which would repaint first place on the cards. index.css, "The
+       Global Scoreboard on the Arcaid look", has the rest. */
     <div
-      className={`min-h-screen bg-deep text-primary${globalPageTheme === 'light' ? '' : ' gs-carpet'}`}
+      className="gs-page gs-carpet sb-theme-scope min-h-screen text-primary"
       data-testid="global-scoreboard-root"
     >
       {/* Header */}
-      <div className="border-b border-border bg-surface/80 backdrop-blur-sm sticky top-0 z-20">
+      <div className="gs-head sticky top-0 z-20">
         <div
           className="px-4 sm:px-6 lg:px-10 py-4 flex items-center justify-between gap-3"
           style={{ paddingTop: 'max(1rem, env(safe-area-inset-top))' }}
@@ -595,26 +619,29 @@ export default function GlobalScoreboard() {
                beside the logo, with Global as the current place (sm and up; a phone gets
                it on its own row below). Signed out, the header is the wordmark alone. */
             <div className="flex items-center gap-3 min-w-0">
-              <BrandWordmark />
+              <BrandWordmark polarity="dark" className={WORDMARK_CLASS} />
               <div className="hidden sm:block min-w-0">
                 <RoomSwitcher variant="inline" current={GLOBAL_PLACE} rooms={myRooms} loading={myRoomsLoading} signedIn />
               </div>
             </div>
           ) : (
-            <BrandWordmark />
+            <BrandWordmark polarity="dark" className={WORDMARK_CLASS} />
           )}
-          <div className="flex items-center gap-3">
-            <Link to="/" className="text-xs text-muted hover:text-neon-cyan no-underline hidden sm:inline">
-              Rooms
+          <div className="flex items-center gap-2 sm:gap-3">
+            {/* G36: Rooms is the kit's header link with a grid mark; on a phone the
+                mark alone (the word stays for screen readers). */}
+            <Link to="/" className="gs-navlink gs-ui inline-flex items-center justify-center">
+              <LayoutGrid aria-hidden="true" />
+              <span className="sr-only sm:not-sr-only">Rooms</span>
             </Link>
             {localStorage.getItem('arcaid_token') && (
-              <Link to="/admin" className="text-xs text-muted hover:text-neon-amber no-underline hidden sm:inline">
+              <Link to="/admin" className="gs-navlink gs-ui hidden sm:inline-flex items-center">
                 Admin
               </Link>
             )}
             {/* v2.50.0 (A1): per-visitor light/dark, left of the login/user area. */}
-            <GlobalThemeToggle />
-            {!discordUser && <DisplaySettingsButton />}
+            <GlobalThemeToggle className="gs-iconbtn" />
+            {!discordUser && <DisplaySettingsButton className="gs-iconbtn" />}
             {discordUser ? (
               /* v2.2.6: shared UserMenu so My Rooms / Friends are reachable here too. */
               <UserMenu user={discordUser} onLogout={logoutPlayer} />
@@ -642,17 +669,16 @@ export default function GlobalScoreboard() {
             that, leaving a phone with the same left-aligned reading order.
             The status line and the subtitle ride inside the lockup so they
             stay indented to the wordmark's left edge, as the pack specifies. */}
-        <GlobalScoreboardTitle className="mb-2 mx-auto">
-          {/* A0 #2/#3: provider-agnostic copy, "Arcaid" casing. The copy already
-              matches the pack's subtitle, so it simply takes the `gs-sub`
-              treatment rather than being duplicated as static art.
+        <GlobalScoreboardTitle polarity="dark" className="mb-2 mx-auto">
+          {/* A0 #2/#3: provider-agnostic copy, "Arcaid" casing. G36: in the
+              kit's type (`gs-lede`), no longer the pack's Orbitron `gs-sub`.
 
               This is the FIRST thing under the lockup, and deliberately so: the
               pack specifies lockup → subtitle adjacency, and a page's
               description has to reach the reader before its telemetry does.
               Pre-v2.63 the live line sat between the two and pushed the
               description down a row for no editorial reason. */}
-          <p className="gs-sub mb-1">
+          <p className="gs-lede gs-ui">
             High scores from every Arcaid room.{' '}
             {playerToken ? null : (
               <>
@@ -673,10 +699,10 @@ export default function GlobalScoreboard() {
               "{total} games · {n} players" line: there is no player-count API
               and inventing one is out of scope. `.pulse` is already nulled
               under prefers-reduced-motion by index.css's global guard, so no
-              extra media query is needed. */}
-          <div className="mb-2 flex items-center gap-2 font-mono text-[10px] text-muted" role="status">
+              extra media query is needed. G36: the kit's tracked caps. */}
+          <div className="gs-live gs-ui mb-2" role="status">
             <Circle
-              className="pulse h-2 w-2 shrink-0 fill-current text-neon-magenta"
+              className="pulse gs-live__dot shrink-0 fill-current text-neon-magenta"
               strokeWidth={0}
               aria-hidden="true"
               data-testid="live-dot"
@@ -727,18 +753,23 @@ export default function GlobalScoreboard() {
                while it is open the page behind it is inert. The offer has to
                be here too, or it is unreachable at the one moment it matters. */
             emptySlot={raSearch('bare')}
+            fieldClassName="gs-ui"
           />
-          <select
+          {/* G36: the shared Field `Select` (a native select in the part's well).
+              Its label is for screen readers only, as the mockup shows none. */}
+          <Select
+            id="gs-room-scope"
+            label="Show scores from"
+            className="gs-ui shrink-0 sm:w-60 [&>label]:sr-only"
             value={scope}
             onChange={e => {
               if (e.target.value === 'global') setScopeFromSlug(null);
               else setScopeToRoomId(e.target.value);
             }}
-            className="px-3 py-2 rounded border border-border bg-surface text-primary text-sm"
           >
             <option value="global">All rooms (global)</option>
             {rooms.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-          </select>
+          </Select>
         </div>
 
         {/* A3 — while the palette is open the page behind recedes: 25% opacity
@@ -747,99 +778,64 @@ export default function GlobalScoreboard() {
           className={`transition-opacity duration-150 ${paletteOpen ? 'pointer-events-none opacity-25' : ''}`}
           aria-hidden={paletteOpen || undefined}
         >
-        {/* Category chips (left) + sort pills (right) */}
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-6">
-          <div className="flex items-center gap-2 flex-wrap">
-            <Filter className="w-4 h-4 text-muted" />
+        {/* Category chips, then Top 6 / My Score and the sort (G36, v2.278.0). */}
+        <div className="gs-ui mb-6 flex flex-col gap-5">
+          {/* The chips: the kit's chip (`gs-chip`, index.css: tracked caps, a
+              dot, cyan when on); same ids, labels and `aria-pressed`. */}
+          <div className="flex flex-wrap items-center gap-2">
+            <Filter className="h-4 w-4 shrink-0 text-muted" aria-hidden="true" />
             {CATEGORY_CHIPS.map(([k, label]) => (
               <button
                 key={k}
+                type="button"
                 onClick={() => setCategory(k)}
                 aria-pressed={category === k}
-                className={`px-3 py-1 text-[10px] rounded-full border ${
-                  category === k
-                    ? 'bg-neon-cyan/20 border-neon-cyan text-neon-cyan'
-                    : 'border-border text-muted hover:text-primary'
-                }`}
+                className="gs-chip part-focus inline-flex items-center"
               >
                 {label}
               </button>
             ))}
           </div>
-          {/* v2.78.0 — `w-full` (was `self-start`) is load-bearing on mobile.
-              This div is a flex-column CHILD of the category-chips/controls row
-              above below `lg`, so `self-start` opted it out of the default
-              stretch-to-container width and let it size itself via
-              shrink-to-fit. Shrink-to-fit still takes the MAX-CONTENT
-              contribution of the sort-pills strip's `overflow-x-auto`
-              descendant (below) into account, so the row ballooned to the
-              pills' full unwrapped width — 89px past a 390px viewport, 159px
-              past 320px logged in — even though that inner div already
-              declared `max-w-full overflow-x-auto`: `max-w-full` was resolving
-              against this now-unbounded parent, not the viewport. An explicit
-              `w-full` here gives the parent a definite width again (bounded by
-              the page's own padding container), which is what lets the inner
-              `overflow-x-auto` actually contain the strip instead of the whole
-              page scrolling sideways. `lg:w-auto` restores the original
-              fit-content sizing at desktop, where `lg:ml-auto` still needs to
-              push a content-sized block to the row's right edge. */}
-          <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto lg:ml-auto">
+          {/* Two rows of the shared rail tabs (parts/Tabs.tsx): arrows move
+              between tabs, and a row wider than the screen scrolls sideways
+              (never wraps), as rail tabs do everywhere. Side by side on a wide
+              screen, one under the other when they do not fit; `.gs-tabs`
+              (index.css) keeps each row inside the page's gutter. */}
+          <div className="gs-tabs flex flex-wrap items-end gap-x-9 gap-y-2">
             {/* A5a — Top 6 / My Score. Hidden entirely when logged out: there is
                 no "my score" for an anonymous visitor, and a control that can
                 only ever mean one thing is worse than no control. Flips with no
                 refetch — every card already holds its `neighbors`. */}
             {playerToken && (
-              <div
-                className="flex items-center gap-1 rounded-[5px] border border-border bg-surface p-[2px]"
-                role="group"
-                aria-label="Leaderboard density"
-              >
-                {([['top6', 'Top 6', Trophy], ['mine', 'My Score', MapPin]] as const).map(([value, label, Icon]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => changeDensity(value)}
-                    aria-pressed={density === value}
-                    className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[3px] px-3.5 py-1.5 text-[11px] font-bold transition-colors ${
-                      density === value
-                        ? 'bg-neon-cyan/20 text-neon-cyan'
-                        : 'text-muted hover:text-primary'
-                    }`}
-                  >
-                    <Icon className="h-3 w-3" aria-hidden="true" />
-                    {label}
-                  </button>
-                ))}
-              </div>
+              <RailTabs
+                label="Leaderboard density"
+                idPrefix={BOARD_TABS}
+                tabs={DENSITY_TABS}
+                value={density}
+                onChange={id => changeDensity(id as Density)}
+              />
             )}
-          {/* Narrow screens scroll this row horizontally rather than wrapping —
-              wrapping put "Recent activity"/"Most scores" onto two lines each
-              and turned one control into a four-line block (handoff: "Sort pills
-              become a horizontally scrollable row on narrow screens"). */}
-          <div className="flex items-center gap-1 self-start lg:self-auto rounded-md border border-border bg-surface p-[3px] max-w-full overflow-x-auto scrollbar-thin">
-            {(playerToken ? [PINNED_PILL, ...SORT_PILLS] : SORT_PILLS).map(([value, label]) => (
-              <button
-                key={value}
-                onClick={() => setSort(value)}
-                aria-pressed={sort === value}
-                className={`shrink-0 whitespace-nowrap px-2.5 py-[5px] text-[11px] rounded-[3px] transition-colors ${
-                  sort === value
-                    ? 'bg-neon-cyan/20 text-neon-cyan font-semibold'
-                    : 'text-muted font-medium hover:text-primary'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+            <RailTabs
+              label="Sort leaderboards"
+              idPrefix={BOARD_TABS}
+              tabs={playerToken ? SORT_TABS_SIGNED_IN : SORT_TABS}
+              value={sort}
+              onChange={id => setSort(id as SortMode)}
+            />
           </div>
         </div>
 
+        {/* The board: the one panel both tab rows control (labelled by the
+            active tab of each). */}
+        <div
+          {...tabPanelProps(BOARD_TABS, sort)}
+          aria-labelledby={`${playerToken ? `${BOARD_TABS}-tab-${density} ` : ''}${BOARD_TABS}-tab-${sort}`}
+        >
         {/* Results summary. P4: a row is a per-category leaderboard now, not a
             game — one game can contribute several — so the copy counts what it
-            actually counts. */}
+            actually counts. G36: the kit's tracked label. */}
         {!loading && (
-          <div className="text-xs text-muted mb-4">
+          <div className="gs-count gs-ui">
             Showing {games.length.toLocaleString()} of {total.toLocaleString()} leaderboards
           </div>
         )}
@@ -962,6 +958,7 @@ export default function GlobalScoreboard() {
         {!loading && raPanel && search.trim().length >= 2 && games.length > 0 && games.length < FEW_RESULTS && (
           <div className="mt-6">{raPanel}</div>
         )}
+        </div>
         </div>
       </div>
 

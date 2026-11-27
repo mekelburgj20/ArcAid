@@ -6,6 +6,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.278.0] - 2026-11-26 - The Global Scoreboard on the Arcaid look, around and on the cards (G36)
+
+### Changed
+- **The Global Scoreboard is now always dark, on the Arcaid arcade carpet.** Choosing Light no longer changes this page (the sun/moon button still changes every other page). The header has a smaller Arcaid logo, a ROOMS link with a grid mark (just the mark on a phone) and larger buttons; the line under the title and the LIVE line are in the Arcaid lettering; the search box and the room list are the site's standard fields; the category filters are Arcaid chips with a lit dot; Top 6 / My Score and the sort choices are the site's tab rows with the rolling pinball, and the arrow keys move between them. "Showing 6 of 6 leaderboards" is a small lit label.
+- **Each leaderboard card wears the Arcaid panel's frame:** a thin neon line in the card's colour, a dark band, a faint inner line, and a lit pink-to-cyan bar along the top. Nothing inside the cards changed, the cards' own flicker still runs round the new frame, and the HOTTEST BOARD card with its travelling shimmer is exactly as it was.
+
+### Technical
+- `GlobalScoreboard.tsx`: the root is `gs-page gs-carpet sb-theme-scope` with no theme class, so every token inside is the default "Arcaid" palette whatever `<html>` wears (not `ArcaidPage`: its `.aw-island` maps amber to the kit's red, which would repaint first place on the cards). `GlobalScoreboardTitle` and `BrandWordmark` take an optional `polarity` prop (the page passes `"dark"`; omitted, both follow the preference as before). The room list is the Field `Select` (label "Show scores from", for screen readers only); the search palette's field is the Field well (`part-field__box` / `__icon` / `__input`; open, it keeps its monospace and fake caret; new `fieldClassName` prop on `GlobalSearchPalette`). Top 6 / My Score and the sort are two `RailTabs` ("Leaderboard density", "Sort leaderboards") on one `gs-board` id prefix, controlling one `tabpanel` (the board) labelled by both active tabs; same values and handlers as the pills.
+- `index.css`: a "Global Scoreboard on the Arcaid look" block beside G35a's (`.gs-page`: the kit's canvas as `--gs-ground`, `color-mix` of `--color-deep` and black, with its two glows; `.gs-ui` (Chakra Petch), `.gs-head`, `.gs-navlink`, `.gs-iconbtn`, the user menu trigger, `.gs-lede`, `.gs-live`, `.gs-chip`, `.gs-tabs`, `.gs-count`, all on `--color-*` tokens). G35a's carpet is always on and its wash reads `--gs-ground`. `.gg-card`: a 1px border plus 1px padding (every child stays where the 2px border left it), the inset `--gg-edge` double line, a glow and the kit's drop shadow; `.gg-card__rail` is the card's first child with no z-index, so its glow never lies on the art. New `@theme` tokens `--sb-card-edge-gap` and `--sb-card-edge-drop`. The glitch rings' rules, every `.gg-hero` rule and `GlobalHeroCard.tsx` are unchanged.
+- Tests: the page is the dark scope on the carpet with the dark title and wordmark under both Light and Dark; the two tab lists, their values, the shared panel, and selection by click and by arrow key. The A5 and Pins tests now read `aria-selected` on the tabs where they read `aria-pressed` on the pills.
+
 ## [2.277.0] - 2026-11-26 - The Global Scoreboard gets the arcade carpet (G35a)
 
 ### Changed
