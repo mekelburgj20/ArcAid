@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { logError } from '../../utils/logger.js';
 import { roomVisibilityGate } from '../middleware.js';
 import { RunRecapService } from '../../services/RunRecapService.js';
+import { RunRollupService } from '../../services/RunRollupService.js';
 
 /**
  * Run recaps, "By the numbers" (B31). Public reads, room-scoped, mounted at
@@ -49,6 +50,28 @@ router.get('/rooms/:roomId/tournaments/:tournamentId/runs/live', roomVisibilityG
 
 
 // ===== B31.3: player and table runs (B31.3 inserts here) =====
+router.get('/rooms/:roomId/players/:identifier/runs', roomVisibilityGate, async (req, res) => {
+    try {
+        let identifier: string;
+        try { identifier = decodeURIComponent(req.params.identifier as string); } catch { return res.status(404).json({ error: 'Player not found' }); }
+        res.json(await RunRollupService.playerRuns(req.params.roomId as string, identifier));
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/players/:identifier/runs):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.get('/rooms/:roomId/tables/:gameName/runs', roomVisibilityGate, async (req, res) => {
+    try {
+        let gameName: string;
+        try { gameName = decodeURIComponent(req.params.gameName as string); } catch { return res.status(404).json({ error: 'Table not found' }); }
+        res.json(await RunRollupService.tableRuns(req.params.roomId as string, gameName));
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/tables/:gameName/runs):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 // ===== end B31.3 =====
 
 

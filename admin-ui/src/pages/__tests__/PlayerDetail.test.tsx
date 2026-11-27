@@ -197,3 +197,43 @@ describe('PlayerDetail — avatar and table art', () => {
     expect(screen.getByTestId('game-art-fallback')).toHaveTextContent('FU');
   });
 });
+
+describe('PlayerDetail — Runs (B31.3)', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    localStorage.clear();
+  });
+
+  function stubRuns(play_stats: 'shown' | 'hidden') {
+    const line = (over: object) => ({
+      game_id: 'g1', game_name: 'Godzilla', tournament_id: 't1', tournament_name: 'Weekly', state: 'completed',
+      end_date: '2026-11-05T00:00:00.000Z', image_url: null, games: 22, average: 116_200_000,
+      best: 492_300_000, best_game_no: 22, finish: 1, field: 11, ...over,
+    });
+    vi.stubGlobal('fetch', vi.fn((url: string) => {
+      let body: unknown = [];
+      if (url.includes('/stats/enhanced/player/')) body = { ...STATS_BASE, discordUserId: null };
+      if (url.includes('/players/') && url.endsWith('/runs')) {
+        body = {
+          player: null, play_stats,
+          runs: [play_stats === 'hidden' ? line({ games: null, average: null, best_game_no: null }) : line({})],
+        };
+      }
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) });
+    }) as unknown as typeof fetch);
+  }
+
+  it('lists the player runs with games, average, best and finish', async () => {
+    stubRuns('shown');
+    renderAt('/rtx_pinball/players/TargetAlias');
+    expect(await screen.findByText(/22 games · avg 116\.2M · best 492\.3M \(game #22\) · 1st of 11/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Godzilla/ }).getAttribute('href')).toContain('recap=1');
+  });
+
+  it('shows only best and finish for a player who hides play stats', async () => {
+    stubRuns('hidden');
+    renderAt('/rtx_pinball/players/TargetAlias');
+    expect(await screen.findByText('best 492.3M · 1st of 11')).toBeInTheDocument();
+    expect(screen.queryByText(/\d+ games/)).toBeNull();
+  });
+});

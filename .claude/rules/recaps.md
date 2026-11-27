@@ -39,7 +39,11 @@ Loads when you touch run recaps: `RunRecapService`, the recap routes, the Discor
 
 ## B31.3 — a player's runs and a table's runs
 
-(placeholder: B31.3 fills this section)
+- **`RunRollupService` only reduces `RunRecapService.summarizeRuns`** (never score rows). Routes: `GET /api/rooms/:roomId/players/:identifier/runs` and `.../tables/:gameName/runs` (B31.3 marker block of `recaps.ts`).
+- **Player identifier = the `/stats/enhanced/player/:identifier` rule:** a provider id is the key; a name is `[user_mappings.discord_user_id (NOCASE) if any, 'iscored:' + lower(name)]`. Two keys in one run: the better finish. Active runs first, then newest end first.
+- **Privacy is the compute's:** a hidden player (ANY key with `recap_play_stats = 0`) gets `games`, `average`, `best_game_no` null and `play_stats: 'hidden'`; their Witness games are already absent from `detail` and `facts.most_games`, so the table median and "most games in one run" cannot leak them. Best, finish and field stay (standings facts).
+- **Table roll-up:** completed/archived runs only (an active-only table has `runs: 0` and the panel renders nothing); typical winning score = median of the runs' winning bests; median game = median of visible Witness games; even counts round the mean of the middle two.
+- **FE:** `components/recap/PlayerRunsList.tsx` (mounted after Recent Scores) and `TableRunsPanel.tsx` (before Past Results), both `roomFetch` + `useRetryingLoad`, render nothing until an answer; links through `tournamentRecapPath`.
 
 ## B31.4 — season recap and room records
 
