@@ -27,6 +27,7 @@ Guidance for Claude Code working in this Arcaid repository. This file is the alw
 | `catalogue.md` | `global_games`, importers (VPS/Wizard/OPDB/IGDB/Steam/FX VR/AtGames), ratings, My Tables, platform taxonomy |
 | `discord.md` | slash commands and guild scoping, command policy, announcements/mentions, chat responses, notifications, lobby feed |
 | `admin-ui.md` | anything under `admin-ui/`: layouts, scoreboard rendering, themes, service worker, score entry, live refresh |
+| `cabinet-frames.md` | cabinet frames (W132): the `/cabinet-frame` page, the frame contract, the renderer, the player's Cabinet screens panel |
 | `recaps.md` | run recaps (B31): `RunRecapService`, recap routes, the Discord recap text, recap prefs, recap UI |
 
 ## Stack

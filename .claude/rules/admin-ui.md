@@ -15,6 +15,7 @@ Loads when you touch any front-end file under `admin-ui/`. Cross-cutting invaria
 ## Structure and routing
 - **Admin UI (`admin-ui/src/`)** is React 19 + Vite (ESM). All HTTP goes through `lib/api.ts` (relative `/api/` paths — never hardcode localhost).
 - **Three layouts:** `SuperAdminLayout` (`/admin/*`), `RoomAdminLayout` (`/:slug/admin/*`), `PublicLayout` (`/:slug/*`). Plus standalone global pages (`/scoreboard`, `/games/:id`, `/friends`).
+- `/cabinet-frame` (v2.289.0, ADR 0046): `cabinet-frames.md`.
 - **There is NO public `/catalogue` route.** `GlobalCatalogue` is a super-admin tool under `/admin/catalogue`; public catalogue browsing happens on `/scoreboard`.
 - **Contexts.** Room-scoped pages get `roomId/roomSlug/roomName` from `RoomContext`. Public pages get viewer auth from `ViewerAuthContext` (auto-refreshes player tokens within 5min of expiry).
 - **Global game page `/games/:id` (`GlobalGameDetail`)** ranks each player ONCE, by their best. Clicking a row expands all of that player's scores via `GET /api/global/scoreboard/:globalGameId/players/:playerKey/scores`, keyed on the board row's `player_key` — the SAME partition expression the board collapses on, shared in `GlobalLeaderboardService` so the two can't disagree about who a player is. Clicking a score toggles a score-over-time chart (`components/ScoreHistoryChart.tsx`, hand-rolled SVG, theme tokens only) that shares that one fetch (v2.157.0).

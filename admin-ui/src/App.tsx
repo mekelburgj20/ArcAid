@@ -46,6 +46,7 @@ const Settings = lazy(() => import('./pages/Settings'));
 const Help = lazy(() => import('./pages/Help'));
 const ActivityLog = lazy(() => import('./pages/ActivityLog'));
 const SuperAdminActivity = lazy(() => import('./pages/SuperAdminActivity'));
+const CabinetFrame = lazy(() => import('./pages/CabinetFrame'));
 const SuperAdminWitnessReleases = lazy(() => import('./pages/SuperAdminWitnessReleases'));
 const GameStates = lazy(() => import('./pages/GameStates'));
 const Identity = lazy(() => import('./pages/Identity'));
@@ -242,6 +243,9 @@ function App() {
         {/* Global scoreboard (cross-room aggregate, public) */}
         <Route path="/scoreboard" element={<ViewerAuthProvider><GlobalScoreboard /></ViewerAuthProvider>} />
         <Route path="/games/:globalGameId" element={<ViewerAuthProvider><GlobalGameDetail /></ViewerAuthProvider>} />
+
+        {/* W132.3 (ADR 0046): the page the server's headless browser screenshots for the cabinet's pictures. Lazy, no layout. */}
+        <Route path="/cabinet-frame" element={<CabinetFrame />} />
 
         {/* Kiosk mode (standalone, no layout wrapper) */}
         <Route path="/:slug/kiosk" element={<KioskScoreboard />} />
