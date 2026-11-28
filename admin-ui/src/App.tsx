@@ -105,6 +105,7 @@ import TournamentInvite from './pages/TournamentInvite';
 import WitnessInstall from './pages/WitnessInstall';
 import WitnessPair from './pages/WitnessPair';
 import WitnessPairEntry from './pages/WitnessPairEntry';
+import WitnessInvite from './pages/WitnessInvite';
 
 function NavigateToRoomLogin() {
   const { slug } = useParams();
@@ -168,6 +169,8 @@ function App() {
         <Route path="/witness/install" element={<ViewerAuthProvider><WitnessInstall /></ViewerAuthProvider>} />
         <Route path="/pair" element={<WitnessPairEntry />} />
         <Route path="/pair/:code" element={<ViewerAuthProvider><WitnessPair /></ViewerAuthProvider>} />
+        {/* W131.3 (ADR 0045) — join a shared Witness device by an owner's invite link */}
+        <Route path="/witness-invite/:code" element={<ViewerAuthProvider><WitnessInvite /></ViewerAuthProvider>} />
 
         {/* Legal pages (static, public — must precede the /:slug dynamic route) */}
         <Route path="/privacy" element={<Privacy />} />

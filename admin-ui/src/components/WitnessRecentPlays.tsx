@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { CheckCircle2, Globe, AlertTriangle, XCircle, Trash2, RefreshCw } from 'lucide-react';
 import { formatScore, scoreTitle } from '../lib/format';
 import { SIGNED_OTHER_GAME_TEXT, signedTitleFor } from '../lib/integrityBadge';
+import { reasonLines, whenText, type PlayDestination, type RecentPlay } from '../lib/witnessPlays';
 
 /**
  * W27.2 (ADR 0033 §5) — "Where your plays went", under the player's paired
@@ -16,41 +17,9 @@ import { SIGNED_OTHER_GAME_TEXT, signedTitleFor } from '../lib/integrityBadge';
  * there".
  */
 
-export type PlayDestination = {
-    status: 'counted' | 'already_counted' | 'global' | 'already_global' | 'not_counted' | 'deleted' | 'not_recorded';
-    tournamentName: string | null;
-    roundNo: number | null;
-    roomName: string | null;
-    roomSlug: string | null;
-    gameName: string | null;
-    globalGameId: string | null;
-    reason: string | null;
-};
-
-export type RecentPlay = {
-    key: string;
-    playedAt: string;
-    tableName: string;
-    score: number;
-    deviceId: string;
-    /** v2.191.0 (W53) - true = quit before game over; null/absent = unknown. A badge only. */
-    quit?: boolean | null;
-    quitBall?: number | null;
-    /** W72 - the signer when the launcher's own record of the play verified ("lu-scoreserver"); null/absent otherwise. */
-    signedBy?: string | null;
-    /** W72 - the launcher's signed record covered a different game of this sitting (no badge; it still counted). */
-    signedOtherGame?: boolean;
-    destinations: PlayDestination[];
-};
+export type { PlayDestination, RecentPlay } from '../lib/witnessPlays';
 
 const SHOWN = 8;
-
-/** `2026-10-26 23:17:13` (SQLite UTC) → the viewer's local date and time. */
-function whenText(playedAt: string): string {
-    const ms = Date.parse(playedAt.includes('T') ? playedAt : `${playedAt.replace(' ', 'T')}Z`);
-    if (!Number.isFinite(ms)) return playedAt;
-    return new Date(ms).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-}
 
 function boardText(d: PlayDestination): string {
     const t = d.tournamentName ?? d.gameName ?? 'a tournament';
@@ -58,7 +27,8 @@ function boardText(d: PlayDestination): string {
     return d.roomName ? `${t}${round} · ${d.roomName}` : `${t}${round}`;
 }
 
-function Destination({ d }: { d: PlayDestination }) {
+/** `whose` (W131.3): a play on a shared device may be someone else's, so its Global chip and its delete name them. */
+export function Destination({ d, whose }: { d: PlayDestination; whose?: string }) {
     const boardLink = d.roomSlug && d.gameName ? `/${d.roomSlug}/games/${encodeURIComponent(d.gameName)}` : null;
     const globalLink = d.globalGameId ? `/games/${encodeURIComponent(d.globalGameId)}` : null;
     const chip = 'inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded';
@@ -81,7 +51,7 @@ function Destination({ d }: { d: PlayDestination }) {
             const label = (
                 <>
                     <Globe size={12} aria-hidden="true" />
-                    {d.status === 'global' ? 'Global Scoreboard' : 'Already on your Global Scoreboard'}
+                    {d.status === 'global' ? 'Global Scoreboard' : `Already on ${whose ? `${whose}'s` : 'your'} Global Scoreboard`}
                 </>
             );
             return globalLink
@@ -97,7 +67,7 @@ function Destination({ d }: { d: PlayDestination }) {
         case 'deleted':
             return (
                 <span className={`${chip} bg-raised text-muted`}>
-                    <Trash2 size={12} aria-hidden="true" /> You deleted this score
+                    <Trash2 size={12} aria-hidden="true" /> {whose ? `${whose} deleted this score` : 'You deleted this score'}
                 </span>
             );
         default:
@@ -107,17 +77,6 @@ function Destination({ d }: { d: PlayDestination }) {
                 </span>
             );
     }
-}
-
-/** The "why" lines under a play: one per destination that carries a reason. */
-function reasonLines(play: RecentPlay): string[] {
-    const out: string[] = [];
-    for (const d of play.destinations) {
-        if (!d.reason) continue;
-        if (d.status === 'global' || d.status === 'already_global') out.push(`Didn't count in a tournament: ${d.reason}`);
-        else out.push(d.reason.charAt(0).toUpperCase() + d.reason.slice(1));
-    }
-    return [...new Set(out)];
 }
 
 export default function WitnessRecentPlays({ playerToken }: { playerToken: string | null }) {

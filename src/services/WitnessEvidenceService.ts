@@ -140,6 +140,134 @@ export type RecentPlay = {
     destinations: PlayDestination[];
 };
 
+/** W131.3 - one play on a shared device: a RecentPlay plus who it went to and what decided it. */
+export type DevicePlay = RecentPlay & {
+    /** Who the play is credited to; resolved at read (`resolveUserLabels`). */
+    userId: string;
+    label: string | null;
+    isYou: boolean;
+    /** `witness_evidence.attribution`; null on a play reported before W131.2. */
+    attribution: 'only' | 'device' | 'attempt' | 'session' | 'fallback' | null;
+    sessionId: number | null;
+    /** When the server received it (server clock). */
+    receivedAt: string;
+};
+
+/** W131.3 - the session that decided a sitting's plays, as "Plays on this device" names it. */
+export type DeviceSittingSession = {
+    id: number;
+    startedAt: string;
+    endedAt: string | null;
+    via: 'web' | 'cabinet';
+    startedByLabel: string | null;
+    startedByYou: boolean;
+};
+
+/**
+ * W131.3 - a run of plays one after another credited to the same person by the
+ * same session, with no gap over `SITTING_GAP_SEC` between two of them.
+ */
+export type DeviceSitting = {
+    userId: string;
+    label: string | null;
+    isYou: boolean;
+    session: DeviceSittingSession | null;
+    plays: DevicePlay[];
+};
+
+/** Plays further apart than this are two sittings (30 min, server clock). */
+export const SITTING_GAP_SEC = 30 * 60;
+
+type PlayFoldRow = {
+    device_id: string; outcome: string; reasons: string | null;
+    table_name: string; score: number; played_at: string;
+    game_name: string | null; round_no: number | null; tournament_name: string | null;
+    room_name: string | null; room_slug: string | null;
+    global_score_id: string | null; global_game_id: string | null;
+    quit: number | null; quit_ball: number | null;
+    signature_ok: number | null; signed_by: string | null; signature_reason: string | null;
+};
+
+const PLAY_FOLD_COLUMNS = `e.id, e.device_id, e.outcome, e.reasons, e.table_name, e.score, e.played_at,
+                    g.name AS game_name, g.round_no, t.name AS tournament_name,
+                    gr.name AS room_name, gr.slug AS room_slug,
+                    e.global_score_id, gs.global_game_id, e.quit, e.quit_ball,
+                    e.signature_ok, e.signed_by, e.signature_reason`;
+
+const PLAY_FOLD_JOINS = `LEFT JOIN games g ON g.id = e.game_id
+               LEFT JOIN tournaments t ON t.id = e.tournament_id
+               LEFT JOIN game_rooms gr ON gr.id = e.game_room_id
+               LEFT JOIN global_scores gs ON gs.id = e.global_score_id`;
+
+/** SQLite `datetime('now')` text → epoch seconds. */
+function sqliteSeconds(text: string): number {
+    const ms = Date.parse(text.includes('T') ? text : `${text.replace(' ', 'T')}Z`);
+    return Number.isFinite(ms) ? Math.floor(ms / 1000) : 0;
+}
+
+/**
+ * Fold trail rows (newest first) into plays: one play's per-board rows share
+ * (device, played_at, score, table). At most `cap` plays; `onNew` builds the
+ * play from its first (newest) row so a caller can add its own fields.
+ */
+async function foldPlays<R extends PlayFoldRow, P extends RecentPlay>(
+    rows: R[], cap: number, onNew: (base: RecentPlay, row: R) => P,
+): Promise<P[]> {
+    const { ATTEMPT_REFUSAL_TEXT } = await import('./AttemptService.js');
+    const plays = new Map<string, P>();
+    for (const r of rows) {
+        const key = `${r.device_id}|${r.played_at}|${r.score}|${r.table_name}`;
+        let play = plays.get(key);
+        if (!play) {
+            if (plays.size >= cap) continue;
+            play = onNew({ key, playedAt: r.played_at, tableName: r.table_name, score: r.score, deviceId: r.device_id, quit: null, quitBall: null, signedBy: null, signedOtherGame: false, destinations: [] }, r);
+            plays.set(key, play);
+        }
+        // W72 — the record was verified once per report; any row saying so marks the play.
+        if (r.signature_ok === 1 && r.signed_by) play.signedBy = r.signed_by;
+        else if (r.signature_ok === 0 && r.signed_by && r.signature_reason === 'signed_record_other_game') play.signedOtherGame = true;
+        // One play, one fact: any of its rows saying it quit marks the play.
+        if (r.quit === 1) { play.quit = true; if (typeof r.quit_ball === 'number') play.quitBall = r.quit_ball; }
+        else if (r.quit === 0 && play.quit == null) play.quit = false;
+        const reasons = parseJson<string[]>(r.reasons, []);
+        const board = {
+            tournamentName: r.tournament_name, roundNo: r.round_no, roomName: r.room_name,
+            roomSlug: r.room_slug, gameName: r.game_name, globalGameId: null as string | null,
+        };
+        const none = { tournamentName: null, roundNo: null, roomName: null, roomSlug: null, gameName: null, globalGameId: null };
+        const global = (status: 'global' | 'already_global', reason: string | null): PlayDestination =>
+            ({ status, ...none, globalGameId: r.global_game_id, reason });
+        switch (r.outcome) {
+            case 'ingested':
+                play.destinations.push({ status: 'counted', ...board, reason: null });
+                break;
+            case 'duplicate':
+                play.destinations.push({ status: 'already_counted', ...board, reason: null });
+                break;
+            case 'global':
+            case 'global_duplicate':
+                // The first reason is W27.1's "why it did not count in a tournament".
+                play.destinations.push(global(r.outcome === 'global' ? 'global' : 'already_global', reasons[0] ?? null));
+                break;
+            case 'not_sanctioned':
+            case 'attempt_refused': {
+                const why = r.outcome === 'attempt_refused'
+                    ? reasons.map(x => ATTEMPT_REFUSAL_TEXT[x as keyof typeof ATTEMPT_REFUSAL_TEXT] ?? x).join('; ')
+                    : reasons.join('; ');
+                play.destinations.push({ status: 'not_counted', ...board, reason: why || null });
+                if (r.global_score_id) play.destinations.push(global('global', null));
+                break;
+            }
+            case 'suppressed':
+                play.destinations.push({ status: 'deleted', ...board, reason: null });
+                break;
+            default: // no_match, invalid
+                play.destinations.push({ status: 'not_recorded', ...board, reason: reasons[0] ?? null });
+        }
+    }
+    return [...plays.values()];
+}
+
 export type TournamentIntegrity = {
     tournamentId: string;
     mode: IntegrityMode;
@@ -289,83 +417,101 @@ export class WitnessEvidenceService {
     static async recentPlaysForUser(canonicalUserId: string, limit = 30): Promise<RecentPlay[]> {
         const db = await getDatabase();
         const cap = Math.min(100, Math.max(1, limit));
-        const rows = await db.all<Array<{
-            id: number; device_id: string; outcome: string; reasons: string | null;
-            table_name: string; score: number; played_at: string;
-            game_name: string | null; round_no: number | null; tournament_name: string | null;
-            room_name: string | null; room_slug: string | null;
-            global_score_id: string | null; global_game_id: string | null;
-            quit: number | null; quit_ball: number | null;
-            signature_ok: number | null; signed_by: string | null; signature_reason: string | null;
-        }>>(
-            `SELECT e.id, e.device_id, e.outcome, e.reasons, e.table_name, e.score, e.played_at,
-                    g.name AS game_name, g.round_no, t.name AS tournament_name,
-                    gr.name AS room_name, gr.slug AS room_slug,
-                    e.global_score_id, gs.global_game_id, e.quit, e.quit_ball,
-                    e.signature_ok, e.signed_by, e.signature_reason
+        const rows = await db.all<PlayFoldRow[]>(
+            `SELECT ${PLAY_FOLD_COLUMNS}
                FROM witness_evidence e
-               LEFT JOIN games g ON g.id = e.game_id
-               LEFT JOIN tournaments t ON t.id = e.tournament_id
-               LEFT JOIN game_rooms gr ON gr.id = e.game_room_id
-               LEFT JOIN global_scores gs ON gs.id = e.global_score_id
+               ${PLAY_FOLD_JOINS}
               WHERE e.canonical_user_id = ?
               ORDER BY e.id DESC
               LIMIT ?`,
             canonicalUserId, cap * 4,
         );
-        const { ATTEMPT_REFUSAL_TEXT } = await import('./AttemptService.js');
-        const plays = new Map<string, RecentPlay>();
-        for (const r of rows) {
-            const key = `${r.device_id}|${r.played_at}|${r.score}|${r.table_name}`;
-            let play = plays.get(key);
-            if (!play) {
-                if (plays.size >= cap) continue;
-                play = { key, playedAt: r.played_at, tableName: r.table_name, score: r.score, deviceId: r.device_id, quit: null, quitBall: null, signedBy: null, signedOtherGame: false, destinations: [] };
-                plays.set(key, play);
-            }
-            // W72 — the record was verified once per report; any row saying so marks the play.
-            if (r.signature_ok === 1 && r.signed_by) play.signedBy = r.signed_by;
-            else if (r.signature_ok === 0 && r.signed_by && r.signature_reason === 'signed_record_other_game') play.signedOtherGame = true;
-            // One play, one fact: any of its rows saying it quit marks the play.
-            if (r.quit === 1) { play.quit = true; if (typeof r.quit_ball === 'number') play.quitBall = r.quit_ball; }
-            else if (r.quit === 0 && play.quit == null) play.quit = false;
-            const reasons = parseJson<string[]>(r.reasons, []);
-            const board = {
-                tournamentName: r.tournament_name, roundNo: r.round_no, roomName: r.room_name,
-                roomSlug: r.room_slug, gameName: r.game_name, globalGameId: null as string | null,
-            };
-            const none = { tournamentName: null, roundNo: null, roomName: null, roomSlug: null, gameName: null, globalGameId: null };
-            const global = (status: 'global' | 'already_global', reason: string | null): PlayDestination =>
-                ({ status, ...none, globalGameId: r.global_game_id, reason });
-            switch (r.outcome) {
-                case 'ingested':
-                    play.destinations.push({ status: 'counted', ...board, reason: null });
-                    break;
-                case 'duplicate':
-                    play.destinations.push({ status: 'already_counted', ...board, reason: null });
-                    break;
-                case 'global':
-                case 'global_duplicate':
-                    // The first reason is W27.1's "why it did not count in a tournament".
-                    play.destinations.push(global(r.outcome === 'global' ? 'global' : 'already_global', reasons[0] ?? null));
-                    break;
-                case 'not_sanctioned':
-                case 'attempt_refused': {
-                    const why = r.outcome === 'attempt_refused'
-                        ? reasons.map(x => ATTEMPT_REFUSAL_TEXT[x as keyof typeof ATTEMPT_REFUSAL_TEXT] ?? x).join('; ')
-                        : reasons.join('; ');
-                    play.destinations.push({ status: 'not_counted', ...board, reason: why || null });
-                    if (r.global_score_id) play.destinations.push(global('global', null));
-                    break;
-                }
-                case 'suppressed':
-                    play.destinations.push({ status: 'deleted', ...board, reason: null });
-                    break;
-                default: // no_match, invalid
-                    play.destinations.push({ status: 'not_recorded', ...board, reason: reasons[0] ?? null });
-            }
+        return foldPlays(rows, cap, base => base);
+    }
+
+    /**
+     * W131.3 (ADR 0045, docs/shared-device-plan.md §7) - "Plays on this device":
+     * every play on one device since the viewer joined it, whoever it went to
+     * (ruling 6: everyone on a device sees all its plays), grouped into
+     * sittings, each play with who it was credited to and what decided it.
+     * Null when the viewer is not on the device. Read from the trail alone,
+     * like `recentPlaysForUser`.
+     */
+    static async playsOnDevice(viewerId: string, deviceId: string, limit = 60): Promise<DeviceSitting[] | null> {
+        const db = await getDatabase();
+        const member = await db.get<{ added_at: string }>(
+            `SELECT added_at FROM witness_device_players
+              WHERE device_id = ? AND canonical_user_id = ? AND removed_at IS NULL`,
+            deviceId, viewerId,
+        );
+        if (!member) return null;
+        const cap = Math.min(150, Math.max(1, limit));
+        const rows = await db.all<Array<PlayFoldRow & {
+            canonical_user_id: string; attribution: string | null; play_session_id: number | null; created_at: string;
+        }>>(
+            `SELECT ${PLAY_FOLD_COLUMNS},
+                    e.canonical_user_id, e.attribution, e.play_session_id, e.created_at
+               FROM witness_evidence e
+               ${PLAY_FOLD_JOINS}
+              WHERE e.device_id = ? AND e.created_at >= ?
+              ORDER BY e.id DESC
+              LIMIT ?`,
+            deviceId, member.added_at, cap * 4,
+        );
+        const KINDS = new Set(['only', 'device', 'attempt', 'session', 'fallback']);
+        const plays = await foldPlays(rows, cap, (base, r): DevicePlay => ({
+            ...base,
+            userId: r.canonical_user_id,
+            label: null,
+            isYou: r.canonical_user_id === viewerId,
+            attribution: r.attribution && KINDS.has(r.attribution) ? r.attribution as DevicePlay['attribution'] : null,
+            sessionId: r.play_session_id ?? null,
+            receivedAt: r.created_at,
+        }));
+
+        const sessionIds = [...new Set(plays.map(p => p.sessionId).filter((id): id is number => id != null))];
+        const sessions = new Map<number, { started_at: string; ended_at: string | null; started_by: string | null; started_via: string }>();
+        if (sessionIds.length) {
+            const found = await db.all<Array<{ id: number; started_at: string; ended_at: string | null; started_by: string | null; started_via: string }>>(
+                `SELECT id, started_at, ended_at, started_by, started_via FROM witness_play_sessions
+                  WHERE device_id = ? AND id IN (${sessionIds.map(() => '?').join(',')})`,
+                deviceId, ...sessionIds,
+            );
+            for (const s of found) sessions.set(s.id, s);
         }
-        return [...plays.values()];
+        const { resolveUserLabels } = await import('./PlayerProfileResolver.js');
+        const labels = await resolveUserLabels([
+            ...plays.map(p => p.userId),
+            ...[...sessions.values()].map(s => s.started_by).filter((id): id is string => !!id),
+        ]);
+
+        const sittings: DeviceSitting[] = [];
+        let last: DevicePlay | null = null;
+        for (const play of plays) {
+            play.label = labels[play.userId] ?? null;
+            const current = sittings[sittings.length - 1];
+            const sameSitting = current && last
+                && last.userId === play.userId
+                && last.sessionId === play.sessionId
+                && sqliteSeconds(last.receivedAt) - sqliteSeconds(play.receivedAt) <= SITTING_GAP_SEC;
+            if (current && sameSitting) {
+                current.plays.push(play);
+            } else {
+                const s = play.sessionId != null ? sessions.get(play.sessionId) : undefined;
+                sittings.push({
+                    userId: play.userId, label: play.label, isYou: play.isYou,
+                    session: s && play.sessionId != null ? {
+                        id: play.sessionId, startedAt: s.started_at, endedAt: s.ended_at,
+                        via: s.started_via === 'cabinet' ? 'cabinet' : 'web',
+                        startedByLabel: s.started_by ? labels[s.started_by] ?? null : null,
+                        startedByYou: s.started_by === viewerId,
+                    } : null,
+                    plays: [play],
+                });
+            }
+            last = play;
+        }
+        return sittings;
     }
 
     /** The runner's trail for one tournament, newest first. */
