@@ -76,3 +76,4 @@ You do **not** need an ADR for routine bug fixes, code style preferences, or any
 | 0043 | [Practice mode: a player pauses their own attempts, and a pause only looks forward](0043-practice-mode.md) | accepted (built v2.266.0) | 2026-11-24 |
 | 0044 | [Global Standings: Arcaid Points, two views, and what a player's profile may hold](0044-global-standings-arcaid-points.md) | accepted (not built; B32) | 2026-11-27 |
 | 0045 | [Shared Witness devices: a play belongs to who was playing when it started, and moves only by agreement](0045-shared-witness-devices.md) | accepted (not built; W131) | 2026-11-27 |
+| 0046 | [The cabinet's backglass and DMD show pictures drawn by arcaid.app](0046-cabinet-frames-drawn-by-arcaid.md) | accepted (not built; W132) | 2026-11-28 |
