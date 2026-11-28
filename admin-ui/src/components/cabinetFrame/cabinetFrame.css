@@ -69,8 +69,9 @@
     0 0 40px color-mix(in srgb, var(--aw-cyan) 35%, transparent);
 }
 .cf-dmd-head { position: absolute; left: 72px; right: 72px; top: 46px; text-align: center; }
-.cf-dmd-head .aw-label { margin-bottom: 6px; }
-.cf-dmd-title { font-size: calc(88 * var(--u)); white-space: nowrap; }
+.cf-dmd-head .aw-label { display: block; margin-bottom: 6px; white-space: nowrap; }
+.cf-dmd-title { font-size: calc(88 * var(--u)); }
+.cf-dmd-foot .aw-chip { max-width: 100%; box-sizing: border-box; }
 .cf-dmd-foot { position: absolute; left: 72px; right: 72px; top: 830px; display: flex; justify-content: center; gap: 34px; flex-wrap: wrap; }
 
 .cf-qr { background: var(--aw-ice); border-radius: 24px; padding: 34px; display: block; }

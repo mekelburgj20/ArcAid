@@ -19,9 +19,21 @@ const DotsBox = () => (
 function Head({ label, title, titleStyle }: { label: string; title: string; titleStyle?: CSSProperties }) {
     return (
         <div className="cf-dmd-head">
-            <div className="aw-label">{label}</div>
-            <FitTitle className="aw-title cf-glass cf-dmd-title" base="calc(88 * var(--u))" style={titleStyle}>{title}</FitTitle>
+            <FitTitle oneLine minScale={0.3} base="var(--aw-fs-label)" className="aw-label">{label}</FitTitle>
+            <FitTitle
+                className="aw-title cf-glass cf-dmd-title" base="calc(88 * var(--u))" style={titleStyle}
+                minScale={0.3} maxLines={2} bottomLimit={R.y - 16}
+            >{title}</FitTitle>
         </div>
+    );
+}
+
+/** A footer chip that shrinks to one line inside the panel (never wraps into the dot window or off the bottom). */
+function Chip({ children, tone = '', loud = false }: { children: string; tone?: string; loud?: boolean }) {
+    return (
+        <FitTitle oneLine minScale={0.4} className={`aw-chip ${tone}`.trim()} base={loud ? 'calc(var(--aw-fs-chip) * 1.3)' : 'var(--aw-fs-chip)'}>
+            {children}
+        </FitTitle>
     );
 }
 
@@ -47,8 +59,8 @@ export default function Dmd({ input }: { input: CabinetFrameInput }) {
                     <Head label={`${d.roomName} · ${d.kindLabel}`} title={d.table} />
                     <DotsBox />
                     <Foot>
-                        {attempts && <span className={`aw-chip aw-chip--attention${d.practice ? ' cf-chip--loud' : ''}`}>{attempts}</span>}
-                        {d.endsText && <span className="aw-chip aw-chip--neutral">{d.endsText}</span>}
+                        {attempts && <Chip tone="aw-chip--attention" loud={d.practice}>{attempts}</Chip>}
+                        {d.endsText && <Chip tone="aw-chip--neutral">{d.endsText}</Chip>}
                     </Foot>
                 </>
             );
@@ -60,7 +72,7 @@ export default function Dmd({ input }: { input: CabinetFrameInput }) {
                     <ArtBack artUrl={d.artUrl} />
                     <Head label="GLOBAL SCOREBOARD" title={d.table} />
                     <DotsBox />
-                    <Foot><span className="aw-chip">{d.playersText}</span></Foot>
+                    <Foot><Chip>{d.playersText}</Chip></Foot>
                 </>
             );
         }
@@ -72,8 +84,8 @@ export default function Dmd({ input }: { input: CabinetFrameInput }) {
                     <Head label={d.eventName} title={d.roundLabel} titleStyle={{ color: 'var(--aw-pink)' }} />
                     <DotsBox />
                     <Foot>
-                        <span className="aw-chip">{d.table}</span>
-                        {d.checkedIn && <span className="aw-chip aw-chip--neutral">YOU ARE CHECKED IN</span>}
+                        <Chip>{d.table}</Chip>
+                        {d.checkedIn && <Chip tone="aw-chip--neutral">YOU ARE CHECKED IN</Chip>}
                     </Foot>
                 </>
             );
@@ -85,8 +97,8 @@ export default function Dmd({ input }: { input: CabinetFrameInput }) {
                     <Head label={d.roomName} title={d.title} />
                     <DotsBox />
                     <Foot>
-                        <span className="aw-chip">{d.footerRight}</span>
-                        {d.subtitle && <span className="aw-chip aw-chip--neutral">{d.subtitle}</span>}
+                        <Chip>{d.footerRight}</Chip>
+                        {d.subtitle && <Chip tone="aw-chip--neutral">{d.subtitle}</Chip>}
                     </Foot>
                 </>
             );
@@ -98,7 +110,7 @@ export default function Dmd({ input }: { input: CabinetFrameInput }) {
                 <>
                     <Head label={d.roomCountText} title="LATELY" />
                     <DotsBox />
-                    <Foot>{first && <span className="aw-chip aw-chip--attention">{first.whenText}</span>}</Foot>
+                    <Foot>{first && <Chip tone="aw-chip--attention">{first.whenText}</Chip>}</Foot>
                 </>
             );
         }
@@ -112,8 +124,8 @@ export default function Dmd({ input }: { input: CabinetFrameInput }) {
                     </div>
                     <DotsBox />
                     <Foot>
-                        <span className="aw-chip">WITNESS ON</span>
-                        {d.player && <span className="aw-chip aw-chip--neutral">PLAYING AS {nameOf(d.player)}</span>}
+                        <Chip>WITNESS ON</Chip>
+                        {d.player && <Chip tone="aw-chip--neutral">{`PLAYING AS ${nameOf(d.player)}`}</Chip>}
                     </Foot>
                 </>
             );
