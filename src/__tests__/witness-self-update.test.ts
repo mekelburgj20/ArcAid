@@ -157,7 +157,7 @@ describe('heartbeat `update` and `staged` (W100)', () => {
     it('omits `update` (and `logs`) when nothing applies', async () => {
         const res = await beat({ v: '1.1.0' });
         expect(res.status).toBe(200);
-        expect(Object.keys(res.body).sort()).toEqual(['ok', 'sendingTo']);
+        expect(Object.keys(res.body).sort()).toEqual(['now', 'ok', 'sendingTo']);
     });
 
     it('carries the offered build, only while it is newer than `v`', async () => {

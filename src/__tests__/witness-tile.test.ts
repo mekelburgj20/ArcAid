@@ -284,14 +284,15 @@ describe('typed pairing answers (E1 confirmed, E4 account)', () => {
         await db.run(`INSERT INTO user_profiles (discord_user_id, display_name) VALUES (?, ?)`, USER, 'Krobs "the" Great 🎯');
         const res = await typedPair('CAB-E4-0001');
         expect(res.status).toBe(200);
-        expect(res.body).toEqual({ ok: true, token: res.body.token, account: 'Krobs the Great' });
+        // W131.2: `now` (the server's clock) rides on the pairing too.
+        expect(res.body).toEqual({ ok: true, token: res.body.token, account: 'Krobs the Great', now: expect.stringMatching(/^\d+$/) });
         expect(res.body.account).toBe(await WitnessService.cabinetAccountFor(USER));
     });
 
     it('`account` is omitted when the player has no label (never the raw id)', async () => {
         const res = await typedPair('CAB-E4-0002');
         expect(res.status).toBe(200);
-        expect(Object.keys(res.body).sort()).toEqual(['ok', 'token']);
+        expect(Object.keys(res.body).sort()).toEqual(['now', 'ok', 'token']);
     });
 
     it('a refusal is 400 {ok:false, error, code} with the service code (unchanged)', async () => {

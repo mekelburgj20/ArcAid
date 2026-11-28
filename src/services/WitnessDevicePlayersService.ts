@@ -12,9 +12,11 @@
  * - A player only plays on it. Each player has their own score routing on
  *   their row (`WitnessService.getDeviceTarget`).
  *
- * Until W131.2 adds play sessions every play on a device is still credited to
- * the account that PAIRED it (`witness_devices.canonical_user_id`), so that
- * account cannot leave its device or be removed from it yet (it can unpair).
+ * W131.2: each play is credited to whoever was playing
+ * (`WitnessPlaySessionService`), so the account that paired the device may
+ * leave it like anyone else; it keeps meaning "who paired" for the pairing
+ * caps only. A device takes a second person only once its build sends a
+ * clock offset (ADR 0045 ruling 5, `householdReady`).
  *
  * The ONE place the role rules live: WitnessService's owner-only actions
  * (unpair, update switches, re-pairing a live device) ask `isOwner`.
@@ -38,7 +40,7 @@ export const MAX_OPEN_INVITES_PER_DEVICE = 10;
 export class WitnessPlayerError extends Error {
     readonly code:
         | 'NOT_FOUND' | 'NOT_OWNER' | 'DEVICE_FULL' | 'INVITE_INVALID' | 'ALREADY_ON_DEVICE'
-        | 'LAST_OWNER' | 'PAIRING_ACCOUNT' | 'NOT_ALLOWED' | 'TOO_MANY_INVITES';
+        | 'LAST_OWNER' | 'NOT_ALLOWED' | 'TOO_MANY_INVITES' | 'DEVICE_NOT_READY';
     constructor(code: WitnessPlayerError['code'], message: string) {
         super(message);
         this.name = 'WitnessPlayerError';
@@ -52,7 +54,7 @@ export interface DevicePlayer {
     label: string | null;
     role: DevicePlayerRole;
     addedAt: string;
-    /** The account that paired the device: every play is still credited to it until W131.2. */
+    /** The account that paired the device. */
     pairedDevice: boolean;
     isYou: boolean;
 }
@@ -171,6 +173,9 @@ export class WitnessDevicePlayersService {
             deviceId,
         );
         await db.run(`DELETE FROM witness_device_invites WHERE device_id = ? AND consumed_at IS NULL`, deviceId);
+        await db.run(`UPDATE witness_devices SET default_player = NULL WHERE atgames_unique_id = ?`, deviceId);
+        const { WitnessPlaySessionService } = await import('./WitnessPlaySessionService.js');
+        await WitnessPlaySessionService.endAllSessions(deviceId);
     }
 
     /** The people on a device, for anyone on it. Null when the caller is not on it. */
@@ -203,6 +208,7 @@ export class WitnessDevicePlayersService {
         const role = await WitnessDevicePlayersService.roleOn(deviceId, ownerId, db);
         if (!role) throw new WitnessPlayerError('NOT_FOUND', 'No such device on your account');
         if (role !== 'owner') throw new WitnessPlayerError('NOT_OWNER', 'Only an owner of this device can add players');
+        await WitnessDevicePlayersService.assertReady(db, deviceId);
         await WitnessDevicePlayersService.assertRoom(db, deviceId);
         await db.run(
             `DELETE FROM witness_device_invites WHERE device_id = ? AND consumed_at IS NULL AND expires_at <= datetime('now')`,
@@ -260,6 +266,7 @@ export class WitnessDevicePlayersService {
         if (await WitnessDevicePlayersService.roleOn(invite.device_id, userId, db)) {
             throw new WitnessPlayerError('ALREADY_ON_DEVICE', 'You are already on this device');
         }
+        await WitnessDevicePlayersService.assertReady(db, invite.device_id);
         await WitnessDevicePlayersService.assertRoom(db, invite.device_id);
 
         await db.exec('BEGIN');
@@ -291,8 +298,9 @@ export class WitnessDevicePlayersService {
 
     /**
      * Take someone off a device. A person may always leave; an owner may
-     * remove a PLAYER (never another owner). The last owner cannot leave, and
-     * the account that paired cannot leave or be removed until W131.2.
+     * remove a PLAYER (never another owner). The last owner cannot leave.
+     * Leaving ends that person's open session and their default-player spot,
+     * so nothing more is credited to someone no longer on the device.
      */
     static async removePlayer(actorId: string, deviceId: string, targetId: string): Promise<void> {
         const db = await getDatabase();
@@ -308,14 +316,6 @@ export class WitnessDevicePlayersService {
                 throw new WitnessPlayerError('NOT_ALLOWED', 'An owner cannot remove another owner. They can step down themselves.');
             }
         }
-        if (await WitnessDevicePlayersService.isPairingAccount(db, deviceId, targetId)) {
-            throw new WitnessPlayerError(
-                'PAIRING_ACCOUNT',
-                self
-                    ? 'You paired this device, so its plays are credited to you. Unpair it instead.'
-                    : 'This person paired the device and cannot be removed from it.',
-            );
-        }
         if (self && targetRole === 'owner' && (await WitnessDevicePlayersService.ownerCount(db, deviceId)) <= 1) {
             throw new WitnessPlayerError('LAST_OWNER', 'You are the only owner. Make someone else an owner first, or unpair the device.');
         }
@@ -325,6 +325,12 @@ export class WitnessDevicePlayersService {
               WHERE device_id = ? AND canonical_user_id = ? AND removed_at IS NULL`,
             deviceId, targetId,
         );
+        await db.run(
+            `UPDATE witness_devices SET default_player = NULL WHERE atgames_unique_id = ? AND default_player = ?`,
+            deviceId, targetId,
+        );
+        const { WitnessPlaySessionService } = await import('./WitnessPlaySessionService.js');
+        await WitnessPlaySessionService.endSessionsOf(deviceId, targetId, db);
         logInfo(`Witness: ${targetId} ${self ? 'left' : `removed by ${actorId} from`} device ${deviceId}`);
         void WitnessDevicePlayersService.recordActivity(deviceId, {
             eventType: 'device_player_removed', userId: targetId, actorUserId: self ? null : actorId,
@@ -392,6 +398,17 @@ export class WitnessDevicePlayersService {
         }
     }
 
+    /** ADR 0045 ruling 5: a second person only once the device's build sends a clock offset. */
+    private static async assertReady(db: Db, deviceId: string): Promise<void> {
+        const { WitnessPlaySessionService } = await import('./WitnessPlaySessionService.js');
+        if (!(await WitnessPlaySessionService.householdReady(deviceId, db))) {
+            throw new WitnessPlayerError(
+                'DEVICE_NOT_READY',
+                'This device needs a newer Arcaid Witness (or Castcade) before more players can be added. Update it, open it once, then try again.',
+            );
+        }
+    }
+
     private static async ownerCount(db: Db, deviceId: string): Promise<number> {
         const n = await db.get<{ n: number }>(
             `SELECT COUNT(*) AS n FROM witness_device_players
@@ -401,25 +418,13 @@ export class WitnessDevicePlayersService {
         return n?.n ?? 0;
     }
 
-    private static async isPairingAccount(db: Db, deviceId: string, userId: string): Promise<boolean> {
-        return !!(await db.get(
-            `SELECT 1 FROM witness_devices WHERE atgames_unique_id = ? AND canonical_user_id = ?`,
-            deviceId, userId,
-        ));
-    }
-
     /** One activity row per room the device sends to (ADR 0037), like pairing and unpairing. */
     private static async recordActivity(deviceId: string, entry: {
         eventType: string; userId: string; actorUserId: string | null; summary: string;
     }): Promise<void> {
         try {
-            const db = await getDatabase();
-            const pairer = await db.get<{ canonical_user_id: string }>(
-                `SELECT canonical_user_id FROM witness_devices WHERE atgames_unique_id = ?`, deviceId,
-            );
-            const rooms = pairer
-                ? await ActivityLogService.roomsForDevice(deviceId, pairer.canonical_user_id).catch(() => [] as string[])
-                : [];
+            // The rooms of the person the row is about, by their own routing.
+            const rooms = await ActivityLogService.roomsForDevice(deviceId, entry.userId).catch(() => [] as string[]);
             for (const roomId of rooms.length > 0 ? rooms : [null]) {
                 void ActivityLogService.record({
                     roomId, category: 'device', eventType: entry.eventType,

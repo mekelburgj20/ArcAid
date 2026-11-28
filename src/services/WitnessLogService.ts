@@ -87,6 +87,15 @@ export interface SharedLog {
     expiresAt: string;
 }
 
+/**
+ * W131.1 (ADR 0045) - the requester (`r`) may still have the device's (`d`)
+ * logs: the account it is paired to, or one of its current owners.
+ */
+const REQUESTER_ENTITLED_SQL = `(d.canonical_user_id = r.canonical_user_id
+    OR EXISTS (SELECT 1 FROM witness_device_players p
+                WHERE p.device_id = r.atgames_unique_id AND p.canonical_user_id = r.canonical_user_id
+                  AND p.role = 'owner' AND p.removed_at IS NULL))`;
+
 interface LogRequestRow {
     id: string;
     atgames_unique_id: string;
@@ -377,32 +386,40 @@ export class WitnessLogService {
 
     /**
      * The heartbeat's `logs` field: the device's pending request id, or null.
-     * Only a request made by the device's CURRENT owner counts.
+     * Only a request made by someone still entitled to the device's logs
+     * counts: the account it is paired to, or (W131.1, ADR 0045) one of its
+     * current owners.
      */
     static async pendingForDevice(deviceId: string): Promise<string | null> {
         await WitnessLogService.sweep();
         const db = await getDatabase();
         const row = await db.get<{ id: string }>(
             `SELECT r.id FROM witness_log_requests r
-               JOIN witness_devices d ON d.atgames_unique_id = r.atgames_unique_id
-                                     AND d.canonical_user_id = r.canonical_user_id
-                                     AND d.revoked_at IS NULL
+               JOIN witness_devices d ON d.atgames_unique_id = r.atgames_unique_id AND d.revoked_at IS NULL
               WHERE r.atgames_unique_id = ? AND r.status = 'pending'
+                AND ${REQUESTER_ENTITLED_SQL}
               ORDER BY r.requested_at LIMIT 1`,
             deviceId,
         );
         return row && isLogRequestId(row.id) ? row.id : null;
     }
 
-    /** The pending request this device may answer: id + device + its current owner. */
-    private static async pendingFor(deviceId: string, canonicalUserId: string, requestId: string): Promise<LogRequestRow | null> {
+    /**
+     * The pending request this device may answer: id + device + a requester
+     * still entitled to its logs. The device token proves the device; WHO
+     * asked is the row's own `canonical_user_id`, never the device's account
+     * (a co-owner's request is answered by the same cabinet).
+     */
+    private static async pendingFor(deviceId: string, requestId: string): Promise<LogRequestRow | null> {
         if (!isLogRequestId(requestId)) return null;
         await WitnessLogService.sweep();
         const db = await getDatabase();
         const row = await db.get<LogRequestRow>(
-            `SELECT * FROM witness_log_requests
-              WHERE id = ? AND atgames_unique_id = ? AND canonical_user_id = ? AND status = 'pending'`,
-            requestId, deviceId, canonicalUserId,
+            `SELECT r.* FROM witness_log_requests r
+               JOIN witness_devices d ON d.atgames_unique_id = r.atgames_unique_id AND d.revoked_at IS NULL
+              WHERE r.id = ? AND r.atgames_unique_id = ? AND r.status = 'pending'
+                AND ${REQUESTER_ENTITLED_SQL}`,
+            requestId, deviceId,
         );
         return row ?? null;
     }
@@ -416,10 +433,13 @@ export class WitnessLogService {
      * second, racing upload can never overwrite or delete the stored bundle.
      */
     static async upload(
-        deviceId: string, canonicalUserId: string, requestId: string, body: Buffer | null,
+        deviceId: string, _canonicalUserId: string, requestId: string, body: Buffer | null,
     ): Promise<'ok' | 'no_request' | 'empty' | 'not_a_tar'> {
-        const pending = await WitnessLogService.pendingFor(deviceId, canonicalUserId, requestId);
+        const pending = await WitnessLogService.pendingFor(deviceId, requestId);
         if (!pending) return 'no_request';
+        // The bundle is the REQUESTER's (W131.1): replace their older ones and
+        // send on their behalf, whoever the device's account is.
+        const requester = pending.canonical_user_id;
         if (!body || body.length === 0) return 'empty';
         if (body.length > WITNESS_LOG_MAX_BYTES || !looksLikeTar(body)) return 'not_a_tar';
 
@@ -466,7 +486,7 @@ export class WitnessLogService {
                 `SELECT id FROM witness_log_requests
                   WHERE atgames_unique_id = ? AND canonical_user_id = ? AND status = 'ready'
                     AND shared_at IS NULL AND id <> ?`,
-                deviceId, canonicalUserId, requestId,
+                deviceId, requester, requestId,
             );
             for (const { id } of older) {
                 // Row first, still unsent: a bundle shared this instant keeps its file.
@@ -486,7 +506,7 @@ export class WitnessLogService {
                 `SELECT share_on_receipt FROM witness_log_requests WHERE id = ?`, requestId,
             );
             if (mark?.share_on_receipt === 1) {
-                await WitnessLogService.sendToSupport(canonicalUserId, requestId, null, { onReceipt: true });
+                await WitnessLogService.sendToSupport(requester, requestId, null, { onReceipt: true });
             }
         } catch (err) {
             logError(`Witness logs: bundle ${requestId} was not sent to Arcaid support on receipt`, err);
@@ -495,8 +515,8 @@ export class WitnessLogService {
     }
 
     /** The cabinet could not build the archive. False = no such pending request for this device. */
-    static async fail(deviceId: string, canonicalUserId: string, requestId: string, rawReason: unknown): Promise<boolean> {
-        const pending = await WitnessLogService.pendingFor(deviceId, canonicalUserId, requestId);
+    static async fail(deviceId: string, _canonicalUserId: string, requestId: string, rawReason: unknown): Promise<boolean> {
+        const pending = await WitnessLogService.pendingFor(deviceId, requestId);
         if (!pending) return false;
         const reason = typeof rawReason === 'string' && FAIL_REASON_RE.test(rawReason) ? rawReason : 'unknown';
         const db = await getDatabase();

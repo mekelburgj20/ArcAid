@@ -24,6 +24,10 @@ async function pair(user: string, deviceId = CAB): Promise<string> {
     const { W } = await svc();
     const { code } = await W.createPairingCode(user);
     const { token } = await W.redeemPairingCode(code, deviceId, null, 'atgames');
+    // W131.2 (ruling 5): a device takes a second player once its build has
+    // sent a clock offset; these tests are about the roles, so it has.
+    const db = await getDatabase();
+    await db.run(`UPDATE witness_devices SET clock_offset_at = datetime('now') WHERE atgames_unique_id = ?`, deviceId);
     return token;
 }
 
@@ -186,13 +190,13 @@ describe('W131.1 device players', () => {
         await expectCode(P.setRole(WIFE, CAB, WIFE, 'player'), 'LAST_OWNER');
     });
 
-    it('anyone may leave, except the pairing account (until W131.2) and the last owner', async () => {
+    it('anyone may leave except the last owner', async () => {
         const { P } = await svc();
         await pair(WIFE);
         await join(WIFE, HUSBAND);
         await P.removePlayer(HUSBAND, CAB, HUSBAND);
         expect(await P.roleOn(CAB, HUSBAND)).toBeNull();
-        await expectCode(P.removePlayer(WIFE, CAB, WIFE), 'PAIRING_ACCOUNT');
+        await expectCode(P.removePlayer(WIFE, CAB, WIFE), 'LAST_OWNER');
 
         // A rejoin reactivates the same row: same slot, own routing kept.
         const db = await getDatabase();

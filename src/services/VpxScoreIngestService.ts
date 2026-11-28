@@ -114,6 +114,12 @@ import {
 export type VpxScoreInput = {
     canonicalUserId: string;
     /**
+     * W131.2 (ADR 0045) - how `canonicalUserId` was decided on a shared device
+     * (`WitnessPlaySessionService.resolve`); stored on every trail row of the
+     * play. Absent = not recorded (a host reinstate, a test).
+     */
+    attribution?: { kind: import('./WitnessPlaySessionService.js').AttributionKind; sessionId: number | null } | null;
+    /**
      * What kind of machine posted this (v2.163.0): `'atgames'` is the cabinet
      * Witness (device `atgames`, legacy platform `vpxs`), `'desktop'` is the
      * Castcade companion on a Windows VPX rig (device `pc`, legacy platform
@@ -1535,6 +1541,7 @@ export class VpxScoreIngestService {
                 ballPoints: input.ballPoints ?? null,
                 quit: input.quit ?? null,
                 signature: VpxScoreIngestService.signatures.get(input) ?? null,
+                attribution: input.attribution ?? null,
             });
         } catch (err) {
             logWarn(`VPX ingest: evidence trail not written (${err instanceof Error ? err.message : String(err)})`);

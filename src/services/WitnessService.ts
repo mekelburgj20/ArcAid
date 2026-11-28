@@ -145,8 +145,14 @@ export interface WitnessDevice {
     lastScoreTable: string | null;
     /** W131.1 (ADR 0045) - the viewer's role on the device: `owner` manages it, `player` only plays. */
     role: 'owner' | 'player';
-    /** W131.1 - the viewer is the account that paired it (every play is credited to it until W131.2). */
+    /** W131.1 - the viewer is the account that paired it. */
     pairedByYou: boolean;
+    /** W131.2 - how many people are on the device (1 = not shared). */
+    playerCount: number;
+    /** W131.2 - who is playing now (the open session, else the default player); a label, never a raw id. */
+    playingAs: { userId: string; label: string | null; isDefault: boolean; isYou: boolean } | null;
+    /** W131.2 (ruling 5) - the device's build sends a clock offset, so it can take more players. */
+    householdReady: boolean;
 }
 
 /** W103 - see `WitnessDevice.watching`. */
@@ -745,13 +751,28 @@ export class WitnessService {
          */
         restarts?: number | null;
         partial?: boolean | null;
+        /** W131.2 - `player=<slot>` the device held at the launch (raw). */
+        player?: unknown;
+        /** W131.2 - `clock_offset` (raw): device clock + offset = server clock. */
+        clockOffset?: unknown;
+        /** W131.2 - set by the score ingest: the GAME's player, already decided. */
+        playerId?: string;
     }): Promise<boolean> {
         const deviceId = (input.atgamesUniqueId || '').trim();
         const table = (input.tableName || '').trim();
         if (!deviceId || !input.token || !table || !Number.isFinite(input.launchTs)) return false;
 
-        const device = await WitnessService.authenticateDevice(deviceId, input.token);
-        if (!device) return false;
+        const auth = await WitnessService.authenticateDevice(deviceId, input.token);
+        if (!auth) return false;
+        // W131.2 (ADR 0045) - the observation is filed under the PLAY's player.
+        // The verify join matches by device as well (a session is a fact about
+        // the cabinet), so this only decides whose history it reads as.
+        const device = {
+            ...auth,
+            canonical_user_id: input.playerId ?? (await WitnessService.attribute(deviceId, auth, {
+                slot: input.player, startedTs: input.launchTs, clockOffset: input.clockOffset,
+            })).userId,
+        };
 
         const db = await getDatabase();
         const launch = Math.floor(input.launchTs);
@@ -823,12 +844,22 @@ export class WitnessService {
      * 401. Repeated check-ins are expected and are NOT deduped: each one is
      * another attestation point, and more of them can only ever help.
      */
-    static async recordCheckin(atgamesUniqueId: string, token: string, appVersion?: unknown, modelInput: DeviceModelInput = {}): Promise<{ ts: string; canonicalUserId: string } | null> {
+    static async recordCheckin(
+        atgamesUniqueId: string, token: string, appVersion?: unknown, modelInput: DeviceModelInput = {},
+        opts: { clockOffset?: unknown } = {},
+    ): Promise<{ ts: string; canonicalUserId: string } | null> {
         const deviceId = (atgamesUniqueId || '').trim();
         if (!deviceId || !token) return null;
 
-        const device = await WitnessService.authenticateDevice(deviceId, token);
-        if (!device) return null;
+        const auth = await WitnessService.authenticateDevice(deviceId, token);
+        if (!auth) return null;
+        // W131.2 - a check-in is filed under who is playing NOW on the server's
+        // session (it proves the cabinet idle, which the verify join credits
+        // to everyone on it), so a switch made on the web shows here at once.
+        const device = {
+            ...auth,
+            canonical_user_id: (await WitnessService.attribute(deviceId, auth, { clockOffset: opts.clockOffset })).userId,
+        };
 
         const db = await getDatabase();
         const res = await db.run(
@@ -893,17 +924,29 @@ export class WitnessService {
         quit?: import('../utils/quitEvidence.js').QuitEvidence | null;
         /** W72 (v2.205.0) - the launcher's raw scoreserver line (`record=`), signed by the LU ScoreServer; null when not sent. */
         forwardedRecord?: string | null;
+        /** W131.2 - `player=<slot>` the device held at game start (raw). */
+        player?: unknown;
+        /** W131.2 - `clock_offset` (raw): device clock + offset = server clock. */
+        clockOffset?: unknown;
     }): Promise<(import('./VpxScoreIngestService.js').VpxIngestResult & { deviceType: WitnessDeviceType }) | null> {
         const deviceId = (input.atgamesUniqueId || '').trim();
         if (!deviceId || !input.token) return null;
 
-        const device = await WitnessService.authenticateDevice(deviceId, input.token);
-        if (!device) return null;
+        const auth = await WitnessService.authenticateDevice(deviceId, input.token);
+        if (!auth) return null;
+        // W131.2 (ADR 0045) - the score is the PLAY's player's: everything below
+        // (routing, matching, attempts, boards, Global, the trail) is theirs.
+        const attribution = await WitnessService.attribute(deviceId, auth, {
+            slot: input.player, attemptKey: input.attemptKey ?? null,
+            startedTs: input.startedTs, clockOffset: input.clockOffset,
+        });
+        const device = { ...auth, canonical_user_id: attribution.userId };
 
         const { VpxScoreIngestService } = await import('./VpxScoreIngestService.js');
-        const target = await WitnessService.getDeviceTarget(deviceId);
+        const target = await WitnessService.getDeviceTarget(deviceId, device.canonical_user_id);
         const ingested = await VpxScoreIngestService.ingest({
             canonicalUserId: device.canonical_user_id,
+            attribution: { kind: attribution.kind, sessionId: attribution.sessionId },
             // v2.163.0 — what kind of machine this is decides the score's
             // `device`/`platform` provenance (cabinet → atgames/vpxs, desktop →
             // pc/vpx). Never inferred from the table or the name.
@@ -946,6 +989,7 @@ export class WitnessService {
             await WitnessService.recordObservation({
                 atgamesUniqueId: deviceId,
                 token: input.token,
+                playerId: device.canonical_user_id,
                 tableName: (input.tableName || '').trim(),
                 launchTs: Math.floor(input.startedTs),
                 exitTs: Math.floor(input.endedTs),
@@ -1007,6 +1051,10 @@ export class WitnessService {
         endedTs?: number | null;
         /** Cabinet only: `no_score` | `short_game` — stored as the row's note. */
         reason?: string | null;
+        /** W131.2 - `player=<slot>` the device held at game start (raw). */
+        player?: unknown;
+        /** W131.2 - `clock_offset` (raw): device clock + offset = server clock. */
+        clockOffset?: unknown;
     }): Promise<{
         status: 'counted' | 'over_limit' | 'unlimited' | 'no_match' | 'invalid';
         game: string | null;
@@ -1021,8 +1069,8 @@ export class WitnessService {
         const deviceId = (input.atgamesUniqueId || '').trim();
         if (!deviceId || !input.token) return null;
 
-        const device = await WitnessService.authenticateDevice(deviceId, input.token);
-        if (!device) return null;
+        const auth = await WitnessService.authenticateDevice(deviceId, input.token);
+        if (!auth) return null;
 
         const empty = { game: null, attempt: null, of: null, remaining: null, late: false };
         const startedTs = Math.floor(Number(input.startedTs));
@@ -1031,9 +1079,17 @@ export class WitnessService {
             await WitnessService.touchDevice(deviceId);
             return { status: 'invalid', ...empty, reason: !key ? 'key missing' : 'start timestamp missing' };
         }
+        // W131.2 (ADR 0045) - the START is the play's player's; a resend of the
+        // same key keeps the player it was first credited to.
+        const device = {
+            ...auth,
+            canonical_user_id: (await WitnessService.attribute(deviceId, auth, {
+                slot: input.player, attemptKey: key, startedTs, clockOffset: input.clockOffset,
+            })).userId,
+        };
 
         const { VpxScoreIngestService } = await import('./VpxScoreIngestService.js');
-        const target = await WitnessService.getDeviceTarget(deviceId);
+        const target = await WitnessService.getDeviceTarget(deviceId, device.canonical_user_id);
         const tableName = (input.tableName || '').trim();
         const matched = await VpxScoreIngestService.match({
             canonicalUserId: device.canonical_user_id,
@@ -1158,6 +1214,10 @@ export class WitnessService {
         evidence?: import('../utils/sanctionedRules.js').WitnessEvidence | null;
         playDevice?: import('./VpxScoreIngestService.js').PlayDevice | null;
         nowSec?: number;
+        /** W131.2 - `player=<slot>` the device holds (raw). */
+        player?: unknown;
+        /** W131.2 - `clock_offset` (raw). */
+        clockOffset?: unknown;
     }): Promise<{
         canonicalUserId: string;
         status: 'started' | 'nothing_to_start' | 'no_match';
@@ -1167,14 +1227,19 @@ export class WitnessService {
         const deviceId = (input.atgamesUniqueId || '').trim();
         if (!deviceId || !input.token) return null;
 
-        const device = await WitnessService.authenticateDevice(deviceId, input.token);
-        if (!device) return null;
+        const auth = await WitnessService.authenticateDevice(deviceId, input.token);
+        if (!auth) return null;
+        // W131.2 (ADR 0045) - the press is for whoever is playing now.
+        const device = {
+            ...auth,
+            canonical_user_id: (await WitnessService.attribute(deviceId, auth, { slot: input.player, clockOffset: input.clockOffset })).userId,
+        };
 
         const nowSec = input.nowSec ?? Math.floor(Date.now() / 1000);
         const canonicalUserId = device.canonical_user_id;
         const { VpxScoreIngestService } = await import('./VpxScoreIngestService.js');
         const { AttemptService } = await import('./AttemptService.js');
-        const target = await WitnessService.getDeviceTarget(deviceId);
+        const target = await WitnessService.getDeviceTarget(deviceId, canonicalUserId);
 
         const open = (await VpxScoreIngestService.openLimitedGames({
             canonicalUserId, target, deviceType: device.device_type, playDevice: input.playDevice, nowTs: nowSec,
@@ -1237,6 +1302,35 @@ export class WitnessService {
             );
         }
         return { canonicalUserId, status: 'started', started };
+    }
+
+    /**
+     * W131.2 (ADR 0045) - whose play a device report is. Called once per
+     * report right after `authenticateDevice`; every path then uses the
+     * returned account in place of the device's pairing account. A device
+     * with one person on it gets that person (`only`), as before. Also stamps
+     * the device as sending a clock offset (ruling 5). Never throws.
+     */
+    private static async attribute(
+        deviceId: string,
+        auth: { canonical_user_id: string },
+        hints: { slot?: unknown; attemptKey?: string | null; startedTs?: number | null; clockOffset?: unknown } = {},
+    ): Promise<import('./WitnessPlaySessionService.js').PlayAttribution> {
+        try {
+            const { WitnessPlaySessionService, parseClockOffset, parsePlayerSlot } = await import('./WitnessPlaySessionService.js');
+            const clockOffset = parseClockOffset(hints.clockOffset);
+            await WitnessPlaySessionService.noteClockOffset(deviceId, clockOffset);
+            const resolved = await WitnessPlaySessionService.resolve(deviceId, {
+                slot: parsePlayerSlot(hints.slot),
+                attemptKey: hints.attemptKey ?? null,
+                startedTs: hints.startedTs ?? null,
+                clockOffset,
+            });
+            if (resolved) return resolved;
+        } catch (err) {
+            logWarn(`Witness: attribution failed for ${deviceId} (${err instanceof Error ? err.message : String(err)})`);
+        }
+        return { userId: auth.canonical_user_id, kind: 'only', sessionId: null };
     }
 
     /**
@@ -1303,11 +1397,18 @@ export class WitnessService {
     static async recordHeartbeat(
         atgamesUniqueId: string, token: string, appVersion?: unknown, modelInput: DeviceModelInput = {},
         stagedVersion?: unknown,
+        opts: { clockOffset?: unknown } = {},
     ): Promise<{ canonicalUserId: string } | null> {
         const deviceId = (atgamesUniqueId || '').trim();
         if (!deviceId || !token) return null;
-        const device = await WitnessService.authenticateDevice(deviceId, token);
-        if (!device) return null;
+        const auth = await WitnessService.authenticateDevice(deviceId, token);
+        if (!auth) return null;
+        // W131.2 - the heartbeat speaks for whoever is playing now on the
+        // server's session (how a switch made on the web reaches the device).
+        const device = {
+            ...auth,
+            canonical_user_id: (await WitnessService.attribute(deviceId, auth, { clockOffset: opts.clockOffset })).userId,
+        };
         const db = await getDatabase();
         // G14 (ADR 0037) - an online TRANSITION only: a heartbeat after none, or
         // after the stale window (HEARTBEAT_STALE_SEC, the lobby's own rule).
@@ -1550,15 +1651,19 @@ export class WitnessService {
      * rotation is not finished, so a designation pointing at one holds.
      *
      * W131.1 (ADR 0045): routing is each PLAYER's own, on their
-     * `witness_device_players` row. `playerId` names whose; omitted, it is the
-     * account the device's plays are credited to (today the account that
-     * paired it; W131.2 makes it the session's player). A person not on the
-     * device gets the defaults.
+     * `witness_device_players` row. `playerId` names whose; omitted, it is
+     * whoever is playing on the device NOW (W131.2: the open session, else the
+     * default player). A person not on the device gets the defaults.
      */
     static async getDeviceTarget(deviceId: string, playerId?: string | null): Promise<{
         roomId: string | null; tournamentId: string | null; globalOnly: boolean; globalFallback: boolean;
     }> {
         const db = await getDatabase();
+        if (!playerId) {
+            const { WitnessPlaySessionService } = await import('./WitnessPlaySessionService.js');
+            playerId = (await WitnessPlaySessionService.openSession(deviceId, db))?.userId
+                ?? await WitnessPlaySessionService.defaultPlayer(deviceId, db);
+        }
         const row = await db.get<{
             target_room_id: string | null; target_tournament_id: string | null;
             global_only: number; global_fallback: number; tournament_finished: number | null;
@@ -1659,8 +1764,8 @@ export class WitnessService {
      * moment they open the Witness to check in, rather than discovering it when
      * their scores are missing from tonight's board.
      */
-    static async describeTarget(deviceId: string): Promise<string> {
-        const target = await WitnessService.getDeviceTarget(deviceId);
+    static async describeTarget(deviceId: string, playerId?: string | null): Promise<string> {
+        const target = await WitnessService.getDeviceTarget(deviceId, playerId);
         // v2.175.0 (W37): no room = All my rooms (the default) unless the
         // player opted out to the Global Scoreboard only.
         if (!target.roomId) return target.globalOnly ? 'Global Scoreboard only' : 'All your rooms';
@@ -1693,13 +1798,16 @@ export class WitnessService {
             device_model: string | null; device_model_name: string | null;
             auto_update: number; test_builds: number; staged_version: string | null;
             heartbeat_at: string | null; heartbeat_fresh: number | null;
-            role: string; paired_by_you: number;
+            role: string; paired_by_you: number; clock_offset_at: string | null; player_count: number;
         }>>(
             `SELECT d.atgames_unique_id, d.atgames_username, d.device_type, d.paired_at, d.last_seen_at,
                     p.target_room_id, r.name AS room_name,
                     p.target_tournament_id, t.name AS tournament_name,
                     p.global_only, p.global_fallback, d.app_version, d.app_version_at,
                     p.role, (d.canonical_user_id = p.canonical_user_id) AS paired_by_you,
+                    d.clock_offset_at,
+                    (SELECT COUNT(*) FROM witness_device_players q
+                      WHERE q.device_id = d.atgames_unique_id AND q.removed_at IS NULL) AS player_count,
                     d.device_model, d.device_model_name,
                     d.auto_update, d.test_builds, d.staged_version,
                     d.heartbeat_at,
@@ -1736,6 +1844,10 @@ export class WitnessService {
         const releases = rows.some(r => r.device_type === 'atgames')
             ? await WitnessReleaseService.offerableReleases()
             : [];
+        // W131.2 - who is playing on each device now (labels resolved at read).
+        const { WitnessPlaySessionService } = await import('./WitnessPlaySessionService.js');
+        const playing = new Map<string, Awaited<ReturnType<typeof WitnessPlaySessionService.playingAs>>>();
+        for (const r of rows) playing.set(r.atgames_unique_id, await WitnessPlaySessionService.playingAs(r.atgames_unique_id).catch(() => null));
         // A staged build no newer than the running one has started, so it is not staged any more.
         const stagedOf = (r: (typeof rows)[number]): string | null =>
             r.staged_version && (!r.app_version || compareVersions(r.staged_version, r.app_version) > 0)
@@ -1773,6 +1885,12 @@ export class WitnessService {
             lastScoreTable: lastScores.get(r.atgames_unique_id)?.table_name ?? null,
             role: r.role === 'owner' ? 'owner' : 'player',
             pairedByYou: r.paired_by_you === 1,
+            playerCount: r.player_count,
+            playingAs: (() => {
+                const p = playing.get(r.atgames_unique_id);
+                return p ? { userId: p.userId, label: p.label, isDefault: p.isDefault, isYou: p.userId === canonicalUserId } : null;
+            })(),
+            householdReady: !!r.clock_offset_at,
         }));
     }
 

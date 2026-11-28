@@ -232,17 +232,17 @@ export class EventLobbyService {
             atgames_unique_id: string; canonical_user_id: string; last_seen_at: string | null; heartbeat_at: string | null;
             target_room_id: string | null; target_tournament_id: string | null; global_only: number; device_type: string | null;
         }>>(
-            // W131.1 (ADR 0045): routing is on the player row of the account
-            // the device's plays are credited to (the pairing account until
-            // W131.2); no row reads as the defaults (All my rooms).
-            `SELECT d.atgames_unique_id, d.canonical_user_id, d.last_seen_at, d.heartbeat_at, p.target_room_id,
-                    COALESCE(p.global_only, 0) AS global_only, d.device_type,
+            // W131.1/W131.2 (ADR 0045): every device a participant is ON (a
+            // shared cabinet grades for each of its players), with THAT
+            // player's routing. A check-in proves the cabinet idle for all of
+            // them, the same rule as the verify join.
+            `SELECT d.atgames_unique_id, p.canonical_user_id, d.last_seen_at, d.heartbeat_at, p.target_room_id,
+                    p.global_only, d.device_type,
                     CASE WHEN ${tournamentFinishedSql('t')} THEN NULL ELSE p.target_tournament_id END AS target_tournament_id
-               FROM witness_devices d
-               LEFT JOIN witness_device_players p
-                 ON p.device_id = d.atgames_unique_id AND p.canonical_user_id = d.canonical_user_id AND p.removed_at IS NULL
+               FROM witness_device_players p
+               JOIN witness_devices d ON d.atgames_unique_id = p.device_id AND d.revoked_at IS NULL
                LEFT JOIN tournaments t ON t.id = p.target_tournament_id
-              WHERE d.revoked_at IS NULL AND d.canonical_user_id IN (${placeholders})`,
+              WHERE p.removed_at IS NULL AND p.canonical_user_id IN (${placeholders})`,
             ...ids,
         );
         const deviceIds = devices.map(d => d.atgames_unique_id);

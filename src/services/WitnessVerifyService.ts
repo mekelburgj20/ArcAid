@@ -142,6 +142,7 @@ export const JOIN_TOLERANCE_SEC = 120;
 export const LAUNCH_GRACE_SEC = 15;
 
 interface ObservationRow {
+    atgames_unique_id: string;
     canonical_user_id: string;
     table_name: string;
     launch_ts: number;
@@ -161,6 +162,7 @@ const UNWITNESSED: WitnessVerdict = {
 };
 
 interface CheckinRow {
+    atgames_unique_id: string;
     canonical_user_id: string;
     /** `server_ts` as epoch seconds — the server's clock, never the device's. */
     ts: number;
@@ -215,13 +217,34 @@ export class WitnessVerifyService {
         // round trips as there are players on a busy round.
         const db = await getDatabase();
         const placeholders = allOwners.map(() => '?').join(', ');
+
+        // W131.2 (ADR 0045) - a table session and a check-in are facts about the
+        // CABINET, so they count for everyone on it, whoever it was "playing
+        // as" (an AtGames-native score on a shared cabinet is the family's
+        // AtGames account's, not the session's). Each identity's devices: every
+        // device its owners are, or were, on.
+        const membership = await db.all<Array<{ device_id: string; canonical_user_id: string }>>(
+            `SELECT DISTINCT device_id, canonical_user_id FROM witness_device_players
+              WHERE canonical_user_id IN (${placeholders})`,
+            ...allOwners,
+        );
+        const devicesByKey = new Map<string, Set<string>>();
+        for (const [key, owners] of ownersByKey) {
+            devicesByKey.set(key, new Set(membership.filter(m => owners.has(m.canonical_user_id)).map(m => m.device_id)));
+        }
+        const allDevices = [...new Set(membership.map(m => m.device_id))];
+        const devicePlaceholders = allDevices.map(() => '?').join(', ');
+        const byDevice = allDevices.length > 0 ? ` OR atgames_unique_id IN (${devicePlaceholders})` : '';
+        const counts = (key: string, row: { atgames_unique_id: string; canonical_user_id: string }): boolean =>
+            ownersByKey.get(key)!.has(row.canonical_user_id) || devicesByKey.get(key)!.has(row.atgames_unique_id);
+
         const observations = await db.all<ObservationRow[]>(
-            `SELECT canonical_user_id, table_name, launch_ts, exit_ts, duration_sec, via, kind, sample, restarts, partial
+            `SELECT atgames_unique_id, canonical_user_id, table_name, launch_ts, exit_ts, duration_sec, via, kind, sample, restarts, partial
                FROM witness_observations
               WHERE exit_ts IS NOT NULL
                 AND exit_ts BETWEEN ? AND ?
-                AND canonical_user_id IN (${placeholders})`,
-            lo, hi, ...allOwners,
+                AND (canonical_user_id IN (${placeholders})${byDevice})`,
+            lo, hi, ...allOwners, ...allDevices,
         );
 
         // --- Tier 1: join a table SESSION -----------------------------------
@@ -231,13 +254,12 @@ export class WitnessVerifyService {
         // nothing upgrades them the neutral verdict still says what it was.
         const exitSampleEarly = new Set<number>();
         for (const { row, i } of eligible) {
-            const owners = ownersByKey.get(row.identityKey)!;
             const createdEpoch = row.createdEpoch!;
 
             let best: ObservationRow | null = null;
             let bestDelta = Number.POSITIVE_INFINITY;
             for (const obs of observations) {
-                if (!owners.has(obs.canonical_user_id)) continue;
+                if (!counts(row.identityKey, obs)) continue;
                 const delta = Math.abs(obs.exit_ts - createdEpoch);
                 if (delta > JOIN_TOLERANCE_SEC) continue;
                 // Nearest exit wins. On a TIE the GAME row beats the SESSION
@@ -299,11 +321,10 @@ export class WitnessVerifyService {
         // UPGRADE an `unwitnessed`, never produce a `flagged` of its own.
         if (unresolved.length > 0) {
             const checkins = await WitnessVerifyService.loadCheckins(
-                db, allOwners, roundStartEpoch - LAUNCH_GRACE_SEC, Math.max(...epochs),
+                db, allOwners, allDevices, roundStartEpoch - LAUNCH_GRACE_SEC, Math.max(...epochs),
             );
 
             for (const { row, i } of unresolved) {
-                const owners = ownersByKey.get(row.identityKey)!;
                 const createdEpoch = row.createdEpoch!;
 
                 // The nearest qualifying check-in BEFORE the score exited: the
@@ -311,7 +332,7 @@ export class WitnessVerifyService {
                 // landed", the less room there is for anything in between.
                 let bestTs: number | null = null;
                 for (const checkin of checkins) {
-                    if (!owners.has(checkin.canonical_user_id)) continue;
+                    if (!counts(row.identityKey, checkin)) continue;
                     // A check-in AFTER the score exited proves nothing about
                     // it, and one from BEFORE the round opened proves nothing
                     // either (the cabinet could have been idle then and busy
@@ -348,16 +369,19 @@ export class WitnessVerifyService {
     private static async loadCheckins(
         db: Awaited<ReturnType<typeof getDatabase>>,
         owners: string[],
+        devices: string[],
         loEpoch: number,
         hiEpoch: number,
     ): Promise<CheckinRow[]> {
         const placeholders = owners.map(() => '?').join(', ');
+        // W131.2 - a check-in proves the CABINET idle: it counts for everyone on it.
+        const byDevice = devices.length > 0 ? ` OR atgames_unique_id IN (${devices.map(() => '?').join(', ')})` : '';
         return db.all<CheckinRow[]>(
-            `SELECT canonical_user_id, CAST(strftime('%s', server_ts) AS INTEGER) AS ts
+            `SELECT atgames_unique_id, canonical_user_id, CAST(strftime('%s', server_ts) AS INTEGER) AS ts
                FROM witness_checkins
-              WHERE canonical_user_id IN (${placeholders})
+              WHERE (canonical_user_id IN (${placeholders})${byDevice})
                 AND CAST(strftime('%s', server_ts) AS INTEGER) BETWEEN ? AND ?`,
-            ...owners, loEpoch, hiEpoch,
+            ...owners, ...devices, loEpoch, hiEpoch,
         );
     }
 }

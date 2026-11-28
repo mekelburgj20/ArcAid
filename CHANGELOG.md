@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.287.0] - 2026-11-28 - Each Witness play belongs to whoever was playing
+
+### Added
+- **A shared Arcaid Witness device now credits each play to the person who was playing** (W131.2, ADR 0045, `docs/shared-device-plan.md` §4-§5). Anyone on a device can choose who is playing, on arcaid.app or (with a cabinet build that supports it) on the cabinet itself; a play belongs to whoever was chosen when the GAME STARTED, on the server's clock, so a game reported late or a cabinet clock that is hours wrong still lands on the right person. With nobody chosen, the device's default player plays (an owner can choose who that is). A device with one person on it behaves exactly as before. Server only: the screens come with W131.3, and the cabinet and Castcade releases that send who is playing (W131.5, W131.6) come after.
+- **A device takes a second player only once its build can tell the server its clock.** Until a device has sent its clock offset, adding a player is refused with "This device needs a newer Arcaid Witness (or Castcade)".
+
+### Changed
+- **A Witness ✓ on a shared cabinet counts for everyone on it.** A table session and a check-in are facts about the cabinet, so an AtGames score keeps its ✓ whoever the cabinet was set to.
+- **The account that paired a device can now leave it**, like any other owner, as long as another owner stays.
+
+### Fixed
+- **A co-owner's request for a cabinet's logs now reaches the cabinet.** Since 2.286.0 such a request was accepted but never offered to the device (nobody could hit this yet: there is no screen for co-owners).
+
 ## [2.286.3] - 2026-11-28 - "Start attempts" and "Resume attempts" on dark tiles too
 
 ### Changed

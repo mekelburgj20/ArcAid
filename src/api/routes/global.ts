@@ -466,6 +466,64 @@ router.get('/me/witness/device-invites/:code', requireDiscordUser, async (req, r
     }
 });
 
+// W131.2 (ADR 0045, docs/shared-device-plan.md §4) - who is playing on a
+// shared device. Anyone on it may see and switch it (to anyone on it); an
+// owner chooses who plays when nobody chose.
+async function sendSessionError(res: express.Response, err: unknown, route: string): Promise<void> {
+    const { WitnessPlaySessionError } = await import('../../services/WitnessPlaySessionService.js');
+    if (err instanceof WitnessPlaySessionError) {
+        res.status(err.code === 'NOT_FOUND' ? 404 : err.code === 'NOT_OWNER' ? 403 : 400)
+            .json({ error: err.message, code: err.code });
+        return;
+    }
+    logError(`API Error (${route}):`, err);
+    res.status(500).json({ error: 'Internal Server Error' });
+}
+
+router.get('/me/witness/devices/:deviceId/session', requireDiscordUser, async (req, res) => {
+    try {
+        const deviceId = req.params.deviceId as string;
+        const { WitnessDevicePlayersService } = await import('../../services/WitnessDevicePlayersService.js');
+        if (!(await WitnessDevicePlayersService.roleOn(deviceId, req.user!.discordId!))) {
+            return res.status(404).json({ error: 'No such device on your account', code: 'NOT_FOUND' });
+        }
+        const { WitnessPlaySessionService } = await import('../../services/WitnessPlaySessionService.js');
+        res.json({ playingAs: await WitnessPlaySessionService.playingAs(deviceId) });
+    } catch (error) {
+        await sendSessionError(res, error, 'GET /api/me/witness/devices/:deviceId/session');
+    }
+});
+
+router.post('/me/witness/devices/:deviceId/session', writeLimiter, requireDiscordUser, async (req, res) => {
+    try {
+        const userId = (req.body ?? {}).userId;
+        if (typeof userId !== 'string' || !userId) {
+            return res.status(400).json({ error: 'userId is required', code: 'INVALID_BODY' });
+        }
+        const { WitnessPlaySessionService } = await import('../../services/WitnessPlaySessionService.js');
+        const playingAs = await WitnessPlaySessionService.switchTo({
+            deviceId: req.params.deviceId as string, targetUserId: userId, actorId: req.user!.discordId!, via: 'web',
+        });
+        res.json({ success: true, playingAs });
+    } catch (error) {
+        await sendSessionError(res, error, 'POST /api/me/witness/devices/:deviceId/session');
+    }
+});
+
+router.patch('/me/witness/devices/:deviceId/default-player', writeLimiter, requireDiscordUser, async (req, res) => {
+    try {
+        const userId = (req.body ?? {}).userId;
+        if (typeof userId !== 'string' || !userId) {
+            return res.status(400).json({ error: 'userId is required', code: 'INVALID_BODY' });
+        }
+        const { WitnessPlaySessionService } = await import('../../services/WitnessPlaySessionService.js');
+        await WitnessPlaySessionService.setDefaultPlayer(req.user!.discordId!, req.params.deviceId as string, userId);
+        res.json({ success: true });
+    } catch (error) {
+        await sendSessionError(res, error, 'PATCH /api/me/witness/devices/:deviceId/default-player');
+    }
+});
+
 router.post('/me/witness/device-invites/:code/accept', writeLimiter, requireDiscordUser, async (req, res) => {
     try {
         const { WitnessDevicePlayersService } = await import('../../services/WitnessDevicePlayersService.js');
@@ -671,7 +729,8 @@ router.get('/witness/pair', witnessIngestLimiter, async (req, res) => {
         try {
             const { token, account } = await WitnessService.redeemPairingCode(code, device, username, type, { model: req.query.model, modelName: req.query.model_name });
             // W105 E4 (v2.250.0): `account` as on the pair-by-phone poll; omitted when unknown.
-            return res.json({ ok: true, token, ...(account ? { account } : {}) });
+            // W131.2: `now` (server unix seconds) so a fresh pairing can work out its clock offset at once.
+            return res.json({ ok: true, token, ...(account ? { account } : {}), now: String(Math.floor(Date.now() / 1000)) });
         } catch (err) {
             if (err instanceof WitnessPairError) {
                 return res.status(400).json({ ok: false, error: err.message, code: err.code });
@@ -758,6 +817,8 @@ router.get('/witness/report', witnessIngestLimiter, async (req, res) => {
 
         const ok = await WitnessService.recordObservation({
             atgamesUniqueId: device, token, tableName: table, launchTs, exitTs, durationSec, via,
+            // W131.2 (ADR 0045) - optional; who the device held, and its clock offset.
+            player: req.query.player, clockOffset: req.query.clock_offset,
         });
         // One 401 for unknown device / bad token / revoked — never says which.
         if (!ok) return res.status(401).json({ ok: false });
@@ -767,6 +828,39 @@ router.get('/witness/report', witnessIngestLimiter, async (req, res) => {
         res.status(500).json({ ok: false });
     }
 });
+
+/**
+ * W131.2 (ADR 0045) - what device answers carry for a shared device: `now`
+ * (unix seconds on the SERVER's clock, the name the tile already uses; the
+ * device works out its `clock_offset` from it), and, only when more than one
+ * person is on the device, who is playing now on the server's session
+ * (`playingAs`, the picker's cabinet-safe label; `playerSlot`, what to send as
+ * `player=`), so a switch made on the web reaches the device in its next
+ * call. Nothing that does not apply is sent; flat quote-free strings for the
+ * cabinet's naive reader. Best-effort: a failure leaves only `now`.
+ */
+async function witnessPlayingAs(
+    deviceId: string, req: Request, opts: { now?: boolean } = {},
+): Promise<{ userId: string | null; fields: Record<string, string> }> {
+    const fields: Record<string, string> = opts.now === false ? {} : { now: String(Math.floor(Date.now() / 1000)) };
+    try {
+        const { WitnessPlaySessionService, parseClockOffset } = await import('../../services/WitnessPlaySessionService.js');
+        const id = deviceId.trim();
+        await WitnessPlaySessionService.noteClockOffset(id, parseClockOffset(req.query.clock_offset));
+        const playing = await WitnessPlaySessionService.playingAs(id);
+        if (!playing) return { userId: null, fields };
+        const picker = await WitnessPlaySessionService.pickerFor(id);
+        const me = picker.length > 1 ? picker.find(p => p.playing) : undefined;
+        if (me) {
+            fields.playingAs = me.label;
+            fields.playerSlot = me.slot;
+        }
+        return { userId: playing.userId, fields };
+    } catch (err) {
+        logError('Witness: playing-as step failed (the call itself succeeded)', err);
+        return { userId: null, fields };
+    }
+}
 
 /**
  * 2026-10-25 — the limited-attempts suffix on the "Sending to" line ("· 7 OF 10
@@ -794,7 +888,7 @@ async function witnessHeartbeatSendingTo(device: string, canonicalUserId: string
     let sendingTo = '';
     try {
         const { WitnessService } = await import('../../services/WitnessService.js');
-        sendingTo = await WitnessService.describeTarget(device);
+        sendingTo = await WitnessService.describeTarget(device, canonicalUserId);
         const { EventLobbyService } = await import('../../services/EventLobbyService.js');
         sendingTo += EventLobbyService.cabinetLine(
             await EventLobbyService.lobbyFromHeartbeat(device, canonicalUserId),
@@ -817,12 +911,16 @@ router.get('/witness/checkin', witnessIngestLimiter, async (req, res) => {
         const token = (typeof req.query.token === 'string' && req.query.token)
             || (typeof req.headers['x-witness-token'] === 'string' ? req.headers['x-witness-token'] as string : '');
 
-        const result = await WitnessService.recordCheckin(device, token, req.query.v, { model: req.query.model, modelName: req.query.model_name });
+        const result = await WitnessService.recordCheckin(
+            device, token, req.query.v, { model: req.query.model, modelName: req.query.model_name },
+            { clockOffset: req.query.clock_offset },
+        );
         if (!result) return res.status(401).json({ ok: false });
         // `sendingTo` rides back on the check-in because that is the moment a
         // player is looking at the cabinet: it is how a stale designation gets
-        // noticed before the round rather than after it (P9b).
-        let sendingTo = await WitnessService.describeTarget(device).catch(() => '');
+        // noticed before the round rather than after it (P9b). W131.2: the
+        // routing of whoever is playing now.
+        let sendingTo = await WitnessService.describeTarget(device, result.canonicalUserId).catch(() => '');
         // v2.159.0 — the tile IS the event check-in for a cabinet designated to
         // an event whose window is open, and the player's green light rides
         // back on the same line so they see it on the cabinet, not a phone.
@@ -836,7 +934,8 @@ router.get('/witness/checkin', witnessIngestLimiter, async (req, res) => {
             logError('Witness check-in: event lobby step failed (check-in itself succeeded)', err);
         }
         sendingTo += await witnessAttemptsSuffix(device, result.canonicalUserId);
-        res.json({ ok: true, ts: result.ts, sendingTo });
+        const playing = await witnessPlayingAs(device, req);
+        res.json({ ok: true, ts: result.ts, sendingTo, ...playing.fields });
     } catch (error) {
         logError('API Error (GET /api/witness/checkin)');
         res.status(500).json({ ok: false });
@@ -869,11 +968,13 @@ router.get('/witness/heartbeat', witnessIngestLimiter, async (req, res) => {
             || (typeof req.headers['x-witness-token'] === 'string' ? req.headers['x-witness-token'] as string : '');
         const beat = await WitnessService.recordHeartbeat(
             device, token, req.query.v, { model: req.query.model, modelName: req.query.model_name }, req.query.staged,
+            { clockOffset: req.query.clock_offset },
         );
         if (!beat) return res.status(401).json({ ok: false });
         const sendingTo = await witnessHeartbeatSendingTo(device, beat.canonicalUserId);
         const extras = await witnessHeartbeatExtras(device.trim(), req.query.v);
-        res.json({ ok: true, sendingTo, ...extras });
+        const playing = await witnessPlayingAs(device, req);
+        res.json({ ok: true, sendingTo, ...extras, ...playing.fields });
     } catch (error) {
         logError('API Error (GET /api/witness/heartbeat)');
         res.status(500).json({ ok: false });
@@ -1101,6 +1202,9 @@ router.get('/witness/score', witnessIngestLimiter, async (req, res) => {
         const result = await WitnessService.recordVpxScore({
             atgamesUniqueId: device,
             token,
+            // W131.2 (ADR 0045) - optional; who the device held at game start, and its clock offset.
+            player: req.query.player,
+            clockOffset: req.query.clock_offset,
             tableName: deviceNameParam(req.query.table),
             rom: optionalDeviceNameParam(req.query.rom),
             slug: typeof req.query.slug === 'string' ? req.query.slug : null,
@@ -1235,6 +1339,9 @@ router.get('/witness/attempt', witnessIngestLimiter, async (req, res) => {
         const result = await WitnessService.recordAttempt({
             atgamesUniqueId: device,
             token,
+            // W131.2 (ADR 0045) - optional; who the device held at game start, and its clock offset.
+            player: req.query.player,
+            clockOffset: req.query.clock_offset,
             tableName: deviceNameParam(req.query.table),
             rom: optionalDeviceNameParam(req.query.rom),
             slug: typeof req.query.slug === 'string' ? req.query.slug : null,
@@ -1286,6 +1393,9 @@ router.get('/witness/attempt-start', witnessIngestLimiter, async (req, res) => {
         const result = await WitnessService.startAttemptsFromDevice({
             atgamesUniqueId: device,
             token,
+            // W131.2 (ADR 0045) - optional; who the device holds, and its clock offset.
+            player: req.query.player,
+            clockOffset: req.query.clock_offset,
             tableName: deviceNameParam(req.query.table),
             rom: optionalDeviceNameParam(req.query.rom),
             slug: typeof req.query.slug === 'string' ? req.query.slug : null,
@@ -1318,9 +1428,57 @@ router.get('/witness/tile', witnessIngestLimiter, requireWitnessDevice('GET /api
     try {
         const auth = res.locals.witnessDevice as WitnessDeviceAuth;
         const { WitnessTileService } = await import('../../services/WitnessTileService.js');
-        res.json({ ok: true, ...(await WitnessTileService.build(auth, req.query.v, { manual: req.query.manual })) });
+        // W131.2 (ADR 0045) - the tile shows the boards, attempts and routing of
+        // whoever is playing now, and who that is.
+        const playing = await witnessPlayingAs(auth.deviceId, req, { now: false });
+        const tileFor = { ...auth, canonicalUserId: playing.userId ?? auth.canonicalUserId };
+        res.json({
+            ok: true,
+            ...(await WitnessTileService.build(tileFor, req.query.v, { manual: req.query.manual })),
+            ...playing.fields,
+        });
     } catch {
         logError('API Error (GET /api/witness/tile)');
+        res.status(500).json({ ok: false });
+    }
+});
+
+// W131.2 (ADR 0045) - the cabinet's player picker. `players` lists the people
+// on the device as flat fields (`playerCount`, `player<N>Slot`,
+// `player<N>Name`, `player<N>Playing` = "1" for whoever is playing now);
+// `play-as?slot=` switches who is playing (`started_via = 'cabinet'`).
+// Both carry `now` (and on a shared device `playingAs` / `playerSlot`) like the heartbeat.
+router.get('/witness/players', witnessIngestLimiter, requireWitnessDevice('GET /api/witness/players'), async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    try {
+        const auth = res.locals.witnessDevice as WitnessDeviceAuth;
+        const { WitnessPlaySessionService } = await import('../../services/WitnessPlaySessionService.js');
+        const players = await WitnessPlaySessionService.pickerFor(auth.deviceId);
+        const fields: Record<string, string> = { playerCount: String(players.length) };
+        players.forEach((p, i) => {
+            fields[`player${i + 1}Slot`] = p.slot;
+            fields[`player${i + 1}Name`] = p.label;
+            fields[`player${i + 1}Playing`] = p.playing ? '1' : '0';
+        });
+        res.json({ ok: true, ...fields, ...(await witnessPlayingAs(auth.deviceId, req)).fields });
+    } catch {
+        logError('API Error (GET /api/witness/players)');
+        res.status(500).json({ ok: false });
+    }
+});
+
+router.get('/witness/play-as', witnessIngestLimiter, requireWitnessDevice('GET /api/witness/play-as'), async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    try {
+        const auth = res.locals.witnessDevice as WitnessDeviceAuth;
+        const { WitnessPlaySessionService, parsePlayerSlot } = await import('../../services/WitnessPlaySessionService.js');
+        const slot = parsePlayerSlot(req.query.slot);
+        const userId = slot ? await WitnessPlaySessionService.userForSlot(auth.deviceId, slot) : null;
+        if (!userId) return res.status(400).json({ ok: false, code: 'NO_SUCH_PLAYER' });
+        await WitnessPlaySessionService.switchTo({ deviceId: auth.deviceId, targetUserId: userId, actorId: null, via: 'cabinet' });
+        res.json({ ok: true, ...(await witnessPlayingAs(auth.deviceId, req)).fields });
+    } catch {
+        logError('API Error (GET /api/witness/play-as)');
         res.status(500).json({ ok: false });
     }
 });

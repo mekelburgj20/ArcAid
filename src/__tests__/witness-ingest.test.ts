@@ -433,7 +433,8 @@ describe('Witness heartbeat (v2.160.0, cabinet 1.0.4)', () => {
         const res = await request(app).get('/api/witness/heartbeat').query({ device: DEVICE, token });
         expect(res.status).toBe(200);
         // W28 (v2.173.0): the current "sending to" line rides back on every beat.
-        expect(res.body).toEqual({ ok: true, sendingTo: 'All your rooms' });
+        // W131.2: so does `now`, the server's clock (no player fields: one person on the device).
+        expect(res.body).toEqual({ ok: true, sendingTo: 'All your rooms', now: expect.stringMatching(/^\d+$/) });
 
         const after = await db.get<{ heartbeat_at: string | null; last_seen_at: string | null }>(
             'SELECT heartbeat_at, last_seen_at FROM witness_devices WHERE atgames_unique_id = ?', DEVICE,

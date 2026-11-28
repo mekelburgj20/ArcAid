@@ -1139,7 +1139,7 @@ export class AttemptService {
         }
         const games = await VpxScoreIngestService.openLimitedGames({
             canonicalUserId: input.canonicalUserId,
-            target: await WitnessService.getDeviceTarget(input.deviceId),
+            target: await WitnessService.getDeviceTarget(input.deviceId, input.canonicalUserId),
             deviceType,
             playDevice: input.playDevice,
             nowTs: input.nowTs,

@@ -3921,6 +3921,11 @@ async function doInitDatabase(): Promise<Database> {
             const { witnessDevicePlayers } = await import('./migrations/witnessDevicePlayers.js');
             await witnessDevicePlayers(db);
         } },
+        // W131.2 (ADR 0045) - play sessions ("Playing as"), the default player, per-play attribution.
+        { name: '226_witness_play_sessions', handler: async (db) => {
+            const { witnessPlaySessions } = await import('./migrations/witnessPlaySessions.js');
+            await witnessPlaySessions(db);
+        } },
     ];
 
     for (const migration of migrations) {
