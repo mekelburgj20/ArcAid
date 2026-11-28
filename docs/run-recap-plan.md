@@ -1,6 +1,6 @@
 # Run recaps — "By the numbers" (B31) — implementation contract
 
-Status: design, 2026-11-26. Owner spec + rulings 2026-11-26 (WORK.md B31). Reference: the owner's hand-built
+Status: shipped 2.281.0–2.282.0; renamed 2.285.1–2.285.2 (owner 2026-11-27): brand **Arcaid Recap**, a run's **Run Recap**, a tournament's **Tournament Recap** — the "By the numbers" / "season recap" labels below are the original design names (`.claude/rules/recaps.md` has the current ones). Designed 2026-11-26. Owner spec + rulings 2026-11-26 (WORK.md B31). Reference: the owner's hand-built
 "Lost in Space" recap (one run of *Legends Unchained VPX Tournament Season 06*, Mox's Game Room, `games` row
 `6b5067cd-…`, 335 Witness games, 11 Witness players, 18 typed `community` rows).
 
