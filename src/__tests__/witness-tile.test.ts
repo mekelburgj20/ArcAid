@@ -5,7 +5,7 @@ import os from 'os';
 import path from 'path';
 import express from 'express';
 import request from 'supertest';
-import { setupTestDb, createTestRoom, createTestSubmission } from './helpers.js';
+import { setupTestDb, createTestRoom, createTestSubmission, setDeviceRouting } from './helpers.js';
 import { getDatabase } from '../database/database.js';
 import { WitnessService, cabinetAccountLabel } from '../services/WitnessService.js';
 import { WitnessReleaseService } from '../services/WitnessReleaseService.js';
@@ -647,15 +647,14 @@ describe('the open cards', () => {
         await rotation(strange, 'Not Mine', 'Taxi'); // not a member
         expect((await tile()).body.openCount).toBe('1');
 
-        const db = await getDatabase();
-        await db.run(`UPDATE witness_devices SET global_only = 1 WHERE atgames_unique_id = ?`, CABINET);
+        await setDeviceRouting(CABINET, { globalOnly: true });
         const res = await tile();
         expect(res.body.openCount).toBe('0');
         expect(Object.keys(res.body).filter(k => OPEN_KEYS.test(k))).toEqual([]);
 
         const other = await createTestRoom('other-room', 'Other Room');
         await member(other);
-        await db.run(`UPDATE witness_devices SET global_only = 0, target_room_id = ? WHERE atgames_unique_id = ?`, other, CABINET);
+        await setDeviceRouting(CABINET, { globalOnly: false, roomId: other });
         expect((await tile()).body.openCount).toBe('0');
     });
 

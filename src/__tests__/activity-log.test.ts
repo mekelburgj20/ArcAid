@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import crypto from 'crypto';
 import express from 'express';
 import request from 'supertest';
-import { setupTestDb, createTestRoom } from './helpers.js';
+import { setupTestDb, createTestRoom, seedDeviceOwner, setDeviceRouting } from './helpers.js';
 import { getDatabase } from '../database/database.js';
 import { drainBackgroundTasks } from '../utils/backgroundTasks.js';
 import { signToken } from '../api/auth.js';
@@ -260,11 +260,12 @@ describe('write points', () => {
             `INSERT INTO witness_devices (atgames_unique_id, canonical_user_id, token_hash, target_room_id) VALUES ('dev-1', ?, 'h', ?)`,
             USER, other,
         );
+        await seedDeviceOwner('dev-1', USER, { roomId: other });
         await ActivityLogService.recordForDevice('dev-1', USER, { category: 'device', eventType: 'device_checkin', summary: 'Device checked in' });
         expect((await rows()).map(r => r.game_room_id)).toEqual([other]);
 
         // "All my rooms": one row per member room.
-        await db.run(`UPDATE witness_devices SET target_room_id = NULL WHERE atgames_unique_id = 'dev-1'`);
+        await setDeviceRouting('dev-1', { roomId: null });
         await ActivityLogService.recordForDevice('dev-1', USER, { category: 'device', eventType: 'device_online', summary: 'online' });
         const online = await rows(`event_type = 'device_online'`);
         expect(online.map(r => r.game_room_id).sort()).toEqual([mine, other].sort());

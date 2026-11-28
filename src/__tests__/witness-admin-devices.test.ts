@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import crypto from 'crypto';
 import express from 'express';
 import request from 'supertest';
-import { setupTestDb, createTestRoom } from './helpers.js';
+import { setupTestDb, createTestRoom, seedDeviceOwner, setDeviceRouting } from './helpers.js';
 import { getDatabase } from '../database/database.js';
 import { signToken } from '../api/auth.js';
 import { EventService } from '../services/EventService.js';
@@ -64,6 +64,7 @@ async function pair(userId: string, deviceId: string, opts: {
         opts.revoked ? new Date().toISOString() : null,
         opts.type ?? 'atgames', opts.targetRoomId ?? null,
     );
+    await seedDeviceOwner(deviceId, userId, { roomId: opts.targetRoomId ?? null });
 }
 
 async function checkin(userId: string, deviceId: string, at: Date) {
@@ -285,7 +286,7 @@ describe('WitnessAdminViewService.roomDevices', () => {
         const db = await getDatabase();
         await member(roomId, ALICE, 'Alice');
         await pair(ALICE, 'cab-alice', { heartbeat: now });
-        await db.run(`UPDATE witness_devices SET global_only = 1 WHERE atgames_unique_id = 'cab-alice'`);
+        await setDeviceRouting('cab-alice', { globalOnly: true });
         const tournamentId = crypto.randomUUID();
         await db.run(
             `INSERT INTO tournaments (id, name, type, mode, cadence, is_active, game_room_id, format, max_attempts)

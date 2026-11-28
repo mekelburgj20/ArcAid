@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { setupTestDb, createTestRoom, createTestTournament, createTestGame } from './helpers.js';
+import { setupTestDb, createTestRoom, createTestTournament, createTestGame, setDeviceRouting } from './helpers.js';
 import { getDatabase } from '../database/database.js';
 import { signToken } from '../api/auth.js';
 import { WitnessService } from '../services/WitnessService.js';
@@ -202,7 +202,7 @@ describe('the cabinet line on a reminder DM (W103)', () => {
         await pair(USER, CABINET);
         await heartbeatAgo(CABINET, HEARTBEAT_STALE_SEC + 60);
         const db = await getDatabase();
-        await db.run(`UPDATE witness_devices SET global_only = 1 WHERE atgames_unique_id = ?`, CABINET);
+        await setDeviceRouting(CABINET, { globalOnly: true });
         expect(lineCount(await dm())).toBe(0);
     });
 

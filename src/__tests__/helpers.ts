@@ -130,3 +130,43 @@ export async function seedCatalogueGames(...names: string[]) {
         );
     }
 }
+
+/**
+ * W131.1 (ADR 0045) - the owner row a paired device carries. A test that
+ * INSERTs `witness_devices` by hand (instead of pairing) adds it here, with
+ * the routing that used to sit on the device row: routing is each player's,
+ * on `witness_device_players`.
+ */
+export async function seedDeviceOwner(
+    deviceId: string, userId: string,
+    routing: { roomId?: string | null; tournamentId?: string | null; globalOnly?: boolean; globalFallback?: boolean } = {},
+) {
+    const db = await getDatabase();
+    await db.run(
+        `INSERT INTO witness_device_players
+            (device_id, canonical_user_id, role, slot, target_room_id, target_tournament_id, global_only, global_fallback)
+         VALUES (?, ?, 'owner', ?, ?, ?, ?, ?)`,
+        deviceId, userId, crypto.randomBytes(4).toString('hex'),
+        routing.roomId ?? null, routing.tournamentId ?? null,
+        routing.globalOnly ? 1 : 0, routing.globalFallback === false ? 0 : 1,
+    );
+}
+
+/** Set a device's routing as a test fixture: the routing of the account the device is paired to. */
+export async function setDeviceRouting(
+    deviceId: string,
+    routing: { roomId?: string | null; tournamentId?: string | null; globalOnly?: boolean },
+) {
+    const db = await getDatabase();
+    const sets: string[] = [];
+    const args: unknown[] = [];
+    if ('roomId' in routing) { sets.push('target_room_id = ?'); args.push(routing.roomId ?? null); }
+    if ('tournamentId' in routing) { sets.push('target_tournament_id = ?'); args.push(routing.tournamentId ?? null); }
+    if ('globalOnly' in routing) { sets.push('global_only = ?'); args.push(routing.globalOnly ? 1 : 0); }
+    await db.run(
+        `UPDATE witness_device_players SET ${sets.join(', ')}
+          WHERE device_id = ? AND removed_at IS NULL
+            AND canonical_user_id = (SELECT canonical_user_id FROM witness_devices WHERE atgames_unique_id = ?)`,
+        ...args, deviceId, deviceId,
+    );
+}

@@ -143,6 +143,10 @@ export interface WitnessDevice {
     /** W103 - the newest `witness_evidence` row of this device on this account (any outcome): when (SQLite UTC text) and which table. */
     lastScoreAt: string | null;
     lastScoreTable: string | null;
+    /** W131.1 (ADR 0045) - the viewer's role on the device: `owner` manages it, `player` only plays. */
+    role: 'owner' | 'player';
+    /** W131.1 - the viewer is the account that paired it (every play is credited to it until W131.2). */
+    pairedByYou: boolean;
 }
 
 /** W103 - see `WitnessDevice.watching`. */
@@ -378,14 +382,17 @@ export class WitnessService {
      */
     private static async assertPairingAllowed(deviceId: string, canonicalUserId: string): Promise<void> {
         const db = await getDatabase();
-        // A device belongs to one Arcaid account. Re-pairing to the SAME owner
-        // is a token rotation (fine); a DIFFERENT owner is refused, or one
-        // player could hijack another's cabinet trail.
+        // A paired device belongs to its owners. Re-pairing by one of them is a
+        // token rotation (fine); anyone else is refused, or one player could
+        // hijack another's cabinet trail. W131.1 (ADR 0045): co-owners count,
+        // and their rotation is never a new pairing for the caps below.
         const existing = await db.get<{ canonical_user_id: string }>(
             `SELECT canonical_user_id FROM witness_devices WHERE atgames_unique_id = ? AND revoked_at IS NULL`,
             deviceId,
         );
         if (existing && existing.canonical_user_id !== canonicalUserId) {
+            const { WitnessDevicePlayersService } = await import('./WitnessDevicePlayersService.js');
+            if (await WitnessDevicePlayersService.isOwner(deviceId, canonicalUserId, db)) return;
             throw new WitnessPairError('DEVICE_CONFLICT', 'This device is already linked to a different Arcaid account');
         }
 
@@ -437,10 +444,24 @@ export class WitnessService {
         const db = await getDatabase();
         const token = randomBytes(32).toString('base64url');
         const tokenHash = hashToken(token);
+        const { WitnessDevicePlayersService } = await import('./WitnessDevicePlayersService.js');
 
         await db.exec('BEGIN');
         try {
-            await db.run(
+            const live = await db.get<{ canonical_user_id: string }>(
+                `SELECT canonical_user_id FROM witness_devices WHERE atgames_unique_id = ? AND revoked_at IS NULL`,
+                deviceId,
+            );
+            if (live && live.canonical_user_id !== canonicalUserId) {
+                // W131.1 - a CO-OWNER re-pairing a live device (assertPairingAllowed
+                // let them through) rotates the token only: the device keeps the
+                // account that paired it, its paired date and its update switches.
+                await db.run(
+                    `UPDATE witness_devices SET token_hash = ?, atgames_username = ?, device_type = ?
+                      WHERE atgames_unique_id = ?`,
+                    tokenHash, input.atgamesUsername || null, deviceType, deviceId,
+                );
+            } else await db.run(
                 `INSERT INTO witness_devices (atgames_unique_id, canonical_user_id, atgames_username, device_type, token_hash, revoked_at)
                  VALUES (?, ?, ?, ?, ?, NULL)
                  ON CONFLICT(atgames_unique_id) DO UPDATE SET
@@ -462,6 +483,7 @@ export class WitnessService {
                     revoked_at = NULL`,
                 deviceId, canonicalUserId, input.atgamesUsername || null, deviceType, tokenHash,
             );
+            await WitnessDevicePlayersService.onPaired(db, { deviceId, pairerId: canonicalUserId, wasLive: !!live });
             if (input.inTransaction) await input.inTransaction(db);
             await db.exec('COMMIT');
         } catch (err) {
@@ -603,9 +625,16 @@ export class WitnessService {
         if (!row) return null;
         if (row.approved_by && row.approved_by !== canonicalUserId) return null;
         const db = await getDatabase();
+        // W131.1 - a co-owner's live device is theirs too.
         const mine = await db.get(
-            `SELECT 1 FROM witness_devices WHERE atgames_unique_id = ? AND canonical_user_id = ?`,
-            row.device_id, canonicalUserId,
+            `SELECT 1 FROM witness_devices d
+              WHERE d.atgames_unique_id = ?
+                AND (d.canonical_user_id = ?
+                  OR (d.revoked_at IS NULL AND EXISTS (
+                        SELECT 1 FROM witness_device_players p
+                         WHERE p.device_id = d.atgames_unique_id AND p.canonical_user_id = ?
+                           AND p.role = 'owner' AND p.removed_at IS NULL)))`,
+            row.device_id, canonicalUserId, canonicalUserId,
         );
         return {
             code: row.user_code,
@@ -1339,18 +1368,21 @@ export class WitnessService {
         canonicalUserId: string, deviceId: string, prefs: { autoUpdate?: boolean; testBuilds?: boolean },
     ): Promise<WitnessDevice | null> {
         const db = await getDatabase();
+        // W131.1 - the update switches are the device's, set by any of its owners.
+        const { WitnessDevicePlayersService } = await import('./WitnessDevicePlayersService.js');
+        if (!(await WitnessDevicePlayersService.isOwner(deviceId, canonicalUserId, db))) return null;
         const device = await db.get<{ auto_update: number; test_builds: number }>(
             `SELECT auto_update, test_builds FROM witness_devices
-              WHERE atgames_unique_id = ? AND canonical_user_id = ? AND revoked_at IS NULL`,
-            deviceId, canonicalUserId,
+              WHERE atgames_unique_id = ? AND revoked_at IS NULL`,
+            deviceId,
         );
         if (!device) return null;
         const autoUpdate = prefs.autoUpdate === undefined ? (device.auto_update !== 0 ? 1 : 0) : (prefs.autoUpdate ? 1 : 0);
         const testBuilds = prefs.testBuilds === undefined ? (device.test_builds === 1 ? 1 : 0) : (prefs.testBuilds ? 1 : 0);
         await db.run(
             `UPDATE witness_devices SET auto_update = ?, test_builds = ?
-              WHERE atgames_unique_id = ? AND canonical_user_id = ? AND revoked_at IS NULL`,
-            autoUpdate, testBuilds, deviceId, canonicalUserId,
+              WHERE atgames_unique_id = ? AND revoked_at IS NULL`,
+            autoUpdate, testBuilds, deviceId,
         );
         if (autoUpdate !== (device.auto_update !== 0 ? 1 : 0) || testBuilds !== (device.test_builds === 1 ? 1 : 0)) {
             logInfo(`Witness: update preferences for ${deviceId} set by ${canonicalUserId} (auto=${autoUpdate}, test=${testBuilds})`);
@@ -1428,13 +1460,15 @@ export class WitnessService {
         globalFallback?: boolean;
     }): Promise<WitnessDevice> {
         const db = await getDatabase();
+        // W131.1 (ADR 0045) - routing is each PLAYER's own, on their row.
         const device = await db.get<{
             atgames_unique_id: string; target_room_id: string | null; target_tournament_id: string | null;
             global_only: number | null; global_fallback: number | null;
         }>(
-            `SELECT atgames_unique_id, target_room_id, target_tournament_id, global_only, global_fallback
-               FROM witness_devices
-              WHERE atgames_unique_id = ? AND canonical_user_id = ? AND revoked_at IS NULL`,
+            `SELECT p.device_id AS atgames_unique_id, p.target_room_id, p.target_tournament_id, p.global_only, p.global_fallback
+               FROM witness_device_players p
+               JOIN witness_devices d ON d.atgames_unique_id = p.device_id AND d.revoked_at IS NULL
+              WHERE p.device_id = ? AND p.canonical_user_id = ? AND p.removed_at IS NULL`,
             deviceId, canonicalUserId,
         );
         if (!device) throw new WitnessTargetError('NOT_FOUND', 'No such cabinet paired to your account');
@@ -1468,9 +1502,9 @@ export class WitnessService {
         // All my rooms (default) or Global Scoreboard only.
         const globalOnly = !roomId && target.globalOnly === true ? 1 : 0;
         await db.run(
-            `UPDATE witness_devices
+            `UPDATE witness_device_players
                 SET target_room_id = ?, target_tournament_id = ?, global_only = ?, global_fallback = ?
-              WHERE atgames_unique_id = ? AND canonical_user_id = ?`,
+              WHERE device_id = ? AND canonical_user_id = ? AND removed_at IS NULL`,
             roomId, tournamentId, globalOnly,
             target.globalFallback === false ? 0 : 1,
             deviceId, canonicalUserId,
@@ -1514,8 +1548,14 @@ export class WitnessService {
      * the event, and read-time expiry needs no cleanup job to stay correct.
      * "Finished" is the W33 open-card rule (`utils/openCard.ts`): a PAUSED
      * rotation is not finished, so a designation pointing at one holds.
+     *
+     * W131.1 (ADR 0045): routing is each PLAYER's own, on their
+     * `witness_device_players` row. `playerId` names whose; omitted, it is the
+     * account the device's plays are credited to (today the account that
+     * paired it; W131.2 makes it the session's player). A person not on the
+     * device gets the defaults.
      */
-    static async getDeviceTarget(deviceId: string): Promise<{
+    static async getDeviceTarget(deviceId: string, playerId?: string | null): Promise<{
         roomId: string | null; tournamentId: string | null; globalOnly: boolean; globalFallback: boolean;
     }> {
         const db = await getDatabase();
@@ -1523,12 +1563,16 @@ export class WitnessService {
             target_room_id: string | null; target_tournament_id: string | null;
             global_only: number; global_fallback: number; tournament_finished: number | null;
         }>(
-            `SELECT d.target_room_id, d.target_tournament_id, d.global_only, d.global_fallback,
+            `SELECT p.target_room_id, p.target_tournament_id, p.global_only, p.global_fallback,
                     ${tournamentFinishedSql('t')} AS tournament_finished
                FROM witness_devices d
-               LEFT JOIN tournaments t ON t.id = d.target_tournament_id
+               JOIN witness_device_players p
+                 ON p.device_id = d.atgames_unique_id
+                AND p.canonical_user_id = COALESCE(?, d.canonical_user_id)
+                AND p.removed_at IS NULL
+               LEFT JOIN tournaments t ON t.id = p.target_tournament_id
               WHERE d.atgames_unique_id = ?`,
-            deviceId,
+            playerId ?? null, deviceId,
         );
         if (!row) return { roomId: null, tournamentId: null, globalOnly: false, globalFallback: true };
         const tournamentId = row.target_tournament_id && row.tournament_finished === 1
@@ -1582,7 +1626,7 @@ export class WitnessService {
         const { deviceRoutesTo } = await import('../utils/witnessRouting.js');
         const out = [];
         for (const d of devices) {
-            const target = await WitnessService.getDeviceTarget(d.atgamesUniqueId);
+            const target = await WitnessService.getDeviceTarget(d.atgamesUniqueId, canonicalUserId);
             const routes = deviceRoutesTo(target, {
                 roomId, tournamentId: target.tournamentId, isRound: false,
                 isParticipant: entered, isMember: member,
@@ -1649,11 +1693,13 @@ export class WitnessService {
             device_model: string | null; device_model_name: string | null;
             auto_update: number; test_builds: number; staged_version: string | null;
             heartbeat_at: string | null; heartbeat_fresh: number | null;
+            role: string; paired_by_you: number;
         }>>(
             `SELECT d.atgames_unique_id, d.atgames_username, d.device_type, d.paired_at, d.last_seen_at,
-                    d.target_room_id, r.name AS room_name,
-                    d.target_tournament_id, t.name AS tournament_name,
-                    d.global_only, d.global_fallback, d.app_version, d.app_version_at,
+                    p.target_room_id, r.name AS room_name,
+                    p.target_tournament_id, t.name AS tournament_name,
+                    p.global_only, p.global_fallback, d.app_version, d.app_version_at,
+                    p.role, (d.canonical_user_id = p.canonical_user_id) AS paired_by_you,
                     d.device_model, d.device_model_name,
                     d.auto_update, d.test_builds, d.staged_version,
                     d.heartbeat_at,
@@ -1661,9 +1707,13 @@ export class WitnessService {
                     CASE WHEN d.heartbeat_at IS NULL THEN NULL
                          ELSE (strftime('%s', 'now') - strftime('%s', d.heartbeat_at)) <= ? END AS heartbeat_fresh
                FROM witness_devices d
-               LEFT JOIN game_rooms r ON r.id = d.target_room_id
-               LEFT JOIN tournaments t ON t.id = d.target_tournament_id
-              WHERE d.canonical_user_id = ? AND d.revoked_at IS NULL
+               -- W131.1 (ADR 0045): every device the player is ON (owner or
+               -- player), with THEIR routing from their own row.
+               JOIN witness_device_players p
+                 ON p.device_id = d.atgames_unique_id AND p.removed_at IS NULL
+               LEFT JOIN game_rooms r ON r.id = p.target_room_id
+               LEFT JOIN tournaments t ON t.id = p.target_tournament_id
+              WHERE p.canonical_user_id = ? AND d.revoked_at IS NULL
               ORDER BY d.paired_at DESC`,
             HEARTBEAT_STALE_SEC, canonicalUserId,
         );
@@ -1721,28 +1771,38 @@ export class WitnessService {
             updatePending: stagedOf(r) !== null,
             lastScoreAt: lastScores.get(r.atgames_unique_id)?.created_at ?? null,
             lastScoreTable: lastScores.get(r.atgames_unique_id)?.table_name ?? null,
+            role: r.role === 'owner' ? 'owner' : 'player',
+            pairedByYou: r.paired_by_you === 1,
         }));
     }
 
     /**
      * Unpair a cabinet (soft delete — revoke, so its token stops working and a
-     * later re-pair is clean). Self-only: only the owner may revoke, enforced
-     * by the WHERE clause. Observations are kept; they are the player's own
+     * later re-pair is clean). Owners only (W131.1, ADR 0045: any of the
+     * device's owners); unpairing takes every player off the device and voids
+     * its invite links. Observations are kept; they are the players' own
      * history and harmless. Log bundles are NOT kept (W99, ADR 0040): unpairing
      * deletes the device's log requests and their files.
      */
     static async revokeDevice(canonicalUserId: string, atgamesUniqueId: string): Promise<boolean> {
         const db = await getDatabase();
+        const { WitnessDevicePlayersService } = await import('./WitnessDevicePlayersService.js');
+        if (!(await WitnessDevicePlayersService.isOwner(atgamesUniqueId, canonicalUserId, db))) return false;
+        const pairer = await db.get<{ canonical_user_id: string }>(
+            `SELECT canonical_user_id FROM witness_devices WHERE atgames_unique_id = ?`, atgamesUniqueId,
+        );
         // G14 (ADR 0037) - the unpair row lands in the rooms the device was sending to.
-        const rooms = await ActivityLogService.roomsForDevice(atgamesUniqueId, canonicalUserId).catch(() => [] as string[]);
+        const rooms = await ActivityLogService.roomsForDevice(atgamesUniqueId, pairer?.canonical_user_id ?? canonicalUserId)
+            .catch(() => [] as string[]);
         const res = await db.run(
             `UPDATE witness_devices SET revoked_at = datetime('now')
-              WHERE atgames_unique_id = ? AND canonical_user_id = ? AND revoked_at IS NULL`,
-            atgamesUniqueId, canonicalUserId,
+              WHERE atgames_unique_id = ? AND revoked_at IS NULL`,
+            atgamesUniqueId,
         );
         const changed = (res.changes ?? 0) > 0;
         if (changed) {
             logInfo(`Witness: device ${atgamesUniqueId} unpaired by ${canonicalUserId}`);
+            await WitnessDevicePlayersService.onUnpaired(atgamesUniqueId);
             const { WitnessLogService } = await import('./WitnessLogService.js');
             await WitnessLogService.purgeForDevice(atgamesUniqueId);
             for (const roomId of rooms.length > 0 ? rooms : [null]) {

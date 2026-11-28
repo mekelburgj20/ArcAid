@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import crypto from 'crypto';
 import express from 'express';
 import request from 'supertest';
-import { setupTestDb, createTestRoom } from './helpers.js';
+import { setupTestDb, createTestRoom, setDeviceRouting } from './helpers.js';
 import { getDatabase } from '../database/database.js';
 import { signToken } from '../api/auth.js';
 import { ATTEMPT_REFUSAL_TEXT } from '../services/AttemptService.js';
@@ -189,11 +189,7 @@ describe('GET /api/witness/attempt-start (W45)', () => {
 
     it('a "Global Scoreboard only" device presses nothing', async () => {
         await createLimitedGame(roomId, 2);
-        const db = await getDatabase();
-        await db.run(
-            `UPDATE witness_devices SET target_room_id = NULL, target_tournament_id = NULL, global_only = 1 WHERE atgames_unique_id = ?`,
-            DESKTOP,
-        );
+        await setDeviceRouting(DESKTOP, { roomId: null, tournamentId: null, globalOnly: true });
         const res = await press();
         expect(res.body.status).toBe('nothing_to_start');
         expect(await startRows()).toHaveLength(0);

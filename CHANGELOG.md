@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.286.0] - 2026-11-27 - A Witness device can have several players (groundwork)
+
+### Added
+- **More than one person can be on an Arcaid Witness device** (W131.1, ADR 0045, `docs/shared-device-plan.md`). A family with one cabinet is the case: the device now has owners and players. An owner manages the device (unpair, updates, logs, the player list) and adds people with a single-use invite link that lasts 7 days; up to 6 people per device. Co-owners have equal rights: any owner can make a player an owner, nobody can remove another owner (they step down themselves), and the last owner stays. Anyone can leave, except, for now, the account that paired the device. Server only: there are no screens for it yet (W131.3), and every play on a device is still credited to the account that paired it until play sessions arrive (W131.2), so nothing changes for anyone today.
+
+### Changed
+- **Where a device's scores go is now each player's own choice.** The "Your scores go to" setting moved from the device to the player (migration 225 gives every existing device an owner row with its current setting, so every device keeps sending exactly where it did). Unpairing, the update switches and asking for a cabinet's logs are open to any owner of the device; a co-owner re-pairing a live device rotates its token and keeps the device's settings.
+
 ## [2.285.3] - 2026-11-27 - "Pause to practice" is neon pink
 
 ### Changed

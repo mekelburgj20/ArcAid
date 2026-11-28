@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import crypto from 'crypto';
-import { setupTestDb, createTestRoom, seedCatalogueGames } from './helpers.js';
+import { setupTestDb, createTestRoom, seedCatalogueGames, seedDeviceOwner } from './helpers.js';
 import { getDatabase } from '../database/database.js';
 import { signToken } from '../api/auth.js';
 import { Scheduler } from '../engine/Scheduler.js';
@@ -253,6 +253,8 @@ describe('W33 — one open-card rule: finished closes, paused stays open', () =>
             `INSERT INTO witness_devices (atgames_unique_id, canonical_user_id, token_hash, target_room_id, target_tournament_id) VALUES ('dev-pause', ?, 'h', ?, ?)`,
             USER, roomId, pausedRotationId,
         );
+        await seedDeviceOwner('dev-fin', USER, { roomId, tournamentId: finishedEventId });
+        await seedDeviceOwner('dev-pause', USER, { roomId, tournamentId: pausedRotationId });
         expect(await WitnessService.getDeviceTarget('dev-fin')).toMatchObject({ roomId, tournamentId: null });
         expect(await WitnessService.getDeviceTarget('dev-pause')).toMatchObject({ roomId, tournamentId: pausedRotationId });
     });

@@ -342,7 +342,7 @@ export class ActivityLogService {
     static async roomsForDevice(deviceId: string, canonicalUserId: string): Promise<string[]> {
         const { WitnessService } = await import('./WitnessService.js');
         const { deviceRoutesTo } = await import('../utils/witnessRouting.js');
-        const target = await WitnessService.getDeviceTarget(deviceId);
+        const target = await WitnessService.getDeviceTarget(deviceId, canonicalUserId);
         if (target.roomId) return [target.roomId];
         if (target.globalOnly) return [];
         const db = await getDatabase();
