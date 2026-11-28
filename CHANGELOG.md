@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.288.0] - 2026-11-28 - arcaid.app draws the cabinet's backglass and DMD screens (server)
+
+### Added
+- **The server side of cabinet screens** (W132.2, ADR 0046, `docs/cabinet-frames-plan.md`). While the Arcaid Witness tile is open, a Legends Pinball's backglass and DMD will show pictures that arcaid.app draws with the web app's own Arcaid look, for whoever is playing on the cabinet: a welcome screen (who is playing, where scores go, the last score), each open table with its top 5 and your place, the table's Global Scoreboard, your rooms' standings, the latest room activity and a live event's round. The DMD's countdowns and tickers are drawn by the cabinet itself so they tick by the second; the pictures never carry a running clock. An unpaired cabinet gets a picture of its pairing code and QR code. Nothing changes on a cabinet yet: the page that draws the pictures (W132.3) and the cabinet release that shows them (W132.4, cabinet 1.2.0) come next.
+- **Each player chooses their own screens** on each device they play on (every screen on, 10 seconds each, until they choose), and can preview the real pictures; the Account Settings panel for this arrives with W132.3.
+- **One shared headless browser draws the pictures**, one at a time, and closes after 5 minutes with nothing to draw. Pictures are named by what they show, so the same screen is drawn once; pictures nobody has fetched for 7 days are deleted and the store is kept under 500 MB.
+
 ## [2.287.0] - 2026-11-28 - Each Witness play belongs to whoever was playing
 
 ### Added
