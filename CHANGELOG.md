@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.286.3] - 2026-11-28 - "Start attempts" and "Resume attempts" on dark tiles too
+
+### Changed
+- **All three card buttons match.** "Start attempts" (blue) and "Resume attempts" (amber) now sit on the same dark tile with a tint of their colour as "Pause to practice" (pink), so card art never shows through any of them.
+- **Tidier lines beside them.** "Your plays here count once you press it" stays beside Start attempts (two lines) instead of wrapping under it, at 12 px. While practice mode is on, the amber warning runs across the card first, with Resume attempts and the practice games left on the line under it, every left edge aligned (owner, 2026-11-28).
+
+---
+
 ## [2.286.2] - 2026-11-28 - "Pause to practice" on a dark tile, captions beside it
 
 ### Changed

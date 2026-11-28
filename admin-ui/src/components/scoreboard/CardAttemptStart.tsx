@@ -21,9 +21,22 @@ import { PRACTICE_ON_TEXT, canPausePractice, isPracticing, practiceLeftText } fr
  * W126 (ADR 0043) — the same strip carries Practice mode, on a tournament
  * whose host allows it: "Pause to practice" once attempts are counting, and,
  * while paused, an amber line saying plays do not count with "Resume
- * attempts" beside it. The paused state is the loud one on purpose: a player
+ * attempts" under it. The paused state is the loud one on purpose: a player
  * who forgets to resume plays their real games as practice.
  */
+/**
+ * The strip's three buttons (Start attempts, Pause to practice, Resume
+ * attempts): a dark tile under a 15% tint of the button's colour, so card art
+ * never shows through (owner 2026-11-28). The tint is a gradient layered over
+ * the `bg-deep` colour; each tone is spelled out in full so Tailwind sees it.
+ */
+const TILE_BUTTON = 'min-h-8 shrink-0 rounded border bg-deep/85 px-2.5 py-1 text-xs font-display uppercase tracking-wider disabled:opacity-50 cursor-pointer';
+const TILE_TONE = {
+  cyan: 'border-neon-cyan text-neon-cyan bg-[linear-gradient(color-mix(in_oklab,var(--color-neon-cyan)_15%,transparent),color-mix(in_oklab,var(--color-neon-cyan)_15%,transparent))] hover:bg-[linear-gradient(color-mix(in_oklab,var(--color-neon-cyan)_22%,transparent),color-mix(in_oklab,var(--color-neon-cyan)_22%,transparent))]',
+  magenta: 'border-neon-magenta text-neon-magenta bg-[linear-gradient(color-mix(in_oklab,var(--color-neon-magenta)_15%,transparent),color-mix(in_oklab,var(--color-neon-magenta)_15%,transparent))] hover:bg-[linear-gradient(color-mix(in_oklab,var(--color-neon-magenta)_22%,transparent),color-mix(in_oklab,var(--color-neon-magenta)_22%,transparent))]',
+  amber: 'border-neon-amber text-neon-amber bg-[linear-gradient(color-mix(in_oklab,var(--color-neon-amber)_15%,transparent),color-mix(in_oklab,var(--color-neon-amber)_15%,transparent))] hover:bg-[linear-gradient(color-mix(in_oklab,var(--color-neon-amber)_22%,transparent),color-mix(in_oklab,var(--color-neon-amber)_22%,transparent))]',
+} as const;
+
 export default function CardAttemptStart({
   lb, className = '', style,
 }: { lb: GameLeaderboard; className?: string; style?: React.CSSProperties }) {
@@ -53,32 +66,37 @@ export default function CardAttemptStart({
             type="button"
             onClick={press(() => ctx.start(item))}
             disabled={pending}
-            className="min-h-8 rounded border border-neon-cyan px-2.5 py-1 text-[11px] font-display uppercase tracking-wider text-neon-cyan transition-colors hover:bg-neon-cyan/10 disabled:opacity-50 cursor-pointer"
+            className={`${TILE_BUTTON} ${TILE_TONE.cyan}`}
             aria-label={`Start attempts on ${name}`}
           >
             {pending ? 'Starting…' : 'Start attempts'}
           </button>
-          <span className="sb-art-text text-[11px] text-muted">
+          <span className="sb-art-text min-w-0 flex-1 basis-32 text-xs text-muted">
             Your plays here count once you press it
           </span>
         </>
       ) : practicing ? (
-        <>
-          <span className="sb-art-text inline-flex items-start gap-1 text-xs text-neon-amber" data-testid="card-practice-on">
+        // The warning across the card first (the loud line), then the
+        // button with what is left beside it, every left edge aligned.
+        <div className="flex w-full flex-col items-start gap-1.5" data-testid="card-practice-on">
+          <span className="sb-art-text inline-flex items-start gap-1 text-xs text-neon-amber">
             <PauseCircle size={14} aria-hidden="true" className="mt-px shrink-0" />
-            <span>{PRACTICE_ON_TEXT} · {practiceLeftText(item.practice!)}</span>
+            <span>{PRACTICE_ON_TEXT}</span>
           </span>
-          <button
-            type="button"
-            onClick={press(() => ctx.resume(item))}
-            disabled={pending}
-            className="min-h-8 rounded border border-neon-amber px-2.5 py-1 text-xs font-display uppercase tracking-wider text-neon-amber transition-colors hover:bg-neon-amber/10 disabled:opacity-50 cursor-pointer"
-            aria-label={`Resume attempts on ${name}`}
-            data-testid="card-practice-resume"
-          >
-            {pending ? 'Resuming…' : 'Resume attempts'}
-          </button>
-        </>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <button
+              type="button"
+              onClick={press(() => ctx.resume(item))}
+              disabled={pending}
+              className={`${TILE_BUTTON} ${TILE_TONE.amber}`}
+              aria-label={`Resume attempts on ${name}`}
+              data-testid="card-practice-resume"
+            >
+              {pending ? 'Resuming…' : 'Resume attempts'}
+            </button>
+            <span className="sb-art-text text-xs text-neon-amber">{practiceLeftText(item.practice!)}</span>
+          </div>
+        </div>
       ) : (
         <>
           {/* The action first, its two status lines stacked beside it (left
@@ -88,7 +106,7 @@ export default function CardAttemptStart({
               type="button"
               onClick={press(() => ctx.pause(item))}
               disabled={pending}
-              className="min-h-8 shrink-0 rounded border border-neon-magenta bg-deep/85 bg-[linear-gradient(color-mix(in_oklab,var(--color-neon-magenta)_15%,transparent),color-mix(in_oklab,var(--color-neon-magenta)_15%,transparent))] px-2.5 py-1 text-xs font-display uppercase tracking-wider text-neon-magenta hover:bg-[linear-gradient(color-mix(in_oklab,var(--color-neon-magenta)_22%,transparent),color-mix(in_oklab,var(--color-neon-magenta)_22%,transparent))] disabled:opacity-50 cursor-pointer"
+              className={`${TILE_BUTTON} ${TILE_TONE.magenta}`}
               aria-label={`Pause attempts on ${name} to practice`}
               data-testid="card-practice-pause"
             >
