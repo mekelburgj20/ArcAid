@@ -356,6 +356,20 @@ export class EventLobbyService {
     private static async lobbyForDevice(
         deviceId: string, canonicalUserId: string, now: Date, checkIn: boolean,
     ): Promise<{ tournamentId: string; eventName: string; alreadyCheckedIn: boolean; status: LobbyStatus } | null> {
+        let first: { tournamentId: string; eventName: string; alreadyCheckedIn: boolean; status: LobbyStatus } | null = null;
+        for (const eventId of await EventLobbyService.eventIdsForDevice(deviceId, canonicalUserId)) {
+            const result = await EventLobbyService.lobbyForEvent(eventId, deviceId, canonicalUserId, now, checkIn);
+            first ??= result;
+        }
+        return first;
+    }
+
+    /**
+     * The live events this device's plays reach for this player, start order.
+     * Shared by the check-in / heartbeat lobby and the cabinet's event screen
+     * (W132.2, `CabinetFrameService`). Read-only.
+     */
+    static async eventIdsForDevice(deviceId: string, canonicalUserId: string): Promise<string[]> {
         const { WitnessService } = await import('./WitnessService.js');
         const target = await WitnessService.getDeviceTarget(deviceId, canonicalUserId);
 
@@ -367,7 +381,7 @@ export class EventLobbyService {
         // migration 191 un-pinned every device, so without this the tile would
         // have stopped being the check-in at all.
         const db = await getDatabase();
-        const eventIds: string[] = target.tournamentId
+        return target.tournamentId
             ? [target.tournamentId]
             : target.roomId
                 ? (await db.all<Array<{ id: string }>>(
@@ -383,13 +397,6 @@ export class EventLobbyService {
                           WHERE t.format = 'event' AND t.is_active = 1 AND t.event_finished_at IS NULL
                           ORDER BY t.start_date`, canonicalUserId,
                     )).map(r => r.id);
-
-        let first: { tournamentId: string; eventName: string; alreadyCheckedIn: boolean; status: LobbyStatus } | null = null;
-        for (const eventId of eventIds) {
-            const result = await EventLobbyService.lobbyForEvent(eventId, deviceId, canonicalUserId, now, checkIn);
-            first ??= result;
-        }
-        return first;
     }
 
     /** One event's check-in-window answer for a device (the pre-v2.175.0 body). */

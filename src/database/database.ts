@@ -3926,6 +3926,9 @@ async function doInitDatabase(): Promise<Database> {
             const { witnessPlaySessions } = await import('./migrations/witnessPlaySessions.js');
             await witnessPlaySessions(db);
         } },
+        // W132.2 (ADR 0046) - each player's cabinet screen choices on a device
+        // (JSON, NULL = every screen, 10 s); read only through `parseCabinetScreens`.
+        { name: '227_witness_device_players_cabinet_screens', sql: `ALTER TABLE witness_device_players ADD COLUMN cabinet_screens TEXT` },
     ];
 
     for (const migration of migrations) {

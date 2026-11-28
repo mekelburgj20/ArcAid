@@ -164,9 +164,9 @@ export class WitnessTileService {
      * `global_score_id`). Repeats (`duplicate` / `global_duplicate`) are not a
      * new score. One play can land in several tournaments (one row each); the
      * newest play wins and, inside it, a board landing beats a Global row. All
-     * four fields or none.
+     * four fields or none. Also the cabinet's attract screen (W132.2).
      */
-    private static async lastScoreBlock(device: TileDevice): Promise<Record<string, string>> {
+    static async lastScoreBlock(device: TileDevice): Promise<Record<string, string>> {
         try {
             const db = await getDatabase();
             const rows = await db.all<Array<{

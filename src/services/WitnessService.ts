@@ -56,9 +56,13 @@ function targetLabel(t: { roomId: string | null; tournamentId: string | null; gl
  *     no table was mid-session at that instant.
  */
 
-/** Unambiguous when read off a cabinet screen — no 0/O/1/I/L (Throwdown charset). */
-const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-const PAIRING_CODE_LEN = 6;
+/**
+ * Unambiguous when read off a cabinet screen — no 0/O/1/I/L (Throwdown charset).
+ * The cabinet app has the same pair (`AppConfig.h` `kPairingAlphabet` /
+ * `kPairingCodeLen`); the public pair-frames route validates against these.
+ */
+export const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+export const PAIRING_CODE_LEN = 6;
 const PAIRING_TTL_MS = 10 * 60 * 1000;
 /**
  * Caps on pairing a device id this account has never held (W97, v2.243.0). The Castcade match relay gives every

@@ -200,6 +200,21 @@ export const guestContentLimiter = rateLimit({
 });
 
 /**
+ * W132.2 (ADR 0046) - the public pair pictures an UNPAIRED cabinet fetches
+ * (`/witness/pair-frames`, no token): 30 per minute per IP. A cabinet asks for
+ * the manifest once a minute and two pictures once, so this is far above real
+ * use; it bounds how many distinct codes one address can have the server draw.
+ */
+export const cabinetPairFramesLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 30,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req: any) => ipKeyGenerator(req.ip),
+    message: { ok: false, error: 'Too many requests.' },
+});
+
+/**
  * Witness device ingest (P8): 120 report/pair GETs per minute per DEVICE.
  *
  * The Arcaid Witness reports over synchronous GETs (the AtGames SDK offers no

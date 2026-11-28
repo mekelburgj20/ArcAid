@@ -4,7 +4,7 @@ import zlib from 'zlib';
 import multer from 'multer';
 import { logError, logInfo } from '../../utils/logger.js';
 import { requireAuth, requireDiscordUser, requireSuperAdmin, requireNotBanned, requireNotBannedGlobal, optionalDiscordUser } from '../middleware.js';
-import { writeLimiter, globalSubmitLimiter, authLimiter, roomCreateLimiter, raSearchLimiter, raImportLimiter, witnessIngestLimiter } from '../rateLimit.js';
+import { writeLimiter, globalSubmitLimiter, authLimiter, roomCreateLimiter, raSearchLimiter, raImportLimiter, witnessIngestLimiter, cabinetPairFramesLimiter } from '../rateLimit.js';
 import { parseWitnessEvidence } from '../../utils/sanctionedRules.js';
 import { parsePlayDevice } from '../../services/VpxScoreIngestService.js';
 import { parseBallPoints } from '../../utils/ballPoints.js';
@@ -533,6 +533,124 @@ router.post('/me/witness/device-invites/:code/accept', writeLimiter, requireDisc
         await sendPlayerError(res, error, 'POST /api/me/witness/device-invites/:code/accept');
     }
 });
+
+// ---------------------------------------------------------------------------
+// W132.2 (ADR 0046, docs/cabinet-frames-plan.md) - cabinet screens, the
+// player's side. Each player on a device chooses which screens the cabinet's
+// backglass and DMD show while they play (their own `witness_device_players`
+// row), and previews the real pictures. Anyone on the device, for their own
+// row only; not on it = 404 like the other device routes.
+// ---------------------------------------------------------------------------
+
+/** The caller's id when they are on the device, else a 404 has been sent. */
+async function cabinetPlayerOn(req: Request, res: express.Response): Promise<string | null> {
+    const { WitnessDevicePlayersService } = await import('../../services/WitnessDevicePlayersService.js');
+    const me = req.user!.discordId!;
+    if (await WitnessDevicePlayersService.roleOn(req.params.deviceId as string, me)) return me;
+    res.status(404).json({ error: 'No such device on your account', code: 'NOT_FOUND' });
+    return null;
+}
+
+router.get('/me/witness-devices/:deviceId/cabinet-screens', requireDiscordUser, async (req, res) => {
+    try {
+        const me = await cabinetPlayerOn(req, res);
+        if (!me) return;
+        const { CabinetFrameService } = await import('../../services/CabinetFrameService.js');
+        const { defaultCabinetScreens } = await import('../../utils/cabinetScreens.js');
+        res.json({
+            ...(await CabinetFrameService.preferencesFor(req.params.deviceId as string, me)),
+            defaults: defaultCabinetScreens(),
+        });
+    } catch (error) {
+        logError('API Error (GET /api/me/witness-devices/:deviceId/cabinet-screens):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.put('/me/witness-devices/:deviceId/cabinet-screens', writeLimiter, requireDiscordUser, async (req, res) => {
+    try {
+        // `{ screens: string[], seconds: number }`; unknown screens are dropped
+        // and seconds clamped by the parser. An empty list is a valid choice
+        // (everything off: the cabinet shows its own fallback).
+        const body = req.body ?? {};
+        if (typeof body !== 'object' || Array.isArray(body)
+            || !Array.isArray(body.screens) || !body.screens.every((s: unknown) => typeof s === 'string')
+            || typeof body.seconds !== 'number' || !Number.isFinite(body.seconds)) {
+            return res.status(400).json({ error: 'screens must be a list of names and seconds a number', code: 'INVALID_BODY' });
+        }
+        const me = await cabinetPlayerOn(req, res);
+        if (!me) return;
+        const { CabinetFrameService } = await import('../../services/CabinetFrameService.js');
+        const prefs = await CabinetFrameService.setPreferences(req.params.deviceId as string, me, body);
+        if (!prefs) return res.status(404).json({ error: 'No such device on your account', code: 'NOT_FOUND' });
+        res.json(prefs);
+    } catch (error) {
+        logError('API Error (PUT /api/me/witness-devices/:deviceId/cabinet-screens):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// The screens the device would show if the caller were playing on it now,
+// each picture as a player-auth URL below. Missing pictures are queued and
+// read `ready: false` until drawn, like the device's manifest.
+router.get('/me/witness-devices/:deviceId/cabinet-frames', requireDiscordUser, async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    try {
+        const me = await cabinetPlayerOn(req, res);
+        if (!me) return;
+        const deviceId = req.params.deviceId as string;
+        const { CabinetFrameService, screenLabel } = await import('../../services/CabinetFrameService.js');
+        const { screens } = await CabinetFrameService.screensFor(deviceId, { playerId: me });
+        const ready = await CabinetFrameService.readiness(screens, 'device');
+        const base = `/api/me/witness-devices/${encodeURIComponent(deviceId)}/cabinet-frames`;
+        const url = (frame: { id: string } | null) => (frame ? `${base}/${frame.id}.jpg` : null);
+        res.json({
+            screens: screens.map(s => ({
+                key: s.key, label: screenLabel(s), secs: s.secs,
+                backglassUrl: url(s.backglass), dmdUrl: url(s.dmd),
+                ready: (!s.backglass || ready.has(s.backglass.id)) && (!s.dmd || ready.has(s.dmd.id)),
+            })),
+        });
+    } catch (error) {
+        logError('API Error (GET /api/me/witness-devices/:deviceId/cabinet-frames):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.get('/me/witness-devices/:deviceId/cabinet-frames/:id.jpg', requireDiscordUser, async (req, res) => {
+    try {
+        if (!(await cabinetPlayerOn(req, res))) return;
+        await sendCabinetFrame(res, req.params.id as string, 'device', 'GET /api/me/witness-devices/:deviceId/cabinet-frames/:id.jpg');
+    } catch (error) {
+        logError('API Error (GET /api/me/witness-devices/:deviceId/cabinet-frames/:id.jpg):', error);
+        if (!res.headersSent) res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
+ * One rendered cabinet picture (`image/jpeg`, its length, cached a day by the
+ * receiver), streamed like `/witness/app/download`. 404 for an id that is not
+ * 32 hex characters or not drawn yet. Reading it touches the cached file.
+ */
+async function sendCabinetFrame(
+    res: express.Response, id: string, scope: 'device' | 'pair', label: string,
+): Promise<void> {
+    const { CabinetFrameRenderer } = await import('../../services/CabinetFrameRenderer.js');
+    const file = await CabinetFrameRenderer.open(id, scope);
+    if (!file) {
+        res.status(404).json({ ok: false });
+        return;
+    }
+    res.status(200);
+    res.setHeader('Content-Type', 'image/jpeg');
+    res.setHeader('Content-Length', String(file.size));
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+    pipeline(file.stream, res, (err) => {
+        if (err && (err as NodeJS.ErrnoException).code !== 'ERR_STREAM_PREMATURE_CLOSE') {
+            logError(`API Error (${label}): stream ${(err as NodeJS.ErrnoException).code ?? 'failed'}`);
+        }
+    });
+}
 
 // ---------------------------------------------------------------------------
 // W99 (v2.246.0, ADR 0040) - cabinet log pull, the player's side. The player
@@ -1480,6 +1598,65 @@ router.get('/witness/play-as', witnessIngestLimiter, requireWitnessDevice('GET /
     } catch {
         logError('API Error (GET /api/witness/play-as)');
         res.status(500).json({ ok: false });
+    }
+});
+
+// Device: W132.2 (ADR 0046, docs/cabinet-frames-plan.md) - the cabinet's
+// backglass + DMD screens while the tile is open, for whoever is playing now
+// (`CabinetFrameService.screensFor`). The manifest is flat strings for the
+// tile's naive reader (no URL: the cabinet builds picture URLs from the ids);
+// a picture not drawn yet is queued and reads `Ready "0"`. READ-ONLY apart
+// from queueing renders: no check-in, no last-seen, no clock offset.
+router.get('/witness/frames', witnessIngestLimiter, requireWitnessDevice('GET /api/witness/frames'), async (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    try {
+        const auth = res.locals.witnessDevice as WitnessDeviceAuth;
+        const { CabinetFrameService } = await import('../../services/CabinetFrameService.js');
+        const now = Math.floor(Date.now() / 1000);
+        const { screens } = await CabinetFrameService.screensFor(auth.deviceId, { nowSec: now });
+        const ready = await CabinetFrameService.readiness(screens, 'device');
+        res.json(CabinetFrameService.manifest(screens, ready, now));
+    } catch {
+        logError('API Error (GET /api/witness/frames)');
+        res.status(500).json({ ok: false });
+    }
+});
+
+router.get('/witness/frames/:id.jpg', witnessIngestLimiter, requireWitnessDevice('GET /api/witness/frames/:id.jpg'), async (req, res) => {
+    try {
+        await sendCabinetFrame(res, req.params.id as string, 'device', 'GET /api/witness/frames/:id.jpg');
+    } catch {
+        logError('API Error (GET /api/witness/frames/:id.jpg)');
+        if (!res.headersSent) res.status(500).json({ ok: false });
+    }
+});
+
+// Device: W132.2 - the pair screen an UNPAIRED cabinet shows (it has no token,
+// so these two are public, rate-limited per IP). The code must be one the tile
+// can show (6 characters of its pairing alphabet) or 400; the picture carries
+// only the code and its /pair/<code> QR. Pair pictures live in their own store,
+// so this route can never serve a player's picture.
+router.get('/witness/pair-frames', cabinetPairFramesLimiter, async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    try {
+        const { CabinetFrameService, isPairingCode } = await import('../../services/CabinetFrameService.js');
+        if (!isPairingCode(req.query.code)) return res.status(400).json({ ok: false, code: 'BAD_CODE' });
+        const now = Math.floor(Date.now() / 1000);
+        const screens = CabinetFrameService.pairScreens(req.query.code);
+        const ready = await CabinetFrameService.readiness(screens, 'pair');
+        res.json(CabinetFrameService.manifest(screens, ready, now));
+    } catch {
+        logError('API Error (GET /api/witness/pair-frames)');
+        res.status(500).json({ ok: false });
+    }
+});
+
+router.get('/witness/pair-frames/:id.jpg', cabinetPairFramesLimiter, async (req, res) => {
+    try {
+        await sendCabinetFrame(res, req.params.id as string, 'pair', 'GET /api/witness/pair-frames/:id.jpg');
+    } catch {
+        logError('API Error (GET /api/witness/pair-frames/:id.jpg)');
+        if (!res.headersSent) res.status(500).json({ ok: false });
     }
 });
 
