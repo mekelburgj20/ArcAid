@@ -18,6 +18,7 @@ import WitnessBuildChip from '../components/WitnessBuildChip';
 import WitnessModelLabel from '../components/WitnessModelLabel';
 import WitnessDeviceSupport from '../components/WitnessDeviceSupport';
 import WitnessDeviceHealth from '../components/WitnessDeviceHealth';
+import WitnessCabinetScreens from '../components/WitnessCabinetScreens';
 import WitnessKitDownload from '../components/WitnessKitDownload';
 import ArcaidPage from '../components/parts/ArcaidPage';
 import Panel, { PanelGroup } from '../components/parts/Panel';
@@ -1653,6 +1654,11 @@ export default function AccountSettings() {
                               the cabinet's SENDING TO line only refreshed at check-in. */}
                           {' A change applies to the very next score; no Witness restart needed.'}
                         </p>
+
+                        {/* W132.3 (ADR 0046): which Arcaid screens a cabinet's backglass and DMD show. */}
+                        {d.deviceType !== 'desktop' && (
+                          <WitnessCabinetScreens deviceId={d.atgamesUniqueId} playerToken={playerToken} />
+                        )}
                       </li>
                     ))}
                   </ul>

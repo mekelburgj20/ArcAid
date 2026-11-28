@@ -6,6 +6,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.289.0] - 2026-11-28 - The cabinet-frame page and the Cabinet screens panel
+
+### Added
+- **`/cabinet-frame`, the page the server screenshots to draw a cabinet's pictures** (W132.3, ADR 0046, `docs/cabinet-frames-plan.md`). It reads the frame the renderer injects as `window.__CABINET_FRAME__` and draws one screen (attract, a card, the global board, standings, activity, a live event, or the pair screen with a real QR) at exactly 1920x1080 for the backglass or 1920x1200 for the DMD, in the Witness kit's own look on the carpet, then sets `window.__cabinetFrameReady` once the stylesheets, fonts and every picture have loaded. The DMD's dot window is an empty framed box where the cabinet draws its dots. A game title never ellipsises: it shrinks to fit, then wraps. Opened in a browser with no frame injected it shows a sample of each screen with a small switcher (`?screen=&kind=`). It is its own lazy chunk (about 6 kB gzip); the contract is `lib/cabinetFrameTypes.ts`, identical to the server's.
+- **Cabinet screens, under a paired cabinet on Account Settings.** A switch for each screen (Attract, My rooms' games, Global scoreboard, Standings, Activity, Live event), how many seconds each stays up (6 to 30), and a strip of the pictures as the cabinet will get them, with a skeleton that says "Being drawn" until a picture is ready. It saves to `PUT /api/me/witness-devices/:deviceId/cabinet-screens` and reads the preview from `GET .../cabinet-frames` (built in W132.2). At least one screen has to stay on.
+
+### Changed
+- `cabinet-frame` is a reserved room slug (`RESERVED_ROOM_SLUGS`) and a reserved top-level path for the theme provider, so the page is never read as a room. `playerApi` gains `put`.
+
 ## [2.287.0] - 2026-11-28 - Each Witness play belongs to whoever was playing
 
 ### Added

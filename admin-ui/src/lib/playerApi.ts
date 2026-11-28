@@ -69,6 +69,8 @@ export const playerApi = {
     get: <T>(path: string, opts: PlayerRequestOptions) => playerRequest<T>(path, opts),
     post: <T>(path: string, body: unknown, opts: PlayerRequestOptions) =>
         playerRequest<T>(path, opts, { method: 'POST', body: JSON.stringify(body) }),
+    put: <T>(path: string, body: unknown, opts: PlayerRequestOptions) =>
+        playerRequest<T>(path, opts, { method: 'PUT', body: JSON.stringify(body) }),
     patch: <T>(path: string, body: unknown, opts: PlayerRequestOptions) =>
         playerRequest<T>(path, opts, { method: 'PATCH', body: JSON.stringify(body) }),
     delete: <T>(path: string, opts: PlayerRequestOptions) =>

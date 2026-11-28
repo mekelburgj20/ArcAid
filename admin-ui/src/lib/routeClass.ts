@@ -31,6 +31,7 @@ export function isGlobalPath(pathname: string): boolean {
 const RESERVED_TOP_SEGMENTS = new Set([
   'admin', 'login', 'auth', 'invite', 'privacy', 'terms',
   'friends', 'account', 'my-rooms', 'scoreboard', 'games',
+  'cabinet-frame', // W132.3: the page the server screenshots; never a room's theme fetch
 ]);
 
 /**
