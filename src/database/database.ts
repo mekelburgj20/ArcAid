@@ -3916,6 +3916,11 @@ async function doInitDatabase(): Promise<Database> {
             const { runRecaps } = await import('./migrations/runRecaps.js');
             await runRecaps(db);
         } },
+        // W131.1 (ADR 0045) - players and co-owners on a Witness device; routing per player.
+        { name: '225_witness_device_players', handler: async (db) => {
+            const { witnessDevicePlayers } = await import('./migrations/witnessDevicePlayers.js');
+            await witnessDevicePlayers(db);
+        } },
     ];
 
     for (const migration of migrations) {

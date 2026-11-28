@@ -272,11 +272,16 @@ export class WitnessLogService {
         opts: { shareOnReceipt?: boolean; correlationId?: string } = {},
     ): Promise<{ request: LogRequest; created: boolean }> {
         const db = await getDatabase();
-        const device = await db.get<{ device_type: string | null; app_version: string | null }>(
-            `SELECT device_type, app_version FROM witness_devices
-              WHERE atgames_unique_id = ? AND canonical_user_id = ? AND revoked_at IS NULL`,
-            deviceId, canonicalUserId,
-        );
+        // W131.1 (ADR 0045) - a device's logs hold every player's plays, so its
+        // owners ask for them; so does the account it is paired to, which is
+        // who a request started ON the cabinet runs as.
+        const { WitnessDevicePlayersService } = await import('./WitnessDevicePlayersService.js');
+        const device = await db.get<{ device_type: string | null; app_version: string | null; canonical_user_id: string }>(
+            `SELECT device_type, app_version, canonical_user_id FROM witness_devices
+              WHERE atgames_unique_id = ? AND revoked_at IS NULL`,
+            deviceId,
+        ).then(async d => d && (d.canonical_user_id === canonicalUserId
+            || await WitnessDevicePlayersService.isOwner(deviceId, canonicalUserId, db)) ? d : undefined);
         if (!device) throw new WitnessLogError('NOT_FOUND', 'No such device paired to your account');
         if (!logsSupported(device.device_type, device.app_version)) {
             throw new WitnessLogError('LOGS_UNSUPPORTED', 'This device cannot send its logs (a cabinet running Arcaid Witness 1.1.0 or later, or a PC running Castcade, can)');

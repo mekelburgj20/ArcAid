@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import crypto from 'crypto';
 import express from 'express';
 import request from 'supertest';
-import { setupTestDb, createTestRoom } from './helpers.js';
+import { setupTestDb, createTestRoom, setDeviceRouting } from './helpers.js';
 import { getDatabase } from '../database/database.js';
 import { signToken } from '../api/auth.js';
 import { AttemptService, ATTEMPT_LATE_SEC, ATTEMPT_REFUSAL_TEXT, attemptsLeftLine } from '../services/AttemptService.js';
@@ -433,11 +433,7 @@ describe('witness routes on a limited tournament', () => {
 
         it('a "Global Scoreboard only" device shows no attempts (its plays land on no tournament)', async () => {
             await createLimitedGame(roomId, 2);
-            const db = await getDatabase();
-            await db.run(
-                `UPDATE witness_devices SET target_room_id = NULL, target_tournament_id = NULL, global_only = 1 WHERE atgames_unique_id = ?`,
-                CABINET,
-            );
+            await setDeviceRouting(CABINET, { roomId: null, tournamentId: null, globalOnly: true });
             const res = await request(app).get('/api/witness/heartbeat').query({ device: CABINET, token });
             expect(res.body.sendingTo).not.toMatch(/ATTEMPT/);
         });

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { setupTestDb } from './helpers.js';
+import { setupTestDb, seedDeviceOwner } from './helpers.js';
 import { getDatabase } from '../database/database.js';
 
 /**
@@ -27,6 +27,7 @@ async function seedDevices(user: string, n: number, opts: { revoked?: boolean; p
              VALUES (?, ?, 'x', datetime('now', ?), ${opts.revoked ? `datetime('now')` : 'NULL'}, 'desktop')`,
             `seed-${user}-${opts.revoked ? 'r' : 'a'}-${i}`, user, opts.pairedAt ?? '-30 days',
         );
+        if (!opts.revoked) await seedDeviceOwner(`seed-${user}-a-${i}`, user);
     }
 }
 

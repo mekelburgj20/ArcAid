@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import crypto from 'crypto';
 import express from 'express';
 import request from 'supertest';
-import { setupTestDb, createTestRoom } from './helpers.js';
+import { setupTestDb, createTestRoom, seedDeviceOwner, setDeviceRouting } from './helpers.js';
 import { getDatabase } from '../database/database.js';
 import { EventService } from '../services/EventService.js';
 import { EventLobbyService } from '../services/EventLobbyService.js';
@@ -60,6 +60,7 @@ async function pairDevice(userId: string, deviceId: string, targetRoomId: string
          VALUES (?, ?, 'hash', datetime('now'), ?, ?)`,
         deviceId, userId, targetRoomId, globalOnly ? 1 : 0,
     );
+    await seedDeviceOwner(deviceId, userId, { roomId: targetRoomId, globalOnly });
 }
 
 async function witnessCheckin(userId: string, deviceId: string, at: Date) {
@@ -158,7 +159,7 @@ describe('EventLobbyService.roster — the strict green light', () => {
         await witnessCheckin(USER_A, 'cab-a', checkedIn);
         // B: the event's room, but pinned to a DIFFERENT tournament there -> not_routed.
         await pairDevice(USER_B, 'cab-b', roomId);
-        await db.run(`UPDATE witness_devices SET target_tournament_id = ? WHERE atgames_unique_id = 'cab-b'`, rotationId);
+        await setDeviceRouting('cab-b', { tournamentId: rotationId });
         await witnessCheckin(USER_B, 'cab-b', checkedIn);
         // C: a checked-in device pointed nowhere, and a routed one not checked in
         // -> graded on the routed one only: no_checkin, never ready.
@@ -182,7 +183,7 @@ describe('EventLobbyService.roster — the strict green light', () => {
         expect(byUser[USER_E]).toMatchObject({ status: 'ready' });
 
         // Pinned to THIS event counts.
-        await db.run(`UPDATE witness_devices SET target_tournament_id = ? WHERE atgames_unique_id = 'cab-b'`, eventId);
+        await setDeviceRouting('cab-b', { tournamentId: eventId });
         const again = await EventLobbyService.roster(event, await EventService.getRounds(eventId), now);
         expect(again.find(e => e.userId === USER_B)).toMatchObject({ status: 'ready' });
     });
@@ -205,10 +206,7 @@ describe('EventLobbyService.checkinFromWitness — the tile is the check-in', ()
     async function designate(roomId: string, userId: string, deviceId: string, tournamentId: string | null) {
         const db = await getDatabase();
         await db.run(`INSERT OR IGNORE INTO room_members (user_id, room_id, source) VALUES (?, ?, 'submission')`, userId, roomId);
-        await db.run(
-            `UPDATE witness_devices SET target_room_id = ?, target_tournament_id = ? WHERE atgames_unique_id = ?`,
-            roomId, tournamentId, deviceId,
-        );
+        await setDeviceRouting(deviceId, { roomId, tournamentId });
     }
 
     it('checks the cabinet owner in to a designated event inside the window, once, and reports READY', async () => {

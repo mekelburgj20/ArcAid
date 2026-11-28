@@ -386,6 +386,97 @@ router.patch('/me/witness/devices/:deviceId/updates', requireDiscordUser, async 
 });
 
 // ---------------------------------------------------------------------------
+// W131.1 (ADR 0045, docs/shared-device-plan.md §3) - players and co-owners on
+// one device. Owners manage the device and add players by a single-use invite
+// link; anyone on the device sees who else is; a person may always leave. The
+// role rules live in WitnessDevicePlayersService alone.
+// ---------------------------------------------------------------------------
+
+async function sendPlayerError(res: express.Response, err: unknown, route: string): Promise<void> {
+    const { WitnessPlayerError } = await import('../../services/WitnessDevicePlayersService.js');
+    if (err instanceof WitnessPlayerError) {
+        const status = err.code === 'NOT_FOUND' || err.code === 'INVITE_INVALID' ? 404
+            : err.code === 'NOT_OWNER' || err.code === 'NOT_ALLOWED' ? 403
+            : 409;
+        res.status(status).json({ error: err.message, code: err.code });
+        return;
+    }
+    logError(`API Error (${route}):`, err);
+    res.status(500).json({ error: 'Internal Server Error' });
+}
+
+router.get('/me/witness/devices/:deviceId/players', requireDiscordUser, async (req, res) => {
+    try {
+        const { WitnessDevicePlayersService } = await import('../../services/WitnessDevicePlayersService.js');
+        const players = await WitnessDevicePlayersService.listPlayers(req.user!.discordId!, req.params.deviceId as string);
+        if (!players) return res.status(404).json({ error: 'No such device on your account', code: 'NOT_FOUND' });
+        res.json({ players });
+    } catch (error) {
+        await sendPlayerError(res, error, 'GET /api/me/witness/devices/:deviceId/players');
+    }
+});
+
+router.post('/me/witness/devices/:deviceId/invites', writeLimiter, requireDiscordUser, async (req, res) => {
+    try {
+        const { WitnessDevicePlayersService } = await import('../../services/WitnessDevicePlayersService.js');
+        const { code, expiresAt } = await WitnessDevicePlayersService.createInvite(req.user!.discordId!, req.params.deviceId as string);
+        res.json({ code, expiresAt, path: `/witness-invite/${code}` });
+    } catch (error) {
+        await sendPlayerError(res, error, 'POST /api/me/witness/devices/:deviceId/invites');
+    }
+});
+
+router.delete('/me/witness/devices/:deviceId/players/:userId', writeLimiter, requireDiscordUser, async (req, res) => {
+    try {
+        const { WitnessDevicePlayersService } = await import('../../services/WitnessDevicePlayersService.js');
+        await WitnessDevicePlayersService.removePlayer(
+            req.user!.discordId!, req.params.deviceId as string, req.params.userId as string,
+        );
+        res.json({ success: true });
+    } catch (error) {
+        await sendPlayerError(res, error, 'DELETE /api/me/witness/devices/:deviceId/players/:userId');
+    }
+});
+
+router.patch('/me/witness/devices/:deviceId/players/:userId', writeLimiter, requireDiscordUser, async (req, res) => {
+    try {
+        const role = (req.body ?? {}).role;
+        if (role !== 'owner' && role !== 'player') {
+            return res.status(400).json({ error: 'role must be "owner" or "player"', code: 'INVALID_BODY' });
+        }
+        const { WitnessDevicePlayersService } = await import('../../services/WitnessDevicePlayersService.js');
+        await WitnessDevicePlayersService.setRole(
+            req.user!.discordId!, req.params.deviceId as string, req.params.userId as string, role,
+        );
+        res.json({ success: true });
+    } catch (error) {
+        await sendPlayerError(res, error, 'PATCH /api/me/witness/devices/:deviceId/players/:userId');
+    }
+});
+
+router.get('/me/witness/device-invites/:code', requireDiscordUser, async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    try {
+        const { WitnessDevicePlayersService } = await import('../../services/WitnessDevicePlayersService.js');
+        const invite = await WitnessDevicePlayersService.previewInvite(req.user!.discordId!, req.params.code as string);
+        if (!invite) return res.status(404).json({ error: 'This invite link is not valid any more. Ask for a new one.', code: 'INVITE_INVALID' });
+        res.json({ invite });
+    } catch (error) {
+        await sendPlayerError(res, error, 'GET /api/me/witness/device-invites/:code');
+    }
+});
+
+router.post('/me/witness/device-invites/:code/accept', writeLimiter, requireDiscordUser, async (req, res) => {
+    try {
+        const { WitnessDevicePlayersService } = await import('../../services/WitnessDevicePlayersService.js');
+        const { deviceId } = await WitnessDevicePlayersService.acceptInvite(req.user!.discordId!, req.params.code as string);
+        res.json({ success: true, deviceId });
+    } catch (error) {
+        await sendPlayerError(res, error, 'POST /api/me/witness/device-invites/:code/accept');
+    }
+});
+
+// ---------------------------------------------------------------------------
 // W99 (v2.246.0, ADR 0040) - cabinet log pull, the player's side. The player
 // asks a cabinet for its logs; the request id rides back on the cabinet's next
 // heartbeat and the cabinet answers with one upload (POST /witness/logs below).
