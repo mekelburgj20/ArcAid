@@ -261,7 +261,7 @@ export default function RoomAdminWitness() {
           </NeonCard>
         ) : (
           <ul className="space-y-3" data-testid="witness-admin-devices">
-            {data.devices.map(d => <DeviceCard key={d.deviceId} d={d} timezone={timezone} />)}
+            {data.devices.map(d => <DeviceCard key={`${d.deviceId}|${d.userId}`} d={d} timezone={timezone} />)}
           </ul>
         )
       )}

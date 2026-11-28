@@ -248,7 +248,7 @@ A new type, `witness_play_move` **(new)**: `PREF_TYPE_KEYS`, the prefs interface
 |---|---|
 | W131.1 | Players, co-owners, invites, routing per player, migration of every device to an owner row |
 | W131.2 | Sessions, Playing as (web + device API), `now`, attribution, the player through every device path and the verify join; gated per build. Also, left by W131.1: `witness_devices.default_player`, then lift `PAIRING_ACCOUNT` (the pairing account may leave once plays follow the session); refuse `createInvite` / `acceptInvite` on a build that does not send the clock offset (ruling 5); `WitnessAdminViewService` and `EventLobbyService.roster` list devices by `canonical_user_id` and must list them by player |
-| W131.3 | Admin UI: players, Playing as, Plays on this device. Left by W131.2: `RoomAdminWitness.tsx` keys its device cards by `deviceId`, but `/admin/witness/devices` now returns one row per person on a device; key on `deviceId` + `userId`. The device list ships `playerCount`, `playingAs`, `householdReady`; Add a player shows "update this device first" while `householdReady` is false (the server refuses `DEVICE_NOT_READY`) |
+| W131.3 | Admin UI: players, Playing as, Plays on this device (`WitnessDevicePeople`, `WitnessDevicePlays`, `GET /me/witness/devices/:id/plays`), the invite page `/witness-invite/:code`, the runner's device cards keyed on `deviceId` + `userId`. Done in v2.288.0. Left for W131.7: the Playing as switch on the room page's "Your scores go to" line (§4) |
 | W131.4 | Move requests: request / accept / decline / expire, the landing, notifications, activity |
 | W131.5 | Cabinet release: picker, clock offset, `player` |
 | W131.6 | Castcade: the same fields and picker (castcade ask) |

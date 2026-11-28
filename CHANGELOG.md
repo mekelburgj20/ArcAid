@@ -6,6 +6,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.288.0] - 2026-11-28 - Shared Witness devices: the screens
+
+### Added
+- **Account Settings → Arcaid Witness devices now shows who is on each device and who is playing** (W131.3, ADR 0045, `docs/shared-device-plan.md` §7). Under each device: **People on this device** (owners marked, you marked), where an owner adds a player with a single-use invite link (7 days), removes a player, makes a player an owner and picks who plays when nobody chose, and anyone can leave (an owner steps down first if there are other owners). On a shared device, **Playing as** switches who the device's plays go to, with an "I'm playing" shortcut. Until a device's Witness build reports its clock, Add a player says to update the device first, as the server requires.
+- **Plays on this device** (a shared device only): every game on the device since you joined it, whoever it went to, newest first, grouped by sitting. Each sitting names who the plays went to and what decided it (who chose Playing as, on the cabinet or on arcaid.app, or that nobody had chosen); a play credited by arrival time, because the device did not report its clock, is marked. Everyone on a device sees the same list (ruling 6). Moving a play to the right person is W131.4. Server: `GET /api/me/witness/devices/:deviceId/plays` (`WitnessEvidenceService.playsOnDevice`, which shares its grouping with "Where your plays went"); `GET .../players` also returns `defaultPlayerId`; migration 227 indexes the Witness trail by device.
+- **The invite page `/witness-invite/:code`:** what the device is, who invited you, and that everyone on it sees every play on it, before you join. A signed-out visitor logs in and comes back to the same link.
+
+### Changed
+- On a device where you are a player rather than an owner, Account Settings no longer offers Unpair, the log pull or the update switches (the server already refused them); you leave from People on this device.
+- Room Admin → Witness keys its device cards on the device and the person, since a shared device is listed once per person on it.
+
 ## [2.287.0] - 2026-11-28 - Each Witness play belongs to whoever was playing
 
 ### Added

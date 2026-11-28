@@ -410,7 +410,10 @@ router.get('/me/witness/devices/:deviceId/players', requireDiscordUser, async (r
         const { WitnessDevicePlayersService } = await import('../../services/WitnessDevicePlayersService.js');
         const players = await WitnessDevicePlayersService.listPlayers(req.user!.discordId!, req.params.deviceId as string);
         if (!players) return res.status(404).json({ error: 'No such device on your account', code: 'NOT_FOUND' });
-        res.json({ players });
+        // W131.3 - who plays when nobody chose (an owner may change it).
+        const { WitnessPlaySessionService } = await import('../../services/WitnessPlaySessionService.js');
+        const defaultPlayerId = await WitnessPlaySessionService.defaultPlayer(req.params.deviceId as string);
+        res.json({ players, defaultPlayerId });
     } catch (error) {
         await sendPlayerError(res, error, 'GET /api/me/witness/devices/:deviceId/players');
     }
@@ -507,6 +510,24 @@ router.post('/me/witness/devices/:deviceId/session', writeLimiter, requireDiscor
         res.json({ success: true, playingAs });
     } catch (error) {
         await sendSessionError(res, error, 'POST /api/me/witness/devices/:deviceId/session');
+    }
+});
+
+// W131.3 (docs/shared-device-plan.md §7) - "Plays on this device": every play
+// on the device since the viewer joined it, whoever it went to, by sitting.
+router.get('/me/witness/devices/:deviceId/plays', requireDiscordUser, async (req, res) => {
+    try {
+        const { WitnessEvidenceService } = await import('../../services/WitnessEvidenceService.js');
+        const limit = Number(req.query.limit);
+        const sittings = await WitnessEvidenceService.playsOnDevice(
+            req.user!.discordId!, req.params.deviceId as string,
+            Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 60,
+        );
+        if (!sittings) return res.status(404).json({ error: 'No such device on your account', code: 'NOT_FOUND' });
+        res.json({ sittings });
+    } catch (error) {
+        logError('API Error (GET /api/me/witness/devices/:deviceId/plays):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
     }
 });
 

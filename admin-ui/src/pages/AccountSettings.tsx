@@ -17,6 +17,8 @@ import WitnessRecentPlays from '../components/WitnessRecentPlays';
 import WitnessBuildChip from '../components/WitnessBuildChip';
 import WitnessModelLabel from '../components/WitnessModelLabel';
 import WitnessDeviceSupport from '../components/WitnessDeviceSupport';
+import WitnessDevicePeople from '../components/WitnessDevicePeople';
+import WitnessDevicePlays from '../components/WitnessDevicePlays';
 import WitnessDeviceHealth from '../components/WitnessDeviceHealth';
 import WitnessKitDownload from '../components/WitnessKitDownload';
 import ArcaidPage from '../components/parts/ArcaidPage';
@@ -208,6 +210,12 @@ export default function AccountSettings() {
     updatePending?: boolean;
     lastScoreAt?: string | null;
     lastScoreTable?: string | null;
+    /** W131 (ADR 0045): your place on a shared device; an older server omits them (= owner, alone). */
+    role?: 'owner' | 'player';
+    pairedByYou?: boolean;
+    playerCount?: number;
+    playingAs?: { userId: string; label: string | null; isDefault: boolean; isYou: boolean } | null;
+    householdReady?: boolean;
   }[]>([]);
   // v2.175.0 (W37) — the one-time "devices now send to all your rooms" notice.
   const [w37NoticeHidden, setW37NoticeHidden] = useState<boolean>(() => {
@@ -1546,6 +1554,8 @@ export default function AccountSettings() {
                           <span className="font-mono text-xs text-muted ml-2">{d.atgamesUniqueId.slice(0, 8)}…</span>
                           {d.lastSeenAt && <span className="text-xs text-faint ml-2">last seen {new Date(d.lastSeenAt).toLocaleDateString()}</span>}
                         </span>
+                        {/* W131.3: only an owner unpairs; a player leaves from People on this device. */}
+                        {d.role !== 'player' && (
                         <Button
                           variant="secondary"
                           size="xs"
@@ -1568,13 +1578,22 @@ export default function AccountSettings() {
                         >
                           <Unlink size={12} /> Unpair
                         </Button>
+                        )}
                         </div>
                         <p className="mt-1" title={d.appVersionAt ? `Reported ${new Date(d.appVersionAt.replace(' ', 'T') + 'Z').toLocaleString()}` : undefined}>
                           <WitnessBuildChip version={d.appVersion} />
                           <WitnessModelLabel model={d.deviceModel} modelName={d.deviceModelName} className="ml-2" />
                         </p>
                         <WitnessDeviceHealth device={d} />
-                        <WitnessDeviceSupport device={d} playerToken={playerToken} onChanged={() => void loadWitnessDevices()} />
+                        {/* W131.3 (ADR 0045): who is on the device and who is playing. */}
+                        <WitnessDevicePeople device={d} playerToken={playerToken} onChanged={() => void loadWitnessDevices()} />
+                        {(d.playerCount ?? 1) > 1 && (
+                          <WitnessDevicePlays deviceId={d.atgamesUniqueId} deviceType={d.deviceType} playerToken={playerToken} />
+                        )}
+                        {/* Logs and update switches are the device's, so an owner's (W131.1). */}
+                        {d.role !== 'player' && (
+                          <WitnessDeviceSupport device={d} playerToken={playerToken} onChanged={() => void loadWitnessDevices()} />
+                        )}
 
                         {/* Where this device's scores go. v2.175.0 (W37, ADR 0033):
                             room membership is tournament entry, so "All my rooms" is

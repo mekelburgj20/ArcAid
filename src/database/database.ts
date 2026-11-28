@@ -3926,6 +3926,10 @@ async function doInitDatabase(): Promise<Database> {
             const { witnessPlaySessions } = await import('./migrations/witnessPlaySessions.js');
             await witnessPlaySessions(db);
         } },
+        // W131.3 (ADR 0045) - "Plays on this device" reads the trail by device.
+        { name: '227_witness_evidence_device_index', sql: `
+            CREATE INDEX IF NOT EXISTS idx_witness_evidence_device ON witness_evidence(device_id, created_at);
+        ` },
     ];
 
     for (const migration of migrations) {
