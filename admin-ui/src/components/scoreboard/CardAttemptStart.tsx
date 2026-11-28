@@ -81,29 +81,33 @@ export default function CardAttemptStart({
         </>
       ) : (
         <>
-          {item.requireStart && (
-            <span className="sb-art-text inline-flex items-center gap-1 text-[11px] text-muted" data-testid="card-attempts-started">
-              <CheckCircle2 size={12} aria-hidden="true" className="shrink-0 text-neon-green" />
-              Attempts started
-            </span>
-          )}
+          {/* The action first, its two status lines stacked beside it (left
+              edges aligned), so nothing wraps under the button at card width. */}
           {mayPause && (
-            <>
-              <button
-                type="button"
-                onClick={press(() => ctx.pause(item))}
-                disabled={pending}
-                className="min-h-8 rounded border border-neon-magenta bg-neon-magenta/15 px-2.5 py-1 text-xs font-display uppercase tracking-wider text-neon-magenta transition-colors hover:bg-neon-magenta/20 disabled:opacity-50 cursor-pointer"
-                aria-label={`Pause attempts on ${name} to practice`}
-                data-testid="card-practice-pause"
-              >
-                {pending ? 'Pausing…' : 'Pause to practice'}
-              </button>
+            <button
+              type="button"
+              onClick={press(() => ctx.pause(item))}
+              disabled={pending}
+              className="min-h-8 shrink-0 rounded border border-neon-magenta bg-deep/85 bg-[linear-gradient(color-mix(in_oklab,var(--color-neon-magenta)_15%,transparent),color-mix(in_oklab,var(--color-neon-magenta)_15%,transparent))] px-2.5 py-1 text-xs font-display uppercase tracking-wider text-neon-magenta hover:bg-[linear-gradient(color-mix(in_oklab,var(--color-neon-magenta)_22%,transparent),color-mix(in_oklab,var(--color-neon-magenta)_22%,transparent))] disabled:opacity-50 cursor-pointer"
+              aria-label={`Pause attempts on ${name} to practice`}
+              data-testid="card-practice-pause"
+            >
+              {pending ? 'Pausing…' : 'Pause to practice'}
+            </button>
+          )}
+          <span className="flex min-w-0 flex-col items-start gap-0.5">
+            {item.requireStart && (
+              <span className="sb-art-text inline-flex items-center gap-1 text-xs text-muted" data-testid="card-attempts-started">
+                <CheckCircle2 size={12} aria-hidden="true" className="shrink-0 text-neon-green" />
+                Attempts started
+              </span>
+            )}
+            {mayPause && (
               <span className="sb-art-text text-xs text-muted" data-testid="card-practice-left">
                 {practiceLeftText(item.practice!)}
               </span>
-            </>
-          )}
+            )}
+          </span>
         </>
       )}
     </div>

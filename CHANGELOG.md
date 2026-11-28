@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.286.2] - 2026-11-28 - "Pause to practice" on a dark tile, captions beside it
+
+### Changed
+- **"Pause to practice" sits on a dark tile.** On a scoreboard card the button now has a dark backing under its pink tint, so the table art no longer shows through it.
+- **The card strip is tidier.** The button comes first, with "Attempts started" and the practice line ("Unlimited practice games" / "3 practice games left") stacked beside it, left edges aligned, instead of one caption before the button and one wrapped under it. "Attempts started" is 12 px like the line under it (owner, 2026-11-28).
+
+---
+
 ## [2.286.1] - 2026-11-27 - "Pause to practice" has a pink fill
 
 ### Changed
