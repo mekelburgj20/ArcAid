@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.285.3] - 2026-11-27 - "Pause to practice" is neon pink
+
+### Changed
+- **The "Pause to practice" button is easier to see.** On a scoreboard card it was a grey outline with grey text that disappeared over the table art; it now has a neon pink outline and text, like the blue Start attempts button. The same button on the game page is pink too, so Start attempts is blue, Pause to practice is pink, and the "practice is on" line with Resume attempts stays amber (owner, 2026-11-27).
+
+---
+
 ## [2.285.2] - 2026-11-27 - A tournament's recap is the "Tournament Recap"
 
 ### Changed

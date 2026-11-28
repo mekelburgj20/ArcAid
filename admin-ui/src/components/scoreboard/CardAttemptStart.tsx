@@ -93,7 +93,7 @@ export default function CardAttemptStart({
                 type="button"
                 onClick={press(() => ctx.pause(item))}
                 disabled={pending}
-                className="min-h-8 rounded border border-border px-2.5 py-1 text-xs font-display uppercase tracking-wider text-muted transition-colors hover:border-neon-cyan hover:text-neon-cyan disabled:opacity-50 cursor-pointer"
+                className="min-h-8 rounded border border-neon-magenta px-2.5 py-1 text-xs font-display uppercase tracking-wider text-neon-magenta transition-colors hover:bg-neon-magenta/10 disabled:opacity-50 cursor-pointer"
                 aria-label={`Pause attempts on ${name} to practice`}
                 data-testid="card-practice-pause"
               >
