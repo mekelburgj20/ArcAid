@@ -59,6 +59,8 @@ export type EvidenceRecordInput = {
      * sitting (`signed_record_other_game`); null = none forwarded.
      */
     signature?: { ok: 0 | 1; signedBy: string | null; reason: string | null } | null;
+    /** W131.2 (ADR 0045) - how the play's player was decided on its device, and the session that did. */
+    attribution?: { kind: string; sessionId: number | null } | null;
 };
 
 export type EvidenceRow = {
@@ -247,8 +249,9 @@ export class WitnessEvidenceService {
                 table_name, rom, score, played_at,
                 vps_game, vps_table, table_sha256, table_save_rev, fingerprint, ini, adjustments, build, engine,
                 score_plausibility, ball_points, quit, quit_ball,
-                signature_ok, signed_by, signature_reason
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                signature_ok, signed_by, signature_reason,
+                attribution, play_session_id
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             input.deviceId, input.canonicalUserId, input.outcome,
             input.gameId ?? null, input.tournamentId ?? null, input.gameRoomId ?? null,
             input.scoreHistoryId ?? null, input.globalScoreId ?? null,
@@ -270,6 +273,7 @@ export class WitnessEvidenceService {
             input.signature ? input.signature.ok : null,
             input.signature?.signedBy ?? null,
             input.signature?.ok === 0 && input.signature.reason ? input.signature.reason.slice(0, 500) : null,
+            input.attribution?.kind ?? null, input.attribution?.sessionId ?? null,
         );
         return typeof res.lastID === 'number' ? res.lastID : null;
     }

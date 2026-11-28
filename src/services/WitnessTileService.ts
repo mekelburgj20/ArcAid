@@ -248,7 +248,7 @@ export class WitnessTileService {
             const { WitnessService } = await import('./WitnessService.js');
             const { VpxScoreIngestService } = await import('./VpxScoreIngestService.js');
             const { AttemptService } = await import('./AttemptService.js');
-            const target = await WitnessService.getDeviceTarget(device.deviceId);
+            const target = await WitnessService.getDeviceTarget(device.deviceId, device.canonicalUserId);
             const games = await VpxScoreIngestService.openGamesForDevice({
                 canonicalUserId: device.canonicalUserId, target, deviceType: device.deviceType, nowTs: nowSec,
             });

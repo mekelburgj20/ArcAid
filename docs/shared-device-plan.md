@@ -92,15 +92,17 @@ clock offset and the server converts.
 
 ### The device's clock offset
 
-- The heartbeat response (and the check-in, tile and pair responses) carries `server_now` **(new)**.
-- The device computes `offset = server_now − (t_send + t_recv) / 2` and stores it with the MONOTONIC
+- The heartbeat response (and the check-in, tile and pair responses) carries `now`, the server's unix
+  seconds (built W131.2; the tile already had it).
+- The device computes `offset = now − (t_send + t_recv) / 2` and stores it with the MONOTONIC
   clock at that moment.
 - It watches `wall − monotonic`; a change of more than a few seconds is a wall-clock jump (the clock
   synced) and starts a new **segment**. A segment lives inside one boot (the cabinet tracks its boot id
   since 1.0.9).
-- Every score, attempt and observation report carries `clock_offset` and `clock_segment` **(new)** for
-  the segment its device timestamp falls in. An offset measured AFTER the game is valid for it when no
-  jump came between (a cabinet that boots offline, plays, then syncs).
+- Every score, attempt and observation report carries `clock_offset` for the segment its device
+  timestamp falls in (the segment is the device's own bookkeeping; the server never needs it, built
+  W131.2). An offset measured AFTER the game is valid for it when no jump came between (a cabinet that
+  boots offline, plays, then syncs).
 - The device never rewrites a timestamp: the launcher's record is signed (W72), and the stored raw value
   is the evidence.
 - **A second source:** the LU launcher already logs its own offset against a server ("clock is 39h55m
@@ -129,11 +131,11 @@ Each of these reads `device.canonical_user_id` today and must read the play's pl
 
 - `WitnessService.recordVpxScore`, `recordAttempt`, `recordObservation`, the check-in
   (`witness_checkins.canonical_user_id`) — resolved once per report, passed down.
-- **Verify join:** `WitnessVerifyService` matches observations and check-ins on `canonical_user_id`
-  (lines 223, 240, 314, 358 on 2026-11-27). Observations must store the play's player, or the ✓ is lost.
-  A device check-in proves the cabinet was idle, true for every player on it: it counts for each player
-  whose session it falls in, or every player on the device (contract decides; the honest reading is
-  every player).
+- **Verify join (decided in W131.2):** observations and check-ins store the play's player, and
+  `WitnessVerifyService` ALSO matches them by any device the score's identity is or was on. A session
+  and a check-in are facts about the cabinet, so they count for every player on it. This keeps the ✓ on
+  an AtGames-native score (credited to the family's AtGames account, not the session) and means a moved
+  play needs no observation move (section 6 step 4 falls away).
 - `AttemptService.startsFor` and the attempt rows; Practice pauses are already per player.
 - `ActivityLogService.recordForDevice` / `roomsForDevice` — rooms of the play's player.
 - `WitnessEvidenceService.recentPlaysForUser` — unchanged per player; the device list is new (section 7).
@@ -173,8 +175,8 @@ ruling:
    `VpxScoreIngestService.match` → `writeBoardRow`, with the receiver's routing, entry, roster and
    attempt checks, as if the receiver's device had reported it. Where nothing takes it: the receiver's
    Global row (respecting `share_to_global`), else the plays list says why (`missReason`).
-4. Move the play's `witness_observations` row (and the check-in credit) to the receiver, so the ✓
-   follows.
+4. Nothing to move for the ✓: since W131.2 the verify join credits a device's observations and
+   check-ins to everyone on it.
 5. One transaction where the store allows; a failure marks the request `failed` and leaves the play
    with the giver.
 
@@ -210,14 +212,25 @@ A new type, `witness_play_move` **(new)**: `PREF_TYPE_KEYS`, the prefs interface
 
 ## 8. The devices
 
-- **Cabinet (arcaid-witness):** the player picker on the tile; `server_now` / offset / segments; send
-  `player`, `clock_offset`, `clock_segment` on every report; show "Playing as". A signed release (ADR
-  0040).
-- **Castcade:** the same three fields and a "Playing as" picker in the companion. Its game-start
-  attempt call is live, so it rarely needs the offset. The ask goes in castcade
-  `docs/arcaid-side-changes.md`.
-- **Ruling 5:** the server turns the feature on per device from `witness_devices.app_version` (the first
-  builds that send the offset). Until then Add a player says "update this device first".
+- **The wire contract (server side built W131.2, v2.287.0).** All additive and optional:
+  - `now` (server unix seconds) on `/witness/pair`, `/witness/heartbeat`, `/witness/checkin`,
+    `/witness/tile`, `/witness/players`, `/witness/play-as`.
+  - `playingAs` (a cabinet-safe label) and `playerSlot` (8 hex) on heartbeat, check-in, tile, players
+    and play-as, ONLY while more than one person is on the device: who the SERVER says is playing. A
+    device adopts `playerSlot` as the player it holds; with neither field it is not shared.
+  - Send `clock_offset=<seconds>` (device time + offset = server time) on every call, and
+    `player=<slot>` on `/witness/report`, `/witness/score`, `/witness/attempt`, `/witness/attempt-start`
+    (the slot held at the game's START). Malformed values are ignored, never a 400.
+  - `GET /witness/players` → `playerCount`, `player<N>Slot`, `player<N>Name`, `player<N>Playing`
+    (`"1"` / `"0"`); `GET /witness/play-as?slot=<slot>` switches (400 `NO_SUCH_PLAYER`).
+- **Cabinet (arcaid-witness):** the player picker on the tile (`/witness/players`, `/witness/play-as`);
+  the offset with monotonic segments; `player` and `clock_offset` as above; show "Playing as". A signed
+  release (ADR 0040).
+- **Castcade:** the same fields and a "Playing as" picker in the companion. Its game-start attempt call
+  is live, so it rarely needs the offset. The ask goes in castcade `docs/arcaid-side-changes.md`.
+- **Ruling 5 (built W131.2):** a device takes a second player once any of its calls has carried a valid
+  `clock_offset` (`witness_devices.clock_offset_at`), whatever its version. Until then Add a player is
+  refused `DEVICE_NOT_READY`.
 
 ## 9. Not in this design
 
@@ -234,8 +247,8 @@ A new type, `witness_play_move` **(new)**: `PREF_TYPE_KEYS`, the prefs interface
 | Item | What |
 |---|---|
 | W131.1 | Players, co-owners, invites, routing per player, migration of every device to an owner row |
-| W131.2 | Sessions, Playing as (web + device API), `server_now`, attribution, the player through every device path and the verify join; gated per build. Also, left by W131.1: `witness_devices.default_player`, then lift `PAIRING_ACCOUNT` (the pairing account may leave once plays follow the session); refuse `createInvite` / `acceptInvite` on a build that does not send the clock offset (ruling 5); `WitnessAdminViewService` and `EventLobbyService.roster` list devices by `canonical_user_id` and must list them by player |
-| W131.3 | Admin UI: players, Playing as, Plays on this device |
+| W131.2 | Sessions, Playing as (web + device API), `now`, attribution, the player through every device path and the verify join; gated per build. Also, left by W131.1: `witness_devices.default_player`, then lift `PAIRING_ACCOUNT` (the pairing account may leave once plays follow the session); refuse `createInvite` / `acceptInvite` on a build that does not send the clock offset (ruling 5); `WitnessAdminViewService` and `EventLobbyService.roster` list devices by `canonical_user_id` and must list them by player |
+| W131.3 | Admin UI: players, Playing as, Plays on this device. Left by W131.2: `RoomAdminWitness.tsx` keys its device cards by `deviceId`, but `/admin/witness/devices` now returns one row per person on a device; key on `deviceId` + `userId`. The device list ships `playerCount`, `playingAs`, `householdReady`; Add a player shows "update this device first" while `householdReady` is false (the server refuses `DEVICE_NOT_READY`) |
 | W131.4 | Move requests: request / accept / decline / expire, the landing, notifications, activity |
 | W131.5 | Cabinet release: picker, clock offset, `player` |
 | W131.6 | Castcade: the same fields and picker (castcade ask) |

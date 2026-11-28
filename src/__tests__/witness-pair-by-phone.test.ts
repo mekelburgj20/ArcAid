@@ -374,7 +374,7 @@ describe('typed-code pairing is unchanged', () => {
         expect(codeRes.status).toBe(200);
         const res = await request(app).get('/api/witness/pair').query({ code: codeRes.body.code, device: CABINET, model: 'HA9920' });
         expect(res.status).toBe(200);
-        expect(Object.keys(res.body).sort()).toEqual(['ok', 'token']);
+        expect(Object.keys(res.body).sort()).toEqual(['now', 'ok', 'token']);
         expect(await WitnessService.verifyDevice(CABINET, res.body.token)).toBeTruthy();
 
         const reuse = await request(app).get('/api/witness/pair').query({ code: codeRes.body.code, device: CABINET });

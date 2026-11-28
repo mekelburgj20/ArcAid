@@ -98,21 +98,24 @@ export class WitnessAdminViewService {
             app_version: string | null; app_version_at: string | null;
             device_model: string | null; device_model_name: string | null;
         }>>(
-            `SELECT d.atgames_unique_id, d.canonical_user_id, d.device_type, d.last_seen_at, d.heartbeat_at, d.app_version, d.app_version_at, d.device_model, d.device_model_name,
-                    EXISTS (SELECT 1 FROM room_members rm WHERE rm.room_id = ? AND rm.user_id = d.canonical_user_id) AS member
-               FROM witness_devices d
-              WHERE d.revoked_at IS NULL
+            // W131.2 (ADR 0045): one row per PERSON on a device (a shared
+            // cabinet shows once for each of its players in this room).
+            `SELECT d.atgames_unique_id, p.canonical_user_id, d.device_type, d.last_seen_at, d.heartbeat_at, d.app_version, d.app_version_at, d.device_model, d.device_model_name,
+                    EXISTS (SELECT 1 FROM room_members rm WHERE rm.room_id = ? AND rm.user_id = p.canonical_user_id) AS member
+               FROM witness_device_players p
+               JOIN witness_devices d ON d.atgames_unique_id = p.device_id AND d.revoked_at IS NULL
+              WHERE p.removed_at IS NULL
                 AND (
-                    EXISTS (SELECT 1 FROM room_members rm WHERE rm.room_id = ? AND rm.user_id = d.canonical_user_id)
+                    EXISTS (SELECT 1 FROM room_members rm WHERE rm.room_id = ? AND rm.user_id = p.canonical_user_id)
                  OR EXISTS (SELECT 1 FROM tournaments t
                              WHERE t.game_room_id = ? AND t.is_active = 1 AND t.event_finished_at IS NULL
-                               AND (EXISTS (SELECT 1 FROM tournament_participants tp WHERE tp.tournament_id = t.id AND tp.user_id = d.canonical_user_id)
-                                 OR EXISTS (SELECT 1 FROM tournament_roster tr WHERE tr.tournament_id = t.id AND tr.user_id = d.canonical_user_id)))
+                               AND (EXISTS (SELECT 1 FROM tournament_participants tp WHERE tp.tournament_id = t.id AND tp.user_id = p.canonical_user_id)
+                                 OR EXISTS (SELECT 1 FROM tournament_roster tr WHERE tr.tournament_id = t.id AND tr.user_id = p.canonical_user_id)))
                 )`,
             roomId, roomId, roomId,
         );
 
-        const deviceIds = rows.map(r => r.atgames_unique_id);
+        const deviceIds = [...new Set(rows.map(r => r.atgames_unique_id))];
         const userIds = [...new Set(rows.map(r => r.canonical_user_id))];
         const { checkinByDevice, openByDevice } = await EventLobbyService.loadDeviceState(deviceIds, {
             checkinFloorEpoch: 0, nowEpoch,
@@ -121,9 +124,10 @@ export class WitnessAdminViewService {
 
         // The player's own routing words, once per player (the rule runs on each
         // device's EFFECTIVE target inside routingForRoom).
+        // Keyed per (device, player): a shared device routes each player apart.
         const routingByDevice = new Map<string, NonNullable<AdminViewDevice['routing']>>();
         for (const userId of userIds) {
-            for (const r of await WitnessService.routingForRoom(userId, roomId)) routingByDevice.set(r.deviceId, r);
+            for (const r of await WitnessService.routingForRoom(userId, roomId)) routingByDevice.set(`${r.deviceId}|${userId}`, r);
         }
 
         // W81 — this room's tournaments: the attempts line on this page names
@@ -157,8 +161,8 @@ export class WitnessAdminViewService {
                 lastCheckinAt: iso(checkinByDevice.get(r.atgames_unique_id) ?? null),
                 openTable: session?.table_name ?? null,
                 openSince: iso(session?.launch_ts ?? null),
-                routing: routingByDevice.get(r.atgames_unique_id) ?? null,
-                target: await WitnessService.describeTarget(r.atgames_unique_id),
+                routing: routingByDevice.get(`${r.atgames_unique_id}|${r.canonical_user_id}`) ?? null,
+                target: await WitnessService.describeTarget(r.atgames_unique_id, r.canonical_user_id),
                 attemptsLeft: roomTournamentIds.size === 0 ? [] : (await AttemptService.deviceAttemptsLeft({
                     deviceId: r.atgames_unique_id, canonicalUserId: r.canonical_user_id, nowTs: nowEpoch, deviceType,
                 }))
