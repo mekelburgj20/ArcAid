@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.286.1] - 2026-11-27 - "Pause to practice" has a pink fill
+
+### Changed
+- **"Pause to practice" is filled, not just outlined.** The pink outline alone was still hard to pick out over a card's table art, so the button now has a see-through pink fill (15%, a little stronger on hover) on the scoreboard card and the game page (owner, 2026-11-27).
+
+---
+
 ## [2.286.0] - 2026-11-27 - A Witness device can have several players (groundwork)
 
 ### Added

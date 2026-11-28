@@ -1411,7 +1411,7 @@ export default function GameDetail() {
                             type="button"
                             onClick={() => handlePractice('pause')}
                             disabled={changingPractice}
-                            className="px-3 py-1.5 rounded border border-neon-magenta text-neon-magenta text-xs font-display uppercase tracking-wider hover:bg-neon-magenta/10 disabled:opacity-50"
+                            className="px-3 py-1.5 rounded border border-neon-magenta bg-neon-magenta/15 text-neon-magenta text-xs font-display uppercase tracking-wider hover:bg-neon-magenta/20 disabled:opacity-50"
                             data-testid="pause-attempts"
                           >
                             {changingPractice ? 'Pausing…' : 'Pause to practice'}
